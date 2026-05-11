@@ -343,20 +343,22 @@ fn collect_owlyshield_report_files(dir: &std::path::Path) -> Vec<std::path::Path
     report_files
 }
 
-
-
 #[tauri::command]
 async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
     let dir = {
         #[cfg(target_os = "windows")]
-        { get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules")) }
+        {
+            get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules"))
+        }
         #[cfg(not(target_os = "windows"))]
-        { std::path::PathBuf::from("rules") }
+        {
+            std::path::PathBuf::from("rules")
+        }
     };
 
-    let selected_path = resolve_rules_file_from_registry_dir(&dir)
-        .map(|path| path.to_string_lossy().to_string());
-    
+    let selected_path =
+        resolve_rules_file_from_registry_dir(&dir).map(|path| path.to_string_lossy().to_string());
+
     let files = if dir.is_dir() {
         list_owlyshield_rule_files(&dir)
             .into_iter()
@@ -390,7 +392,13 @@ async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
 
     OwlyshieldRulesDirectoryView {
         directory: dir.to_string_lossy().to_string(),
-        selected_path: selected_path.or_else(|| Some(dir.join("owlyshield_rules.yaml").to_string_lossy().to_string())),
+        selected_path: selected_path.or_else(|| {
+            Some(
+                dir.join("owlyshield_rules.yaml")
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        }),
         files,
     }
 }
@@ -399,16 +407,20 @@ async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
 async fn list_owlyshield_report_files() -> OwlyshieldReportsDirectoryView {
     let dir = {
         #[cfg(target_os = "windows")]
-        { get_owlyshield_reports_dir().unwrap_or_else(|| std::path::PathBuf::from("reports")) }
+        {
+            get_owlyshield_reports_dir().unwrap_or_else(|| std::path::PathBuf::from("reports"))
+        }
         #[cfg(not(target_os = "windows"))]
-        { std::path::PathBuf::from("reports") }
+        {
+            std::path::PathBuf::from("reports")
+        }
     };
 
     let selected_path = collect_owlyshield_report_files(&dir)
         .into_iter()
         .next()
         .map(|path| path.to_string_lossy().to_string());
-    
+
     let files = if dir.is_dir() {
         collect_owlyshield_report_files(&dir)
             .into_iter()
@@ -456,9 +468,13 @@ async fn get_owlyshield_rules_raw(path: Option<String>) -> String {
 
     let dir = {
         #[cfg(target_os = "windows")]
-        { get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules")) }
+        {
+            get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules"))
+        }
         #[cfg(not(target_os = "windows"))]
-        { std::path::PathBuf::from("rules") }
+        {
+            std::path::PathBuf::from("rules")
+        }
     };
 
     if let Some(path) = resolve_rules_file_from_registry_dir(&dir) {
@@ -481,9 +497,13 @@ async fn get_owlyshield_report_raw(path: Option<String>) -> String {
 
     let dir = {
         #[cfg(target_os = "windows")]
-        { get_owlyshield_reports_dir().unwrap_or_else(|| std::path::PathBuf::from("reports")) }
+        {
+            get_owlyshield_reports_dir().unwrap_or_else(|| std::path::PathBuf::from("reports"))
+        }
         #[cfg(not(target_os = "windows"))]
-        { std::path::PathBuf::from("reports") }
+        {
+            std::path::PathBuf::from("reports")
+        }
     };
 
     if let Some(path) = collect_owlyshield_report_files(&dir).into_iter().next() {
@@ -565,9 +585,13 @@ async fn save_owlyshield_rules_raw(content: String, path: Option<String>) -> Res
 
     let dir = {
         #[cfg(target_os = "windows")]
-        { get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules")) }
+        {
+            get_owlyshield_rules_dir().unwrap_or_else(|| std::path::PathBuf::from("rules"))
+        }
         #[cfg(not(target_os = "windows"))]
-        { std::path::PathBuf::from("rules") }
+        {
+            std::path::PathBuf::from("rules")
+        }
     };
 
     let _ = std::fs::create_dir_all(&dir);

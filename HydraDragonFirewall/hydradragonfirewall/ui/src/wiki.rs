@@ -4,289 +4,292 @@ use leptos::*;
 pub fn RulesWiki() -> impl IntoView {
     const SDK_VERSION: &str = "v0.1.0";
     const PRIMITIVES_COUNT: usize = 11;
-    let topbar_meta = format!("SDK {} · YAML · {} primitives", SDK_VERSION, PRIMITIVES_COUNT);
+    let topbar_meta = format!(
+        "SDK {} · YAML · {} primitives",
+        SDK_VERSION, PRIMITIVES_COUNT
+    );
 
     view! {
-        <div class="wiki-root">
+            <div class="wiki-root">
 
-            // ── Top Bar ──────────────────────────────────────────────
-            <div class="wiki-topbar">
-                <div class="wiki-topbar-left">
-                    <div class="wiki-logo-mark">"📖"</div>
-                    <div class="wiki-topbar-info">
-                        <span class="wiki-topbar-title">"Rules Reference"</span>
-                        <span class="wiki-topbar-meta">{topbar_meta}</span>
+                // ── Top Bar ──────────────────────────────────────────────
+                <div class="wiki-topbar">
+                    <div class="wiki-topbar-left">
+                        <div class="wiki-logo-mark">"📖"</div>
+                        <div class="wiki-topbar-info">
+                            <span class="wiki-topbar-title">"Rules Reference"</span>
+                            <span class="wiki-topbar-meta">{topbar_meta}</span>
+                        </div>
+                    </div>
+                    <div class="wiki-topbar-pills">
+                        <span class="wiki-pill wiki-pill-cyan">"YAML"</span>
+                        <span class="wiki-pill wiki-pill-acid">"LIVE"</span>
                     </div>
                 </div>
-                <div class="wiki-topbar-pills">
-                    <span class="wiki-pill wiki-pill-cyan">"YAML"</span>
-                    <span class="wiki-pill wiki-pill-acid">"LIVE"</span>
-                </div>
-            </div>
 
-            // ── Body ────────────────────────────────────────────────
-            <div class="wiki-body">
+                // ── Body ────────────────────────────────────────────────
+                <div class="wiki-body">
 
-                // Left index column
-                <div class="wiki-index">
-                    <div class="wiki-index-item"><span class="wiki-num">"01"</span><span>"Structure"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"02"</span><span>"Protocol"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"03"</span><span>"Actions"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"04"</span><span>"IP Conditions"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"05"</span><span>"Ports"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"06"</span><span>"Domain / URL"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"07"</span><span>"Payload"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"08"</span><span>"Regex"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"09"</span><span>"File Types"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"10"</span><span>"Scope"</span></div>
-                    <div class="wiki-index-item"><span class="wiki-num">"11"</span><span>"Routines"</span></div>
-                    <div class="wiki-index-divider"/>
-                    <div class="wiki-index-item wiki-index-fire"><span class="wiki-num wiki-num-fire">"🔥"</span><span>"C2 Example"</span></div>
-                </div>
-
-                // Right entries column
-                <div class="wiki-entries">
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"01"</span>
-                            <span class="wiki-tag">"STRUCTURE"</span>
-                            <h4 class="wiki-title">"Structure & Metadata"</h4>
-                        </div>
-                        <p class="wiki-desc">"Every rule needs a unique name, description, and enabled flag. The engine validates strict YAML on load."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"- name: 'My Unique Rule Name'"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 2"</span><span class="yl-txt">"  description: 'What this rule detects'"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"  enabled: true"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 4"</span><span class="yl-txt">"  # false = disabled, not deleted"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 5"</span><span class="yl-txt">"  condition_logic: and"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 6"</span><span class="yl-txt">"  # 'and' (all must match) | 'or' (any match)"</span></div>
-                        </pre></div>
+                    // Left index column
+                    <div class="wiki-index">
+                        <div class="wiki-index-item"><span class="wiki-num">"01"</span><span>"Structure"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"02"</span><span>"Protocol"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"03"</span><span>"Actions"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"04"</span><span>"IP Conditions"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"05"</span><span>"Ports"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"06"</span><span>"Domain / URL"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"07"</span><span>"Payload"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"08"</span><span>"Regex"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"09"</span><span>"File Types"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"10"</span><span>"Scope"</span></div>
+                        <div class="wiki-index-item"><span class="wiki-num">"11"</span><span>"Routines"</span></div>
+                        <div class="wiki-index-divider"/>
+                        <div class="wiki-index-item wiki-index-fire"><span class="wiki-num wiki-num-fire">"🔥"</span><span>"C2 Example"</span></div>
                     </div>
 
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"02"</span>
-                            <span class="wiki-tag">"PROTOCOL"</span>
-                            <h4 class="wiki-title">"Protocol Matching"</h4>
-                        </div>
-                        <p class="wiki-desc">"Target a specific network protocol. Omit or use 'any' to match all traffic."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"protocol: http"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 2"</span><span class="yl-txt">"# http · https · tcp · udp · icmp · arp · any"</span></div>
-                        </pre></div>
-                    </div>
+                    // Right entries column
+                    <div class="wiki-entries">
 
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"03"</span>
-                            <span class="wiki-tag">"ACTIONS"</span>
-                            <h4 class="wiki-title">"Actions"</h4>
-                        </div>
-                        <p class="wiki-desc">"Defines what happens when a rule fires. Only one action is allowed per rule."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"action: block"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 2"</span><span class="yl-txt">"# Drop packet silently"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 3"</span><span class="yl-txt">"action: allow"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 4"</span><span class="yl-txt">"# Whitelist — bypass all further checks"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 5"</span><span class="yl-txt">"action: ask"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 6"</span><span class="yl-txt">"# Prompt user with popup decision"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 7"</span><span class="yl-txt">"action: traffic_attack"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 8"</span><span class="yl-txt">"# Mark as HIGH SEVERITY threat"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 9"</span><span class="yl-txt">"action: change_packet"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">"10"</span><span class="yl-txt">"# Rewrite payload content (advanced)"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">"11"</span><span class="yl-txt">"action: solve_packet"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">"12"</span><span class="yl-txt">"# Auto-repair malformed packets"</span></div>
-                        </pre></div>
-                    </div>
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"04"</span>
-                            <span class="wiki-tag">"IP"</span>
-                            <h4 class="wiki-title">"IP Address Conditions"</h4>
-                        </div>
-                        <p class="wiki-desc">"Match source or destination addresses using exact IPs or CIDR notation."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - src_ip:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      addresses:   ['192.168.1.55', '10.0.0.1']"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 4"</span><span class="yl-txt">"      cidr_ranges: ['172.16.0.0/12', '10.0.0.0/8']"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 5"</span><span class="yl-txt">"  - dst_ip:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 6"</span><span class="yl-txt">"      addresses: ['8.8.8.8']"</span></div>
-                        </pre></div>
-                    </div>
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"05"</span>
-                            <span class="wiki-tag">"PORTS"</span>
-                            <h4 class="wiki-title">"Port Matching"</h4>
-                        </div>
-                        <p class="wiki-desc">"Filter by specific ports or inclusive port ranges."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - dst_port:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      ports:  [80, 443, 8080, 8443]"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 4"</span><span class="yl-txt">"      ranges: [(1000, 2000), (30000, 65535)]"</span></div>
-                        </pre></div>
-                    </div>
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"06"</span>
-                            <span class="wiki-tag">"WEB"</span>
-                            <h4 class="wiki-title">"Domain & URL Filtering"</h4>
-                        </div>
-                        <p class="wiki-desc">"Wildcard matching for web traffic. All comparisons are case-insensitive."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - domain:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      domains: ['*.google.com', 'tracking.*']"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 4"</span><span class="yl-txt">"  - url:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 5"</span><span class="yl-txt">"      patterns: ['*/login.php', '*?query=malicious*']"</span></div>
-                        </pre></div>
-                    </div>
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"07"</span>
-                            <span class="wiki-tag">"PAYLOAD"</span>
-                            <h4 class="wiki-title">"Content Inspection & Encoding"</h4>
-                        </div>
-                        <p class="wiki-desc">"Deep payload scanning with multi-layer encoding support to surface obfuscated threats."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-comment"><span class="yl-ln">" 1"</span><span class="yl-txt">"# Declare the encoding layer first"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 2"</span><span class="yl-txt">"encoding: base64"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 3"</span><span class="yl-txt">"# plain · base64 · base58 · hex · reverse"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 4"</span><span class="yl-txt">"conditions:"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 5"</span><span class="yl-txt">"  # Searched AFTER the payload is decoded"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 6"</span><span class="yl-txt">"  - content_match: 'powershell.exe -nop -w hidden'"</span></div>
-                        </pre></div>
-                    </div>
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"08"</span>
-                            <span class="wiki-tag">"REGEX"</span>
-                            <h4 class="wiki-title">"Regex Matching"</h4>
-                        </div>
-                        <p class="wiki-desc">"Rust-compatible regular expressions for complex pattern detection."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - regex:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      pattern:          '^POST.*\\/admin\\/.*'"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 4"</span><span class="yl-txt">"      case_insensitive: true"</span></div>
-                        </pre></div>
-                    </div>
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"09"</span>
-                            <span class="wiki-tag">"FILES"</span>
-                            <h4 class="wiki-title">"File Type Detection"</h4>
-                        </div>
-                        <p class="wiki-desc">"Identify files by magic bytes inside the stream — independent of extension."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - file_type:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      file_types: ['exe', 'pdf', 'zip', 'png', 'docx']"</span></div>
-                        </pre></div>
-                    </div>
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"10"</span>
-                            <span class="wiki-tag">"SCOPE"</span>
-                            <h4 class="wiki-title">"Localhost & Network Scope"</h4>
-                        </div>
-                        <p class="wiki-desc">"Narrow rules to specific RFC-1918 segments or loopback traffic."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"localhost_type: private_c"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 2"</span><span class="yl-txt">"# loopback  → 127.x.x.x"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 3"</span><span class="yl-txt">"# private_a → 10.x.x.x"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 4"</span><span class="yl-txt">"# private_b → 172.16.0.0/12"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 5"</span><span class="yl-txt">"# private_c → 192.168.x.x"</span></div>
-<div class="yl-line yl-comment"><span class="yl-ln">" 6"</span><span class="yl-txt">"# any       → all of the above"</span></div>
-                        </pre></div>
-                    </div>
-
-                    <div class="wiki-entry">
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num">"11"</span>
-                            <span class="wiki-tag">"ROUTINES"</span>
-                            <h4 class="wiki-title">"Advanced Traffic Routines"</h4>
-                        </div>
-                        <p class="wiki-desc">"Define directional flow matching: Source → Destination."</p>
-                        <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
-                        <pre class="wiki-code">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"routine:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 2"</span><span class="yl-txt">"  from_ip: '192.168.1.100'"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"  to_ip:   'any'"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 4"</span><span class="yl-txt">"  to_port: 80"</span></div>
-                        </pre></div>
-                    </div>
-
-                    // ── Section break ─────────────────────────────────
-                    <div class="wiki-break">
-                        <div class="wiki-break-line"/>
-                        <span class="wiki-break-label">"COMPLEX EXAMPLE"</span>
-                        <div class="wiki-break-line"/>
-                    </div>
-
-                    // ── C2 Danger Entry ───────────────────────────────
-                    <div class="wiki-entry wiki-entry-danger">
-                        <div class="wiki-danger-ribbon"><span>"HIGH SEVERITY"</span></div>
-                        <div class="wiki-entry-header">
-                            <span class="wiki-num wiki-num-fire">"🔥"</span>
-                            <span class="wiki-tag wiki-tag-red">"THREAT INTEL"</span>
-                            <h4 class="wiki-title wiki-title-red">"APT28 · C2 Beacon Detection"</h4>
-                        </div>
-                        <p class="wiki-desc">
-                            "Detects Base64-encoded beacons phoning home to suspicious TLDs — "
-                            "a hallmark of APT infrastructure. Combines domain, payload, and port "
-                            "conditions with " <code class="wiki-icode">"condition_logic: and"</code>
-                            " for precision detection."
-                        </p>
-                        <div class="wiki-code-wrap wiki-code-danger-wrap">
-                            <div class="wiki-code-bar wiki-code-bar-danger">
-                                <span class="wiki-code-lang">"YAML"</span>
-                                <span class="wiki-danger-pulse">"⚠ LIVE RULE"</span>
-                                <div class="wiki-dots"><span/><span/><span/></div>
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"01"</span>
+                                <span class="wiki-tag">"STRUCTURE"</span>
+                                <h4 class="wiki-title">"Structure & Metadata"</h4>
                             </div>
-                            <pre class="wiki-code wiki-code-dark">
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"- name: 'APT28 C2 Beacon Detection'"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 2"</span><span class="yl-txt">"  description: 'Detects Base64 encoded beacons to suspicious TLDs'"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"  enabled: true"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 4"</span><span class="yl-txt">"  protocol: https"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 5"</span><span class="yl-txt">"  action: traffic_attack"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 6"</span><span class="yl-txt">"  condition_logic: and"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 7"</span><span class="yl-txt">"  encoding: base64"</span></div>
-<div class="yl-line yl-toplevel"><span class="yl-ln">" 8"</span><span class="yl-txt">"  conditions:"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">" 9"</span><span class="yl-txt">"    - domain:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">"10"</span><span class="yl-txt">"        domains: ['*.xyz', '*.top', '*.ru']"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">"11"</span><span class="yl-txt">"    - content_match: 'cmd=whoami'"</span></div>
-<div class="yl-line yl-key"><span class="yl-ln">"12"</span><span class="yl-txt">"    - dst_port:"</span></div>
-<div class="yl-line yl-value"><span class="yl-ln">"13"</span><span class="yl-txt">"        ports: [443, 8443, 4443]"</span></div>
-                            </pre>
+                            <p class="wiki-desc">"Every rule needs a unique name, description, and enabled flag. The engine validates strict YAML on load."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"- name: 'My Unique Rule Name'"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 2"</span><span class="yl-txt">"  description: 'What this rule detects'"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"  enabled: true"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 4"</span><span class="yl-txt">"  # false = disabled, not deleted"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 5"</span><span class="yl-txt">"  condition_logic: and"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 6"</span><span class="yl-txt">"  # 'and' (all must match) | 'or' (any match)"</span></div>
+                            </pre></div>
                         </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"02"</span>
+                                <span class="wiki-tag">"PROTOCOL"</span>
+                                <h4 class="wiki-title">"Protocol Matching"</h4>
+                            </div>
+                            <p class="wiki-desc">"Target a specific network protocol. Omit or use 'any' to match all traffic."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"protocol: http"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 2"</span><span class="yl-txt">"# http · https · tcp · udp · icmp · arp · any"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"03"</span>
+                                <span class="wiki-tag">"ACTIONS"</span>
+                                <h4 class="wiki-title">"Actions"</h4>
+                            </div>
+                            <p class="wiki-desc">"Defines what happens when a rule fires. Only one action is allowed per rule."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"action: block"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 2"</span><span class="yl-txt">"# Drop packet silently"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 3"</span><span class="yl-txt">"action: allow"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 4"</span><span class="yl-txt">"# Whitelist — bypass all further checks"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 5"</span><span class="yl-txt">"action: ask"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 6"</span><span class="yl-txt">"# Prompt user with popup decision"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 7"</span><span class="yl-txt">"action: traffic_attack"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 8"</span><span class="yl-txt">"# Mark as HIGH SEVERITY threat"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 9"</span><span class="yl-txt">"action: change_packet"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">"10"</span><span class="yl-txt">"# Rewrite payload content (advanced)"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">"11"</span><span class="yl-txt">"action: solve_packet"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">"12"</span><span class="yl-txt">"# Auto-repair malformed packets"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"04"</span>
+                                <span class="wiki-tag">"IP"</span>
+                                <h4 class="wiki-title">"IP Address Conditions"</h4>
+                            </div>
+                            <p class="wiki-desc">"Match source or destination addresses using exact IPs or CIDR notation."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - src_ip:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      addresses:   ['192.168.1.55', '10.0.0.1']"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 4"</span><span class="yl-txt">"      cidr_ranges: ['172.16.0.0/12', '10.0.0.0/8']"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 5"</span><span class="yl-txt">"  - dst_ip:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 6"</span><span class="yl-txt">"      addresses: ['8.8.8.8']"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"05"</span>
+                                <span class="wiki-tag">"PORTS"</span>
+                                <h4 class="wiki-title">"Port Matching"</h4>
+                            </div>
+                            <p class="wiki-desc">"Filter by specific ports or inclusive port ranges."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - dst_port:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      ports:  [80, 443, 8080, 8443]"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 4"</span><span class="yl-txt">"      ranges: [(1000, 2000), (30000, 65535)]"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"06"</span>
+                                <span class="wiki-tag">"WEB"</span>
+                                <h4 class="wiki-title">"Domain & URL Filtering"</h4>
+                            </div>
+                            <p class="wiki-desc">"Wildcard matching for web traffic. All comparisons are case-insensitive."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - domain:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      domains: ['*.google.com', 'tracking.*']"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 4"</span><span class="yl-txt">"  - url:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 5"</span><span class="yl-txt">"      patterns: ['*/login.php', '*?query=malicious*']"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"07"</span>
+                                <span class="wiki-tag">"PAYLOAD"</span>
+                                <h4 class="wiki-title">"Content Inspection & Encoding"</h4>
+                            </div>
+                            <p class="wiki-desc">"Deep payload scanning with multi-layer encoding support to surface obfuscated threats."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-comment"><span class="yl-ln">" 1"</span><span class="yl-txt">"# Declare the encoding layer first"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 2"</span><span class="yl-txt">"encoding: base64"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 3"</span><span class="yl-txt">"# plain · base64 · base58 · hex · reverse"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 4"</span><span class="yl-txt">"conditions:"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 5"</span><span class="yl-txt">"  # Searched AFTER the payload is decoded"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 6"</span><span class="yl-txt">"  - content_match: 'powershell.exe -nop -w hidden'"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"08"</span>
+                                <span class="wiki-tag">"REGEX"</span>
+                                <h4 class="wiki-title">"Regex Matching"</h4>
+                            </div>
+                            <p class="wiki-desc">"Rust-compatible regular expressions for complex pattern detection."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - regex:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      pattern:          '^POST.*\\/admin\\/.*'"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 4"</span><span class="yl-txt">"      case_insensitive: true"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"09"</span>
+                                <span class="wiki-tag">"FILES"</span>
+                                <h4 class="wiki-title">"File Type Detection"</h4>
+                            </div>
+                            <p class="wiki-desc">"Identify files by magic bytes inside the stream — independent of extension."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"conditions:"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 2"</span><span class="yl-txt">"  - file_type:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"      file_types: ['exe', 'pdf', 'zip', 'png', 'docx']"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"10"</span>
+                                <span class="wiki-tag">"SCOPE"</span>
+                                <h4 class="wiki-title">"Localhost & Network Scope"</h4>
+                            </div>
+                            <p class="wiki-desc">"Narrow rules to specific RFC-1918 segments or loopback traffic."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"localhost_type: private_c"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 2"</span><span class="yl-txt">"# loopback  → 127.x.x.x"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 3"</span><span class="yl-txt">"# private_a → 10.x.x.x"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 4"</span><span class="yl-txt">"# private_b → 172.16.0.0/12"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 5"</span><span class="yl-txt">"# private_c → 192.168.x.x"</span></div>
+    <div class="yl-line yl-comment"><span class="yl-ln">" 6"</span><span class="yl-txt">"# any       → all of the above"</span></div>
+                            </pre></div>
+                        </div>
+
+                        <div class="wiki-entry">
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num">"11"</span>
+                                <span class="wiki-tag">"ROUTINES"</span>
+                                <h4 class="wiki-title">"Advanced Traffic Routines"</h4>
+                            </div>
+                            <p class="wiki-desc">"Define directional flow matching: Source → Destination."</p>
+                            <div class="wiki-code-wrap"><div class="wiki-code-bar"><span class="wiki-code-lang">"YAML"</span><div class="wiki-dots"><span/><span/><span/></div></div>
+                            <pre class="wiki-code">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"routine:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 2"</span><span class="yl-txt">"  from_ip: '192.168.1.100'"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"  to_ip:   'any'"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 4"</span><span class="yl-txt">"  to_port: 80"</span></div>
+                            </pre></div>
+                        </div>
+
+                        // ── Section break ─────────────────────────────────
+                        <div class="wiki-break">
+                            <div class="wiki-break-line"/>
+                            <span class="wiki-break-label">"COMPLEX EXAMPLE"</span>
+                            <div class="wiki-break-line"/>
+                        </div>
+
+                        // ── C2 Danger Entry ───────────────────────────────
+                        <div class="wiki-entry wiki-entry-danger">
+                            <div class="wiki-danger-ribbon"><span>"HIGH SEVERITY"</span></div>
+                            <div class="wiki-entry-header">
+                                <span class="wiki-num wiki-num-fire">"🔥"</span>
+                                <span class="wiki-tag wiki-tag-red">"THREAT INTEL"</span>
+                                <h4 class="wiki-title wiki-title-red">"APT28 · C2 Beacon Detection"</h4>
+                            </div>
+                            <p class="wiki-desc">
+                                "Detects Base64-encoded beacons phoning home to suspicious TLDs — "
+                                "a hallmark of APT infrastructure. Combines domain, payload, and port "
+                                "conditions with " <code class="wiki-icode">"condition_logic: and"</code>
+                                " for precision detection."
+                            </p>
+                            <div class="wiki-code-wrap wiki-code-danger-wrap">
+                                <div class="wiki-code-bar wiki-code-bar-danger">
+                                    <span class="wiki-code-lang">"YAML"</span>
+                                    <span class="wiki-danger-pulse">"⚠ LIVE RULE"</span>
+                                    <div class="wiki-dots"><span/><span/><span/></div>
+                                </div>
+                                <pre class="wiki-code wiki-code-dark">
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 1"</span><span class="yl-txt">"- name: 'APT28 C2 Beacon Detection'"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 2"</span><span class="yl-txt">"  description: 'Detects Base64 encoded beacons to suspicious TLDs'"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">" 3"</span><span class="yl-txt">"  enabled: true"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 4"</span><span class="yl-txt">"  protocol: https"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 5"</span><span class="yl-txt">"  action: traffic_attack"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 6"</span><span class="yl-txt">"  condition_logic: and"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 7"</span><span class="yl-txt">"  encoding: base64"</span></div>
+    <div class="yl-line yl-toplevel"><span class="yl-ln">" 8"</span><span class="yl-txt">"  conditions:"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">" 9"</span><span class="yl-txt">"    - domain:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">"10"</span><span class="yl-txt">"        domains: ['*.xyz', '*.top', '*.ru']"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">"11"</span><span class="yl-txt">"    - content_match: 'cmd=whoami'"</span></div>
+    <div class="yl-line yl-key"><span class="yl-ln">"12"</span><span class="yl-txt">"    - dst_port:"</span></div>
+    <div class="yl-line yl-value"><span class="yl-ln">"13"</span><span class="yl-txt">"        ports: [443, 8443, 4443]"</span></div>
+                                </pre>
+                            </div>
+                        </div>
+
                     </div>
-
                 </div>
-            </div>
 
-            // ── Inline Styles ─────────────────────────────────────────
-            <style>
+                // ── Inline Styles ─────────────────────────────────────────
+                <style>
 "
 .wiki-root {
     display: flex !important;
@@ -590,7 +593,7 @@ pub fn RulesWiki() -> impl IntoView {
 .light-theme .wiki-code-dark { background: #fdfdfd; }
 .light-theme .wiki-index { background: #fff; }
 "
-            </style>
-        </div>
-    }
+                </style>
+            </div>
+        }
 }

@@ -178,7 +178,11 @@ fn build_raw_packet_log_entry(pkt: &RawPacket) -> LogEntry {
             },
             pkt.process_id,
             pkt.action,
-            if pkt.rule.trim().is_empty() { "-" } else { &pkt.rule }
+            if pkt.rule.trim().is_empty() {
+                "-"
+            } else {
+                &pkt.rule
+            }
         ),
         source: Some("packet".to_string()),
         details_json: serde_json::to_string_pretty(pkt).ok(),
@@ -200,6 +204,25 @@ fn build_proxy_log_entry(ev: &ProxyHttpEvent) -> LogEntry {
         source: Some("http".to_string()),
         details_json: serde_json::to_string_pretty(ev).ok(),
     }
+}
+
+fn is_blocked_log_entry(log: &LogEntry) -> bool {
+    if matches!(log.level, LogLevel::Error) {
+        return true;
+    }
+
+    let message = log.message.to_ascii_lowercase();
+    message.starts_with("blocked:")
+        || message.contains(" blocked")
+        || message.contains("blocked by")
+        || message.contains("access denied")
+        || message.contains("quarantine")
+        || message.contains("terminate")
+        || message.contains("kill")
+}
+
+fn should_show_log_entry(log: &LogEntry, settings: &FirewallSettings) -> bool {
+    !settings.show_blocked_only || is_blocked_log_entry(log)
 }
 
 const ACTIVITY_GRAPH_POINTS: usize = 24;
@@ -232,7 +255,8 @@ fn activity_graph_points(samples: &[u32]) -> Vec<(f64, f64)> {
     }
 
     let max_value = samples.iter().copied().max().unwrap_or(0).max(1) as f64;
-    let usable_height = ACTIVITY_GRAPH_HEIGHT - ACTIVITY_GRAPH_TOP_PADDING - ACTIVITY_GRAPH_BOTTOM_PADDING;
+    let usable_height =
+        ACTIVITY_GRAPH_HEIGHT - ACTIVITY_GRAPH_TOP_PADDING - ACTIVITY_GRAPH_BOTTOM_PADDING;
     let step_x = if samples.len() > 1 {
         ACTIVITY_GRAPH_WIDTH / (samples.len() - 1) as f64
     } else {
@@ -409,7 +433,10 @@ fn compact_log_message(message: &str, max_len: usize) -> String {
         return trimmed.to_string();
     }
 
-    let shortened = trimmed.chars().take(max_len.saturating_sub(1)).collect::<String>();
+    let shortened = trimmed
+        .chars()
+        .take(max_len.saturating_sub(1))
+        .collect::<String>();
     format!("{}...", shortened)
 }
 
@@ -457,7 +484,9 @@ fn build_process_rows(
             }
 
             packet_count += 1;
-            last_activity = Some(last_activity.map_or(packet.timestamp, |current| current.max(packet.timestamp)));
+            last_activity = Some(
+                last_activity.map_or(packet.timestamp, |current| current.max(packet.timestamp)),
+            );
 
             let action_lc = packet.action.to_ascii_lowercase();
             if action_lc.contains("block")
@@ -569,15 +598,29 @@ fn decode_packet_bytes(payload_hex: &str) -> Vec<u8> {
 
 fn packet_match_tokens(packet: &RawPacket) -> Vec<String> {
     const STOPWORDS: &[&str] = &[
-        "sdk", "rule", "blocked", "allow", "allowed", "pending", "traffic", "packet",
-        "terminated", "quarantined", "decision", "attack", "detected", "proxy",
+        "sdk",
+        "rule",
+        "blocked",
+        "allow",
+        "allowed",
+        "pending",
+        "traffic",
+        "packet",
+        "terminated",
+        "quarantined",
+        "decision",
+        "attack",
+        "detected",
+        "proxy",
     ];
 
     let mut tokens = Vec::new();
 
     if let Some(hostname) = packet.hostname.as_ref() {
         tokens.push(hostname.clone());
-        for piece in hostname.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '.' && ch != '-' && ch != '_') {
+        for piece in hostname
+            .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '.' && ch != '-' && ch != '_')
+        {
             if piece.len() >= 4 {
                 tokens.push(piece.to_string());
             }
@@ -586,10 +629,9 @@ fn packet_match_tokens(packet: &RawPacket) -> Vec<String> {
 
     tokens.push(packet.dst_ip.clone());
 
-    for piece in packet
-        .rule
-        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '.' && ch != '-' && ch != '_' && ch != ':')
-    {
+    for piece in packet.rule.split(|ch: char| {
+        !ch.is_ascii_alphanumeric() && ch != '.' && ch != '-' && ch != '_' && ch != ':'
+    }) {
         let trimmed = piece.trim();
         let lowered = trimmed.to_ascii_lowercase();
         if trimmed.len() >= 4 && !STOPWORDS.iter().any(|word| *word == lowered) {
@@ -603,7 +645,10 @@ fn packet_match_tokens(packet: &RawPacket) -> Vec<String> {
         if normalized.len() < 4 {
             continue;
         }
-        if !deduped.iter().any(|existing: &String| existing.eq_ignore_ascii_case(&token)) {
+        if !deduped
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(&token))
+        {
             deduped.push(token);
         }
         if deduped.len() >= 8 {
@@ -684,7 +729,7 @@ fn build_packet_hex_lines(packet: &RawPacket) -> (Vec<HexLine>, Vec<String>) {
 /// or change_response_body.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BodyChangerRule {
-    pub id: String,           // client-side UUID for keying
+    pub id: String, // client-side UUID for keying
     pub name: String,
     pub enabled: bool,
     /// "request" or "response"
@@ -916,6 +961,8 @@ pub struct FirewallSettings {
     #[serde(default)]
     pub log_mode: bool,
     #[serde(default)]
+    pub show_blocked_only: bool,
+    #[serde(default)]
     pub no_alert_mode: bool,
     #[serde(default = "default_true")]
     pub save_all_logs: bool,
@@ -952,6 +999,7 @@ impl Default for FirewallSettings {
             late_blocking_mode: false,
             headless_mode: false,
             log_mode: false,
+            show_blocked_only: false,
             no_alert_mode: false,
             save_all_logs: true,
             prune_old_logs: true,
@@ -1034,14 +1082,14 @@ pub fn App() -> impl IntoView {
     let (raw_packets, set_raw_packets) = create_signal(Vec::<RawPacket>::new());
     let (selected_packet, set_selected_packet) = create_signal(Option::<RawPacket>::None);
     let (proxy_events, set_proxy_events) = create_signal(Vec::<ProxyHttpEvent>::new());
-    let (selected_proxy_event, set_selected_proxy_event) = create_signal(Option::<ProxyHttpEvent>::None);
-    let (process_inventory, set_process_inventory) = create_signal(Vec::<ProcessInventoryEntry>::new());
+    let (selected_proxy_event, set_selected_proxy_event) =
+        create_signal(Option::<ProxyHttpEvent>::None);
+    let (process_inventory, set_process_inventory) =
+        create_signal(Vec::<ProcessInventoryEntry>::new());
     let (selected_process_pid, set_selected_process_pid) = create_signal(Option::<u32>::None);
     let (process_filter, set_process_filter) = create_signal("all".to_string());
     let (process_search, set_process_search) = create_signal(String::new());
     let (is_dark, set_is_dark) = create_signal(true);
-
-
 
     let (sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
     let (body_changers, set_body_changers) = create_signal(Vec::<BodyChangerRule>::new());
@@ -1054,7 +1102,7 @@ pub fn App() -> impl IntoView {
     let (bc_replacement, set_bc_replacement) = create_signal(String::new());
     let (bc_enabled, set_bc_enabled) = create_signal(true);
     let (show_bc_form, set_show_bc_form) = create_signal(false);
-    
+
     let (pending_app, set_pending_app) = create_signal(Option::<PendingApp>::None);
     let (app_decisions, set_app_decisions) = create_signal(HashMap::<String, AppDecision>::new());
 
@@ -1070,32 +1118,32 @@ pub fn App() -> impl IntoView {
             false
         }
     });
-    
+
     spawn_local(async move {
         // If in alert mode, try to fetch the active alert immediately
         if let Some(win) = web_sys::window() {
             if let Ok(search) = win.location().search() {
-                 if search.contains("mode=alert") {
-                     let res = invoke("get_active_alert", JsValue::NULL).await;
-                     if let Ok(app_opt) = serde_wasm_bindgen::from_value::<Option<PendingApp>>(res) {
-                         if let Some(app) = app_opt {
-                             set_pending_app.set(Some(app));
-                         }
-                     }
-                 }
+                if search.contains("mode=alert") {
+                    let res = invoke("get_active_alert", JsValue::NULL).await;
+                    if let Ok(app_opt) = serde_wasm_bindgen::from_value::<Option<PendingApp>>(res) {
+                        if let Some(app) = app_opt {
+                            set_pending_app.set(Some(app));
+                        }
+                    }
+                }
             }
         }
-        
+
         // Fallback or secondary confirmation via Label
         let win = getCurrentWindow().await;
         if !win.is_undefined() && !win.is_null() {
-             if let Ok(label) = Reflect::get(&win, &"label".into()) {
-                 if let Some(l) = label.as_string() {
-                     if l == "firewall-alert" {
-                         set_is_alert.set(true);
-                     }
-                 }
-             }
+            if let Ok(label) = Reflect::get(&win, &"label".into()) {
+                if let Some(l) = label.as_string() {
+                    if l == "firewall-alert" {
+                        set_is_alert.set(true);
+                    }
+                }
+            }
         }
     });
 
@@ -1108,10 +1156,10 @@ pub fn App() -> impl IntoView {
             })
             .unwrap();
             let _ = invoke("resolve_app_decision", args).await;
-            
+
             // If in alert window, close it after decision
             let _ = invoke("close_window", JsValue::NULL).await;
-            
+
             set_pending_app.set(None);
         });
     };
@@ -1119,23 +1167,31 @@ pub fn App() -> impl IntoView {
     let (settings, set_settings) = create_signal(FirewallSettings::default());
     let (settings_raw, set_settings_raw) = create_signal(String::new());
     let (settings_raw_status, set_settings_raw_status) = create_signal(String::new());
-    
+
     let (show_editor, set_show_editor) = create_signal(false);
     let (rules_raw_content, set_rules_raw_content) = create_signal(String::new());
-    let (_validation_result, set_validation_result) = create_signal(String::from("Ready to validate."));
+    let (_validation_result, set_validation_result) =
+        create_signal(String::from("Ready to validate."));
     let (show_owlyshield_editor, set_show_owlyshield_editor) = create_signal(false);
     let (owlyshield_rules_content, set_owlyshield_rules_content) = create_signal(String::new());
     let (owlyshield_rules_directory, set_owlyshield_rules_directory) = create_signal(String::new());
-    let (owlyshield_rule_files, set_owlyshield_rule_files) = create_signal(Vec::<OwlyshieldRuleFileEntry>::new());
-    let (selected_owlyshield_rule_path, set_selected_owlyshield_rule_path) = create_signal(Option::<String>::None);
+    let (owlyshield_rule_files, set_owlyshield_rule_files) =
+        create_signal(Vec::<OwlyshieldRuleFileEntry>::new());
+    let (selected_owlyshield_rule_path, set_selected_owlyshield_rule_path) =
+        create_signal(Option::<String>::None);
     let (owlyshield_rules_status, set_owlyshield_rules_status) = create_signal(String::new());
     let (owlyshield_report_content, set_owlyshield_report_content) = create_signal(String::new());
-    let (owlyshield_reports_directory, set_owlyshield_reports_directory) = create_signal(String::new());
-    let (owlyshield_report_files, set_owlyshield_report_files) = create_signal(Vec::<OwlyshieldReportFileEntry>::new());
-    let (selected_owlyshield_report_path, set_selected_owlyshield_report_path) = create_signal(Option::<String>::None);
+    let (owlyshield_reports_directory, set_owlyshield_reports_directory) =
+        create_signal(String::new());
+    let (owlyshield_report_files, set_owlyshield_report_files) =
+        create_signal(Vec::<OwlyshieldReportFileEntry>::new());
+    let (selected_owlyshield_report_path, set_selected_owlyshield_report_path) =
+        create_signal(Option::<String>::None);
     let (owlyshield_report_status, set_owlyshield_report_status) = create_signal(String::new());
-    let (firewall_quarantine_directory, set_firewall_quarantine_directory) = create_signal(String::new());
-    let (firewall_quarantine_files, set_firewall_quarantine_files) = create_signal(Vec::<FirewallQuarantineFileEntry>::new());
+    let (firewall_quarantine_directory, set_firewall_quarantine_directory) =
+        create_signal(String::new());
+    let (firewall_quarantine_files, set_firewall_quarantine_files) =
+        create_signal(Vec::<FirewallQuarantineFileEntry>::new());
 
     // Settings Navigation
     let (settings_sub_tab, set_settings_sub_tab) = create_signal(SettingsSubTab::General);
@@ -1162,31 +1218,33 @@ pub fn App() -> impl IntoView {
     let fetch_body_changers = move || {
         spawn_local(async move {
             let val = invoke("get_body_changers", JsValue::NULL).await;
-            let rules: Vec<BodyChangerRule> = serde_wasm_bindgen::from_value(val).unwrap_or_default();
+            let rules: Vec<BodyChangerRule> =
+                serde_wasm_bindgen::from_value(val).unwrap_or_default();
             set_body_changers.set(rules);
         });
     };
 
     let save_body_changers_fn = move |rules: Vec<BodyChangerRule>| {
         spawn_local(async move {
-            let args = serde_wasm_bindgen::to_value(&serde_json::json!({ "rules": rules })).unwrap();
+            let args =
+                serde_wasm_bindgen::to_value(&serde_json::json!({ "rules": rules })).unwrap();
             let _ = invoke("save_body_changers", args).await;
             let val = invoke("get_body_changers", JsValue::NULL).await;
-            let updated: Vec<BodyChangerRule> = serde_wasm_bindgen::from_value(val).unwrap_or_default();
+            let updated: Vec<BodyChangerRule> =
+                serde_wasm_bindgen::from_value(val).unwrap_or_default();
             set_body_changers.set(updated);
         });
     };
 
     let fetch_rules_raw = move || {
         spawn_local(async move {
-             let args = js_sys::Object::new();
-             let val = invoke("get_rules_content", args.into()).await;
-             if let Ok(s) = serde_wasm_bindgen::from_value::<String>(val) {
-                 set_rules_raw_content.set(s);
-             }
+            let args = js_sys::Object::new();
+            let val = invoke("get_rules_content", args.into()).await;
+            if let Ok(s) = serde_wasm_bindgen::from_value::<String>(val) {
+                set_rules_raw_content.set(s);
+            }
         });
     };
-
 
     let save_owlyshield_rules = move || {
         let content = owlyshield_rules_content.get();
@@ -1197,7 +1255,10 @@ pub fn App() -> impl IntoView {
             if let Some(ref path) = selected_path {
                 js_sys::Reflect::set(&args, &"path".into(), &path.clone().into()).unwrap();
             }
-            match invoke("save_owlyshield_rules_raw", args.into()).await.as_string() {
+            match invoke("save_owlyshield_rules_raw", args.into())
+                .await
+                .as_string()
+            {
                 Some(error_message) if !error_message.is_empty() => {
                     set_owlyshield_rules_status.set(format!("Save returned: {}", error_message));
                 }
@@ -1211,7 +1272,9 @@ pub fn App() -> impl IntoView {
     let fetch_app_decisions = move || {
         spawn_local(async move {
             let res = invoke("get_app_decisions", JsValue::NULL).await;
-            if let Ok(decisions) = serde_wasm_bindgen::from_value::<HashMap<String, AppDecision>>(res) {
+            if let Ok(decisions) =
+                serde_wasm_bindgen::from_value::<HashMap<String, AppDecision>>(res)
+            {
                 set_app_decisions.set(decisions);
             }
         });
@@ -1235,7 +1298,11 @@ pub fn App() -> impl IntoView {
     let fetch_saved_logs = move || {
         spawn_local(async move {
             let res = invoke("get_saved_logs", JsValue::NULL).await;
-            if let Ok(saved_logs) = serde_wasm_bindgen::from_value::<Vec<LogEntry>>(res) {
+            if let Ok(mut saved_logs) = serde_wasm_bindgen::from_value::<Vec<LogEntry>>(res) {
+                let current_settings = settings.get_untracked();
+                if current_settings.show_blocked_only {
+                    saved_logs.retain(is_blocked_log_entry);
+                }
                 if !saved_logs.is_empty() {
                     set_logs.set(saved_logs);
                 }
@@ -1246,7 +1313,8 @@ pub fn App() -> impl IntoView {
     let fetch_process_inventory = move || {
         spawn_local(async move {
             let res = invoke("get_process_inventory", JsValue::NULL).await;
-            if let Ok(processes) = serde_wasm_bindgen::from_value::<Vec<ProcessInventoryEntry>>(res) {
+            if let Ok(processes) = serde_wasm_bindgen::from_value::<Vec<ProcessInventoryEntry>>(res)
+            {
                 set_process_inventory.set(processes);
             }
         });
@@ -1266,7 +1334,8 @@ pub fn App() -> impl IntoView {
                     id: format!("manual-report-{}", requested_at),
                     timestamp: requested_at,
                     level: LogLevel::Info,
-                    message: "Requested Owlyshield advanced report generation from the firewall UI".to_string(),
+                    message: "Requested Owlyshield advanced report generation from the firewall UI"
+                        .to_string(),
                     source: Some("ui".to_string()),
                     details_json: None,
                 },
@@ -1310,7 +1379,9 @@ pub fn App() -> impl IntoView {
             settings.app_decisions.remove(&normalized_name);
         });
         spawn_local(async move {
-            let args = serde_wasm_bindgen::to_value(&serde_json::json!({ "name": normalized_name })).unwrap();
+            let args =
+                serde_wasm_bindgen::to_value(&serde_json::json!({ "name": normalized_name }))
+                    .unwrap();
             let _ = invoke("remove_app_decision", args).await;
             fetch_app_decisions();
             fetch_settings();
@@ -1374,9 +1445,8 @@ pub fn App() -> impl IntoView {
         let peak = graph_data.get().iter().copied().max().unwrap_or_default() as f64;
         peak / (ACTIVITY_GRAPH_INTERVAL_MS as f64 / 1000.0)
     });
-    let process_rows = create_memo(move |_| {
-        build_process_rows(&process_inventory.get(), &raw_packets.get())
-    });
+    let process_rows =
+        create_memo(move |_| build_process_rows(&process_inventory.get(), &raw_packets.get()));
     let filtered_process_rows = create_memo(move |_| {
         let filter = process_filter.get();
         let query = process_search.get();
@@ -1388,12 +1458,7 @@ pub fn App() -> impl IntoView {
     });
     let selected_process = create_memo(move |_| {
         let selected_pid = selected_process_pid.get();
-        selected_pid.and_then(|pid| {
-            process_rows
-                .get()
-                .into_iter()
-                .find(|row| row.pid == pid)
-        })
+        selected_pid.and_then(|pid| process_rows.get().into_iter().find(|row| row.pid == pid))
     });
     let owlyshield_activity_logs = create_memo(move |_| {
         logs.get()
@@ -1403,110 +1468,133 @@ pub fn App() -> impl IntoView {
             .collect::<Vec<_>>()
     });
 
-    create_effect(move |_| {
-        match current_view.get() {
-            AppView::Processes => { fetch_process_inventory(); }
-            AppView::Rules | AppView::Owlyshield => {
-                fetch_sdk_rules();
-                fetch_rules_raw();
-                fetch_body_changers();
-                fetch_saved_logs();
-                spawn_local(async move {
-                    let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
-                    match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
-                        Ok(view) => {
-                            let fallback_selected = view.files.first().map(|file| file.path.clone());
-                            let selected_path = view.selected_path.clone().or(fallback_selected);
-                            set_owlyshield_rules_directory.set(view.directory);
-                            set_owlyshield_rule_files.set(view.files);
-                            set_selected_owlyshield_rule_path.set(selected_path.clone());
-                            if let Some(path) = selected_path {
-                                let args = js_sys::Object::new();
-                                js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
-                                let raw = invoke("get_owlyshield_rules_raw", args.into()).await;
-                                match serde_wasm_bindgen::from_value::<String>(raw) {
-                                    Ok(content) => {
-                                        set_owlyshield_rules_content.set(content);
-                                        set_owlyshield_rules_status.set(String::new());
-                                    }
-                                    Err(_) => {
-                                        set_owlyshield_rules_content.set(String::new());
-                                        set_owlyshield_rules_status.set("Failed to load the selected Owlyshield rule file.".to_string());
-                                    }
-                                }
-                            } else {
-                                set_owlyshield_rules_content.set(String::new());
-                                set_owlyshield_rules_status.set("No YAML rule files were found in the Owlyshield rules directory.".to_string());
-                            }
-                        }
-                        Err(_) => {
-                            set_owlyshield_rule_files.set(Vec::new());
-                            set_selected_owlyshield_rule_path.set(None);
-                            set_owlyshield_rules_content.set(String::new());
-                            set_owlyshield_rules_status.set("Failed to enumerate the Owlyshield rules directory.".to_string());
-                        }
-                    }
-                });
-                spawn_local(async move {
-                    let val = invoke("list_owlyshield_report_files", JsValue::NULL).await;
-                    match serde_wasm_bindgen::from_value::<OwlyshieldReportsDirectoryView>(val) {
-                        Ok(view) => {
-                            let fallback_selected = view.files.first().map(|file| file.path.clone());
-                            let selected_path = view.selected_path.clone().or(fallback_selected);
-                            set_owlyshield_reports_directory.set(view.directory);
-                            set_owlyshield_report_files.set(view.files);
-                            set_selected_owlyshield_report_path.set(selected_path.clone());
-                            if let Some(path) = selected_path {
-                                let args = js_sys::Object::new();
-                                js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
-                                let raw = invoke("get_owlyshield_report_raw", args.into()).await;
-                                match serde_wasm_bindgen::from_value::<String>(raw) {
-                                    Ok(content) => {
-                                        set_owlyshield_report_content.set(content);
-                                        if owlyshield_report_status.get_untracked().starts_with("Report generation requested.") {
-                                            set_owlyshield_report_status.set("Owlyshield report list refreshed.".to_string());
-                                        }
-                                    }
-                                    Err(_) => {
-                                        set_owlyshield_report_content.set(String::new());
-                                        set_owlyshield_report_status.set("Failed to load the selected Owlyshield report.".to_string());
-                                    }
-                                }
-                            } else {
-                                set_owlyshield_report_content.set(String::new());
-                                set_owlyshield_report_status.set("No Owlyshield reports were found in the reports directory.".to_string());
-                            }
-                        }
-                        Err(_) => {
-                            set_owlyshield_report_files.set(Vec::new());
-                            set_selected_owlyshield_report_path.set(None);
-                            set_owlyshield_report_content.set(String::new());
-                            set_owlyshield_report_status.set("Failed to enumerate the Owlyshield reports directory.".to_string());
-                        }
-                    }
-                });
-                spawn_local(async move {
-                    let val = invoke("list_firewall_quarantine_files", JsValue::NULL).await;
-                    match serde_wasm_bindgen::from_value::<FirewallQuarantineDirectoryView>(val) {
-                        Ok(view) => {
-                            set_firewall_quarantine_directory.set(view.directory);
-                            set_firewall_quarantine_files.set(view.files);
-                        }
-                        Err(_) => {
-                            set_firewall_quarantine_directory.set(String::new());
-                            set_firewall_quarantine_files.set(Vec::new());
-                        }
-                    }
-                });
-            }
-            AppView::Logs => { fetch_saved_logs(); }
-            AppView::Exclusions => { fetch_app_decisions(); }
-            AppView::Settings => {
-                fetch_settings();
-                fetch_readme();
-            }
-            _ => {}
+    create_effect(move |_| match current_view.get() {
+        AppView::Processes => {
+            fetch_process_inventory();
         }
+        AppView::Rules | AppView::Owlyshield => {
+            fetch_sdk_rules();
+            fetch_rules_raw();
+            fetch_body_changers();
+            fetch_saved_logs();
+            spawn_local(async move {
+                let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
+                match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
+                    Ok(view) => {
+                        let fallback_selected = view.files.first().map(|file| file.path.clone());
+                        let selected_path = view.selected_path.clone().or(fallback_selected);
+                        set_owlyshield_rules_directory.set(view.directory);
+                        set_owlyshield_rule_files.set(view.files);
+                        set_selected_owlyshield_rule_path.set(selected_path.clone());
+                        if let Some(path) = selected_path {
+                            let args = js_sys::Object::new();
+                            js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
+                            let raw = invoke("get_owlyshield_rules_raw", args.into()).await;
+                            match serde_wasm_bindgen::from_value::<String>(raw) {
+                                Ok(content) => {
+                                    set_owlyshield_rules_content.set(content);
+                                    set_owlyshield_rules_status.set(String::new());
+                                }
+                                Err(_) => {
+                                    set_owlyshield_rules_content.set(String::new());
+                                    set_owlyshield_rules_status.set(
+                                        "Failed to load the selected Owlyshield rule file."
+                                            .to_string(),
+                                    );
+                                }
+                            }
+                        } else {
+                            set_owlyshield_rules_content.set(String::new());
+                            set_owlyshield_rules_status.set(
+                                "No YAML rule files were found in the Owlyshield rules directory."
+                                    .to_string(),
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        set_owlyshield_rule_files.set(Vec::new());
+                        set_selected_owlyshield_rule_path.set(None);
+                        set_owlyshield_rules_content.set(String::new());
+                        set_owlyshield_rules_status
+                            .set("Failed to enumerate the Owlyshield rules directory.".to_string());
+                    }
+                }
+            });
+            spawn_local(async move {
+                let val = invoke("list_owlyshield_report_files", JsValue::NULL).await;
+                match serde_wasm_bindgen::from_value::<OwlyshieldReportsDirectoryView>(val) {
+                    Ok(view) => {
+                        let fallback_selected = view.files.first().map(|file| file.path.clone());
+                        let selected_path = view.selected_path.clone().or(fallback_selected);
+                        set_owlyshield_reports_directory.set(view.directory);
+                        set_owlyshield_report_files.set(view.files);
+                        set_selected_owlyshield_report_path.set(selected_path.clone());
+                        if let Some(path) = selected_path {
+                            let args = js_sys::Object::new();
+                            js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
+                            let raw = invoke("get_owlyshield_report_raw", args.into()).await;
+                            match serde_wasm_bindgen::from_value::<String>(raw) {
+                                Ok(content) => {
+                                    set_owlyshield_report_content.set(content);
+                                    if owlyshield_report_status
+                                        .get_untracked()
+                                        .starts_with("Report generation requested.")
+                                    {
+                                        set_owlyshield_report_status
+                                            .set("Owlyshield report list refreshed.".to_string());
+                                    }
+                                }
+                                Err(_) => {
+                                    set_owlyshield_report_content.set(String::new());
+                                    set_owlyshield_report_status.set(
+                                        "Failed to load the selected Owlyshield report."
+                                            .to_string(),
+                                    );
+                                }
+                            }
+                        } else {
+                            set_owlyshield_report_content.set(String::new());
+                            set_owlyshield_report_status.set(
+                                "No Owlyshield reports were found in the reports directory."
+                                    .to_string(),
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        set_owlyshield_report_files.set(Vec::new());
+                        set_selected_owlyshield_report_path.set(None);
+                        set_owlyshield_report_content.set(String::new());
+                        set_owlyshield_report_status.set(
+                            "Failed to enumerate the Owlyshield reports directory.".to_string(),
+                        );
+                    }
+                }
+            });
+            spawn_local(async move {
+                let val = invoke("list_firewall_quarantine_files", JsValue::NULL).await;
+                match serde_wasm_bindgen::from_value::<FirewallQuarantineDirectoryView>(val) {
+                    Ok(view) => {
+                        set_firewall_quarantine_directory.set(view.directory);
+                        set_firewall_quarantine_files.set(view.files);
+                    }
+                    Err(_) => {
+                        set_firewall_quarantine_directory.set(String::new());
+                        set_firewall_quarantine_files.set(Vec::new());
+                    }
+                }
+            });
+        }
+        AppView::Logs => {
+            fetch_saved_logs();
+        }
+        AppView::Exclusions => {
+            fetch_app_decisions();
+        }
+        AppView::Settings => {
+            fetch_settings();
+            fetch_readme();
+        }
+        _ => {}
     });
 
     create_effect(move |_| {
@@ -1524,7 +1612,8 @@ pub fn App() -> impl IntoView {
     });
 
     create_effect(move |_| {
-        set_interval(move || {
+        set_interval(
+            move || {
                 let snapshot = ActivitySnapshot {
                     logs: total_count.get_untracked(),
                     raw_packets: raw_packet_count.get_untracked(),
@@ -1540,7 +1629,9 @@ pub fn App() -> impl IntoView {
                         values.remove(0);
                     }
                 });
-            }, Duration::from_millis(ACTIVITY_GRAPH_INTERVAL_MS));
+            },
+            Duration::from_millis(ACTIVITY_GRAPH_INTERVAL_MS),
+        );
     });
 
     create_effect(move |_| {
@@ -1548,9 +1639,12 @@ pub fn App() -> impl IntoView {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(entry) = serde_json::from_value::<LogEntry>(payload_obj.clone()) {
+                        let current_settings = settings.get_untracked();
+                        if !should_show_log_entry(&entry, &current_settings) {
+                            return;
+                        }
                         set_logs.update(|l| {
                             l.push(entry.clone());
-                            let current_settings = settings.get_untracked();
                             if current_settings.prune_old_logs {
                                 let keep = current_settings.max_visible_logs.max(1);
                                 if l.len() > keep {
@@ -1562,7 +1656,9 @@ pub fn App() -> impl IntoView {
                         set_total_count.update(|n| *n += 1);
                         if entry.message.contains("ACTIVE") || entry.message.contains("Engine") {
                             set_engine_status.set(entry.message.clone());
-                            if entry.message.contains("ACTIVE") { set_engine_active.set(true); }
+                            if entry.message.contains("ACTIVE") {
+                                set_engine_active.set(true);
+                            }
                         }
                         match entry.level {
                             LogLevel::Warning | LogLevel::Error => {
@@ -1573,16 +1669,23 @@ pub fn App() -> impl IntoView {
                                 {
                                     set_blocked_count.update(|n| *n += 1);
                                 }
-                                if entry.message.contains("Malicious") { set_threats_count.update(|n| *n += 1); }
+                                if entry.message.contains("Malicious") {
+                                    set_threats_count.update(|n| *n += 1);
+                                }
                             }
-                            LogLevel::Success => { set_allowed_count.update(|n| *n += 1); }
+                            LogLevel::Success => {
+                                set_allowed_count.update(|n| *n += 1);
+                            }
                             _ => {}
                         }
                     }
                 }
             }
         }) as Box<dyn FnMut(JsValue)>);
-        spawn_local(async move { let _ = listen("log", &closure).await; closure.forget(); });
+        spawn_local(async move {
+            let _ = listen("log", &closure).await;
+            closure.forget();
+        });
 
         let ask_closure = Closure::wrap(Box::new(move |event: JsValue| {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
@@ -1594,14 +1697,21 @@ pub fn App() -> impl IntoView {
                 }
             }
         }) as Box<dyn FnMut(JsValue)>);
-        spawn_local(async move { let _ = listen("ask_app_decision", &ask_closure).await; ask_closure.forget(); });
+        spawn_local(async move {
+            let _ = listen("ask_app_decision", &ask_closure).await;
+            ask_closure.forget();
+        });
 
         let raw_closure = Closure::wrap(Box::new(move |event: JsValue| {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
-                        set_raw_packet_count.update(|count| *count += 1);
                         let pkt_log = build_raw_packet_log_entry(&pkt);
+                        let current_settings = settings.get_untracked();
+                        if !should_show_log_entry(&pkt_log, &current_settings) {
+                            return;
+                        }
+                        set_raw_packet_count.update(|count| *count += 1);
                         set_raw_packets.update(|p| {
                             p.push(pkt);
                             if p.len() > 100 {
@@ -1610,7 +1720,6 @@ pub fn App() -> impl IntoView {
                         });
                         set_logs.update(|l| {
                             l.push(pkt_log);
-                            let current_settings = settings.get_untracked();
                             if current_settings.prune_old_logs {
                                 let keep = current_settings.max_visible_logs.max(1);
                                 if l.len() > keep {
@@ -1623,17 +1732,23 @@ pub fn App() -> impl IntoView {
                 }
             }
         }) as Box<dyn FnMut(JsValue)>);
-        spawn_local(async move { let _ = listen("raw_packet", &raw_closure).await; raw_closure.forget(); });
+        spawn_local(async move {
+            let _ = listen("raw_packet", &raw_closure).await;
+            raw_closure.forget();
+        });
 
         let proxy_closure = Closure::wrap(Box::new(move |event: JsValue| {
             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(ev) = serde_json::from_value::<ProxyHttpEvent>(payload_obj.clone()) {
-                        set_proxy_event_count.update(|count| *count += 1);
                         let http_log = build_proxy_log_entry(&ev);
+                        let current_settings = settings.get_untracked();
+                        if !should_show_log_entry(&http_log, &current_settings) {
+                            return;
+                        }
+                        set_proxy_event_count.update(|count| *count += 1);
                         set_proxy_events.update(|p| {
                             p.push(ev);
-                            let current_settings = settings.get_untracked();
                             if current_settings.prune_http_history {
                                 let keep = current_settings.max_visible_http_events.max(1);
                                 if p.len() > keep {
@@ -1644,7 +1759,6 @@ pub fn App() -> impl IntoView {
                         });
                         set_logs.update(|l| {
                             l.push(http_log);
-                            let current_settings = settings.get_untracked();
                             if current_settings.prune_old_logs {
                                 let keep = current_settings.max_visible_logs.max(1);
                                 if l.len() > keep {
@@ -1657,7 +1771,10 @@ pub fn App() -> impl IntoView {
                 }
             }
         }) as Box<dyn FnMut(JsValue)>);
-        spawn_local(async move { let _ = listen("proxy_http", &proxy_closure).await; proxy_closure.forget(); });
+        spawn_local(async move {
+            let _ = listen("proxy_http", &proxy_closure).await;
+            proxy_closure.forget();
+        });
     });
 
     {
@@ -1665,9 +1782,10 @@ pub fn App() -> impl IntoView {
             spawn_local(async move {
                 let window = web_sys::window().unwrap();
                 let is_tauri = js_sys::Reflect::has(&window, &"__TAURI__".into()).unwrap_or(false);
-                
+
                 if !is_tauri {
-                    set_engine_status.set("Non-Tauri Browser Environment (Backend Unreachable)".to_string());
+                    set_engine_status
+                        .set("Non-Tauri Browser Environment (Backend Unreachable)".to_string());
                     return;
                 }
 
@@ -1732,7 +1850,9 @@ pub fn App() -> impl IntoView {
         }
     };
 
-    let update_path = move |path: String| { set_settings.update(|s| s.website_path = path); };
+    let update_path = move |path: String| {
+        set_settings.update(|s| s.website_path = path);
+    };
 
     view! {
         {move || if is_alert.get() {
@@ -3176,7 +3296,14 @@ pub fn App() -> impl IntoView {
                                         </div>
                                         <div class="logs-viewport">
                                             <For
-                                                each={move || logs.get().into_iter().rev().collect::<Vec<_>>()}
+                                                each={move || {
+                                                    let current_settings = settings.get();
+                                                    logs.get()
+                                                        .into_iter()
+                                                        .filter(|entry| should_show_log_entry(entry, &current_settings))
+                                                        .rev()
+                                                        .collect::<Vec<_>>()
+                                                }}
                                                 key={|log_entry| log_entry.id.clone()}
                                                 children={move |log_entry| {
                                                     let ts = log_entry.timestamp % 100000;
@@ -3798,6 +3925,21 @@ pub fn App() -> impl IntoView {
                                                         <label style="display: flex; align-items: center; gap: 10px">
                                                             <input
                                                                 type="checkbox"
+                                                                prop:checked=move || settings.get().show_blocked_only
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.show_blocked_only = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Only show blocked firewall events"
+                                                        </label>
+                                                        <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "Skips allowed packet, proxy, and HTTP activity events before they enter the GUI lists. Blocked and error events stay visible."
+                                                        </p>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
                                                                 prop:checked=move || settings.get().save_all_logs
                                                                 on:change=move |ev| {
                                                                     set_settings.update(|s| s.save_all_logs = event_target_checked(&ev));
@@ -3967,7 +4109,7 @@ pub fn App() -> impl IntoView {
                                                                 <div style="font-size: 12px; color: var(--text-muted)">"Advanced Network & Application Security"</div>
                                                             </div>
                                                         </div>
-                                                        
+
                                                         <p style="font-size: 14px; line-height: 1.6">
                                                             "HydraDragon is a modern, high-performance firewall and endpoint protection system designed for Windows. It combines kernel-level packet filtering with behavioral analysis to provide comprehensive security."
                                                         </p>
@@ -4041,14 +4183,17 @@ fn AlertWindow(
 ) -> impl IntoView {
     // Poll the backend every second to keep queue_position/queue_total accurate.
     create_effect(move |_| {
-        set_interval(move || {
-            spawn_local(async move {
-                let res = invoke("get_active_alert", JsValue::NULL).await;
-                if let Ok(app_opt) = serde_wasm_bindgen::from_value::<Option<PendingApp>>(res) {
-                    set_pending_app.set(app_opt);
-                }
-            });
-        }, Duration::from_millis(1000));
+        set_interval(
+            move || {
+                spawn_local(async move {
+                    let res = invoke("get_active_alert", JsValue::NULL).await;
+                    if let Ok(app_opt) = serde_wasm_bindgen::from_value::<Option<PendingApp>>(res) {
+                        set_pending_app.set(app_opt);
+                    }
+                });
+            },
+            Duration::from_millis(1000),
+        );
     });
 
     let next_alert_action = move || {
@@ -4075,9 +4220,13 @@ fn AlertWindow(
                 name
             };
 
-            let args = serde_wasm_bindgen::to_value(&ResolveArgs { name: identifier, decision }).unwrap();
+            let args = serde_wasm_bindgen::to_value(&ResolveArgs {
+                name: identifier,
+                decision,
+            })
+            .unwrap();
             let _ = invoke("resolve_app_decision", args).await;
-            
+
             // Close via backend command for reliability
             let _ = invoke("close_window", JsValue::NULL).await;
         });

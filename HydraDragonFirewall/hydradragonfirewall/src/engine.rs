@@ -276,6 +276,9 @@ fn persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) {
     if settings.is_some_and(|current| !current.save_all_logs) {
         return;
     }
+    if settings.is_some_and(|current| current.show_blocked_only && !is_blocked_log_entry(entry)) {
+        return;
+    }
 
     let log_path = firewall_log_file_path();
     if let Some(parent) = log_path.parent() {
@@ -327,10 +330,31 @@ pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
         .collect()
 }
 
+fn is_blocked_log_entry(entry: &LogEntry) -> bool {
+    if entry.level == LogLevel::Error {
+        return true;
+    }
+
+    let message = entry.message.to_ascii_lowercase();
+    message.starts_with("blocked:")
+        || message.contains(" blocked")
+        || message.contains("blocked by")
+        || message.contains("access denied")
+        || message.contains("quarantine")
+        || message.contains("terminate")
+        || message.contains("kill")
+}
+
 pub fn emit_log_event<R: Runtime>(app: &AppHandle<R>, entry: LogEntry) {
     let settings_snapshot = app
         .try_state::<Arc<FirewallEngine>>()
         .map(|engine| engine.settings.read().unwrap().clone());
+    if settings_snapshot
+        .as_ref()
+        .is_some_and(|current| current.show_blocked_only && !is_blocked_log_entry(&entry))
+    {
+        return;
+    }
     persist_log_entry(&entry, settings_snapshot.as_ref());
     let _ = app.emit("log", entry);
 }
@@ -678,6 +702,8 @@ pub struct FirewallSettings {
     #[serde(default)]
     pub log_mode: bool,
     #[serde(default)]
+    pub show_blocked_only: bool,
+    #[serde(default)]
     pub no_alert_mode: bool,
     #[serde(default = "default_true")]
     pub save_all_logs: bool,
@@ -717,6 +743,7 @@ impl Default for FirewallSettings {
             late_blocking_mode: false,
             headless_mode: false,
             log_mode: false,
+            show_blocked_only: false,
             no_alert_mode: false,
             save_all_logs: true,
             prune_old_logs: true,
@@ -1687,10 +1714,11 @@ impl FirewallEngine {
             late_blocking_mode: current_settings.late_blocking_mode,
             headless_mode: current_settings.headless_mode,
             log_mode: current_settings.log_mode,
+            show_blocked_only: current_settings.show_blocked_only,
             no_alert_mode: current_settings.no_alert_mode,
             save_all_logs: current_settings.save_all_logs,
             prune_old_logs: current_settings.prune_old_logs,
-                            max_visible_logs: current_settings.max_visible_logs,
+            max_visible_logs: current_settings.max_visible_logs,
             prune_http_history: current_settings.prune_http_history,
             max_visible_http_events: current_settings.max_visible_http_events,
             log_full_bodies: current_settings.log_full_bodies,
@@ -2332,7 +2360,11 @@ impl FirewallEngine {
             None
         };
 
-        load_saved_logs(limit)
+        let mut logs = load_saved_logs(limit);
+        if settings.show_blocked_only {
+            logs.retain(is_blocked_log_entry);
+        }
+        logs
     }
 
     #[cfg(target_os = "windows")]
@@ -2971,7 +3003,8 @@ impl FirewallEngine {
                                     }
                                 } else if let Some(rest) = line.strip_prefix("HIPS_TRUST:") {
                                     let mut parts = rest.splitn(3, '|');
-                                    let pid = parts.next().unwrap_or("0").parse::<u32>().unwrap_or(0);
+                                    let pid =
+                                        parts.next().unwrap_or("0").parse::<u32>().unwrap_or(0);
                                     let path = parts.next().unwrap_or("").to_string();
                                     let info = parts.next().unwrap_or("Verified Safe").to_string();
 
@@ -2984,7 +3017,8 @@ impl FirewallEngine {
                                                 timestamp: SystemTime::now()
                                                     .duration_since(UNIX_EPOCH)
                                                     .unwrap_or_default()
-                                                    .as_millis() as u64,
+                                                    .as_millis()
+                                                    as u64,
                                                 level: LogLevel::Success,
                                                 message: format!(
                                                     "[Cloud Trust] {} verified by OpenEDR: {}",
@@ -3338,70 +3372,79 @@ impl FirewallEngine {
 
                                 // EMIT RAW PACKET FOR UI (Wireshark-like view)
                                 if let Some(info) = decision_info {
-                                    let ts = Self::now_ts();
-                                    let app_info = am_w.info_cache.get_info(pid);
+                                    let show_blocked_only =
+                                        settings_w.read().unwrap().show_blocked_only;
+                                    if !(show_blocked_only && decision.should_forward) {
+                                        let ts = Self::now_ts();
+                                        let app_info = am_w.info_cache.get_info(pid);
 
-                                    let payload_preview = if decision.packet_data.len() > 32 {
-                                        format!(
-                                            "{}...",
-                                            String::from_utf8_lossy(&decision.packet_data[..32])
+                                        let payload_preview = if decision.packet_data.len() > 32 {
+                                            format!(
+                                                "{}...",
+                                                String::from_utf8_lossy(
+                                                    &decision.packet_data[..32]
+                                                )
                                                 .replace("\n", " ")
-                                        )
-                                    } else {
-                                        String::from_utf8_lossy(&decision.packet_data)
-                                            .replace("\n", " ")
-                                    };
-
-                                    let mut raw_packet = crate::sdk::RawPacket {
-                                        id: format!("{}-{}-{}", ts, info.src_port, info.dst_port),
-                                        timestamp: ts,
-                                        src_ip: info.src_ip.to_string(),
-                                        dst_ip: info.dst_ip.to_string(),
-                                        src_port: info.src_port,
-                                        dst_port: info.dst_port,
-                                        protocol: info.protocol.clone(),
-                                        length: decision.packet_data.len(),
-                                        payload_hex: decision
-                                            .packet_data
-                                            .iter()
-                                            .map(|b| format!("{:02X}", b))
-                                            .collect::<Vec<_>>()
-                                            .join(" "),
-                                        payload_preview,
-                                        summary: format!("{} -> {}", info.src_ip, info.dst_ip),
-                                        process_id: pid,
-                                        process_name: app_info.name,
-                                        process_path: app_info.path,
-                                        action: if decision.should_forward {
-                                            "Allow".to_string()
+                                            )
                                         } else {
-                                            "Block".to_string()
-                                        },
-                                        rule: decision._reason.clone(),
-                                        hostname: info.hostname.clone(),
-                                    };
+                                            String::from_utf8_lossy(&decision.packet_data)
+                                                .replace("\n", " ")
+                                        };
 
-                                    // Enrich summary with hostname if available
-                                    if let Some(ref h) = raw_packet.hostname {
-                                        raw_packet.summary =
-                                            format!("{} ({})", raw_packet.summary, h);
-                                    } else {
-                                        // Snooping fallback for raw packet display
-                                        if let Some(domain) =
-                                            dns_w.resolve_ip(&info.dst_ip.to_string())
-                                        {
-                                            raw_packet.hostname = Some(domain.clone());
+                                        let mut raw_packet = crate::sdk::RawPacket {
+                                            id: format!(
+                                                "{}-{}-{}",
+                                                ts, info.src_port, info.dst_port
+                                            ),
+                                            timestamp: ts,
+                                            src_ip: info.src_ip.to_string(),
+                                            dst_ip: info.dst_ip.to_string(),
+                                            src_port: info.src_port,
+                                            dst_port: info.dst_port,
+                                            protocol: info.protocol.clone(),
+                                            length: decision.packet_data.len(),
+                                            payload_hex: decision
+                                                .packet_data
+                                                .iter()
+                                                .map(|b| format!("{:02X}", b))
+                                                .collect::<Vec<_>>()
+                                                .join(" "),
+                                            payload_preview,
+                                            summary: format!("{} -> {}", info.src_ip, info.dst_ip),
+                                            process_id: pid,
+                                            process_name: app_info.name,
+                                            process_path: app_info.path,
+                                            action: if decision.should_forward {
+                                                "Allow".to_string()
+                                            } else {
+                                                "Block".to_string()
+                                            },
+                                            rule: decision._reason.clone(),
+                                            hostname: info.hostname.clone(),
+                                        };
+
+                                        // Enrich summary with hostname if available
+                                        if let Some(ref h) = raw_packet.hostname {
                                             raw_packet.summary =
-                                                format!("{} ({})", raw_packet.summary, domain);
-                                        } else if let Some(domain) =
-                                            dns_w.resolve_ip(&info.src_ip.to_string())
-                                        {
-                                            raw_packet.hostname = Some(domain.clone());
-                                            raw_packet.summary =
-                                                format!("{} ({})", raw_packet.summary, domain);
+                                                format!("{} ({})", raw_packet.summary, h);
+                                        } else {
+                                            // Snooping fallback for raw packet display
+                                            if let Some(domain) =
+                                                dns_w.resolve_ip(&info.dst_ip.to_string())
+                                            {
+                                                raw_packet.hostname = Some(domain.clone());
+                                                raw_packet.summary =
+                                                    format!("{} ({})", raw_packet.summary, domain);
+                                            } else if let Some(domain) =
+                                                dns_w.resolve_ip(&info.src_ip.to_string())
+                                            {
+                                                raw_packet.hostname = Some(domain.clone());
+                                                raw_packet.summary =
+                                                    format!("{} ({})", raw_packet.summary, domain);
+                                            }
                                         }
+                                        let _ = raw_packet_tx_w.try_send(raw_packet);
                                     }
-                                    let _ = raw_packet_tx_w.try_send(raw_packet);
                                 }
 
                                 if decision.should_forward {
@@ -3514,12 +3557,13 @@ impl FirewallEngine {
         let mut remember_pending_as_unknown_app = true;
         let mut website_decision_key: Option<String> = None;
         let mut website_target: Option<String> = None;
-        let (late_blocking_mode, tls_proxy_cfg, log_mode, no_alert_mode) = {
+        let (late_blocking_mode, tls_proxy_cfg, log_mode, show_blocked_only, no_alert_mode) = {
             let s = settings.read().unwrap();
             (
                 s.late_blocking_mode,
                 s.tls_proxy.clone(),
                 s.log_mode,
+                s.show_blocked_only,
                 s.no_alert_mode,
             )
         };
@@ -3976,7 +4020,7 @@ impl FirewallEngine {
                         .is_ok()
             };
 
-            if should_log {
+            if should_log && !show_blocked_only {
                 let mut context = Self::format_packet_context(&info);
 
                 // DNS Snooping context enrichment
@@ -4884,11 +4928,7 @@ fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
                 0
             } else {
                 let shift = 32u32.checked_sub(prefix_len).unwrap_or(0);
-                if shift >= 32 {
-                    0
-                } else {
-                    !0u32 << shift
-                }
+                if shift >= 32 { 0 } else { !0u32 << shift }
             };
             (u32::from(v4) & mask) == (u32::from(net) & mask)
         }
@@ -4903,11 +4943,7 @@ fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
                 0
             } else {
                 let shift = 128u32.checked_sub(prefix_len).unwrap_or(0);
-                if shift >= 128 {
-                    0
-                } else {
-                    !0u128 << shift
-                }
+                if shift >= 128 { 0 } else { !0u128 << shift }
             };
             (u128::from(v6) & mask) == (u128::from(net) & mask)
         }

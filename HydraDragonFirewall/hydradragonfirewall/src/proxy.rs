@@ -551,15 +551,18 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Emit events ─────────────────────────────────────────────────────────
     let ts = now_ts();
-    emit_log_event(
-        &app,
-        LogEntry {
-            id: format!("{}-intercept-{}-{}", ts, host, port),
-            timestamp: ts,
-            level: LogLevel::Info,
-            message: format!("Proxy: {} {}:{}{} → {}", method, host, port, path, status),
-        },
-    );
+    let show_blocked_only = settings.read().unwrap().show_blocked_only;
+    if !show_blocked_only {
+        emit_log_event(
+            &app,
+            LogEntry {
+                id: format!("{}-intercept-{}-{}", ts, host, port),
+                timestamp: ts,
+                level: LogLevel::Info,
+                message: format!("Proxy: {} {}:{}{} → {}", method, host, port, path, status),
+            },
+        );
+    }
 
     if request_body.is_some() || response_body.is_some() {
         if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
@@ -576,30 +579,32 @@ async fn handle_proxy_request<R: Runtime>(
         }
     }
 
-    let _ = app.emit(
-        "proxy_http",
-        ProxyHttpEvent {
-            id: format!("{}-http-{}-{}", ts, host, port),
-            timestamp: ts,
-            method,
-            host,
-            port,
-            path,
-            full_url,
-            status,
-            request_headers,
-            response_headers,
-            user_agent,
-            content_type,
-            referer,
-            response_content_type,
-            response_content_length,
-            request_body,
-            request_body_truncated: body_truncated,
-            response_body,
-            response_body_truncated: res_body_truncated,
-        },
-    );
+    if !show_blocked_only {
+        let _ = app.emit(
+            "proxy_http",
+            ProxyHttpEvent {
+                id: format!("{}-http-{}-{}", ts, host, port),
+                timestamp: ts,
+                method,
+                host,
+                port,
+                path,
+                full_url,
+                status,
+                request_headers,
+                response_headers,
+                user_agent,
+                content_type,
+                referer,
+                response_content_type,
+                response_content_length,
+                request_body,
+                request_body_truncated: body_truncated,
+                response_body,
+                response_body_truncated: res_body_truncated,
+            },
+        );
+    }
 
     Ok(http_mitm_proxy::hyper::Response::from_parts(
         res_parts,
