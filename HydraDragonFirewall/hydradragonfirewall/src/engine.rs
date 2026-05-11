@@ -247,16 +247,9 @@ fn default_queue_total() -> usize {
 }
 
 fn firewall_data_dir() -> PathBuf {
-    if let Ok(program_data) = std::env::var("PROGRAMDATA") {
-        return PathBuf::from(program_data)
-            .join("HydraDragonAntivirus")
-            .join("HydraDragonFirewall");
-    }
-
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
+    PathBuf::from("C:\\ProgramData")
+        .join("HydraDragonAntivirus")
+        .join("HydraDragonFirewall")
 }
 
 fn firewall_log_file_path() -> PathBuf {
@@ -4316,11 +4309,9 @@ impl FirewallEngine {
             return;
         }
 
-        let qdir = if let Ok(program_data) = std::env::var("PROGRAMDATA") {
-            PathBuf::from(program_data)
-                .join("HydraDragonAntivirus")
-                .join("Quarantine")
-        }
+        let qdir = PathBuf::from("C:\\ProgramData")
+            .join("HydraDragonAntivirus")
+            .join("Quarantine");
         let _ = fs::create_dir_all(&qdir);
         let dst = Self::build_quarantine_destination(src, &qdir);
         let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());

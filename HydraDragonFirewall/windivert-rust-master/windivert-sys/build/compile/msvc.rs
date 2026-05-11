@@ -29,6 +29,11 @@ pub fn dll() {
     };
 
     for &flag in DYNAMIC_CL_ARGS {
+        if flag == r#"/link"# {
+            compiler.arg(&format!(r#"/Fo{out_dir}\windivert.obj"#));
+            compiler.arg(&format!(r#"/Fd{out_dir}\WinDivertCompile.pdb"#));
+            compiler.arg(r#"/FS"#);
+        }
         compiler.arg(flag);
     }
 
@@ -59,9 +64,7 @@ pub fn dll() {
             format!(r#"{out_dir}\WinDivert.lib"#),
             format!(r#"{dylib_save_dir}\WinDivert.lib"#),
         );
-    } else {
-        println!("cargo:warning=Environment variable {DLL_OUTPUT_PATH_ARG} not found, compiled dll & lib files will be stored on {out_dir}");
-    };
+    }
 }
 
 const DYNAMIC_CL_ARGS: &[&str] = &[

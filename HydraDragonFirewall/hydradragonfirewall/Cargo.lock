@@ -5304,8 +5304,3 @@ name = "zmij"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9747e91771f56fd7893e1164abd78febd14a670ceec257caad15e051de35f06"
-
-[[patch.unused]]
-name = "boringtun"
-version = "0.6.0"
-source = "git+https://github.com/cloudflare/boringtun?rev=2f3c85f5c4a601018c10b464b1ca890d9504bf6e#2f3c85f5c4a601018c10b464b1ca890d9504bf6e"

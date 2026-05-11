@@ -53,5 +53,3 @@ windows = { version = "0.62.2", features = [
     "Win32_Security_Cryptography",
 ] }
 
-[patch.crates-io]
-boringtun = { git = "https://github.com/cloudflare/boringtun", rev = "2f3c85f5c4a601018c10b464b1ca890d9504bf6e" }

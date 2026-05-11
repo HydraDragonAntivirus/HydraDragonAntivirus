@@ -34,19 +34,6 @@ fn body_changers_path() -> std::path::PathBuf {
     dir.join("body_changers.json")
 }
 
-fn firewall_data_dir() -> std::path::PathBuf {
-    if let Ok(program_data) = std::env::var("PROGRAMDATA") {
-        return std::path::PathBuf::from(program_data)
-            .join("HydraDragonAntivirus")
-            .join("HydraDragonFirewall");
-    }
-
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-}
-
 fn load_body_changers() -> Vec<BodyChangerRule> {
     let path = body_changers_path();
     std::fs::read_to_string(&path)
@@ -510,11 +497,9 @@ async fn get_owlyshield_report_raw(path: Option<String>) -> String {
 
 #[tauri::command]
 async fn list_firewall_quarantine_files() -> FirewallQuarantineDirectoryView {
-    let dir = if let Ok(program_data) = std::env::var("PROGRAMDATA") {
-        std::path::PathBuf::from(program_data)
-            .join("HydraDragonAntivirus")
-            .join("Quarantine")
-    }
+    let dir = std::path::PathBuf::from("C:\\ProgramData")
+        .join("HydraDragonAntivirus")
+        .join("Quarantine");
     let mut files = if dir.is_dir() {
         std::fs::read_dir(&dir)
             .ok()

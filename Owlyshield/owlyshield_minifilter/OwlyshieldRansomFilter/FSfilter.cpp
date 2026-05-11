@@ -1266,6 +1266,8 @@ Return Value:
         NTSTATUS rmImageStatus = PsRemoveLoadImageNotifyRoutine(ImageLoadCallback);
 #if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: PsRemoveLoadImageNotifyRoutine => 0x%X\n", rmImageStatus);
+#else
+        (void)rmImageStatus;
 #endif
         g_ImageNotifyRegistered = FALSE;
     }
@@ -1275,6 +1277,8 @@ Return Value:
         NTSTATUS rmThreadStatus = PsRemoveCreateThreadNotifyRoutine(ThreadCreationCallback);
 #if IS_DEBUG_IRP
         DbgPrint("!!! FSfilter: PsRemoveCreateThreadNotifyRoutine => 0x%X\n", rmThreadStatus);
+#else
+        (void)rmThreadStatus;
 #endif
         g_ThreadNotifyRegistered = FALSE;
     }
