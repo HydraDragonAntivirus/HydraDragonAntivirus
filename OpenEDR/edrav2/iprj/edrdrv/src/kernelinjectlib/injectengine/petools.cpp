@@ -125,58 +125,41 @@ namespace petools {
 
 	__try
 	{
-		// Validate ImageBase is a valid PE image
-		if (!MmIsAddressValid(ImageBase))
-		{
-			LOGERROR(STATUS_INVALID_PARAMETER, "Invalid ImageBase %p\r\n", ImageBase);
-			return nullptr;
-		}
-
-		// Manually parse PE headers instead of using RtlImageDirectoryEntryToData for user-mode addresses
+		// For user-mode addresses, we rely on exception handling rather than MmIsAddressValid
+		// which doesn't work reliably for user-mode memory even after process attachment
+		
+		// Parse DOS header
 		PIMAGE_DOS_HEADER dosHeader = static_cast<PIMAGE_DOS_HEADER>(ImageBase);
-		if (!MmIsAddressValid(dosHeader) || dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+		if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid DOS header at %p (magic: 0x%X)\r\n", ImageBase,
-				MmIsAddressValid(dosHeader) ? dosHeader->e_magic : 0);
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid DOS signature at %p (magic: 0x%X)\r\n", ImageBase, dosHeader->e_magic);
 			return nullptr;
 		}
 
-		// Validate e_lfanew is reasonable (not too large, properly aligned)
-		if (dosHeader->e_lfanew == 0 || dosHeader->e_lfanew > 0x10000000 || (dosHeader->e_lfanew & 3) != 0)
+		// Validate e_lfanew is reasonable
+		if (dosHeader->e_lfanew == 0 || dosHeader->e_lfanew > 0x10000000)
 		{
 			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid e_lfanew offset: 0x%X\r\n", dosHeader->e_lfanew);
 			return nullptr;
 		}
 
+		// Parse NT headers
 		PIMAGE_NT_HEADERS ntHeaders = static_cast<PIMAGE_NT_HEADERS>(Add2Ptr(ImageBase, dosHeader->e_lfanew));
-		if (!MmIsAddressValid(ntHeaders))
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "NT headers at %p is not accessible\r\n", ntHeaders);
-			return nullptr;
-		}
-
-		// Validate we can read the full NT headers structure
-		if (!MmIsAddressValid(Add2Ptr(ntHeaders, sizeof(IMAGE_NT_HEADERS) - 1)))
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "NT headers structure at %p is not fully accessible\r\n", ntHeaders);
-			return nullptr;
-		}
-
 		if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
 		{
 			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid NT signature at %p (sig: 0x%X)\r\n", ntHeaders, ntHeaders->Signature);
 			return nullptr;
 		}
 
-		// Get export directory from data directory
+		// Get export directory
 		PIMAGE_DATA_DIRECTORY exportDataDir = &ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
-		if (!MmIsAddressValid(exportDataDir) || exportDataDir->VirtualAddress == 0 || exportDataDir->Size == 0)
+		if (exportDataDir->VirtualAddress == 0 || exportDataDir->Size == 0)
 		{
 			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "No export directory for image %p\r\n", ImageBase);
 			return nullptr;
 		}
 
-		// Validate export directory RVA is within reasonable bounds (typical DLLs are < 100MB)
+		// Validate export directory RVA is within reasonable bounds
 		if (exportDataDir->VirtualAddress > 0x10000000 || exportDataDir->Size > 0x1000000)
 		{
 			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory RVA/Size out of bounds (RVA: 0x%X, Size: 0x%X)\r\n",
@@ -188,21 +171,7 @@ namespace petools {
 		const PIMAGE_EXPORT_DIRECTORY exportDirectory = static_cast<PIMAGE_EXPORT_DIRECTORY>(
 			Add2Ptr(ImageBase, exportDataDir->VirtualAddress));
 
-		// Validate export directory is within image bounds
-		if (!MmIsAddressValid(exportDirectory))
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory at %p is not valid\r\n", exportDirectory);
-			return nullptr;
-		}
-
-		// Additional validation: check if we can read the export directory structure
-		if (!MmIsAddressValid(Add2Ptr(exportDirectory, sizeof(IMAGE_EXPORT_DIRECTORY) - 1)))
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory structure at %p is not fully accessible\r\n", exportDirectory);
-			return nullptr;
-		}
-
-		// Validate export table pointers before dereferencing
+		// Validate export table pointers
 		if (exportDirectory->AddressOfNames == 0 ||
 			exportDirectory->AddressOfNameOrdinals == 0 ||
 			exportDirectory->AddressOfFunctions == 0)
@@ -211,54 +180,21 @@ namespace petools {
 			return nullptr;
 		}
 
+		// Get export tables - exception handling will catch invalid memory access
 		const PULONG nameTableBase = static_cast<PULONG>(Add2Ptr(ImageBase, exportDirectory->AddressOfNames));
-		if (!MmIsAddressValid(nameTableBase))
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Name table at %p is not valid\r\n", nameTableBase);
-			return nullptr;
-		}
-
 		const PUSHORT ordinalsTableBase = static_cast<PUSHORT>(Add2Ptr(ImageBase, exportDirectory->AddressOfNameOrdinals));
-		if (!MmIsAddressValid(ordinalsTableBase))
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Ordinals table at %p is not valid\r\n", ordinalsTableBase);
-			return nullptr;
-		}
-
 		const PULONG addressTableBase = static_cast<PULONG>(Add2Ptr(ImageBase, exportDirectory->AddressOfFunctions));
-		if (!MmIsAddressValid(addressTableBase))
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Address table at %p is not valid\r\n", addressTableBase);
-			return nullptr;
-		}
 
+		// Search for the function by name
 		for (ULONG hintIndex = 0; hintIndex < exportDirectory->NumberOfNames; hintIndex++)
 		{
-			// Validate array access
-			if (!MmIsAddressValid(&nameTableBase[hintIndex]))
-			{
-				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Name table entry %lu is not valid\r\n", hintIndex);
-				continue;
-			}
-
 			const PSTR currentName = static_cast<PSTR>(Add2Ptr(ImageBase, nameTableBase[hintIndex]));
-			if (!MmIsAddressValid(currentName))
-			{
-				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Name string at %p is not valid\r\n", currentName);
-				continue;
-			}
-
+			
 			const ULONG maxLength = PtrOffset(currentName, Add2Ptr(exportDirectory, exportSize));
 			if (!equalStrings(currentName, ProcName.Buffer, min(maxLength, ProcName.MaximumLength)))
 				continue;
 
-			// Validate ordinal access
-			if (!MmIsAddressValid(&ordinalsTableBase[hintIndex]))
-			{
-				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Ordinal entry %lu is not valid\r\n", hintIndex);
-				return nullptr;
-			}
-
+			// Found the function name, get its ordinal
 			const USHORT ordinal = ordinalsTableBase[hintIndex];
 			
 			// Validate ordinal is within bounds
@@ -268,22 +204,8 @@ namespace petools {
 				return nullptr;
 			}
 
-			// Validate function address access
-			if (!MmIsAddressValid(&addressTableBase[ordinal]))
-			{
-				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Function address entry %u is not valid\r\n", ordinal);
-				return nullptr;
-			}
-
+			// Get function address
 			PVOID functionAddress = Add2Ptr(ImageBase, addressTableBase[ordinal]);
-			
-			// Validate the resolved function address
-			if (!MmIsAddressValid(functionAddress))
-			{
-				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Function address %p is not valid\r\n", functionAddress);
-				return nullptr;
-			}
-
 			return functionAddress;
 		}
 	}
