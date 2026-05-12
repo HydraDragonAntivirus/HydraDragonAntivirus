@@ -5,12 +5,9 @@ on:
     branches: ["**"]
     paths:
       - 'HydraDragonLauncher/**'
+      - '!HydraDragonLauncher/README.md'
       - '.github/workflows/launcher-check.yml'
-  pull_request:
-    branches: ["**"]
-    paths:
-      - 'HydraDragonLauncher/**'
-      - '.github/workflows/launcher-check.yml'
+      - '.github/workflows/publish-binaries.yml'
   workflow_dispatch:
 
 permissions:
@@ -67,6 +64,10 @@ jobs:
       - name: Build
         working-directory: HydraDragonLauncher
         run: cargo build --verbose
+
+      - name: Build Release
+        working-directory: HydraDragonLauncher
+        run: cargo build --release --verbose
 
       - name: Run tests
         working-directory: HydraDragonLauncher
