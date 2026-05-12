@@ -523,7 +523,7 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		Status = STATUS_SUCCESS;
 
-		break;
+		return Status;
 	}
 	case IOCTL_WRITE:
 	{
@@ -541,7 +541,7 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		Status = STATUS_SUCCESS;
 
-		break;
+		return Status;
 	}
 	case IOCTL_CLOSE_FILE:
 	{
@@ -551,7 +551,7 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		Status = STATUS_SUCCESS;
 
-		break;
+		return Status;
 	}
 	case IOCTL_BREAKPOINT_PASS:
 	{
@@ -561,7 +561,7 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		Status = STATUS_SUCCESS;
 
-		break;
+		return Status;
 	}
 	case IOCTL_BUFFER_CHECK_SUCCESS:
 	{
@@ -570,7 +570,7 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		Status = STATUS_SUCCESS;
 
-		break;
+		return Status;
 	}
 	case IOCTL_PE_ANALYZE:
 	{
@@ -589,9 +589,18 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		Status = STATUS_SUCCESS;
 
+		return Status;
+	}
+	default:
+		Status = STATUS_INVALID_DEVICE_REQUEST;
 		break;
 	}
-	}
+
+	// Complete IRP for cases that use break (IOCTL_REGISTER_EVENT and default)
+	Irp->IoStatus.Status = Status;
+	Irp->IoStatus.Information = 0;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
 	return Status;
 }
 

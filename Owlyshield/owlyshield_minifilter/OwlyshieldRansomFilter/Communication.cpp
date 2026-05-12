@@ -13,8 +13,8 @@ extern "C" NTSTATUS SetHookExcludeRulesFromBuffer(
 // IOCTL for Hypervisor communication
 #define IOCTL_REGISTER_OWLY_CALLBACK CTL_CODE(FILE_DEVICE_UNKNOWN, 0x815, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define OWLY_HV_COMM_MAGIC 0x4F574C59
-#define OWLY_VMM_REGISTER_TIMEOUT_100NS (3LL * 1000LL * 1000LL * 10LL)
-#define OWLY_VMM_CANCEL_TIMEOUT_100NS (500LL * 1000LL * 10LL)
+#define OWLY_VMM_REGISTER_TIMEOUT_100NS (500LL * 1000LL * 10LL)  // Reduced to 500ms to prevent VM freeze
+#define OWLY_VMM_CANCEL_TIMEOUT_100NS (200LL * 1000LL * 10LL)    // Reduced to 200ms
 #define OWLY_VMM_REGISTER_POOL_TAG 'rVmO'
 
 typedef struct _OWLY_HV_COMM_DATA {
@@ -84,10 +84,21 @@ static NTSTATUS OwlySendVmmRegistrationIoctl(_In_opt_ PVOID CallbackRoutine)
     PIO_STACK_LOCATION stack;
     LARGE_INTEGER timeout;
     NTSTATUS status;
+    KIRQL currentIrql;
 
     if (g_HvDeviceObject == NULL || g_HvFileObject == NULL)
     {
         return STATUS_DEVICE_NOT_READY;
+    }
+
+    // CRITICAL: Verify we're at safe IRQL for waiting
+    currentIrql = KeGetCurrentIrql();
+    if (currentIrql > APC_LEVEL)
+    {
+#if IS_DEBUG_IRP
+        DbgPrint("!!! Owlyshield: Cannot register VMM callback at IRQL %d (must be <= APC_LEVEL)\n", currentIrql);
+#endif
+        return STATUS_INVALID_DEVICE_STATE;
     }
 
     context = (POWLY_VMM_REGISTER_CONTEXT)ExAllocatePool2(
@@ -202,16 +213,20 @@ NTSTATUS InitVmmCommunication() {
 #endif
         } else {
 #if IS_DEBUG_IRP
-            DbgPrint("!!! Owlyshield: Failed to register callback: 0x%X\n", status);
+            DbgPrint("!!! Owlyshield: Failed to register callback: 0x%X (non-fatal, continuing)\n", status);
 #endif
+            // Don't fail driver load if VMM registration fails - it's optional
             ObDereferenceObject(g_HvFileObject);
             g_HvFileObject = NULL;
             g_HvDeviceObject = NULL;
+            status = STATUS_SUCCESS;  // Continue driver initialization
         }
     } else {
 #if IS_DEBUG_IRP
-        DbgPrint("!!! Owlyshield: No standalone Hypervisor found (Intel/AMD).\n");
+        DbgPrint("!!! Owlyshield: No standalone Hypervisor found (Intel/AMD). Continuing without VMM.\n");
 #endif
+        // Not having a hypervisor is not a failure - continue normally
+        status = STATUS_SUCCESS;
     }
 
     return status;
