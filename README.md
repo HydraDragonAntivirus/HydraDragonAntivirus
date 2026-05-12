@@ -177,10 +177,9 @@ https://github.com/adrianyy/kernelhook/issues/1
 
 ### Process Protection & Orchestration
 
-- **Unified Orchestration**: The `HydraDragonService` acts as the master orchestrator for the entire security stack. It manages the lifecycle of the C++ AV Engine, the Python EDR Core, and the Sanctum PPL Runner.
-- **Auto-Healing**: If any core security engine crashes, the service automatically detects the failure and relaunches it with an exponential backoff.
-- **Protected Service**: The antivirus service itself is protected. While it can be manually terminated by an Administrator, malware cannot terminate it as the driver verifies the origin of all termination requests.
-- **Manual Control**: If you close the GUI manually, the background security engines remain active under the service's supervision.
+- **Unified Orchestration**: The `HydraDragonLauncher` acts as the master orchestrator for the entire security stack. It manages the lifecycle of the C++ AV Engine, the Python EDR Core, and the Sanctum PPL Runner.
+- **Protected Launcher**: The antivirus launcher itself is protected. While it can be manually terminated by an Administrator, malware cannot terminate it as the driver verifies the origin of all termination requests.
+- **Manual Control**: If you close the GUI manually, the background security engines remain active under the launcher's supervision.
 
 ---
 
@@ -412,7 +411,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
   - **Core Engines (AV/Python)**: Look in `%ProgramFiles%\HydraDragonAntivirus\hydradragon\antivirus_scripts\log\`
   - **Sanctum Engine**: Look in `%ProgramFiles%\HydraDragonAntivirus\hydradragon\Sanctum\logs\sanctum.log`
   - **Sanctum PPL Runner**: This component logs to the **Windows Event Log** (Source: `SanctumPPLRunner`). Check Event Viewer -> Windows Logs -> Application.
-  - **Main Service**: Logs to the **Windows Event Log** (Source: `HydraDragonService`).
+  - **Main Launcher**: Logs to the **Windows Event Log** (Source: `HydraDragonLauncher`).
 
 ### Tip 4:
 - Close the Windows Firewall on the VM to avoid any firewall blocking. We are testing this program not Windows Firewall.

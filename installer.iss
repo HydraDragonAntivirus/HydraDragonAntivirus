@@ -6,8 +6,8 @@
 #define MyVersionInfoVersion "0.1.0.0"
 #define MyAppPublisher "Emirhan Ucan"
 #define MyAppURL "https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"
-#define MyAppExeName "hydradragon\\HydraDragonService\\HydraDragonService.exe"
-#define MyAppExeFile "HydraDragonService.exe"
+#define MyAppExeName "hydradragon\\HydraDragonLauncher\\hydradragonlauncher.exe"
+#define MyAppExeFile "hydradragonlauncher.exe"
 #define MyAppAssocName MyAppName + " File"
 #define MyAppAssocExt ".myp"
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
@@ -266,11 +266,6 @@ begin
   Lines[i] := 'setlocal enabledelayedexpansion'; Inc(i);
   Lines[i] := 'echo HydraDragon Antivirus - Safe Mode Cleanup'; Inc(i);
   Lines[i] := ''; Inc(i);
-  Lines[i] := 'taskkill /f /im HydraDragonService.exe 2>nul'; Inc(i);
-  Lines[i] := 'taskkill /f /im owlyshield_ransom.exe 2>nul'; Inc(i);
-  Lines[i] := 'taskkill /f /im hydradragonfirewall.exe 2>nul'; Inc(i);
-  Lines[i] := 'taskkill /f /im edrsvc.exe 2>nul'; Inc(i);
-  Lines[i] := 'taskkill /f /im um_engine.exe 2>nul'; Inc(i);
   Lines[i] := ''; Inc(i);
   Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\OwlyshieldRansomFilter.sys" 2>nul'; Inc(i);
   Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\MBRFilter.sys" 2>nul'; Inc(i);

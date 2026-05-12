@@ -102,7 +102,7 @@ call :install_driver_inf "HyperDbg" "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyper
 :: --------------------------------------------------------
 :: 10) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
-set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonService\HydraDragonService.exe"
+set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonLauncher\hydradragonlauncher.exe"
 set "HD_TASK_EXISTS=0"
 
 if not exist "%HD_TASK_EXE%" (

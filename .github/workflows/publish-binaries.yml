@@ -193,23 +193,22 @@ jobs:
 
 
 
-  build-service:
+  build-launcher:
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '8.0.x'
-      - name: Publish Service
-        run: dotnet publish HydraDragonService/HydraDragonService/HydraDragonService.csproj -c Release -r win-x64 --self-contained false -o publish/
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Launcher
+        working-directory: HydraDragonLauncher
+        run: cargo build --release
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: bin-service
-          path: publish/
+          name: bin-launcher
+          path: HydraDragonLauncher/target/release/hydradragonlauncher.exe
 
   # --- GROUP 3: Rust Projects (Separated) ---
 
@@ -529,7 +528,7 @@ jobs:
   # --- FINAL STAGE: Collect and PR ---
 
   stage-and-pr:
-    needs: 
+    needs:
       - build-tinyantivirus
       - build-hydradragonav
       - build-mbrfilter
@@ -537,7 +536,7 @@ jobs:
       - build-owlyshield-minifilter
       - build-reddbg
       - build-megadumper
-      - build-service
+      - build-launcher
       - build-owlyshield-rust
       - build-tensorflowlite
       - build-firewall-rust
@@ -694,13 +693,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path "HydraDragonFirewall/hydradragonfirewall/target/release"
           $fwRust | Copy-Item -Destination "HydraDragonFirewall/hydradragonfirewall/target/release/" -Force
 
-          # --- Service ---
-
-          $serviceRoot = Get-PublishRoot -ArtifactDir "bin-service" -RequiredFile "HydraDragonService.exe"
-          Sync-PublishTree -Source $serviceRoot -Destination "$distRoot/HydraDragonService"
-          Sync-PublishTree -Source $serviceRoot -Destination "HydraDragonService/HydraDragonService/bin/Release/net8.0-windows/publish"
-          # Remove PDBs only for the Service
-          Get-ChildItem -Path "$distRoot/HydraDragonService", "HydraDragonService/HydraDragonService/bin/Release/net8.0-windows/publish" -Filter "*.pdb" -Recurse | Remove-Item -Force
+          # --- Launcher (Rust) ---
+          $launcher = Get-ChildItem "bin-launcher/" -Filter "hydradragonlauncher.exe" -Recurse
+          $launcher | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
+          New-Item -ItemType Directory -Force -Path "HydraDragonLauncher/target/release"
+          $launcher | Copy-Item -Destination "HydraDragonLauncher/target/release/" -Force
 
           # --- Sanctum Stack ---
           # System/Kernel Files (to AppData)
@@ -764,7 +761,7 @@ jobs:
             "bin-owlyshield-rust",
             "bin-pyasprotection",
             "bin-reddbg",
-            "bin-service",
+            "bin-launcher",
             "bin-tinyantivirus",
             "bin-owlyshield-tools",
             "bin-sanctum"
@@ -815,7 +812,7 @@ jobs:
             "bin-tensorflowlite",
             "bin-pyasprotection",
             "bin-reddbg",
-            "bin-service",
+            "bin-launcher",
             "bin-tinyantivirus",
             "bin-sanctum"
           )

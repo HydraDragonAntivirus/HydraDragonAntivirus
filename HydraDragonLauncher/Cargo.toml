@@ -1,0 +1,33 @@
+[package]
+name = "hydradragonlauncher"
+version = "1.0.0"
+edition = "2021"
+authors = ["HydraDragon Team"]
+description = "HydraDragon Antivirus Component Launcher"
+
+[dependencies]
+tokio = { version = "1.44", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+ctrlc = "3.4"
+
+[dependencies.windows]
+version = "0.61"
+features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_Security",
+]
+
+[[bin]]
+name = "hydradragonlauncher"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

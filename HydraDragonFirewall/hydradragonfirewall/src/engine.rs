@@ -263,12 +263,6 @@ fn default_website_path() -> String {
     if repo_path.exists() {
         return repo_path.to_string_lossy().to_string();
     }
-
-    let local_path = PathBuf::from("website");
-    if local_path.exists() {
-        return local_path.to_string_lossy().to_string();
-    }
-
     "hydradragon\\website".to_string()
 }
 
