@@ -179,7 +179,7 @@ https://github.com/adrianyy/kernelhook/issues/1
 
 - **Unified Orchestration**: The `HydraDragonLauncher` acts as the master orchestrator for the entire security stack. It manages the lifecycle of the C++ AV Engine, the Python EDR Core, and the Sanctum PPL Runner.
 - **Protected Launcher**: The antivirus launcher itself is protected. While it can be manually terminated by an Administrator, malware cannot terminate it as the driver verifies the origin of all termination requests.
-- **Manual Control**: If you close the GUI manually, the background security engines remain active under the launcher's supervision.
+- **Manual Control**: If you close the GUI manually, the background security engines remain active.
 
 ---
 
