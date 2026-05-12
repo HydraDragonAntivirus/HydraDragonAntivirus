@@ -132,20 +132,73 @@ namespace petools {
 			return nullptr;
 		}
 
-		ULONG exportSize = 0;
-		const PIMAGE_EXPORT_DIRECTORY exportDirectory = static_cast<PIMAGE_EXPORT_DIRECTORY>(RtlImageDirectoryEntryToData(
-			ImageBase, TRUE, IMAGE_DIRECTORY_ENTRY_EXPORT, &exportSize));
-		
-		if (nullptr == exportDirectory || exportSize == 0)
+		// Manually parse PE headers instead of using RtlImageDirectoryEntryToData for user-mode addresses
+		PIMAGE_DOS_HEADER dosHeader = static_cast<PIMAGE_DOS_HEADER>(ImageBase);
+		if (!MmIsAddressValid(dosHeader) || dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid export directory for image %p\r\n", ImageBase);
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid DOS header at %p (magic: 0x%X)\r\n", ImageBase,
+				MmIsAddressValid(dosHeader) ? dosHeader->e_magic : 0);
 			return nullptr;
 		}
+
+		// Validate e_lfanew is reasonable (not too large, properly aligned)
+		if (dosHeader->e_lfanew == 0 || dosHeader->e_lfanew > 0x10000000 || (dosHeader->e_lfanew & 3) != 0)
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid e_lfanew offset: 0x%X\r\n", dosHeader->e_lfanew);
+			return nullptr;
+		}
+
+		PIMAGE_NT_HEADERS ntHeaders = static_cast<PIMAGE_NT_HEADERS>(Add2Ptr(ImageBase, dosHeader->e_lfanew));
+		if (!MmIsAddressValid(ntHeaders))
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "NT headers at %p is not accessible\r\n", ntHeaders);
+			return nullptr;
+		}
+
+		// Validate we can read the full NT headers structure
+		if (!MmIsAddressValid(Add2Ptr(ntHeaders, sizeof(IMAGE_NT_HEADERS) - 1)))
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "NT headers structure at %p is not fully accessible\r\n", ntHeaders);
+			return nullptr;
+		}
+
+		if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid NT signature at %p (sig: 0x%X)\r\n", ntHeaders, ntHeaders->Signature);
+			return nullptr;
+		}
+
+		// Get export directory from data directory
+		PIMAGE_DATA_DIRECTORY exportDataDir = &ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+		if (!MmIsAddressValid(exportDataDir) || exportDataDir->VirtualAddress == 0 || exportDataDir->Size == 0)
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "No export directory for image %p\r\n", ImageBase);
+			return nullptr;
+		}
+
+		// Validate export directory RVA is within reasonable bounds (typical DLLs are < 100MB)
+		if (exportDataDir->VirtualAddress > 0x10000000 || exportDataDir->Size > 0x1000000)
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory RVA/Size out of bounds (RVA: 0x%X, Size: 0x%X)\r\n",
+				exportDataDir->VirtualAddress, exportDataDir->Size);
+			return nullptr;
+		}
+
+		ULONG exportSize = exportDataDir->Size;
+		const PIMAGE_EXPORT_DIRECTORY exportDirectory = static_cast<PIMAGE_EXPORT_DIRECTORY>(
+			Add2Ptr(ImageBase, exportDataDir->VirtualAddress));
 
 		// Validate export directory is within image bounds
 		if (!MmIsAddressValid(exportDirectory))
 		{
 			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory at %p is not valid\r\n", exportDirectory);
+			return nullptr;
+		}
+
+		// Additional validation: check if we can read the export directory structure
+		if (!MmIsAddressValid(Add2Ptr(exportDirectory, sizeof(IMAGE_EXPORT_DIRECTORY) - 1)))
+		{
+			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory structure at %p is not fully accessible\r\n", exportDirectory);
 			return nullptr;
 		}
 
