@@ -8,9 +8,6 @@ Abstract:
 
     This is the main module of the FSfilter miniFilter driver.
 
-    UPDATED: Replaced process hooking path with hypervisor/VMM monitoring
-             and proper Windows notification callbacks.
-
 Environment:
 
     Kernel mode
