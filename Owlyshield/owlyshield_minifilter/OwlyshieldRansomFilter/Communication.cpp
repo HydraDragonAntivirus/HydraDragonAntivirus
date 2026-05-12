@@ -12,17 +12,155 @@ extern "C" NTSTATUS SetHookExcludeRulesFromBuffer(
 
 // IOCTL for Hypervisor communication
 #define IOCTL_REGISTER_OWLY_CALLBACK CTL_CODE(FILE_DEVICE_UNKNOWN, 0x815, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define OWLY_HV_COMM_MAGIC 0x4F574C59
+#define OWLY_VMM_REGISTER_TIMEOUT_100NS (3LL * 1000LL * 1000LL * 10LL)
+#define OWLY_VMM_CANCEL_TIMEOUT_100NS (500LL * 1000LL * 10LL)
+#define OWLY_VMM_REGISTER_POOL_TAG 'rVmO'
 
 typedef struct _OWLY_HV_COMM_DATA {
     ULONG Magic;           // 0x4F574C59 ('OWLY')
     PVOID CallbackRoutine; // PHYPERDBG_OWLY_EVENT_CALLBACK
 } OWLY_HV_COMM_DATA, *POWLY_HV_COMM_DATA;
 
+typedef struct _OWLY_VMM_REGISTER_CONTEXT {
+    KEVENT Event;
+    IO_STATUS_BLOCK IoStatus;
+    OWLY_HV_COMM_DATA CommData;
+    PFILE_OBJECT FileObject;
+    PIRP Irp;
+    volatile LONG Completed;
+    volatile LONG Abandoned;
+} OWLY_VMM_REGISTER_CONTEXT, *POWLY_VMM_REGISTER_CONTEXT;
+
 static PDEVICE_OBJECT g_HvDeviceObject = NULL;
 static PFILE_OBJECT g_HvFileObject = NULL;
+static BOOLEAN g_HvCallbackRegistered = FALSE;
 
+// Some VMM bridge revisions returned from the register IOCTL without
+// completing the IRP, while others can pend behind VMX/SVM work. Keep every
+// buffer in nonpaged pool and bound the wait so DriverEntry never wedges.
+static VOID OwlyFreeVmmRegisterContext(_In_ POWLY_VMM_REGISTER_CONTEXT Context)
+{
+    if (Context->Irp != NULL)
+    {
+        IoFreeIrp(Context->Irp);
+        Context->Irp = NULL;
+    }
 
+    if (Context->FileObject != NULL)
+    {
+        ObDereferenceObject(Context->FileObject);
+        Context->FileObject = NULL;
+    }
 
+    ExFreePoolWithTag(Context, OWLY_VMM_REGISTER_POOL_TAG);
+}
+
+static NTSTATUS OwlyVmmRegisterCompletion(_In_ PDEVICE_OBJECT DeviceObject,
+                                           _In_ PIRP Irp,
+                                           _In_opt_ PVOID Context)
+{
+    POWLY_VMM_REGISTER_CONTEXT registerContext = (POWLY_VMM_REGISTER_CONTEXT)Context;
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    if (registerContext != NULL)
+    {
+        registerContext->IoStatus = Irp->IoStatus;
+        InterlockedExchange(&registerContext->Completed, 1);
+        KeSetEvent(&registerContext->Event, IO_NO_INCREMENT, FALSE);
+
+        if (InterlockedCompareExchange(&registerContext->Abandoned, 0, 0) != 0)
+        {
+            OwlyFreeVmmRegisterContext(registerContext);
+        }
+    }
+
+    return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
+static NTSTATUS OwlySendVmmRegistrationIoctl(_In_opt_ PVOID CallbackRoutine)
+{
+    POWLY_VMM_REGISTER_CONTEXT context;
+    PIO_STACK_LOCATION stack;
+    LARGE_INTEGER timeout;
+    NTSTATUS status;
+
+    if (g_HvDeviceObject == NULL || g_HvFileObject == NULL)
+    {
+        return STATUS_DEVICE_NOT_READY;
+    }
+
+    context = (POWLY_VMM_REGISTER_CONTEXT)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED, sizeof(OWLY_VMM_REGISTER_CONTEXT), OWLY_VMM_REGISTER_POOL_TAG);
+    if (context == NULL)
+    {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(context, sizeof(*context));
+    KeInitializeEvent(&context->Event, NotificationEvent, FALSE);
+    context->CommData.Magic = OWLY_HV_COMM_MAGIC;
+    context->CommData.CallbackRoutine = CallbackRoutine;
+    context->FileObject = g_HvFileObject;
+    ObReferenceObject(context->FileObject);
+
+    context->Irp = IoAllocateIrp(g_HvDeviceObject->StackSize, FALSE);
+    if (context->Irp == NULL)
+    {
+        OwlyFreeVmmRegisterContext(context);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    context->Irp->AssociatedIrp.SystemBuffer = &context->CommData;
+    context->Irp->RequestorMode = KernelMode;
+    context->Irp->Tail.Overlay.Thread = PsGetCurrentThread();
+    context->Irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
+    context->Irp->IoStatus.Information = 0;
+    context->Irp->Flags = IRP_BUFFERED_IO;
+
+    stack = IoGetNextIrpStackLocation(context->Irp);
+    stack->MajorFunction = IRP_MJ_DEVICE_CONTROL;
+    stack->FileObject = g_HvFileObject;
+    stack->Parameters.DeviceIoControl.IoControlCode = IOCTL_REGISTER_OWLY_CALLBACK;
+    stack->Parameters.DeviceIoControl.InputBufferLength = sizeof(context->CommData);
+    stack->Parameters.DeviceIoControl.OutputBufferLength = 0;
+    stack->Parameters.DeviceIoControl.Type3InputBuffer = NULL;
+
+    IoSetCompletionRoutine(context->Irp, OwlyVmmRegisterCompletion, context, TRUE, TRUE, TRUE);
+
+    status = IoCallDriver(g_HvDeviceObject, context->Irp);
+    if (status != STATUS_PENDING &&
+        InterlockedCompareExchange(&context->Completed, 0, 0) == 0)
+    {
+#if IS_DEBUG_IRP
+        DbgPrint("!!! Owlyshield: VMM registration IOCTL returned 0x%X without completing IRP\n", status);
+#endif
+        OwlyFreeVmmRegisterContext(context);
+        return NT_SUCCESS(status) ? STATUS_INVALID_DEVICE_STATE : status;
+    }
+
+    timeout.QuadPart = -OWLY_VMM_REGISTER_TIMEOUT_100NS;
+    status = KeWaitForSingleObject(&context->Event, Executive, KernelMode, FALSE, &timeout);
+    if (status == STATUS_TIMEOUT)
+    {
+#if IS_DEBUG_IRP
+        DbgPrint("!!! Owlyshield: VMM registration IOCTL timed out, cancelling request\n");
+#endif
+        IoCancelIrp(context->Irp);
+
+        timeout.QuadPart = -OWLY_VMM_CANCEL_TIMEOUT_100NS;
+        status = KeWaitForSingleObject(&context->Event, Executive, KernelMode, FALSE, &timeout);
+        if (status == STATUS_TIMEOUT)
+        {
+            InterlockedExchange(&context->Abandoned, 1);
+            return STATUS_IO_TIMEOUT;
+        }
+    }
+
+    status = context->IoStatus.Status;
+    OwlyFreeVmmRegisterContext(context);
+    return status;
+}
 
 // Callback from Hypervisor (Intel/AMD)
 static VOID NTAPI OwlyHypervisorCallback(PVOID EventDetails) {
@@ -52,28 +190,13 @@ NTSTATUS InitVmmCommunication() {
 #endif
 
         OWLY_HV_COMM_DATA commData = { 0 };
-        commData.Magic = 0x4F574C59;
+        commData.Magic = OWLY_HV_COMM_MAGIC;
         commData.CallbackRoutine = (PVOID)OwlyHypervisorCallback;
 
-        KEVENT event;
-        KeInitializeEvent(&event, NotificationEvent, FALSE);
-
-        PIRP irp = IoBuildDeviceIoControlRequest(IOCTL_REGISTER_OWLY_CALLBACK,
-                                                g_HvDeviceObject,
-                                                &commData, sizeof(commData),
-                                                NULL, 0,
-                                                FALSE, &event, NULL);
-        if (irp) {
-            status = IoCallDriver(g_HvDeviceObject, irp);
-            if (status == STATUS_PENDING) {
-                KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
-                status = irp->IoStatus.Status;
-            }
-        } else {
-            status = STATUS_INSUFFICIENT_RESOURCES;
-        }
+        status = OwlySendVmmRegistrationIoctl(commData.CallbackRoutine);
 
         if (NT_SUCCESS(status)) {
+            g_HvCallbackRegistered = TRUE;
 #if IS_DEBUG_IRP
             DbgPrint("!!! Owlyshield: Registered callback with standalone Hypervisor successfully.\n");
 #endif
@@ -92,6 +215,22 @@ NTSTATUS InitVmmCommunication() {
     }
 
     return status;
+}
+
+VOID CleanupVmmCommunication()
+{
+    if (g_HvFileObject != NULL && g_HvDeviceObject != NULL)
+    {
+        if (g_HvCallbackRegistered)
+        {
+            (VOID)OwlySendVmmRegistrationIoctl(NULL);
+            g_HvCallbackRegistered = FALSE;
+        }
+
+        ObDereferenceObject(g_HvFileObject);
+        g_HvFileObject = NULL;
+        g_HvDeviceObject = NULL;
+    }
 }
 
 

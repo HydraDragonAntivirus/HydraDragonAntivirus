@@ -66,8 +66,8 @@
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)Source/Deps/zydis/dependencies/zycore/include;$(ProjectDir)Source/Deps/zydis/include;$(ProjectDir)Include/Deps;$(ProjectDir)Include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NTSTRSAFE_LIB;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)Source/Deps/zydis/dependencies/zycore/include;$(ProjectDir)Source/Deps/zydis/include;$(ProjectDir)Include/Deps;$(ProjectDir)Include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\km;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NTSTRSAFE_LIB;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;_AMD64_=1;AMD64=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <TreatWarningAsError>false</TreatWarningAsError>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -90,8 +90,8 @@
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)Source/Deps/zydis/dependencies/zycore/include;$(ProjectDir)Source/Deps/zydis/include;$(ProjectDir)Include/Deps;$(ProjectDir)Include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NTSTRSAFE_LIB;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)Source/Deps/zydis/dependencies/zycore/include;$(ProjectDir)Source/Deps/zydis/include;$(ProjectDir)Include/Deps;$(ProjectDir)Include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\..\HyperDbg\hyperdbg\dependencies\zydis\dependencies\zycore\include;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\km;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NTSTRSAFE_LIB;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;POOL_NX_OPTIN=1;_AMD64_=1;AMD64=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <TreatWarningAsError>false</TreatWarningAsError>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <IntrinsicFunctions>true</IntrinsicFunctions>

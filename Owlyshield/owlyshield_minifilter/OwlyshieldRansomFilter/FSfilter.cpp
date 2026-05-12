@@ -1300,6 +1300,8 @@ Return Value:
     // Process Protection Cleanup (ObUnRegisterCallbacks)
     UninitProcessProtection();
 
+    CleanupVmmCommunication();
+
     UserModeHookEngineCleanup();
     // Cleanup memory-resident rules
     FSEnsurePyasRuleMutex();

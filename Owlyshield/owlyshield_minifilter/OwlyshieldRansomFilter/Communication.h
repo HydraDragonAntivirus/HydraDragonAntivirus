@@ -14,6 +14,7 @@ extern "C" {
 
 NTSTATUS InitCommData();
 NTSTATUS InitVmmCommunication();
+VOID CleanupVmmCommunication();
 
 // close the comm handler, close both ports
 void CommClose();

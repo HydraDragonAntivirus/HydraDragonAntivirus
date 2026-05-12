@@ -15,6 +15,8 @@
 #include "RedDbgOwly.hpp"
 
 POWLY_HV_CALLBACK g_OwlyCallback = NULL;
+HANDLE g_PollingThreadHandle = NULL;
+BOOLEAN g_StopPolling = FALSE;
 
 HyperVisorSvm objHyperVisorSvm;
 Log objLog;
@@ -349,7 +351,28 @@ extern "C" void SvmVmmRun(_In_ void* InitialVmmStackPointer);
 
 void DrvUnload(_In_ PDRIVER_OBJECT DriverObj)
 {
-	UNREFERENCED_PARAMETER(DriverObj);
+	UNICODE_STRING DosDeviceName;
+
+	g_StopPolling = TRUE;
+	g_OwlyCallback = NULL;
+
+	if (g_PollingThreadHandle != NULL)
+	{
+		LARGE_INTEGER timeout;
+		timeout.QuadPart = -(1LL * 1000LL * 1000LL * 10LL);
+		(VOID)ZwWaitForSingleObject(g_PollingThreadHandle, FALSE, &timeout);
+		ZwClose(g_PollingThreadHandle);
+		g_PollingThreadHandle = NULL;
+	}
+
+	RtlInitUnicodeString(&DosDeviceName, L"\\DosDevices\\RedDbgCore");
+	IoDeleteSymbolicLink(&DosDeviceName);
+
+	if (DriverObj->DeviceObject != NULL)
+	{
+		IoDeleteDevice(DriverObj->DeviceObject);
+	}
+
 	KdPrint(("Sample driver Unload called\n"));
 }
 
@@ -395,9 +418,6 @@ typedef struct _OWLY_HV_COMM_DATA {
     ULONG Magic;           // 0x4F574C59 ('OWLY')
     PVOID CallbackRoutine; // PHYPERDBG_OWLY_EVENT_CALLBACK
 } OWLY_HV_COMM_DATA, *POWLY_HV_COMM_DATA;
-
-HANDLE g_PollingThreadHandle = NULL;
-BOOLEAN g_StopPolling = FALSE;
 
 VOID PollingThread(PVOID Context) {
     UNREFERENCED_PARAMETER(Context);
@@ -453,8 +473,12 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 g_OwlyCallback = (POWLY_HV_CALLBACK)commData->CallbackRoutine;
                 DbgPrint("!!! RedDbg: Registered Owlyshield callback at %p\n", g_OwlyCallback);
                 
-                if (g_PollingThreadHandle == NULL) {
-                    PsCreateSystemThread(&g_PollingThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, PollingThread, NULL);
+                if (g_OwlyCallback != NULL && g_PollingThreadHandle == NULL) {
+                    Status = PsCreateSystemThread(&g_PollingThreadHandle, THREAD_ALL_ACCESS, NULL, NULL, NULL, PollingThread, NULL);
+					if (!NT_SUCCESS(Status)) {
+						g_OwlyCallback = NULL;
+						g_PollingThreadHandle = NULL;
+					}
                 }
             } else {
                 Status = STATUS_INVALID_PARAMETER;
@@ -462,7 +486,10 @@ NTSTATUS DrvDispatchIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         } else {
             Status = STATUS_BUFFER_TOO_SMALL;
         }
-        break;
+		Irp->IoStatus.Status = Status;
+		Irp->IoStatus.Information = 0;
+		IoCompleteRequest(Irp, IO_NO_INCREMENT);
+		return Status;
     }
 	case IOCTL_REGISTER_EVENT:
 	{
