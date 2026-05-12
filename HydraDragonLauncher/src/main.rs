@@ -85,7 +85,40 @@ async fn main() -> Result<()> {
 async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
     info!("Starting HydraDragon components...");
 
-    // 1. Start Owlyshield
+    // Start all components concurrently except Sanctum (which has a specific order)
+    let (owlyshield_result, firewall_result, openedr_result, av_result, python_result, sanctum_result) = tokio::join!(
+        start_owlyshield(),
+        start_firewall(),
+        start_openedr(),
+        start_av_engine(),
+        start_python_engine(),
+        start_sanctum_sequence()
+    );
+
+    // Store the child processes
+    let mut comps = components.lock().await;
+    if let Ok(child) = owlyshield_result {
+        comps.owlyshield = child;
+    }
+    if let Ok(child) = firewall_result {
+        comps.firewall = child;
+    }
+    if let Ok(child) = av_result {
+        comps.av_engine = child;
+    }
+    if let Ok(child) = python_result {
+        comps.python_engine = child;
+    }
+    drop(comps);
+
+    // Check if Sanctum failed
+    sanctum_result?;
+
+    info!("✓ All components started successfully");
+    Ok(())
+}
+
+async fn start_owlyshield() -> Result<Option<Child>> {
     info!("Starting Owlyshield Service...");
     let owlyshield_path = PathBuf::from(BASE_DIR)
         .join("hydradragon")
@@ -93,24 +126,26 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
         .join("Owlyshield Service")
         .join("owlyshield_ransom.exe");
 
-    if let Ok(child) = start_process(&owlyshield_path, None) {
-        components.lock().await.owlyshield = Some(child);
-        sleep(Duration::from_secs(2)).await;
+    match start_process(&owlyshield_path, None) {
+        Ok(child) => Ok(Some(child)),
+        Err(_) => Ok(None),
     }
+}
 
-    // 2. Start Firewall
+async fn start_firewall() -> Result<Option<Child>> {
     info!("Starting HydraDragon Firewall...");
     let firewall_path = PathBuf::from(BASE_DIR)
         .join("hydradragon")
         .join("HydraDragonFirewall")
         .join("hydradragonfirewall.exe");
 
-    if let Ok(child) = start_process(&firewall_path, None) {
-        components.lock().await.firewall = Some(child);
-        sleep(Duration::from_secs(2)).await;
+    match start_process(&firewall_path, None) {
+        Ok(child) => Ok(Some(child)),
+        Err(_) => Ok(None),
     }
+}
 
-    // 3. Start OpenEDR
+async fn start_openedr() -> Result<()> {
     info!("Starting OpenEDR...");
     let openedr_path = PathBuf::from(BASE_DIR).join("OpenEDR").join("edrsvc.exe");
     if openedr_path.exists() {
@@ -119,26 +154,24 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
-        sleep(Duration::from_secs(2)).await;
     }
+    Ok(())
+}
 
-    // 4. Start Sanctum sequence
-    info!("Starting Sanctum components...");
-    start_sanctum_sequence().await?;
-
-    // 5. Start AV Engine
+async fn start_av_engine() -> Result<Option<Child>> {
     info!("Starting HydraDragon AV Engine...");
     let av_path = PathBuf::from(BASE_DIR)
         .join("hydradragon")
         .join("HydraDragonAV")
         .join("HydraDragonAV.exe");
 
-    if let Ok(child) = start_process(&av_path, None) {
-        components.lock().await.av_engine = Some(child);
-        sleep(Duration::from_secs(1)).await;
+    match start_process(&av_path, None) {
+        Ok(child) => Ok(Some(child)),
+        Err(_) => Ok(None),
     }
+}
 
-    // 6. Start Python Engine
+async fn start_python_engine() -> Result<Option<Child>> {
     info!("Starting HydraDragon Python Engine...");
     let activate_bat = PathBuf::from(BASE_DIR)
         .join("venv")
@@ -151,19 +184,18 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
             activate_bat.display()
         );
 
-        if let Ok(child) = Command::new("cmd.exe")
+        match Command::new("cmd.exe")
             .args(["/c", &cmd_args])
             .current_dir(BASE_DIR)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
         {
-            components.lock().await.python_engine = Some(child);
+            Ok(child) => return Ok(Some(child)),
+            Err(_) => return Ok(None),
         }
     }
-
-    info!("✓ All components started successfully");
-    Ok(())
+    Ok(None)
 }
 
 async fn start_sanctum_sequence() -> Result<()> {
