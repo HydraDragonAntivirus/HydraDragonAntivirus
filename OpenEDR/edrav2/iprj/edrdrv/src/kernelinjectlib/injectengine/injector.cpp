@@ -327,7 +327,8 @@ bool Injector::isDllMapped(const ULONG ProcessId, const UNICODE_STRING& ImageNam
 		if (imageBase < MM_LOWEST_USER_ADDRESS || imageBase >= MM_HIGHEST_USER_ADDRESS)
 			return nullptr;
 
-		return petools::getProcAddress(imageBase, ProcName);
+		// Use the process-aware version that attaches to the target process context
+		return petools::getProcAddressForProcess(ProcessId, imageBase, ProcName);
 	}
 	return nullptr;
 }

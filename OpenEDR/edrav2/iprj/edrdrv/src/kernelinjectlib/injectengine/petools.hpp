@@ -78,6 +78,7 @@ namespace petools {
 [[nodiscard]] PVOID getSystemModuleHandle(const ANSI_STRING& DllName);
 [[nodiscard]] PVOID getSystemModuleHandle(const UNICODE_STRING& DllName);
 [[nodiscard]] PVOID getProcAddress(const PVOID ImageBase, const ANSI_STRING& ProcName);
+[[nodiscard]] PVOID getProcAddressForProcess(const ULONG ProcessId, const PVOID ImageBase, const ANSI_STRING& ProcName);
 
 } // namespace petools
 } // namespace cmd

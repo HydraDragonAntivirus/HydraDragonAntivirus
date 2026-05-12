@@ -295,6 +295,47 @@ namespace petools {
 	return nullptr;
 }
 
+[[nodiscard]] PVOID getProcAddressForProcess(const ULONG ProcessId, const PVOID ImageBase, const ANSI_STRING& ProcName)
+{
+	NT_ASSERT(ARGUMENT_PRESENT(ImageBase) && ProcName.Buffer != nullptr && ProcName.Length != 0);
+
+	PEPROCESS process = nullptr;
+	NTSTATUS status = PsLookupProcessByProcessId(UlongToHandle(ProcessId), &process);
+	if (!NT_SUCCESS(status))
+	{
+		LOGERROR(status, "Failed to lookup process %lu\r\n", ProcessId);
+		return nullptr;
+	}
+
+	PVOID result = nullptr;
+	KAPC_STATE apcState;
+	
+	__try
+	{
+		// Attach to the target process context to access its memory
+		KeStackAttachProcess(process, &apcState);
+
+		__try
+		{
+			// Now we're in the target process context, memory should be accessible
+			result = getProcAddress(ImageBase, ProcName);
+		}
+		__finally
+		{
+			// Always detach from the process
+			KeUnstackDetachProcess(&apcState);
+		}
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		LOGERROR(GetExceptionCode(), "Exception in getProcAddressForProcess for PID %lu, ImageBase=%p\r\n", ProcessId, ImageBase);
+		result = nullptr;
+	}
+
+	ObDereferenceObject(process);
+	return result;
+}
+
 } // namespace petools
 } // namespace cmd
 
