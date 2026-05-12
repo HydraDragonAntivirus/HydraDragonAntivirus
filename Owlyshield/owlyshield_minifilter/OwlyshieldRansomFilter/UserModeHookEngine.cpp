@@ -3606,9 +3606,18 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
         // Explicitly reference the object for the global array
         ObReferenceObject(process);
 
+        // FIX DEADLOCK: Release EngineMutex before acquiring g_ConfigMutex to avoid
+        // lock ordering violation. EngineMutex -> ConfigMutex nesting caused system-wide
+        // deadlock (all threads stuck in KiSwapContext). We must release EngineMutex,
+        // read the config, then reacquire EngineMutex to set the capacity.
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        
         ExAcquireFastMutex(&g_ConfigMutex);
         customHookCountSnapshot = g_CustomHookCount;
         ExReleaseFastMutex(&g_ConfigMutex);
+
+        // Reacquire EngineMutex to safely update hookEntry
+        ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
         if (customHookCountSnapshot > MAX_CUSTOM_HOOKS)
         {
