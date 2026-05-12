@@ -92,7 +92,7 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
         .join("Owlyshield")
         .join("Owlyshield Service")
         .join("owlyshield_ransom.exe");
-    
+
     if let Ok(child) = start_process(&owlyshield_path, None) {
         components.lock().await.owlyshield = Some(child);
         sleep(Duration::from_secs(2)).await;
@@ -104,7 +104,7 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
         .join("hydradragon")
         .join("HydraDragonFirewall")
         .join("hydradragonfirewall.exe");
-    
+
     if let Ok(child) = start_process(&firewall_path, None) {
         components.lock().await.firewall = Some(child);
         sleep(Duration::from_secs(2)).await;
@@ -132,7 +132,7 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
         .join("hydradragon")
         .join("HydraDragonAV")
         .join("HydraDragonAV.exe");
-    
+
     if let Ok(child) = start_process(&av_path, None) {
         components.lock().await.av_engine = Some(child);
         sleep(Duration::from_secs(1)).await;
@@ -144,13 +144,13 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
         .join("venv")
         .join("Scripts")
         .join("activate.bat");
-    
+
     if activate_bat.exists() {
         let cmd_args = format!(
             "/c \"\"{}\" && poetry run hydradragon\"",
             activate_bat.display()
         );
-        
+
         if let Ok(child) = Command::new("cmd.exe")
             .args(["/c", &cmd_args])
             .current_dir(BASE_DIR)
