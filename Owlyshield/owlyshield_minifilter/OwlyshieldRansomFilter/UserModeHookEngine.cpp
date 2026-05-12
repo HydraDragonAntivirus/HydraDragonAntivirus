@@ -3541,8 +3541,29 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         return STATUS_ACCESS_DENIED;
     }
 
-    // Serialize process-slot lookup/claim so only one thread can allocate or
-    // initialize hook infrastructure for a given PID at a time.
+    // ========================================================================
+    // DEADLOCK FIX: Acquire ConfigMutex BEFORE EngineMutex to establish
+    // a consistent lock ordering throughout the driver.
+    //
+    // LOCK ORDERING RULE: ConfigMutex must ALWAYS be acquired before EngineMutex.
+    // Never nest these mutexes in the opposite order to prevent AB-BA deadlock.
+    //
+    // Original bug: EngineMutex was acquired first (line 3546), then ConfigMutex
+    // was acquired inside (line 3609), causing system-wide deadlock when another
+    // thread held ConfigMutex and tried to acquire EngineMutex.
+    // ========================================================================
+    
+    // Snapshot the config count early, before taking EngineMutex
+    ExAcquireFastMutex(&g_ConfigMutex);
+    customHookCountSnapshot = g_CustomHookCount;
+    ExReleaseFastMutex(&g_ConfigMutex);
+    
+    if (customHookCountSnapshot > MAX_CUSTOM_HOOKS)
+    {
+        customHookCountSnapshot = MAX_CUSTOM_HOOKS;
+    }
+
+    // Now serialize process-slot lookup/claim with EngineMutex
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
     // Re-use existing process slot to avoid duplicate infrastructure/handle creation.
@@ -3606,23 +3627,7 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
         // Explicitly reference the object for the global array
         ObReferenceObject(process);
 
-        // FIX DEADLOCK: Release EngineMutex before acquiring g_ConfigMutex to avoid
-        // lock ordering violation. EngineMutex -> ConfigMutex nesting caused system-wide
-        // deadlock (all threads stuck in KiSwapContext). We must release EngineMutex,
-        // read the config, then reacquire EngineMutex to set the capacity.
-        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-        
-        ExAcquireFastMutex(&g_ConfigMutex);
-        customHookCountSnapshot = g_CustomHookCount;
-        ExReleaseFastMutex(&g_ConfigMutex);
-
-        // Reacquire EngineMutex to safely update hookEntry
-        ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
-
-        if (customHookCountSnapshot > MAX_CUSTOM_HOOKS)
-        {
-            customHookCountSnapshot = MAX_CUSTOM_HOOKS;
-        }
+        // Use the config snapshot we took before acquiring EngineMutex
         hookEntry->CustomHookCapacity = customHookCountSnapshot;
     }
 
