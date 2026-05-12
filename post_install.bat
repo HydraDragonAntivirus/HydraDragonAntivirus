@@ -194,6 +194,21 @@ if errorlevel 1 (
     call :log [+] Test signing enabled.
 )
 
+bcdedit /set hypervisorlaunchtype off >nul 2>&1
+if errorlevel 1 (
+    call :log [!] Failed to disable hypervisor launch.
+) else (
+    call :log [+] Hypervisor launch disabled.
+)
+
+call :log [*] Disabling Hypervisor-Protected Code Integrity (HVCI/Memory Integrity)...
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v "Enabled" /t REG_DWORD /d 0 /f >nul 2>&1
+if errorlevel 1 (
+    call :log [!] Failed to disable HVCI. OpenEDR DLL injection may fail.
+) else (
+    call :log [+] HVCI/Memory Integrity disabled.
+)
+
 call :log [*] These settings allow edrpm32.dll and edrpm64.dll to be injected into processes.
 call :log [*] To re-enable security later, run: OpenEDR\edrav2\iprj\edrpm\enable_ci_back.bat
 
