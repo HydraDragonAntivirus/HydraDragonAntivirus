@@ -86,7 +86,14 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
     info!("Starting HydraDragon components...");
 
     // Start all components concurrently except Sanctum (which has a specific order)
-    let (owlyshield_result, firewall_result, openedr_result, av_result, python_result, sanctum_result) = tokio::join!(
+    let (
+        owlyshield_result,
+        firewall_result,
+        openedr_result,
+        av_result,
+        python_result,
+        sanctum_result,
+    ) = tokio::join!(
         start_owlyshield(),
         start_firewall(),
         start_openedr(),
