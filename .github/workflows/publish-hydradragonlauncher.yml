@@ -39,10 +39,6 @@ jobs:
           New-Item -ItemType Directory -Path $distLauncher -Force | Out-Null
           Copy-Item -Path "HydraDragonLauncher/target/release/hydradragonlauncher.exe" -Destination $distLauncher -Force
           
-          # Also copy to source tree
-          New-Item -ItemType Directory -Force -Path "HydraDragonLauncher/target/release"
-          Copy-Item -Path "HydraDragonLauncher/target/release/hydradragonlauncher.exe" -Destination "HydraDragonLauncher/target/release/" -Force
-          
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
