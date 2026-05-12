@@ -117,17 +117,6 @@ def _sync_path_is_under(prefix: str, candidate: str) -> bool:
     return candidate_n.startswith(prefix_n + os.sep)
 
 
-def _sync_is_protected_path(candidate_path: str) -> bool:
-    candidate = _sync_normalize_path_for_compare(candidate_path)
-
-    program_files = os.environ.get("PROGRAMW6432") or os.environ.get("PROGRAMFILES") or r"C:\Program Files"
-    pf_hda = os.path.join(program_files, "HydraDragonAntivirus")
-    if _sync_path_is_under(pf_hda, candidate):
-        return True
-
-    return False
-
-
 def _sync_close_handle(handle):
     if handle:
         try:
@@ -141,9 +130,6 @@ def _sync_close_handle(handle):
 async def get_desktop() -> str:
     return await asyncio.to_thread(_sync_get_folder_path, CSIDL_DESKTOPDIRECTORY)
 
-
-async def _is_protected_path(candidate_path: str) -> bool:
-    return await asyncio.to_thread(_sync_is_protected_path, candidate_path)
 
 
 # ============================================================================#
@@ -182,14 +168,6 @@ async def _process_threat_event(event: Any) -> None:
                 logger.exception(f"[EDR] _process_threat_event: normalize_nt_path failed: {e}")
                 # If normalization fails, proceed with original value (or return - choose behavior)
                 # return
-
-        # Skip processing if this is a protected path
-        try:
-            if file_path and await _is_protected_path(file_path):
-                logger.debug(f"[EDR] Ignoring threat event for protected path: {file_path}")
-                return
-        except Exception as e:
-            logger.exception(f"[EDR] _process_threat_event: _is_protected_path check failed: {e}")
 
         logger.info(f"[EDR] Received threat event from HydraDragon: {file_path} - {virus_name} (malicious: {is_malicious})")
 

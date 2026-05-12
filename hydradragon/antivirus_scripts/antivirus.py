@@ -525,7 +525,6 @@ start_time = time.time()
 from .pipe_events import (  # noqa: E402
     start_all_pipe_listeners,
     normalize_nt_path,
-    _is_protected_path,
     _sync_close_handle,
 )
 
@@ -8932,18 +8931,6 @@ async def queue_scan_request(request_obj: dict) -> None:
             # If normalization fails, log and drop or fallback to original path
             logger.exception(f"[EDR->AV] queue_scan_request: normalize_nt_path failed for {file_path}: {e}")
             # Option: use original path instead of dropping. Here we drop to be safe:
-            return
-
-        # Check protected paths (run in thread if it's blocking)
-        try:
-            is_prot = await _is_protected_path(normalized)
-        except Exception as e:
-            logger.exception(f"[EDR->AV] queue_scan_request: _is_protected_path failed for {normalized}: {e}")
-            # conservative fallback: drop request on failure to check
-            return
-
-        if is_prot:
-            logger.debug(f"[EDR->AV] queue_scan_request: skipping protected path {normalized}")
             return
 
         # update request and enqueue
