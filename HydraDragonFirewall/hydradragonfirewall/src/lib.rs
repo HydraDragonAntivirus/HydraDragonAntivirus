@@ -768,6 +768,22 @@ async fn quit_app(handle: AppHandle) {
     handle.exit(0);
 }
 
+#[tauri::command]
+async fn grant_cert_install_consent(handle: AppHandle) -> Result<(), String> {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        let mut settings = engine.settings.write().unwrap();
+        settings.tls_proxy.cert_install_consent = true;
+        drop(settings);
+        
+        engine.save_settings();
+        engine.sync_proxy_runtime(&handle);
+        
+        Ok(())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
 /// Return all body changer rules stored in body_changers.json.
 #[tauri::command]
 async fn get_body_changers() -> Vec<BodyChangerRule> {
@@ -1064,6 +1080,7 @@ pub fn run() {
             get_window_label,
             close_window,
             quit_app,
+            grant_cert_install_consent,
             get_body_changers,
             save_body_changers,
             list_owlyshield_rules_files,

@@ -846,6 +846,8 @@ pub struct TlsProxyConfig {
     pub auto_start: bool,
     #[serde(default)]
     pub bypass_hosts: Vec<String>,
+    #[serde(default)]
+    pub cert_install_consent: bool,
 }
 
 impl Default for TlsProxyConfig {
@@ -857,6 +859,7 @@ impl Default for TlsProxyConfig {
             block_quic_udp_443: true,
             auto_start: true,
             bypass_hosts: Vec::new(),
+            cert_install_consent: false,
         }
     }
 }
@@ -3767,6 +3770,24 @@ pub fn App() -> impl IntoView {
                                                                 />
                                                                 "Block QUIC/UDP 443 while MITM proxy mode is active"
                                                             </label>
+                                                        </div>
+                                                        <div class="input-group" style="padding: 14px; border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px; background: rgba(245, 158, 11, 0.08)">
+                                                            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    prop:checked=move || settings.get().tls_proxy.cert_install_consent
+                                                                    on:change=move |ev| {
+                                                                        let enabled = event_target_checked(&ev);
+                                                                        set_settings.update(|s| s.tls_proxy.cert_install_consent = enabled);
+                                                                    }
+                                                                    disabled=move || settings.get().tls_proxy.mode != TlsInspectionMode::TlsProxy
+                                                                />
+                                                                <span style="font-weight: 600">"I consent to automatic certificate installation for MITM interception"</span>
+                                                            </label>
+                                                            <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                                <strong style="color: var(--accent-orange)">"Security Notice: "</strong>
+                                                                "Enabling this allows HydraDragon to automatically install its root certificate into your system's trust store (Windows Root and Firefox). This enables HTTPS interception but also means the firewall can decrypt your encrypted traffic. Only enable if you understand and accept this. Without consent, browsers will show certificate warnings until you manually install the certificate or disable MITM mode."
+                                                            </p>
                                                         </div>
                                                         <div class="input-group" style="margin-top: 10px">
                                                             <label>"MITM bypass hosts/domains"</label>

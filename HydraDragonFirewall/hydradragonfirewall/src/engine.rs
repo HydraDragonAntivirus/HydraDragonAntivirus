@@ -362,6 +362,10 @@ pub struct TlsProxyConfig {
     pub auto_start: bool,
     #[serde(default)]
     pub bypass_hosts: Vec<String>,
+    /// Whether user has consented to certificate installation for MITM interception.
+    /// If false, certificates will not be automatically installed.
+    #[serde(default)]
+    pub cert_install_consent: bool,
 }
 
 impl Default for TlsProxyConfig {
@@ -373,6 +377,7 @@ impl Default for TlsProxyConfig {
             block_quic_udp_443: true,
             auto_start: true,
             bypass_hosts: Vec::new(),
+            cert_install_consent: false, // Default to false - require explicit consent
         }
     }
 }
@@ -1794,50 +1799,92 @@ impl FirewallEngine {
 
         let ca_bundle = crate::proxy::generate_ca();
 
-        // Install the generated CA into Windows Trusted Root so browsers accept it.
-        match Self::install_ca_der(&ca_bundle.cert_der) {
-            Ok(()) => {
-                self.windows_root_trust_ready.store(true, Ordering::SeqCst);
+        // Check if user has consented to certificate installation
+        if tls_proxy.cert_install_consent {
+            // Install the generated CA into Windows Trusted Root so browsers accept it.
+            match Self::install_ca_der(&ca_bundle.cert_der) {
+                Ok(()) => {
+                    self.windows_root_trust_ready.store(true, Ordering::SeqCst);
+                    let now = Self::now_ts();
+                    emit_log_event(
+                        &tx,
+                        LogEntry {
+                            id: format!("{}-ca-installed", now),
+                            timestamp: now,
+                            level: LogLevel::Success,
+                            message: "Certificate installed to Windows Root Trust Store with user consent.".to_string(),
+                        },
+                    );
+                }
+                Err(e) => {
+                    self.windows_root_trust_ready.store(false, Ordering::SeqCst);
+                    let now = Self::now_ts();
+                    emit_log_event(
+                        &tx,
+                        LogEntry {
+                            id: format!("{}-ca-install-failed", now),
+                            timestamp: now,
+                            level: LogLevel::Error,
+                            message: format!(
+                                "Certificate installation failed (run as admin): {}. Browsers will show certificate warnings. Manual installation: Open certmgr.msc, import '{}' to Trusted Root Certification Authorities.",
+                                e,
+                                Self::proxy_ca_cert_path().display()
+                            ),
+                        },
+                    );
+                }
             }
-            Err(e) => {
-                self.windows_root_trust_ready.store(false, Ordering::SeqCst);
-                let now = Self::now_ts();
-                emit_log_event(
-                    &tx,
-                    LogEntry {
-                        id: format!("{}-ca-install-warn", now),
-                        timestamp: now,
-                        level: LogLevel::Warning,
-                        message: format!(
-                            "CA install skipped (run as admin to trust proxy cert): {}. Browsers may report a MITM/certificate attack and other antivirus or security products may also flag the interception even if it is hidden.",
-                            e
-                        ),
-                    },
-                );
-            }
-        }
 
-        let firefox_ca_path = Self::proxy_ca_cert_path();
-        match Self::install_firefox_ca_policy(&firefox_ca_path) {
-            Ok(()) => {
-                self.firefox_policy_ready.store(true, Ordering::SeqCst);
+            let firefox_ca_path = Self::proxy_ca_cert_path();
+            match Self::install_firefox_ca_policy(&firefox_ca_path) {
+                Ok(()) => {
+                    self.firefox_policy_ready.store(true, Ordering::SeqCst);
+                    let now = Self::now_ts();
+                    emit_log_event(
+                        &tx,
+                        LogEntry {
+                            id: format!("{}-firefox-policy-installed", now),
+                            timestamp: now,
+                            level: LogLevel::Success,
+                            message: "Firefox enterprise policy configured with user consent.".to_string(),
+                        },
+                    );
+                }
+                Err(e) => {
+                    self.firefox_policy_ready.store(false, Ordering::SeqCst);
+                    let now = Self::now_ts();
+                    emit_log_event(
+                        &tx,
+                        LogEntry {
+                            id: format!("{}-firefox-policy-failed", now),
+                            timestamp: now,
+                            level: LogLevel::Error,
+                            message: format!(
+                                "Firefox policy setup failed: {}. Firefox will show SEC_ERROR_UNKNOWN_ISSUER. Manual fix: Import '{}' in Firefox Settings > Privacy & Security > Certificates > View Certificates > Authorities > Import.",
+                                e,
+                                firefox_ca_path.display()
+                            ),
+                        },
+                    );
+                }
             }
-            Err(e) => {
-                self.firefox_policy_ready.store(false, Ordering::SeqCst);
-                let now = Self::now_ts();
-                emit_log_event(
-                    &tx,
-                    LogEntry {
-                        id: format!("{}-firefox-ca-policy-warn", now),
-                        timestamp: now,
-                        level: LogLevel::Warning,
-                        message: format!(
-                            "Firefox CA policy setup failed; Firefox may still show SEC_ERROR_UNKNOWN_ISSUER or a visible MITM attack warning until trust is configured: {}. Other antivirus or security tools may also flag the interception.",
-                            e
-                        ),
-                    },
-                );
-            }
+        } else {
+            // User has not consented - do not install certificates
+            self.windows_root_trust_ready.store(false, Ordering::SeqCst);
+            self.firefox_policy_ready.store(false, Ordering::SeqCst);
+            let now = Self::now_ts();
+            emit_log_event(
+                &tx,
+                LogEntry {
+                    id: format!("{}-cert-consent-required", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "Certificate installation requires user consent. MITM proxy will start but browsers will show certificate warnings until you grant consent in settings. Certificate location: '{}'",
+                        Self::proxy_ca_cert_path().display()
+                    ),
+                },
+            );
         }
 
         // Clear any stale proxy setting for the same listener before we start.
