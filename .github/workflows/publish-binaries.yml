@@ -575,7 +575,7 @@ jobs:
             "$distRoot/Owlyshield/Owlyshield Service",
             "$distRoot/Owlyshield/RedDbg",
             "$distRoot/HydraDragonDumper",
-            "$distRoot/HydraDragonService",
+            "$distRoot/HydraDragonLauncher",
             "$distRoot/Sanctum/AppData",
             "$distRoot/Sanctum/System32",
             "$distRoot/sanctum_test_malware",
@@ -789,7 +789,7 @@ jobs:
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel
             MegaDumper/MegaDumper/bin/Release/net8.0
             HydraDragonFirewall/hydradragonfirewall/target/release
-            HydraDragonService/HydraDragonService/bin/Release/net8.0
+            HydraDragonLauncher/target/release
             Sanctum/target/release
             Sanctum/driver/target/release
             Sanctum/Cargo.lock

@@ -1,0 +1,73 @@
+name: HydraDragonLauncher CI Check
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonLauncher/**'
+      - '.github/workflows/launcher-check.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonLauncher/**'
+      - '.github/workflows/launcher-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: HydraDragonLauncher/target
+          key: ${{ runner.os }}-launcher-target-${{ hashFiles('HydraDragonLauncher/Cargo.lock') }}
+
+      - name: Check formatting
+        working-directory: HydraDragonLauncher
+        run: cargo fmt --all -- --check
+
+      - name: Run cargo check
+        working-directory: HydraDragonLauncher
+        run: cargo check --verbose
+
+      - name: Run clippy
+        working-directory: HydraDragonLauncher
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build
+        working-directory: HydraDragonLauncher
+        run: cargo build --verbose
+
+      - name: Run tests
+        working-directory: HydraDragonLauncher
+        run: cargo test --verbose
