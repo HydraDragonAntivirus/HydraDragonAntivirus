@@ -118,7 +118,8 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
     }
     drop(comps);
 
-    // Check if Sanctum failed
+    // Check if OpenEDR or Sanctum failed
+    openedr_result?;
     sanctum_result?;
 
     info!("✓ All components started successfully");
