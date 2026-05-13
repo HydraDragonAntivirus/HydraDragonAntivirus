@@ -9,6 +9,7 @@
         "c:\\windows\\explorer.exe": "Allow",
         "c:\\program files\\clamav\\freshclam.exe": "Allow",
         "c:\\program files\\hydradragonantivirus\\openedr\\edrsvc.exe": "Allow",
+        "c:\\program files\\hydradragonantivirus\\hydradragon\\hayabusa\\hayabusa-3.8.1-win-x64.exe": "Allow",
         "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe": "Allow",
         "c:\\program files\\hydradragonantivirus\\hydradragon\\owlyshield\\owlyshield service\\owlyshield_ransom.exe": "Allow"
     },
