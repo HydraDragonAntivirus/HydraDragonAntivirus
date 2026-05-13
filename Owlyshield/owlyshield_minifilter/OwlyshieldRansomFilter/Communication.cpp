@@ -1095,6 +1095,11 @@ void CommClose()
 {
     // FLT_ASSERT(IsCommClosed());
 
+    if (driverData != NULL)
+    {
+        driverData->ClearIrps();
+    }
+
     if (commHandle->ClientPort)
     {
         FltCloseClientPort(commHandle->Filter, &commHandle->ClientPort);
@@ -1163,6 +1168,11 @@ VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie)
     DbgPrint("Disconnent\n");
 #endif
     commHandle->CommClosed = TRUE;
+
+    if (driverData != NULL)
+    {
+        driverData->ClearIrps();
+    }
 }
 
 // NEW: Helper function to kill all processes in a GID

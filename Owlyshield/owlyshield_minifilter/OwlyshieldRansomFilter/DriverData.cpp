@@ -6,6 +6,11 @@
 // Value chosen to be unreachable by the monotonically-increasing GidCounter.
 #define TERMINATED_PID_SENTINEL ((ULONGLONG)0xFFFFFFFFFFFFFFFFULL)
 
+// Bound the user-mode telemetry backlog. Each IRP_ENTRY is a nonpaged-pool
+// allocation, so an unresponsive consumer must not be allowed to grow this list
+// without limit.
+#define MAX_PENDING_IRP_MESSAGES 8192UL
+
 DriverData::DriverData(PDRIVER_OBJECT DriverObject) :
     FilterRun(FALSE),
     Filter(nullptr),
@@ -589,19 +594,23 @@ ULONGLONG DriverData::GidsSize() {
 
 VOID DriverData::ClearIrps() {
     KIRQL oldIrql;
+    LIST_ENTRY pendingIrps;
+    InitializeListHead(&pendingIrps);
+
     KeAcquireSpinLock(&irpOpsLock, &oldIrql);
-    PLIST_ENTRY pEntryIrps = irpOps.Flink;
-    while (pEntryIrps != &irpOps) {
-        LIST_ENTRY temp = *pEntryIrps;
+    while (!IsListEmpty(&irpOps)) {
+        PLIST_ENTRY entry = RemoveHeadList(&irpOps);
+        InsertTailList(&pendingIrps, entry);
+    }
+    irpOpsSize = 0;
+    KeReleaseSpinLock(&irpOpsLock, oldIrql);
+
+    while (!IsListEmpty(&pendingIrps)) {
+        PLIST_ENTRY pEntryIrps = RemoveHeadList(&pendingIrps);
         PIRP_ENTRY pStrct =
             (PIRP_ENTRY)CONTAINING_RECORD(pEntryIrps, IRP_ENTRY, entry);
         delete pStrct;
-        //next
-        pEntryIrps = temp.Flink;
     }
-    irpOpsSize = 0;
-    InitializeListHead(&irpOps);
-    KeReleaseSpinLock(&irpOpsLock, oldIrql);
 }
 
 ULONG DriverData::IrpSize() {
@@ -615,14 +624,32 @@ ULONG DriverData::IrpSize() {
 
 BOOLEAN DriverData::AddIrpMessage(PIRP_ENTRY newEntry) {
     KIRQL oldIrql;
+    LIST_ENTRY droppedIrps;
+
     if (newEntry == nullptr) {
         return FALSE;
     }
 
+    InitializeListHead(&droppedIrps);
+
     KeAcquireSpinLock(&irpOpsLock, &oldIrql);
+    while (irpOpsSize >= MAX_PENDING_IRP_MESSAGES && !IsListEmpty(&irpOps)) {
+        PLIST_ENTRY entry = RemoveHeadList(&irpOps);
+        irpOpsSize--;
+        InsertTailList(&droppedIrps, entry);
+    }
+
     irpOpsSize++;
     InsertTailList(&irpOps, &newEntry->entry);
     KeReleaseSpinLock(&irpOpsLock, oldIrql);
+
+    while (!IsListEmpty(&droppedIrps)) {
+        PLIST_ENTRY entry = RemoveHeadList(&droppedIrps);
+        PIRP_ENTRY dropped =
+            (PIRP_ENTRY)CONTAINING_RECORD(entry, IRP_ENTRY, entry);
+        delete dropped;
+    }
+
     return TRUE;
 }
 
@@ -711,7 +738,16 @@ VOID DriverData::DriverGetIrps(
         USHORT alignedNameBufferSize = (nameBufferSize + 7) & ~7;
         ULONG requiredSize = sizeof(DRIVER_MESSAGE) + alignedNameBufferSize;
 
-        if (requiredSize > BufferSizeRemain || requiredSize > BufferSize) {
+        if (requiredSize > BufferSize) {
+#if IS_DEBUG_IRP
+DbgPrint("!!! Driver: Dropping message larger than output buffer. Required: %lu, Buffer: %lu\n", requiredSize, BufferSize);
+#endif
+
+            delete irp;
+            continue;
+        }
+
+        if (requiredSize > BufferSizeRemain) {
             
 #if IS_DEBUG_IRP
 DbgPrint("!!! Driver: Output buffer too small for message. Required: %lu, Remaining: %lu\n", requiredSize, BufferSizeRemain);
@@ -752,13 +788,27 @@ DbgPrint("!!! Driver: Output buffer too small for message. Required: %lu, Remain
 
     // Put back any remaining IRPs in the temp list to the main list
     if (!IsListEmpty(&tempIrpList)) {
+        LIST_ENTRY droppedIrps;
+        InitializeListHead(&droppedIrps);
+
         KeAcquireSpinLock(&irpOpsLock, &oldIrql);
         while (!IsListEmpty(&tempIrpList)) {
             PLIST_ENTRY entry = RemoveHeadList(&tempIrpList);
-            InsertTailList(&irpOps, entry);
-            irpOpsSize++;
+            if (irpOpsSize < MAX_PENDING_IRP_MESSAGES) {
+                InsertTailList(&irpOps, entry);
+                irpOpsSize++;
+            } else {
+                InsertTailList(&droppedIrps, entry);
+            }
         }
         KeReleaseSpinLock(&irpOpsLock, oldIrql);
+
+        while (!IsListEmpty(&droppedIrps)) {
+            PLIST_ENTRY entry = RemoveHeadList(&droppedIrps);
+            PIRP_ENTRY dropped =
+                (PIRP_ENTRY)CONTAINING_RECORD(entry, IRP_ENTRY, entry);
+            delete dropped;
+        }
     }
 
     if (outHeader.numOps()) {
