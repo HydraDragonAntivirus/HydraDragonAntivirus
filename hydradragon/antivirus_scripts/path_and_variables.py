@@ -232,7 +232,6 @@ clamav_folder = r"C:\Program Files\ClamAV"
 seven_zip_folder = os.path.join(program_files, "7-Zip")
 
 # ClamAV file paths and configurations
-freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
 clamav_database_directory_path = os.path.join(clamav_folder, "database")
 clamav_file_paths = [os.path.join(clamav_database_directory_path, "daily.cvd"), os.path.join(clamav_database_directory_path, "daily.cld")]
 
