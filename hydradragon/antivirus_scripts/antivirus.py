@@ -7618,8 +7618,8 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
     """
     Dump a process using HydraDragonDumper and return a dumped .exe according to:
       1) Any .exe directly in the dump folder (root) -> highest priority.
-      2) Otherwise, look inside subfolders whose name contains 'vdump' and return
-         a vdump_*.exe if present, else the first .exe in that folder.
+      2) Otherwise, search MegaDumper's sorted folders recursively and prefer
+         vdump_*.exe, then rawdump_*.exe, then the first .exe.
       3) Return None if nothing suitable found.
 
     Does NOT extract strings and does NOT remove dumps.
@@ -7666,50 +7666,43 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                         logger.info(f"Returning .exe found in root of dump folder: {full_path}")
                         return full_path
 
-            # 2) If none in root, search subfolders that look like 'vdump_*' or 'rawdump_*' (non-recursive)
+            # 2) If none in root, search the sorted output tree. MegaDumper may move
+            # dumps into Native/System/UnknownName and restore the original filename.
             if os.path.exists(pid_hydra_dir):
-                dump_dirs = []
-                for fname in os.listdir(pid_hydra_dir):
-                    sub_path = os.path.join(pid_hydra_dir, fname)
-                    if os.path.isdir(sub_path):
-                        lname = fname.lower()
-                        if lname.startswith("vdump_") or lname.startswith("rawdump_"):
-                            dump_dirs.append(sub_path)
-
-                for d in dump_dirs:
-                    try:
-                        preferred = None
-                        fallback = None
-
-                        dump_prefix = os.path.basename(d).lower().split("_")[0]  # vdump or rawdump
-
-                        for sf in os.listdir(d):
-                            sf_full = os.path.join(d, sf)
-                            if not os.path.isfile(sf_full):
+                rawdump_candidate = None
+                fallback_candidate = None
+                try:
+                    for current_dir, _, files in os.walk(pid_hydra_dir):
+                        for fname in files:
+                            lower_name = fname.lower()
+                            if not lower_name.endswith(".exe"):
                                 continue
 
-                            sl = sf.lower()
-                            if sl.startswith(dump_prefix + "_") and sl.endswith(".exe"):
-                                preferred = sf_full
-                                break
+                            full_path = os.path.join(current_dir, fname)
+                            if lower_name.startswith("vdump_"):
+                                logger.info(f"Returning prioritized vdump exe: {full_path}")
+                                return full_path
 
-                            if fallback is None and sl.endswith(".exe"):
-                                fallback = sf_full
+                            if rawdump_candidate is None and lower_name.startswith("rawdump_"):
+                                rawdump_candidate = full_path
+                                continue
 
-                        if preferred:
-                            logger.info(f"Returning prioritized {dump_prefix} exe from {d}: {preferred}")
-                            return preferred
+                            if fallback_candidate is None:
+                                fallback_candidate = full_path
 
-                        if fallback:
-                            logger.info(f"Returning first .exe from {dump_prefix} folder {d}: {fallback}")
-                            return fallback
+                    if rawdump_candidate:
+                        logger.info(f"Returning prioritized rawdump exe: {rawdump_candidate}")
+                        return rawdump_candidate
 
-                    except Exception as e:
-                        logger.error(f"Error scanning dump folder {d}: {e}")
-                        continue
+                    if fallback_candidate:
+                        logger.info(f"Returning first dumped exe from sorted output tree: {fallback_candidate}")
+                        return fallback_candidate
+
+                except Exception as e:
+                    logger.error(f"Error scanning dump output tree {pid_hydra_dir}: {e}")
 
             # 3) Nothing found
-            logger.error(f"No dumped executables found for PID {target_pid} in {pid_hydra_dir} or vdump subfolders")
+            logger.error(f"No dumped executables found for PID {target_pid} in {pid_hydra_dir} or sorted subfolders")
             return None
 
         except Exception as hydra_ex:

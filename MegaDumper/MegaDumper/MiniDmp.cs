@@ -131,7 +131,7 @@ namespace Mega_Dumper
             {
                 return false;
             }
-            else
+            try
             {
                 using var fs = new System.IO.FileStream(fileName, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.None);
                 MiniDumpExceptionInformation exp;
@@ -140,13 +140,17 @@ namespace Mega_Dumper
                 exp.ExceptioonPointers = Marshal.GetExceptionPointers();
 
                 return MiniDumpWriteDump(
-                  GetCurrentProcess(),
-                  GetCurrentProcessId(),
+                  hProcess,
+                  processId,
                   fs.SafeFileHandle.DangerousGetHandle(),
                   (uint)dumpTyp,
                   ref exp,
                   IntPtr.Zero,
                   IntPtr.Zero);
+            }
+            finally
+            {
+                ProcModule.CloseHandle(hProcess);
             }
         }
     }

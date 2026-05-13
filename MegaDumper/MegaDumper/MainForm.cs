@@ -2132,14 +2132,32 @@ namespace Mega_Dumper
                                         else continue;
 
                                         // ensure PEOffset falls within our local buffer first, else read from remote
-                                        if ((PEOffset + 0x0120) < pagesizeInt)
+                                        long localPeIndex = (long)k + PEOffset;
+                                        bool localOrRemotePeSigOk = false;
+                                        if (localPeIndex >= 0 && (localPeIndex + 4) <= safeByteCount)
                                         {
-                                            int checkIndex = k + PEOffset;
-                                            if (checkIndex + 1 >= onepage.Length)
-                                                continue;
+                                            localOrRemotePeSigOk =
+                                                onepage[localPeIndex] == 0x50 &&
+                                                onepage[localPeIndex + 1] == 0x45 &&
+                                                onepage[localPeIndex + 2] == 0x00 &&
+                                                onepage[localPeIndex + 3] == 0x00;
+                                        }
+                                        else
+                                        {
+                                            byte[] remotePeSig = new byte[4];
+                                            if (ReadProcessMemoryW(hProcess, j + (ulong)k + (ulong)PEOffset, remotePeSig, (UIntPtr)4, out BytesRead) && BytesRead == 4)
+                                            {
+                                                localOrRemotePeSigOk =
+                                                    remotePeSig[0] == 0x50 &&
+                                                    remotePeSig[1] == 0x45 &&
+                                                    remotePeSig[2] == 0x00 &&
+                                                    remotePeSig[3] == 0x00;
+                                            }
+                                        }
 
-                                            // check 'PE' signature
-                                            if (onepage[checkIndex] == 0x50 && onepage[checkIndex + 1] == 0x45) // 'P' 'E'
+                                        if (localOrRemotePeSigOk)
+                                        {
+                                            if (PEOffset > 0)
                                             {
                                                 bool isNetAssembly = false;
 
@@ -2392,14 +2410,15 @@ namespace Mega_Dumper
                                                                         sessionDumpedFiles.Add(filename);
                                                                         Console.WriteLine($"[SUCCESS] Raw dumped: {Path.GetFileName(filename)}");
                                                                     }
-                                                                    catch
+                                                                    catch (Exception ex)
                                                                     {
-                                                                        // This part involves UI, cannot be called from a background thread directly
+                                                                        Console.WriteLine($"[ERROR] Raw dump write failed for {Path.GetFileName(filename)}: {ex.Message}");
                                                                     }
                                                                 }
                                                             }
-                                                            catch
+                                                            catch (Exception ex)
                                                             {
+                                                                Console.WriteLine($"[ERROR] Raw dump failed at 0x{(j + (ulong)k):X16}: {ex.Message}");
                                                             }
                                                         }
 
@@ -2533,7 +2552,10 @@ namespace Mega_Dumper
                                                             string netStatus = isNetAssembly ? "[.NET]" : "[Native]";
                                                             Console.WriteLine($"[SUCCESS] Virtual dumped {netStatus}: {Path.GetFileName(filename)}");
                                                         }
-                                                        catch { }
+                                                        catch (Exception ex)
+                                                        {
+                                                            Console.WriteLine($"[ERROR] Virtual dump write failed for {Path.GetFileName(filename)}: {ex.Message}");
+                                                        }
                                                         CurrentCount++;
                                                     }
                                                 }
@@ -2682,8 +2704,9 @@ namespace Mega_Dumper
                     renameFiles(ddirs.dumps, ddirs.dumps);
                 }
 
+                int dumpedFileCount = sessionDumpedFiles.Count;
                 Console.WriteLine($"[INFO] Returning dump result for {ddirs.dumps}...");
-                return (CurrentCount - 1) + " files dumped in directory " + ddirs.dumps;
+                return dumpedFileCount + " files dumped in directory " + ddirs.dumps;
             }
             finally
             {
