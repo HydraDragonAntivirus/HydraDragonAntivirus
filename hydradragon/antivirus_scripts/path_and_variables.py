@@ -270,9 +270,6 @@ _WAIT_TIMEOUT_MS = 5000  # WaitNamedPipe timeout when opening (ms)
 _OPEN_RETRIES = 10  # retries for opening the pipe
 _RETRY_DELAY = 0.5  # seconds between open retries
 
-# Internal queue other code will push scan requests into
-_SCAN_REQUEST_SEND_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
-
 # Path to the bundled radare2 binary shipped with HydraDragonAntivirus
 _R2_DIR = os.path.join(script_dir, "radare2")
 
