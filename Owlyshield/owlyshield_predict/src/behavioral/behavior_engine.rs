@@ -58,6 +58,8 @@ type FirewallHttpBodyMap = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, Strin
 type FirewallFullPackets = Arc<std::sync::RwLock<HashMap<u32, VecDeque<PacketInfo>>>>;
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 type FirewallGenerateReport = Arc<AtomicBool>;
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+type FirewallFileVerdicts = Arc<std::sync::RwLock<HashMap<String, FileVerdictInfo>>>;
 
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 fn shared_firewall_net_pids() -> FirewallNetPids {
@@ -147,6 +149,33 @@ fn shared_firewall_generate_report() -> FirewallGenerateReport {
         .clone()
 }
 
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+fn shared_firewall_file_verdicts() -> FirewallFileVerdicts {
+    static FIREWALL_FILE_VERDICTS: OnceLock<FirewallFileVerdicts> = OnceLock::new();
+    FIREWALL_FILE_VERDICTS
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+fn normalize_firewall_file_verdict_key(file_path: &str) -> String {
+    file_path.trim().replace('/', "\\").to_ascii_lowercase()
+}
+
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+pub fn firewall_file_verdict_for_path(file_path: &str) -> Option<FileVerdictInfo> {
+    let key = normalize_firewall_file_verdict_key(file_path);
+    let verdicts = shared_firewall_file_verdicts();
+    let guard = verdicts.read().ok()?;
+
+    guard.get(&key).cloned().or_else(|| {
+        guard
+            .values()
+            .find(|verdict| normalize_firewall_file_verdict_key(&verdict.file_path) == key)
+            .cloned()
+    })
+}
+
 /// Per-PID stats from Sanctum EDR telemetry (received via HydraSanctumTelemetry pipe).
 #[cfg(all(target_os = "windows", feature = "sanctum"))]
 type FirewallSanctumStats = Arc<
@@ -198,13 +227,32 @@ pub struct OpenEdrTelemetryStats {
     pub last_event: Option<String>,
     pub cloud_static_label: Option<String>,
     pub cloud_dynamic_label: Option<String>,
-    pub cloud_static_trust_level: u8,
-    pub cloud_dynamic_trust_level: u8,
+    /// Numeric OpenEDR/Valkyrie verdict/result code: 0=Malware, 1=Safe, 2=Unrecognized, 3=Unknown.
+    pub cloud_static_verdict: Option<u8>,
+    /// Numeric OpenEDR/Valkyrie verdict/result code: 0=Malware, 1=Safe, 2=Unrecognized, 3=Unknown.
+    pub cloud_dynamic_verdict: Option<u8>,
 }
 
 // =============================================================================
 // FIREWALL DETECTION — details received from the firewall via HydraNetEvent pipe
 // =============================================================================
+
+/// File verdict information received from the firewall via VERDICT messages.
+/// Contains file reputation data that can be used for allow/block decisions.
+#[derive(Debug, Clone)]
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+pub struct FileVerdictInfo {
+    /// SHA256 hash of the file
+    pub sha256: String,
+    /// File path
+    pub file_path: String,
+    /// Verdict code (0=Malicious, 1=Safe, 2=Unrecognized, 3=Unknown)
+    pub verdict: u8,
+    /// Verdict label (e.g., "Malicious", "Safe", "Unrecognized", "Unknown")
+    pub verdict_label: String,
+    /// Timestamp when verdict was received
+    pub timestamp: SystemTime,
+}
 
 /// All detection context sent by the firewall when it confirms malicious traffic.
 /// Populated from BLOCK_EXE messages and used to build rich ThreatInfo for reports.
@@ -1284,6 +1332,10 @@ pub struct ProcessBehaviorState {
     pub rootkit_findings: Vec<RootkitFinding>,
     pub cloud_static_label: Option<String>,
     pub cloud_dynamic_label: Option<String>,
+    /// Numeric OpenEDR/Valkyrie verdict/result code: 0=Malware, 1=Safe, 2=Unrecognized, 3=Unknown.
+    pub cloud_static_verdict: Option<u8>,
+    /// Numeric OpenEDR/Valkyrie verdict/result code: 0=Malware, 1=Safe, 2=Unrecognized, 3=Unknown.
+    pub cloud_dynamic_verdict: Option<u8>,
 }
 
 impl ProcessBehaviorState {
@@ -1706,6 +1758,9 @@ pub struct BehaviorEngine {
     pub firewall_sanctum_stats: FirewallSanctumStats,
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub generate_report_flag: FirewallGenerateReport,
+    /// File verdicts received from the firewall (keyed by file path lowercase).
+    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    pub firewall_file_verdicts: FirewallFileVerdicts,
     pub rootkit_findings: Vec<RootkitFinding>,
 }
 
@@ -1750,6 +1805,8 @@ impl BehaviorEngine {
             firewall_sanctum_stats: shared_firewall_sanctum_stats(),
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             generate_report_flag: shared_firewall_generate_report(),
+            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            firewall_file_verdicts: shared_firewall_file_verdicts(),
             rootkit_findings: Vec::new(),
         }
     }
@@ -1784,6 +1841,7 @@ impl BehaviorEngine {
         let full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> =
             Arc::clone(&self.firewall_full_packets);
         let generate_report_flag = Arc::clone(&self.generate_report_flag);
+        let file_verdicts = Arc::clone(&self.firewall_file_verdicts);
         let regex_cache = Arc::clone(&self.regex_cache);
         let rules_clone = self.rules.clone();
 
@@ -2030,6 +2088,54 @@ impl BehaviorEngine {
                                 } else {
                                     Logging::warning("[FirewallEvent] Failed to parse FULL_PACKET JSON");
                                 }
+                            } else if let Some(rest) = line.strip_prefix("VERDICT:") {
+                                // VERDICT:<file_path>|<sha256>|<verdict_code>|<verdict_label>
+                                // Example: VERDICT:C:\malware.exe|abc123...|0|Malicious
+                                let mut parts = rest.splitn(4, '|');
+                                let file_path = parts.next().unwrap_or("").trim().to_string();
+                                let sha256 = parts.next().unwrap_or("").trim().to_string();
+                                let verdict_code = parts.next().unwrap_or("3").trim()
+                                    .parse::<u8>().unwrap_or(3); // Default to Unknown
+                                let verdict_label = parts.next().unwrap_or("Unknown").trim().to_string();
+
+                                if !file_path.is_empty() && !sha256.is_empty() {
+                                    let verdict_info = FileVerdictInfo {
+                                        sha256: sha256.clone(),
+                                        file_path: file_path.clone(),
+                                        verdict: verdict_code,
+                                        verdict_label: verdict_label.clone(),
+                                        timestamp: SystemTime::now(),
+                                    };
+
+                                    let file_path_key =
+                                        normalize_firewall_file_verdict_key(&file_path);
+                                    file_verdicts.write().unwrap().insert(file_path_key.clone(), verdict_info);
+
+                                    Logging::info(&format!(
+                                        "[OpenEDRVerdict] Received file verdict for {}: {} (code {})",
+                                        file_path, verdict_label, verdict_code
+                                    ));
+
+                                    // If verdict is Malicious (0), also add to blocked_exes for immediate action
+                                    if verdict_code == 0 {
+                                        let detection = FirewallDetection {
+                                            dst_ip: String::new(),
+                                            dst_port: 0,
+                                            hostname: String::new(),
+                                            reason: format!("File Verdict: {} (SHA256: {})", verdict_label, sha256),
+                                        };
+                                        blocked_exes.write().unwrap().insert(file_path_key, detection);
+                                        Logging::warning(&format!(
+                                            "[OpenEDRVerdict] Marked {} as malicious based on OpenEDR verdict",
+                                            file_path
+                                        ));
+                                    }
+                                } else {
+                                    Logging::warning(&format!(
+                                        "[OpenEDRVerdict] Received incomplete VERDICT message: {}",
+                                        rest
+                                    ));
+                                }
                             }
                         }
                     }
@@ -2126,54 +2232,8 @@ impl BehaviorEngine {
         }
     }
 
-    /// Notify the firewall GUI via HydraHipEvent about a cloud-trusted process (Informational).
-    fn notify_hips_cloud_trust(&self, pid: u32, exe_path: &str, label: &str) {
-        use std::ffi::CString;
-        use windows::Win32::Foundation::{CloseHandle, HANDLE};
-        use windows::Win32::Storage::FileSystem::{
-            CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING,
-            WriteFile,
-        };
-        use windows::Win32::System::Pipes::WaitNamedPipeA;
-        use windows::core::PCSTR;
-
-        const PIPE: &str = r"\\.\pipe\HydraHipEvent";
-        let pipe_name = match CString::new(PIPE) {
-            Ok(value) => value,
-            Err(_) => return,
-        };
-        let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
-
-        let message = format!(
-            "HIPS_TRUST:{}|{}|{}\n",
-            pid,
-            Self::sanitize_firewall_hips_field(exe_path),
-            Self::sanitize_firewall_hips_field(label),
-        );
-        let message_bytes = message.as_bytes();
-
-        unsafe {
-            if WaitNamedPipeA(pcstr, 500).as_bool() {
-                if let Ok(handle) = CreateFileA(
-                    pcstr,
-                    FILE_GENERIC_WRITE.0,
-                    FILE_SHARE_NONE,
-                    None,
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_NORMAL,
-                    HANDLE::default(),
-                ) {
-                    if !handle.is_invalid() {
-                        let _ = WriteFile(handle, Some(message_bytes), None, None);
-                        let _ = CloseHandle(handle);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Notify the firewall GUI via HydraHipEvent about a cloud-sourced threat.
-    fn notify_hips_cloud_threat(&self, pid: u32, exe_path: &str, label: &str, analysis_type: &str) {
+    /// Notify the firewall GUI via HydraHipEvent about an OpenEDR-sourced threat.
+    fn notify_openedr_threat(&self, pid: u32, exe_path: &str, label: &str, analysis_type: &str) {
         let app_name = Path::new(exe_path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -2320,86 +2380,49 @@ impl BehaviorEngine {
             _ => {}
         }
 
-        // Extract Cloud Analysis Labels (OpenEDR/Valkyrie)
+        // Extract OpenEDR/Valkyrie cloud analysis.
+        // Labels are retained only for display/logging. Decisions use numeric verdict/result codes only.
         if let Some(cloud) = event.get("cloud_analysis") {
+            let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
+
             if let Some(static_label) = cloud.get("static_label").and_then(|v| v.as_str()) {
                 stats.cloud_static_label = Some(static_label.to_string());
-
-                let trust_level = cloud
-                    .get("trust_level")
-                    .or_else(|| cloud.get("verdict"))
-                    .or_else(|| cloud.get("rating"))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(3) as u8; // Default to 3 (Unknown)
-                stats.cloud_static_trust_level = trust_level;
-
-                // Mapping according to fls.security.comodo.com:
-                // 0: Malware (Malicious)
-                // 1: Safe (Clean)
-                // 2: Unrecognized
-                // 3: Unknown
-                let sl_lc = static_label.to_lowercase();
-                if trust_level == 0
-                    || sl_lc.contains("malicious")
-                    || sl_lc.contains("threat")
-                    || sl_lc.contains("malware")
-                {
-                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
-                    self.notify_hips_cloud_threat(
-                        pid,
-                        exe_path,
-                        static_label,
-                        "Static (FLS Code 0)",
-                    );
-                } else if trust_level == 1
-                    || sl_lc.contains("clean")
-                    || sl_lc.contains("trusted")
-                    || sl_lc.contains("safe")
-                {
-                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
-                    self.notify_hips_cloud_trust(pid, exe_path, static_label);
-                } else if trust_level == 2 || sl_lc.contains("unrecognized") {
-                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
-                    self.notify_hips_cloud_threat(
-                        pid,
-                        exe_path,
-                        static_label,
-                        "Static (FLS Code 2 - Unrecognized)",
-                    );
-                }
             }
+            let static_verdict = cloud
+                .get("trust_level")
+                .or_else(|| cloud.get("verdict"))
+                .or_else(|| cloud.get("result"))
+                .or_else(|| cloud.get("rating"))
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u8);
+            stats.cloud_static_verdict = static_verdict;
+
+            if static_verdict == Some(0) {
+                let label = stats
+                    .cloud_static_label
+                    .as_deref()
+                    .unwrap_or("OpenEDR static verdict");
+                self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 0 (Malware)");
+            }
+
             if let Some(dynamic_label) = cloud.get("dynamic_label").and_then(|v| v.as_str()) {
                 stats.cloud_dynamic_label = Some(dynamic_label.to_string());
-                let trust_level = cloud
-                    .get("dynamic_trust_level")
-                    .or_else(|| cloud.get("dynamic_verdict"))
-                    .or_else(|| cloud.get("dynamic_rating"))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(3) as u8; // Default to 3 (Unknown)
-                stats.cloud_dynamic_trust_level = trust_level;
+            }
+            let dynamic_verdict = cloud
+                .get("dynamic_trust_level")
+                .or_else(|| cloud.get("dynamic_verdict"))
+                .or_else(|| cloud.get("dynamic_result"))
+                .or_else(|| cloud.get("dynamic_rating"))
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u8);
+            stats.cloud_dynamic_verdict = dynamic_verdict;
 
-                let dl_lc = dynamic_label.to_lowercase();
-                if trust_level == 0
-                    || dl_lc.contains("malicious")
-                    || dl_lc.contains("threat")
-                    || dl_lc.contains("malware")
-                {
-                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
-                    self.notify_hips_cloud_threat(
-                        pid,
-                        exe_path,
-                        dynamic_label,
-                        "Dynamic (FLS Code 0)",
-                    );
-                } else if trust_level == 2 || dl_lc.contains("unrecognized") {
-                    let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
-                    self.notify_hips_cloud_threat(
-                        pid,
-                        exe_path,
-                        dynamic_label,
-                        "Dynamic (FLS Code 2 - Unrecognized)",
-                    );
-                }
+            if dynamic_verdict == Some(0) {
+                let label = stats
+                    .cloud_dynamic_label
+                    .as_deref()
+                    .unwrap_or("OpenEDR dynamic verdict");
+                self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 0 (Malware)");
             }
         }
     }
@@ -6525,6 +6548,8 @@ impl BehaviorEngine {
                         if let Some(label) = stats.cloud_dynamic_label {
                             s.cloud_dynamic_label = Some(label);
                         }
+                        s.cloud_static_verdict = stats.cloud_static_verdict;
+                        s.cloud_dynamic_verdict = stats.cloud_dynamic_verdict;
                     }
                 }
                 s.clone()
@@ -6555,15 +6580,11 @@ impl BehaviorEngine {
                 continue;
             }
 
-            // Cloud Trust Filter: If the rule trusts the cloud and static analysis says Safe/Trusted (Code 1), bypass local rules.
+            // Cloud Trust Filter: only OpenEDR/Valkyrie numeric verdict code 1 may bypass.
+            // Labels such as "clean", "trusted", or "safe" are display-only and never drive decisions.
             if rule.should_trust_cloud {
-                let is_trusted = state_ref.cloud_static_label.as_ref().map_or(false, |l| {
-                    let lc = l.to_lowercase();
-                    lc.contains("clean") || lc.contains("trusted") || lc.contains("safe")
-                }) || state_ref.cloud_dynamic_label.as_ref().map_or(false, |l| {
-                    let lc = l.to_lowercase();
-                    lc.contains("clean") || lc.contains("trusted") || lc.contains("safe")
-                });
+                let is_cloud_allowed = state_ref.cloud_static_verdict == Some(1)
+                    || state_ref.cloud_dynamic_verdict == Some(1);
 
                 let mut alert_sources = Vec::new();
                 if state_ref.rootkit_implicated || !state_ref.rootkit_findings.is_empty() {
@@ -6600,39 +6621,23 @@ impl BehaviorEngine {
 
                 let has_behavioral_alerts = !alert_sources.is_empty();
 
-                if is_trusted && !has_behavioral_alerts {
+                if is_cloud_allowed && !has_behavioral_alerts {
                     if rule.debug || self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Trusting Cloud Analysis for PID {} (Trust: {}/{}): bypass rule '{}'",
+                            "[BehaviorEngine] OpenEDR cloud verdict allowed PID {} (static={:?}, dynamic={:?}): bypass rule '{}'",
                             state_ref.pid,
-                            state_ref.cloud_static_label.as_deref().unwrap_or("None"),
-                            state_ref.cloud_dynamic_label.as_deref().unwrap_or("None"),
+                            state_ref.cloud_static_verdict,
+                            state_ref.cloud_dynamic_verdict,
                             rule.name
                         ));
                     }
                     continue;
-                } else if is_trusted && has_behavioral_alerts {
+                } else if is_cloud_allowed && has_behavioral_alerts {
                     if rule.debug || self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Cloud says SAFE but IGNORED bypass due to behavioral alerts from {:?} for PID {} (Rule: '{}')",
+                            "[BehaviorEngine] OpenEDR cloud verdict allowed but bypass ignored due to behavioral alerts from {:?} for PID {} (Rule: '{}')",
                             alert_sources, state_ref.pid, rule.name
                         ));
-                    }
-                }
-
-                if let Some(static_label) = &state_ref.cloud_static_label {
-                    let label_lc = static_label.to_lowercase();
-                    if label_lc.contains("clean")
-                        || label_lc.contains("trusted")
-                        || label_lc.contains("safe")
-                    {
-                        if rule.debug || self.rules.iter().any(|r| r.debug) {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Trusting Cloud Label for PID {} ({}): bypass rule '{}'",
-                                state_ref.pid, static_label, rule.name
-                            ));
-                        }
-                        continue;
                     }
                 }
             }
@@ -7928,17 +7933,12 @@ impl BehaviorEngine {
                     continue;
                 }
 
-                // Cloud Trust Filter: Bypass rule if cloud static analysis verified image as safe.
-                if rule.should_trust_cloud {
-                    if let Some(label) = &state.cloud_static_label {
-                        let label_lc = label.to_lowercase();
-                        if label_lc.contains("clean")
-                            || label_lc.contains("trusted")
-                            || label_lc.contains("safe")
-                        {
-                            continue;
-                        }
-                    }
+                // Cloud Trust Filter: only numeric OpenEDR/Valkyrie verdict code 1 may bypass.
+                if rule.should_trust_cloud
+                    && (state.cloud_static_verdict == Some(1)
+                        || state.cloud_dynamic_verdict == Some(1))
+                {
+                    continue;
                 }
 
                 let mut legacy_triggered = false;

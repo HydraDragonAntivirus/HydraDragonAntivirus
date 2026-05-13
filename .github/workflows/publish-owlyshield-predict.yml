@@ -69,7 +69,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(owlyshield): update predict binaries"
           title: "Update Owlyshield predict binaries"
-          body: "Automated predict service, model, and TensorFlow Lite DLL update."
+          body: "Automated predict service, model."
           add-paths: |
             ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-owlyshield-predict"

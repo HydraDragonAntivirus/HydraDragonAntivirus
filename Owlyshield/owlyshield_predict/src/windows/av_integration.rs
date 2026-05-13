@@ -188,6 +188,29 @@ fn is_protected_path(candidate_path: &str) -> bool {
     false
 }
 
+fn is_openedr_cloud_safe(file_path: &str) -> bool {
+    #[cfg(all(
+        target_os = "windows",
+        feature = "firewall",
+        feature = "behavior_engine"
+    ))]
+    {
+        if let Some(verdict) =
+            crate::behavioral::behavior_engine::firewall_file_verdict_for_path(file_path)
+        {
+            if verdict.verdict == 1 {
+                Logging::debug(&format!(
+                    "[AVIntegration] Trusting OpenEDR cloud-safe verdict for {} ({}, sha256={})",
+                    file_path, verdict.verdict_label, verdict.sha256
+                ));
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn normalize_nt_path(nt_path: &str) -> String {
     if nt_path.trim().is_empty() {
         return nt_path.to_string();
@@ -1104,10 +1127,15 @@ impl<'a> AVIntegration<'a> {
 
     /// Called by kernel/event handling to queue internal requests (no external client)
     pub fn queue_file_event(&mut self, iomsg: &IOMessage, precord: &ProcessRecord) {
-        self.queue_tinyav_scan_for_new_file(iomsg);
-
         let scan_target = scan_target_for_iomsg(iomsg, precord);
         let file_path = scan_target.to_string_lossy().to_string();
+
+        if is_openedr_cloud_safe(&file_path) {
+            return;
+        }
+
+        self.queue_tinyav_scan_for_new_file(iomsg);
+
         let signature_status = self.get_or_compute_signature_status(&file_path, &scan_target);
 
         let mut yara_x_matches = Vec::new();
