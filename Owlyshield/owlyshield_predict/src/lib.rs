@@ -78,16 +78,18 @@ pub fn is_hydra_dragon_enabled() -> bool {
 pub fn init_hydra_dragon(
     config: &crate::config::Config,
 ) -> Option<av_integration::AVIntegration<'_>> {
-    if is_hydra_dragon_enabled() {
-        use crate::worker::predictor::PredictorMalware;
-        let predictor_malware = PredictorMalware::new(config);
-        Some(av_integration::AVIntegration::new(
-            config,
-            predictor_malware,
-        ))
-    } else {
-        None
+    if !is_hydra_dragon_enabled() {
+        crate::logging::Logging::warning(
+            "HydraDragon install path was not found; starting pipe integration anyway",
+        );
     }
+
+    use crate::worker::predictor::PredictorMalware;
+    let predictor_malware = PredictorMalware::new(config);
+    Some(av_integration::AVIntegration::new(
+        config,
+        predictor_malware,
+    ))
 }
 
 // --- Bridge Module Exports (Alignment with main.rs root namespace) ---

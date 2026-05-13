@@ -15,13 +15,13 @@ use crate::behavioral::app_settings::AppSettings;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::behavior_engine::BehaviorRule;
 use crate::config::Param;
+use crate::connectors::register::Connectors;
+use crate::shared_def::IOMessage;
 use crate::shared_def::IrpMajorOp;
 use crate::threathandling::WindowsThreatHandler;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::utils::format_process_descriptor_with_fallback;
 use crate::watchlist::WatchList;
-use crate::connectors::register::Connectors;
-use crate::shared_def::IOMessage;
 use crate::worker::process_record_handling::{
     ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty,
 };
@@ -162,15 +162,13 @@ pub fn run() {
     if cfg!(feature = "replay") {
         println!("Replay Driver Messages");
 
-
         // For replay we load a separate AppSettings instance if behavior engine is enabled
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let app_settings_replay =
             AppSettings::load(&rules_dir).expect("Failed to load app settings for replay");
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let mut worker =
-            Worker::new_replay(&config, app_settings_replay).driver(driver.clone());
+        let mut worker = Worker::new_replay(&config, app_settings_replay).driver(driver.clone());
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let mut worker = Worker::new_replay(&config);
 
@@ -259,7 +257,6 @@ pub fn run() {
         let thread_app_settings = app_settings; // moved into thread
         let thread_driver = driver.clone();
         thread::spawn(move || {
-
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             let mut worker =
                 Worker::new(&thread_config, thread_app_settings).driver(thread_driver.clone());
@@ -279,11 +276,10 @@ pub fn run() {
             worker = worker.exepath_handler(Box::new(ExepathLive));
 
             if cfg!(feature = "malware") {
-                worker = worker
-                    .process_record_handler(Box::new(ProcessRecordHandlerLive::new(
-                        &thread_config,
-                        Box::new(win_threat_handler.clone()),
-                    )));
+                worker = worker.process_record_handler(Box::new(ProcessRecordHandlerLive::new(
+                    &thread_config,
+                    Box::new(win_threat_handler.clone()),
+                )));
             }
 
             if cfg!(feature = "novelty") {

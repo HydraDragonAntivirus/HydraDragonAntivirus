@@ -67,27 +67,28 @@ pub fn is_hydra_dragon_enabled() -> bool {
 /// * `config` - Reference to the Config instance for this thread
 ///
 /// # Returns
-/// * `Some(AVIntegration)` if HydraDragon is available
-/// * `None` if HydraDragon is not installed
+/// * `Some(AVIntegration)` when the HydraDragon feature is compiled in
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub fn init_hydra_dragon(
     config: &crate::config::Config,
 ) -> Option<av_integration::AVIntegration<'_>> {
-    if is_hydra_dragon_enabled() {
-        use crate::worker::predictor::PredictorMalware;
-
-        // Create predictor on this thread
-        let predictor_malware = PredictorMalware::new(config);
-
-        // Create AVIntegration on this thread
-        // This is safe because we're not trying to share it across threads
-        Some(av_integration::AVIntegration::new(
-            config,
-            predictor_malware,
-        ))
-    } else {
-        None
+    if !is_hydra_dragon_enabled() {
+        crate::logging::Logging::warning(
+            "HydraDragon install path was not found; starting pipe integration anyway",
+        );
     }
+
+    use crate::worker::predictor::PredictorMalware;
+
+    // Create predictor on this thread
+    let predictor_malware = PredictorMalware::new(config);
+
+    // Create AVIntegration on this thread
+    // This is safe because we're not trying to share it across threads
+    Some(av_integration::AVIntegration::new(
+        config,
+        predictor_malware,
+    ))
 }
 
 /*

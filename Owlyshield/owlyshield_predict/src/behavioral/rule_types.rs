@@ -1151,11 +1151,7 @@ fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
                 0
             } else {
                 let shift = 32u32.checked_sub(prefix_len).unwrap_or(0);
-                if shift >= 32 {
-                    0
-                } else {
-                    !0u32 << shift
-                }
+                if shift >= 32 { 0 } else { !0u32 << shift }
             };
             (u32::from(v4) & mask) == (u32::from(net) & mask)
         }
@@ -1170,11 +1166,7 @@ fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
                 0
             } else {
                 let shift = 128u32.checked_sub(prefix_len).unwrap_or(0);
-                if shift >= 128 {
-                    0
-                } else {
-                    !0u128 << shift
-                }
+                if shift >= 128 { 0 } else { !0u128 << shift }
             };
             (u128::from(v6) & mask) == (u128::from(net) & mask)
         }

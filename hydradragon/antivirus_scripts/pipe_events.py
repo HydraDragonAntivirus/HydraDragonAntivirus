@@ -275,27 +275,3 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None
     thread = threading.Thread(target=pipe_worker, daemon=True, name="AVToEDRPipe")
     thread.start()
     logger.info("[EDR] AV->EDR pipe listener started in dedicated thread")
-
-
-# ============================================================================#
-# Integration Startup
-# ============================================================================#
-
-
-async def start_all_pipe_listeners():
-    """
-    Start all pipe listeners as asyncio tasks.
-    Returns task list for monitoring.
-    """
-    loop = asyncio.get_running_loop()
-    logger.info("[PIPE-START] Creating AV->EDR listener task...")
-    task1 = loop.create_task(monitor_threat_events_from_av(), name="AV-to-EDR-ThreatListener")
-    logger.info(f"[PIPE-START] Task1 created: {task1}")
-
-    logger.info("[PIPE-START] AV->EDR pipe listener started successfully.")
-
-    # Force event loop to process tasks
-    await asyncio.sleep(0)
-    logger.info(f"[PIPE-START] After yield - Task states: task1.done()={task1.done()}")
-
-    return [task1]

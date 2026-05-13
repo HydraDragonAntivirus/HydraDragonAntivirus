@@ -7,24 +7,24 @@ use std::os::raw::c_char;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
+use crate::config::Param;
+use crate::threathandling::LinuxThreatHandler;
+use crate::watchlist::WatchList;
 use crate::{
     Connectors, ExepathLive, IOMessage, IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC,
     IOMsgPostProcessorWriter, LDriverMsg, Logging, ProcessRecordHandlerLive,
     ProcessRecordHandlerNovelty, Worker, config,
 };
-use crate::config::Param;
-use crate::threathandling::LinuxThreatHandler;
-use crate::watchlist::WatchList;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::mpsc::channel;
 use std::thread;
 
+use aya::Ebpf;
 use aya::maps::perf::AsyncPerfEventArray;
 use aya::programs::KProbe;
 use aya::util::online_cpus;
-use aya::Ebpf;
 use aya_log::EbpfLogger;
 use bytes::BytesMut;
 use ebpf_monitor_common::*;
@@ -107,14 +107,13 @@ pub async fn run() -> Result<(), anyhow::Error> {
 
             //NEW
             thread::spawn(move || {
-
                 let mut worker = Worker::new(&config);
 
                 worker = worker.exepath_handler(Box::new(ExepathLive::default()));
 
                 if cfg!(feature = "malware") {
-                    worker = worker
-                        .process_record_handler(Box::new(ProcessRecordHandlerLive::new(
+                    worker =
+                        worker.process_record_handler(Box::new(ProcessRecordHandlerLive::new(
                             &config,
                             Box::new(LinuxThreatHandler::default()),
                         )));
@@ -173,7 +172,7 @@ pub async fn run() -> Result<(), anyhow::Error> {
                             worker.scan_processes(&config, th.clone_box());
                             worker.process_suspended_records(&config, th);
                         }
-                        
+
                         msgs_since_housekeeping = 0;
                         last_housekeeping = std::time::Instant::now();
                     }
@@ -202,13 +201,11 @@ pub async fn run() -> Result<(), anyhow::Error> {
         // like to specify the eBPF program at runtime rather than at compile-time, you can
         // reach for `Bpf::load_file` instead.
         #[cfg(debug_assertions)]
-        let mut bpf = Ebpf::load_file(
-            "../../vfs-kprobes/target/bpfel-unknown-none/debug/ebpf-monitor"
-        )?;
+        let mut bpf =
+            Ebpf::load_file("../../vfs-kprobes/target/bpfel-unknown-none/debug/ebpf-monitor")?;
         #[cfg(not(debug_assertions))]
-        let mut bpf = Ebpf::load_file(
-            "../../vfs-kprobes/target/bpfel-unknown-none/release/ebpf-monitor"
-        )?;
+        let mut bpf =
+            Ebpf::load_file("../../vfs-kprobes/target/bpfel-unknown-none/release/ebpf-monitor")?;
         if let Err(e) = EbpfLogger::init(&mut bpf) {
             // This can happen if you remove all log statements from your eBPF program.
             warn!("failed to initialize eBPF logger: {}", e);

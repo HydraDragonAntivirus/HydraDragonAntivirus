@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 #[cfg(windows)]
 use std::os::windows::io::{AsHandle, AsRawHandle};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -24,7 +24,7 @@ use windows::Win32::System::Pipes::{
     WaitNamedPipeA,
 };
 #[cfg(windows)]
-use windows::Win32::System::Threading::{SetPriorityClass, HIGH_PRIORITY_CLASS};
+use windows::Win32::System::Threading::{HIGH_PRIORITY_CLASS, SetPriorityClass};
 
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::config::Config;
@@ -51,7 +51,8 @@ const PIPE_READ_BUFFER_SIZE: u32 = 65536;
 const CONNECT_TIMEOUT_MS: u32 = 900_000; // 900s - adjust as needed
 const TINYAV_SCAN_DEBOUNCE: Duration = Duration::from_secs(10);
 const TINYAV_RECENT_SCAN_LIMIT: usize = 4096;
-const TINYAV_PREFERRED_INSTALL_PATH: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\TinyAntivirus\TinyAVConsole.exe";
+const TINYAV_PREFERRED_INSTALL_PATH: &str =
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\TinyAntivirus\TinyAVConsole.exe";
 
 /// Action to take when a threat is detected
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
@@ -1119,7 +1120,7 @@ impl<'a> AVIntegration<'a> {
                     for matching_rule in scan_results.matching_rules() {
                         let id = matching_rule.identifier().to_string();
                         let id_lower = id.to_lowercase();
-                        
+
                         if id_lower.contains("vmprotect") {
                             is_vmprotect = true;
                         }

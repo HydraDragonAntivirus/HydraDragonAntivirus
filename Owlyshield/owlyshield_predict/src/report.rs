@@ -310,8 +310,8 @@ impl SystemReport {
     ) {
         if let Some(pids) = firewall_pids {
             for &pid in pids {
-                let process_path =
-                    resolve_process_path(pid).map(|path: std::path::PathBuf| path.to_string_lossy().into_owned());
+                let process_path = resolve_process_path(pid)
+                    .map(|path: std::path::PathBuf| path.to_string_lossy().into_owned());
                 let process_name = process_path
                     .as_ref()
                     .and_then(|path| {

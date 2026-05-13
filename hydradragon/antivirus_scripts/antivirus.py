@@ -523,7 +523,6 @@ logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} se
 
 start_time = time.time()
 from .pipe_events import (  # noqa: E402
-    start_all_pipe_listeners,
     normalize_nt_path,
     _sync_close_handle,
 )
@@ -8933,48 +8932,33 @@ async def scan_and_warn(
 # =========================
 async def queue_scan_request(request_obj: dict) -> None:
     """
-    Normalize incoming request file_path and skip protected paths before enqueueing.
-    Ensures we don't send unnecessary or invalid scan requests to AV.
+    Queue an Owlyshield-originated scan request for local HydraDragon scanning.
     """
     try:
-        file_path = request_obj.get("file_path")
-        if not file_path:
-            logger.debug("[EDR->AV] queue_scan_request: missing file_path; dropping request")
-            return
-
-        # normalize NT path (may raise; run in thread)
-        try:
-            normalized = await normalize_nt_path(file_path)
-        except Exception as e:
-            # If normalization fails, log and drop or fallback to original path
-            logger.exception(f"[EDR->AV] queue_scan_request: normalize_nt_path failed for {file_path}: {e}")
-            # Option: use original path instead of dropping. Here we drop to be safe:
-            return
-
-        # update request and enqueue
-        request_obj["file_path"] = normalized
-        await _SCAN_REQUEST_SEND_QUEUE.put(request_obj)
-
+        asyncio.create_task(_handle_edr_scan_request(request_obj))
     except Exception as e:
         logger.exception(f"[EDR->AV] queue_scan_request: unexpected error: {e}")
 
 
-# Synchronous helper used via asyncio.to_thread: tries to open the pipe for writing
-def _sync_open_pipe_for_write(timeout_ms: int = _WAIT_TIMEOUT_MS):
+# Synchronous helper used via asyncio.to_thread: connects to Owlyshield's scan-request pipe and reads one request.
+def _sync_read_scan_request_from_edr(timeout_ms: int = _WAIT_TIMEOUT_MS):
     """
-    Try to open the AV server pipe for writing and return a handle or None.
-    This is synchronous and intended to be called via asyncio.to_thread().
+    Owlyshield owns PIPE_EDR_TO_AV as the server and writes scan requests.
+    HydraDragon connects as the client, reads one JSON request, then closes.
     """
+    handle = None
     try:
         try:
             win32pipe.WaitNamedPipe(PIPE_EDR_TO_AV, int(timeout_ms))
-        except Exception:
-            # WaitNamedPipe can fail; still try CreateFile below
-            pass
+        except pywintypes.error as e:
+            # Pipe not created yet / timed out. Normal while Owlyshield is starting.
+            if getattr(e, "winerror", None) not in (2, 121):
+                logger.debug(f"[EDR->AV] WaitNamedPipe error winerror={getattr(e, 'winerror', None)} - {e}")
+            return None
 
         handle = win32file.CreateFile(
             PIPE_EDR_TO_AV,
-            win32file.GENERIC_WRITE,
+            win32file.GENERIC_READ,
             0,
             None,
             win32file.OPEN_EXISTING,
@@ -8986,12 +8970,25 @@ def _sync_open_pipe_for_write(timeout_ms: int = _WAIT_TIMEOUT_MS):
         if not validate_pipe_peer(handle, OWLYSHIELD_RANSOM_EXE, is_server=False, logger=logger):
             logger.warning("[AV] Rejected unauthorized EDR server in EDR-to-AV pipe")
             win32file.CloseHandle(handle)
+            handle = None
             return None
 
-        return handle
-    except Exception:
-        # return None so async caller can retry; optionally log in caller
+        _, data = win32file.ReadFile(handle, 65536)
+        if not data:
+            return None
+        return data.decode("utf-8", errors="replace").strip()
+    except pywintypes.error as e:
+        logger.debug(f"[EDR->AV] Read scan request pipe error winerror={getattr(e, 'winerror', None)} - {e}")
         return None
+    except Exception as e:
+        logger.debug(f"[EDR->AV] Unexpected scan request read error: {e}")
+        return None
+    finally:
+        if handle:
+            try:
+                win32file.CloseHandle(handle)
+            except Exception:
+                pass
 
 
 def _sync_write_and_close(handle, data_bytes: bytes) -> bool:
@@ -9029,65 +9026,50 @@ def _sync_write_and_close(handle, data_bytes: bytes) -> bool:
         return False
 
 
-async def send_scan_request_async(request_obj: dict, open_retries: int = _OPEN_RETRIES, retry_delay: float = _RETRY_DELAY) -> bool:
-    """
-    Async wrapper: open pipe in a thread, write in a thread, and always close via _sync_close_handle.
-    """
-    data = json.dumps(request_obj).encode("utf-8")
+async def _handle_edr_scan_request(request_obj: dict) -> None:
+    file_path = request_obj.get("file_path")
+    if not file_path:
+        logger.debug("[EDR->AV] Received scan request without file_path; dropping")
+        return
 
-    for attempt in range(open_retries):
-        # Open handle in thread (synchronous operation)
-        handle = await asyncio.to_thread(_sync_open_pipe_for_write)
-        if handle:
-            # We have a handle — perform write+close in a thread
-            ok = await asyncio.to_thread(_sync_write_and_close, handle, data)
-            if ok:
-                logger.info(f"[EDR->AV] Sent scan request: {request_obj.get('file_path')} (attempt {attempt + 1})")
-                return True
-            else:
-                logger.debug(f"[EDR->AV] Write failed; will retry (attempt {attempt + 1}/{open_retries})")
-                continue
-        else:
-            # Try to capture more detailed error for logs (single failing CreateFile attempt)
-            try:
-                try:
-                    win32pipe.WaitNamedPipe(PIPE_EDR_TO_AV, int(retry_delay * 1000))
-                except Exception:
-                    pass
-                # this will raise pywintypes.error so we can log it
-                win32file.CreateFile(
-                    PIPE_EDR_TO_AV,
-                    win32file.GENERIC_WRITE,
-                    0,
-                    None,
-                    win32file.OPEN_EXISTING,
-                    0,
-                    None,
-                )
-            except pywintypes.error as e:
-                logger.debug(f"[EDR->AV] CreateFile error winerror={getattr(e, 'winerror', None)} - {e}")
-            except Exception:
-                pass
+    try:
+        normalized = await normalize_nt_path(file_path)
+    except Exception as e:
+        logger.exception(f"[EDR->AV] normalize_nt_path failed for {file_path}: {e}")
+        return
 
-    logger.error(f"[EDR->AV] Giving up sending scan request after {open_retries} attempts: {request_obj}")
-    return False
+    logger.info(f"[EDR->AV] Received scan request from Owlyshield: {normalized}")
+    await scan_and_warn(
+        normalized,
+        main_file_path=normalized,
+        flag_vmprotect=bool(request_obj.get("is_vmprotect", False)),
+        owlyshield_signature_status=request_obj.get("signature_status"),
+    )
 
 
-# Drop-in monitor: run this at startup and call queue_scan_request(...) to send scans
 async def monitor_scan_requests_from_edr():
-    logger.info(f"[EDR->AV] Sender started; will send to {PIPE_EDR_TO_AV}")
+    logger.info(f"[EDR->AV] Receiver started; reading scan requests from {PIPE_EDR_TO_AV}")
     while True:
         try:
-            request_obj = await _SCAN_REQUEST_SEND_QUEUE.get()
-            if request_obj is None:
-                logger.info("[EDR->AV] Sender received shutdown sentinel")
-                break
-            logger.debug(f"[EDR->AV] Dequeued scan request: {request_obj.get('file_path', '<no-file>')}")
-            sent = await send_scan_request_async(request_obj)
-            if not sent:
-                logger.error(f"[EDR->AV] Failed to send scan request for: {request_obj.get('file_path')}")
+            raw_message = await asyncio.to_thread(_sync_read_scan_request_from_edr)
+            if not raw_message:
+                await asyncio.sleep(_RETRY_DELAY)
+                continue
+
+            try:
+                request_obj = json.loads(raw_message)
+            except json.JSONDecodeError as e:
+                logger.error(f"[EDR->AV] Invalid scan request JSON: {e} | raw={raw_message!r}")
+                continue
+
+            if not isinstance(request_obj, dict):
+                logger.error(f"[EDR->AV] Unexpected scan request type: {type(request_obj).__name__}")
+                continue
+
+            asyncio.create_task(_handle_edr_scan_request(request_obj))
         except Exception as e:
-            logger.exception(f"[EDR->AV] Sender loop error: {e}")
+            logger.exception(f"[EDR->AV] Receiver loop error: {e}")
+            await asyncio.sleep(_RETRY_DELAY)
 
 async def load_all_resources_async():
     """
@@ -9317,7 +9299,6 @@ async def start_real_time_protection_async():
     # Fire-and-forget tasks
     asyncio.create_task(wrap_async_function("EDRMonitor", monitor_scan_requests_from_edr))
     asyncio.create_task(wrap_async_function("SuricataMonitor", monitor_suricata_log_async))
-    asyncio.create_task(wrap_async_function("PipeListeners", start_all_pipe_listeners))
     asyncio.create_task(wrap_async_function("ResourceLoader", load_all_resources_async))
     asyncio.create_task(wrap_async_function("HayabusaLive", run_hayabusa_live_task))
 
