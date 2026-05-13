@@ -225,15 +225,8 @@ suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
 suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
 firewall_exe_path = os.path.join(program_files, "HydraDragonAntivirus", "hydradragon", "HydraDragonFirewall", "hydradragonfirewall.exe")
 
-# ClamAV base folder path
-clamav_folder = r"C:\Program Files\ClamAV"
-
 # 7-Zip base folder path
 seven_zip_folder = os.path.join(program_files, "7-Zip")
-
-# ClamAV file paths and configurations
-clamav_database_directory_path = os.path.join(clamav_folder, "database")
-clamav_file_paths = [os.path.join(clamav_database_directory_path, "daily.cvd"), os.path.join(clamav_database_directory_path, "daily.cld")]
 
 # 7-Zip executable path
 seven_zip_path = os.path.join(seven_zip_folder, "7z.exe")
