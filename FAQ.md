@@ -31,7 +31,7 @@
 - Windows 10 no longer offically supported. Switch to Windows 11 25H2.
 
 ### Q: What are the minimum RAM and disk space requirements?
-- A minimum of 8 GB of RAM is required: 3 GB is used by ClamAV, and the remaining 5 GB is used by other engines.
+- A minimum of 4 GB of RAM is required (thanks to optimizations, it generally use less than 1GB) but 8 GB is recommended.
 
 ### Q: Any sponsors or supporters?
 - Yes, there are supporters for this project. Xcitium (Comodo) has expressed interest in supporting this project by providing malware samples, and Cisco Talos ClamAV community projects. But it's still a one man project.
