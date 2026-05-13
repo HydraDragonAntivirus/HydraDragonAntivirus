@@ -4,6 +4,67 @@
 #include <intrin.h>
 GraphVizLanguage objGraphVizLanguage;
 
+namespace
+{
+	int QueryTraceArcCount()
+	{
+		ULONG processorCount = KeQueryActiveProcessorCount(nullptr);
+		if (processorCount == 0)
+		{
+			processorCount = 1;
+		}
+
+		ULONG arcCount = processorCount * TraceBuffersPerProcessor;
+		if (arcCount < TraceMinArcs)
+		{
+			arcCount = TraceMinArcs;
+		}
+		if (arcCount > TraceMaxArcs)
+		{
+			arcCount = TraceMaxArcs;
+		}
+
+		return (int)arcCount;
+	}
+
+	template<typename Type>
+	Type* TraceEndFromBytes(Type* Start, size_t ByteCount)
+	{
+		return (Type*)((PUCHAR)Start + ByteCount);
+	}
+
+	size_t TraceRipBufferBytes()
+	{
+		return TraceRipEntriesPerArc * sizeof(uint64_t);
+	}
+
+	size_t TraceMnemonicBufferBytes()
+	{
+		return TraceMnemonicEntriesPerArc * sizeof(Mnemonic);
+	}
+
+	size_t TraceGraphBufferBytes(size_t MnemonicCount)
+	{
+		if (MnemonicCount > (((size_t)-1) - TraceGraphHeaderBytes) / TraceGraphBytesPerMnemonic)
+		{
+			return 0;
+		}
+
+		return TraceGraphHeaderBytes + (MnemonicCount * TraceGraphBytesPerMnemonic);
+	}
+
+	void AdvanceArcIndex(int& Arc, size_t ArcCount)
+	{
+		if (ArcCount == 0)
+		{
+			Arc = 0;
+			return;
+		}
+
+		Arc = (Arc + 1) % (int)ArcCount;
+	}
+}
+
 void RtlInt64ToCharArray(_In_ uint64_t number, IN ULONG Base, _Out_ CHAR* hexString, _In_ size_t hexStringSize)
 {
 	CHAR Buffer[65];
@@ -107,34 +168,77 @@ void RtlInt64ToCharExsitingArray(_In_ uint64_t number, IN ULONG Base, _Out_ CHAR
 template<typename Type>
 void TraceMessage<Type>::write_front(const void* Data, const size_t SizeOfData)
 {
-	//memcpy((void*)(CurrentWriteIndex), (const void*)Data, (size_t)SizeOfData); CurrentWriteIndex += SizeOfData; DataWritten += SizeOfData;
-	if (CurrentWriteIndex < End && CurrentWriteIndex + SizeOfData < End && SizeOfData > 0)
+	if (Data == nullptr || SizeOfData == 0 || Start == nullptr || CurrentWriteIndex == nullptr)
 	{
-		memcpy((void*)(CurrentWriteIndex), (const void*)Data, (size_t)SizeOfData); CurrentWriteIndex += SizeOfData; DataWritten += SizeOfData;
+		return;
+	}
+
+	PUCHAR current = (PUCHAR)CurrentWriteIndex;
+	PUCHAR end = (PUCHAR)Start + AllSize;
+	if (current <= end && SizeOfData <= (size_t)(end - current))
+	{
+		RtlCopyMemory(current, Data, SizeOfData);
+		current += SizeOfData;
+		CurrentWriteIndex = (Type*)current;
+		DataWritten += SizeOfData;
 	}
 }
 
 template<typename Type>
 void TraceMessage<Type>::clear()
 {
-	memset(Start, 0, AllSize);  DataWritten = 0; Size = 0; CurrentWriteIndex = Start;
+	if (Start != nullptr && AllSize > 0)
+	{
+		RtlZeroMemory(Start, AllSize);
+	}
+	DataWritten = 0;
+	Size = 0;
+	CurrentWriteIndex = Start;
 }
 
 template<typename Type>
 size_t TraceMessage<Type>::size(const size_t SizeOfData)
 {
+	if (SizeOfData == 0)
+	{
+		return 0;
+	}
+
 	Size = DataWritten / SizeOfData;
 	return Size;
 }
 
 template<typename Type>
+size_t TraceMessage<Type>::capacity(const size_t SizeOfData) const
+{
+	if (SizeOfData == 0)
+	{
+		return 0;
+	}
+
+	return AllSize / SizeOfData;
+}
+
+template<typename Type>
+size_t TraceMessage<Type>::remaining(const size_t SizeOfData) const
+{
+	if (SizeOfData == 0 || DataWritten >= AllSize)
+	{
+		return 0;
+	}
+
+	return AllSize - DataWritten;
+}
+
+template<typename Type>
 int TraceMessage<Type>::find(const uint64_t Val, const size_t SizeOfData)
 {
-	for (Type* LocalCWI = Start; LocalCWI < CurrentWriteIndex; LocalCWI += SizeOfData)
+	for (PUCHAR cursor = (PUCHAR)Start; cursor + SizeOfData <= (PUCHAR)CurrentWriteIndex; cursor += SizeOfData)
 	{
+		Type* LocalCWI = (Type*)cursor;
 		if (*LocalCWI == Val)
 		{
-			return *LocalCWI;
+			return (int)*LocalCWI;
 		}
 	}
 	return -1;
@@ -158,6 +262,11 @@ char* AttachString(char* buffer, char* string_to_attach)
 void Trace::AcceptRipMessage(File& objFile)
 {
 	int Arc = 0;
+	if (CircleOfRips.empty())
+	{
+		return;
+	}
+
 	for (;;)
 	{
 		if (CircleOfRips[Arc].Reading)
@@ -173,9 +282,10 @@ void Trace::AcceptRipMessage(File& objFile)
 				totalSize += sizeof(uint64_t) * 2; // Space for Address
 			}
 
-			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, totalSize, 'goL#');
+			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_PAGED, totalSize, 'goL#');
 			if (ValuesBuffer != nullptr)
 			{
+				RtlZeroMemory(ValuesBuffer, totalSize);
 				uint64_t* LocalCWI = CircleOfRips[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
@@ -187,7 +297,7 @@ void Trace::AcceptRipMessage(File& objFile)
 					ValuesLen += strlen(ValuesCWI);
 					ValuesCWI = (PCH)(uint64_t(ValuesCWI) + strlen(ValuesCWI));
 
-					LocalCWI += sizeof(uint64_t);
+					++LocalCWI;
 				}
 				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
 
@@ -198,14 +308,18 @@ void Trace::AcceptRipMessage(File& objFile)
 			CircleOfRips[Arc].clear();
 			CircleOfRips[Arc].Reading = false;
 		}
-		if (Arc == 15) { Arc = 0; }
-		else { ++Arc; }
+		AdvanceArcIndex(Arc, CircleOfRips.size());
 	}
 }
 
 void Trace::AcceptMnemonicMessage(File& objFile)
 {
 	int Arc = 0;
+	if (CircleOfMnemonics.empty())
+	{
+		return;
+	}
+
 	for (;;)
 	{
 		if (CircleOfMnemonics[Arc].Reading)
@@ -228,9 +342,10 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 				}
 			}
 
-			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, totalSize, 'goL#');
+			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_PAGED, totalSize, 'goL#');
 			if (ValuesBuffer != nullptr)
 			{
+				RtlZeroMemory(ValuesBuffer, totalSize);
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
@@ -268,7 +383,7 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 					ValuesCWI = (PCH)(uint64_t(ValuesCWI) + strlen(EndCharacters));
 					ValuesLen += strlen(EndCharacters);
 
-					LocalCWI += sizeof(Mnemonic);
+					++LocalCWI;
 				}
 
 				objFile.WriteFile(ValuesBuffer, (ULONG)ValuesLen);
@@ -280,26 +395,32 @@ void Trace::AcceptMnemonicMessage(File& objFile)
 			CircleOfMnemonics[Arc].clear();
 			CircleOfMnemonics[Arc].Reading = false;
 		}
-		if (Arc == 15) { Arc = 0; }
-		else { ++Arc; }
+		AdvanceArcIndex(Arc, CircleOfMnemonics.size());
 	}
 }
 bool Entry = false;
 void Trace::AcceptGraphMessage(File& objFile)
 {
 	int Arc = 0;
+	if (CircleOfMnemonics.empty())
+	{
+		return;
+	}
+
 	for (;;)
 	{
 		if (CircleOfMnemonics[Arc].Reading)
 		{
-			KdPrint(("Data written %p and ARC IS %x\n", CircleOfMnemonics[Arc].size(sizeof(Mnemonic)), Arc));
+			const size_t mnemonicCount = CircleOfMnemonics[Arc].size(sizeof(Mnemonic));
+			KdPrint(("Data written %p and ARC IS %x\n", mnemonicCount, Arc));
 			//auto addr = (CircleOfMnemonics[Arc].End)->Address;
 			//KdPrint(("Last addr %p\n", addr));
 
-			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, 4294967296, 'goL#');
-			RtlZeroMemory(ValuesBuffer, 4294967296);
+			size_t totalSize = TraceGraphBufferBytes(mnemonicCount);
+			PCH ValuesBuffer = totalSize != 0 ? (PCH)ExAllocatePool2(POOL_FLAG_PAGED, totalSize, 'goL#') : nullptr;
 			if (ValuesBuffer != nullptr)
 			{
+				RtlZeroMemory(ValuesBuffer, totalSize);
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
@@ -313,10 +434,10 @@ void Trace::AcceptGraphMessage(File& objFile)
 					Entry = true;
 				}
 
-				for (uint64_t cMnemonic = 0; cMnemonic < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++cMnemonic)
+				for (uint64_t cMnemonic = 0; cMnemonic + 1 < mnemonicCount; ++cMnemonic)
 				{
 					Mnemonic* EndOfGraph = LocalCWI;
-					Mnemonic* StartOfNextGraph = EndOfGraph + sizeof(Mnemonic);
+					Mnemonic* StartOfNextGraph = EndOfGraph + 1;
 
 					if (LocalCWI->Graph == true && StartOfNextGraph->Address != 0)
 					{
@@ -324,30 +445,30 @@ void Trace::AcceptGraphMessage(File& objFile)
 						{
 							for (int64_t Index = cMnemonic; Index > 0; --Index)
 							{
-								TempLocalCWI -= sizeof(Mnemonic);
-								if (TempLocalCWI->Graph == true) { TempLocalCWI += sizeof(Mnemonic); break; }
+								--TempLocalCWI;
+								if (TempLocalCWI->Graph == true) { ++TempLocalCWI; break; }
 							}
 						}
 						Mnemonic* StartOfGraph = TempLocalCWI;
 
 						Mnemonic* TempNextGraph = StartOfNextGraph;
 						{
-							for (int64_t Index = (int64_t)cMnemonic + 1; Index < (int64_t)CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++Index)
+							for (int64_t Index = (int64_t)cMnemonic + 1; Index + 1 < (int64_t)mnemonicCount; ++Index)
 							{
-								TempNextGraph += sizeof(Mnemonic);
-								if (TempNextGraph->Graph == true) { TempNextGraph -= sizeof(Mnemonic); break; }
+								++TempNextGraph;
+								if (TempNextGraph->Graph == true) { --TempNextGraph; break; }
 							}
 						}
 						Mnemonic* EndOfNextGraph = TempNextGraph;
 
-						if (((EndOfGraph + sizeof(Mnemonic)) <= CircleOfMnemonics[Arc].End))
+						if (StartOfNextGraph < CircleOfMnemonics[Arc].Start + mnemonicCount)
 						{
 							size_t LenOut = 0;
 							SpecificNodeAdd(ValuesCWI, StartOfGraph->Address, 16, ValuesLen, LenOut);
 
 							{
 								SpecificNodeEntryLabel(ValuesCWI, ValuesLen);
-								for (Mnemonic* PMnemonic = StartOfGraph; PMnemonic <= EndOfGraph; PMnemonic += sizeof(Mnemonic))
+								for (Mnemonic* PMnemonic = StartOfGraph; PMnemonic <= EndOfGraph; ++PMnemonic)
 								{
 									STRCATADDR(ValuesCWI, PMnemonic->Address, 16, LenOut, ValuesLen);
 
@@ -383,7 +504,7 @@ void Trace::AcceptGraphMessage(File& objFile)
 
 							{
 								SpecificNodeEntryLabel(ValuesCWI, ValuesLen);
-								for (Mnemonic* PMnemonic = StartOfNextGraph; PMnemonic < EndOfNextGraph; PMnemonic += sizeof(Mnemonic))
+								for (Mnemonic* PMnemonic = StartOfNextGraph; PMnemonic < EndOfNextGraph; ++PMnemonic)
 								{
 									STRCATADDR(ValuesCWI, PMnemonic->Address, 16, LenOut, ValuesLen);
 
@@ -423,7 +544,7 @@ void Trace::AcceptGraphMessage(File& objFile)
 							//STRCAT(ValuesCWI, "\n", ValuesLen);
 						}
 					}
-					LocalCWI += sizeof(Mnemonic);
+					++LocalCWI;
 				}
 				if (EoF) { STRCAT(ValuesCWI, objGraphVizLanguage.EndOfdigraph, ValuesLen); EoF = false; }
 
@@ -435,8 +556,7 @@ void Trace::AcceptGraphMessage(File& objFile)
 			CircleOfMnemonics[Arc].clear();
 			CircleOfMnemonics[Arc].Reading = false;
 		}
-		if (Arc == 15) { Arc = 0; }
-		else { ++Arc; }
+		AdvanceArcIndex(Arc, CircleOfMnemonics.size());
 	}
 }
 
@@ -445,12 +565,18 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 	bool TraceEntry = false;
 	int Arc = 0;
 	std::unordered_set<Mnemonic, MyHashFunction> CycleFolding;
+	if (CircleOfMnemonics.empty())
+	{
+		return;
+	}
+
 	for (;;)
 	{
 		if (CircleOfMnemonics[Arc].Reading)
 		{
-			KdPrint(("CircleOfMnemonics Data written %p and ARC IS %x\n", CircleOfMnemonics[Arc].size(sizeof(Mnemonic)), Arc));
-			for (uint64_t cMnemonic = 0; cMnemonic < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++cMnemonic)
+			size_t mnemonicCount = CircleOfMnemonics[Arc].size(sizeof(Mnemonic));
+			KdPrint(("CircleOfMnemonics Data written %p and ARC IS %x\n", mnemonicCount, Arc));
+			for (uint64_t cMnemonic = 0; cMnemonic < mnemonicCount; ++cMnemonic)
 			{
 				CycleFolding.insert(CircleOfMnemonics[Arc].Start[cMnemonic]);
 			}
@@ -462,9 +588,12 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 			}
 			KdPrint(("CircleOfMnemonics after CycleFolding Data written %p and ARC IS %x\n", CircleOfMnemonics[Arc].size(sizeof(Mnemonic)), Arc));
 
-			PCH ValuesBuffer = (PCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, 4294967296, 'goL#');
+			mnemonicCount = CircleOfMnemonics[Arc].size(sizeof(Mnemonic));
+			size_t totalSize = TraceGraphBufferBytes(mnemonicCount);
+			PCH ValuesBuffer = totalSize != 0 ? (PCH)ExAllocatePool2(POOL_FLAG_PAGED, totalSize, 'goL#') : nullptr;
 			if (ValuesBuffer != nullptr)
 			{
+				RtlZeroMemory(ValuesBuffer, totalSize);
 				Mnemonic* LocalCWI = CircleOfMnemonics[Arc].Start;
 				PCH ValuesCWI = ValuesBuffer;
 				size_t ValuesLen = 0;
@@ -478,10 +607,10 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 					TraceEntry = true;
 				}
 
-				for (uint64_t cMnemonic = 0; cMnemonic < CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++cMnemonic)
+				for (uint64_t cMnemonic = 0; cMnemonic + 1 < mnemonicCount; ++cMnemonic)
 				{
 					Mnemonic* EndOfGraph = LocalCWI;
-					Mnemonic* StartOfNextGraph = EndOfGraph + sizeof(Mnemonic);
+					Mnemonic* StartOfNextGraph = EndOfGraph + 1;
 
 					if (LocalCWI->Graph == true && StartOfNextGraph->Address != 0)
 					{
@@ -489,30 +618,30 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 						{
 							for (int64_t Index = cMnemonic; Index > 0; --Index)
 							{
-								TempLocalCWI -= sizeof(Mnemonic);
-								if (TempLocalCWI->Graph == true) { TempLocalCWI += sizeof(Mnemonic); break; }
+								--TempLocalCWI;
+								if (TempLocalCWI->Graph == true) { ++TempLocalCWI; break; }
 							}
 						}
 						Mnemonic* StartOfGraph = TempLocalCWI;
 
 						Mnemonic* TempNextGraph = StartOfNextGraph;
 						{
-							for (int64_t Index = (int64_t)cMnemonic + 1; Index < (int64_t)CircleOfMnemonics[Arc].size(sizeof(Mnemonic)); ++Index)
+							for (int64_t Index = (int64_t)cMnemonic + 1; Index + 1 < (int64_t)mnemonicCount; ++Index)
 							{
-								TempNextGraph += sizeof(Mnemonic);
-								if (TempNextGraph->Graph == true) { TempNextGraph -= sizeof(Mnemonic); break; }
+								++TempNextGraph;
+								if (TempNextGraph->Graph == true) { --TempNextGraph; break; }
 							}
 						}
 						Mnemonic* EndOfNextGraph = TempNextGraph;
 
-						if (((EndOfGraph + sizeof(Mnemonic)) <= CircleOfMnemonics[Arc].End))
+						if (StartOfNextGraph < CircleOfMnemonics[Arc].Start + mnemonicCount)
 						{
 							size_t LenOut = 0;
 							SpecificNodeAdd(ValuesCWI, StartOfGraph->Address, 16, ValuesLen, LenOut);
 
 							{
 								SpecificNodeEntryLabel(ValuesCWI, ValuesLen);
-								for (Mnemonic* PMnemonic = StartOfGraph; PMnemonic <= EndOfGraph; PMnemonic += sizeof(Mnemonic))
+								for (Mnemonic* PMnemonic = StartOfGraph; PMnemonic <= EndOfGraph; ++PMnemonic)
 								{
 									STRCATADDR(ValuesCWI, PMnemonic->Address, 16, LenOut, ValuesLen);
 
@@ -548,7 +677,7 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 
 							{
 								SpecificNodeEntryLabel(ValuesCWI, ValuesLen);
-								for (Mnemonic* PMnemonic = StartOfNextGraph; PMnemonic < EndOfNextGraph; PMnemonic += sizeof(Mnemonic))
+								for (Mnemonic* PMnemonic = StartOfNextGraph; PMnemonic < EndOfNextGraph; ++PMnemonic)
 								{
 									STRCATADDR(ValuesCWI, PMnemonic->Address, 16, LenOut, ValuesLen);
 
@@ -587,7 +716,7 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 							ValuesLen += strlen("\n");
 						}
 					}
-					LocalCWI += sizeof(Mnemonic);
+					++LocalCWI;
 				}
 				STRCAT(ValuesCWI, objGraphVizLanguage.EndOfdigraph, ValuesLen);
 
@@ -601,26 +730,32 @@ void Trace::AcceptGraphCycleFoldingMessage(File& objFile)
 			CycleFolding.clear();
 			CircleOfMnemonics[Arc].Reading = false;
 		}
-		if (Arc == 15) { Arc = 0; }
-		else { ++Arc; }
+		AdvanceArcIndex(Arc, CircleOfMnemonics.size());
 	}
 }
 
 bool Trace::TraceInitializeRip()
 {
-	for (int Arc = 0; Arc < Arcs; ++Arc)
+	if (ArcCount == 0)
+	{
+		ArcCount = QueryTraceArcCount();
+	}
+
+	const size_t bufferSize = TraceRipBufferBytes();
+	CircleOfRips.reserve(ArcCount);
+	for (int Arc = 0; Arc < ArcCount; ++Arc)
 	{
 		TraceMessage<uint64_t> objTraceRip;
 		CircleOfRips.push_back(objTraceRip);
 
-		CircleOfRips[Arc].Start = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, BufferSize, 'RipS');
+		CircleOfRips[Arc].Start = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, 'RipS');
 
-		if (CircleOfRips[Arc].Start == nullptr) { return false; }
-		RtlZeroMemory(CircleOfRips[Arc].Start, BufferSize);
+		if (CircleOfRips[Arc].Start == nullptr) { TraceShutdown(); return false; }
+		RtlZeroMemory(CircleOfRips[Arc].Start, bufferSize);
 
-		CircleOfRips[Arc].AllSize = BufferSize;
+		CircleOfRips[Arc].AllSize = bufferSize;
 		CircleOfRips[Arc].CurrentWriteIndex = CircleOfRips[Arc].Start;
-		CircleOfRips[Arc].End = CircleOfRips[Arc].Start + BufferSize;
+		CircleOfRips[Arc].End = TraceEndFromBytes(CircleOfRips[Arc].Start, bufferSize);
 	}
 
 	return true;
@@ -631,77 +766,194 @@ std::unordered_map<uint64_t, uint64_t>* translationMap = nullptr;
 
 bool Trace::TraceInitializeMnemonic()
 {
-	for (int Arc = 0; Arc < Arcs; ++Arc)
+	if (ArcCount == 0)
+	{
+		ArcCount = QueryTraceArcCount();
+	}
+
+	const size_t bufferSize = TraceMnemonicBufferBytes();
+	CircleOfMnemonics.reserve(ArcCount);
+	for (int Arc = 0; Arc < ArcCount; ++Arc)
 	{
 		TraceMessage<Mnemonic> objTraceMnemonic;
 		CircleOfMnemonics.push_back(objTraceMnemonic);
 
-		CircleOfMnemonics[Arc].Start = (Mnemonic*)ExAllocatePool2(POOL_FLAG_NON_PAGED, BufferSize, 'MneS');
-		if (CircleOfMnemonics[Arc].Start == nullptr) { return false; }
-		RtlZeroMemory(CircleOfMnemonics[Arc].Start, BufferSize);
+		CircleOfMnemonics[Arc].Start = (Mnemonic*)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, 'MneS');
+		if (CircleOfMnemonics[Arc].Start == nullptr) { TraceShutdown(); return false; }
+		RtlZeroMemory(CircleOfMnemonics[Arc].Start, bufferSize);
 
-		CircleOfMnemonics[Arc].AllSize = BufferSize;
+		CircleOfMnemonics[Arc].AllSize = bufferSize;
 		CircleOfMnemonics[Arc].CurrentWriteIndex = CircleOfMnemonics[Arc].Start;
-		CircleOfMnemonics[Arc].End = CircleOfMnemonics[Arc].Start + BufferSize;
+		CircleOfMnemonics[Arc].End = TraceEndFromBytes(CircleOfMnemonics[Arc].Start, bufferSize);
 	}
 
 	TranslationNumber.Start = (AddressTranslateMap*)ExAllocatePool2(POOL_FLAG_NON_PAGED, MainNodesBytes, 'TraS');
-	if (TranslationNumber.Start == nullptr) { return false; }
+	if (TranslationNumber.Start == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(TranslationNumber.Start, MainNodesBytes);
 
 	TranslationNumber.AllSize = MainNodesBytes;
 	TranslationNumber.CurrentWriteIndex = TranslationNumber.Start;
-	TranslationNumber.End = TranslationNumber.Start + MainNodesBytes;
+	TranslationNumber.End = TraceEndFromBytes(TranslationNumber.Start, MainNodesBytes);
 
 	Instruction = (ZydisDecodedInstruction*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecodedInstruction), 'ZIsr');
+	if (Instruction == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(Instruction, sizeof(ZydisDecodedInstruction));
 
 	DecoderMinimal = (ZydisDecoder*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecoder), 'DecM');
+	if (DecoderMinimal == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(DecoderMinimal, sizeof(ZydisDecoder));
 	DecoderMinimal->decoder_mode = ZYDIS_DECODER_MODE_MINIMAL;
 	DecoderMinimal->machine_mode = ZYDIS_MACHINE_MODE_LONG_64;
 	DecoderMinimal->stack_width = ZYDIS_STACK_WIDTH_64;
 
 	DecoderFull = (ZydisDecoder*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecoder), 'DecF');
+	if (DecoderFull == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(DecoderFull, sizeof(ZydisDecoder));
 	ZydisDecoderInit(DecoderFull, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
 
 	Operands = (ZydisDecodedOperand*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ZydisDecodedOperand) * ZYDIS_MAX_OPERAND_COUNT, 'Oper');
+	if (Operands == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(Operands, sizeof(ZydisDecodedOperand) * ZYDIS_MAX_OPERAND_COUNT);
 
 	edges = (GraphNode*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(GraphNode) * MAX_NODES), 'EDGS');
+	if (edges == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(edges, (sizeof(GraphNode) * MAX_NODES));
-	adjList = (uint64_t**)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'adLF');
-	RtlZeroMemory(adjList, (sizeof(uint64_t) * MAX_NODES));
-	adjListT = (uint64_t**)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'adLT');
-	RtlZeroMemory(adjListT, (sizeof(uint64_t) * MAX_NODES));
+	adjList = (uint64_t**)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t*) * MAX_NODES), 'adLF');
+	if (adjList == nullptr) { TraceShutdown(); return false; }
+	RtlZeroMemory(adjList, (sizeof(uint64_t*) * MAX_NODES));
+	adjListT = (uint64_t**)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t*) * MAX_NODES), 'adLT');
+	if (adjListT == nullptr) { TraceShutdown(); return false; }
+	RtlZeroMemory(adjListT, (sizeof(uint64_t*) * MAX_NODES));
 
 	for (uint64_t i = 0; i < MAX_NODES; ++i) {
 		adjList[i] = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), '2DMA');
+		if (adjList[i] == nullptr) { TraceShutdown(); return false; }
 		RtlZeroMemory(adjList[i], (sizeof(uint64_t) * MAX_NODES));
 		adjListT[i] = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), '2DMT');
+		if (adjListT[i] == nullptr) { TraceShutdown(); return false; }
 		RtlZeroMemory(adjListT[i], (sizeof(uint64_t) * MAX_NODES));
 	}
 
 	adjListSize = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'adjF');
+	if (adjListSize == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(adjListSize, (sizeof(uint64_t) * MAX_NODES));
 	adjListTSize = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'adjT');
+	if (adjListTSize == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(adjListTSize, (sizeof(uint64_t) * MAX_NODES));
 
 	visited = (int64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(int64_t) * MAX_NODES), 'Vist');
+	if (visited == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(visited, (sizeof(int64_t) * MAX_NODES));
 
 	postOrder = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'Post');
+	if (postOrder == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(postOrder, (sizeof(uint64_t) * MAX_NODES));
 	component = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'Comp');
+	if (component == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(component, (sizeof(uint64_t) * MAX_NODES));
 
 	MainGraphs = (uint64_t*)ExAllocatePool2(POOL_FLAG_NON_PAGED, (sizeof(uint64_t) * MAX_NODES), 'Mai>');
+	if (MainGraphs == nullptr) { TraceShutdown(); return false; }
 	RtlZeroMemory(MainGraphs, (sizeof(uint64_t) * MAX_NODES));
 
 	translationMap = new std::unordered_map<uint64_t, uint64_t>;
+	if (translationMap == nullptr) { TraceShutdown(); return false; }
 
 	return true;
+}
+
+void Trace::TraceShutdown()
+{
+	for (auto& Arc : CircleOfRips)
+	{
+		if (Arc.Start != nullptr)
+		{
+			ExFreePool(Arc.Start);
+		}
+	}
+	CircleOfRips.clear();
+
+	for (auto& Arc : CircleOfMnemonics)
+	{
+		if (Arc.Start != nullptr)
+		{
+			ExFreePool(Arc.Start);
+		}
+	}
+	CircleOfMnemonics.clear();
+
+	if (TranslationNumber.Start != nullptr)
+	{
+		ExFreePool(TranslationNumber.Start);
+		TranslationNumber.Start = nullptr;
+		TranslationNumber.CurrentWriteIndex = nullptr;
+		TranslationNumber.End = nullptr;
+		TranslationNumber.AllSize = 0;
+		TranslationNumber.DataWritten = 0;
+	}
+
+	if (Instruction != nullptr)
+	{
+		ExFreePool(Instruction);
+		Instruction = nullptr;
+	}
+	if (DecoderMinimal != nullptr)
+	{
+		ExFreePool(DecoderMinimal);
+		DecoderMinimal = nullptr;
+	}
+	if (DecoderFull != nullptr)
+	{
+		ExFreePool(DecoderFull);
+		DecoderFull = nullptr;
+	}
+	if (Operands != nullptr)
+	{
+		ExFreePool(Operands);
+		Operands = nullptr;
+	}
+
+	if (adjList != nullptr)
+	{
+		for (uint64_t i = 0; i < MAX_NODES; ++i)
+		{
+			if (adjList[i] != nullptr)
+			{
+				ExFreePool(adjList[i]);
+			}
+		}
+		ExFreePool(adjList);
+		adjList = nullptr;
+	}
+	if (adjListT != nullptr)
+	{
+		for (uint64_t i = 0; i < MAX_NODES; ++i)
+		{
+			if (adjListT[i] != nullptr)
+			{
+				ExFreePool(adjListT[i]);
+			}
+		}
+		ExFreePool(adjListT);
+		adjListT = nullptr;
+	}
+
+	if (edges != nullptr) { ExFreePool(edges); edges = nullptr; }
+	if (adjListSize != nullptr) { ExFreePool(adjListSize); adjListSize = nullptr; }
+	if (adjListTSize != nullptr) { ExFreePool(adjListTSize); adjListTSize = nullptr; }
+	if (visited != nullptr) { ExFreePool(visited); visited = nullptr; }
+	if (postOrder != nullptr) { ExFreePool(postOrder); postOrder = nullptr; }
+	if (component != nullptr) { ExFreePool(component); component = nullptr; }
+	if (MainGraphs != nullptr) { ExFreePool(MainGraphs); MainGraphs = nullptr; }
+
+	if (translationMap != nullptr)
+	{
+		delete translationMap;
+		translationMap = nullptr;
+	}
+
+	nextTranslation = 0;
+	ArcCount = 0;
 }
 
 int gArc = 0; bool WasInSysFunc = false;
@@ -709,16 +961,27 @@ extern std::vector<ULONG_PTR> AddrsFuncs;
 
 void Trace::TraceRip(_In_ SVM::PRIVATE_VM_DATA* Private)
 {
-	if (gArc == (Arcs / 2 - 1))
+	const int arcCount = (int)CircleOfRips.size();
+	if (arcCount == 0)
+	{
+		return;
+	}
+	if (gArc >= arcCount)
 	{
 		gArc = 0;
-		CircleOfRips[gArc].write_front(CircleOfRips[Arcs / 2 - 1].Start, CircleOfRips[Arcs / 2 - 1].size(sizeof(uint64_t)));
-		CircleOfRips[Arcs / 2 - 1].clear();
+	}
+
+	const int rolloverArc = (arcCount / 2) - 1;
+	if (rolloverArc > 0 && gArc == rolloverArc)
+	{
+		gArc = 0;
+		CircleOfRips[gArc].write_front(CircleOfRips[rolloverArc].Start, CircleOfRips[rolloverArc].DataWritten);
+		CircleOfRips[rolloverArc].clear();
 	}
 
 	if (!CircleOfRips[gArc].Reading)
 	{
-		size_t remainingSpace = (size_t)(CircleOfRips[gArc].End - CircleOfRips[gArc].CurrentWriteIndex);
+		size_t remainingSpace = CircleOfRips[gArc].remaining(sizeof(uint64_t));
 
 		if (sizeof(uint64_t) <= remainingSpace)
 		{
@@ -727,7 +990,11 @@ void Trace::TraceRip(_In_ SVM::PRIVATE_VM_DATA* Private)
 		else
 		{
 			CircleOfRips[gArc].Reading = true;
-			++gArc;
+			AdvanceArcIndex(gArc, CircleOfRips.size());
+			if (CircleOfRips[gArc].Reading)
+			{
+				return;
+			}
 			CircleOfRips[gArc].write_front(&Private->Guest.StateSaveArea.Rip, sizeof(uint64_t));
 		}
 	}
@@ -955,12 +1222,13 @@ uint64_t Trace::GetOriginalTransVal(uint64_t Val)
 bool a = false;
 void Trace::InitCycle()
 {
-	if (CircleOfMnemonics[gArc].size(sizeof(Mnemonic)) > 1 && CircleOfMnemonics[gArc].size(sizeof(Mnemonic)) < MAX_NODES)
+	const size_t mnemonicCount = CircleOfMnemonics[gArc].size(sizeof(Mnemonic));
+	if (mnemonicCount > 1 && mnemonicCount < MAX_NODES)
 	{
 		int numEdges = 0;
-		for (int MnemGrIndex = 0; MnemGrIndex <= CircleOfMnemonics[gArc].size(sizeof(Mnemonic)); ++MnemGrIndex)
+		for (size_t MnemGrIndex = 0; MnemGrIndex < mnemonicCount; ++MnemGrIndex)
 		{
-			Mnemonic* LocalCWI = CircleOfMnemonics[gArc].CurrentWriteIndex - (sizeof(Mnemonic) * MnemGrIndex);
+			Mnemonic* LocalCWI = CircleOfMnemonics[gArc].CurrentWriteIndex - 1 - MnemGrIndex;
 			if (LocalCWI->Graph)
 			{
 				if (numEdges < 2)
@@ -1018,13 +1286,21 @@ void Trace::InitCycle()
 
 void Trace::CircleOfMnemonicsFiller(_In_ uint64_t Rip, _In_ SVM::PRIVATE_VM_DATA* Private)
 {
+	const int arcCount = GetMnemonicArcCount();
+	if (arcCount == 0)
+	{
+		return;
+	}
+	if (gArc >= arcCount)
+	{
+		gArc = 0;
+	}
+
 	if (!CircleOfMnemonics[gArc].Reading)
 	{
-		size_t remainingSpace = (size_t)(CircleOfMnemonics[gArc].End - CircleOfMnemonics[gArc].CurrentWriteIndex);
-		size_t remainingSize = remainingSpace / sizeof(Mnemonic);
-		remainingSize = remainingSize;
+		size_t remainingSpace = CircleOfMnemonics[gArc].remaining(sizeof(Mnemonic));
 
-		if (CircleOfMnemonics[gArc].size(sizeof(Mnemonic)) < remainingSize)
+		if (remainingSpace >= sizeof(Mnemonic))
 		{
 			Mnemonic objMnemonic = MnemonicCreator(Rip, Private);
 			CircleOfMnemonics[gArc].write_front((const void*)&objMnemonic, sizeof(Mnemonic));
@@ -1038,21 +1314,9 @@ void Trace::CircleOfMnemonicsFiller(_In_ uint64_t Rip, _In_ SVM::PRIVATE_VM_DATA
 		else
 		{
 			CircleOfMnemonics[gArc].Reading = true;
-			if (gArc != 15)
+			AdvanceArcIndex(gArc, CircleOfMnemonics.size());
+			if (!CircleOfMnemonics[gArc].Reading)
 			{
-				++gArc;
-				Mnemonic objMnemonic = MnemonicCreator(Rip, Private);
-				CircleOfMnemonics[gArc].write_front((const void*)&objMnemonic, sizeof(Mnemonic));
-				//if (objMnemonic.Graph) 
-				//{ 
-				//	InitCycle();
-					//TranslationNumber.clear(); 
-					//nextTranslation = 0;
-				//}
-			}
-			else
-			{
-				gArc = 0;
 				Mnemonic objMnemonic = MnemonicCreator(Rip, Private);
 				CircleOfMnemonics[gArc].write_front((const void*)&objMnemonic, sizeof(Mnemonic));
 				//if (objMnemonic.Graph) 

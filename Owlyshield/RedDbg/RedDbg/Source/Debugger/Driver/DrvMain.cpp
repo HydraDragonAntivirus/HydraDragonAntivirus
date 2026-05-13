@@ -365,6 +365,8 @@ void DrvUnload(_In_ PDRIVER_OBJECT DriverObj)
 		g_PollingThreadHandle = NULL;
 	}
 
+	objTrace.TraceShutdown();
+
 	RtlInitUnicodeString(&DosDeviceName, L"\\DosDevices\\RedDbgCore");
 	IoDeleteSymbolicLink(&DosDeviceName);
 
@@ -423,7 +425,8 @@ VOID PollingThread(PVOID Context) {
     UNREFERENCED_PARAMETER(Context);
     while (!g_StopPolling) {
         if (g_OwlyCallback != NULL) {
-            for (int i = 0; i < 52; i++) { // Arcs = 52
+            const int arcCount = objTrace.GetMnemonicArcCount();
+            for (int i = 0; i < arcCount; i++) {
                 TraceMessage<Mnemonic>* arc = objTrace.GetMnemonicsArc(i);
                 if (arc && arc->Reading) {
                     size_t numEvents = arc->size(sizeof(Mnemonic));

@@ -12,7 +12,14 @@
 
 const UINT64 ASLRSystemAddr = 0x00007FF000000000;
 #define SpaceBar 2
-const int Arcs = 52;
+
+constexpr int TraceMinArcs = 2;
+constexpr int TraceMaxArcs = 16;
+constexpr int TraceBuffersPerProcessor = 2;
+constexpr size_t TraceRipEntriesPerArc = 64 * 1024;
+constexpr size_t TraceMnemonicEntriesPerArc = 8 * 1024;
+constexpr size_t TraceGraphHeaderBytes = 4 * 1024;
+constexpr size_t TraceGraphBytesPerMnemonic = 768;
 
 typedef struct {
 	uint64_t first;
@@ -26,8 +33,6 @@ typedef struct _AddressTranslateMap {
 } AddressTranslateMap;
 
 enum SizeRestrictions : const size_t {
-	BufferSize = 100 * 1024 * 1024,//2621440 * sizeof(Mnemonic),//100 * 1024 * 1024,
-	ReserveBufferSize = BufferSize,
 	MAX_NODES = 51,
 	MainNodesBytes = 1024,
 };
@@ -49,6 +54,8 @@ public:
 	void clear();
 	int find(const uint64_t Val, const size_t SizeOfData);
 	size_t size(const size_t SizeOfData);
+	size_t capacity(const size_t SizeOfData) const;
+	size_t remaining(const size_t SizeOfData) const;
 };
 
 struct Mnemonic {
@@ -96,6 +103,8 @@ private:
 	ZydisDecoder* DecoderFull = nullptr;
 	ZydisDecodedOperand* Operands = nullptr;
 
+	int ArcCount = 0;
+
 	std::vector<TraceMessage<uint64_t>> CircleOfRips;
 	std::vector<TraceMessage<Mnemonic>> CircleOfMnemonics;
 
@@ -124,8 +133,13 @@ public:
 		return nullptr;
 	}
 
+	int GetMnemonicArcCount() const {
+		return (int)CircleOfMnemonics.size();
+	}
+
 	bool TraceInitializeRip();
 	bool TraceInitializeMnemonic();
+	void TraceShutdown();
 
 	void AcceptRipMessage(File& objFile);
 	void AcceptMnemonicMessage(File& objFile);
