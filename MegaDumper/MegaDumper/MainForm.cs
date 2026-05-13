@@ -2376,13 +2376,27 @@ namespace Mega_Dumper
                                                                 {
                                                                     int vAddress = sections[s].virtual_address;
                                                                     int rAddress = sections[s].pointer_to_raw_data;
-                                                                    int rSize = sections[s].size_of_raw_data;
+                                                                    int rSize    = sections[s].size_of_raw_data;
+
+                                                                    // Packers (e.g. VMP, Themida) zero SizeOfRawData in-memory while
+                                                                    // keeping VirtualSize intact — fall back so .rsrc and other
+                                                                    // sections are not silently skipped.
+                                                                    if (rSize == 0 && sections[s].virtual_size > 0)
+                                                                    {
+                                                                        rSize = sections[s].virtual_size;
+                                                                        Console.WriteLine($"[INFO] Section {s}: SizeOfRawData=0, using VirtualSize={rSize:X} instead");
+                                                                    }
 
                                                                     if (rSize == 0 || rAddress == 0) continue;
 
+                                                                    // Clamp so we never write past the rawdump buffer
+                                                                    if ((long)rAddress + rSize > rawdump.Length)
+                                                                        rSize = rawdump.Length - rAddress;
+                                                                    if (rSize <= 0) continue;
+
                                                                     byte[] sectionData = new byte[rSize];
                                                                     ReadProcessMemoryW(hProcess, j + (ulong)k + (ulong)vAddress, sectionData, (UIntPtr)rSize, out BytesRead);
-                                                                    
+
                                                                     try
                                                                     {
                                                                         Array.Copy(sectionData, 0, rawdump, rAddress, rSize);
@@ -2409,6 +2423,54 @@ namespace Mega_Dumper
                                                                         File.WriteAllBytes(filename, rawdump);
                                                                         sessionDumpedFiles.Add(filename);
                                                                         Console.WriteLine($"[SUCCESS] Raw dumped: {Path.GetFileName(filename)}");
+
+                                                                        // --- OVERLAY FIX ---
+                                                                        // Windows only maps PE sections into virtual memory; any data
+                                                                        // appended after the last section on disk (overlay / payload)
+                                                                        // is never present in the process address space.
+                                                                        // We must read it from the original on-disk file and re-append it.
+                                                                        try
+                                                                        {
+                                                                            string exePath = GetProcessImagePath((int)processId);
+                                                                            if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                                                                            {
+                                                                                // Find where the last section ends on disk
+                                                                                int overlayStart = 0;
+                                                                                for (int s = 0; s < nrofsection; s++)
+                                                                                {
+                                                                                    int sectionEnd = sections[s].pointer_to_raw_data + sections[s].size_of_raw_data;
+                                                                                    if (sectionEnd > overlayStart)
+                                                                                        overlayStart = sectionEnd;
+                                                                                }
+
+                                                                                using FileStream onDisk = new(exePath, FileMode.Open, FileAccess.Read,
+                                                                                                              FileShare.ReadWrite | FileShare.Delete);
+                                                                                long onDiskSize = onDisk.Length;
+
+                                                                                if (overlayStart > 0 && onDiskSize > overlayStart)
+                                                                                {
+                                                                                    byte[] overlay = new byte[onDiskSize - overlayStart];
+                                                                                    onDisk.Seek(overlayStart, SeekOrigin.Begin);
+                                                                                    onDisk.Read(overlay, 0, overlay.Length);
+
+                                                                                    using FileStream rawOut = new(filename, FileMode.Append, FileAccess.Write);
+                                                                                    rawOut.Write(overlay, 0, overlay.Length);
+                                                                                    Console.WriteLine($"[INFO] Overlay: appended {overlay.Length} bytes from offset 0x{overlayStart:X} in {Path.GetFileName(exePath)}");
+                                                                                }
+                                                                                else
+                                                                                {
+                                                                                    Console.WriteLine($"[INFO] Overlay: no data past last section (disk size=0x{onDiskSize:X}, last section end=0x{overlayStart:X})");
+                                                                                }
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                Console.WriteLine($"[WARNING] Overlay: could not resolve on-disk path for PID {processId} — overlay not appended");
+                                                                            }
+                                                                        }
+                                                                        catch (Exception overlayEx)
+                                                                        {
+                                                                            Console.WriteLine($"[WARNING] Overlay append failed: {overlayEx.Message}");
+                                                                        }
                                                                     }
                                                                     catch (Exception ex)
                                                                     {

@@ -447,6 +447,7 @@ namespace Mega_Dumper
             // 
             // dumpingOptionToolStripMenuItem
             // 
+            this.dumpNativeToolStripMenuItem.Checked = true;
             this.dumpingOptionToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.dumpNativeToolStripMenuItem,
             this.autoRefreshToolStripMenuItem,
