@@ -444,6 +444,7 @@
     <ClInclude Include="KernelCommon.h" />
     <ClInclude Include="KernelHookEngine.h" />
     <ClInclude Include="KernelString.h" />
+    <ClInclude Include="PoolTags.h" />
     <ClInclude Include="RootkitDetector.h" />
     <ClInclude Include="ShanonEntropy.h" />
     <ClInclude Include="Regedit.h" />

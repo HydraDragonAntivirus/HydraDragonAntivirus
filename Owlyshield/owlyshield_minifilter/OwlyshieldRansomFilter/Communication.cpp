@@ -1194,7 +1194,8 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
     }
 
     // Allocate buffer for PIDs
-    PULONG Buffer = (PULONG)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ULONG) * gidSize, 'RW');
+    PULONG Buffer =
+        (PULONG)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ULONG) * gidSize, OWLY_POOL_TAG_GID_BUFFER);
     if (Buffer == nullptr)
     {
 #if IS_DEBUG_IRP
@@ -1286,7 +1287,7 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
 #endif
                 NtClose(processHandle);
                 if (exePath != NULL)
-                    ExFreePoolWithTag(exePath, 'RW');
+                    ExFreePoolWithTag(exePath, OWLY_POOL_TAG_PROCESS_NAME);
                 continue;
             }
 
@@ -1330,12 +1331,12 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
 #endif
                     }
                 }
-                ExFreePoolWithTag(exePath, 'RW');
+                ExFreePoolWithTag(exePath, OWLY_POOL_TAG_PROCESS_NAME);
             }
         }
     }
 
-    ExFreePoolWithTag(Buffer, 'RW');
+    ExFreePoolWithTag(Buffer, OWLY_POOL_TAG_GID_BUFFER);
     return STATUS_SUCCESS;
 }
 

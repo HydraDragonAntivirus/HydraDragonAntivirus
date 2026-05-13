@@ -3,6 +3,7 @@
 #include <fltKernel.h>
 
 #include "../SharedDefs/SharedDefs.h"
+#include "PoolTags.h"
 
 //#define DEBUG_IRP
 #ifdef DEBUG_IRP
@@ -10,8 +11,6 @@
 #else
     #define IS_DEBUG_IRP 0
 #endif  // DEBUG_IRP
-
-#define POOL_FLAG_NON_PAGED 0x0000000000000040UI64 // Non paged pool NX
 
 // PID_ENTRY - for each process in the system we record, we get its pid and image file, those are stord in thi struct
 // the struct is meant to be used in blist (LIST_ENTRY)
@@ -27,14 +26,14 @@ typedef struct _PID_ENTRY {
     }
 
     void* operator new(size_t size) {
-        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'RW');
+        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, OWLY_POOL_TAG_PID_ENTRY);
         if (size && ptr != nullptr)
             memset(ptr, 0, size);
         return ptr;
     }
 
     void operator delete(void* ptr) {
-        ExFreePoolWithTag(ptr, 'RW');
+        ExFreePoolWithTag(ptr, OWLY_POOL_TAG_PID_ENTRY);
     }
 
     //fixme needs new and delete operator, dtor
@@ -46,6 +45,17 @@ typedef struct _DIRECTORY_ENTRY {
     _DIRECTORY_ENTRY() {
         InitializeListHead(&entry);
         path[0] = L'\0';
+    }
+
+    void* operator new(size_t size) {
+        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, OWLY_POOL_TAG_DIRECTORY_ENTRY);
+        if (size && ptr != nullptr)
+            memset(ptr, 0, size);
+        return ptr;
+    }
+
+    void operator delete(void* ptr) {
+        ExFreePoolWithTag(ptr, OWLY_POOL_TAG_DIRECTORY_ENTRY);
     }
 
 } DIRECTORY_ENTRY, *PDIRECTORY_ENTRY;
@@ -72,14 +82,14 @@ typedef struct _IRP_ENTRY {
     }
 
     void* operator new(size_t size) {
-        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'RW');
+        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, OWLY_POOL_TAG_IRP_ENTRY);
         if (size && ptr != nullptr)
             memset(ptr, 0, size);
         return ptr;
     }
 
     void operator delete(void* ptr) {
-        ExFreePoolWithTag(ptr, 'RW');
+        ExFreePoolWithTag(ptr, OWLY_POOL_TAG_IRP_ENTRY);
     }
 
 } IRP_ENTRY, *PIRP_ENTRY;
@@ -135,6 +145,17 @@ struct GID_ENTRY {
         IsMalicious = a.IsMalicious;
         return *this;
     }
+
+    void* operator new(size_t size) {
+        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, OWLY_POOL_TAG_GID_ENTRY);
+        if (size && ptr != nullptr)
+            memset(ptr, 0, size);
+        return ptr;
+    }
+
+    void operator delete(void* ptr) {
+        ExFreePoolWithTag(ptr, OWLY_POOL_TAG_GID_ENTRY);
+    }
 };
 
 typedef GID_ENTRY* PGID_ENTRY;
@@ -152,14 +173,14 @@ typedef struct _REGISTRY_BACKUP_ENTRY
     UCHAR RegistryData[1024]; // Max 1KB of data backed up per value
 
     void* operator new(size_t size) {
-        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'RW');
+        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, OWLY_POOL_TAG_REGISTRY_BACKUP);
         if (size && ptr != nullptr)
             memset(ptr, 0, size);
         return ptr;
     }
 
     void operator delete(void* ptr) {
-        ExFreePoolWithTag(ptr, 'RW');
+        ExFreePoolWithTag(ptr, OWLY_POOL_TAG_REGISTRY_BACKUP);
     }
 
 } REGISTRY_BACKUP_ENTRY, * PREGISTRY_BACKUP_ENTRY;

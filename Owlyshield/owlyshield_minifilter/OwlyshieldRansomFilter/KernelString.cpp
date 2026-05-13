@@ -1,4 +1,5 @@
 #include "KernelString.h"
+#include "PoolTags.h"
 #include <ntstrsafe.h>
 
 NTSTATUS
@@ -22,7 +23,7 @@ Return Value:
 --*/
 {
     String->Buffer =
-        (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, String->MaximumLength, 'RW');
+        (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, String->MaximumLength, OWLY_POOL_TAG_UNICODE_STRING);
 
     if (String->Buffer == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -51,7 +52,7 @@ Return Value:
 --*/
 {
     if (String->Buffer) {
-        ExFreePoolWithTag(String->Buffer, 'RW');
+        ExFreePoolWithTag(String->Buffer, OWLY_POOL_TAG_UNICODE_STRING);
         String->Buffer = NULL;
     }
 

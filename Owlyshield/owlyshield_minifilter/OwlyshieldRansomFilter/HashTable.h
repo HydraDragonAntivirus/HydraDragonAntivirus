@@ -1,6 +1,6 @@
 #pragma once
 
-#define POOL_FLAG_NON_PAGED 0x0000000000000040UI64 // Non paged pool NX
+#include "PoolTags.h"
 
 //Hashnode class
 struct HashNode {
@@ -16,7 +16,7 @@ struct HashNode {
     }
 
     void* operator new(size_t size) {
-        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'RW');
+        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, OWLY_POOL_TAG_HASH_NODE);
         if (ptr != 0) {
             memset(ptr, 0, size);
         }
@@ -24,7 +24,7 @@ struct HashNode {
     }
 
     void operator delete(void* ptr) {
-        ExFreePoolWithTag(ptr, 'RW');
+        ExFreePoolWithTag(ptr, OWLY_POOL_TAG_HASH_NODE);
     }
     //fixme needs new and delete operator
 };

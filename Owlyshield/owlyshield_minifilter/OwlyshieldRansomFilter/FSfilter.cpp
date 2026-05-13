@@ -57,13 +57,13 @@ VOID DriverUnload(PDRIVER_OBJECT DriverObject);
 BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 
-// FIX: Helper to create a 'RW'-tagged NonPaged copy of a UNICODE_STRING.
+// FIX: Helper to create an OwPn-tagged NonPaged copy of a UNICODE_STRING.
 // RecordNewProcess takes ownership of the PUNICODE_STRING it receives and
 // later frees it with the process-name pool helper.
 // SeLocateProcessImageName allocates from PagedPool with a system tag,
 // so passing its result directly causes a pool-tag mismatch on free
 // (silent heap corruption -> eventual bugcheck 0x13a).
-// This function copies the string into a single NonPaged, 'RW'-tagged
+// This function copies the string into a single NonPaged, OwPn-tagged
 // allocation and returns an owning pointer.  Caller must free the
 // original SeLocateProcessImageName buffer after this succeeds.
 static PUNICODE_STRING FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRING Source)
@@ -73,7 +73,8 @@ static PUNICODE_STRING FSCopyUnicodeStringForRecordNewProcess(_In_ PUNICODE_STRI
 
     USHORT allocLen = Source->Length + sizeof(WCHAR);
     PUNICODE_STRING copy =
-        (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING) + allocLen, 'RW');
+        (PUNICODE_STRING)ExAllocatePool2(
+            POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING) + allocLen, OWLY_POOL_TAG_PROCESS_NAME);
     if (copy == NULL)
         return NULL;
 
@@ -1163,7 +1164,8 @@ VOID EnumerateExistingProcesses(VOID)
             // Allocate a UNICODE_STRING copy for RecordNewProcess (it takes ownership)
             USHORT allocLen = entry->ImageName.Length + sizeof(WCHAR);
             PUNICODE_STRING procName =
-                (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING) + allocLen, 'RW');
+                (PUNICODE_STRING)ExAllocatePool2(
+                    POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING) + allocLen, OWLY_POOL_TAG_PROCESS_NAME);
 
             if (procName != NULL)
             {
@@ -1757,7 +1759,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                 // frees through the process-name pool helper. Passing the original pointer
                 // causes (a) pool-tag mismatch on free and (b) the old code also
                 // called ExFreePool(procPath) here which was a DOUBLE-FREE.
-                // Solution: copy into a 'RW'-tagged NonPaged allocation, free the
+                // Solution: copy into an OwPn-tagged NonPaged allocation, free the
                 // original, and pass the copy. Do NOT free the copy — RecordNewProcess owns it.
                 PUNICODE_STRING procPathCopy = FSCopyUnicodeStringForRecordNewProcess(procPath);
                 // Free the original SeLocateProcessImageName buffer immediately.
@@ -2273,7 +2275,7 @@ DbgPrint("!!! FSfilter: filter closed or comm closed, skip irp\n");
             if (NT_SUCCESS(hr) && procPath != NULL)
             {
                 // FIX Bug#2: Same tag mismatch as PreOp discovery.
-                // Copy into 'RW'-tagged NonPaged allocation for RecordNewProcess.
+                // Copy into OwPn-tagged NonPaged allocation for RecordNewProcess.
                 PUNICODE_STRING procPathCopy = FSCopyUnicodeStringForRecordNewProcess(procPath);
                 ExFreePool(procPath);
                 procPath = NULL;
@@ -2801,14 +2803,14 @@ NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING
 
     do
     {
-        pni = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, pniSize, 'RW');
+        pni = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, pniSize, OWLY_POOL_TAG_PROCESS_NAME);
         if (pni != NULL)
         {
             // FIX: Use local copy instead of global variable
             status = localZwQueryInformationProcess(ProcessHandle, ProcessImageFileName, pni, pniSize, &retLength);
             if (!NT_SUCCESS(status))
             {
-                ExFreePoolWithTag(pni, 'RW');
+                ExFreePoolWithTag(pni, OWLY_POOL_TAG_PROCESS_NAME);
                 pniSize *= 2;
             }
         }
@@ -2837,7 +2839,7 @@ NTSTATUS GetProcessCommandLineByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE
 
     do
     {
-        pni = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, pniSize, 'RW');
+        pni = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, pniSize, OWLY_POOL_TAG_PROCESS_NAME);
         if (pni == NULL)
         {
             status = STATUS_INSUFFICIENT_RESOURCES;
@@ -2848,7 +2850,7 @@ NTSTATUS GetProcessCommandLineByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE
         status = localZwQueryInformationProcess(ProcessHandle, (PROCESSINFOCLASS)60, pni, pniSize, &retLength);
         if (!NT_SUCCESS(status))
         {
-            ExFreePoolWithTag(pni, 'RW');
+            ExFreePoolWithTag(pni, OWLY_POOL_TAG_PROCESS_NAME);
             pni = NULL;
             if (status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_TOO_SMALL)
             {
@@ -2949,7 +2951,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
     // We only need the size of the FILE_RENAME_INFORMATION + the relative filename
     ULONG renameInfoSize = sizeof(FILE_RENAME_INFORMATION) + filename.Length;
     PFILE_RENAME_INFORMATION renameInfo =
-        (PFILE_RENAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, renameInfoSize, 'RW');
+        (PFILE_RENAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, renameInfoSize, OWLY_POOL_TAG_FILE_TEMP);
 
     if (renameInfo == NULL)
     {
@@ -2969,7 +2971,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
     // Move the file to quarantine
     status = ZwSetInformationFile(sourceHandle, &ioStatus, renameInfo, renameInfoSize, FileRenameInformation);
 
-    ExFreePoolWithTag(renameInfo, 'RW');
+    ExFreePoolWithTag(renameInfo, OWLY_POOL_TAG_FILE_TEMP);
     ZwClose(sourceHandle);
     ZwClose(destHandle); // Now we can close the directory handle
 
@@ -3007,7 +3009,8 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
         {
             ULONG newRenameInfoSize = sizeof(FILE_RENAME_INFORMATION) + newQuarantinedFileName.Length;
             PFILE_RENAME_INFORMATION newRenameInfo =
-                (PFILE_RENAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, newRenameInfoSize, 'RW');
+                (PFILE_RENAME_INFORMATION)ExAllocatePool2(
+                    POOL_FLAG_NON_PAGED, newRenameInfoSize, OWLY_POOL_TAG_FILE_TEMP);
 
             if (newRenameInfo != NULL)
             {
@@ -3030,7 +3033,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
                     DbgPrint("!!! FSfilter: Failed to rename quarantined file: 0x%X\n", renameStatus);
 #endif
                 }
-                ExFreePoolWithTag(newRenameInfo, 'RW');
+                ExFreePoolWithTag(newRenameInfo, OWLY_POOL_TAG_FILE_TEMP);
             }
             else
             {
@@ -3159,7 +3162,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             DbgPrint("!!! FSfilter: Failed to get process name: %#010x\n", hr);
 #endif
             if (parentName != NULL)
-                ExFreePoolWithTag(parentName, 'RW');
+                ExFreePoolWithTag(parentName, OWLY_POOL_TAG_PROCESS_NAME);
             ZwClose(procHandleProcess);
             return;
         }
@@ -3195,9 +3198,9 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
             {
                 // Allocation failed, cannot record this process.
                 if (parentName != NULL)
-                    ExFreePoolWithTag(parentName, 'RW');
+                    ExFreePoolWithTag(parentName, OWLY_POOL_TAG_PROCESS_NAME);
                 if (procCmdLine != NULL)
-                    ExFreePoolWithTag(procCmdLine, 'RW');
+                    ExFreePoolWithTag(procCmdLine, OWLY_POOL_TAG_PROCESS_NAME);
                 return;
             }
         }
@@ -3253,9 +3256,9 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         }
 
         if (parentName != NULL)
-            ExFreePoolWithTag(parentName, 'RW');
+            ExFreePoolWithTag(parentName, OWLY_POOL_TAG_PROCESS_NAME);
         if (procCmdLine != NULL)
-            ExFreePoolWithTag(procCmdLine, 'RW');
+            ExFreePoolWithTag(procCmdLine, OWLY_POOL_TAG_PROCESS_NAME);
         // Note: procName is managed by RecordNewProcess, don't free it here
     }
     else

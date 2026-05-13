@@ -214,7 +214,7 @@ class DriverData {
 
         // Free quarantine path buffer if allocated
         if (quarantinePath.Buffer != NULL) {
-            ExFreePoolWithTag(quarantinePath.Buffer, 'RW');
+            ExFreePoolWithTag(quarantinePath.Buffer, OWLY_POOL_TAG_QUARANTINE_PATH);
             quarantinePath.Buffer = NULL;
             quarantinePath.Length = 0;
             quarantinePath.MaximumLength = 0;

@@ -53,7 +53,7 @@ DriverData* driverData;
 
 static VOID FreeOwnedProcessName(_In_opt_ PUNICODE_STRING ProcessName) {
     if (ProcessName != NULL) {
-        ExFreePoolWithTag(ProcessName, 'RW');
+        ExFreePoolWithTag(ProcessName, OWLY_POOL_TAG_PROCESS_NAME);
     }
 }
 
@@ -65,9 +65,9 @@ VOID DriverData::FreeCachedUnicodeString(PVOID str) {
     PUNICODE_STRING pStr = (PUNICODE_STRING)str;
     if (pStr != NULL) {
         if (pStr->Buffer != NULL) {
-            ExFreePoolWithTag(pStr->Buffer, 'RW');
+            ExFreePoolWithTag(pStr->Buffer, OWLY_POOL_TAG_VOLUME_CACHE);
         }
-        ExFreePoolWithTag(pStr, 'RW');
+        ExFreePoolWithTag(pStr, OWLY_POOL_TAG_VOLUME_CACHE);
     }
 }
 
@@ -86,16 +86,16 @@ NTSTATUS DriverData::AddVolumeDosName(PFLT_VOLUME volume, PUNICODE_STRING dosNam
     }
 
     PUNICODE_STRING cachedName =
-        (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING), 'RW');
+        (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(UNICODE_STRING), OWLY_POOL_TAG_VOLUME_CACHE);
     if (cachedName == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     cachedName->MaximumLength = dosName->Length + sizeof(WCHAR);
     cachedName->Buffer =
-        (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, cachedName->MaximumLength, 'RW');
+        (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, cachedName->MaximumLength, OWLY_POOL_TAG_VOLUME_CACHE);
     if (cachedName->Buffer == NULL) {
-        ExFreePoolWithTag(cachedName, 'RW');
+        ExFreePoolWithTag(cachedName, OWLY_POOL_TAG_VOLUME_CACHE);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -140,7 +140,7 @@ NTSTATUS DriverData::GetVolumeDosName(PFLT_VOLUME volume, PUNICODE_STRING outDos
 
     outDosName->MaximumLength = copyLength + sizeof(WCHAR);
     outDosName->Buffer =
-        (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, outDosName->MaximumLength, 'RW');
+        (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, outDosName->MaximumLength, OWLY_POOL_TAG_VOLUME_CACHE);
     if (outDosName->Buffer == NULL) {
         outDosName->MaximumLength = 0;
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -152,7 +152,7 @@ NTSTATUS DriverData::GetVolumeDosName(PFLT_VOLUME volume, PUNICODE_STRING outDos
     if (cachedName == NULL || cachedName->Buffer == NULL || cachedName->Length == 0 ||
         cachedName->Length > copyLength) {
         KeReleaseSpinLock(&volumeCacheLock, oldIrql);
-        ExFreePool(outDosName->Buffer);
+        ExFreePoolWithTag(outDosName->Buffer, OWLY_POOL_TAG_VOLUME_CACHE);
         outDosName->Buffer = NULL;
         outDosName->MaximumLength = 0;
         return STATUS_NOT_FOUND;
@@ -176,7 +176,7 @@ VOID DriverData::SetQuarantinePath(PUNICODE_STRING path) {
 
     // Free existing buffer if any
     if (quarantinePath.Buffer != NULL) {
-        ExFreePoolWithTag(quarantinePath.Buffer, 'RW');
+        ExFreePoolWithTag(quarantinePath.Buffer, OWLY_POOL_TAG_QUARANTINE_PATH);
         quarantinePath.Buffer = NULL;
         quarantinePath.Length = 0;
         quarantinePath.MaximumLength = 0;
@@ -184,7 +184,8 @@ VOID DriverData::SetQuarantinePath(PUNICODE_STRING path) {
 
     if (path != NULL && path->Length > 0) {
         quarantinePath.MaximumLength = path->Length + sizeof(WCHAR); // + null terminator
-        quarantinePath.Buffer = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, quarantinePath.MaximumLength, 'RW');
+        quarantinePath.Buffer =
+            (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, quarantinePath.MaximumLength, OWLY_POOL_TAG_QUARANTINE_PATH);
         if (quarantinePath.Buffer != NULL) {
             RtlCopyUnicodeString(&quarantinePath, path);
             quarantinePath.Buffer[quarantinePath.Length / sizeof(WCHAR)] = L'\0'; // Null-terminate

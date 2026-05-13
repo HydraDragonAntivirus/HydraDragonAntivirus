@@ -74,6 +74,9 @@
     <ClInclude Include="KernelString.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="PoolTags.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ShanonEntropy.h">
       <Filter>Header Files</Filter>
     </ClInclude>
