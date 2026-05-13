@@ -4176,6 +4176,9 @@ fn AlertWindow(
                 spawn_local(async move {
                     let res = invoke("get_active_alert", JsValue::NULL).await;
                     if let Ok(app_opt) = serde_wasm_bindgen::from_value::<Option<PendingApp>>(res) {
+                        if app_opt.is_none() {
+                            let _ = invoke("close_window", JsValue::NULL).await;
+                        }
                         set_pending_app.set(app_opt);
                     }
                 });
@@ -4221,7 +4224,7 @@ fn AlertWindow(
     };
 
     view! {
-        <div class="alert-window-root">
+        <div class="alert-window-root" style=move || if pending_app.get().is_some() { "" } else { "display: none;" }>
              <div class="alert-window-header">
                  <div class="alert-window-brand"> <div class="dragon-icon"></div> "HYDRADRAGON" </div>
                  <div class="alert-window-meta">
@@ -4240,7 +4243,9 @@ fn AlertWindow(
                              </div>
                          })
                      })}
-                     <div class="alert-window-tag">"THREAT INTERCEPTED"</div>
+                     <div class="alert-window-tag">
+                         {move || if pending_app.get().is_some() { "PENDING DECISION" } else { "NEW EVENT ALERT" }}
+                     </div>
                  </div>
              </div>
              <div class="alert-window-body">

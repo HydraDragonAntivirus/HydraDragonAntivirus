@@ -774,10 +774,10 @@ async fn grant_cert_install_consent(handle: AppHandle) -> Result<(), String> {
         let mut settings = engine.settings.write().unwrap();
         settings.tls_proxy.cert_install_consent = true;
         drop(settings);
-        
+
         engine.save_settings();
         engine.sync_proxy_runtime(&handle);
-        
+
         Ok(())
     } else {
         Err("Engine not initialized".to_string())

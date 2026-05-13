@@ -1846,7 +1846,8 @@ impl FirewallEngine {
                             id: format!("{}-firefox-policy-installed", now),
                             timestamp: now,
                             level: LogLevel::Success,
-                            message: "Firefox enterprise policy configured with user consent.".to_string(),
+                            message: "Firefox enterprise policy configured with user consent."
+                                .to_string(),
                         },
                     );
                 }

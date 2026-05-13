@@ -187,13 +187,14 @@ async fn start_python_engine() -> Result<Option<Child>> {
 
     if activate_bat.exists() {
         let cmd_args = format!(
-            "/c \"\"{}\" && poetry run hydradragon\"",
+            "call \"{}\" && poetry run hydradragon",
             activate_bat.display()
         );
 
         match Command::new("cmd.exe")
-            .args(["/c", &cmd_args])
+            .args(["/d", "/s", "/c", &cmd_args])
             .current_dir(BASE_DIR)
+            .env("POETRY_VIRTUALENVS_CREATE", "false")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
