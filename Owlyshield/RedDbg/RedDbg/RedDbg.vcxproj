@@ -109,10 +109,7 @@
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <Inf Include="RedDbgDrv.inf">
-      <DateStamp>04/20/2026</DateStamp>
-      <TimeStamp>0.18.1.0</TimeStamp>
-    </Inf>
+    <Inf Include="RedDbgDrv.inf" />
   </ItemGroup>
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />
