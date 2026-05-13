@@ -40,7 +40,7 @@
 
     /* ── Motion ────────────────────────────────────────────── */
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-    --transition: all 0.3s var(--ease-out);
+    --transition: background-color 0.3s var(--ease-out), color 0.3s var(--ease-out), border-color 0.3s var(--ease-out), opacity 0.3s var(--ease-out), transform 0.3s var(--ease-out);
 }
 
 /* ── Light Theme Overrides ──────────────────────────────── */
@@ -533,4 +533,20 @@ button:disabled {
 #scan_button_full {
     display: flex;
     justify-content: flex-end;
+}
+
+/* Performance defaults: keep the shell static at idle in WebView2. */
+body {
+    animation: none !important;
+    background-position: center, center, 0 0, 0 0 !important;
+}
+
+body::after,
+.light-theme body::after {
+    display: none !important;
+}
+
+.full_callout {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }

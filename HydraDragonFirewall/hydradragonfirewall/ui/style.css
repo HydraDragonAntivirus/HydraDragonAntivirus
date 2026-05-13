@@ -48,7 +48,7 @@
     /* ── Motion ────────────────────────────────────────────── */
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-    --transition: all 0.3s var(--ease-out);
+    --transition: background-color 0.3s var(--ease-out), color 0.3s var(--ease-out), border-color 0.3s var(--ease-out), opacity 0.3s var(--ease-out), transform 0.3s var(--ease-out);
 
     /* ── Legacy Mappings ───────────────────────────────────── */
     --void: var(--bg-void);
@@ -378,7 +378,7 @@ aside::after {
     line-height: 1;
     position: relative;
     text-shadow: 0 0 10px var(--glow-red);
-    transition: all 0.3s ease;
+    transition: color 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
 }
 
 .logo-area:hover .logo-text {
@@ -1302,7 +1302,7 @@ main {
     padding: 6px 10px;
     border-radius: var(--r-sm);
     margin-bottom: 2px;
-    transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transition: background-color 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94), border-color 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94), color 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     border-left: 2px solid transparent;
     line-height: 1.4;
     position: relative;
@@ -2149,7 +2149,7 @@ main {
     text-align: left;
     font-size: 12.5px;
     font-weight: 500;
-    transition: all 0.12s ease;
+    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
     letter-spacing: 0.01em;
 }
 
@@ -2931,7 +2931,7 @@ textarea.glass-card:focus {
     font-size: 10px;
     font-weight: 800;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.04);
     color: var(--t3);
@@ -4663,4 +4663,70 @@ main>div {
     font-weight: 500;
     color: var(--t3);
     letter-spacing: 0.04em;
+}
+
+/* Performance defaults: avoid continuous repaint/compositing work at idle. */
+body {
+    animation: none !important;
+    background-position: center, center, 0 0, 0 0 !important;
+}
+
+body::after,
+.light-theme body::after {
+    display: none !important;
+}
+
+.glass-card,
+.alert-window-overlay,
+.glass-modal,
+.hydra-toast,
+.toast-modal {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+.logo-icon,
+.logo-icon-glitch,
+.logo-text,
+.logo-glitch-r,
+.logo-glitch-c,
+.logo-scanlines,
+.logo-area .logo-icon-glitch,
+.status-dot,
+.status-badge.secure,
+.sidebar-status-dot,
+.sidebar-status-dot::before,
+.sidebar-status-dot::after,
+.glass-card::before,
+.glass-card > .card-shimmer,
+.status-aura,
+.pulse-indicator,
+.shield-ring,
+.shield-core,
+.logs-section::after,
+.metric-card::before,
+.metric-card::after,
+.connection-dot,
+.traffic-graph svg,
+.traffic-svg,
+.threat-row::before,
+.wiki-entry-danger,
+.lvl-error,
+.nav-item.active,
+.score-ring-container,
+.score-ring-svg,
+.score-ring-fill,
+.score-dot {
+    animation: none !important;
+}
+
+.logo-icon,
+.logo-icon-glitch,
+.logo-glitch-r,
+.logo-glitch-c,
+.shield-core,
+.score-ring-container,
+.score-ring-svg,
+.traffic-graph svg {
+    filter: none !important;
 }
