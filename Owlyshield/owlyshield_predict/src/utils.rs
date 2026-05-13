@@ -30,8 +30,8 @@ pub fn protected_process_reason(_pid: u32, _fallback_path: Option<&Path>) -> Opt
 
 #[cfg(target_os = "windows")]
 fn is_process_marked_critical(pid: u32) -> bool {
-    use ::windows::Win32::Foundation::{BOOL, CloseHandle};
-    use ::windows::Win32::System::Threading::{
+    use windows::Win32::Foundation::{CloseHandle, BOOL};
+    use windows::Win32::System::Threading::{
         IsProcessCritical, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
@@ -118,10 +118,10 @@ pub fn resolve_process_path(pid: u32) -> Option<PathBuf> {
 
     #[cfg(target_os = "windows")]
     {
-        use ::windows::Win32::Foundation::CloseHandle;
-        use ::windows::Win32::System::Threading::{
-            OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-            QueryFullProcessImageNameW,
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{
+            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+            PROCESS_QUERY_LIMITED_INFORMATION,
         };
 
         unsafe {
@@ -183,8 +183,8 @@ pub fn format_process_descriptor_with_fallback(pid: u32, fallback_path: Option<&
 pub fn is_process_alive(pid: u32) -> bool {
     #[cfg(target_os = "windows")]
     {
-        use ::windows::Win32::Foundation::CloseHandle;
-        use ::windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
             if let Ok(h) = handle {
@@ -213,10 +213,10 @@ pub unsafe fn validate_pipe_client(
     expected_path: Option<&str>,
     allow_kernel: bool,
 ) -> bool {
-    use ::windows::Win32::Foundation::CloseHandle;
-    use ::windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
-    use ::windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
-    use ::windows::Win32::System::Threading::{
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
+    use windows::Win32::System::Threading::{
         OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
     };
 
@@ -230,18 +230,20 @@ pub unsafe fn validate_pipe_client(
     }
 
     if let Some(expected) = expected_path {
-        let expected_lc = expected.to_ascii_lowercase();
-        // Check if expected is a full path (contains '\' or '/')
-        let is_full_path = expected.contains('\\') || expected.contains('/');
+        let expected_lc = expected.replace('/', "\\").to_ascii_lowercase();
+        let is_full_path = Path::new(expected).is_absolute();
 
         if let Some(path) = resolve_process_path(client_pid) {
-            let resolved = path.to_string_lossy().to_ascii_lowercase();
+            let resolved = path
+                .to_string_lossy()
+                .replace('/', "\\")
+                .to_ascii_lowercase();
             if is_full_path {
                 if resolved == expected_lc {
                     return true;
                 }
             } else {
-                if resolved.contains(&expected_lc) {
+                if resolved.ends_with(&expected_lc) {
                     return true;
                 }
             }
@@ -258,13 +260,15 @@ pub unsafe fn validate_pipe_client(
             let len = unsafe { GetModuleFileNameExA(h_proc, None, &mut buffer) };
             let _ = unsafe { CloseHandle(h_proc) };
             if len > 0 {
-                let path = String::from_utf8_lossy(&buffer[..len as usize]).to_ascii_lowercase();
+                let path = String::from_utf8_lossy(&buffer[..len as usize])
+                    .replace('/', "\\")
+                    .to_ascii_lowercase();
                 if is_full_path {
                     if path == expected_lc {
                         return true;
                     }
                 } else {
-                    if path.contains(&expected_lc) {
+                    if path.ends_with(&expected_lc) {
                         return true;
                     }
                 }

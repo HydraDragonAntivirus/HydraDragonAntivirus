@@ -54,12 +54,31 @@ def _norm(p: str) -> str:
     return os.path.normpath(p).replace("\\", "/").lower()
 
 
-def validate_pipe_peer(handle, expected_path: str, is_server: bool = True, logger=None) -> bool:
+_PIPE_PEER_DISCONNECTED_WINERRORS = {109, 232, 233}
+
+
+def _extract_winerror(exc: Exception):
+    winerror = getattr(exc, "winerror", None)
+    if winerror is not None:
+        return winerror
+    if getattr(exc, "args", None):
+        first = exc.args[0]
+        if isinstance(first, int):
+            return first
+    return None
+
+
+def validate_pipe_peer(handle, expected_path: str, is_server: bool = True, logger=None, return_reason: bool = False):
     """
     Validate the peer of a named pipe handle.
     If is_server is True, it validates the CLIENT (server-side check).
     If is_server is False, it validates the SERVER (client-side check).
     """
+    def result(is_valid: bool, reason: str = ""):
+        if return_reason:
+            return is_valid, reason
+        return is_valid
+
     try:
         import win32pipe
         import win32process
@@ -74,11 +93,11 @@ def validate_pipe_peer(handle, expected_path: str, is_server: bool = True, logge
             peer_pid = win32pipe.GetNamedPipeServerProcessId(handle)
 
         if peer_pid == 0:
-            return False
+            return result(False, "no_peer_pid")
 
         # Handle kernel (PID 4) if needed (usually for drivers, here we assume user-mode exes)
         if peer_pid == 4:
-            return False
+            return result(False, "kernel_peer")
 
         try:
             h_proc = win32api.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, peer_pid)
@@ -87,17 +106,22 @@ def validate_pipe_peer(handle, expected_path: str, is_server: bool = True, logge
             try:
                 h_proc = win32api.OpenProcess(0x0400, False, peer_pid)  # PROCESS_QUERY_INFORMATION
             except Exception:
-                return False
+                return result(False, "open_process_failed")
 
         try:
             path = win32process.GetModuleFileNameEx(h_proc, 0)
             is_valid = path.lower() == expected_path.lower()
             if not is_valid and logger:
                 logger.warning(f"Pipe peer validation failed. Expected: {expected_path}, Got: {path}")
-            return is_valid
+            return result(is_valid, "" if is_valid else "path_mismatch")
         finally:
             win32api.CloseHandle(h_proc)
     except Exception as e:
+        winerror = _extract_winerror(e)
+        if winerror in _PIPE_PEER_DISCONNECTED_WINERRORS:
+            if logger:
+                logger.debug(f"Pipe peer disconnected during validation (winerror={winerror}); retrying later")
+            return result(False, "pipe_disconnected")
         if logger:
             logger.error(f"Error validating pipe peer: {e}")
-        return False
+        return result(False, "validation_error")

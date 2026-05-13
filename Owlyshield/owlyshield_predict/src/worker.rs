@@ -729,14 +729,14 @@ pub mod worker_instance {
     };
     use crate::worker::process_records::ProcessRecords;
     use chrono::{DateTime, Utc};
-    
+
     use rumqttc::{Client, MqttOptions, QoS};
     #[cfg(feature = "realtime_learning")]
     use std::collections::{HashMap, HashSet};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use std::fs::{self, File};
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::ffi::OsStr;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use std::fs::{self, File};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::io::{Read, Seek, SeekFrom};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -799,7 +799,7 @@ pub mod worker_instance {
             mqtt_options.set_keep_alive(std::time::Duration::from_secs(5));
 
             let (client, mut connection) = Client::new(mqtt_options, 10);
-            
+
             thread::spawn(move || {
                 for _ in connection.iter() {
                     // Poll connection to keep it alive
@@ -1103,11 +1103,8 @@ pub mod worker_instance {
                     .get(&state.pid)
                 {
                     let mut network_targets = snapshot.network_targets.clone();
-                    network_targets.extend(
-                        targets
-                            .iter()
-                            .map(|(ip, port)| format!("{}:{}", ip, port)),
-                    );
+                    network_targets
+                        .extend(targets.iter().map(|(ip, port)| format!("{}:{}", ip, port)));
                     network_targets.sort();
                     network_targets.dedup();
                     network_targets.truncate(12);
@@ -1198,7 +1195,8 @@ pub mod worker_instance {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
-            if !candidate.as_os_str().is_empty() && !paths.iter().any(|existing| existing == &candidate)
+            if !candidate.as_os_str().is_empty()
+                && !paths.iter().any(|existing| existing == &candidate)
             {
                 paths.push(candidate);
             }
@@ -1326,14 +1324,19 @@ pub mod worker_instance {
                                         }
 
                                         while let Some(pos) = leftover.find('\n') {
-                                            let line = leftover[..pos].trim_end_matches('\r').trim().to_string();
+                                            let line = leftover[..pos]
+                                                .trim_end_matches('\r')
+                                                .trim()
+                                                .to_string();
                                             leftover = leftover[pos + 1..].to_string();
                                             if line.is_empty() {
                                                 continue;
                                             }
 
                                             match serde_json::from_str::<serde_json::Value>(&line) {
-                                                Ok(event) => engine_clone.ingest_openedr_event(&event),
+                                                Ok(event) => {
+                                                    engine_clone.ingest_openedr_event(&event)
+                                                }
                                                 Err(e) => Logging::warning(&format!(
                                                     "[OpenEDRTelemetry] Failed to parse {}: {}",
                                                     log_path.display(),
@@ -1994,7 +1997,6 @@ pub mod worker_instance {
             }
         }
 
-
         pub fn process_record_handler(
             mut self,
             phandler: Box<dyn ProcessRecordIOHandler + 'a>,
@@ -2185,10 +2187,16 @@ pub mod worker_instance {
         /// Scan all tracked processes for behavioral detections
         pub fn scan_processes(
             &mut self,
-            #[cfg_attr(not(all(target_os = "windows", feature = "behavior_engine")), allow(unused_variables))]
+            #[cfg_attr(
+                not(all(target_os = "windows", feature = "behavior_engine")),
+                allow(unused_variables)
+            )]
             config: &Config,
-            #[cfg_attr(not(all(target_os = "windows", feature = "behavior_engine")), allow(unused_variables))]
-            threat_handler: Box<dyn ThreatHandler>
+            #[cfg_attr(
+                not(all(target_os = "windows", feature = "behavior_engine")),
+                allow(unused_variables)
+            )]
+            threat_handler: Box<dyn ThreatHandler>,
         ) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {

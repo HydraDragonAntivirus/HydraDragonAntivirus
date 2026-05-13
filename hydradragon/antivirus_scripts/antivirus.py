@@ -8965,8 +8965,18 @@ def _sync_read_scan_request_from_edr(timeout_ms: int = _WAIT_TIMEOUT_MS):
         )
 
         # Validation: Only allow EDR (owlyshield_ransom.exe) server
-        if not validate_pipe_peer(handle, OWLYSHIELD_RANSOM_EXE, is_server=False, logger=logger):
-            logger.warning("[AV] Rejected unauthorized EDR server in EDR-to-AV pipe")
+        peer_valid, peer_reason = validate_pipe_peer(
+            handle,
+            OWLYSHIELD_RANSOM_EXE,
+            is_server=False,
+            logger=logger,
+            return_reason=True,
+        )
+        if not peer_valid:
+            if peer_reason == "pipe_disconnected":
+                logger.debug("[EDR->AV] EDR pipe peer disconnected before validation; retrying")
+            else:
+                logger.warning(f"[AV] Rejected unauthorized EDR server in EDR-to-AV pipe ({peer_reason})")
             win32file.CloseHandle(handle)
             handle = None
             return None

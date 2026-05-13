@@ -53,6 +53,11 @@ const TINYAV_SCAN_DEBOUNCE: Duration = Duration::from_secs(10);
 const TINYAV_RECENT_SCAN_LIMIT: usize = 4096;
 const TINYAV_PREFERRED_INSTALL_PATH: &str =
     r"C:\Program Files\HydraDragonAntivirus\hydradragon\TinyAntivirus\TinyAVConsole.exe";
+const HYDRADRAGON_VENV_PYTHON_EXE: &str =
+    r"C:\Program Files\HydraDragonAntivirus\venv\Scripts\python.exe";
+const HYDRADRAGON_BUNDLED_PYTHON_EXE: &str =
+    r"C:\Program Files\HydraDragonAntivirus\python\python.exe";
+const PYTHON312_SUFFIX: &str = r"python312\python.exe";
 
 /// Action to take when a threat is detected
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
@@ -160,6 +165,19 @@ struct SelfDefenseAlert {
     operation: String,
     #[serde(default)]
     target_pid: u32,
+}
+
+unsafe fn validate_hydradragon_python_client(pipe_handle: HANDLE) -> bool {
+    for expected in [
+        HYDRADRAGON_VENV_PYTHON_EXE,
+        HYDRADRAGON_BUNDLED_PYTHON_EXE,
+        PYTHON312_SUFFIX,
+    ] {
+        if unsafe { validate_pipe_client(pipe_handle, Some(expected), false) } {
+            return true;
+        }
+    }
+    false
 }
 
 fn normalize_path_for_compare(path: &str) -> String {
@@ -572,14 +590,13 @@ fn spawn_av_to_edr_listener() -> thread::JoinHandle<()> {
             let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
             let connect_err = GetLastError();
             if connect_ok.as_bool() || connect_err == ERROR_PIPE_CONNECTED {
-                // Validation: Only allow Python 3.12 path
-                if !validate_pipe_client(pipe_handle, Some(r"python312\python.exe"), false) {
+                if !validate_hydradragon_python_client(pipe_handle) {
                     Logging::error("[AV->EDR] Rejected unauthorized client connection");
                     let _ = DisconnectNamedPipe(pipe_handle);
                     let _ = CloseHandle(pipe_handle);
                     continue;
                 }
-                Logging::info("[AV->EDR] Authorized Python 3.12 client connected");
+                Logging::info("[AV->EDR] Authorized HydraDragon Python client connected");
 
                 let mut buffer = vec![0u8; PIPE_READ_BUFFER_SIZE as usize];
                 let mut bytes_read = 0u32;
@@ -1422,8 +1439,7 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
             let err = GetLastError();
 
             if connect_ok.as_bool() || err == ERROR_PIPE_CONNECTED {
-                // Validation: Only allow Python 3.12 path
-                if !validate_pipe_client(pipe_handle, Some(r"python312\python.exe"), false) {
+                if !validate_hydradragon_python_client(pipe_handle) {
                     Logging::error("[EDR->AV] Rejected unauthorized scan request client");
                     let _ = DisconnectNamedPipe(pipe_handle);
                     let _ = CloseHandle(pipe_handle);
