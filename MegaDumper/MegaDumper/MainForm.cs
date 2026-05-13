@@ -403,7 +403,7 @@ namespace Mega_Dumper
         /// <param name="processId">The ID of the process to dump.</param>
         /// <param name="outputDirectory">The root directory for the dump files.</param>
         /// <returns>A string indicating the result of the dump operation.</returns>
-        public async Task<string> DumpProcessByIdCli(uint processId, string outputDirectory)
+        public async Task<string> DumpProcessByIdCli(uint processId, string outputDirectory, bool restoreFilename = true)
         {
             if (string.IsNullOrWhiteSpace(outputDirectory))
             {
@@ -418,7 +418,7 @@ namespace Mega_Dumper
 
             // Execute directly. We are already in a Task if called from Program.cs or we can just block.
             // Using Task.FromResult to keep the signature but avoiding internal Task.Run deadlock.
-            string result = DumpProcessLogic(processId, ddirs, true /* dumpNative */, true /* restoreFilename */);
+            string result = DumpProcessLogic(processId, ddirs, true /* dumpNative */, restoreFilename);
             return result;
         }
 

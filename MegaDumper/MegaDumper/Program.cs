@@ -80,6 +80,7 @@ namespace Mega_Dumper
                 uint pid = 0;
                 string outputPath = null;
                 bool waitForKey = false; // --wait to pause at the end so user can read messages
+                bool restoreFilename = true;
 
                 // Simple parsing loop
                 for (int i = 0; i < args.Length; i++)
@@ -123,6 +124,10 @@ namespace Mega_Dumper
                             waitForKey = true;
                             break;
 
+                        case "--no-restore-filename":
+                            restoreFilename = false;
+                            break;
+
                         default:
                             Console.Error.WriteLine($"Error: Unknown argument '{token}'");
                             PrintUsage();
@@ -154,7 +159,7 @@ namespace Mega_Dumper
                             return 1;
                         }
 
-                        string result = await logic.DumpProcessByIdCli(pid, fullOut).ConfigureAwait(false);
+                        string result = await logic.DumpProcessByIdCli(pid, fullOut, restoreFilename).ConfigureAwait(false);
                         Console.WriteLine($"Result: {result}");
                         if (waitForKey) { Console.WriteLine("Press any key to exit..."); Console.ReadKey(true); }
                         return 0;
@@ -189,9 +194,10 @@ namespace Mega_Dumper
             Console.WriteLine("===========================");
             Console.WriteLine();
             Console.WriteLine("To dump a process by its PID:");
-            Console.WriteLine("  Mega_Dumper.exe --pid <ProcessID> --output <TargetDirectoryPath> [--wait]");
+            Console.WriteLine("  Mega_Dumper.exe --pid <ProcessID> --output <TargetDirectoryPath> [--no-restore-filename] [--wait]");
             Console.WriteLine();
             Console.WriteLine("Options:");
+            Console.WriteLine("  --no-restore-filename    Keep rawdump_*/vdump_* filenames and skip sorted filename restoration");
             Console.WriteLine("  --wait    Pause and wait for a keypress before the program exits (helpful when double-clicking the exe)");
             Console.WriteLine("  --help    Show this help message");
             Console.WriteLine();

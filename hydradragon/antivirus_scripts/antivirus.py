@@ -1213,7 +1213,10 @@ def extract_with_hydra(pid: str, output_dir: str) -> bool:
         # HydraDragonDumper (Mega Dumper CLI) expected arguments:
         #   -pid <PID> -o <output_dir>
 
-        subprocess.run([hydra_dragon_dumper_path, "--pid", pid, "--output", output_dir], check=True)
+        subprocess.run(
+            [hydra_dragon_dumper_path, "--pid", pid, "--output", output_dir, "--no-restore-filename"],
+            check=True,
+        )
 
         logger.info(f"HydraDragonDumper extraction complete for PID {pid} into {output_dir}")
         return True
@@ -7658,13 +7661,35 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
 
             logger.info(f"HydraDragonDumper successfully extracted to: {pid_hydra_dir}")
 
-            # 1) Highest priority: any .exe directly in pid_hydra_dir (no subfolders)
+            # 1) Highest priority: vdump_*.exe directly in pid_hydra_dir, then rawdump_*.exe.
+            # The CLI runs with --no-restore-filename so these names remain stable.
             if os.path.exists(pid_hydra_dir):
-                for fname in os.listdir(pid_hydra_dir):
+                rawdump_candidate = None
+                fallback_candidate = None
+                for fname in sorted(os.listdir(pid_hydra_dir)):
                     full_path = os.path.join(pid_hydra_dir, fname)
-                    if os.path.isfile(full_path) and fname.lower().endswith(".exe"):
-                        logger.info(f"Returning .exe found in root of dump folder: {full_path}")
+                    lower_name = fname.lower()
+                    if not os.path.isfile(full_path) or not lower_name.endswith(".exe"):
+                        continue
+
+                    if lower_name.startswith("vdump_"):
+                        logger.info(f"Returning prioritized root vdump exe: {full_path}")
                         return full_path
+
+                    if rawdump_candidate is None and lower_name.startswith("rawdump_"):
+                        rawdump_candidate = full_path
+                        continue
+
+                    if fallback_candidate is None:
+                        fallback_candidate = full_path
+
+                if rawdump_candidate:
+                    logger.info(f"Returning prioritized root rawdump exe: {rawdump_candidate}")
+                    return rawdump_candidate
+
+                if fallback_candidate:
+                    logger.info(f"Returning first root dumped exe: {fallback_candidate}")
+                    return fallback_candidate
 
             # 2) If none in root, search the sorted output tree. MegaDumper may move
             # dumps into Native/System/UnknownName and restore the original filename.
