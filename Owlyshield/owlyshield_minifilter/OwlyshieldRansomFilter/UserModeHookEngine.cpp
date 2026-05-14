@@ -4427,12 +4427,20 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
             goto HookProcessFailure;
         }
 
-        
+        // Detect if this is a Chromium-based process and store it in DriverData 
+        // so that KERNEL_EVENT_INFO can be accurately populated during hooks.
+        if (driverData != NULL)
+        {
+            BOOLEAN isChromium = IsChromiumBasedHookProcess(process, hookEntry->IsWow64);
+            driverData->SetProcessIsChromium(ProcessId, isChromium);
+            
 #if IS_DEBUG_IRP
-DbgPrint("UserModeHook: PID %lu is %s process\n", ProcessId,
-                 hookEntry->IsWow64 ? "WoW64 (32-bit)" : "native 64-bit");
+            if (isChromium)
+            {
+                DbgPrint("UserModeHook: PID %lu identified as Chromium-based\n", ProcessId);
+            }
 #endif
-
+        }
 
         if (hookEntry->CustomHookCapacity > 0)
         {

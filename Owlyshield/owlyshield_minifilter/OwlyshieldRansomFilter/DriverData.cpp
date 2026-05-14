@@ -369,6 +369,7 @@ ULONGLONG DriverData::RecordNewProcess(
 
     pStrct->Pid = ProcessId;
     pStrct->Path = ProcessName;
+    pStrct->IsChromium = FALSE;
     if (gid) {  // there is Gid — child inherits parent's GID
         PidToGids.insertNode(ProcessId, (HANDLE)gid);
         InsertHeadList(&(gidRecord->HeadListPids), &(pStrct->entry));
@@ -555,6 +556,68 @@ BOOLEAN DriverData::CopyProcessPathByPid(
 
     KeReleaseSpinLock(&GIDSystemLock, oldIrql);
     return found;
+}
+
+VOID DriverData::SetProcessIsChromium(ULONG ProcessId, BOOLEAN IsChromium)
+{
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
+
+    ULONGLONG gid = (ULONGLONG)PidToGids.get(ProcessId);
+    if (gid != 0 && gid != TERMINATED_PID_SENTINEL)
+    {
+        PGID_ENTRY gidRecord = (PGID_ENTRY)GidToPids.get(gid);
+        if (gidRecord != nullptr)
+        {
+            PLIST_ENTRY header = &(gidRecord->HeadListPids);
+            PLIST_ENTRY iterator = header->Flink;
+            while (iterator != header)
+            {
+                PPID_ENTRY pStrct =
+                    (PPID_ENTRY)CONTAINING_RECORD(iterator, PID_ENTRY, entry);
+                if (pStrct->Pid == ProcessId)
+                {
+                    pStrct->IsChromium = IsChromium;
+                    break;
+                }
+                iterator = iterator->Flink;
+            }
+        }
+    }
+
+    KeReleaseSpinLock(&GIDSystemLock, oldIrql);
+}
+
+BOOLEAN DriverData::GetProcessIsChromium(ULONG ProcessId)
+{
+    BOOLEAN isChromium = FALSE;
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
+
+    ULONGLONG gid = (ULONGLONG)PidToGids.get(ProcessId);
+    if (gid != 0 && gid != TERMINATED_PID_SENTINEL)
+    {
+        PGID_ENTRY gidRecord = (PGID_ENTRY)GidToPids.get(gid);
+        if (gidRecord != nullptr)
+        {
+            PLIST_ENTRY header = &(gidRecord->HeadListPids);
+            PLIST_ENTRY iterator = header->Flink;
+            while (iterator != header)
+            {
+                PPID_ENTRY pStrct =
+                    (PPID_ENTRY)CONTAINING_RECORD(iterator, PID_ENTRY, entry);
+                if (pStrct->Pid == ProcessId)
+                {
+                    isChromium = pStrct->IsChromium;
+                    break;
+                }
+                iterator = iterator->Flink;
+            }
+        }
+    }
+
+    KeReleaseSpinLock(&GIDSystemLock, oldIrql);
+    return isChromium;
 }
 
 //clear all data related to Gid system

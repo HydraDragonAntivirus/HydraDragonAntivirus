@@ -341,6 +341,14 @@ pub struct KernelEventInfo {
     // NEW: Raw binary payload (e.g. for Named Pipes)
     pub bin_payload: Vec<u8>,
 
+    // DLL Load Detection - Tracks both API-based and direct DLL loading
+    pub is_dll_load: bool,
+    pub loaded_dll_path: String,
+    pub is_api_based_load: bool, // true if loaded via API (LoadLibrary), false if direct load
+    
+    // Chromium Detection
+    pub is_chromium: bool,
+
     // Operation result
     pub operation_status: i32, // NTSTATUS of the operation
     pub core_id: u32,          // Hypervisor core id (if applicable)

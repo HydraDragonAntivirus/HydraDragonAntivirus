@@ -1464,6 +1464,27 @@ pub struct ProcessBehaviorState {
     pub cloud_static_verdict: Option<u8>,
     /// OpenEDR FLS verdict/result code: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
     pub cloud_dynamic_verdict: Option<u8>,
+    
+    // DLL Load Detection - Tracks both API-based and direct DLL loading
+    pub dll_load_count: u32,
+    pub dll_api_load_count: u32,      // Loaded via API (LoadLibrary)
+    pub dll_direct_load_count: u32,   // Direct load without API
+    pub loaded_dlls_full_path: HashSet<String>,  // Full paths for regex matching
+    pub loaded_dlls_name_only: HashSet<String>,  // DLL names only for regex matching
+    pub dll_load_details: Vec<DllLoadInfo>,
+    
+    // Chromium Detection
+    pub is_chromium: bool,
+}
+
+/// Detailed information about a DLL load operation
+#[derive(Debug, Clone)]
+pub struct DllLoadInfo {
+    pub dll_path: String,
+    pub dll_name: String,
+    pub load_time: SystemTime,
+    pub is_api_based: bool,  // true if loaded via API, false if direct
+    pub normalized_path: String,
 }
 
 impl ProcessBehaviorState {
@@ -1522,6 +1543,17 @@ impl ProcessBehaviorState {
         }
         state.rootkit_implicated = false;
         state.rootkit_findings = Vec::new();
+        
+        // Initialize DLL load tracking
+        state.dll_load_count = 0;
+        state.dll_api_load_count = 0;
+        state.dll_direct_load_count = 0;
+        state.loaded_dlls_full_path = HashSet::new();
+        state.loaded_dlls_name_only = HashSet::new();
+        state.dll_load_details = Vec::new();
+        
+        // Initialize Chromium detection
+        state.is_chromium = false;
 
         state
     }
@@ -1643,8 +1675,8 @@ impl ProcessBehaviorState {
                     }),
                 thread_id: hyper_event
                     .as_ref()
-                    .map(|event| event.thread_id)
-                    .unwrap_or(msg.kernel_event_info.thread_id),
+                    .map(|event| event.thread_id as u64)
+                    .unwrap_or(msg.kernel_event_info.thread_id as u64),
                 context: hyper_event
                     .as_ref()
                     .map(|event| event.context)
@@ -1908,6 +1940,68 @@ impl ProcessBehaviorState {
                 ));
             }
             _ => {}
+        }
+
+        // DLL Load Detection - Track both API-based and direct DLL loading
+        if msg.kernel_event_info.is_dll_load {
+            self.dll_load_count = self.dll_load_count.saturating_add(1);
+            
+            if msg.kernel_event_info.is_api_based_load {
+                self.dll_api_load_count = self.dll_api_load_count.saturating_add(1);
+            } else {
+                self.dll_direct_load_count = self.dll_direct_load_count.saturating_add(1);
+            }
+            
+            let dll_path_raw = msg.kernel_event_info.loaded_dll_path.trim();
+            if !dll_path_raw.is_empty() {
+                let normalized_path = dll_path_raw.to_lowercase().replace("\\", "/");
+                let dll_name = normalized_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&normalized_path)
+                    .to_string();
+                
+                // Store both full path and name-only for regex matching
+                self.loaded_dlls_full_path.insert(normalized_path.clone());
+                self.loaded_dlls_name_only.insert(dll_name.clone());
+                
+                // Create detailed DLL load info
+                let dll_info = DllLoadInfo {
+                    dll_path: dll_path_raw.to_string(),
+                    dll_name: dll_name.clone(),
+                    load_time: SystemTime::now(),
+                    is_api_based: msg.kernel_event_info.is_api_based_load,
+                    normalized_path: normalized_path.clone(),
+                };
+                self.dll_load_details.push(dll_info);
+                
+                let load_type = if msg.kernel_event_info.is_api_based_load {
+                    "API"
+                } else {
+                    "DIRECT"
+                };
+                
+                Logging::info(&format!(
+                    "[DLL LOAD] PID {} | Type: {} | DLL: {} | Name: {} | Total: {} (API: {}, Direct: {})",
+                    msg.pid,
+                    load_type,
+                    dll_path_raw,
+                    dll_name,
+                    self.dll_load_count,
+                    self.dll_api_load_count,
+                    self.dll_direct_load_count
+                ));
+            }
+        }
+
+        // Chromium Detection - Update process state
+        if msg.kernel_event_info.is_chromium && !self.is_chromium {
+            self.is_chromium = true;
+            Logging::info(&format!(
+                "[CHROMIUM DETECTED] PID {} - Process identified as Chromium-based: {}",
+                msg.pid,
+                self.app_name
+            ));
         }
 
         // Use incremental drain to prevent blocking: remove 10% when hitting 10k

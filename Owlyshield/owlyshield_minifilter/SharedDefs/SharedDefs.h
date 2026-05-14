@@ -445,6 +445,16 @@ typedef struct _KERNEL_EVENT_INFO
     ULONG CoreId;
     ULONG ThreadId;
     ULONGLONG Context;
+
+    // DLL Load Detection - Tracks both API-based and direct DLL loading
+    // Kernel sets IsDllLoad=TRUE when detecting any DLL load operation
+    // (via LoadLibrary API or direct module load without API)
+    BOOLEAN IsDllLoad;
+    WCHAR LoadedDllPath[MAX_FILE_NAME_LENGTH];
+    BOOLEAN IsApiBasedLoad; // TRUE if loaded via API (LoadLibrary), FALSE if direct load
+    
+    // Chromium Detection - Process identification at kernel level
+    BOOLEAN IsChromium;
 } KERNEL_EVENT_INFO, *PKERNEL_EVENT_INFO;
 
 typedef struct _DRIVER_MESSAGE

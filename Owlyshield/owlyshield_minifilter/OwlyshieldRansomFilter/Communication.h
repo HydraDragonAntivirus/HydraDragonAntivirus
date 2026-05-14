@@ -67,6 +67,14 @@ typedef struct _OWLY_HV_EVENT_DETAILS
     ULONG CoreId;
     ULONG ThreadId;
     ULONGLONG Context;
+    
+    // DLL Load Detection
+    BOOLEAN IsDllLoad;
+    _Field_z_ PCWSTR LoadedDllPath;
+    BOOLEAN IsApiBasedLoad;
+    
+    // Chromium Detection
+    BOOLEAN IsChromium;
 } OWLY_HV_EVENT_DETAILS, *POWLY_HV_EVENT_DETAILS;
 
 // Independent hypervisor event queue for VMM bridge (C callable).

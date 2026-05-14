@@ -918,6 +918,23 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     newEntry->Message.KernelEventInfo.CoreId = EventDetails->CoreId;
     newEntry->Message.KernelEventInfo.ThreadId = EventDetails->ThreadId;
     newEntry->Message.KernelEventInfo.Context = EventDetails->Context;
+    
+    // DLL Load Detection
+    newEntry->Message.KernelEventInfo.IsDllLoad = EventDetails->IsDllLoad;
+    newEntry->Message.KernelEventInfo.IsApiBasedLoad = EventDetails->IsApiBasedLoad;
+    if (EventDetails->IsDllLoad && EventDetails->LoadedDllPath != NULL && EventDetails->LoadedDllPath[0] != L'\0')
+    {
+        (VOID)RtlStringCchCopyW(newEntry->Message.KernelEventInfo.LoadedDllPath,
+                                RTL_NUMBER_OF(newEntry->Message.KernelEventInfo.LoadedDllPath),
+                                EventDetails->LoadedDllPath);
+    }
+    else
+    {
+        newEntry->Message.KernelEventInfo.LoadedDllPath[0] = L'\0';
+    }
+    
+    // Chromium Detection
+    newEntry->Message.KernelEventInfo.IsChromium = EventDetails->IsChromium;
 
     if (EventDetails->EventName != NULL && EventDetails->EventName[0] != L'\0')
     {

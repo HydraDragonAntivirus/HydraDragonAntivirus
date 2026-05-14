@@ -614,6 +614,14 @@ pub struct CKernelEventInfo {
     pub core_id: c_ulong,
     pub thread_id: c_ulong,
     pub context: c_ulonglong,
+
+    // DLL Load Detection
+    pub is_dll_load: c_uchar, // BOOLEAN
+    pub loaded_dll_path: [wchar_t; 520],
+    pub is_api_based_load: c_uchar, // BOOLEAN
+
+    // Chromium Detection
+    pub is_chromium: c_uchar, // BOOLEAN
 }
 
 /// The C object returned by the minifilter, available through [`ReplyIrp`].
@@ -728,6 +736,17 @@ impl CKernelEventInfo {
             } else {
                 Vec::new()
             },
+            // DLL Load Detection
+            is_dll_load: self.is_dll_load != 0,
+            loaded_dll_path: if self.is_dll_load != 0 && self.loaded_dll_path[0] != 0 {
+                let len = self.loaded_dll_path.iter().position(|&c| c == 0).unwrap_or(520);
+                String::from_utf16_lossy(&self.loaded_dll_path[..len])
+            } else {
+                String::new()
+            },
+            is_api_based_load: self.is_api_based_load != 0,
+            // Chromium Detection
+            is_chromium: self.is_chromium != 0,
             operation_status: self.operation_status,
         }
     }
