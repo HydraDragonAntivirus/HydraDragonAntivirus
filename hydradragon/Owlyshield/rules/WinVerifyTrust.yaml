@@ -7,7 +7,6 @@
   
   stages:
     - name: "Signature Check"
-  should_trust_cloud: false
       conditions:
         - type: "Signature"
           is_trusted: false
