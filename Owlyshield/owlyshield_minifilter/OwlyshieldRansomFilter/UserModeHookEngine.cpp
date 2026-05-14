@@ -2635,6 +2635,328 @@ PVOID FindExportedFunction32Resolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBa
     return FindExportedFunction32ResolvedInternal(Process, ModuleBase, FunctionName, 0, FALSE, 0);
 }
 
+static BOOLEAN IsAsciiHexDigit(_In_ CHAR ch)
+{
+    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+}
+
+static UCHAR AsciiHexValue(_In_ CHAR ch)
+{
+    if (ch >= '0' && ch <= '9')
+        return (UCHAR)(ch - '0');
+    if (ch >= 'a' && ch <= 'f')
+        return (UCHAR)(ch - 'a' + 10);
+    if (ch >= 'A' && ch <= 'F')
+        return (UCHAR)(ch - 'A' + 10);
+    return 0xFF;
+}
+
+static CHAR AsciiLower(_In_ CHAR ch)
+{
+    if (ch >= 'A' && ch <= 'Z')
+        return (CHAR)(ch - 'A' + 'a');
+    return ch;
+}
+
+static BOOLEAN StartsWithInsensitiveA(_In_z_ PCSTR Text, _In_z_ PCSTR Prefix)
+{
+    if (Text == NULL || Prefix == NULL)
+        return FALSE;
+
+    while (*Prefix != '\0')
+    {
+        if (*Text == '\0' || AsciiLower(*Text) != AsciiLower(*Prefix))
+            return FALSE;
+        ++Text;
+        ++Prefix;
+    }
+
+    return TRUE;
+}
+
+static BOOLEAN IsNumericAddressLiteralA(_In_z_ PCSTR Text)
+{
+    PCSTR p = Text;
+
+    if (p == NULL || *p == '\0')
+        return FALSE;
+
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
+        p += 2;
+
+    if (*p == '\0')
+        return FALSE;
+
+    while (*p != '\0')
+    {
+        if (*p == 'h' || *p == 'H')
+            return p[1] == '\0' && p != Text;
+        if (!IsAsciiHexDigit(*p))
+            return FALSE;
+        ++p;
+    }
+
+    return TRUE;
+}
+
+static BOOLEAN ParseUnsigned64A(_In_z_ PCSTR Text, _In_ BOOLEAN ForceHex, _Out_ PULONGLONG Value)
+{
+    PCSTR p = Text;
+    SIZE_T len = 0;
+    ULONG base = ForceHex ? 16 : 10;
+    ULONGLONG value = 0;
+
+    if (Text == NULL || Value == NULL)
+        return FALSE;
+
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
+    {
+        base = 16;
+        p += 2;
+    }
+
+    len = strlen(p);
+    if (len == 0)
+        return FALSE;
+
+    if (p[len - 1] == 'h' || p[len - 1] == 'H')
+    {
+        base = 16;
+        --len;
+        if (len == 0)
+            return FALSE;
+    }
+    else if (!ForceHex)
+    {
+        for (SIZE_T i = 0; i < len; ++i)
+        {
+            if ((p[i] >= 'a' && p[i] <= 'f') || (p[i] >= 'A' && p[i] <= 'F'))
+            {
+                base = 16;
+                break;
+            }
+        }
+    }
+
+    for (SIZE_T i = 0; i < len; ++i)
+    {
+        UCHAR digit = AsciiHexValue(p[i]);
+        if (digit == 0xFF || digit >= base)
+            return FALSE;
+        if (value > ((((ULONGLONG)~0ULL) - digit) / base))
+            return FALSE;
+        value = value * base + digit;
+    }
+
+    *Value = value;
+    return TRUE;
+}
+
+static NTSTATUS ReadPreferredImageBase64(_In_ PVOID ModuleBase, _Out_ PULONGLONG PreferredImageBase)
+{
+    if (PreferredImageBase == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    *PreferredImageBase = 0;
+    if (ModuleBase == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    __try
+    {
+        PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)ModuleBase;
+        ProbeForRead(dosHeader, sizeof(IMAGE_DOS_HEADER), 1);
+        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+            return STATUS_INVALID_IMAGE_FORMAT;
+        if (dosHeader->e_lfanew < (LONG)sizeof(IMAGE_DOS_HEADER) || dosHeader->e_lfanew > 0x10000000L)
+            return STATUS_INVALID_IMAGE_FORMAT;
+
+        PIMAGE_NT_HEADERS64 ntHeaders = (PIMAGE_NT_HEADERS64)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
+        ProbeForRead(ntHeaders, sizeof(IMAGE_NT_HEADERS64), 1);
+        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE ||
+            ntHeaders->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+        {
+            return STATUS_INVALID_IMAGE_FORMAT;
+        }
+
+        *PreferredImageBase = ntHeaders->OptionalHeader.ImageBase;
+        return STATUS_SUCCESS;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return GetExceptionCode();
+    }
+}
+
+static NTSTATUS ReadPreferredImageBase32(_In_ PVOID ModuleBase, _Out_ PULONGLONG PreferredImageBase)
+{
+    if (PreferredImageBase == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    *PreferredImageBase = 0;
+    if (ModuleBase == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    __try
+    {
+        PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)ModuleBase;
+        ProbeForRead(dosHeader, sizeof(IMAGE_DOS_HEADER), 1);
+        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+            return STATUS_INVALID_IMAGE_FORMAT;
+        if (dosHeader->e_lfanew < (LONG)sizeof(IMAGE_DOS_HEADER) || dosHeader->e_lfanew > 0x10000000L)
+            return STATUS_INVALID_IMAGE_FORMAT;
+
+        PIMAGE_NT_HEADERS32 ntHeaders = (PIMAGE_NT_HEADERS32)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
+        ProbeForRead(ntHeaders, sizeof(IMAGE_NT_HEADERS32), 1);
+        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE ||
+            ntHeaders->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+        {
+            return STATUS_INVALID_IMAGE_FORMAT;
+        }
+
+        *PreferredImageBase = ntHeaders->OptionalHeader.ImageBase;
+        return STATUS_SUCCESS;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return GetExceptionCode();
+    }
+}
+
+static NTSTATUS ResolveHookAddressValue(_In_ PVOID ModuleBase, _In_ SIZE_T ModuleSize, _In_ ULONGLONG PreferredImageBase,
+                                        _In_ ULONGLONG Value, _In_ BOOLEAN TreatAsRva, _Out_ PVOID *ResolvedAddress)
+{
+    ULONGLONG moduleSize64 = (ULONGLONG)ModuleSize;
+    ULONGLONG loadedBase = (ULONGLONG)(ULONG_PTR)ModuleBase;
+    ULONGLONG rva = 0;
+
+    if (ResolvedAddress == NULL)
+        return STATUS_INVALID_PARAMETER;
+    *ResolvedAddress = NULL;
+
+    if (ModuleBase == NULL || ModuleSize == 0)
+        return STATUS_INVALID_PARAMETER;
+
+    if (TreatAsRva || Value < moduleSize64)
+    {
+        rva = Value;
+    }
+    else if (PreferredImageBase != 0 && Value >= PreferredImageBase &&
+             (Value - PreferredImageBase) < moduleSize64)
+    {
+        rva = Value - PreferredImageBase;
+    }
+    else if (Value >= loadedBase && (Value - loadedBase) < moduleSize64)
+    {
+        rva = Value - loadedBase;
+    }
+    else
+    {
+        return STATUS_INVALID_ADDRESS;
+    }
+
+    if (rva == 0 || rva >= moduleSize64 || rva > (ULONGLONG)((SIZE_T)~0))
+        return STATUS_INVALID_ADDRESS;
+
+    __try
+    {
+        PVOID address = (PVOID)((PUCHAR)ModuleBase + (SIZE_T)rva);
+        ProbeForRead(address, 1, 1);
+        *ResolvedAddress = address;
+        return STATUS_SUCCESS;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return GetExceptionCode();
+    }
+}
+
+static NTSTATUS ResolveHookAddressSpecifier(_In_ PVOID ModuleBase, _In_ SIZE_T ModuleSize, _In_z_ PCSTR FunctionName,
+                                            _In_ BOOLEAN IsWow64, _Out_ PVOID *ResolvedAddress)
+{
+    PCSTR valueText = FunctionName;
+    BOOLEAN treatAsRva = FALSE;
+    BOOLEAN forceHex = FALSE;
+    BOOLEAN isAddressSpec = FALSE;
+    ULONGLONG value = 0;
+    ULONGLONG preferredImageBase = 0;
+
+    if (ResolvedAddress == NULL)
+        return STATUS_INVALID_PARAMETER;
+    *ResolvedAddress = NULL;
+
+    if (FunctionName == NULL || FunctionName[0] == '\0')
+        return STATUS_NOT_FOUND;
+
+    if (StartsWithInsensitiveA(FunctionName, "rva:"))
+    {
+        valueText = FunctionName + 4;
+        treatAsRva = TRUE;
+        forceHex = TRUE;
+        isAddressSpec = TRUE;
+    }
+    else if (StartsWithInsensitiveA(FunctionName, "rva+"))
+    {
+        valueText = FunctionName + 4;
+        treatAsRva = TRUE;
+        forceHex = TRUE;
+        isAddressSpec = TRUE;
+    }
+    else if (StartsWithInsensitiveA(FunctionName, "rva_"))
+    {
+        valueText = FunctionName + 4;
+        treatAsRva = TRUE;
+        forceHex = TRUE;
+        isAddressSpec = TRUE;
+    }
+    else if (FunctionName[0] == '+')
+    {
+        valueText = FunctionName + 1;
+        treatAsRva = TRUE;
+        forceHex = TRUE;
+        isAddressSpec = TRUE;
+    }
+    else if (StartsWithInsensitiveA(FunctionName, "sub_"))
+    {
+        valueText = FunctionName + 4;
+        forceHex = TRUE;
+        isAddressSpec = TRUE;
+    }
+    else if (StartsWithInsensitiveA(FunctionName, "loc_"))
+    {
+        valueText = FunctionName + 4;
+        forceHex = TRUE;
+        isAddressSpec = TRUE;
+    }
+    else if (StartsWithInsensitiveA(FunctionName, "j_"))
+    {
+        valueText = FunctionName + 2;
+        forceHex = TRUE;
+        isAddressSpec = TRUE;
+    }
+    else if (IsNumericAddressLiteralA(FunctionName))
+    {
+        isAddressSpec = TRUE;
+    }
+
+    if (!isAddressSpec)
+        return STATUS_NOT_FOUND;
+
+    if (!ParseUnsigned64A(valueText, forceHex, &value))
+        return STATUS_INVALID_PARAMETER;
+
+    if (!treatAsRva)
+    {
+        NTSTATUS imageStatus = IsWow64 ? ReadPreferredImageBase32(ModuleBase, &preferredImageBase)
+                                       : ReadPreferredImageBase64(ModuleBase, &preferredImageBase);
+        if (!NT_SUCCESS(imageStatus))
+        {
+            preferredImageBase = 0;
+        }
+    }
+
+    return ResolveHookAddressValue(ModuleBase, ModuleSize, preferredImageBase, value, treatAsRva, ResolvedAddress);
+}
+
 // FIX #5: InstallUsermodeHook previously discarded the Process parameter
 // via UNREFERENCED_PARAMETER and unconditionally called ZwCurrentProcess().
 // When invoked from outside a KeStackAttachProcess context this resolves to
@@ -3244,9 +3566,19 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
     if (!modBase)
         return STATUS_NOT_FOUND;
 
-    HookDef->Address = FindExportedFunction32Resolved(Process, modBase, FunctionName);
-    if (!HookDef->Address)
-        return STATUS_PROCEDURE_NOT_FOUND;
+    {
+        NTSTATUS specStatus = ResolveHookAddressSpecifier(modBase, modSize, FunctionName, TRUE, &HookDef->Address);
+        if (specStatus == STATUS_NOT_FOUND)
+        {
+            HookDef->Address = FindExportedFunction32Resolved(Process, modBase, FunctionName);
+            if (!HookDef->Address)
+                return STATUS_PROCEDURE_NOT_FOUND;
+        }
+        else if (!NT_SUCCESS(specStatus))
+        {
+            return specStatus;
+        }
+    }
 
     return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo32);
 }
@@ -3501,9 +3833,19 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEnt
     if (!modBase)
         return STATUS_NOT_FOUND;
 
-    HookDef->Address = FindExportedFunctionResolved(Process, modBase, FunctionName);
-    if (!HookDef->Address)
-        return STATUS_PROCEDURE_NOT_FOUND;
+    {
+        NTSTATUS specStatus = ResolveHookAddressSpecifier(modBase, modSize, FunctionName, FALSE, &HookDef->Address);
+        if (specStatus == STATUS_NOT_FOUND)
+        {
+            HookDef->Address = FindExportedFunctionResolved(Process, modBase, FunctionName);
+            if (!HookDef->Address)
+                return STATUS_PROCEDURE_NOT_FOUND;
+        }
+        else if (!NT_SUCCESS(specStatus))
+        {
+            return specStatus;
+        }
+    }
 
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
 }

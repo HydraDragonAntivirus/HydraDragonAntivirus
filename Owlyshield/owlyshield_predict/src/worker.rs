@@ -1464,7 +1464,7 @@ pub mod worker_instance {
                                         let pid = event["pid"].as_u64().unwrap_or(0) as u32;
                                         let source = event["source"].as_str().unwrap_or("-");
                                         let function = event["function"].as_str().unwrap_or("-");
-                                        
+
                                         let is_detection = event["is_detection"].as_bool().unwrap_or(false)
                                             || event["type"] == "DETECTION"
                                             || event["function"] == "DETECTION"
@@ -3020,6 +3020,44 @@ pub mod worker_instance {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn looks_like_hook_offset(raw: &str) -> bool {
+            let mut value = raw.trim();
+            if value.is_empty() {
+                return false;
+            }
+
+            if let Some(stripped) = value
+                .strip_prefix("0x")
+                .or_else(|| value.strip_prefix("0X"))
+            {
+                value = stripped;
+            }
+            if let Some(stripped) = value.strip_suffix('h').or_else(|| value.strip_suffix('H')) {
+                value = stripped;
+            }
+
+            !value.is_empty() && value.chars().all(|c| c.is_ascii_hexdigit())
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn split_module_rva_target(api_spec: &str) -> Option<(&str, &str)> {
+            let trimmed = api_spec.trim();
+            let (module_raw, offset_raw) = trimmed.rsplit_once('+')?;
+            let module = module_raw.trim();
+            let offset = offset_raw.trim();
+
+            if module.is_empty() || offset.is_empty() || module.contains('!') {
+                return None;
+            }
+
+            if !Self::looks_like_hook_offset(offset) {
+                return None;
+            }
+
+            Some((module, offset))
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn push_unique_hook_target(
             seen_lower: &mut HashSet<String>,
             targets: &mut Vec<String>,
@@ -3284,6 +3322,16 @@ pub mod worker_instance {
 
             let mut expanded = Vec::new();
             let mut seen_lower = HashSet::new();
+
+            if let Some((module_raw, offset_raw)) = Self::split_module_rva_target(trimmed) {
+                let module = Self::normalize_hook_module_name(module_raw);
+                Self::push_unique_hook_target(
+                    &mut seen_lower,
+                    &mut expanded,
+                    format!("{module}!rva:{}", offset_raw.trim()),
+                );
+                return expanded;
+            }
 
             if let Some((module_raw, function_raw)) = trimmed.split_once('!') {
                 let module = Self::normalize_hook_module_name(module_raw);
