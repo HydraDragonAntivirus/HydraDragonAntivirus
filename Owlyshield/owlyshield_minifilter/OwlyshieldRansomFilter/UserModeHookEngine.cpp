@@ -276,6 +276,23 @@ static BOOLEAN IsRecoverableHookInstallStatus(_In_ NTSTATUS Status)
     }
 }
 
+static BOOLEAN IsRecoverableHookProcessStatus(_In_ NTSTATUS Status)
+{
+    if (IsRecoverableHookInstallStatus(Status))
+    {
+        return TRUE;
+    }
+
+    switch (Status)
+    {
+    case STATUS_DEVICE_NOT_READY:
+    case STATUS_OBJECT_NAME_NOT_FOUND:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
 static VOID EnsureHookExcludeRuleMutex(VOID)
 {
     volatile LONG *pState = (volatile LONG *)&g_HookExcludeRules.MutexInitialized;
@@ -3193,7 +3210,11 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         DbgPrint("UserModeHook: PID %lu skipping hook at %p - notify infrastructure unavailable\n",
                  ProcessId, HookDef->Address);
 #endif
-        return STATUS_INVALID_HANDLE;
+        // This is a target-process hook support problem, not a failure of the
+        // user-mode communication port that requested the hook.  Do not let it
+        // escape as STATUS_INVALID_HANDLE or FilterSendMessage callers will
+        // mistake it for a stale driver handle and reconnect needlessly.
+        return STATUS_NOT_SUPPORTED;
     }
 
     // Determine the actual steal size: minimum number of complete x64
@@ -3499,7 +3520,9 @@ NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout
         DbgPrint("UserModeHook32: PID %lu skipping hook at %p - notify infrastructure unavailable\n",
                  ProcessId, HookDef->Address);
 #endif
-        return STATUS_INVALID_HANDLE;
+        // Same as the native path: the notify handle cannot be safely embedded
+        // into this target, so skip the hook without poisoning caller IPC state.
+        return STATUS_NOT_SUPPORTED;
     }
 
     // ------------------------------------------------------------------
@@ -3824,6 +3847,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 DbgPrint("UserModeHook: ZwCreateFile per-process notify handle failed 0x%X\n", status);
 #endif
 
+                        if (status == STATUS_INVALID_HANDLE)
+                        {
+                            status = STATUS_NOT_SUPPORTED;
+                        }
                         __leave;
                     }
 
@@ -3834,7 +3861,7 @@ DbgPrint("UserModeHook: ZwCreateFile per-process notify handle failed 0x%X\n", s
 DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL handle\n");
 #endif
 
-                        status = STATUS_UNSUCCESSFUL;
+                        status = STATUS_NOT_SUPPORTED;
                         __leave;
                     }
 
@@ -3878,11 +3905,12 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
                             // handle after hook installation and every later hook
                             // event will fail with STATUS_INVALID_HANDLE.
                             //
-                            // Treat every close-protection failure as fatal.  It is
-                            // better to skip installing hooks in this process than
-                            // to install a hook that is known to be unstable.
+                            // Treat every close-protection failure as an unsupported
+                            // target. It is better to skip installing hooks in this
+                            // process than to install a hook that is known to be
+                            // unstable.
                             //
-                            status = handleProtectStatus;
+                            status = STATUS_NOT_SUPPORTED;
                             __leave;
                         }
                     }
@@ -4458,6 +4486,16 @@ DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, 
              existingHookEntry ? "refresh" : "initial");
 #endif
 
+    const BOOLEAN recoverableProcessFailure = IsRecoverableHookProcessStatus(status);
+    const NTSTATUS returnStatus = recoverableProcessFailure ? STATUS_SUCCESS : status;
+
+    if (recoverableProcessFailure)
+    {
+#if IS_DEBUG_IRP
+        DbgPrint("UserModeHook: PID %lu hook processing skipped as recoverable 0x%X (%s)\n",
+                 ProcessId, status, existingHookEntry ? "refresh" : "initial");
+#endif
+    }
 
     if (hookConfigSnapshot != NULL)
     {
@@ -4473,7 +4511,7 @@ DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, 
     if (existingHookEntry)
     {
         ObDereferenceObject(process);
-        return status;
+        return returnStatus;
     }
 
     if (hookEntry != NULL)
@@ -4575,7 +4613,7 @@ DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, 
     }
 
     ObDereferenceObject(process);
-    return status;
+    return returnStatus;
 }
 //
 // Unhook
