@@ -1404,6 +1404,26 @@ pub enum RuleCondition {
         is_signed: Option<bool>,
         #[serde(default)]
         signer_pattern: Option<String>,
+        #[serde(default)]
+        signer_patterns: Vec<String>,
+        #[serde(default)]
+        signature_status: Option<String>,
+        #[serde(default)]
+        signature_statuses: Vec<String>,
+        #[serde(default)]
+        verification_failed: Option<bool>,
+        #[serde(default)]
+        no_signature: Option<bool>,
+        #[serde(default)]
+        signature_status_issues: Option<bool>,
+        #[serde(default)]
+        invalid_signature: Option<bool>,
+        #[serde(default)]
+        raw_hresult: Option<u32>,
+        #[serde(default)]
+        raw_hresults: Vec<u32>,
+        #[serde(default)]
+        status_text_pattern: Option<String>,
     },
     DirectorySpread {
         category: String,
@@ -1676,6 +1696,28 @@ pub struct NamedConditionGroup {
     pub is_signed: Option<bool>,
     #[serde(default)]
     pub is_valid_signed: Option<bool>,
+    #[serde(default)]
+    pub signature_status: Option<String>,
+    #[serde(default)]
+    pub signature_statuses: Vec<String>,
+    #[serde(default)]
+    pub signature_verification_failed: Option<bool>,
+    #[serde(default)]
+    pub signature_no_signature: Option<bool>,
+    #[serde(default)]
+    pub signature_status_issues: Option<bool>,
+    #[serde(default)]
+    pub signature_invalid: Option<bool>,
+    #[serde(default)]
+    pub signature_hresult: Option<u32>,
+    #[serde(default)]
+    pub signature_hresults: Vec<u32>,
+    #[serde(default)]
+    pub signature_status_text_pattern: Option<String>,
+    #[serde(default)]
+    pub signer_pattern: Option<String>,
+    #[serde(default)]
+    pub signer_patterns: Vec<String>,
     #[serde(default)]
     pub trusted_signers: Vec<String>,
     #[serde(default)]

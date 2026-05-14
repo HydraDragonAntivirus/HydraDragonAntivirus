@@ -18,25 +18,95 @@ pub enum SignatureStatus {
     Trusted,
     SignedUntrusted,
     Unsigned,
+    Invalid,
     VerificationFailed,
 }
 
-const TRUST_E_NOSIGNATURE: i32 = 0x800B_0100u32 as i32;
+impl SignatureStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SignatureStatus::Trusted => "trusted",
+            SignatureStatus::SignedUntrusted => "signed_untrusted",
+            SignatureStatus::Unsigned => "unsigned",
+            SignatureStatus::Invalid => "invalid",
+            SignatureStatus::VerificationFailed => "verification_failed",
+        }
+    }
+}
 
+const TRUST_E_NOSIGNATURE: i32 = 0x800B_0100u32 as i32;
+const TRUST_E_PROVIDER_UNKNOWN: i32 = 0x800B_0001u32 as i32;
+const TRUST_E_SUBJECT_FORM_UNKNOWN: i32 = 0x800B_0003u32 as i32;
+const CERT_E_UNTRUSTEDROOT: i32 = 0x800B_0109u32 as i32;
+const TRUST_E_BAD_DIGEST: i32 = 0x8009_6010u32 as i32;
+const TRUST_E_CERT_SIGNATURE: i32 = 0x8009_6004u32 as i32;
+
+#[derive(Debug, Clone)]
 pub struct SignatureInfo {
     pub is_trusted: bool,
-    pub is_signed: bool, // True only when signing evidence was actually found.
+    pub is_signed: bool,
     pub signer_name: Option<String>,
+
+    // Full verifier result exposed to rule sets and downstream integrations.
     pub status: SignatureStatus,
+    pub status_text: String,
+    pub raw_hresult: u32,
     pub verification_failed: bool,
+    pub no_signature: bool,
+    pub signature_status_issues: bool,
+    pub invalid_signature: bool,
+}
+
+fn is_authenticode_binary_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "exe" | "dll" | "sys" | "ocx" | "cpl" | "scr" | "drv" | "mui" | "msi" | "msp" | "msu" | "cat"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn is_no_signature_for_non_authenticode_file(path: &Path, result: i32) -> bool {
+    // WinVerifyTrust commonly returns provider/subject-form errors for ordinary
+    // source/data files. Those files are still unsigned for metadata and tests.
+    // For executable-like files, do not collapse provider/catalog ambiguity into
+    // unsigned; keep it as VerificationFailed to avoid false "image is unsigned".
+    path.is_file()
+        && !is_authenticode_binary_path(path)
+        && matches!(result, TRUST_E_PROVIDER_UNKNOWN | TRUST_E_SUBJECT_FORM_UNKNOWN)
+}
+
+fn status_text_for(status: SignatureStatus, raw_hresult: u32) -> String {
+    match status {
+        SignatureStatus::Trusted => "Valid".to_string(),
+        SignatureStatus::Unsigned => "No signature".to_string(),
+        SignatureStatus::SignedUntrusted => format!("Signed but untrusted (HRESULT=0x{raw_hresult:08X})"),
+        SignatureStatus::Invalid => format!("Invalid signature (HRESULT=0x{raw_hresult:08X})"),
+        SignatureStatus::VerificationFailed => format!("Signature verification failed (HRESULT=0x{raw_hresult:08X})"),
+    }
+}
+
+fn classify_wintrust_result(path: &Path, result: i32) -> SignatureStatus {
+    if result == ERROR_SUCCESS.0 as i32 {
+        SignatureStatus::Trusted
+    } else if result == TRUST_E_NOSIGNATURE || is_no_signature_for_non_authenticode_file(path, result) {
+        SignatureStatus::Unsigned
+    } else if matches!(result, TRUST_E_BAD_DIGEST | TRUST_E_CERT_SIGNATURE) {
+        SignatureStatus::Invalid
+    } else if result == CERT_E_UNTRUSTEDROOT {
+        SignatureStatus::SignedUntrusted
+    } else {
+        SignatureStatus::VerificationFailed
+    }
 }
 
 pub fn verify_signature(path: &Path) -> SignatureInfo {
-    let is_trusted;
-    let mut is_signed = false;
-    let mut signer_name = None;
+    let mut raw_hresult = 0u32;
     let mut status = SignatureStatus::VerificationFailed;
-    let mut verification_failed = true;
+    let mut signer_name = None;
 
     unsafe {
         let path_wide: Vec<u16> = path
@@ -45,7 +115,6 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
             .chain(std::iter::once(0))
             .collect();
 
-        // --- 1. Verify Trust (WinVerifyTrust) ---
         let mut file_info = WINTRUST_FILE_INFO {
             cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
             pcwszFilePath: PCWSTR(path_wide.as_ptr()),
@@ -72,24 +141,14 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         };
 
         let mut action_guid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-
         let result = WinVerifyTrust(
             windows::Win32::Foundation::HWND(0),
             &mut action_guid,
             &mut win_trust_data as *mut _ as _,
         );
 
-        is_trusted = result == ERROR_SUCCESS.0 as i32;
-        if is_trusted {
-            is_signed = true;
-            status = SignatureStatus::Trusted;
-            verification_failed = false;
-        } else if result == TRUST_E_NOSIGNATURE {
-            // WinVerifyTrust positively reported that no embedded/catalog signature
-            // is present. This is the only failure case we classify as Unsigned.
-            status = SignatureStatus::Unsigned;
-            verification_failed = false;
-        }
+        raw_hresult = result as u32;
+        status = classify_wintrust_result(path, result);
 
         win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
         let _ = WinVerifyTrust(
@@ -98,61 +157,70 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
             &mut win_trust_data as *mut _ as _,
         );
 
-        // --- 2. Check if file has ANY signature (even if not trusted) ---
-        // Try to extract certificate/signer info regardless of trust status
+        // Signer extraction is metadata only. Do not use CryptQueryObject failure
+        // as proof of "unsigned", because catalog-signed system files may not have
+        // embedded PKCS#7 signer data.
         if let Ok(name) = get_signer_name_from_file(&path_wide) {
-            is_signed = true;
             signer_name = Some(name);
-            if !is_trusted {
-                // Embedded signing evidence exists, but WinVerifyTrust did not trust it.
-                // This overrides Unsigned if CryptQueryObject can read a signer.
+            if matches!(status, SignatureStatus::Unsigned | SignatureStatus::VerificationFailed) {
                 status = SignatureStatus::SignedUntrusted;
-                verification_failed = false;
             }
         }
     }
+
+    let is_trusted = status == SignatureStatus::Trusted;
+    let no_signature = status == SignatureStatus::Unsigned;
+    let invalid_signature = status == SignatureStatus::Invalid;
+    let verification_failed = status == SignatureStatus::VerificationFailed;
+    let is_signed = matches!(
+        status,
+        SignatureStatus::Trusted | SignatureStatus::SignedUntrusted | SignatureStatus::Invalid
+    );
+    let signature_status_issues = matches!(
+        status,
+        SignatureStatus::SignedUntrusted | SignatureStatus::Invalid | SignatureStatus::VerificationFailed
+    );
+    let status_text = status_text_for(status, raw_hresult);
 
     SignatureInfo {
         is_trusted,
         is_signed,
         signer_name,
         status,
+        status_text,
+        raw_hresult,
         verification_failed,
+        no_signature,
+        signature_status_issues,
+        invalid_signature,
     }
 }
 
 unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
     unsafe {
-        // HCRYPTMSG is *mut c_void in older windows-rs
         let mut msg_handle: *mut std::ffi::c_void = std::ptr::null_mut();
         let mut store_handle: HCERTSTORE = HCERTSTORE::default();
         let mut context_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
 
-        // Retrieve Certificate Store from file
         let query_res = CryptQueryObject(
             CERT_QUERY_OBJECT_FILE,
             path_wide.as_ptr() as *const _,
             CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
             CERT_QUERY_FORMAT_FLAG_BINARY,
             0,
-            None, // pdwMsgAndCertEncodingType
-            None, // pdwContentType
-            None, // pdwFormatType
+            None,
+            None,
+            None,
             Some(&mut store_handle),
             Some(&mut msg_handle),
             Some(&mut context_ptr as *mut _ as _),
         );
 
         if query_res.as_bool() {
-            // Get the first certificate: Start with None.
             let p_cert_context = CertEnumCertificatesInStore(store_handle, None);
 
             if !p_cert_context.is_null() {
-                // Extract Name
                 let mut name_buf: [u16; 256] = [0; 256];
-
-                // CertGetNameStringW(context, type, flags, typeparam, string_ptr) -> len
-                // Windows-rs 0.48 uses Option<&mut [u16]> for the buffer and handles length internally.
                 let chars_written = CertGetNameStringW(
                     p_cert_context,
                     CERT_NAME_SIMPLE_DISPLAY_TYPE,
@@ -169,7 +237,6 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
                     Err(())
                 };
 
-                // Free context.
                 CertFreeCertificateContext(Some(p_cert_context));
                 let _ = CertCloseStore(store_handle, 0);
                 let _ = CryptMsgClose(Some(msg_handle as *const std::ffi::c_void));
@@ -192,7 +259,6 @@ mod tests {
 
     #[test]
     fn test_verify_known_signed_file() {
-        // Notepad is usually signed, but explorer.exe is definitely signed by Microsoft
         let paths = [
             "C:\\Windows\\System32\\notepad.exe",
             "C:\\Windows\\explorer.exe",
@@ -206,40 +272,24 @@ mod tests {
                 let info = verify_signature(path);
                 if info.is_trusted {
                     found_signed = true;
-                    assert!(
-                        info.is_signed,
-                        "Trusted file should also be marked as signed"
-                    );
-                    // Catalog-signed Windows files may verify as trusted without an embedded
-                    // signer certificate that CryptQueryObject can extract.
-                    if let Some(name) = info.signer_name {
-                        assert!(
-                            name.contains("Microsoft"),
-                            "Signer of {} should be Microsoft, got {}",
-                            p,
-                            name
-                        );
-                    }
+                    assert!(info.is_signed, "Trusted file should also be marked as signed");
+                    assert_eq!(info.status, SignatureStatus::Trusted);
+                    assert!(!info.verification_failed);
                     break;
                 }
             }
         }
-        assert!(
-            found_signed,
-            "At least one system file should be verified as signed!"
-        );
+        assert!(found_signed, "At least one system file should be verified as signed!");
     }
 
     #[test]
     fn test_verify_unsigned_file() {
-        // This test file itself (the source code) is definitely not signed
         let path = Path::new(file!());
         let info = verify_signature(path);
-        // We assert it is NOT trusted and NOT signed, and that the no-signature
-        // result is classified as unsigned rather than verification failure.
         assert!(!info.is_trusted, "Source code file should NOT be trusted!");
         assert!(!info.is_signed, "Source code file should NOT be signed!");
         assert_eq!(info.status, SignatureStatus::Unsigned);
-        assert!(!info.verification_failed, "Unsigned source file should be unsigned, not verification failed");
+        assert!(info.no_signature);
+        assert!(!info.verification_failed);
     }
 }

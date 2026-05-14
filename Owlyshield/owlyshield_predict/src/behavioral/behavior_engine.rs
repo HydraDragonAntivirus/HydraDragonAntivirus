@@ -1356,7 +1356,14 @@ pub struct ProcessBehaviorState {
     pub signature_checked_path: PathBuf,
     pub has_valid_signature: bool,
     pub is_signed: bool,
+    pub signature_status: String,
+    pub signature_status_text: String,
+    pub signature_raw_hresult: Option<u32>,
     pub signature_verification_failed: bool,
+    pub signature_no_signature: bool,
+    pub signature_status_issues: bool,
+    pub signature_invalid: bool,
+    pub signer_name: Option<String>,
 
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
@@ -1428,6 +1435,14 @@ impl ProcessBehaviorState {
         state.exe_path = exe_path;
         state.app_name = app_name;
         state.signature_checked_path = PathBuf::new();
+        state.signature_status = "verification_failed".to_string();
+        state.signature_status_text = String::new();
+        state.signature_raw_hresult = None;
+        state.signature_verification_failed = true;
+        state.signature_no_signature = false;
+        state.signature_status_issues = false;
+        state.signature_invalid = false;
+        state.signer_name = None;
         state.parent_name = "unknown".to_string();
         state.parent_path = PathBuf::new();
         state.command_line = String::new();
@@ -2023,7 +2038,7 @@ impl BehaviorEngine {
                                         }
                                     }
                             } else if let Some(rest) = line.strip_prefix("BLOCK_EXE:") {
-                                // BLOCK_EXE means the firewall blocked the flow. It is not a malware verdict.
+                                // BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
                                 let mut parts = rest.splitn(5, '|');
                                 let exe      = parts.next().unwrap_or("").trim().to_string();
                                 let dst_ip   = parts.next().unwrap_or("").trim().to_string();
@@ -2033,14 +2048,21 @@ impl BehaviorEngine {
                                 let reason   = parts.next().unwrap_or("Firewall block").trim().to_string();
 
                                 if !exe.is_empty() {
-                                    Logging::info(&format!(
-                                        "[FirewallPipe] Firewall blocked network flow: {} -> {}:{} ({}) - {}",
-                                        exe,
+                                    let detection = FirewallDetection {
                                         dst_ip,
                                         dst_port,
+                                        hostname: hostname.clone(),
+                                        reason: reason.clone(),
+                                    };
+                                    Logging::warning(&format!(
+                                        "[FirewallPipe] Confirmed malicious: {} -> {}:{} ({}) - {}",
+                                        exe,
+                                        detection.dst_ip,
+                                        detection.dst_port,
                                         hostname,
                                         reason
                                     ));
+                                    blocked_exes.write().unwrap().insert(exe, detection);
                                 }
                             } else if let Some(rest) = line.strip_prefix("HIPS_DECISION:") {
                                 let mut parts = rest.splitn(2, '|');
@@ -4888,7 +4910,14 @@ impl BehaviorEngine {
                     let info = verify_signature(&signature_path);
                     state.has_valid_signature = info.is_trusted;
                     state.is_signed = info.is_signed;
+                    state.signature_status = info.status.as_str().to_string();
+                    state.signature_status_text = info.status_text.clone();
+                    state.signature_raw_hresult = Some(info.raw_hresult);
                     state.signature_verification_failed = info.verification_failed;
+                    state.signature_no_signature = info.no_signature;
+                    state.signature_status_issues = info.signature_status_issues;
+                    state.signature_invalid = info.invalid_signature;
+                    state.signer_name = info.signer_name.clone();
                     state.signature_checked = true;
                     state.signature_checked_path = signature_path;
                 } else {
@@ -4898,7 +4927,14 @@ impl BehaviorEngine {
                     state.signature_checked_path = PathBuf::new();
                     state.has_valid_signature = false;
                     state.is_signed = false;
+                    state.signature_status = "verification_failed".to_string();
+                    state.signature_status_text = "Path does not exist or is unresolved".to_string();
+                    state.signature_raw_hresult = None;
                     state.signature_verification_failed = true;
+                    state.signature_no_signature = false;
+                    state.signature_status_issues = false;
+                    state.signature_invalid = false;
+                    state.signer_name = None;
                 }
             }
         }
@@ -6462,7 +6498,7 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && !state.signature_verification_failed && cond_group.is_signed.is_some() {
+                if !matched && state.signature_checked && cond_group.is_signed.is_some() {
                     let check_signed = cond_group.is_signed.unwrap();
                     if state.is_signed == check_signed {
                         matched = true;
@@ -6473,7 +6509,7 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && !state.signature_verification_failed && cond_group.is_valid_signed.is_some() {
+                if !matched && state.signature_checked && cond_group.is_valid_signed.is_some() {
                     let check_valid = cond_group.is_valid_signed.unwrap();
                     if state.has_valid_signature == check_valid {
                         matched = true;
@@ -6484,7 +6520,7 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && !state.signature_verification_failed && cond_group.requires_signed.is_some() {
+                if !matched && state.signature_checked && cond_group.requires_signed.is_some() {
                     let must_be_signed = cond_group.requires_signed.unwrap();
                     if state.is_signed == must_be_signed {
                         matched = true;
@@ -6492,6 +6528,176 @@ impl BehaviorEngine {
                             "[BehaviorEngine] Condition '{}' - Required signature match for PID {}: requires_signed={}",
                             cond_name, state.pid, must_be_signed
                         ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.signature_status.is_some() {
+                    let expected = cond_group.signature_status.as_ref().unwrap().trim().to_ascii_lowercase();
+                    if state.signature_status.eq_ignore_ascii_case(&expected) {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature status match for PID {}: status={}",
+                            cond_name, state.pid, state.signature_status
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && !cond_group.signature_statuses.is_empty() {
+                    if cond_group.signature_statuses.iter().any(|expected| {
+                        state.signature_status.eq_ignore_ascii_case(expected.trim())
+                    }) {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature status list match for PID {}: status={}",
+                            cond_name, state.pid, state.signature_status
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.signature_verification_failed.is_some() {
+                    let expected = cond_group.signature_verification_failed.unwrap();
+                    if state.signature_verification_failed == expected {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature verification_failed match for PID {}: {}",
+                            cond_name, state.pid, state.signature_verification_failed
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.signature_no_signature.is_some() {
+                    let expected = cond_group.signature_no_signature.unwrap();
+                    if state.signature_no_signature == expected {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature no_signature match for PID {}: {}",
+                            cond_name, state.pid, state.signature_no_signature
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.signature_status_issues.is_some() {
+                    let expected = cond_group.signature_status_issues.unwrap();
+                    if state.signature_status_issues == expected {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature status_issues match for PID {}: {}",
+                            cond_name, state.pid, state.signature_status_issues
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.signature_invalid.is_some() {
+                    let expected = cond_group.signature_invalid.unwrap();
+                    if state.signature_invalid == expected {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature invalid match for PID {}: {}",
+                            cond_name, state.pid, state.signature_invalid
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.signature_hresult.is_some() {
+                    if state.signature_raw_hresult == cond_group.signature_hresult {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature HRESULT match for PID {}: 0x{:08X}",
+                            cond_name,
+                            state.pid,
+                            state.signature_raw_hresult.unwrap_or_default()
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && !cond_group.signature_hresults.is_empty() {
+                    if state
+                        .signature_raw_hresult
+                        .is_some_and(|hr| cond_group.signature_hresults.contains(&hr))
+                    {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature HRESULT list match for PID {}: 0x{:08X}",
+                            cond_name,
+                            state.pid,
+                            state.signature_raw_hresult.unwrap_or_default()
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked {
+                    if let Some(pattern) = &cond_group.signature_status_text_pattern {
+                        if Self::matches_pattern_internal(
+                            &self.regex_cache,
+                            pattern,
+                            &state.signature_status_text,
+                        ) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Signature status text match for PID {}: {}",
+                                cond_name, state.pid, state.signature_status_text
+                            ));
+                        }
+                    }
+                }
+
+                if !matched && state.signature_checked {
+                    let signer = state.signer_name.as_deref().unwrap_or("");
+                    if !signer.is_empty() {
+                        if let Some(pattern) = &cond_group.signer_pattern {
+                            if Self::matches_pattern_internal(&self.regex_cache, pattern, signer) {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - Signer pattern match for PID {}: {}",
+                                    cond_name, state.pid, signer
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                if !matched && state.signature_checked {
+                    let signer = state.signer_name.as_deref().unwrap_or("");
+                    if !signer.is_empty() && !cond_group.signer_patterns.is_empty() {
+                        if cond_group.signer_patterns.iter().any(|pattern| {
+                            Self::matches_pattern_internal(&self.regex_cache, pattern, signer)
+                        }) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Signer pattern list match for PID {}: {}",
+                                cond_name, state.pid, signer
+                            ));
+                        }
+                    }
+                }
+
+                if !matched && state.signature_checked {
+                    let signer = state.signer_name.as_deref().unwrap_or("");
+                    if !signer.is_empty() && !cond_group.trusted_signers.is_empty() && state.has_valid_signature {
+                        if cond_group.trusted_signers.iter().any(|pattern| {
+                            Self::matches_pattern_internal(&self.regex_cache, pattern, signer)
+                        }) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Trusted signer match for PID {}: {}",
+                                cond_name, state.pid, signer
+                            ));
+                        }
+                    }
+                }
+
+                if !matched && state.signature_checked {
+                    let signer = state.signer_name.as_deref().unwrap_or("");
+                    if !signer.is_empty() && !cond_group.untrusted_signers.is_empty() && !state.has_valid_signature {
+                        if cond_group.untrusted_signers.iter().any(|pattern| {
+                            Self::matches_pattern_internal(&self.regex_cache, pattern, signer)
+                        }) {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Untrusted signer match for PID {}: {}",
+                                cond_name, state.pid, signer
+                            ));
+                        }
                     }
                 }
 
@@ -8121,28 +8327,27 @@ impl BehaviorEngine {
                 } else {
                     app_name.clone()
                 };
-            if state.signature_checked
-                && !state.signature_verification_failed
-                && let Some(reason) = suspicious_critical_process_reason(
+            if state.signature_checked && !state.signature_verification_failed {
+                if let Some(reason) = suspicious_critical_process_reason(
                     state.pid,
                     &critical_image_display,
                     state.is_signed,
                     state.has_valid_signature,
-                )
-            {
-                let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
-                p.is_malicious = true;
-                p.pids.insert(pid);
-                p.deny_access_requested = true;
-                p.termination_requested = true;
-                p.quarantine_requested = true;
-                p.notify_user_requested = true;
-                p.triggered_rule_name =
-                    Some("HEUR:Win.DefEvasion.CriticalProcessAbuse.gen".to_string());
-                p.triggered_rule_details = Some(reason);
-                p.remediation_target_path = Some(exe_path_buf.clone());
-                detected_processes.push(p);
-                continue;
+                ) {
+                    let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
+                    p.is_malicious = true;
+                    p.pids.insert(pid);
+                    p.deny_access_requested = true;
+                    p.termination_requested = true;
+                    p.quarantine_requested = true;
+                    p.notify_user_requested = true;
+                    p.triggered_rule_name =
+                        Some("HEUR:Win.DefEvasion.CriticalProcessAbuse.gen".to_string());
+                    p.triggered_rule_details = Some(reason);
+                    p.remediation_target_path = Some(exe_path_buf.clone());
+                    detected_processes.push(p);
+                    continue;
+                }
             }
 
             // Rootkit telemetry should flow through the normal rule engine so

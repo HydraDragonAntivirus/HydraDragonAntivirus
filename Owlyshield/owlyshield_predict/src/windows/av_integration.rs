@@ -121,6 +121,20 @@ pub struct FileSignatureStatus {
     pub is_signed: bool,
     #[serde(default)]
     pub signer_name: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub status_text: String,
+    #[serde(default)]
+    pub raw_hresult: u32,
+    #[serde(default)]
+    pub verification_failed: bool,
+    #[serde(default)]
+    pub no_signature: bool,
+    #[serde(default)]
+    pub signature_status_issues: bool,
+    #[serde(default)]
+    pub invalid_signature: bool,
 }
 
 /// EDR -> AV request
@@ -1262,6 +1276,13 @@ impl<'a> AVIntegration<'a> {
             is_trusted: info.is_trusted,
             is_signed: info.is_signed,
             signer_name: info.signer_name,
+            status: info.status.as_str().to_string(),
+            status_text: info.status_text,
+            raw_hresult: info.raw_hresult,
+            verification_failed: info.verification_failed,
+            no_signature: info.no_signature,
+            signature_status_issues: info.signature_status_issues,
+            invalid_signature: info.invalid_signature,
         };
 
         self.signature_cache
