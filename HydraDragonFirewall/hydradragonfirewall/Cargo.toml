@@ -26,7 +26,7 @@ crossbeam-channel = "0.5"
 http-mitm-proxy = "0.18.0"
 http-body-util = "0.1"
 bytes = "1"
-rcgen = "0.14.7"
+rcgen = "0.14.8"
 moka = { version = "0.12", features = ["sync"] }
 tokio = { version = "1", features = ["full"] }
 url = "2.5.8"
