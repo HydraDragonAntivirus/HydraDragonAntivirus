@@ -263,17 +263,25 @@ static PIO_CREATE_DRIVER fnIoCreateDriver = NULL;
 //
 // ASYNC CONTRACT
 // --------------
-// The device is opened WITHOUT FILE_SYNCHRONOUS_IO_NONALERT (see
-// UserModeHookEngine.cpp).  NtDeviceIoControlFile is therefore asynchronous
-// - it returns STATUS_PENDING immediately.  The IRP arrives here in the
-// context of the calling thread (the hooked user-mode thread) via a normal
-// kernel I/O path.  This dispatch routine MUST call IoCompleteRequest
-// BEFORE returning (synchronous inline completion).  This makes
-// NtDeviceIoControlFile return STATUS_SUCCESS with IoStatusBlock written
-// while the shellcode's stack frame is still alive.  Pending the IRP would
-// cause the I/O manager to write IoStatusBlock after the stack unwinds -
-// a use-after-return bug.  For a fire-and-forget notify IOCTL (no output
-// data, no deferred work), synchronous completion is correct and sufficient.
+// The per-process device handle is opened WITH FILE_SYNCHRONOUS_IO_NONALERT
+// (see InitializeShellcodeInfrastructure in UserModeHookEngine.cpp).
+// NtDeviceIoControlFile therefore executes synchronously: it does NOT return
+// STATUS_PENDING; it blocks the calling thread until the IRP completes.
+// This dispatch routine MUST call IoCompleteRequest BEFORE returning
+// (synchronous inline completion, done via CompleteIrpInline below).
+//
+// WHY THIS MATTERS: The shellcode passes a pointer to an IO_STATUS_BLOCK
+// that lives on its stack frame as the ApcContext argument to
+// NtDeviceIoControlFile.  If the IRP were pended and completed later, the
+// I/O manager would write IoStatusBlock AFTER the shellcode's stack frame
+// has been unwound — a use-after-return/stack-corruption bug.
+//
+// For a fire-and-forget notify IOCTL (no output data, no deferred work)
+// synchronous inline completion is correct and sufficient.
+//
+// DO NOT change this to an asynchronous (STATUS_PENDING) completion path
+// without simultaneously changing the shellcode and the ZwCreateFile flags
+// in InitializeShellcodeInfrastructure.
 //
 // METHOD_BUFFERED
 // ---------------
