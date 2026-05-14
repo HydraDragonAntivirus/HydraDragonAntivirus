@@ -3804,45 +3804,26 @@ DbgPrint("UserModeHook: ZwSetInformationObject unavailable, skipping hook instal
                         {
                             
 #if IS_DEBUG_IRP
-DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu (0x%X)\n",
+DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu (0x%X); aborting hook install\n",
                                      HookEntry->ProcessId,
                                      handleProtectStatus);
 #endif
 
                             //
-                            // FIX (Root Cause 3): Distinguish genuine handle
-                            // invalidity from a sandbox/policy denial.
+                            // WebView2/Chromium processes aggressively sanitize
+                            // unknown user handles.  The shellcode embeds this
+                            // numeric handle value and later passes it directly to
+                            // NtDeviceIoControlFile.  If ProtectFromClose cannot
+                            // be enabled, a browser cleanup path can close the
+                            // handle after hook installation and every later hook
+                            // event will fail with STATUS_INVALID_HANDLE.
                             //
-                            // STATUS_INVALID_HANDLE means the handle we just
-                            // created via ZwCreateFile is already invalid.
-                            // This should never happen unless the handle table
-                            // is being torn down concurrently (process exiting)
-                            // or an intercepting filter invalidated it.  Either
-                            // way the shellcode will call NtDeviceIoControlFile
-                            // with a dead handle on every invocation, so fail
-                            // here rather than install a permanently broken hook.
+                            // Treat every close-protection failure as fatal.  It is
+                            // better to skip installing hooks in this process than
+                            // to install a hook that is known to be unstable.
                             //
-                            // All other error codes (STATUS_NOT_SUPPORTED,
-                            // STATUS_ACCESS_DENIED, STATUS_INVALID_INFO_CLASS,
-                            // etc.) indicate the *operation* was denied by a
-                            // sandbox or security policy but the handle itself
-                            // is valid and usable.  For those cases the hook
-                            // still works; close-protection is only a hardening
-                            // layer, not a functional requirement.
-                            //
-                            if (handleProtectStatus == STATUS_INVALID_HANDLE)
-                            {
-                                status = STATUS_INVALID_HANDLE;
-                                __leave;
-                            }
-
-                            //
-                            // For all other failures (sandbox policy, not-
-                            // supported, etc.) continue without protection.
-                            // The handle is valid and the shellcode will work;
-                            // it is just unprotected against explicit CloseHandle
-                            // from user-mode.
-                            //
+                            status = handleProtectStatus;
+                            __leave;
                         }
                     }
                 }
@@ -4653,45 +4634,30 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     }
 
     // 3. PHASE 1: RESTORE BYTES
+    //
+    // IMPORTANT: do NOT close DriverDeviceHandle before or immediately after
+    // restoring the bytes.  WebView2/Edge is highly multi-threaded, and a
+    // thread may already be executing inside our trampoline when this unhook
+    // starts.  That in-flight trampoline can reach NtDeviceIoControlFile after
+    // the original function bytes are restored.  If we close the embedded user
+    // handle without a real shellcode in-flight/rundown counter, that thread
+    // receives STATUS_INVALID_HANDLE.
+    //
+    // Safe ordering without a rundown counter:
+    //   1. Restore all patched function entries first.
+    //   2. Forget the per-process handle in our bookkeeping.
+    //   3. Let process teardown reclaim the still-open protected user handle
+    //      and shellcode VA region.
+    //
+    // This intentionally leaks one small handle/VA allocation until target
+    // process exit, but prevents the msedgewebview2.exe STATUS_INVALID_HANDLE
+    // race.  If you later add an in-flight counter in the shellcode, you can
+    // wait for it to drain here and then call CloseHookNotifyHandleSafe.
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
     __try // outer: guarantees detach
     {
-        __try // inner: catches exceptions from UnhookSingleFunction/ZwClose
+        __try // inner: catches exceptions from UnhookSingleFunction
         {
-            if (hookEntry->DriverDeviceHandle)
-            {
-                //
-                // FIX (Root Cause 1): Close the per-process hook-notify handle
-                // BEFORE restoring hook bytes.
-                //
-                // Previous behaviour: just null the pointer and rely on handle-
-                // table rundown.  Problem: between "handle table torn down" and
-                // "bytes restored" a still-running thread could fire the
-                // shellcode, call NtDeviceIoControlFile with the now-invalid
-                // handle, and get STATUS_INVALID_HANDLE.  Worse, during a
-                // *planned* unhook (process still alive) the handle was never
-                // closed at all, so that window was unbounded.
-                //
-                // Fix: call CloseHookNotifyHandleSafe while we are already
-                // attached (KeStackAttachProcess is in effect for this entire
-                // __try block).  ZwCurrentProcess() refers to the target
-                // process, so ZwClose operates on the correct handle table.
-                //
-                // After this point any concurrent shellcode that fires and
-                // reaches NtDeviceIoControlFile gets STATUS_INVALID_HANDLE and
-                // drops the event - which is the correct outcome for an in-
-                // progress unhook.  The byte restoration loop that follows
-                // immediately after this block eliminates new entries.
-                //
-                // Note: this does NOT race with process-exit handle-table
-                // rundown because we only reach this path when
-                // PsGetProcessExitStatus == STATUS_PENDING (checked above).
-                // For dying processes the existing fast-path (null + goto
-                // FinalCleanup) is still taken.
-                //
-                CloseHookNotifyHandleSafe(&hookEntry->DriverDeviceHandle);
-            }
-
             for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
             {
                 if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked)
@@ -4699,6 +4665,15 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
                     UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
                 }
             }
+
+            // Do not close this handle here.  It may already be embedded in an
+            // in-flight trampoline on another thread.  Clearing our copy avoids
+            // a later double-close; the target process will close the real user
+            // handle during normal handle-table teardown.
+            hookEntry->DriverDeviceHandle = NULL;
+            hookEntry->ShellcodeBase = NULL;
+            hookEntry->ShellcodeSize = 0;
+            hookEntry->ShellcodeUsed = 0;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
