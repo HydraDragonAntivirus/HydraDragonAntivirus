@@ -73,6 +73,86 @@ fn kernel_block_message(path: &str) -> String {
     format!("KERNEL_BLOCK_PATH:{}\n", path)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OpenEdrVerdict {
+    Absent,
+    Safe,
+    Malicious,
+    Unknown,
+    Fail,
+}
+
+impl OpenEdrVerdict {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Absent => "Unrecognized",
+            Self::Safe => "Possible Safe",
+            Self::Malicious => "Malware",
+            Self::Unknown => "Unknown",
+            Self::Fail => "Fail",
+        }
+    }
+
+    fn log_level(self) -> LogLevel {
+        match self {
+            Self::Safe => LogLevel::Success,
+            Self::Absent | Self::Unknown | Self::Fail => LogLevel::Warning,
+            Self::Malicious => LogLevel::Error,
+        }
+    }
+
+    fn is_cloud_trusted(self) -> bool {
+        matches!(self, Self::Safe)
+    }
+}
+
+fn normalize_openedr_verdict(raw: Option<&str>, trust_message: bool) -> OpenEdrVerdict {
+    fn from_openedr_token(token: &str) -> Option<OpenEdrVerdict> {
+        match token {
+            "0" | "0x0" | "absent" => Some(OpenEdrVerdict::Absent),
+            "1" | "0x1" | "safe" => Some(OpenEdrVerdict::Safe),
+            "2" | "0x2" | "malicious" | "malware" => Some(OpenEdrVerdict::Malicious),
+            "3" | "0x3" | "unknown" => Some(OpenEdrVerdict::Unknown),
+            "4" | "0x4" | "fail" | "failed" => Some(OpenEdrVerdict::Fail),
+            _ => None,
+        }
+    }
+
+    let value = raw
+        .map(str::trim)
+        .unwrap_or_default()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim();
+
+    if value.is_empty() {
+        return if trust_message {
+            OpenEdrVerdict::Safe
+        } else {
+            OpenEdrVerdict::Unknown
+        };
+    }
+
+    let lowered = value.to_ascii_lowercase();
+    if let Some(verdict) = from_openedr_token(lowered.trim()) {
+        return verdict;
+    }
+
+    for token in lowered
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+    {
+        if matches!(token, "verdict" | "fls" | "flsverdict" | "fileverdict") {
+            continue;
+        }
+        if let Some(verdict) = from_openedr_token(token) {
+            return verdict;
+        }
+    }
+
+    OpenEdrVerdict::Unknown
+}
+
 fn is_known_browser_process(name: &str) -> bool {
     let lower = name.trim().to_ascii_lowercase();
     matches!(
@@ -858,6 +938,8 @@ pub struct ProcessInventoryEntry {
     pub decision: Option<String>,
     #[serde(default)]
     pub cloud_trusted: bool,
+    #[serde(default)]
+    pub openedr_verdict: Option<String>,
 }
 
 impl AppInfoCache {
@@ -962,6 +1044,7 @@ pub struct AppManager {
     pub active_alert: RwLock<Option<PendingApp>>,
     pub suspicious_pids: RwLock<HashSet<u32>>,
     pub cloud_trusted_pids: RwLock<HashSet<u32>>,
+    pub openedr_verdicts: RwLock<HashMap<u32, String>>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
 }
@@ -979,6 +1062,7 @@ impl AppManager {
             active_alert: RwLock::new(None),
             suspicious_pids: RwLock::new(HashSet::new()),
             cloud_trusted_pids: RwLock::new(HashSet::new()),
+            openedr_verdicts: RwLock::new(HashMap::new()),
             view_index: AtomicU64::new(0),
         }
     }
@@ -2438,6 +2522,7 @@ impl FirewallEngine {
             .collect();
         let decisions = self.app_manager.decisions.read().unwrap().clone();
         let cloud_trusted_pids = self.app_manager.cloud_trusted_pids.read().unwrap().clone();
+        let openedr_verdicts = self.app_manager.openedr_verdicts.read().unwrap().clone();
 
         let mut processes = Vec::new();
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -2484,6 +2569,7 @@ impl FirewallEngine {
                         pending_alert: active_alert_pid == Some(pid) || pending_pids.contains(&pid),
                         decision,
                         cloud_trusted: cloud_trusted_pids.contains(&pid),
+                        openedr_verdict: openedr_verdicts.get(&pid).cloned(),
                     });
 
                     if Process32NextW(snapshot, &mut entry).is_err() {
@@ -3019,28 +3105,75 @@ impl FirewallEngine {
                                             }
                                         }
                                     }
-                                } else if let Some(rest) = line.strip_prefix("HIPS_TRUST:") {
-                                    let mut parts = rest.splitn(3, '|');
-                                    let pid =
-                                        parts.next().unwrap_or("0").parse::<u32>().unwrap_or(0);
-                                    let path = parts.next().unwrap_or("").to_string();
-                                    let info = parts.next().unwrap_or("Verified Safe").to_string();
+                                } else if let Some((rest, trust_message)) = line
+                                    .strip_prefix("HIPS_TRUST:")
+                                    .map(|rest| (rest, true))
+                                    .or_else(|| {
+                                        line.strip_prefix("HIPS_VERDICT:")
+                                            .map(|rest| (rest, false))
+                                    })
+                                {
+                                    let parts = rest.split('|').collect::<Vec<_>>();
+                                    let pid = parts
+                                        .get(0)
+                                        .copied()
+                                        .unwrap_or("0")
+                                        .parse::<u32>()
+                                        .unwrap_or(0);
+                                    let path = parts.get(1).copied().unwrap_or("").trim();
+                                    let verdict = normalize_openedr_verdict(
+                                        parts.get(2).copied(),
+                                        trust_message,
+                                    );
+                                    let details = if parts.len() > 3 {
+                                        parts[3..].join(" | ")
+                                    } else {
+                                        parts.get(2).copied().unwrap_or("").trim().to_string()
+                                    };
 
                                     if pid != 0 {
-                                        am_hips.cloud_trusted_pids.write().unwrap().insert(pid);
+                                        if verdict.is_cloud_trusted() {
+                                            am_hips
+                                                .cloud_trusted_pids
+                                                .write()
+                                                .unwrap()
+                                                .insert(pid);
+                                        } else {
+                                            am_hips.cloud_trusted_pids.write().unwrap().remove(&pid);
+                                        }
+                                        am_hips
+                                            .openedr_verdicts
+                                            .write()
+                                            .unwrap()
+                                            .insert(pid, verdict.label().to_string());
+
+                                        let details_suffix = if details.trim().is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!(" ({})", details.trim())
+                                        };
                                         emit_log_event(
                                             &tx_hips,
                                             LogEntry {
-                                                id: format!("cloud_trust_{}", pid),
+                                                id: format!(
+                                                    "openedr_verdict_{}_{}",
+                                                    pid,
+                                                    SystemTime::now()
+                                                        .duration_since(UNIX_EPOCH)
+                                                        .unwrap_or_default()
+                                                        .as_millis()
+                                                ),
                                                 timestamp: SystemTime::now()
                                                     .duration_since(UNIX_EPOCH)
                                                     .unwrap_or_default()
                                                     .as_millis()
                                                     as u64,
-                                                level: LogLevel::Success,
+                                                level: verdict.log_level(),
                                                 message: format!(
-                                                    "[Cloud Trust] {} verified by OpenEDR: {}",
-                                                    path, info
+                                                    "[OpenEDR Verdict] {} => {}{}",
+                                                    if path.is_empty() { "Unknown" } else { path },
+                                                    verdict.label(),
+                                                    details_suffix
                                                 ),
                                             },
                                         );

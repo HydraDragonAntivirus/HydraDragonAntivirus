@@ -298,6 +298,10 @@ pub struct ProcessInventoryEntry {
     pub suspicious: bool,
     pub pending_alert: bool,
     pub decision: Option<String>,
+    #[serde(default)]
+    pub cloud_trusted: bool,
+    #[serde(default)]
+    pub openedr_verdict: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -312,6 +316,8 @@ struct ProcessExplorerRow {
     suspicious: bool,
     pending_alert: bool,
     decision: Option<String>,
+    cloud_trusted: bool,
+    openedr_verdict: Option<String>,
     packet_count: usize,
     blocked_packet_count: usize,
     last_activity: Option<u64>,
@@ -391,6 +397,33 @@ fn decision_badge_label(decision: Option<&str>) -> Option<String> {
         "allow_once" => "ALLOW ONCE".to_string(),
         other => other.to_ascii_uppercase(),
     })
+}
+
+fn openedr_verdict_badge(verdict: Option<&str>) -> Option<(String, String, String)> {
+    let label = verdict?.trim();
+    if label.is_empty() {
+        return None;
+    }
+
+    let normalized = label.to_ascii_lowercase().replace(['_', '-'], " ");
+    let display = match normalized.as_str() {
+        "safe" | "possible safe" | "possibly safe" => "OpenEDR: Possible Safe",
+        "unknown" => "OpenEDR: Unknown",
+        "fail" | "failed" => "OpenEDR: Fail",
+        "unrecognized" | "unrecognised" => "OpenEDR: Unrecognized",
+        "malware" | "malicious" => "OpenEDR: Malware",
+        _ => "OpenEDR: Unrecognized",
+    };
+
+    let colors = match display {
+        "OpenEDR: Possible Safe" => ("rgba(34, 197, 94, 0.16)", "#22c55e"),
+        "OpenEDR: Unknown" => ("rgba(245, 158, 11, 0.18)", "#f59e0b"),
+        "OpenEDR: Fail" => ("rgba(245, 158, 11, 0.18)", "#f59e0b"),
+        "OpenEDR: Malware" => ("rgba(239, 68, 68, 0.20)", "#ef4444"),
+        _ => ("rgba(148, 163, 184, 0.18)", "#cbd5e1"),
+    };
+
+    Some((display.to_string(), colors.0.to_string(), colors.1.to_string()))
 }
 
 fn is_owlyshield_log_entry(log: &LogEntry) -> bool {
@@ -508,6 +541,8 @@ fn build_process_rows(
             suspicious: process.suspicious,
             pending_alert: process.pending_alert,
             decision: process.decision.clone(),
+            cloud_trusted: process.cloud_trusted,
+            openedr_verdict: process.openedr_verdict.clone(),
             packet_count,
             blocked_packet_count,
             last_activity,
@@ -551,6 +586,10 @@ fn process_matches_filter(row: &ProcessExplorerRow, filter: &str, query: &str) -
     row.name.to_ascii_lowercase().contains(&query)
         || row.path.to_ascii_lowercase().contains(&query)
         || row.pid.to_string().contains(&query)
+        || row
+            .openedr_verdict
+            .as_ref()
+            .is_some_and(|verdict| verdict.to_ascii_lowercase().contains(&query))
         || row
             .matched_rules
             .iter()
@@ -2093,6 +2132,10 @@ pub fn App() -> impl IntoView {
                                     Some(row) => {
                                         let decision_text = decision_badge_label(row.decision.as_deref())
                                             .unwrap_or_else(|| "UNDECIDED".to_string());
+                                        let openedr_verdict_text = row
+                                            .openedr_verdict
+                                            .clone()
+                                            .unwrap_or_else(|| "No verdict".to_string());
                                         let recent_targets_view = if row.recent_targets.is_empty() {
                                             view! { <div class="process-detail-empty">"No observed remote targets yet."</div> }.into_view()
                                         } else {
@@ -2152,6 +2195,7 @@ pub fn App() -> impl IntoView {
                                                         <div class="detail-row"><span class="detail-label">"Path"</span><span class="detail-value">{row.path.clone()}</span></div>
                                                         <div class="detail-row"><span class="detail-label">"Threads"</span><span class="detail-value">{row.thread_count}</span></div>
                                                         <div class="detail-row"><span class="detail-label">"Decision"</span><span class="detail-value">{decision_text}</span></div>
+                                                        <div class="detail-row"><span class="detail-label">"OpenEDR Verdict"</span><span class="detail-value">{openedr_verdict_text}</span></div>
                                                         <div class="detail-row"><span class="detail-label">"Firewall Observed"</span><span class="detail-value">{if row.observed_by_firewall { "Yes" } else { "No" }}</span></div>
                                                     </div>
                                                     <div class="process-detail-card">
@@ -2246,6 +2290,11 @@ pub fn App() -> impl IntoView {
                                                             }
                                                             if let Some(decision) = decision_badge_label(row.decision.as_deref()) {
                                                                 badges.push((decision, "rgba(0, 255, 136, 0.12)".to_string(), "#00ff88".to_string()));
+                                                            }
+                                                            if let Some(openedr_badge) = openedr_verdict_badge(row.openedr_verdict.as_deref()) {
+                                                                badges.push(openedr_badge);
+                                                            } else if row.cloud_trusted {
+                                                                badges.push(("OpenEDR: Possible Safe".to_string(), "rgba(34, 197, 94, 0.16)".to_string(), "#22c55e".to_string()));
                                                             }
                                                             badges
                                                         };
@@ -2417,6 +2466,11 @@ pub fn App() -> impl IntoView {
                                                             if let Some(decision) = decision_badge_label(row.decision.as_deref()) {
                                                                 badges.push((decision, "rgba(0, 255, 136, 0.12)".to_string(), "#00ff88".to_string()));
                                                             }
+                                                            if let Some(openedr_badge) = openedr_verdict_badge(row.openedr_verdict.as_deref()) {
+                                                                badges.push(openedr_badge);
+                                                            } else if row.cloud_trusted {
+                                                                badges.push(("OpenEDR: Possible Safe".to_string(), "rgba(34, 197, 94, 0.16)".to_string(), "#22c55e".to_string()));
+                                                            }
                                                             badges
                                                         };
                                                         view! {
@@ -2460,6 +2514,10 @@ pub fn App() -> impl IntoView {
                                             {match selected {
                                                 Some(row) => {
                                                     let decision_label = decision_badge_label(row.decision.as_deref());
+                                                    let openedr_verdict_label = row
+                                                        .openedr_verdict
+                                                        .clone()
+                                                        .unwrap_or_else(|| "No verdict".to_string());
                                                     view! {
                                                         <div class="process-detail-stack">
                                                             <div>
@@ -2474,6 +2532,7 @@ pub fn App() -> impl IntoView {
                                                                     <div class="detail-row"><span class="detail-label">"Path"</span><span class="detail-value">{row.path.clone()}</span></div>
                                                                     <div class="detail-row"><span class="detail-label">"Threads"</span><span class="detail-value">{row.thread_count}</span></div>
                                                                     <div class="detail-row"><span class="detail-label">"Decision"</span><span class="detail-value">{decision_label.unwrap_or_else(|| "UNDECIDED".to_string())}</span></div>
+                                                                    <div class="detail-row"><span class="detail-label">"OpenEDR Verdict"</span><span class="detail-value">{openedr_verdict_label}</span></div>
                                                                     <div class="detail-row"><span class="detail-label">"Firewall Observed"</span><span class="detail-value">{if row.observed_by_firewall { "Yes" } else { "No" }}</span></div>
                                                                 </div>
                                                                 <div class="process-detail-card">

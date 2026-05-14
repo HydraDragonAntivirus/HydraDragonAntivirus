@@ -227,10 +227,92 @@ pub struct OpenEdrTelemetryStats {
     pub last_event: Option<String>,
     pub cloud_static_label: Option<String>,
     pub cloud_dynamic_label: Option<String>,
-    /// Numeric OpenEDR/Valkyrie verdict/result code: 0=Malware, 1=Safe, 2=Unrecognized, 3=Unknown.
+    /// OpenEDR FLS verdict/result code: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
     pub cloud_static_verdict: Option<u8>,
-    /// Numeric OpenEDR/Valkyrie verdict/result code: 0=Malware, 1=Safe, 2=Unrecognized, 3=Unknown.
+    /// OpenEDR FLS verdict/result code: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
     pub cloud_dynamic_verdict: Option<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OpenEdrFlsVerdict {
+    Absent,
+    Safe,
+    Malicious,
+    Unknown,
+    Fail,
+}
+
+impl OpenEdrFlsVerdict {
+    fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Absent),
+            1 => Some(Self::Safe),
+            2 => Some(Self::Malicious),
+            3 => Some(Self::Unknown),
+            4 => Some(Self::Fail),
+            _ => None,
+        }
+    }
+
+    fn from_token(token: &str) -> Option<Self> {
+        match token.trim().to_ascii_lowercase().as_str() {
+            "0" | "0x0" | "absent" => Some(Self::Absent),
+            "1" | "0x1" | "safe" => Some(Self::Safe),
+            "2" | "0x2" | "malicious" | "malware" => Some(Self::Malicious),
+            "3" | "0x3" | "unknown" => Some(Self::Unknown),
+            "4" | "0x4" | "fail" | "failed" => Some(Self::Fail),
+            _ => None,
+        }
+    }
+
+    fn from_json_value(value: &serde_json::Value) -> Option<Self> {
+        if let Some(code) = value.as_u64().and_then(|code| u8::try_from(code).ok()) {
+            return Self::from_code(code);
+        }
+
+        value.as_str().and_then(|text| {
+            if let Some(verdict) = Self::from_token(text) {
+                return Some(verdict);
+            }
+
+            text.split(|ch: char| !ch.is_ascii_alphanumeric())
+                .filter(|token| !token.is_empty())
+                .find_map(Self::from_token)
+        })
+    }
+
+    fn code(self) -> u8 {
+        match self {
+            Self::Absent => 0,
+            Self::Safe => 1,
+            Self::Malicious => 2,
+            Self::Unknown => 3,
+            Self::Fail => 4,
+        }
+    }
+
+    fn display_label(self) -> &'static str {
+        match self {
+            Self::Absent => "Unrecognized",
+            Self::Safe => "Possible Safe",
+            Self::Malicious => "Malware",
+            Self::Unknown => "Unknown",
+            Self::Fail => "Fail",
+        }
+    }
+
+    fn is_safe(self) -> bool {
+        matches!(self, Self::Safe)
+    }
+
+    fn is_malicious(self) -> bool {
+        matches!(self, Self::Malicious)
+    }
+}
+
+fn is_openedr_fls_safe_code(code: Option<u8>) -> bool {
+    code.and_then(OpenEdrFlsVerdict::from_code)
+        .is_some_and(OpenEdrFlsVerdict::is_safe)
 }
 
 // =============================================================================
@@ -246,9 +328,9 @@ pub struct FileVerdictInfo {
     pub sha256: String,
     /// File path
     pub file_path: String,
-    /// Verdict code (0=Malicious, 1=Safe, 2=Unrecognized, 3=Unknown)
+    /// OpenEDR FLS verdict code: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
     pub verdict: u8,
-    /// Verdict label (e.g., "Malicious", "Safe", "Unrecognized", "Unknown")
+    /// Display label derived from the OpenEDR FLS verdict.
     pub verdict_label: String,
     /// Timestamp when verdict was received
     pub timestamp: SystemTime,
@@ -1332,9 +1414,9 @@ pub struct ProcessBehaviorState {
     pub rootkit_findings: Vec<RootkitFinding>,
     pub cloud_static_label: Option<String>,
     pub cloud_dynamic_label: Option<String>,
-    /// Numeric OpenEDR/Valkyrie verdict/result code: 0=Malware, 1=Safe, 2=Unrecognized, 3=Unknown.
+    /// OpenEDR FLS verdict/result code: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
     pub cloud_static_verdict: Option<u8>,
-    /// Numeric OpenEDR/Valkyrie verdict/result code: 0=Malware, 1=Safe, 2=Unrecognized, 3=Unknown.
+    /// OpenEDR FLS verdict/result code: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
     pub cloud_dynamic_verdict: Option<u8>,
 }
 
@@ -2090,13 +2172,21 @@ impl BehaviorEngine {
                                 }
                             } else if let Some(rest) = line.strip_prefix("VERDICT:") {
                                 // VERDICT:<file_path>|<sha256>|<verdict_code>|<verdict_label>
-                                // Example: VERDICT:C:\malware.exe|abc123...|0|Malicious
+                                // OpenEDR FLS: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
                                 let mut parts = rest.splitn(4, '|');
                                 let file_path = parts.next().unwrap_or("").trim().to_string();
                                 let sha256 = parts.next().unwrap_or("").trim().to_string();
-                                let verdict_code = parts.next().unwrap_or("3").trim()
-                                    .parse::<u8>().unwrap_or(3); // Default to Unknown
-                                let verdict_label = parts.next().unwrap_or("Unknown").trim().to_string();
+                                let verdict_code_raw = parts.next().unwrap_or("3").trim();
+                                let verdict_label_raw = parts.next().unwrap_or("").trim();
+                                let verdict = verdict_code_raw
+                                    .parse::<u8>()
+                                    .ok()
+                                    .and_then(OpenEdrFlsVerdict::from_code)
+                                    .or_else(|| OpenEdrFlsVerdict::from_token(verdict_code_raw))
+                                    .or_else(|| OpenEdrFlsVerdict::from_token(verdict_label_raw))
+                                    .unwrap_or(OpenEdrFlsVerdict::Unknown);
+                                let verdict_code = verdict.code();
+                                let verdict_label = verdict.display_label().to_string();
 
                                 if !file_path.is_empty() && !sha256.is_empty() {
                                     let verdict_info = FileVerdictInfo {
@@ -2116,8 +2206,8 @@ impl BehaviorEngine {
                                         file_path, verdict_label, verdict_code
                                     ));
 
-                                    // If verdict is Malicious (0), also add to blocked_exes for immediate action
-                                    if verdict_code == 0 {
+                                    // If verdict is Malicious (2), also add to blocked_exes for immediate action.
+                                    if verdict.is_malicious() {
                                         let detection = FirewallDetection {
                                             dst_ip: String::new(),
                                             dst_port: 0,
@@ -2230,6 +2320,136 @@ impl BehaviorEngine {
                 stats.injection_score = 1.0;
             }
         }
+    }
+
+    /// Notify the firewall GUI about the OpenEDR FLS verdict for this process.
+    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    fn notify_firewall_openedr_verdict(
+        &self,
+        pid: u32,
+        exe_path: &str,
+        verdict: OpenEdrFlsVerdict,
+        analysis_type: &str,
+    ) {
+        use std::ffi::CString;
+        use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+            FlushFileBuffers, OPEN_EXISTING, WriteFile,
+        };
+        use windows::Win32::System::Pipes::WaitNamedPipeA;
+        use windows::core::PCSTR;
+
+        const PIPE: &str = r"\\.\pipe\HydraHipEvent";
+        const CONNECT_TIMEOUT_MS: u32 = 250;
+        const CONNECT_ATTEMPTS: usize = 2;
+
+        let Ok(pipe_name) = CString::new(PIPE) else {
+            Logging::error("[OpenEDRVerdict] Invalid HydraHipEvent pipe name");
+            return;
+        };
+        let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
+        let message = format!(
+            "HIPS_VERDICT:{}|{}|{}|{}\n",
+            pid,
+            Self::sanitize_firewall_hips_field(exe_path),
+            verdict.code(),
+            Self::sanitize_firewall_hips_field(analysis_type),
+        );
+        let message_bytes = message.as_bytes();
+
+        let mut last_error = String::new();
+        for attempt in 0..CONNECT_ATTEMPTS {
+            let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
+            if !wait_ok.as_bool() {
+                last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe {
+                    GetLastError()
+                });
+            } else {
+                let pipe_handle = match unsafe {
+                    CreateFileA(
+                        pcstr,
+                        FILE_GENERIC_WRITE.0,
+                        FILE_SHARE_NONE,
+                        None,
+                        OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL,
+                        HANDLE::default(),
+                    )
+                } {
+                    Ok(handle) if !handle.is_invalid() => handle,
+                    Ok(_) => {
+                        last_error =
+                            "CreateFileA returned an invalid HydraHipEvent handle".to_string();
+                        if attempt + 1 < CONNECT_ATTEMPTS {
+                            std::thread::sleep(std::time::Duration::from_millis(80));
+                        }
+                        continue;
+                    }
+                    Err(err) => {
+                        last_error = format!("CreateFileA failed: {:?}", err);
+                        if attempt + 1 < CONNECT_ATTEMPTS {
+                            std::thread::sleep(std::time::Duration::from_millis(80));
+                        }
+                        continue;
+                    }
+                };
+
+                let mut bytes_written: u32 = 0;
+                let ok: BOOL = unsafe {
+                    WriteFile(
+                        pipe_handle,
+                        Some(message_bytes),
+                        Some(&mut bytes_written as *mut u32),
+                        None,
+                    )
+                };
+
+                unsafe {
+                    let _ = FlushFileBuffers(pipe_handle);
+                    let _ = CloseHandle(pipe_handle);
+                }
+
+                if ok.as_bool() && bytes_written as usize == message_bytes.len() {
+                    Logging::debug(&format!(
+                        "[OpenEDRVerdict] Sent {} verdict for PID {} to firewall: {}",
+                        analysis_type,
+                        pid,
+                        verdict.display_label()
+                    ));
+                    return;
+                }
+
+                last_error = if ok.as_bool() {
+                    format!(
+                        "WriteFile wrote {} of {} bytes",
+                        bytes_written,
+                        message_bytes.len()
+                    )
+                } else {
+                    format!("WriteFile(GetLastError={:?})", unsafe { GetLastError() })
+                };
+            }
+
+            if attempt + 1 < CONNECT_ATTEMPTS {
+                std::thread::sleep(std::time::Duration::from_millis(80));
+            }
+        }
+
+        Logging::debug(&format!(
+            "[OpenEDRVerdict] Firewall verdict update was not delivered for PID {} after {} attempts: {}",
+            pid, CONNECT_ATTEMPTS, last_error
+        ));
+    }
+
+    #[cfg(not(all(target_os = "windows", feature = "firewall")))]
+    fn notify_firewall_openedr_verdict(
+        &self,
+        _pid: u32,
+        _exe_path: &str,
+        _verdict: OpenEdrFlsVerdict,
+        _analysis_type: &str,
+    ) {
     }
 
     /// Notify the firewall GUI via HydraHipEvent about an OpenEDR-sourced threat.
@@ -2393,16 +2613,19 @@ impl BehaviorEngine {
                 .or_else(|| cloud.get("verdict"))
                 .or_else(|| cloud.get("result"))
                 .or_else(|| cloud.get("rating"))
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u8);
-            stats.cloud_static_verdict = static_verdict;
+                .and_then(OpenEdrFlsVerdict::from_json_value);
+            stats.cloud_static_verdict = static_verdict.map(OpenEdrFlsVerdict::code);
 
-            if static_verdict == Some(0) {
+            if let Some(verdict) = static_verdict {
+                self.notify_firewall_openedr_verdict(pid, exe_path, verdict, "Static");
+            }
+
+            if static_verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
                 let label = stats
                     .cloud_static_label
                     .as_deref()
                     .unwrap_or("OpenEDR static verdict");
-                self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 0 (Malware)");
+                self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 2 (Malware)");
             }
 
             if let Some(dynamic_label) = cloud.get("dynamic_label").and_then(|v| v.as_str()) {
@@ -2413,16 +2636,19 @@ impl BehaviorEngine {
                 .or_else(|| cloud.get("dynamic_verdict"))
                 .or_else(|| cloud.get("dynamic_result"))
                 .or_else(|| cloud.get("dynamic_rating"))
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u8);
-            stats.cloud_dynamic_verdict = dynamic_verdict;
+                .and_then(OpenEdrFlsVerdict::from_json_value);
+            stats.cloud_dynamic_verdict = dynamic_verdict.map(OpenEdrFlsVerdict::code);
 
-            if dynamic_verdict == Some(0) {
+            if let Some(verdict) = dynamic_verdict {
+                self.notify_firewall_openedr_verdict(pid, exe_path, verdict, "Dynamic");
+            }
+
+            if dynamic_verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
                 let label = stats
                     .cloud_dynamic_label
                     .as_deref()
                     .unwrap_or("OpenEDR dynamic verdict");
-                self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 0 (Malware)");
+                self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 2 (Malware)");
             }
         }
     }
@@ -6580,11 +6806,11 @@ impl BehaviorEngine {
                 continue;
             }
 
-            // Cloud Trust Filter: only OpenEDR/Valkyrie numeric verdict code 1 may bypass.
+            // Cloud Trust Filter: only OpenEDR FLS Safe (code 1) may bypass.
             // Labels such as "clean", "trusted", or "safe" are display-only and never drive decisions.
             if rule.should_trust_cloud {
-                let is_cloud_allowed = state_ref.cloud_static_verdict == Some(1)
-                    || state_ref.cloud_dynamic_verdict == Some(1);
+                let is_cloud_allowed = is_openedr_fls_safe_code(state_ref.cloud_static_verdict)
+                    || is_openedr_fls_safe_code(state_ref.cloud_dynamic_verdict);
 
                 let mut alert_sources = Vec::new();
                 if state_ref.rootkit_implicated || !state_ref.rootkit_findings.is_empty() {
@@ -7933,10 +8159,10 @@ impl BehaviorEngine {
                     continue;
                 }
 
-                // Cloud Trust Filter: only numeric OpenEDR/Valkyrie verdict code 1 may bypass.
+                // Cloud Trust Filter: only OpenEDR FLS Safe (code 1) may bypass.
                 if rule.should_trust_cloud
-                    && (state.cloud_static_verdict == Some(1)
-                        || state.cloud_dynamic_verdict == Some(1))
+                    && (is_openedr_fls_safe_code(state.cloud_static_verdict)
+                        || is_openedr_fls_safe_code(state.cloud_dynamic_verdict))
                 {
                     continue;
                 }
