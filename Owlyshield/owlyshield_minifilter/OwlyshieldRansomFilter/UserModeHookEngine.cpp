@@ -2087,6 +2087,56 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
     return moduleBase;
 }
 
+static BOOLEAN IsMainExecutableHookModule(_In_opt_z_ PCWSTR ModuleName)
+{
+    return ModuleName != NULL && _wcsicmp(ModuleName, L"exe") == 0;
+}
+
+static PVOID FindMainImageBaseAddress(_In_ PEPROCESS Process, _Out_opt_ PSIZE_T ModuleSize)
+{
+    PVOID moduleBase = NULL;
+
+    if (ModuleSize != NULL)
+        *ModuleSize = 0;
+
+    __try
+    {
+        if (fnPsGetProcessPeb == NULL)
+            return NULL;
+
+        PPEB peb = fnPsGetProcessPeb(Process);
+        if (peb == NULL)
+            return NULL;
+
+        ProbeForRead(peb, sizeof(PEB), 1);
+        PPEB_LDR_DATA ldr = (PPEB_LDR_DATA)peb->Ldr;
+        if (ldr == NULL)
+            return NULL;
+
+        ProbeForRead(ldr, sizeof(PEB_LDR_DATA), 1);
+        PLIST_ENTRY listHead = &ldr->InLoadOrderModuleList;
+        PLIST_ENTRY listEntry = listHead->Flink;
+        if (listEntry == NULL || listEntry == listHead)
+            return NULL;
+
+        ProbeForRead(listEntry, sizeof(LIST_ENTRY), sizeof(PVOID));
+        PLDR_DATA_TABLE_ENTRY ldrEntry = CONTAINING_RECORD(listEntry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+        ProbeForRead(ldrEntry, sizeof(LDR_DATA_TABLE_ENTRY), 1);
+
+        moduleBase = ldrEntry->DllBase;
+        if (ModuleSize != NULL)
+            *ModuleSize = ldrEntry->SizeOfImage;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        moduleBase = NULL;
+        if (ModuleSize != NULL)
+            *ModuleSize = 0;
+    }
+
+    return moduleBase;
+}
+
 //
 // Find exported function
 //
@@ -2444,6 +2494,51 @@ PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _O
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         moduleBase = NULL;
+    }
+
+    return moduleBase;
+}
+
+static PVOID FindMainImageBaseAddress32(_In_ PEPROCESS Process, _Out_opt_ PSIZE_T ModuleSize)
+{
+    PVOID moduleBase = NULL;
+
+    if (ModuleSize != NULL)
+        *ModuleSize = 0;
+
+    if (fnPsGetProcessWow64Process == NULL)
+        return NULL;
+
+    __try
+    {
+        PEB32 *peb32 = (PEB32 *)fnPsGetProcessWow64Process(Process);
+        if (peb32 == NULL)
+            return NULL;
+
+        ProbeForRead(peb32, sizeof(PEB32), 1);
+        if (peb32->Ldr == 0)
+            return NULL;
+
+        PEB_LDR_DATA32 *ldr = (PEB_LDR_DATA32 *)(ULONG_PTR)peb32->Ldr;
+        ProbeForRead(ldr, sizeof(PEB_LDR_DATA32), 1);
+
+        ULONG listHeadAddr = peb32->Ldr + (ULONG)FIELD_OFFSET(PEB_LDR_DATA32, InLoadOrderModuleList);
+        ULONG entryAddr = ldr->InLoadOrderModuleList.Flink;
+        if (entryAddr == 0 || entryAddr == listHeadAddr)
+            return NULL;
+
+        LDR_DATA_TABLE_ENTRY32 *entry = (LDR_DATA_TABLE_ENTRY32 *)(ULONG_PTR)entryAddr;
+        ProbeForRead(entry, sizeof(LDR_DATA_TABLE_ENTRY32), 1);
+
+        moduleBase = (PVOID)(ULONG_PTR)entry->DllBase;
+        if (ModuleSize != NULL)
+            *ModuleSize = (SIZE_T)entry->SizeOfImage;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        moduleBase = NULL;
+        if (ModuleSize != NULL)
+            *ModuleSize = 0;
     }
 
     return moduleBase;
@@ -3562,7 +3657,9 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
                           _In_ PVOID TargetNtDeviceIo32)
 {
     SIZE_T modSize = 0;
-    PVOID modBase = FindModuleBaseAddress32(Process, ModuleName, &modSize);
+    PVOID modBase = IsMainExecutableHookModule(ModuleName)
+                        ? FindMainImageBaseAddress32(Process, &modSize)
+                        : FindModuleBaseAddress32(Process, ModuleName, &modSize);
     if (!modBase)
         return STATUS_NOT_FOUND;
 
@@ -3829,7 +3926,9 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEnt
                         _In_ PVOID TargetNtDeviceIo)
 {
     SIZE_T modSize = 0;
-    PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
+    PVOID modBase = IsMainExecutableHookModule(ModuleName)
+                        ? FindMainImageBaseAddress(Process, &modSize)
+                        : FindModuleBaseAddress(Process, ModuleName, &modSize);
     if (!modBase)
         return STATUS_NOT_FOUND;
 

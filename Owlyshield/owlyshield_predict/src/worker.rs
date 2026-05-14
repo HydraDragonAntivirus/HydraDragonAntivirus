@@ -3005,6 +3005,10 @@ pub mod worker_instance {
                 return module.to_string();
             }
 
+            if module.eq_ignore_ascii_case("exe") {
+                return "exe".to_string();
+            }
+
             // Allow full paths (user explicitly specified one).
             if module.contains('\\') || module.contains('/') {
                 return module.to_string();

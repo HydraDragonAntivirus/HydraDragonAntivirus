@@ -1,4 +1,4 @@
-name: Build and Publish HydraDragon Launcher
+name: Publish Launcher
 
 on:
   push:
