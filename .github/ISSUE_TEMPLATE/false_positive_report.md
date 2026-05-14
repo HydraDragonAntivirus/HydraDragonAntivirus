@@ -15,7 +15,7 @@ Check the logs in the following locations to confirm:
 - `C:\ProgramData\HydraDragonAntivirus\`
 - `C:\Program Files\HydraDragonAntivirus\`
 - Windows Event Viewer
-- HydraDragon Notifications folder
+- Windows Notifcations
 
 **File Information**
 - Filename: 
