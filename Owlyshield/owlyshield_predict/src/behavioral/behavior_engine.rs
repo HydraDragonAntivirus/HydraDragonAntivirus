@@ -1356,6 +1356,7 @@ pub struct ProcessBehaviorState {
     pub signature_checked_path: PathBuf,
     pub has_valid_signature: bool,
     pub is_signed: bool,
+    pub signature_verification_failed: bool,
 
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
@@ -2022,7 +2023,7 @@ impl BehaviorEngine {
                                         }
                                     }
                             } else if let Some(rest) = line.strip_prefix("BLOCK_EXE:") {
-                                // BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
+                                // BLOCK_EXE means the firewall blocked the flow. It is not a malware verdict.
                                 let mut parts = rest.splitn(5, '|');
                                 let exe      = parts.next().unwrap_or("").trim().to_string();
                                 let dst_ip   = parts.next().unwrap_or("").trim().to_string();
@@ -2032,21 +2033,14 @@ impl BehaviorEngine {
                                 let reason   = parts.next().unwrap_or("Firewall block").trim().to_string();
 
                                 if !exe.is_empty() {
-                                    let detection = FirewallDetection {
+                                    Logging::info(&format!(
+                                        "[FirewallPipe] Firewall blocked network flow: {} -> {}:{} ({}) - {}",
+                                        exe,
                                         dst_ip,
                                         dst_port,
-                                        hostname: hostname.clone(),
-                                        reason: reason.clone(),
-                                    };
-                                    Logging::warning(&format!(
-                                        "[FirewallPipe] Confirmed malicious: {} -> {}:{} ({}) - {}",
-                                        exe,
-                                        detection.dst_ip,
-                                        detection.dst_port,
                                         hostname,
                                         reason
                                     ));
-                                    blocked_exes.write().unwrap().insert(exe, detection);
                                 }
                             } else if let Some(rest) = line.strip_prefix("HIPS_DECISION:") {
                                 let mut parts = rest.splitn(2, '|');
@@ -4894,6 +4888,7 @@ impl BehaviorEngine {
                     let info = verify_signature(&signature_path);
                     state.has_valid_signature = info.is_trusted;
                     state.is_signed = info.is_signed;
+                    state.signature_verification_failed = info.verification_failed;
                     state.signature_checked = true;
                     state.signature_checked_path = signature_path;
                 } else {
@@ -4903,6 +4898,7 @@ impl BehaviorEngine {
                     state.signature_checked_path = PathBuf::new();
                     state.has_valid_signature = false;
                     state.is_signed = false;
+                    state.signature_verification_failed = false;
                 }
             }
         }
@@ -6466,7 +6462,7 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && cond_group.is_signed.is_some() {
+                if !matched && state.signature_checked && !state.signature_verification_failed && cond_group.is_signed.is_some() {
                     let check_signed = cond_group.is_signed.unwrap();
                     if state.is_signed == check_signed {
                         matched = true;
@@ -6477,7 +6473,7 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && cond_group.is_valid_signed.is_some() {
+                if !matched && state.signature_checked && !state.signature_verification_failed && cond_group.is_valid_signed.is_some() {
                     let check_valid = cond_group.is_valid_signed.unwrap();
                     if state.has_valid_signature == check_valid {
                         matched = true;
@@ -6488,7 +6484,7 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && cond_group.requires_signed.is_some() {
+                if !matched && state.signature_checked && !state.signature_verification_failed && cond_group.requires_signed.is_some() {
                     let must_be_signed = cond_group.requires_signed.unwrap();
                     if state.is_signed == must_be_signed {
                         matched = true;
@@ -8125,12 +8121,14 @@ impl BehaviorEngine {
                 } else {
                     app_name.clone()
                 };
-            if let Some(reason) = suspicious_critical_process_reason(
-                state.pid,
-                &critical_image_display,
-                state.is_signed,
-                state.has_valid_signature,
-            ) {
+            if !state.signature_verification_failed
+                && let Some(reason) = suspicious_critical_process_reason(
+                    state.pid,
+                    &critical_image_display,
+                    state.is_signed,
+                    state.has_valid_signature,
+                )
+            {
                 let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
                 p.is_malicious = true;
                 p.pids.insert(pid);

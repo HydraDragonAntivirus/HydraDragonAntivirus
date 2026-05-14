@@ -13,16 +13,30 @@ use windows::Win32::Security::WinTrust::{
 };
 use windows::core::{PCWSTR, PWSTR};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureStatus {
+    Trusted,
+    SignedUntrusted,
+    Unsigned,
+    VerificationFailed,
+}
+
 pub struct SignatureInfo {
     pub is_trusted: bool,
-    pub is_signed: bool, // True if file has any signature (even if not trusted)
+    pub is_signed: bool, // True only when signing evidence was found.
     pub signer_name: Option<String>,
+    pub status: SignatureStatus,
+    pub verification_failed: bool,
 }
 
 pub fn verify_signature(path: &Path) -> SignatureInfo {
+    const TRUST_E_NOSIGNATURE: i32 = 0x800B0100u32 as i32;
+
     let is_trusted;
     let mut is_signed = false;
     let mut signer_name = None;
+    let mut status = SignatureStatus::VerificationFailed;
+    let mut verification_failed = true;
 
     unsafe {
         let path_wide: Vec<u16> = path
@@ -68,6 +82,11 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         is_trusted = result == ERROR_SUCCESS.0 as i32;
         if is_trusted {
             is_signed = true;
+            status = SignatureStatus::Trusted;
+            verification_failed = false;
+        } else if result == TRUST_E_NOSIGNATURE {
+            status = SignatureStatus::Unsigned;
+            verification_failed = false;
         }
 
         win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
@@ -82,6 +101,10 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         if let Ok(name) = get_signer_name_from_file(&path_wide) {
             is_signed = true;
             signer_name = Some(name);
+            if !is_trusted {
+                status = SignatureStatus::SignedUntrusted;
+                verification_failed = false;
+            }
         }
     }
 
@@ -89,6 +112,8 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         is_trusted,
         is_signed,
         signer_name,
+        status,
+        verification_failed,
     }
 }
 
