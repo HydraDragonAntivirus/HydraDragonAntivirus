@@ -182,6 +182,7 @@ PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 // target process so shellcode receives a normal user-visible handle without
 // duplicating a kernel handle into the target token.
 static HANDLE g_HookNotifyMasterHandle = NULL;
+static POBJECT_TYPE *g_HookIoFileObjectType = NULL;
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
 // Dynamic Configuration
@@ -225,8 +226,39 @@ static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesR
 
 static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars);
 
+static NTSTATUS ValidateHookNotifyUserHandle(_In_ HANDLE Handle)
+{
+    NTSTATUS status;
+    PFILE_OBJECT fileObject = NULL;
+
+    if (Handle == NULL || Handle == NtCurrentProcess() || Handle == NtCurrentThread())
+    {
+        return STATUS_INVALID_HANDLE;
+    }
+
+    if (g_HookIoFileObjectType == NULL || *g_HookIoFileObjectType == NULL)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    status = ObReferenceObjectByHandle(Handle,
+                                       FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                                       *g_HookIoFileObjectType,
+                                       UserMode,
+                                       (PVOID *)&fileObject,
+                                       NULL);
+    if (NT_SUCCESS(status) && fileObject != NULL)
+    {
+        ObDereferenceObject(fileObject);
+    }
+
+    return status;
+}
+
 static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
 {
+    NTSTATUS status;
+
     if (Handle == NULL || *Handle == NULL)
     {
         return;
@@ -234,18 +266,36 @@ static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
 
     __try
     {
+        status = ValidateHookNotifyUserHandle(*Handle);
+        if (!NT_SUCCESS(status))
+        {
+            *Handle = NULL;
+            return;
+        }
+
         if (fnZwSetInformationObject != NULL)
         {
             OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
+            NTSTATUS flagStatus;
             handleFlags.Inherit = FALSE;
             handleFlags.ProtectFromClose = FALSE;
-            (VOID)fnZwSetInformationObject(*Handle,
-                                           OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
-                                           &handleFlags,
-                                           sizeof(handleFlags));
+            flagStatus = fnZwSetInformationObject(*Handle,
+                                                  OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
+                                                  &handleFlags,
+                                                  sizeof(handleFlags));
+            if (!NT_SUCCESS(flagStatus))
+            {
+                *Handle = NULL;
+                return;
+            }
         }
 
-        ZwClose(*Handle);
+        status = ZwClose(*Handle);
+        if (!NT_SUCCESS(status))
+        {
+            *Handle = NULL;
+            return;
+        }
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -1882,6 +1932,9 @@ DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
     // device handle from user-mode close sanitizers such as browser sandboxes.
     RtlInitUnicodeString(&routineName, L"ZwSetInformationObject");
     fnZwSetInformationObject = (PZW_SET_INFORMATION_OBJECT)MmGetSystemRoutineAddress(&routineName);
+
+    RtlInitUnicodeString(&routineName, L"IoFileObjectType");
+    g_HookIoFileObjectType = (POBJECT_TYPE *)MmGetSystemRoutineAddress(&routineName);
 
     // Resolve optional process protection helpers (best-effort).
     RtlInitUnicodeString(&routineName, L"PsIsProtectedProcess");
@@ -3865,6 +3918,17 @@ DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL han
                         __leave;
                     }
 
+                    status = ValidateHookNotifyUserHandle(targetDeviceHandle);
+                    if (!NT_SUCCESS(status))
+                    {
+#if IS_DEBUG_IRP
+                        DbgPrint("UserModeHook: per-process notify handle validation failed for PID %lu (0x%X)\n",
+                                 HookEntry->ProcessId,
+                                 status);
+#endif
+                        __leave;
+                    }
+
                     if (fnZwSetInformationObject == NULL)
                     {
                         
@@ -3897,13 +3961,12 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
 #endif
 
                             //
-                            // WebView2/Chromium processes aggressively sanitize
-                            // unknown user handles.  The shellcode embeds this
-                            // numeric handle value and later passes it directly to
-                            // NtDeviceIoControlFile.  If ProtectFromClose cannot
-                            // be enabled, a browser cleanup path can close the
-                            // handle after hook installation and every later hook
-                            // event will fail with STATUS_INVALID_HANDLE.
+                            // The shellcode embeds this numeric user handle and
+                            // later passes it directly to NtDeviceIoControlFile.
+                            // If close protection cannot be enabled, another
+                            // thread in the target can close or replace the handle
+                            // after hook installation, making later hook events
+                            // fail with STATUS_INVALID_HANDLE.
                             //
                             // Treat every close-protection failure as an unsupported
                             // target. It is better to skip installing hooks in this
@@ -3911,6 +3974,17 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
                             // unstable.
                             //
                             status = STATUS_NOT_SUPPORTED;
+                            __leave;
+                        }
+
+                        status = ValidateHookNotifyUserHandle(targetDeviceHandle);
+                        if (!NT_SUCCESS(status))
+                        {
+#if IS_DEBUG_IRP
+                            DbgPrint("UserModeHook: protected notify handle validation failed for PID %lu (0x%X)\n",
+                                     HookEntry->ProcessId,
+                                     status);
+#endif
                             __leave;
                         }
                     }
