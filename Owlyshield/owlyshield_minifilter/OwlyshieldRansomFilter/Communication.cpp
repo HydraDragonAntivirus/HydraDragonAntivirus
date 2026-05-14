@@ -1340,6 +1340,54 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS
+CopyWideHookFunctionNameToAnsi(_Out_writes_z_(DestinationCch) PCHAR Destination,
+                               _In_ SIZE_T DestinationCch,
+                               _In_reads_z_(MAX_FILE_NAME_LENGTH) PCWSTR Source)
+{
+    SIZE_T sourceLen = 0;
+    UNICODE_STRING sourceString;
+    ANSI_STRING destinationString;
+    NTSTATUS status;
+
+    if (Destination == NULL || DestinationCch == 0 || Source == NULL || Source[0] == L'\0')
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    Destination[0] = '\0';
+
+    status = RtlStringCchLengthW(Source, MAX_FILE_NAME_LENGTH, &sourceLen);
+    if (!NT_SUCCESS(status) || sourceLen == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    sourceString.Buffer = const_cast<PWCH>(Source);
+    sourceString.Length = (USHORT)(sourceLen * sizeof(WCHAR));
+    sourceString.MaximumLength = (USHORT)((sourceLen + 1) * sizeof(WCHAR));
+
+    destinationString.Buffer = Destination;
+    destinationString.Length = 0;
+    destinationString.MaximumLength = (USHORT)DestinationCch;
+
+    status = RtlUnicodeStringToAnsiString(&destinationString, &sourceString, FALSE);
+    if (!NT_SUCCESS(status))
+    {
+        Destination[0] = '\0';
+        return status;
+    }
+
+    if (destinationString.Length >= DestinationCch)
+    {
+        Destination[DestinationCch - 1] = '\0';
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    Destination[destinationString.Length] = '\0';
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS
 RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLength, OUT PVOID OutputBuffer,
               IN ULONG OutputBufferLength, OUT PULONG ReturnOutputBufferLength)
@@ -1529,6 +1577,32 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
             return STATUS_SUCCESS;
         }
         return STATUS_INVALID_PARAMETER;
+    }
+    else if (message->type == MESSAGE_ADD_HOOK)
+    {
+        HOOK_CONFIG_DATA hookConfig = {};
+        NTSTATUS status;
+
+        message->path[MAX_FILE_NAME_LENGTH - 1] = L'\0';
+        message->quarantine_path[MAX_FILE_NAME_LENGTH - 1] = L'\0';
+
+        status = RtlStringCchCopyW(hookConfig.ModuleName, RTL_NUMBER_OF(hookConfig.ModuleName), message->path);
+        if (!NT_SUCCESS(status))
+        {
+            return STATUS_INVALID_PARAMETER;
+        }
+
+        status = CopyWideHookFunctionNameToAnsi(
+            hookConfig.FunctionName,
+            RTL_NUMBER_OF(hookConfig.FunctionName),
+            message->quarantine_path);
+        if (!NT_SUCCESS(status))
+        {
+            return status;
+        }
+
+        hookConfig.EventId = (ULONG)message->gid;
+        return AddCustomHook(&hookConfig);
     }
     else if (message->type == MESSAGE_HOOK_PROCESS)
     {

@@ -52,23 +52,24 @@ pub enum FileLocationInfo {
 
 /// Messages types to send directives to the minifilter, by using te [`DriverComMessage`] struct.
 #[allow(dead_code)]
+#[repr(u32)]
 pub enum DriverComMessageType {
     /// Not used yet. The minifilter has the ability to monitor a specific part of the fs.
-    _MessageAddScanDirectory,
+    _MessageAddScanDirectory = 0,
     /// Not used yet. The minifilter has the ability to monitor a specific part of the fs.
-    _MessageRemScanDirectory,
+    _MessageRemScanDirectory = 1,
     /// Ask for a [ReplyIrp], if any available.
-    MessageGetOps,
+    MessageGetOps = 2,
     /// Set this app pid to the minifilter (related IRPs will be ignored);
-    MessageSetPid,
-    MessageKillGid,
-    MessageKillAndQuarantineGid,
-    MessageKillOnlyGid,
-    MessageKillAndRemoveGid, // NEW: Kill process and delete file
-    MessageRevertRegistryChanges,
-    MessageAddHook,
-    MessageHookProcess,
-    MessageAddBlockPath,
+    MessageSetPid = 3,
+    MessageKillGid = 4,
+    MessageKillAndQuarantineGid = 5,
+    MessageKillOnlyGid = 6,
+    MessageKillAndRemoveGid = 7, // NEW: Kill process and delete file
+    MessageRevertRegistryChanges = 8,
+    MessageAddHook = 9,
+    MessageHookProcess = 10,
+    MessageAddBlockPath = 11,
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-major-function-codes).

@@ -293,6 +293,7 @@ enum COM_MESSAGE_TYPE
     MESSAGE_KILL_ONLY_GID,           // Kill process without quarantine
     MESSAGE_KILL_AND_REMOVE_GID,     // Kill process and delete file
     MESSAGE_REVERT_REGISTRY_CHANGES,
+    MESSAGE_ADD_HOOK,                 // Register a user-mode API hook target
     MESSAGE_HOOK_PROCESS,             // Force hook a specific PID
     MESSAGE_ADD_BLOCK_PATH            // Add path to kernel block list
 };
