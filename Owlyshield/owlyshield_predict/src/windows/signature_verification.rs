@@ -21,17 +21,17 @@ pub enum SignatureStatus {
     VerificationFailed,
 }
 
+const TRUST_E_NOSIGNATURE: i32 = 0x800B_0100u32 as i32;
+
 pub struct SignatureInfo {
     pub is_trusted: bool,
-    pub is_signed: bool, // True only when signing evidence was found.
+    pub is_signed: bool, // True only when signing evidence was actually found.
     pub signer_name: Option<String>,
     pub status: SignatureStatus,
     pub verification_failed: bool,
 }
 
 pub fn verify_signature(path: &Path) -> SignatureInfo {
-    const TRUST_E_NOSIGNATURE: i32 = 0x800B0100u32 as i32;
-
     let is_trusted;
     let mut is_signed = false;
     let mut signer_name = None;
@@ -85,6 +85,8 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
             status = SignatureStatus::Trusted;
             verification_failed = false;
         } else if result == TRUST_E_NOSIGNATURE {
+            // WinVerifyTrust positively reported that no embedded/catalog signature
+            // is present. This is the only failure case we classify as Unsigned.
             status = SignatureStatus::Unsigned;
             verification_failed = false;
         }
@@ -102,6 +104,8 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
             is_signed = true;
             signer_name = Some(name);
             if !is_trusted {
+                // Embedded signing evidence exists, but WinVerifyTrust did not trust it.
+                // This overrides Unsigned if CryptQueryObject can read a signer.
                 status = SignatureStatus::SignedUntrusted;
                 verification_failed = false;
             }
@@ -206,11 +210,8 @@ mod tests {
                         info.is_signed,
                         "Trusted file should also be marked as signed"
                     );
-                    assert!(
-                        info.signer_name.is_some(),
-                        "Should extract signer name from signed file {}",
-                        p
-                    );
+                    // Catalog-signed Windows files may verify as trusted without an embedded
+                    // signer certificate that CryptQueryObject can extract.
                     if let Some(name) = info.signer_name {
                         assert!(
                             name.contains("Microsoft"),
@@ -234,8 +235,11 @@ mod tests {
         // This test file itself (the source code) is definitely not signed
         let path = Path::new(file!());
         let info = verify_signature(path);
-        // We assert it is NOT trusted and NOT signed
+        // We assert it is NOT trusted and NOT signed, and that the no-signature
+        // result is classified as unsigned rather than verification failure.
         assert!(!info.is_trusted, "Source code file should NOT be trusted!");
         assert!(!info.is_signed, "Source code file should NOT be signed!");
+        assert_eq!(info.status, SignatureStatus::Unsigned);
+        assert!(!info.verification_failed, "Unsigned source file should be unsigned, not verification failed");
     }
 }

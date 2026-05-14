@@ -4898,7 +4898,7 @@ impl BehaviorEngine {
                     state.signature_checked_path = PathBuf::new();
                     state.has_valid_signature = false;
                     state.is_signed = false;
-                    state.signature_verification_failed = false;
+                    state.signature_verification_failed = true;
                 }
             }
         }
@@ -8121,7 +8121,8 @@ impl BehaviorEngine {
                 } else {
                     app_name.clone()
                 };
-            if !state.signature_verification_failed
+            if state.signature_checked
+                && !state.signature_verification_failed
                 && let Some(reason) = suspicious_critical_process_reason(
                     state.pid,
                     &critical_image_display,
