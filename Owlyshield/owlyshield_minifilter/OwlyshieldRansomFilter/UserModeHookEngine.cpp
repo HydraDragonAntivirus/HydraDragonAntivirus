@@ -3380,8 +3380,13 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
                                      handleProtectStatus);
 #endif
 
-                            status = handleProtectStatus;
-                            __leave;
+                            //
+                            // Close-protection is only a hardening layer. The handle was opened
+                            // in the target process context and can still be used by the injected
+                            // shellcode even when ObjectHandleFlagInformation is rejected for that
+                            // target. Treating this as fatal breaks sandboxed/browser children with
+                            // STATUS_INVALID_HANDLE before any real hook is installed.
+                            //
                         }
                     }
                 }
@@ -3830,7 +3835,7 @@ DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoContr
                     if (hookStatus == STATUS_NOT_FOUND || hookStatus == STATUS_PROCEDURE_NOT_FOUND ||
                         hookStatus == STATUS_NOT_SUPPORTED || hookStatus == STATUS_ACCESS_VIOLATION ||
                         hookStatus == STATUS_INVALID_ADDRESS || hookStatus == STATUS_CONFLICTING_ADDRESSES ||
-                        hookStatus == STATUS_INVALID_PARAMETER)
+                        hookStatus == STATUS_INVALID_PARAMETER || hookStatus == STATUS_INVALID_HANDLE)
                     {
                         
 #if IS_DEBUG_IRP
