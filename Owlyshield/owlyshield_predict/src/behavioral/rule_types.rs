@@ -1746,6 +1746,20 @@ pub struct NamedConditionGroup {
     pub hypervisor_memory_sizes: Vec<u64>,
     #[serde(default)]
     pub hypervisor_operation_statuses: Vec<i32>,
+
+    // Hook/user-mode API error telemetry conditions. These match non-success
+    // operation_status values without counting them as successful API behavior.
+    #[serde(default)]
+    pub hook_error_statuses: Vec<u32>,
+    #[serde(default)]
+    pub hook_error_api_patterns: Vec<String>,
+    #[serde(default)]
+    pub hook_error_raw_event_types: Vec<u32>,
+    #[serde(default)]
+    pub hook_error_min_count: Option<usize>,
+    #[serde(default)]
+    pub hook_error_exclude_benign: bool,
+
     #[serde(default)]
     pub hypervisor_thread_handles: Vec<u64>,
     #[serde(default)]
@@ -2377,6 +2391,7 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.anti_vm_apis);
             expand_vec(&mut cond_group.trusted_signers);
             expand_vec(&mut cond_group.untrusted_signers);
+            expand_vec(&mut cond_group.hook_error_api_patterns);
             expand_network_rules(&mut cond_group.network_rules);
             expand_vec(&mut cond_group.registry_value_data_patterns);
             expand_vec(&mut cond_group.dns_query_patterns);

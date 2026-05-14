@@ -462,6 +462,27 @@ pub struct HypervisorEventOperation {
     pub operation_details: String,
 }
 
+/// Non-success status from user-mode hook / kernel API telemetry.
+///
+/// This is intentionally tracked separately from `detected_apis` and
+/// `hypervisor_event_count`: hook/report/query failures are telemetry that
+/// rules may inspect, but they must not be counted as successful API behavior.
+#[derive(Debug, Clone)]
+pub struct HookErrorRecord {
+    pub timestamp: SystemTime,
+    pub api_name: String,
+    pub raw_event_type: u32,
+    pub operation_status: i32,
+    pub source_pid: u32,
+    pub target_pid: u32,
+    pub thread_id: u64,
+    pub context: u64,
+    pub raw_argument1: u64,
+    pub raw_argument2: u64,
+    pub raw_argument3: u64,
+    pub raw_argument4: u64,
+}
+
 /// Maintains comprehensive operation statistics
 #[derive(Debug, Clone, Default)]
 pub struct IrpStatistics {
@@ -1241,6 +1262,10 @@ fn is_benign_hypervisor_failure_status(operation_status: i32) -> bool {
     matches!(operation_status as u32, 0xC0000008 | 0x80070006)
 }
 
+fn is_hook_error_status(operation_status: i32) -> bool {
+    operation_status != 0
+}
+
 fn is_actionable_hypervisor_event(
     irp_op: &IrpMajorOp,
     raw: &str,
@@ -1383,6 +1408,14 @@ pub struct ProcessBehaviorState {
     pub observed_hypervisor_event_labels: HashSet<String>,
     pub recent_kernel_api_events: VecDeque<String>,
 
+    // User-mode hook / kernel API failure telemetry. This stays separate from
+    // successful API observations so sandbox/handle-query failures can be used
+    // by rules without polluting API behavior scores.
+    pub hook_error_count: u32,
+    pub hook_error_status_counts: HashMap<i32, usize>,
+    pub hook_error_api_counts: HashMap<String, usize>,
+    pub recent_hook_errors: VecDeque<HookErrorRecord>,
+
     // Normalized hypervisor event tracking
     pub hypervisor_event_count: u32,
     pub hypervisor_events_total: u32,
@@ -1465,6 +1498,10 @@ impl ProcessBehaviorState {
         state.all_apis_called = HashSet::new();
         state.observed_hypervisor_event_labels = HashSet::new();
         state.recent_kernel_api_events = VecDeque::with_capacity(128);
+        state.hook_error_count = 0;
+        state.hook_error_status_counts = HashMap::new();
+        state.hook_error_api_counts = HashMap::new();
+        state.recent_hook_errors = VecDeque::with_capacity(128);
 
         // Initialize normalized hypervisor event counters
         state.hypervisor_event_count = 0;
@@ -1487,6 +1524,30 @@ impl ProcessBehaviorState {
         state.rootkit_findings = Vec::new();
 
         state
+    }
+
+    fn record_hook_error(&mut self, record: HookErrorRecord) {
+        self.hook_error_count = self.hook_error_count.saturating_add(1);
+        *self
+            .hook_error_status_counts
+            .entry(record.operation_status)
+            .or_insert(0) += 1;
+
+        if !record.api_name.trim().is_empty() {
+            *self
+                .hook_error_api_counts
+                .entry(record.api_name.clone())
+                .or_insert(0) += 1;
+
+            if let Some(alias) = api_function_alias(&record.api_name) {
+                *self.hook_error_api_counts.entry(alias).or_insert(0) += 1;
+            }
+        }
+
+        if self.recent_hook_errors.len() >= 128 {
+            self.recent_hook_errors.pop_front();
+        }
+        self.recent_hook_errors.push_back(record);
     }
 
     /// Record IRP operation with full context and track normalized hypervisor events
@@ -1559,6 +1620,54 @@ impl ProcessBehaviorState {
             .as_ref()
             .map(|event| event.operation_status)
             .unwrap_or(msg.kernel_event_info.operation_status);
+
+        if is_api_event && is_hook_error_status(operation_status) {
+            self.record_hook_error(HookErrorRecord {
+                timestamp: SystemTime::now(),
+                api_name: event_name.clone(),
+                raw_event_type,
+                operation_status,
+                source_pid: hyper_event
+                    .as_ref()
+                    .map(|event| event.source_process_id)
+                    .unwrap_or(msg.kernel_event_info.source_process_id),
+                target_pid: hyper_event
+                    .as_ref()
+                    .map(|event| event.target_process_id)
+                    .unwrap_or_else(|| {
+                        if msg.kernel_event_info.target_process_id != 0 {
+                            msg.kernel_event_info.target_process_id
+                        } else {
+                            msg.pid
+                        }
+                    }),
+                thread_id: hyper_event
+                    .as_ref()
+                    .map(|event| event.thread_id)
+                    .unwrap_or(msg.kernel_event_info.thread_id),
+                context: hyper_event
+                    .as_ref()
+                    .map(|event| event.context)
+                    .unwrap_or(msg.kernel_event_info.context),
+                raw_argument1: hyper_event
+                    .as_ref()
+                    .map(|event| event.raw_argument1)
+                    .unwrap_or(msg.kernel_event_info.raw_argument1),
+                raw_argument2: hyper_event
+                    .as_ref()
+                    .map(|event| event.raw_argument2)
+                    .unwrap_or(msg.kernel_event_info.raw_argument2),
+                raw_argument3: hyper_event
+                    .as_ref()
+                    .map(|event| event.raw_argument3)
+                    .unwrap_or(msg.kernel_event_info.raw_argument3),
+                raw_argument4: hyper_event
+                    .as_ref()
+                    .map(|event| event.raw_argument4)
+                    .unwrap_or(msg.kernel_event_info.raw_argument4),
+            });
+        }
+
         let actionable_hypervisor_event = is_actionable_hypervisor_event(
             &irp_kind,
             &event_name,
@@ -3145,6 +3254,31 @@ impl BehaviorEngine {
             }
         }
 
+        if !state.recent_hook_errors.is_empty() {
+            let hook_errors = state
+                .recent_hook_errors
+                .iter()
+                .rev()
+                .take(8)
+                .map(|entry| {
+                    Self::truncate_detail_value(
+                        &format!(
+                            "{} status=0x{:08X} raw=0x{:X} src={} tgt={}",
+                            entry.api_name,
+                            entry.operation_status as u32,
+                            entry.raw_event_type,
+                            entry.source_pid,
+                            entry.target_pid
+                        ),
+                        160,
+                    )
+                })
+                .collect::<Vec<_>>();
+            if !hook_errors.is_empty() {
+                parts.push(format!("RecentHookErrors={}", hook_errors.join(" || ")));
+            }
+        }
+
         if let Some(target) = Self::build_rule_remediation_target_path(rule, state) {
             parts.push(format!("RemediationTarget={}", target.display()));
         }
@@ -4533,6 +4667,95 @@ impl BehaviorEngine {
             || !cond_group.hypervisor_operation_statuses.is_empty()
     }
 
+    fn has_hook_error_conditions(cond_group: &NamedConditionGroup) -> bool {
+        !cond_group.hook_error_statuses.is_empty()
+            || !cond_group.hook_error_api_patterns.is_empty()
+            || !cond_group.hook_error_raw_event_types.is_empty()
+            || cond_group.hook_error_min_count.is_some()
+            || cond_group.hook_error_exclude_benign
+    }
+
+    fn hook_error_api_matches(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        patterns: &[String],
+        api_name: &str,
+    ) -> bool {
+        if patterns.is_empty() {
+            return true;
+        }
+
+        let mut names_to_check = vec![api_name.to_string()];
+        if let Some(alias) = api_function_alias(api_name) {
+            names_to_check.push(alias);
+        }
+
+        patterns.iter().any(|required_api| {
+            let (required_norm, required_has_path) = Self::normalize_api_signature(required_api);
+            names_to_check.iter().any(|available| {
+                let (available_norm, available_has_path) = Self::normalize_api_signature(available);
+                if required_has_path {
+                    available_has_path
+                        && Self::matches_pattern_internal(cache, required_api, available)
+                } else {
+                    Self::matches_pattern_internal(cache, &required_norm, &available_norm)
+                }
+            })
+        })
+    }
+
+    fn hook_error_record_matches(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        cond_group: &NamedConditionGroup,
+        record: &HookErrorRecord,
+    ) -> bool {
+        if cond_group.hook_error_exclude_benign
+            && is_benign_hypervisor_failure_status(record.operation_status)
+        {
+            return false;
+        }
+
+        (cond_group.hook_error_statuses.is_empty()
+            || cond_group
+                .hook_error_statuses
+                .contains(&(record.operation_status as u32)))
+            && Self::matches_u32_list(&cond_group.hook_error_raw_event_types, record.raw_event_type)
+            && Self::hook_error_api_matches(
+                cache,
+                &cond_group.hook_error_api_patterns,
+                &record.api_name,
+            )
+    }
+
+    fn matching_hook_error_summary(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        cond_group: &NamedConditionGroup,
+        state: &ProcessBehaviorState,
+    ) -> Option<String> {
+        if !Self::has_hook_error_conditions(cond_group) {
+            return None;
+        }
+
+        let required = cond_group.hook_error_min_count.unwrap_or(1).max(1);
+        let matches: Vec<&HookErrorRecord> = state
+            .recent_hook_errors
+            .iter()
+            .filter(|record| Self::hook_error_record_matches(cache, cond_group, record))
+            .collect();
+
+        if matches.len() < required {
+            return None;
+        }
+
+        let latest = matches.last()?;
+        Some(format!(
+            "hook_error:{}:status=0x{:08X}:raw=0x{:X}:api={}",
+            matches.len(),
+            latest.operation_status as u32,
+            latest.raw_event_type,
+            latest.api_name
+        ))
+    }
+
     fn matches_hypervisor_payload_conditions(
         cond_group: &NamedConditionGroup,
         msg: &IOMessage,
@@ -5387,6 +5610,21 @@ impl BehaviorEngine {
                             label_names
                         ));
                     }
+                }
+
+                if !matched
+                    && let Some(hook_error_summary) = Self::matching_hook_error_summary(
+                        &self.regex_cache,
+                        cond_group,
+                        state,
+                    )
+                {
+                    matched = true;
+                    matched_artifact_path = Some(hook_error_summary.clone());
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Hook error status match for PID {}: {}",
+                        cond_name, state.pid, hook_error_summary
+                    ));
                 }
 
                 if !matched
