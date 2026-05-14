@@ -38,7 +38,21 @@ pub struct ThreatInfo<'a> {
 pub const RESTART_CLEANUP_PREDICTION_THRESHOLD: f32 = 0.999;
 
 impl ThreatInfo<'_> {
+    fn is_pending_user_decision(&self) -> bool {
+        let details = self
+            .match_details
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        details.contains("pending user decision")
+    }
+
     fn should_notify(&self) -> bool {
+        if self.is_pending_user_decision() {
+            return false;
+        }
+
         self.notify_user
             || self.deny_access
             || self.suspend
@@ -500,6 +514,10 @@ impl ActionOnKill for Logging {
         _now: &str,
     ) -> Result<(), Box<dyn Error>> {
         let stime_started: DateTime<Local> = proc.time_started.into();
+        if !threat_info.should_notify() {
+            return Ok(());
+        }
+
         let response_label = threat_info.response_label_for(proc);
         let display_process = best_process_display(proc);
         // MODIFIED: Use details from threat_info

@@ -351,6 +351,11 @@ pub struct FirewallDetection {
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 #[allow(dead_code)]
 impl FirewallDetection {
+    pub fn is_pending_user_decision(&self) -> bool {
+        let reason = self.reason.to_ascii_lowercase();
+        reason.contains("pending user decision")
+    }
+
     /// Derive a threat type label from the reason string.
     pub fn threat_type_label(&self) -> &'static str {
         let r = self.reason.to_lowercase();
@@ -2054,6 +2059,13 @@ impl BehaviorEngine {
                                         hostname: hostname.clone(),
                                         reason: reason.clone(),
                                     };
+                                    if detection.is_pending_user_decision() {
+                                        Logging::info(&format!(
+                                            "[FirewallPipe] Pending user decision for {}; not treating as confirmed malicious",
+                                            exe
+                                        ));
+                                        continue;
+                                    }
                                     Logging::warning(&format!(
                                         "[FirewallPipe] Confirmed malicious: {} -> {}:{} ({}) - {}",
                                         exe,
@@ -2153,7 +2165,12 @@ impl BehaviorEngine {
                                                     pid, rule.name, pkt.src_ip, pkt.dst_ip
                                                 ));
 
-                                                if rule.response.status_access_denied || rule.response.quarantine || rule.response.kill_and_remove || rule.response.terminate_process {
+                                                if !rule.response.ask_user
+                                                    && (rule.response.status_access_denied
+                                                        || rule.response.quarantine
+                                                        || rule.response.kill_and_remove
+                                                        || rule.response.terminate_process)
+                                                {
                                                     let mut blocked = blocked_exes.write().unwrap();
 
                                                     let reason = if rule.response.change_request_body.is_some() || rule.response.change_response_body.is_some() {
@@ -8287,6 +8304,10 @@ impl BehaviorEngine {
                 && exe_path_str.to_lowercase() != "unknown"
                 && let Some(detection) = fw_blocked.get(&exe_path_str.to_lowercase())
             {
+                if detection.is_pending_user_decision() {
+                    continue;
+                }
+
                 let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
                 p.is_malicious = true;
                 p.pids.insert(pid);

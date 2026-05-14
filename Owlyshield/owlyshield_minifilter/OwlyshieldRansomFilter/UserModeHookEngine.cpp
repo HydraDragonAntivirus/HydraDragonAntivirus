@@ -920,6 +920,35 @@ static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA *A, _In_ const HOOK_
     return RtlEqualString(&aFunc, &bFunc, TRUE);
 }
 
+static BOOLEAN EqualsInsensitiveA(_In_z_ PCSTR Value, _In_z_ PCSTR Literal)
+{
+    ANSI_STRING valueString;
+    ANSI_STRING literalString;
+
+    if (Value == NULL || Literal == NULL)
+        return FALSE;
+
+    RtlInitAnsiString(&valueString, Value);
+    RtlInitAnsiString(&literalString, Literal);
+    return RtlEqualString(&valueString, &literalString, TRUE);
+}
+
+static BOOLEAN IsChromiumInvalidHandleProbeHookFunction(_In_z_ PCSTR FunctionName)
+{
+    if (FunctionName == NULL || FunctionName[0] == '\0')
+        return FALSE;
+
+    //
+    // Chromium/WebView2 sandbox code intentionally calls NtQueryObject on
+    // handles that may already be invalid and catches STATUS_INVALID_HANDLE as
+    // normal control flow.  Hooking that query path while our notification path
+    // also depends on a target-process file handle makes the hook transport race
+    // the exact thing being inspected.  Keep this exact: do not broaden it to
+    // native aliases or other handle APIs without a crash trace proving it.
+    //
+    return EqualsInsensitiveA(FunctionName, "NtQueryObject");
+}
+
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 {
     HOOK_CONFIG_DATA normalizedConfig;
@@ -1508,6 +1537,8 @@ static BOOLEAN ContainsUnrelocatableInstructions32(_In_reads_bytes_(StolenSize) 
 //   [LB+0x54]   HOOK_EVENT_DATA.Arg1 hi = 0
 //   [LB+0x58]   HOOK_EVENT_DATA.Arg2 lo
 //   [LB+0x5C]   HOOK_EVENT_DATA.Arg2 hi = 0
+//   [LB+0x60]   HOOK_EVENT_DATA.Arg3 = 0
+//   [LB+0x68]   HOOK_EVENT_DATA.Arg4 = 0
 //   [LB+0x78]   saved old FS:[0x14]          <- NEW
 //   [LB+0x80]   EFLAGS  (PUSHFD)
 //   [LB+0x84]   EDI,ESI,EBP,ESP_orig,EBX,EDX,ECX,EAX  (PUSHAD, 32 bytes)
@@ -1588,6 +1619,12 @@ UCHAR g_ShellcodeTemplate32[] = {
     0x89, 0x44, 0x24, 0x58,                         // mov [esp+0x58], eax
     0xC7, 0x44, 0x24, 0x5C, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x5C] = 0
 
+    // ---- Arg3/Arg4 are unknown for generic hooks; keep the wire data clean
+    0xC7, 0x44, 0x24, 0x60, 0x00, 0x00, 0x00, 0x00, // Arg3 low  = 0
+    0xC7, 0x44, 0x24, 0x64, 0x00, 0x00, 0x00, 0x00, // Arg3 high = 0
+    0xC7, 0x44, 0x24, 0x68, 0x00, 0x00, 0x00, 0x00, // Arg4 low  = 0
+    0xC7, 0x44, 0x24, 0x6C, 0x00, 0x00, 0x00, 0x00, // Arg4 high = 0
+
     // ---- Build NtDeviceIoControlFile args (stdcall, right-to-left) ------
     // arg10: OutputBufferLength = 0
     0x6A, 0x00, // push 0               ESP=LB-4
@@ -1658,7 +1695,9 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   RSP+0x90+0x04   HOOK_EVENT_DATA.ProcessId    (patched: ProcessId)
 //   RSP+0x90+0x48   HOOK_EVENT_DATA.Arg1         (copied from original RCX)
 //   RSP+0x90+0x50   HOOK_EVENT_DATA.Arg2         (copied from original RDX)
-//   RSP+0xF0        saved R11 ... RAX (8 * 8 = 64 bytes)
+//   RSP+0x90+0x58   HOOK_EVENT_DATA.Arg3         0
+//   RSP+0x90+0x60   HOOK_EVENT_DATA.Arg4         0
+//   RSP+0xF8        saved R11 ... RAX (8 * 8 = 64 bytes)
 //
 // Register sources (from the saved register block above RSP+0xF0):
 //   saved RCX (original arg1 of hooked fn) lives at RSP + 0xF8
@@ -1693,6 +1732,8 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   [RSP+0x90+0x08]   HOOK_EVENT_DATA.FunctionName[0] = 0
 //   [RSP+0xD8]        HOOK_EVENT_DATA.Arg1
 //   [RSP+0xE0]        HOOK_EVENT_DATA.Arg2
+//   [RSP+0xE8]        HOOK_EVENT_DATA.Arg3 = 0
+//   [RSP+0xF0]        HOOK_EVENT_DATA.Arg4 = 0
 //   [RSP+0xF8]        saved R11  (last pushed, first popped)
 //   [RSP+0x100]       saved R10
 //   [RSP+0x108]       saved R9
@@ -1787,6 +1828,11 @@ UCHAR g_ShellcodeTemplate[] = {
     // ---- Copy original RDX (arg2) -> HOOK_EVENT_DATA.Arg2 at RSP+0xE0 ----
     0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00, // mov rax,[rsp+0x120] <- RDX
     0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00, // mov [rsp+0xE0],rax -> Arg2
+
+    // ---- Arg3/Arg4 are not reliably known for generic hooks -------------
+    0x48, 0x31, 0xC0,                               // xor rax, rax
+    0x48, 0x89, 0x84, 0x24, 0xE8, 0x00, 0x00, 0x00, // mov [rsp+0xE8],rax -> Arg3
+    0x48, 0x89, 0x84, 0x24, 0xF0, 0x00, 0x00, 0x00, // mov [rsp+0xF0],rax -> Arg4
 
     // ---- Build NtDeviceIoControlFile argument frame ----------------------
     // RCX = FileHandle <- patched: kHandleSig
@@ -3788,6 +3834,40 @@ DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef-
 // 32-bit counterpart to ResolveAndHook.  Uses the 32-bit PEB LDR to find
 // the module and the 32-bit PE export table to resolve the function.
 // -------------------------------------------------------------------------
+static BOOLEAN IsChromiumBasedHookProcess(_In_ PEPROCESS Process, _In_ BOOLEAN IsWow64)
+{
+    static const PCWSTR kChromiumModules[] = {
+        L"chrome_elf.dll",
+        L"msedge_elf.dll",
+        L"libcef.dll",
+        L"chrome.dll",
+        L"msedge.dll",
+    };
+
+    if (Process == NULL)
+        return FALSE;
+
+    for (ULONG i = 0; i < RTL_NUMBER_OF(kChromiumModules); ++i)
+    {
+        if (FindModuleBaseAddress(Process, kChromiumModules[i], NULL) != NULL)
+            return TRUE;
+
+        if (IsWow64 && FindModuleBaseAddress32(Process, kChromiumModules[i], NULL) != NULL)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_z_ PCSTR FunctionName,
+                                                _In_ BOOLEAN IsWow64)
+{
+    if (!IsChromiumInvalidHandleProbeHookFunction(FunctionName))
+        return FALSE;
+
+    return IsChromiumBasedHookProcess(Process, IsWow64);
+}
+
 NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
                           _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
                           _In_ PVOID TargetNtDeviceIo32)
@@ -3796,6 +3876,10 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
     PVOID modBase = IsMainExecutableHookModule(ModuleName)
                         ? FindMainImageBaseAddress32(Process, &modSize)
                         : FindModuleBaseAddress32(Process, ModuleName, &modSize);
+
+    if (ShouldSkipHookFunctionForProcess(Process, FunctionName, TRUE))
+        return STATUS_NOT_SUPPORTED;
+
     if (!modBase)
         return STATUS_NOT_FOUND;
 
@@ -3929,23 +4013,24 @@ DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL han
                         __leave;
                     }
 
-                    if (fnZwSetInformationObject == NULL)
-                    {
-                        
-#if IS_DEBUG_IRP
-DbgPrint("UserModeHook: ZwSetInformationObject unavailable, skipping hook install for PID %lu\n",
-                                 HookEntry->ProcessId);
-#endif
-
-                        status = STATUS_NOT_SUPPORTED;
-                        __leave;
-                    }
-
+                    if (fnZwSetInformationObject != NULL)
                     {
                         OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
                         NTSTATUS handleProtectStatus;
 
-                        handleFlags.ProtectFromClose = TRUE;
+                        //
+                        // Do not mark this user handle as ProtectFromClose.
+                        // Chromium/WebView2 sandbox code legitimately audits
+                        // and closes handles during startup and renderer setup.
+                        // A close-protected foreign handle turns that cleanup
+                        // into visible handle errors in the target process.
+                        //
+                        // Notification is best-effort: if the sandbox closes
+                        // this handle, shellcode restores the caller's registers
+                        // and TEB error/status state, and the refresh path rebuilds
+                        // the notify infrastructure later.
+                        //
+                        handleFlags.ProtectFromClose = FALSE;
                         handleFlags.Inherit = FALSE;
                         handleProtectStatus = fnZwSetInformationObject(targetDeviceHandle,
                                                                        OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
@@ -3955,26 +4040,10 @@ DbgPrint("UserModeHook: ZwSetInformationObject unavailable, skipping hook instal
                         {
                             
 #if IS_DEBUG_IRP
-DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu (0x%X); aborting hook install\n",
+DbgPrint("UserModeHook: failed to clear per-process notify handle flags for PID %lu (0x%X); continuing\n",
                                      HookEntry->ProcessId,
                                      handleProtectStatus);
 #endif
-
-                            //
-                            // The shellcode embeds this numeric user handle and
-                            // later passes it directly to NtDeviceIoControlFile.
-                            // If close protection cannot be enabled, another
-                            // thread in the target can close or replace the handle
-                            // after hook installation, making later hook events
-                            // fail with STATUS_INVALID_HANDLE.
-                            //
-                            // Treat every close-protection failure as an unsupported
-                            // target. It is better to skip installing hooks in this
-                            // process than to install a hook that is known to be
-                            // unstable.
-                            //
-                            status = STATUS_NOT_SUPPORTED;
-                            __leave;
                         }
 
                         status = ValidateHookNotifyUserHandle(targetDeviceHandle);
@@ -4085,12 +4154,11 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
 //
 // Helper: Resolve and Prepare Hook
 //
-// No per-function exclusion list.  The TEB re-entrancy sentinel
-// (GS:[0x28] = FEEDF00DFEEDF00D on x64, FS:[0x14] = FEEDF00D on x86)
-// is set by every shellcode before it calls NtDeviceIoControlFile and
-// cleared afterward.  If NtDeviceIoControlFile is in the hook list, its
-// shellcode sees the sentinel already set on entry and jumps past the IOCTL.
-// Process/directory exclusions are enforced via ShouldSkipHookingProcess.
+// Per-function exclusions are intentionally narrow.  Chromium/WebView2 code
+// treats STATUS_INVALID_HANDLE from NtQueryObject as normal sandbox probing, so
+// that single API is skipped only when Chromium-family modules are loaded.
+// The TEB re-entrancy sentinel still protects the NtDeviceIoControlFile
+// transport hook path.
 NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
                         _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
                         _In_ PVOID TargetNtDeviceIo)
@@ -4099,6 +4167,10 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEnt
     PVOID modBase = IsMainExecutableHookModule(ModuleName)
                         ? FindMainImageBaseAddress(Process, &modSize)
                         : FindModuleBaseAddress(Process, ModuleName, &modSize);
+
+    if (ShouldSkipHookFunctionForProcess(Process, FunctionName, FALSE))
+        return STATUS_NOT_SUPPORTED;
+
     if (!modBase)
         return STATUS_NOT_FOUND;
 
