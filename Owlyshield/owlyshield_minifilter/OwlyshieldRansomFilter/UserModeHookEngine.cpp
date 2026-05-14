@@ -4264,7 +4264,82 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
     // because both ZwAllocateVirtualMemory(ZwCurrentProcess()) and the final
     // target-process device handle creation must occur in the target context.
     // -----------------------------------------------------------------------
-    if (!existingHookEntry)
+    if (existingHookEntry)
+    {
+        BOOLEAN rebuildInfrastructure = FALSE;
+
+        if (hookEntry->DriverDeviceHandle == NULL || hookEntry->ShellcodeBase == NULL ||
+            hookEntry->ShellcodeSize == 0)
+        {
+            rebuildInfrastructure = TRUE;
+        }
+        else
+        {
+            KAPC_STATE validateApcState;
+            KeStackAttachProcess((PRKPROCESS)process, &validateApcState);
+            __try
+            {
+                status = ValidateHookNotifyUserHandle(hookEntry->DriverDeviceHandle);
+                if (!NT_SUCCESS(status))
+                {
+#if IS_DEBUG_IRP
+                    DbgPrint("UserModeHook: PID %lu stale notify handle detected during refresh (0x%X)\n",
+                             ProcessId,
+                             status);
+#endif
+                    rebuildInfrastructure = TRUE;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                rebuildInfrastructure = TRUE;
+            }
+            KeUnstackDetachProcess(&validateApcState);
+        }
+
+        if (rebuildInfrastructure)
+        {
+            if (process != NULL && PsGetProcessExitStatus(process) == STATUS_PENDING)
+            {
+                KAPC_STATE rebuildApcState;
+                KeStackAttachProcess((PRKPROCESS)process, &rebuildApcState);
+                __try
+                {
+                    for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
+                    {
+                        if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked)
+                        {
+                            UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
+                        }
+                    }
+
+                    if (hookEntry->DriverDeviceHandle != NULL)
+                    {
+                        CloseHookNotifyHandleSafe(&hookEntry->DriverDeviceHandle);
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                }
+                KeUnstackDetachProcess(&rebuildApcState);
+            }
+
+            if (hookEntry->CustomHooks != NULL)
+            {
+                ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
+                hookEntry->CustomHooks = NULL;
+            }
+
+            hookEntry->CustomHookCapacity = customHookCountSnapshot;
+            hookEntry->DriverDeviceHandle = NULL;
+            hookEntry->ShellcodeBase = NULL;
+            hookEntry->ShellcodeSize = 0;
+            hookEntry->ShellcodeUsed = 0;
+            hookEntry->IsHooked = FALSE;
+        }
+    }
+
+    if (!existingHookEntry || hookEntry->ShellcodeBase == NULL || hookEntry->DriverDeviceHandle == NULL)
     {
         // Detect WoW64 BEFORE allocating shellcode so the allocator can
         // constrain the region to the low 2 GB.  32-bit E9 rel32 JMPs
