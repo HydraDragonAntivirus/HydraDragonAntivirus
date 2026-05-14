@@ -49,6 +49,17 @@ Environment:
 #include <ntimage.h>
 #include <ntstrsafe.h>
 
+// Some WDK versions do not expose a named status for dynamic-code policy
+// failures in the headers used by this project. Treat both the native
+// NTSTATUS form and the HRESULT_FROM_WIN32 form seen in logs as recoverable
+// hook-install failures, not as reasons to leave a half-installed hook.
+#ifndef STATUS_DYNAMIC_CODE_BLOCKED
+#define STATUS_DYNAMIC_CODE_BLOCKED ((NTSTATUS)0xC0000604L)
+#endif
+#ifndef OWLY_HRESULT_DYNAMIC_CODE_BLOCKED
+#define OWLY_HRESULT_DYNAMIC_CODE_BLOCKED ((NTSTATUS)0x80070677L)
+#endif
+
 // -------------------------------------------------------------------------
 // WoW64 / 32-bit PE type definitions
 //
@@ -242,6 +253,27 @@ static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
     }
 
     *Handle = NULL;
+}
+
+static BOOLEAN IsRecoverableHookInstallStatus(_In_ NTSTATUS Status)
+{
+    switch (Status)
+    {
+    case STATUS_NOT_FOUND:
+    case STATUS_PROCEDURE_NOT_FOUND:
+    case STATUS_NOT_SUPPORTED:
+    case STATUS_ACCESS_VIOLATION:
+    case STATUS_INVALID_ADDRESS:
+    case STATUS_CONFLICTING_ADDRESSES:
+    case STATUS_INVALID_PARAMETER:
+    case STATUS_INVALID_HANDLE:
+    case STATUS_ACCESS_DENIED:
+    case STATUS_DYNAMIC_CODE_BLOCKED:
+    case OWLY_HRESULT_DYNAMIC_CODE_BLOCKED:
+        return TRUE;
+    default:
+        return FALSE;
+    }
 }
 
 static VOID EnsureHookExcludeRuleMutex(VOID)
@@ -3150,6 +3182,20 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     if (HookDef->IsHooked)
         return STATUS_SUCCESS; // Already hooked
 
+    // Do not build shellcode unless the per-process notify path is usable.
+    // If this handle is NULL/stale, patching it into shellcode guarantees
+    // NtDeviceIoControlFile will return STATUS_INVALID_HANDLE in the target.
+    if (HookEntry == NULL || HookEntry->DriverDeviceHandle == NULL ||
+        HookEntry->ShellcodeBase == NULL || HookEntry->ShellcodeSize == 0 ||
+        TargetNtDeviceIo == NULL)
+    {
+#if IS_DEBUG_IRP
+        DbgPrint("UserModeHook: PID %lu skipping hook at %p - notify infrastructure unavailable\n",
+                 ProcessId, HookDef->Address);
+#endif
+        return STATUS_INVALID_HANDLE;
+    }
+
     // Determine the actual steal size: minimum number of complete x64
     // instructions that covers USERMODE_HOOK_SIZE (14) bytes.  A fixed
     // 14-byte steal cuts the Windows 10+ ntdll syscall stub mid-instruction
@@ -3441,6 +3487,20 @@ NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout
         return STATUS_INVALID_PARAMETER;
     if (HookDef->IsHooked)
         return STATUS_SUCCESS;
+
+    // Do not build shellcode unless the per-process notify path is usable.
+    // A NULL/stale 32-bit handle patched into the x86 shellcode guarantees
+    // STATUS_INVALID_HANDLE from NtDeviceIoControlFile in the target.
+    if (HookEntry == NULL || HookEntry->DriverDeviceHandle == NULL ||
+        HookEntry->ShellcodeBase == NULL || HookEntry->ShellcodeSize == 0 ||
+        TargetNtDeviceIo32 == NULL)
+    {
+#if IS_DEBUG_IRP
+        DbgPrint("UserModeHook32: PID %lu skipping hook at %p - notify infrastructure unavailable\n",
+                 ProcessId, HookDef->Address);
+#endif
+        return STATUS_INVALID_HANDLE;
+    }
 
     // ------------------------------------------------------------------
     // 1. Reject hooks whose 5 stolen bytes contain relative branches.
@@ -4281,10 +4341,7 @@ DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoContr
                     // process (module absent, export absent, RIP-relative prologue,
                     // VAD boundary conflict, access fault).  Skip this target and
                     // continue installing the remaining hooks.
-                    if (hookStatus == STATUS_NOT_FOUND || hookStatus == STATUS_PROCEDURE_NOT_FOUND ||
-                        hookStatus == STATUS_NOT_SUPPORTED || hookStatus == STATUS_ACCESS_VIOLATION ||
-                        hookStatus == STATUS_INVALID_ADDRESS || hookStatus == STATUS_CONFLICTING_ADDRESSES ||
-                        hookStatus == STATUS_INVALID_PARAMETER || hookStatus == STATUS_INVALID_HANDLE)
+                    if (IsRecoverableHookInstallStatus(hookStatus))
                     {
                         
 #if IS_DEBUG_IRP
@@ -4317,6 +4374,22 @@ DbgPrint("UserModeHook: PID %lu partial hook result: applied=%lu recoverable_fai
                              ProcessId, appliedHookCount, recoverableHookFailureCount);
 #endif
 
+                }
+
+                // If every requested hook was skipped, do not keep a live hook
+                // entry with an embedded notify handle and no installed bytes.
+                // Treat the process as unsupported and clean up the handle/VA
+                // before returning. This is the safest behavior for protected,
+                // dynamic-code-blocked, or WebView2 processes where the notify
+                // handle cannot be guaranteed stable.
+                if (!existingHookEntry && hookCountToInstall > 0 && appliedHookCount == 0)
+                {
+#if IS_DEBUG_IRP
+                    DbgPrint("UserModeHook: PID %lu skipped - no hooks could be installed (recoverable failures=%lu)\n",
+                             ProcessId, recoverableHookFailureCount);
+#endif
+                    status = STATUS_NOT_SUPPORTED;
+                    __leave;
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
