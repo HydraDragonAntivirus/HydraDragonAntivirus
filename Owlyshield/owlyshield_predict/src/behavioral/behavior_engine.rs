@@ -4603,13 +4603,16 @@ impl BehaviorEngine {
         fn collect_condition_apis(cond: &RuleCondition, all_apis: &mut HashSet<String>) {
             match cond {
                 RuleCondition::Api {
-                    name_pattern,
+                    functions,
+                    arguments: _,
                     module_pattern,
                 } => {
-                    if module_pattern.is_empty() {
-                        all_apis.insert(name_pattern.clone());
-                    } else {
-                        all_apis.insert(format!("{}!{}", module_pattern, name_pattern));
+                    for name_pattern in functions {
+                        if module_pattern.is_empty() {
+                            all_apis.insert(name_pattern.clone());
+                        } else {
+                            all_apis.insert(format!("{}!{}", module_pattern, name_pattern));
+                        }
                     }
                 }
                 RuleCondition::MultiCondition { conditions, .. } => {
@@ -8150,12 +8153,21 @@ impl BehaviorEngine {
             for condition in conditions {
                 match condition {
                     RuleCondition::Api {
-                        name_pattern,
+                        functions,
                         module_pattern,
+                        ..
                     } => {
-                        if let Some(ts) =
-                            self.latest_api_match_time(state, name_pattern, module_pattern)
-                        {
+                        let mut best_ts = None;
+                        for name_pattern in functions {
+                            if let Some(ts) =
+                                self.latest_api_match_time(state, name_pattern, module_pattern)
+                            {
+                                if best_ts.is_none() || ts > best_ts.unwrap() {
+                                    best_ts = Some(ts);
+                                }
+                            }
+                        }
+                        if let Some(ts) = best_ts {
                             match_count += 1;
                             timestamps.push(ts);
                         }
@@ -8391,16 +8403,9 @@ impl BehaviorEngine {
             } => {
                 let check_api = |api: &IrpOperationRecord| {
                     let func_match = functions.is_empty() || functions.iter().any(|f| {
-                        Self::matches_pattern_internal(&self.regex_cache, f, &api.function_name)
+                        self.api_candidate_matches(f, module_pattern, &api.function_name)
                     });
                     if !func_match {
-                        return false;
-                    }
-
-                    let module_match = module_pattern.is_empty() || {
-                        Self::matches_pattern_internal(&self.regex_cache, module_pattern, &api.function_name)
-                    };
-                    if !module_match {
                         return false;
                     }
 
