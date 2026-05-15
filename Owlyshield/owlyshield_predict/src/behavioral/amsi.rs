@@ -27,6 +27,8 @@ pub struct AmsiAnalysisResult {
     pub detected_patterns: Vec<String>,
     #[serde(default)]
     pub source: String,
+    #[serde(default)]
+    pub content_sample: String,
 }
 
 #[derive(Clone)]
@@ -65,6 +67,7 @@ impl AmsiAnalyzer {
             risk_level: AmsiRiskLevel::None,
             detected_patterns: Vec::new(),
             source: source.to_string(),
+            content_sample: content.chars().take(4096).collect(),
         };
 
         let lower_content = content.to_lowercase();
@@ -72,7 +75,7 @@ impl AmsiAnalyzer {
         for (pattern, risk) in &self.signatures {
             if lower_content.contains(pattern) {
                 result.detected_patterns.push(pattern.to_string());
-                
+
                 if risk > &result.risk_level {
                     result.risk_level = risk.clone();
                 }

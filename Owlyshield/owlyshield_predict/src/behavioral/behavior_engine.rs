@@ -1467,15 +1467,15 @@ pub struct ProcessBehaviorState {
     pub cloud_static_verdict: Option<u8>,
     /// OpenEDR FLS verdict/result code: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
     pub cloud_dynamic_verdict: Option<u8>,
-    
+
     // DLL Load Detection - Tracks both API-based and direct DLL loading
     pub dll_load_count: u32,
-    pub dll_api_load_count: u32,      // Loaded via API (LoadLibrary)
-    pub dll_direct_load_count: u32,   // Direct load without API
-    pub loaded_dlls_full_path: HashSet<String>,  // Full paths for regex matching
-    pub loaded_dlls_name_only: HashSet<String>,  // DLL names only for regex matching
+    pub dll_api_load_count: u32,    // Loaded via API (LoadLibrary)
+    pub dll_direct_load_count: u32, // Direct load without API
+    pub loaded_dlls_full_path: HashSet<String>, // Full paths for regex matching
+    pub loaded_dlls_name_only: HashSet<String>, // DLL names only for regex matching
     pub dll_load_details: Vec<DllLoadInfo>,
-    
+
     // Chromium Detection
     pub is_chromium: bool,
 }
@@ -1486,7 +1486,7 @@ pub struct DllLoadInfo {
     pub dll_path: String,
     pub dll_name: String,
     pub load_time: SystemTime,
-    pub is_api_based: bool,  // true if loaded via API, false if direct
+    pub is_api_based: bool, // true if loaded via API, false if direct
     pub normalized_path: String,
 }
 
@@ -1546,7 +1546,7 @@ impl ProcessBehaviorState {
         }
         state.rootkit_implicated = false;
         state.rootkit_findings = Vec::new();
-        
+
         // Initialize DLL load tracking
         state.dll_load_count = 0;
         state.dll_api_load_count = 0;
@@ -1554,7 +1554,7 @@ impl ProcessBehaviorState {
         state.loaded_dlls_full_path = HashSet::new();
         state.loaded_dlls_name_only = HashSet::new();
         state.dll_load_details = Vec::new();
-        
+
         // Initialize Chromium detection
         state.is_chromium = false;
 
@@ -1948,13 +1948,13 @@ impl ProcessBehaviorState {
         // DLL Load Detection - Track both API-based and direct DLL loading
         if msg.kernel_event_info.is_dll_load {
             self.dll_load_count = self.dll_load_count.saturating_add(1);
-            
+
             if msg.kernel_event_info.is_api_based_load {
                 self.dll_api_load_count = self.dll_api_load_count.saturating_add(1);
             } else {
                 self.dll_direct_load_count = self.dll_direct_load_count.saturating_add(1);
             }
-            
+
             let dll_path_raw = msg.kernel_event_info.loaded_dll_path.trim();
             if !dll_path_raw.is_empty() {
                 let normalized_path = dll_path_raw.to_lowercase().replace("\\", "/");
@@ -1963,11 +1963,11 @@ impl ProcessBehaviorState {
                     .next()
                     .unwrap_or(&normalized_path)
                     .to_string();
-                
+
                 // Store both full path and name-only for regex matching
                 self.loaded_dlls_full_path.insert(normalized_path.clone());
                 self.loaded_dlls_name_only.insert(dll_name.clone());
-                
+
                 // Create detailed DLL load info
                 let dll_info = DllLoadInfo {
                     dll_path: dll_path_raw.to_string(),
@@ -1977,13 +1977,13 @@ impl ProcessBehaviorState {
                     normalized_path: normalized_path.clone(),
                 };
                 self.dll_load_details.push(dll_info);
-                
+
                 let load_type = if msg.kernel_event_info.is_api_based_load {
                     "API"
                 } else {
                     "DIRECT"
                 };
-                
+
                 Logging::info(&format!(
                     "[DLL LOAD] PID {} | Type: {} | DLL: {} | Name: {} | Total: {} (API: {}, Direct: {})",
                     msg.pid,
@@ -2002,8 +2002,7 @@ impl ProcessBehaviorState {
             self.is_chromium = true;
             Logging::info(&format!(
                 "[CHROMIUM DETECTED] PID {} - Process identified as Chromium-based: {}",
-                msg.pid,
-                self.app_name
+                msg.pid, self.app_name
             ));
         }
 
@@ -2538,29 +2537,39 @@ impl BehaviorEngine {
         }
 
         // Handle AMSI and EDR bypass attempts from Sanctum (VEH abuse, ETW-TI, Ghost Hunting, etc.)
-        if source == "sanctum_veh" || source == "etw_ti" || source == "syscall_hook" || source == "sanctum_ghost" {
+        if source == "sanctum_veh"
+            || source == "etw_ti"
+            || source == "syscall_hook"
+            || source == "sanctum_ghost"
+        {
             if gid != 0 {
                 if let Some(state) = self.process_states.get_mut(&gid) {
                     let (risk, pattern) = match source {
                         "sanctum_veh" => (
                             crate::behavioral::amsi::AmsiRiskLevel::Critical,
-                            format!("VEH_ABUSE: {}", function)
+                            format!("VEH_ABUSE: {}", function),
                         ),
                         "etw_ti" => {
                             let is_suspicious = args["suspicious"].as_bool().unwrap_or(false);
                             if is_suspicious {
-                                (crate::behavioral::amsi::AmsiRiskLevel::High, format!("ETW_TI_SUSPICIOUS: {}", function))
+                                (
+                                    crate::behavioral::amsi::AmsiRiskLevel::High,
+                                    format!("ETW_TI_SUSPICIOUS: {}", function),
+                                )
                             } else {
-                                (crate::behavioral::amsi::AmsiRiskLevel::Medium, format!("ETW_TI: {}", function))
+                                (
+                                    crate::behavioral::amsi::AmsiRiskLevel::Medium,
+                                    format!("ETW_TI: {}", function),
+                                )
                             }
-                        },
+                        }
                         "syscall_hook" => (
                             crate::behavioral::amsi::AmsiRiskLevel::Medium,
-                            format!("SYSCALL_HOOK: {}", function)
+                            format!("SYSCALL_HOOK: {}", function),
                         ),
                         "sanctum_ghost" => (
                             crate::behavioral::amsi::AmsiRiskLevel::Critical,
-                            format!("DIRECT_SYSCALL: {}", function)
+                            format!("DIRECT_SYSCALL: {}", function),
                         ),
                         _ => (crate::behavioral::amsi::AmsiRiskLevel::None, String::new()),
                     };
@@ -2570,6 +2579,7 @@ impl BehaviorEngine {
                             risk_level: risk,
                             detected_patterns: vec![pattern],
                             source: source.to_string(),
+                            content_sample: String::new(),
                         };
                         state.amsi_results.push(res);
                     }
@@ -2590,17 +2600,19 @@ impl BehaviorEngine {
             if source == "sanctum_ghost" {
                 let caller_address = args["caller_address"].as_u64().unwrap_or(0);
                 let hex_payload = args["hex"].as_str().unwrap_or("").to_string();
-                
+
                 if caller_address != 0 || !hex_payload.is_empty() {
-                    stats.ghost_telemetry.push(crate::realtime_learning::api_tracker::SanctumGhostTelemetry {
-                        function: function.to_string(),
-                        caller_address,
-                        hex_payload: hex_payload.clone(),
-                        timestamp_ms: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64,
-                    });
+                    stats.ghost_telemetry.push(
+                        crate::realtime_learning::api_tracker::SanctumGhostTelemetry {
+                            function: function.to_string(),
+                            caller_address,
+                            hex_payload: hex_payload.clone(),
+                            timestamp_ms: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64,
+                        },
+                    );
 
                     // Cap telemetry to prevent memory bloat
                     if stats.ghost_telemetry.len() > 100 {
@@ -4572,6 +4584,27 @@ impl BehaviorEngine {
 
     /// Extract all unique APIs mentioned across all rules, stages, and named conditions
     pub fn get_all_monitored_apis(&self) -> HashSet<String> {
+        fn collect_condition_apis(cond: &RuleCondition, all_apis: &mut HashSet<String>) {
+            match cond {
+                RuleCondition::Api {
+                    name_pattern,
+                    module_pattern,
+                } => {
+                    if module_pattern.is_empty() {
+                        all_apis.insert(name_pattern.clone());
+                    } else {
+                        all_apis.insert(format!("{}!{}", module_pattern, name_pattern));
+                    }
+                }
+                RuleCondition::MultiCondition { conditions, .. } => {
+                    for subcondition in conditions {
+                        collect_condition_apis(subcondition, all_apis);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         let mut all_apis = HashSet::new();
 
         for rule in &self.rules {
@@ -4599,17 +4632,7 @@ impl BehaviorEngine {
             // 3. Stage-level conditions
             for stage in &rule.stages {
                 for cond in &stage.conditions {
-                    if let RuleCondition::Api {
-                        name_pattern,
-                        module_pattern,
-                    } = cond
-                    {
-                        if module_pattern.is_empty() {
-                            all_apis.insert(name_pattern.clone());
-                        } else {
-                            all_apis.insert(format!("{}!{}", module_pattern, name_pattern));
-                        }
-                    }
+                    collect_condition_apis(cond, &mut all_apis);
                 }
             }
         }
@@ -4900,7 +4923,10 @@ impl BehaviorEngine {
             || cond_group
                 .hook_error_statuses
                 .contains(&(record.operation_status as u32)))
-            && Self::matches_u32_list(&cond_group.hook_error_raw_event_types, record.raw_event_type)
+            && Self::matches_u32_list(
+                &cond_group.hook_error_raw_event_types,
+                record.raw_event_type,
+            )
             && Self::hook_error_api_matches(
                 cache,
                 &cond_group.hook_error_api_patterns,
@@ -5284,24 +5310,34 @@ impl BehaviorEngine {
         let pid = state.pid;
 
         // Run AMSI analysis if this is an AMSI event
-        if msg.kernel_event_info.is_amsi_event && !msg.kernel_event_info.amsi_content_sample.is_empty() {
-            let amsi_res = self.amsi_analyzer.analyze(&msg.kernel_event_info.amsi_content_sample, "kernel");
+        if msg.kernel_event_info.is_amsi_event
+            && !msg.kernel_event_info.amsi_content_sample.is_empty()
+        {
+            let amsi_res = self
+                .amsi_analyzer
+                .analyze(&msg.kernel_event_info.amsi_content_sample, "kernel");
             state.amsi_results.push(amsi_res);
-            
+
             // Log all AMSI detections for visibility
             if let Some(last_res) = state.amsi_results.last() {
                 if last_res.risk_level > crate::behavioral::amsi::AmsiRiskLevel::None {
-                    Logging::warning(&format!("[AMSI][{}] {:?} risk script content detected in process GID {} ({}) [Cmd: {}]. Patterns: {:?}", 
-                        last_res.source, last_res.risk_level, gid, msg.filepathstr, state.command_line, last_res.detected_patterns));
+                    Logging::warning(&format!(
+                        "[AMSI][{}] {:?} risk script content detected in process GID {} ({}) [Cmd: {}]. Patterns: {:?}",
+                        last_res.source,
+                        last_res.risk_level,
+                        gid,
+                        msg.filepathstr,
+                        state.command_line,
+                        last_res.detected_patterns
+                    ));
                 }
             }
         }
 
         if state.script_file.is_empty() {
-            if let Some((fname, fpath)) = Self::extract_script_from_cmdline(
-                &state.app_name,
-                &state.command_line,
-            ) {
+            if let Some((fname, fpath)) =
+                Self::extract_script_from_cmdline(&state.app_name, &state.command_line)
+            {
                 state.script_file = fname;
                 state.script_file_path = fpath;
             }
@@ -5361,7 +5397,8 @@ impl BehaviorEngine {
                     state.has_valid_signature = false;
                     state.is_signed = false;
                     state.signature_status = "verification_failed".to_string();
-                    state.signature_status_text = "Path does not exist or is unresolved".to_string();
+                    state.signature_status_text =
+                        "Path does not exist or is unresolved".to_string();
                     state.signature_raw_hresult = None;
                     state.signature_verification_failed = true;
                     state.signature_no_signature = false;
@@ -5810,11 +5847,8 @@ impl BehaviorEngine {
                 }
 
                 if !matched
-                    && let Some(hook_error_summary) = Self::matching_hook_error_summary(
-                        &self.regex_cache,
-                        cond_group,
-                        state,
-                    )
+                    && let Some(hook_error_summary) =
+                        Self::matching_hook_error_summary(&self.regex_cache, cond_group, state)
                 {
                     matched = true;
                     matched_artifact_path = Some(hook_error_summary.clone());
@@ -6984,7 +7018,12 @@ impl BehaviorEngine {
                 }
 
                 if !matched && state.signature_checked && cond_group.signature_status.is_some() {
-                    let expected = cond_group.signature_status.as_ref().unwrap().trim().to_ascii_lowercase();
+                    let expected = cond_group
+                        .signature_status
+                        .as_ref()
+                        .unwrap()
+                        .trim()
+                        .to_ascii_lowercase();
                     if state.signature_status.eq_ignore_ascii_case(&expected) {
                         matched = true;
                         Logging::info(&format!(
@@ -6994,7 +7033,8 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && !cond_group.signature_statuses.is_empty() {
+                if !matched && state.signature_checked && !cond_group.signature_statuses.is_empty()
+                {
                     if cond_group.signature_statuses.iter().any(|expected| {
                         state.signature_status.eq_ignore_ascii_case(expected.trim())
                     }) {
@@ -7006,7 +7046,10 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && cond_group.signature_verification_failed.is_some() {
+                if !matched
+                    && state.signature_checked
+                    && cond_group.signature_verification_failed.is_some()
+                {
                     let expected = cond_group.signature_verification_failed.unwrap();
                     if state.signature_verification_failed == expected {
                         matched = true;
@@ -7017,7 +7060,10 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && cond_group.signature_no_signature.is_some() {
+                if !matched
+                    && state.signature_checked
+                    && cond_group.signature_no_signature.is_some()
+                {
                     let expected = cond_group.signature_no_signature.unwrap();
                     if state.signature_no_signature == expected {
                         matched = true;
@@ -7028,7 +7074,10 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && cond_group.signature_status_issues.is_some() {
+                if !matched
+                    && state.signature_checked
+                    && cond_group.signature_status_issues.is_some()
+                {
                     let expected = cond_group.signature_status_issues.unwrap();
                     if state.signature_status_issues == expected {
                         matched = true;
@@ -7062,7 +7111,8 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked && !cond_group.signature_hresults.is_empty() {
+                if !matched && state.signature_checked && !cond_group.signature_hresults.is_empty()
+                {
                     if state
                         .signature_raw_hresult
                         .is_some_and(|hr| cond_group.signature_hresults.contains(&hr))
@@ -7125,7 +7175,10 @@ impl BehaviorEngine {
 
                 if !matched && state.signature_checked {
                     let signer = state.signer_name.as_deref().unwrap_or("");
-                    if !signer.is_empty() && !cond_group.trusted_signers.is_empty() && state.has_valid_signature {
+                    if !signer.is_empty()
+                        && !cond_group.trusted_signers.is_empty()
+                        && state.has_valid_signature
+                    {
                         if cond_group.trusted_signers.iter().any(|pattern| {
                             Self::matches_pattern_internal(&self.regex_cache, pattern, signer)
                         }) {
@@ -7140,7 +7193,10 @@ impl BehaviorEngine {
 
                 if !matched && state.signature_checked {
                     let signer = state.signer_name.as_deref().unwrap_or("");
-                    if !signer.is_empty() && !cond_group.untrusted_signers.is_empty() && !state.has_valid_signature {
+                    if !signer.is_empty()
+                        && !cond_group.untrusted_signers.is_empty()
+                        && !state.has_valid_signature
+                    {
                         if cond_group.untrusted_signers.iter().any(|pattern| {
                             Self::matches_pattern_internal(&self.regex_cache, pattern, signer)
                         }) {
@@ -8002,6 +8058,469 @@ impl BehaviorEngine {
         }
     }
 
+    fn api_candidate_matches(
+        &self,
+        name_pattern: &str,
+        module_pattern: &str,
+        candidate: &str,
+    ) -> bool {
+        let (candidate_norm, _) = Self::normalize_api_signature(candidate);
+        let function_part = candidate_norm
+            .rsplit('!')
+            .next()
+            .unwrap_or(candidate_norm.as_str());
+        let module_part = candidate_norm.split('!').next().unwrap_or("");
+
+        let name_ok = name_pattern.trim().is_empty()
+            || name_pattern.trim() == "*"
+            || Self::matches_pattern_internal(&self.regex_cache, name_pattern, function_part)
+            || Self::matches_pattern_internal(&self.regex_cache, name_pattern, &candidate_norm)
+            || Self::matches_pattern_internal(&self.regex_cache, name_pattern, candidate);
+
+        let module_ok = module_pattern.trim().is_empty()
+            || module_pattern.trim() == "*"
+            || Self::matches_pattern_internal(&self.regex_cache, module_pattern, module_part)
+            || Self::matches_pattern_internal(&self.regex_cache, module_pattern, &candidate_norm)
+            || Self::matches_pattern_internal(&self.regex_cache, module_pattern, candidate);
+
+        name_ok && module_ok
+    }
+
+    fn latest_api_match_time(
+        &self,
+        state: &ProcessBehaviorState,
+        name_pattern: &str,
+        module_pattern: &str,
+    ) -> Option<SystemTime> {
+        state
+            .irp_operations
+            .iter()
+            .rev()
+            .find(|record| {
+                !record.function_name.trim().is_empty()
+                    && self.api_candidate_matches(
+                        name_pattern,
+                        module_pattern,
+                        &record.function_name,
+                    )
+            })
+            .map(|record| record.timestamp)
+    }
+
+    fn evaluate_multi_condition_window(
+        &self,
+        conditions: &[RuleCondition],
+        operator: Option<&String>,
+        min_matches: Option<usize>,
+        within_ms: Option<u64>,
+        state: &ProcessBehaviorState,
+        msg: Option<&IOMessage>,
+    ) -> bool {
+        let op = operator
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_else(|| "all".to_string());
+        let required_matches = min_matches.unwrap_or_else(|| {
+            if matches!(op.as_str(), "any" | "or") {
+                1
+            } else {
+                conditions.len()
+            }
+        });
+
+        if let Some(window_ms) = within_ms {
+            let mut match_count = 0usize;
+            let mut timestamps = Vec::new();
+
+            for condition in conditions {
+                match condition {
+                    RuleCondition::Api {
+                        name_pattern,
+                        module_pattern,
+                    } => {
+                        if let Some(ts) =
+                            self.latest_api_match_time(state, name_pattern, module_pattern)
+                        {
+                            match_count += 1;
+                            timestamps.push(ts);
+                        }
+                    }
+                    _ => {
+                        if self.evaluate_rule_condition(condition, state, msg) {
+                            match_count += 1;
+                        }
+                    }
+                }
+            }
+
+            if match_count < required_matches {
+                return false;
+            }
+
+            if timestamps.len() <= 1 {
+                return true;
+            }
+
+            let min_ts = timestamps.iter().min().copied().unwrap();
+            let max_ts = timestamps.iter().max().copied().unwrap();
+            return max_ts
+                .duration_since(min_ts)
+                .map(|duration| duration.as_millis() <= u128::from(window_ms))
+                .unwrap_or(false);
+        }
+
+        let match_count = conditions
+            .iter()
+            .filter(|condition| self.evaluate_rule_condition(condition, state, msg))
+            .count();
+
+        match_count >= required_matches
+    }
+
+    fn evaluate_process_tree_condition(
+        &self,
+        parent_patterns: &[String],
+        child_patterns: &[String],
+        ancestor_patterns: &[String],
+        command_line_patterns: &[CommandLinePattern],
+        max_depth: Option<u32>,
+        require_current_process: bool,
+        state: &ProcessBehaviorState,
+        msg: Option<&IOMessage>,
+    ) -> bool {
+        let parent_name = state.parent_name.to_lowercase();
+        let parent_path = canonical_behavior_path(&state.parent_path.to_string_lossy());
+        let child_name = state.app_name.to_lowercase();
+        let child_path = canonical_behavior_path(&state.exe_path.to_string_lossy());
+        let event_path = msg
+            .map(|m| canonical_behavior_path(&m.filepathstr))
+            .unwrap_or_default();
+        let cmdline = msg
+            .and_then(|m| {
+                let value = m.runtime_features.command_line.trim();
+                if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_lowercase())
+                }
+            })
+            .unwrap_or_else(|| state.command_line.to_lowercase());
+
+        let parent_ok = parent_patterns.is_empty()
+            || parent_patterns.iter().any(|pattern| {
+                Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_name)
+                    || Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_path)
+            });
+
+        let child_ok = child_patterns.is_empty()
+            || child_patterns.iter().any(|pattern| {
+                Self::matches_pattern_internal(&self.regex_cache, pattern, &child_name)
+                    || Self::matches_pattern_internal(&self.regex_cache, pattern, &child_path)
+                    || (!require_current_process
+                        && Self::matches_pattern_internal(&self.regex_cache, pattern, &event_path))
+            });
+
+        let ancestor_ok = ancestor_patterns.is_empty()
+            || max_depth.unwrap_or(1) == 0
+            || ancestor_patterns.iter().any(|pattern| {
+                Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_name)
+                    || Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_path)
+            });
+
+        let cmdline_ok = command_line_patterns.is_empty()
+            || command_line_patterns
+                .iter()
+                .any(|pattern| pattern.matches(&self.regex_cache, &cmdline));
+
+        parent_ok && child_ok && ancestor_ok && cmdline_ok
+    }
+
+    fn evaluate_rule_condition(
+        &self,
+        condition: &RuleCondition,
+        state: &ProcessBehaviorState,
+        msg: Option<&IOMessage>,
+    ) -> bool {
+        match condition {
+            RuleCondition::OperationCount {
+                op_type,
+                comparison,
+                threshold,
+                ..
+            } => {
+                let count = state.irp_stats.get_operation_count(op_type);
+                match comparison {
+                    Comparison::Gt => count > *threshold,
+                    Comparison::Gte => count >= *threshold,
+                    Comparison::Lt => count < *threshold,
+                    Comparison::Lte => count <= *threshold,
+                    Comparison::Eq => count == *threshold,
+                    Comparison::Ne => count != *threshold,
+                }
+            }
+            RuleCondition::ByteThreshold {
+                direction,
+                comparison,
+                threshold,
+            } => {
+                let bytes = match direction.as_str() {
+                    "read" => state.irp_stats.total_bytes_read,
+                    "write" => state.irp_stats.total_bytes_written,
+                    _ => 0,
+                };
+                match comparison {
+                    Comparison::Gt => bytes > *threshold,
+                    Comparison::Gte => bytes >= *threshold,
+                    Comparison::Lt => bytes < *threshold,
+                    Comparison::Lte => bytes <= *threshold,
+                    Comparison::Eq => bytes == *threshold,
+                    Comparison::Ne => bytes != *threshold,
+                }
+            }
+            RuleCondition::File { op, path_pattern } => match op.as_str() {
+                "write" | "create" | "read" | "delete" | "rename" => {
+                    state.irp_stats.unique_paths_accessed.iter().any(|path| {
+                        Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
+                    })
+                }
+                _ => false,
+            },
+            RuleCondition::EntropyThreshold {
+                comparison,
+                threshold,
+                ..
+            } => msg.map_or(false, |m| {
+                let entropy = m.entropy;
+                match comparison {
+                    Comparison::Gt => entropy > *threshold,
+                    Comparison::Gte => entropy >= *threshold,
+                    Comparison::Lt => entropy < *threshold,
+                    Comparison::Lte => entropy <= *threshold,
+                    Comparison::Eq => (entropy - threshold).abs() < 0.001,
+                    Comparison::Ne => (entropy - threshold).abs() >= 0.001,
+                }
+            }),
+            RuleCondition::NetworkCondition(net_rule) => state
+                .net_packets
+                .iter()
+                .any(|pkt| net_rule.matches_packet(&self.regex_cache, pkt, &[])),
+            RuleCondition::Amsi {
+                risk_at_least,
+                patterns,
+                source,
+                cmdline_patterns,
+            } => {
+                let required_risk = risk_at_least
+                    .as_deref()
+                    .map(crate::behavioral::amsi::AmsiRiskLevel::from_str)
+                    .unwrap_or(crate::behavioral::amsi::AmsiRiskLevel::None);
+
+                state.amsi_results.iter().any(|res| {
+                    let risk_ok = res.risk_level >= required_risk;
+                    let source_ok = source
+                        .as_ref()
+                        .map(|src| res.source.contains(src))
+                        .unwrap_or(true);
+                    let patterns_ok = patterns.is_empty()
+                        || patterns.iter().any(|p| {
+                            res.detected_patterns
+                                .iter()
+                                .any(|dp| Self::matches_pattern_internal(&self.regex_cache, p, dp))
+                                || Self::matches_pattern_internal(
+                                    &self.regex_cache,
+                                    p,
+                                    &res.content_sample,
+                                )
+                        });
+                    let cmdline_ok = cmdline_patterns.is_empty()
+                        || cmdline_patterns.iter().any(|p| {
+                            Self::matches_pattern_internal(
+                                &self.regex_cache,
+                                p,
+                                &state.command_line,
+                            )
+                        });
+                    risk_ok && source_ok && patterns_ok && cmdline_ok
+                })
+            }
+            RuleCondition::SanctumGhost {
+                functions,
+                caller_address_patterns,
+                hex_patterns,
+                min_matches,
+            } => {
+                let mut match_count = 0;
+                for ghost in &state.sanctum_stats.ghost_telemetry {
+                    let func_ok = functions.is_empty()
+                        || functions.iter().any(|f| ghost.function.contains(f));
+                    let addr_ok = caller_address_patterns.is_empty() || {
+                        let addr_hex = format!("{:X}", ghost.caller_address);
+                        caller_address_patterns.iter().any(|p| {
+                            Self::matches_pattern_internal(&self.regex_cache, p, &addr_hex)
+                        })
+                    };
+                    let hex_ok = hex_patterns.is_empty()
+                        || hex_patterns.iter().any(|p| {
+                            Self::matches_pattern_internal(&self.regex_cache, p, &ghost.hex_payload)
+                        });
+
+                    if func_ok && addr_ok && hex_ok {
+                        match_count += 1;
+                    }
+                }
+                match_count >= *min_matches
+            }
+            RuleCondition::Api {
+                name_pattern,
+                module_pattern,
+            } => {
+                state
+                    .all_apis_called
+                    .iter()
+                    .chain(state.detected_apis.iter())
+                    .any(|api| self.api_candidate_matches(name_pattern, module_pattern, api))
+                    || state.recent_kernel_api_events.iter().any(|event| {
+                        self.api_candidate_matches(name_pattern, module_pattern, event)
+                    })
+            }
+            RuleCondition::CommandLineMatch {
+                patterns,
+                match_mode,
+            } => {
+                if patterns.is_empty() {
+                    return true;
+                }
+                match match_mode {
+                    MatchMode::All => patterns
+                        .iter()
+                        .all(|pattern| pattern.matches(&self.regex_cache, &state.command_line)),
+                    MatchMode::Exact => patterns.iter().any(|pattern| {
+                        pattern
+                            .pattern
+                            .pattern()
+                            .eq_ignore_ascii_case(&state.command_line)
+                    }),
+                    _ => patterns
+                        .iter()
+                        .any(|pattern| pattern.matches(&self.regex_cache, &state.command_line)),
+                }
+            }
+            RuleCondition::Process { op, pattern } => {
+                let current_name = state.app_name.to_lowercase();
+                let current_path = canonical_behavior_path(&state.exe_path.to_string_lossy());
+                let parent_name = state.parent_name.to_lowercase();
+                let parent_path = canonical_behavior_path(&state.parent_path.to_string_lossy());
+                let event_path = msg
+                    .map(|m| canonical_behavior_path(&m.filepathstr))
+                    .unwrap_or_default();
+                match op.as_str() {
+                    "parent" => {
+                        Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_name)
+                            || Self::matches_pattern_internal(
+                                &self.regex_cache,
+                                pattern,
+                                &parent_path,
+                            )
+                    }
+                    "create" | "start" | "child" => {
+                        Self::matches_pattern_internal(&self.regex_cache, pattern, &current_name)
+                            || Self::matches_pattern_internal(
+                                &self.regex_cache,
+                                pattern,
+                                &current_path,
+                            )
+                            || Self::matches_pattern_internal(
+                                &self.regex_cache,
+                                pattern,
+                                &event_path,
+                            )
+                    }
+                    _ => {
+                        Self::matches_pattern_internal(&self.regex_cache, pattern, &current_name)
+                            || Self::matches_pattern_internal(
+                                &self.regex_cache,
+                                pattern,
+                                &current_path,
+                            )
+                    }
+                }
+            }
+            RuleCondition::ProcessTree {
+                parent_patterns,
+                child_patterns,
+                ancestor_patterns,
+                command_line_patterns,
+                max_depth,
+                require_current_process,
+            } => self.evaluate_process_tree_condition(
+                parent_patterns,
+                child_patterns,
+                ancestor_patterns,
+                command_line_patterns,
+                *max_depth,
+                *require_current_process,
+                state,
+                msg,
+            ),
+            RuleCondition::MultiCondition {
+                conditions,
+                operator,
+                min_matches,
+                within_ms,
+                ..
+            } => self.evaluate_multi_condition_window(
+                conditions,
+                operator.as_ref(),
+                *min_matches,
+                *within_ms,
+                state,
+                msg,
+            ),
+            RuleCondition::ExtensionPattern {
+                patterns,
+                match_mode,
+                op_type,
+            } => {
+                let op_ok =
+                    op_type.trim().is_empty() || state.irp_stats.get_operation_count(op_type) > 0;
+                if !op_ok {
+                    return false;
+                }
+                let matches =
+                    patterns.iter().filter(|pattern| {
+                        state.irp_stats.files_by_extension.keys().any(|ext| {
+                            Self::matches_pattern_internal(&self.regex_cache, pattern, ext)
+                        })
+                    });
+                match match_mode {
+                    MatchMode::All => matches.count() == patterns.len(),
+                    _ => matches.count() > 0,
+                }
+            }
+            RuleCondition::RateOfChange {
+                metric,
+                comparison,
+                threshold,
+            } => {
+                let value = match metric.as_str() {
+                    "write_count" => state.irp_stats.write_count as f64,
+                    "rename_count" => state.irp_stats.rename_count as f64,
+                    "delete_count" => state.irp_stats.delete_count as f64,
+                    "process_create_count" => state.irp_stats.process_create_count as f64,
+                    _ => 0.0,
+                };
+                match comparison {
+                    Comparison::Gt => value > *threshold,
+                    Comparison::Gte => value >= *threshold,
+                    Comparison::Lt => value < *threshold,
+                    Comparison::Lte => value <= *threshold,
+                    Comparison::Eq => (value - threshold).abs() < 0.001,
+                    Comparison::Ne => (value - threshold).abs() >= 0.001,
+                }
+            }
+            _ => false,
+        }
+    }
+
     fn evaluate_stages_from_state(
         &self,
         rule: &BehaviorRule,
@@ -8016,180 +8535,7 @@ impl BehaviorEngine {
 
             for condition in &stage.conditions {
                 stage_total_conditions += 1;
-                let mut condition_matched = false;
-
-                match condition {
-                    RuleCondition::OperationCount {
-                        op_type,
-                        comparison,
-                        threshold,
-                        ..
-                    } => {
-                        let count = state.irp_stats.get_operation_count(op_type);
-                        condition_matched = match comparison {
-                            Comparison::Gt => count > *threshold,
-                            Comparison::Gte => count >= *threshold,
-                            Comparison::Lt => count < *threshold,
-                            Comparison::Lte => count <= *threshold,
-                            Comparison::Eq => count == *threshold,
-                            Comparison::Ne => count != *threshold,
-                        };
-                    }
-
-                    RuleCondition::ByteThreshold {
-                        direction,
-                        comparison,
-                        threshold,
-                    } => {
-                        let bytes = match direction.as_str() {
-                            "read" => state.irp_stats.total_bytes_read,
-                            "write" => state.irp_stats.total_bytes_written,
-                            _ => 0,
-                        };
-                        condition_matched = match comparison {
-                            Comparison::Gt => bytes > *threshold,
-                            Comparison::Gte => bytes >= *threshold,
-                            Comparison::Lt => bytes < *threshold,
-                            Comparison::Lte => bytes <= *threshold,
-                            Comparison::Eq => bytes == *threshold,
-                            Comparison::Ne => bytes != *threshold,
-                        };
-                    }
-
-                    RuleCondition::File { op, path_pattern } => {
-                        let has_match = match op.as_str() {
-                            "write" | "create" => {
-                                state.irp_stats.unique_paths_accessed.iter().any(|path| {
-                                    Self::matches_pattern_internal(
-                                        &self.regex_cache,
-                                        path_pattern,
-                                        path,
-                                    )
-                                })
-                            }
-                            "read" => state.irp_stats.unique_paths_accessed.iter().any(|path| {
-                                Self::matches_pattern_internal(
-                                    &self.regex_cache,
-                                    path_pattern,
-                                    path,
-                                )
-                            }),
-                            _ => false,
-                        };
-                        condition_matched = has_match;
-                    }
-
-                    RuleCondition::EntropyThreshold {
-                        comparison,
-                        threshold,
-                        ..
-                    } => {
-                        if let Some(m) = msg {
-                            let entropy = m.entropy;
-                            condition_matched = match comparison {
-                                Comparison::Gt => entropy > *threshold,
-                                Comparison::Gte => entropy >= *threshold,
-                                Comparison::Lt => entropy < *threshold,
-                                Comparison::Lte => entropy <= *threshold,
-                                Comparison::Eq => (entropy - threshold).abs() < 0.001,
-                                Comparison::Ne => (entropy - threshold).abs() >= 0.001,
-                            };
-                        }
-                    }
-
-                    RuleCondition::NetworkCondition(net_rule) => {
-                        if let Some(_m) = msg {
-                            // We don't have the full packet buffer here, only what's in IOMessage.
-                            // However, we can construct a temporary PacketInfo if needed, or check
-                            // if there's a recent packet in state.net_packets that matches.
-                            condition_matched = state
-                                .net_packets
-                                .iter()
-                                .any(|pkt| net_rule.matches_packet(&self.regex_cache, pkt, &[]));
-                        }
-                    }
-
-                    RuleCondition::Amsi {
-                        risk_at_least,
-                        patterns,
-                        source,
-                        cmdline_patterns,
-                    } => {
-                        let required_risk = if let Some(risk_str) = risk_at_least {
-                            crate::behavioral::amsi::AmsiRiskLevel::from_str(risk_str)
-                        } else {
-                            crate::behavioral::amsi::AmsiRiskLevel::None
-                        };
-
-                        condition_matched = state.amsi_results.iter().any(|res| {
-                            let risk_ok = res.risk_level >= required_risk;
-                            let source_ok = if let Some(src) = source {
-                                res.source.contains(src)
-                            } else {
-                                true
-                            };
-                            let patterns_ok = if !patterns.is_empty() {
-                                patterns.iter().any(|p| {
-                                    res.detected_patterns
-                                        .iter()
-                                        .any(|dp| dp.contains(p))
-                                })
-                            } else {
-                                true
-                            };
-                            let cmdline_ok = if !cmdline_patterns.is_empty() {
-                                cmdline_patterns.iter().any(|p: &String| {
-                                    state.command_line.contains(&p.to_lowercase())
-                                })
-                            } else {
-                                true
-                            };
-                            risk_ok && source_ok && patterns_ok && cmdline_ok
-                        });
-                    }
-                    RuleCondition::SanctumGhost {
-                        functions,
-                        caller_address_patterns,
-                        hex_patterns,
-                        min_matches,
-                    } => {
-                        let mut match_count = 0;
-                        for ghost in &state.sanctum_stats.ghost_telemetry {
-                            let func_ok = if functions.is_empty() {
-                                true
-                            } else {
-                                functions.iter().any(|f| ghost.function.contains(f))
-                            };
-
-                            let addr_ok = if caller_address_patterns.is_empty() {
-                                true
-                            } else {
-                                let addr_hex = format!("{:X}", ghost.caller_address);
-                                caller_address_patterns.iter().any(|p| {
-                                    Self::matches_pattern_internal(&self.regex_cache, p, &addr_hex)
-                                })
-                            };
-
-                            let hex_ok = if hex_patterns.is_empty() {
-                                true
-                            } else {
-                                hex_patterns.iter().any(|p| {
-                                    Self::matches_pattern_internal(
-                                        &self.regex_cache,
-                                        p,
-                                        &ghost.hex_payload,
-                                    )
-                                })
-                            };
-
-                            if func_ok && addr_ok && hex_ok {
-                                match_count += 1;
-                            }
-                        }
-                        condition_matched = match_count >= *min_matches;
-                    }
-                    _ => condition_matched = false,
-                }
+                let condition_matched = self.evaluate_rule_condition(condition, state, msg);
 
                 if condition_matched {
                     stage_satisfied_count += 1;

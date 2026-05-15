@@ -1463,6 +1463,31 @@ pub enum RuleCondition {
         #[serde(default)]
         match_mode: MatchMode,
     },
+    ProcessTree {
+        #[serde(default)]
+        parent_patterns: Vec<String>,
+        #[serde(default)]
+        child_patterns: Vec<String>,
+        #[serde(default)]
+        ancestor_patterns: Vec<String>,
+        #[serde(default)]
+        command_line_patterns: Vec<CommandLinePattern>,
+        #[serde(default)]
+        max_depth: Option<u32>,
+        #[serde(default)]
+        require_current_process: bool,
+    },
+    MultiCondition {
+        conditions: Vec<RuleCondition>,
+        #[serde(default)]
+        operator: Option<String>,
+        #[serde(default)]
+        min_matches: Option<usize>,
+        #[serde(default)]
+        within_ms: Option<u64>,
+        #[serde(default)]
+        require_same_source_pid: bool,
+    },
     SensitivePathAccess {
         patterns: Vec<String>,
         op_type: String,
@@ -1846,7 +1871,11 @@ pub struct NamedConditionGroup {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
+    #[serde(default)]
+    pub rule_id: Option<String>,
     pub name: String,
+    #[serde(default)]
+    pub severity_score: Option<u8>,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -1903,6 +1932,10 @@ pub struct BehaviorRule {
     pub level: DetectionLevel,
     #[serde(default)]
     pub mitre_attack: Vec<String>,
+    #[serde(default)]
+    pub references: Vec<String>,
+    #[serde(default)]
+    pub false_positives: Vec<String>,
     #[serde(default)]
     pub logsource: Option<LogSource>,
     #[serde(default)]
@@ -2307,6 +2340,10 @@ impl BehaviorRule {
     }
 
     pub fn finalize_rich_fields(&mut self) {
+        if let Some(score) = self.severity_score {
+            self.severity = score;
+        }
+
         let expand_vec = |vec: &mut Vec<String>| {
             for item in vec.iter_mut() {
                 *item = expand_environment_variables(item);
@@ -2459,6 +2496,104 @@ impl BehaviorRule {
                     } => *ancestor_pattern = expand_environment_variables(ancestor_pattern),
                     RuleCondition::CommandLineMatch { patterns, .. } => {
                         expand_cmd_patterns(patterns)
+                    }
+                    RuleCondition::ProcessTree {
+                        parent_patterns,
+                        child_patterns,
+                        ancestor_patterns,
+                        command_line_patterns,
+                        ..
+                    } => {
+                        expand_vec(parent_patterns);
+                        expand_vec(child_patterns);
+                        expand_vec(ancestor_patterns);
+                        expand_cmd_patterns(command_line_patterns);
+                    }
+                    RuleCondition::MultiCondition { conditions, .. } => {
+                        for subcondition in conditions {
+                            match subcondition {
+                                RuleCondition::File { path_pattern, .. } => {
+                                    *path_pattern = expand_environment_variables(path_pattern)
+                                }
+                                RuleCondition::Registry {
+                                    key_pattern,
+                                    value_name,
+                                    expected_data,
+                                    ..
+                                } => {
+                                    *key_pattern = expand_environment_variables(key_pattern);
+                                    expand_opt_string(value_name);
+                                    expand_opt_string(expected_data);
+                                }
+                                RuleCondition::Process { pattern, .. } => {
+                                    *pattern = expand_environment_variables(pattern)
+                                }
+                                RuleCondition::Service { name_pattern, .. } => {
+                                    *name_pattern = expand_environment_variables(name_pattern)
+                                }
+                                RuleCondition::Network { dest_pattern, .. } => {
+                                    expand_opt_string(dest_pattern)
+                                }
+                                RuleCondition::Api {
+                                    name_pattern,
+                                    module_pattern,
+                                } => {
+                                    *name_pattern = expand_environment_variables(name_pattern);
+                                    *module_pattern = expand_environment_variables(module_pattern);
+                                }
+                                RuleCondition::OperationCount { path_pattern, .. } => {
+                                    expand_opt_string(path_pattern)
+                                }
+                                RuleCondition::ExtensionPattern { patterns, .. } => {
+                                    expand_vec(patterns)
+                                }
+                                RuleCondition::Signature { signer_pattern, .. } => {
+                                    expand_opt_string(signer_pattern)
+                                }
+                                RuleCondition::ProcessAncestry {
+                                    ancestor_pattern, ..
+                                } => {
+                                    *ancestor_pattern =
+                                        expand_environment_variables(ancestor_pattern)
+                                }
+                                RuleCondition::CommandLineMatch { patterns, .. } => {
+                                    expand_cmd_patterns(patterns)
+                                }
+                                RuleCondition::ProcessTree {
+                                    parent_patterns,
+                                    child_patterns,
+                                    ancestor_patterns,
+                                    command_line_patterns,
+                                    ..
+                                } => {
+                                    expand_vec(parent_patterns);
+                                    expand_vec(child_patterns);
+                                    expand_vec(ancestor_patterns);
+                                    expand_cmd_patterns(command_line_patterns);
+                                }
+                                RuleCondition::SensitivePathAccess { patterns, .. } => {
+                                    expand_vec(patterns)
+                                }
+                                RuleCondition::ArchiveCreation { extensions, .. } => {
+                                    expand_vec(extensions)
+                                }
+                                RuleCondition::DataExfiltrationPattern {
+                                    source_patterns, ..
+                                } => expand_vec(source_patterns),
+                                RuleCondition::MemoryScan { patterns, .. } => expand_vec(patterns),
+                                RuleCondition::SanctumGhost {
+                                    functions,
+                                    caller_address_patterns,
+                                    hex_patterns,
+                                    ..
+                                } => {
+                                    expand_vec(functions);
+                                    expand_vec(caller_address_patterns);
+                                    expand_vec(hex_patterns);
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     RuleCondition::SensitivePathAccess { patterns, .. } => expand_vec(patterns),
                     RuleCondition::ArchiveCreation { extensions, .. } => expand_vec(extensions),
