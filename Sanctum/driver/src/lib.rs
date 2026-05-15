@@ -12,6 +12,8 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate wdk_panic;
 
+extern crate shared_no_std;
+
 use ::core::{
     ffi::c_void,
     iter::once,

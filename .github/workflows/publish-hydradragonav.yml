@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   build-and-stage:
+    if: (!startsWith(github.ref_name, 'auto-update-'))
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -56,4 +57,4 @@ jobs:
           branch: "auto-update-av"
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: binaries, automated-pr, hydradragonav
+          labels: binaries, automated-pr, hydradragonav, development-version

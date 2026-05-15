@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   build-and-stage:
+    if: (!startsWith(github.ref_name, 'auto-update-'))
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -62,4 +63,4 @@ jobs:
           branch: "auto-update-sanctum-gui"
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: binaries, automated-pr, sanctum, gui
+          labels: binaries, automated-pr, sanctum, gui, development-version

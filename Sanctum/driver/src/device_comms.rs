@@ -122,7 +122,7 @@ impl DriverMessagesWithMutex {
     }
 
     /// Add a new AMSI bypass attempt to the queue.
-    pub fn add_amsi_bypass_to_queue(&mut self, data: crate::shared_no_std::driver_ipc::AmsiBypassAttempt) {
+    pub fn add_amsi_bypass_to_queue(&mut self, data: shared_no_std::driver_ipc::AmsiBypassAttempt) {
         let irql = unsafe { KeGetCurrentIrql() };
         if irql > APC_LEVEL as u8 {
             println!("[sanctum] [-] IRQL is above APC_LEVEL: {}", irql);

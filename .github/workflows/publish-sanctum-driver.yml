@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   build-and-stage-driver:
+    if: (!startsWith(github.ref_name, 'auto-update-'))
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -253,5 +254,5 @@ jobs:
           branch: "auto-update-sanctum-driver"
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: binaries, automated-pr, sanctum, driver, signing
+          labels: binaries, automated-pr, sanctum, driver, signing, development-version
           author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"

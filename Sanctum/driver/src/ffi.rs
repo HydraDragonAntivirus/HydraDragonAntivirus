@@ -12,26 +12,30 @@ use wdk_sys::{
 };
 
 pub unsafe fn IoGetCurrentIrpStackLocation(irp: PIRP) -> PIO_STACK_LOCATION {
-    assert!((*irp).CurrentLocation <= (*irp).StackCount + 1); // todo maybe do error handling instead of an assert?
-    (*irp)
-        .Tail
-        .Overlay
-        .__bindgen_anon_2
-        .__bindgen_anon_1
-        .CurrentStackLocation
+    unsafe {
+        assert!((*irp).CurrentLocation <= (*irp).StackCount + 1); // todo maybe do error handling instead of an assert?
+        (*irp)
+            .Tail
+            .Overlay
+            .__bindgen_anon_2
+            .__bindgen_anon_1
+            .CurrentStackLocation
+    }
 }
 
 #[allow(non_snake_case)]
 pub unsafe fn ExInitializeFastMutex(kmutex: *mut FAST_MUTEX) {
-    // check IRQL
-    let irql = unsafe { KeGetCurrentIrql() };
-    assert!(irql as u32 <= DISPATCH_LEVEL);
+    unsafe {
+        // check IRQL
+        let irql = KeGetCurrentIrql();
+        assert!(irql as u32 <= DISPATCH_LEVEL);
 
-    core::ptr::write_volatile(&mut (*kmutex).Count, FM_LOCK_BIT as i32);
+        core::ptr::write_volatile(&mut (*kmutex).Count, FM_LOCK_BIT as i32);
 
-    (*kmutex).Owner = core::ptr::null_mut();
-    (*kmutex).Contention = 0;
-    KeInitializeEvent(&mut (*kmutex).Event, SynchronizationEvent, FALSE as _)
+        (*kmutex).Owner = core::ptr::null_mut();
+        (*kmutex).Contention = 0;
+        KeInitializeEvent(&mut (*kmutex).Event, SynchronizationEvent, FALSE as _)
+    }
 }
 
 /// The InitializeObjectAttributes macro initializes the opaque OBJECT_ATTRIBUTES structure,
@@ -48,19 +52,21 @@ pub unsafe fn InitializeObjectAttributes(
     r: HANDLE,
     s: PSECURITY_DESCRIPTOR,
 ) -> Result<(), ()> {
-    // check the validity of the OBJECT_ATTRIBUTES pointer
-    if p.is_null() {
-        return Err(());
+    unsafe {
+        // check the validity of the OBJECT_ATTRIBUTES pointer
+        if p.is_null() {
+            return Err(());
+        }
+
+        (*p).Length = size_of::<OBJECT_ATTRIBUTES>() as u32;
+        (*p).RootDirectory = r;
+        (*p).Attributes = a;
+        (*p).ObjectName = n;
+        (*p).SecurityDescriptor = s;
+        (*p).SecurityQualityOfService = null_mut();
+
+        Ok(())
     }
-
-    (*p).Length = size_of::<OBJECT_ATTRIBUTES>() as u32;
-    (*p).RootDirectory = r;
-    (*p).Attributes = a;
-    (*p).ObjectName = n;
-    (*p).SecurityDescriptor = s;
-    (*p).SecurityQualityOfService = null_mut();
-
-    Ok(())
 }
 
 unsafe extern "system" {

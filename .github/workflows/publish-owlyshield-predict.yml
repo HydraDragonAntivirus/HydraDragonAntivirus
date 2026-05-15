@@ -18,6 +18,7 @@ env:
 
 jobs:
   publish:
+    if: (!startsWith(github.ref_name, 'auto-update-'))
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -75,4 +76,4 @@ jobs:
           branch: "auto-update-owlyshield-predict"
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: binaries, automated-pr, owlyshield
+          labels: binaries, automated-pr, owlyshield, development-version

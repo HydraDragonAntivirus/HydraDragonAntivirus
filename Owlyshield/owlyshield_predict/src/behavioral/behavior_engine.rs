@@ -1645,20 +1645,6 @@ impl ProcessBehaviorState {
             },
         };
 
-        // Run AMSI analysis if this is an AMSI event
-        if msg.kernel_event_info.is_amsi_event && !msg.kernel_event_info.amsi_content_sample.is_empty() {
-            let amsi_res = self.amsi_analyzer.analyze(&msg.kernel_event_info.amsi_content_sample);
-            if let Some(state) = self.process_states.get_mut(&(msg.gid as u64)) {
-                state.amsi_results.push(amsi_res);
-                
-                // If critical threat, log it immediately
-                if matches!(state.amsi_results.last().map(|r| &r.risk_level), Some(crate::behavioral::amsi::AmsiRiskLevel::Critical | crate::behavioral::amsi::AmsiRiskLevel::High)) {
-                    Logging::warning(&format!("[AMSI] High-risk script content detected in process GID {} ({}). Patterns: {:?}", 
-                        msg.gid, msg.filepathstr, state.amsi_results.last().unwrap().detected_patterns));
-                }
-            }
-        }
-
         let irp_kind = hyper_event
             .as_ref()
             .map(|event| event.irp_op.clone())
@@ -2134,6 +2120,18 @@ impl BehaviorEngine {
             rootkit_findings: Vec::new(),
             amsi_analyzer: crate::behavioral::amsi::AmsiAnalyzer::new(),
         }
+    }
+
+    pub fn find_gid_by_pid(&self, pid: u32) -> Option<u64> {
+        if pid == 0 {
+            return None;
+        }
+        for (gid, state) in &self.process_states {
+            if state.pid == pid {
+                return Some(*gid);
+            }
+        }
+        None
     }
 
     /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.
@@ -5220,6 +5218,20 @@ impl BehaviorEngine {
         }
         if let Some(state) = self.process_states.get_mut(&gid) {
             state.record_irp_operation(msg, irp_op_byte);
+        }
+
+        // Run AMSI analysis if this is an AMSI event
+        if msg.kernel_event_info.is_amsi_event && !msg.kernel_event_info.amsi_content_sample.is_empty() {
+            let amsi_res = self.amsi_analyzer.analyze(&msg.kernel_event_info.amsi_content_sample);
+            if let Some(state) = self.process_states.get_mut(&gid) {
+                state.amsi_results.push(amsi_res);
+                
+                // If critical threat, log it immediately
+                if matches!(state.amsi_results.last().map(|r| &r.risk_level), Some(crate::behavioral::amsi::AmsiRiskLevel::Critical | crate::behavioral::amsi::AmsiRiskLevel::High)) {
+                    Logging::warning(&format!("[AMSI] High-risk script content detected in process GID {} ({}). Patterns: {:?}", 
+                        gid, msg.filepathstr, state.amsi_results.last().unwrap().detected_patterns));
+                }
+            }
         }
 
         let dev_norm = normalize_device_prefix(&msg.filepathstr);

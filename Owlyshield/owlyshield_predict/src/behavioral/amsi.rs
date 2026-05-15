@@ -27,6 +27,7 @@ pub struct AmsiAnalysisResult {
     pub detected_patterns: Vec<String>,
 }
 
+#[derive(Clone)]
 pub struct AmsiAnalyzer {
     signatures: Vec<(&'static str, AmsiRiskLevel)>,
 }
