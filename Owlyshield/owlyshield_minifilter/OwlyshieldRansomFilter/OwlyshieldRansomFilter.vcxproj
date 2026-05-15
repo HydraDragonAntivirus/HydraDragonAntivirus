@@ -79,6 +79,7 @@
     <ClCompile Include="DriverData.cpp" />
     <ClCompile Include="Regedit.cpp" />
     <ClCompile Include="ProcessProtection.cpp" />
+    <ClCompile Include="AmsiProtection.cpp" />
     <Inf Include="OwlyshieldRansomFilter.inf" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -449,6 +450,7 @@
     <ClInclude Include="ShanonEntropy.h" />
     <ClInclude Include="Regedit.h" />
     <ClInclude Include="ProcessProtection.h" />
+    <ClInclude Include="AmsiProtection.h" />
     <ClInclude Include="UserModeHookEngine.h" />
   </ItemGroup>
   <ItemGroup>
