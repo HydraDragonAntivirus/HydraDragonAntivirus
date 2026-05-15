@@ -10,7 +10,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RULE_TYPES = ROOT / "Owlyshield" / "owlyshield_predict" / "src" / "behavioral" / "rule_types.rs"
+RULE_TYPES = ROOT.parent / "Owlyshield" / "owlyshield_predict" / "src" / "behavioral" / "rule_types.rs"
 DEFAULT_RULES = [
     ROOT / "hydradragon" / "Owlyshield" / "rules" / "sanctum_syscall_rules.yaml",
     ROOT / "hydradragon" / "Owlyshield" / "rules" / "amsi_detection_rules.yaml",
@@ -24,9 +24,9 @@ CONDITION_FIELDS = {
     "Service": {"op", "name_pattern"},
     "Network": {"op", "dest_pattern"},
     "NetworkCondition": set(),
-    "Api": {"name_pattern", "module_pattern"},
+    "Api": {"functions", "arguments", "module_pattern", "name_pattern"},
     "Heuristic": {"metric", "threshold"},
-    "OperationCount": {"op_type", "path_pattern", "comparison", "threshold"},
+    "OperationCount": {"op_type", "operation", "path_pattern", "comparison", "threshold"},
     "ExtensionPattern": {"patterns", "match_mode", "op_type"},
     "ByteThreshold": {"direction", "comparison", "threshold"},
     "EntropyThreshold": {"metric", "comparison", "threshold"},
@@ -64,6 +64,7 @@ CONDITION_FIELDS = {
     "MultiCondition": {
         "conditions",
         "operator",
+        "op",
         "min_matches",
         "within_ms",
         "require_same_source_pid",
@@ -83,8 +84,8 @@ REQUIRED_FIELDS = {
     "Registry": {"op", "key_pattern"},
     "Process": {"op", "pattern"},
     "Service": {"op", "name_pattern"},
-    "Api": {"name_pattern", "module_pattern"},
-    "OperationCount": {"op_type", "threshold"},
+    "Api": set(),
+    "OperationCount": {"threshold"},
     "ByteThreshold": {"direction", "threshold"},
     "EntropyThreshold": {"metric", "threshold"},
     "CommandLineMatch": {"patterns"},
@@ -168,6 +169,16 @@ def validate_condition(condition: Any, context: str, variants: set[str], errors:
                 except re.error as exc:
                     errors.append(f"{context}: invalid command-line regex {entry['pattern']!r}: {exc}")
 
+    if cond_type == "OperationCount":
+        if "op_type" not in condition and "operation" not in condition:
+            errors.append(f"{context}: OperationCount must have 'op_type' or 'operation'")
+    if cond_type == "ByteThreshold":
+        if "direction" not in condition:
+            errors.append(f"{context}: ByteThreshold must have 'direction'")
+    if cond_type == "EntropyThreshold":
+        if "metric" not in condition:
+            errors.append(f"{context}: EntropyThreshold must have 'metric'")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate HydraDragon generated behavioral rules.")
@@ -197,9 +208,11 @@ def main() -> int:
                 errors.append(f"{path}:{index}: duplicate rule_id {rid!r} already used in {ids[rid]}")
             else:
                 ids[rid] = path
-            score = rule.get("severity_score")
-            if not isinstance(score, int) or not (0 <= score <= 100):
-                errors.append(f"{path}:{index}: severity_score must be an integer from 0 to 100")
+            score = rule.get("severity_score") or rule.get("severity")
+            if score is None:
+                errors.append(f"{path}:{index}: missing severity/severity_score")
+            elif not isinstance(score, int) or not (0 <= score <= 100):
+                errors.append(f"{path}:{index}: severity must be an integer from 0 to 100")
             for condition, context in iter_conditions(rule):
                 condition_total += 1
                 validate_condition(condition, context, variants, errors)

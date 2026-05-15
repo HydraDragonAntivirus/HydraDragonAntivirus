@@ -18,13 +18,15 @@
               op: contains
               pattern: '(?i)(chrome|msedge|brave|vivaldi)\.exe'
             - type: CommandLineMatch
-              pattern: '(?i)--no-sandbox'
+              patterns:
+                - '(?i)--no-sandbox'
   response:
-    ask_user: false
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
     notify_user: true
     quarantine: false
     status_access_denied: true
+    suspend_while_ask: true
 
 - rule_id: HD-ADV-0002
   name: '[EVASION] Mockingjay RWX Hijacking'
@@ -54,7 +56,9 @@
           op: contains
           pattern: '(?i)(ntdll|kernel32|kernelbase|user32|gdi32)\.dll'
   response:
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
     notify_user: true
     record: true
 
@@ -89,7 +93,9 @@
           functions:
             - NtCreateThreadEx
   response:
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
     notify_user: true
     record: true
 
@@ -105,16 +111,32 @@
   mitre_attack:
     - T1486
   stages:
-    - name: Header Write Burst
+    - name: Ransomware Behavior Chain
       conditions:
-        - type: ByteThreshold
-          operation: write
-          offset_min: 0
-          offset_max: 4096
-          threshold: 20
-          window_ms: 2000
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: ByteThreshold
+              direction: write
+              comparison: gte
+              threshold: 4096
+            - type: EntropyThreshold
+              metric: file_write
+              comparison: gte
+              threshold: 7.5
+            - type: MultiCondition
+              op: or
+              conditions:
+                - type: File
+                  op: create
+                  path_pattern: '(?i).*(README|DECRYPT|HELP_RESTORE).*'
+                - type: Process
+                  op: contains
+                  pattern: '(?i)(vssadmin|wmic|wbadmin|bcdedit)\.exe'
   response:
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
     notify_user: true
     record: true
 
@@ -133,18 +155,36 @@
   stages:
     - name: SanctumGhost Telemetry
       conditions:
-        - type: SanctumGhost
-          functions:
-            - NtAllocateVirtualMemory
-            - NtProtectVirtualMemory
-            - NtCreateThreadEx
-            - NtWriteVirtualMemory
-          verify_indirect: true
-          check_return_address: true
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: SanctumGhost
+              functions:
+                - NtAllocateVirtualMemory
+                - NtProtectVirtualMemory
+                - NtWriteVirtualMemory
+              caller_address_patterns:
+                - 'unknown'
+              min_matches: 5
+            - type: MultiCondition
+              op: and
+              conditions:
+                - type: ProcessTree
+                  parent_patterns: ['(?i)(cmd|powershell|wscript|explorer|temp.*)\.exe']
+                - type: Process
+                  op: not_contains
+                  pattern: '(?i)(chrome|msedge|brave|firefox|devenv|code|discord|steam)\.exe'
   response:
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
     notify_user: true
     record: true
+  allowlisted_apps:
+    - pattern: '(?i)svchost\.exe'
+      signers:
+        - 'Microsoft*'
+      must_be_signed: true
 
 - rule_id: HD-ADV-0006
   name: '[STEALTH] ETW Blinding via NtTraceControl'
@@ -159,14 +199,20 @@
   mitre_attack:
     - T1562.006
   stages:
-    - name: Stop ETW Session
+    - name: Stop Security ETW Session
       conditions:
-        - type: Api
-          functions:
-            - NtTraceControl
-          arguments:
-            - name: ControlCode
-              value: '1' # EVENT_TRACE_CONTROL_STOP
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Api
+              functions:
+                - NtTraceControl
+              arguments:
+                - name: ControlCode
+                  value: '1' # EVENT_TRACE_CONTROL_STOP
+            - type: CommandLineMatch
+              patterns:
+                - '(?i)(EventLog-Security|Microsoft-Windows-Threat-Intelligence|EtwRTMS-Antimalware-Service)'
   response:
     notify_user: true
     record: true
@@ -195,7 +241,9 @@
           op: contains
           pattern: '(?i)(lsass|winlogon|csrss|smss|services)\.exe'
   response:
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
     notify_user: true
     record: true
 
@@ -225,7 +273,9 @@
           functions:
             - NtWriteVirtualMemory
   response:
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
     notify_user: true
     record: true
 
@@ -292,7 +342,9 @@
               op: contains
               pattern: '(?i)SECURITY'
   response:
-    terminate_process: true
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
     notify_user: true
     record: true
 
@@ -318,19 +370,23 @@
               op: contains
               pattern: '.exe'
             - type: ExtensionPattern
-              blacklist:
-                - 'dxgi.dll'
-    - name: Capture Sequence
+              patterns:
+                - '.bmp'
+                - '.jpg'
+                - '.png'
+              op_type: write
+    - name: Exfiltration Pattern
       conditions:
-        - type: OperationCount
-          operation: BitBlt
-          threshold: 1
-          window_ms: 1000
-    - name: Exclude Trusted Tools
-      conditions:
-        - type: Process
-          op: not_contains
-          pattern: '(?i)(obs64|zoom|teams|discord|skype|webex)\.exe'
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: OperationCount
+              op_type: BitBlt
+              comparison: gte
+              threshold: 5
+            - type: Network
+              op: connect
+              dest_pattern: '.*'
   response:
     ask_user: true
     notify_user: true
@@ -360,7 +416,19 @@
               op: contains
               pattern: '(?i)(InstallUtil|Regasm|Regsvcs|MSBuild|Csc)\.exe'
             - type: CommandLineMatch
-              pattern: '(?i)(\.exe|\.dll|\.csproj|\.txt)'
+              patterns:
+                - '(?i)(\.exe|\.dll|\.csproj|\.txt)'
+            - type: MultiCondition
+              op: or
+              conditions:
+                - type: ProcessTree
+                  parent_patterns: ['(?i)(powershell|cmd|wscript|cscript)\.exe']
+                - type: File
+                  op: write
+                  path_pattern: '(?i)\\Users\\Public\\.*'
+                - type: Network
+                  op: connect
+                  dest_pattern: '.*'
   response:
     ask_user: true
     notify_user: true
@@ -485,12 +553,14 @@
     - name: High Frequency DNS
       conditions:
         - type: OperationCount
-          operation: DnsQuery
+          op_type: dns_query
+          comparison: gte
           threshold: 50
-          window_ms: 10000
     - name: Target Domain Entropy
       conditions:
         - type: EntropyThreshold
+          metric: dns_domain
+          comparison: gte
           threshold: 4.5
   response:
     notify_user: true
@@ -518,7 +588,8 @@
               op: contains
               pattern: '(?i)rundll32\.exe'
             - type: CommandLineMatch
-              pattern: '(?i)comsvcs\.dll.*MiniDump.*lsass'
+              patterns:
+                - '(?i)comsvcs\.dll.*MiniDump.*lsass'
   response:
     terminate_process: true
     notify_user: true
@@ -546,7 +617,17 @@
               op: contains
               pattern: '(?i)certutil\.exe'
             - type: CommandLineMatch
-              pattern: '(?i)(-urlcache|-split)'
+              patterns:
+                - '(?i)(-urlcache|-split)'
+            - type: MultiCondition
+              op: and
+              conditions:
+                - type: Network
+                  op: connect
+                  dest_pattern: '.*'
+                - type: File
+                  op: create
+                  path_pattern: '(?i).*\.(exe|dll|vbs|ps1|bat)'
   response:
     ask_user: true
     notify_user: true

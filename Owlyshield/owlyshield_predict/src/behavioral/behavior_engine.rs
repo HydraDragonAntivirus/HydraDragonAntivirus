@@ -447,6 +447,7 @@ pub struct IrpOperationRecord {
     pub function_name: String, // NEW: For generic API hooks - which function was called
     pub pipe_name: String,     // NEW: For Named Pipe detect
     pub pipe_payload: Vec<u8>, // NEW: For Named Pipe payload detect
+    pub raw_arguments: [u64; 4], // NEW: For API argument matching
 }
 
 /// Hypervisor event operation details for detailed tracking and forensics
@@ -1642,6 +1643,21 @@ impl ProcessBehaviorState {
                 msg.kernel_event_info.bin_payload.clone()
             } else {
                 Vec::new()
+            },
+            raw_arguments: if let Some(event) = hyper_event.as_ref() {
+                [
+                    event.raw_argument1,
+                    event.raw_argument2,
+                    event.raw_argument3,
+                    event.raw_argument4,
+                ]
+            } else {
+                [
+                    msg.kernel_event_info.raw_argument1,
+                    msg.kernel_event_info.raw_argument2,
+                    msg.kernel_event_info.raw_argument3,
+                    msg.kernel_event_info.raw_argument4,
+                ]
             },
         };
 
@@ -8245,7 +8261,6 @@ impl BehaviorEngine {
                 op_type,
                 comparison,
                 threshold,
-                ..
             } => {
                 let count = state.irp_stats.get_operation_count(op_type);
                 match comparison {
@@ -8370,17 +8385,38 @@ impl BehaviorEngine {
                 match_count >= *min_matches
             }
             RuleCondition::Api {
-                name_pattern,
+                functions,
+                arguments,
                 module_pattern,
             } => {
-                state
-                    .all_apis_called
-                    .iter()
-                    .chain(state.detected_apis.iter())
-                    .any(|api| self.api_candidate_matches(name_pattern, module_pattern, api))
-                    || state.recent_kernel_api_events.iter().any(|event| {
-                        self.api_candidate_matches(name_pattern, module_pattern, event)
+                let check_api = |api: &IrpOperationRecord| {
+                    let func_match = functions.is_empty() || functions.iter().any(|f| {
+                        Self::matches_pattern_internal(&self.regex_cache, f, &api.function_name)
+                    });
+                    if !func_match {
+                        return false;
+                    }
+
+                    let module_match = module_pattern.is_empty() || {
+                        Self::matches_pattern_internal(&self.regex_cache, module_pattern, &api.function_name)
+                    };
+                    if !module_match {
+                        return false;
+                    }
+
+                    if arguments.is_empty() {
+                        return true;
+                    }
+
+                    arguments.iter().all(|req_arg| {
+                        Self::api_argument_matches(req_arg, api)
                     })
+                };
+
+                state
+                    .irp_operations
+                    .iter()
+                    .any(|api| check_api(api))
             }
             RuleCondition::CommandLineMatch {
                 patterns,
@@ -8518,6 +8554,61 @@ impl BehaviorEngine {
                 }
             }
             _ => false,
+        }
+    }
+
+    fn api_argument_matches(req_arg: &ApiArgument, api: &IrpOperationRecord) -> bool {
+        let Some(idx) = Self::api_argument_index(&api.function_name, &req_arg.name) else {
+            return false;
+        };
+        if idx >= 4 {
+            return false;
+        }
+        let observed_val = api.raw_arguments[idx];
+        let req_val_str = req_arg.value.trim().to_lowercase();
+        
+        if req_val_str.starts_with("0x") {
+            if let Ok(req_val) = u64::from_str_radix(&req_val_str[2..], 16) {
+                return observed_val == req_val;
+            }
+        } else if let Ok(req_val) = req_val_str.parse::<u64>() {
+            return observed_val == req_val;
+        }
+        
+        false
+    }
+
+    fn api_argument_index(function: &str, arg_name: &str) -> Option<usize> {
+        let f = function.to_lowercase();
+        let a = arg_name.to_lowercase();
+        
+        match f.as_str() {
+            "ntwritevirtualmemory" | "ntreadvirtualmemory" => match a.as_str() {
+                "processhandle" => Some(0),
+                "baseaddress" => Some(1),
+                "buffer" | "bufferaddress" => Some(2),
+                "numberofbytestowrite" | "numberofbytestoread" | "size" => Some(3),
+                _ => None,
+            },
+            "ntprotectvirtualmemory" => match a.as_str() {
+                "processhandle" => Some(0),
+                "baseaddress" => Some(1),
+                "numberofbytestoprotect" | "size" => Some(2),
+                "newaccessprotection" | "protection" => Some(3),
+                _ => None,
+            },
+            "ntcreatesection" => match a.as_str() {
+                "sectionhandle" => Some(0),
+                "desiredaccess" => Some(1),
+                "objectattributes" => Some(2),
+                "maximumsize" => Some(3), // Note: actually more args, but these are first 4
+                _ => None,
+            },
+            "nttracecontrol" => match a.as_str() {
+                "controlcode" => Some(0),
+                _ => None,
+            },
+            _ => None,
         }
     }
 

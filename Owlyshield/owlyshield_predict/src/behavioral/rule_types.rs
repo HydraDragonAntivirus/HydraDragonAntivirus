@@ -1332,6 +1332,12 @@ pub enum AllowlistEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiArgument {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum RuleCondition {
     File {
@@ -1358,7 +1364,11 @@ pub enum RuleCondition {
     },
     NetworkCondition(NetworkRuleCondition),
     Api {
-        name_pattern: String,
+        #[serde(default, alias = "name_pattern")]
+        functions: Vec<String>,
+        #[serde(default)]
+        arguments: Vec<ApiArgument>,
+        #[serde(default)]
         module_pattern: String,
     },
     Heuristic {
@@ -1366,6 +1376,7 @@ pub enum RuleCondition {
         threshold: f64,
     },
     OperationCount {
+        #[serde(alias = "operation")]
         op_type: String,
         #[serde(default)]
         path_pattern: Option<String>,
@@ -2478,10 +2489,13 @@ impl BehaviorRule {
                     }
                     RuleCondition::Network { dest_pattern, .. } => expand_opt_string(dest_pattern),
                     RuleCondition::Api {
-                        name_pattern,
+                        functions,
                         module_pattern,
+                        ..
                     } => {
-                        *name_pattern = expand_environment_variables(name_pattern);
+                        for func in functions {
+                            *func = expand_environment_variables(func);
+                        }
                         *module_pattern = expand_environment_variables(module_pattern);
                     }
                     RuleCondition::OperationCount { path_pattern, .. } => {
