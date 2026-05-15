@@ -121,6 +121,21 @@ impl DriverMessagesWithMutex {
         }
     }
 
+    /// Add a new AMSI bypass attempt to the queue.
+    pub fn add_amsi_bypass_to_queue(&mut self, data: crate::shared_no_std::driver_ipc::AmsiBypassAttempt) {
+        let irql = unsafe { KeGetCurrentIrql() };
+        if irql > APC_LEVEL as u8 {
+            println!("[sanctum] [-] IRQL is above APC_LEVEL: {}", irql);
+            return;
+        }
+
+        {
+            let mut lock = self.data.lock().unwrap();
+            lock.is_empty = false;
+            lock.amsi_bypass_attempts.push(data);
+        }
+    }
+
     /// Extract all data out of the queue if there is data.
     ///
     /// # Returns
@@ -161,6 +176,7 @@ impl DriverMessagesWithMutex {
         lock.process_terminations
             .append(&mut q.process_terminations);
         lock.handles.append(&mut q.handles);
+        lock.amsi_bypass_attempts.append(&mut q.amsi_bypass_attempts);
 
         // IMPORTANT NOTE: As well as adding a new field to the below (compile time checked) you ALSO must
         // add the field to the above append instructions.
@@ -169,6 +185,7 @@ impl DriverMessagesWithMutex {
             process_creations: lock.process_creations.clone(),
             process_terminations: lock.process_terminations.clone(),
             handles: lock.handles.clone(),
+            amsi_bypass_attempts: lock.amsi_bypass_attempts.clone(),
             is_empty: false,
         });
 

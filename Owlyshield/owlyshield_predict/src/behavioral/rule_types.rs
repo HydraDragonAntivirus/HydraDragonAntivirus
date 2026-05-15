@@ -1506,6 +1506,9 @@ pub enum RuleCondition {
         #[serde(default)]
         private_only: bool,
     },
+    Amsi {
+        risk_at_least: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

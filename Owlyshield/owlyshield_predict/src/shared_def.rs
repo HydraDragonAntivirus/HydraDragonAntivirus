@@ -349,6 +349,10 @@ pub struct KernelEventInfo {
     // Chromium Detection
     pub is_chromium: bool,
 
+    // AMSI Detection
+    pub is_amsi_event: bool,
+    pub amsi_content_sample: String,
+
     // Operation result
     pub operation_status: i32, // NTSTATUS of the operation
     pub core_id: u32,          // Hypervisor core id (if applicable)

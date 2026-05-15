@@ -622,6 +622,10 @@ pub struct CKernelEventInfo {
 
     // Chromium Detection
     pub is_chromium: c_uchar, // BOOLEAN
+
+    // AMSI Detection
+    pub is_amsi_event: c_uchar,
+    pub amsi_content_sample: [wchar_t; 256],
 }
 
 /// The C object returned by the minifilter, available through [`ReplyIrp`].
@@ -747,6 +751,14 @@ impl CKernelEventInfo {
             is_api_based_load: self.is_api_based_load != 0,
             // Chromium Detection
             is_chromium: self.is_chromium != 0,
+            // AMSI Detection
+            is_amsi_event: self.is_amsi_event != 0,
+            amsi_content_sample: if self.is_amsi_event != 0 && self.amsi_content_sample[0] != 0 {
+                let len = self.amsi_content_sample.iter().position(|&c| c == 0).unwrap_or(256);
+                String::from_utf16_lossy(&self.amsi_content_sample[..len])
+            } else {
+                String::new()
+            },
             operation_status: self.operation_status,
         }
     }

@@ -114,4 +114,5 @@ pub struct DriverMessages {
     pub process_creations: Vec<ProcessStarted>,
     pub process_terminations: Vec<ProcessTerminated>,
     pub handles: Vec<HandleObtained>,
+    pub amsi_bypass_attempts: Vec<crate::driver_ipc::AmsiBypassAttempt>,
 }

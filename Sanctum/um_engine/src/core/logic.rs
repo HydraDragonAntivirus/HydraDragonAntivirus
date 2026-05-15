@@ -71,6 +71,20 @@ fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
     }
 }
 
+/// Forward an AMSI bypass attempt to the Owlyshield behavior engine.
+fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBypassAttempt) {
+    use std::io::Write;
+
+    let line = format!(
+        "{{\"pid\":{},\"source\":\"sanctum_veh\",\"function\":\"{}\",\"args\":{{\"offending_address\":{}}}}}\n",
+        attempt.pid, attempt.function_name, attempt.offending_address
+    );
+
+    if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
+        let _ = pipe.write_all(line.as_bytes());
+    }
+}
+
 fn source_name(source: shared_no_std::ghost_hunting::SyscallEventSource) -> &'static str {
     match source {
         shared_no_std::ghost_hunting::SyscallEventSource::EventSourceKernel      => "kernel",
@@ -215,6 +229,11 @@ impl Core {
                     if !driver_messages.messages.is_empty() {
                         message_cache.append(&mut driver_messages.messages);
                     }
+                }
+
+                // Forward AMSI bypass attempts to Owlyshield
+                for attempt in &driver_messages.amsi_bypass_attempts {
+                    forward_amsi_bypass_to_owlyshield(attempt);
                 }
             }
 

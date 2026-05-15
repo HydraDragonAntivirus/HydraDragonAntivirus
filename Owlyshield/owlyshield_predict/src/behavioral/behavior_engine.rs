@@ -1447,6 +1447,9 @@ pub struct ProcessBehaviorState {
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub net_packets: VecDeque<PacketInfo>,
 
+    /// AMSI analysis results for script content monitored by the engine.
+    pub amsi_results: Vec<crate::behavioral::amsi::AmsiAnalysisResult>,
+
     /// Sanctum EDR telemetry stats for real-time learning.
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_stats: crate::realtime_learning::api_tracker::SanctumOperationStats,
@@ -1641,6 +1644,20 @@ impl ProcessBehaviorState {
                 Vec::new()
             },
         };
+
+        // Run AMSI analysis if this is an AMSI event
+        if msg.kernel_event_info.is_amsi_event && !msg.kernel_event_info.amsi_content_sample.is_empty() {
+            let amsi_res = self.amsi_analyzer.analyze(&msg.kernel_event_info.amsi_content_sample);
+            if let Some(state) = self.process_states.get_mut(&(msg.gid as u64)) {
+                state.amsi_results.push(amsi_res);
+                
+                // If critical threat, log it immediately
+                if matches!(state.amsi_results.last().map(|r| &r.risk_level), Some(crate::behavioral::amsi::AmsiRiskLevel::Critical | crate::behavioral::amsi::AmsiRiskLevel::High)) {
+                    Logging::warning(&format!("[AMSI] High-risk script content detected in process GID {} ({}). Patterns: {:?}", 
+                        msg.gid, msg.filepathstr, state.amsi_results.last().unwrap().detected_patterns));
+                }
+            }
+        }
 
         let irp_kind = hyper_event
             .as_ref()
@@ -2068,6 +2085,7 @@ pub struct BehaviorEngine {
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub firewall_file_verdicts: FirewallFileVerdicts,
     pub rootkit_findings: Vec<RootkitFinding>,
+    pub amsi_analyzer: crate::behavioral::amsi::AmsiAnalyzer,
 }
 
 impl Default for BehaviorEngine {
@@ -2114,6 +2132,7 @@ impl BehaviorEngine {
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             firewall_file_verdicts: shared_firewall_file_verdicts(),
             rootkit_findings: Vec::new(),
+            amsi_analyzer: crate::behavioral::amsi::AmsiAnalyzer::new(),
         }
     }
 
@@ -2511,6 +2530,20 @@ impl BehaviorEngine {
                 "[SanctumTelemetry] Suspicious syscall from PID {}: {}",
                 pid, function
             ));
+        }
+
+        // Handle AMSI bypass attempts from Sanctum (VEH abuse etc.)
+        if source == "sanctum_veh" {
+            let gid = self.find_gid_by_pid(pid).unwrap_or(0);
+            if gid != 0 {
+                if let Some(mut state) = self.process_states.get_mut(&gid) {
+                    let res = crate::behavioral::amsi::AmsiAnalysisResult {
+                        risk_level: crate::behavioral::amsi::AmsiRiskLevel::Critical,
+                        detected_patterns: vec![format!("VEH_ABUSE: {}", function)],
+                    };
+                    state.amsi_results.push(res);
+                }
+            }
         }
 
         // Update shared Sanctum stats for real-time learning.
@@ -7997,6 +8030,13 @@ impl BehaviorEngine {
                         }
                     }
 
+                    RuleCondition::Amsi { risk_at_least } => {
+                        let required_risk = crate::behavioral::amsi::AmsiRiskLevel::from_str(risk_at_least);
+                        condition_matched = state
+                            .amsi_results
+                            .iter()
+                            .any(|res| res.risk_level >= required_risk);
+                    }
                     _ => condition_matched = false,
                 }
 

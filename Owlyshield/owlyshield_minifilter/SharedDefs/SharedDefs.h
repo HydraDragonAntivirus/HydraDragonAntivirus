@@ -273,6 +273,9 @@ typedef struct _HOOK_EVENT_DATA {
     ULONG_PTR Arg2;
     ULONG_PTR Arg3;
     ULONG_PTR Arg4;
+    
+    BOOLEAN IsAmsiEvent;
+    WCHAR AmsiContentSample[256];
 } HOOK_EVENT_DATA, *PHOOK_EVENT_DATA;
 
 #define MAX_FILE_NAME_SIZE (MAX_FILE_NAME_LENGTH * sizeof(WCHAR))
@@ -455,6 +458,10 @@ typedef struct _KERNEL_EVENT_INFO
     
     // Chromium Detection - Process identification at kernel level
     BOOLEAN IsChromium;
+
+    // AMSI Detection
+    BOOLEAN IsAmsiEvent;
+    WCHAR AmsiContentSample[256];
 } KERNEL_EVENT_INFO, *PKERNEL_EVENT_INFO;
 
 typedef struct _DRIVER_MESSAGE

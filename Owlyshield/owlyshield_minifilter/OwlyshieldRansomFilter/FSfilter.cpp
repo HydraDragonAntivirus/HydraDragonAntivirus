@@ -15,6 +15,8 @@ Environment:
 --*/
 
 #include "FSfilter.h"
+#include "AmsiProtection.h"
+#include <ntstrsafe.h>
 #include "ProcessProtection.h"
 #include "Regedit.h"
 #include "RootkitDetector.h"
@@ -776,6 +778,8 @@ Return Value:
     // Initialize Registry Protection
     RegeditDriverEntry();
 
+    AmsiInitialize();
+
     // Initialize Process Protection (ObRegisterCallbacks for termination detection)
     status = InitProcessProtection();
     if (!NT_SUCCESS(status))
@@ -1319,6 +1323,8 @@ Return Value:
     // Rootkit detector owns a shared work item and caches the dedicated CDO
     // pointer. Tear it down before freeing driverData or deleting the CDO.
     RootkitDetectorCleanup();
+
+    AmsiCleanup();
 
     // Close Communication
     if (commHandle)
@@ -3240,6 +3246,9 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                                         : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
                 RtlCopyMemory(newItem->CommandLine, CreateInfo->CommandLine->Buffer, cmdCopyLen);
                 newItem->CommandLine[cmdCopyLen / sizeof(WCHAR)] = L'\0';
+
+                // Scan for AMSI bypasses in the command line
+                AmsiScanCommandLine((ULONG)(ULONG_PTR)ProcessId, CreateInfo ? CreateInfo->CommandLine : procCmdLine);
             }
             else if (procCmdLine != NULL && procCmdLine->Buffer != NULL && procCmdLine->Length > 0)
             {
@@ -3247,6 +3256,9 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                                                                                : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
                 RtlCopyMemory(newItem->CommandLine, procCmdLine->Buffer, cmdCopyLen);
                 newItem->CommandLine[cmdCopyLen / sizeof(WCHAR)] = L'\0';
+
+                // Scan for AMSI bypasses in the command line
+                AmsiScanCommandLine((ULONG)(ULONG_PTR)ProcessId, procCmdLine);
             }
 
             if (!driverData->AddIrpMessage(newEntry))

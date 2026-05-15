@@ -25,4 +25,11 @@ pub struct HandleObtained {
     pub rights_given: u32,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AmsiBypassAttempt {
+    pub pid: u32,
+    pub function_name: String,
+    pub offending_address: u64,
+}
+
 pub type ImageLoadQueues = BTreeSet<usize>;

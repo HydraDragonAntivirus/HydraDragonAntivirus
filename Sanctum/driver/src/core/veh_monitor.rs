@@ -20,6 +20,10 @@ use wdk_sys::{
 };
 
 use crate::utils::{AllThreadsIterator, get_module_base_and_sz, scan_module_for_byte_pattern};
+use crate::DRIVER_MESSAGES;
+use core::sync::atomic::Ordering;
+use shared_no_std::driver_ipc::AmsiBypassAttempt;
+use wdk_sys::ntddk::PsGetProcessId;
 
 unsafe extern "system" {
 
@@ -228,6 +232,18 @@ fn check_veh_abuse(pe_thread: *const c_void, offending_address: *const c_void) {
                 println!(
                     "[sanctum] [ABUSE] Vectored Exception Handling abuse detected at function {name}"
                 );
+
+                // Report to usermode engine
+                let ptr = DRIVER_MESSAGES.load(Ordering::SeqCst);
+                if !ptr.is_null() {
+                    let messages = unsafe { &mut *ptr };
+                    let pid = unsafe { PsGetProcessId(pe_process as _) };
+                    messages.add_amsi_bypass_to_queue(AmsiBypassAttempt {
+                        pid: pid as u32,
+                        function_name: name.clone(),
+                        offending_address: offending_address as u64,
+                    });
+                }
             }
         }
 
