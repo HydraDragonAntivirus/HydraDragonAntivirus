@@ -4933,9 +4933,10 @@ impl BehaviorEngine {
         cache: &Arc<RwLock<HashMap<String, Regex>>>,
         cond_group: &NamedConditionGroup,
         record: &HookErrorRecord,
+        is_acg_enabled: bool,
     ) -> bool {
         if cond_group.hook_error_exclude_benign
-            && is_benign_hypervisor_failure_status(record.operation_status)
+            && is_benign_hypervisor_failure_status(record.operation_status, is_acg_enabled)
         {
             return false;
         }
@@ -4968,7 +4969,7 @@ impl BehaviorEngine {
         let matches: Vec<&HookErrorRecord> = state
             .recent_hook_errors
             .iter()
-            .filter(|record| Self::hook_error_record_matches(cache, cond_group, record))
+            .filter(|record| Self::hook_error_record_matches(cache, cond_group, record, state.is_acg_enabled))
             .collect();
 
         if matches.len() < required {
