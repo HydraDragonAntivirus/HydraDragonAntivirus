@@ -159,6 +159,10 @@ pub struct MLFeatures {
     pub sanctum_suspicious_hits_count: f32,
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_detected: f32,
+    
+    // Catch-all bucket for automatically flattened numeric features
+    #[serde(flatten)]
+    pub dynamic_features: std::collections::HashMap<String, f32>,
 }
 
 /// Raw behavioral data for detailed analysis
@@ -188,6 +192,10 @@ pub struct RawBehaviorData {
     pub sanctum_injection_score: f32,
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_suspicious_hits: Vec<String>,
+    
+    /// Dynamically captures the complete ApiTracker state. Any new tracking field 
+    /// added to the engine will automatically appear in the ML datasets here.
+    pub full_tracker_state: Option<serde_json::Value>,
 }
 
 /// Static executable telemetry captured from on-disk binary
@@ -503,6 +511,9 @@ impl MLCollector {
                 .sanctum_operations
                 .suspicious_syscall_hits
                 .clone(),
+            
+            // Dynamic ML feature dump (requires serde_json feature flag active)
+            full_tracker_state: serde_json::to_value(api_tracker).ok(),
         }
     }
 
@@ -1139,80 +1150,37 @@ impl MLCollector {
     pub fn export_to_csv(&self, output_path: &str) -> Result<(), std::io::Error> {
         let mut file = File::create(output_path)?;
 
-        // Write header
-        writeln!(file, "{}", self.get_csv_header())?;
-
-        // Write malicious samples
-        for sample in &self.malicious_samples {
-            writeln!(file, "{}", self.sample_to_csv(sample))?;
+        let mut all_keys: HashSet<String> = HashSet::new();
+        for sample in self.malicious_samples.iter().chain(self.benign_samples.iter()) {
+            if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(&sample.features) {
+                all_keys.extend(map.keys().cloned());
+            }
         }
+        
+        // Ensure deterministic column order
+        let mut sorted_keys: Vec<String> = all_keys.into_iter().collect();
+        sorted_keys.sort();
 
-        // Write benign samples
-        for sample in &self.benign_samples {
-            writeln!(file, "{}", self.sample_to_csv(sample))?;
+        // Write header dynamically
+        writeln!(file, "id,process_name,is_malicious,{}", sorted_keys.join(","))?;
+
+        // Write all samples dynamically
+        for sample in self.malicious_samples.iter().chain(self.benign_samples.iter()) {
+            let mut row = format!("{},{},{}", sample.id, sample.process_name, sample.is_malicious as u8);
+            if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(&sample.features) {
+                for key in &sorted_keys {
+                    let val = match map.get(key) {
+                        Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0),
+                        Some(serde_json::Value::Bool(b)) => if *b { 1.0 } else { 0.0 },
+                        _ => 0.0,
+                    };
+                    row.push_str(&format!(",{}", val));
+                }
+            }
+            writeln!(file, "{}", row)?;
         }
 
         Ok(())
-    }
-
-    /// Get CSV header
-    fn get_csv_header(&self) -> String {
-        "id,process_name,is_malicious,\
-         enumeration_api_count,injection_api_count,evasion_api_count,spying_api_count,\
-         internet_api_count,anti_debugging_api_count,ransomware_api_count,helper_api_count,\
-         total_api_count,files_read,files_written,files_deleted,files_renamed,files_encrypted,\
-         directories_enumerated,mass_file_operations,executable_files_accessed,\
-         suspicious_extensions_written,avg_entropy_written,high_entropy_writes,\
-         registry_keys_created,registry_keys_deleted,registry_keys_modified,\
-         autorun_keys_modified,network_connections,processes_created,processes_injected,\
-         threads_created,memory_allocated_mb,dlls_loaded,has_keylogging_pattern,\
-         has_injection_pattern,has_persistence_pattern,operations_per_second"
-            .to_string()
-    }
-
-    /// Convert sample to CSV row
-    fn sample_to_csv(&self, sample: &MLSample) -> String {
-        let f = &sample.features;
-        format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
-            sample.id,
-            sample.process_name,
-            sample.is_malicious as u8,
-            f.enumeration_api_count,
-            f.injection_api_count,
-            f.evasion_api_count,
-            f.spying_api_count,
-            f.internet_api_count,
-            f.anti_debugging_api_count,
-            f.ransomware_api_count,
-            f.helper_api_count,
-            f.total_api_count,
-            f.files_read,
-            f.files_written,
-            f.files_deleted,
-            f.files_renamed,
-            f.files_encrypted,
-            f.directories_enumerated,
-            f.mass_file_operations,
-            f.executable_files_accessed,
-            f.suspicious_extensions_written,
-            f.avg_entropy_written,
-            f.high_entropy_writes,
-            f.registry_keys_created,
-            f.registry_keys_deleted,
-            f.registry_keys_modified,
-            f.autorun_keys_modified,
-            f.network_connections,
-            f.processes_created,
-            f.processes_injected,
-            f.threads_created,
-            f.memory_allocated_mb,
-            f.dlls_loaded,
-            f.has_keylogging_pattern,
-            f.has_injection_pattern,
-            f.has_persistence_pattern,
-            f.operations_per_second
-        )
     }
 
     /// Auto-save datasets
@@ -1326,6 +1294,11 @@ impl FeatureExtractor {
         let has_anti_analysis =
             !api_tracker.anti_debugging_apis.is_empty() || !api_tracker.evasion_apis.is_empty();
         let has_credential_theft = self.detect_credential_theft_pattern(api_tracker);
+
+        let mut dynamic_features = std::collections::HashMap::new();
+        if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(api_tracker) {
+            Self::flatten_json_numbers("", &map, &mut dynamic_features);
+        }
 
         MLFeatures {
             // Normalized API counts
@@ -1494,6 +1467,39 @@ impl FeatureExtractor {
             } else {
                 0.0
             },
+            
+            dynamic_features,
+        }
+    }
+
+    fn flatten_json_numbers(
+        prefix: &str,
+        map: &serde_json::Map<String, serde_json::Value>,
+        out: &mut std::collections::HashMap<String, f32>,
+    ) {
+        for (k, v) in map {
+            let key = if prefix.is_empty() {
+                k.clone()
+            } else {
+                format!("{}_{}", prefix, k)
+            };
+            match v {
+                serde_json::Value::Number(n) => {
+                    if let Some(f) = n.as_f64() {
+                        out.insert(key, f as f32);
+                    }
+                }
+                serde_json::Value::Bool(b) => {
+                    out.insert(key, if *b { 1.0 } else { 0.0 });
+                }
+                serde_json::Value::Array(arr) => {
+                    out.insert(format!("{}_count", key), arr.len() as f32);
+                }
+                serde_json::Value::Object(obj) => {
+                    Self::flatten_json_numbers(&key, obj, out);
+                }
+                _ => {}
+            }
         }
     }
 
