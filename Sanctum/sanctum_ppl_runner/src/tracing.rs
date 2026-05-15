@@ -449,6 +449,8 @@ fn send_threat_intel_to_engine(
                 suspicious: telemetry.suspicious,
                 target_pid,
             }),
+            caller_address: 0,
+            hex_payload: [0; 16],
         });
     }
 }
@@ -714,6 +716,8 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
                     method,
                     user_agent: "SanctumETW".to_string(),
                 })),
+                caller_address: 0,
+                hex_payload: [0; 16],
             });
         }
     } else if event_header.ProviderId == WININET_GUID
@@ -728,6 +732,8 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
                     server: "Unknown".to_string(),
                 },
             )),
+            caller_address: 0,
+            hex_payload: [0; 16],
         });
     }
 }
