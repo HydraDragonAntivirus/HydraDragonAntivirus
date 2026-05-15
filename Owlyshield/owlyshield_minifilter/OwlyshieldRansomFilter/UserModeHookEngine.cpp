@@ -3815,67 +3815,28 @@ DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef-
 // -------------------------------------------------------------------------
 // IsProcessAcgEnabled
 //
-// Queries the ProcessMitigationPolicy (ProcessDynamicCodePolicy) for the
-// given process via ZwQueryInformationProcess.  Returns TRUE when the
-// ProhibitDynamicCode bit is set (Arbitrary Code Guard is active).
+// Uses PsGetProcessMitigationOption — the documented kernel-mode API for
+// querying process mitigation policies (ntddk.h, Windows 10 1511+).
+// Works directly on PEPROCESS; no handle open/close needed.
 //
-// All types used here are already defined by ntddk.h / ntifs.h included
-// earlier in this TU, so we must NOT redefine them.
+// PS_MITIGATION_OPTION_PROHIBIT_DYNAMIC_CODE maps to Arbitrary Code Guard.
+// Returns TRUE only when enforcement is active (not audit-only).
 // -------------------------------------------------------------------------
-
-// ProcessMitigationPolicy info-class is 52 in all supported WDK versions.
-// Guard with #ifndef in case a future WDK makes it an enum member.
-#ifndef ProcessMitigationPolicy
-#define ProcessMitigationPolicy ((PROCESSINFOCLASS)52)
-#endif
-
-// ZwQueryInformationProcess is exported by ntoskrnl but only declared in
-// ntddk.h when building for user-mode.  In kernel-mode TUs we forward-declare
-// it ourselves.
-EXTERN_C NTSTATUS NTAPI
-ZwQueryInformationProcess(
-    _In_      HANDLE           ProcessHandle,
-    _In_      PROCESSINFOCLASS ProcessInformationClass,
-    _Out_     PVOID            ProcessInformation,
-    _In_      ULONG            ProcessInformationLength,
-    _Out_opt_ PULONG           ReturnLength
-);
 
 static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
 {
-    HANDLE hProcess = NULL;
+    ULONG64 mitigationState = 0;
 
-    // OBJ_KERNEL_HANDLE | access=0 is valid: ZwQueryInformationProcess only
-    // needs PROCESS_QUERY_LIMITED_INFORMATION, but that constant is
-    // user-mode only.  Passing 0 lets the object manager grant the handle
-    // with whatever rights the kernel handle already has.
-    NTSTATUS status = ObOpenObjectByPointer(
+    // PsGetProcessMitigationOption returns TRUE when the mitigation is
+    // actively enforced for this process.
+    // PS_MITIGATION_OPTION_PROHIBIT_DYNAMIC_CODE is defined in ntddk.h.
+    return PsGetProcessMitigationOption(
         Process,
-        OBJ_KERNEL_HANDLE,
-        NULL,
-        0,          // access: kernel handle inherits full access
-        *PsProcessType,
-        KernelMode,
-        &hProcess);
-
-    if (!NT_SUCCESS(status) || hProcess == NULL)
-        return FALSE;
-
-    PROCESS_MITIGATION_DYNAMIC_CODE_POLICY policy;
-    RtlZeroMemory(&policy, sizeof(policy));
-    ULONG retLen = 0;
-
-    status = ZwQueryInformationProcess(
-        hProcess,
-        ProcessMitigationPolicy,
-        &policy,
-        sizeof(policy),
-        &retLen);
-
-    ZwClose(hProcess);
-
-    return NT_SUCCESS(status) && policy.ProhibitDynamicCode;
+        PS_MITIGATION_OPTION_PROHIBIT_DYNAMIC_CODE,
+        &mitigationState);
 }
+
+
 
 static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_z_ PCSTR FunctionName,
                                                 _In_ BOOLEAN IsWow64)
