@@ -2549,10 +2549,13 @@ impl BehaviorRule {
                                     expand_opt_string(dest_pattern)
                                 }
                                 RuleCondition::Api {
-                                    name_pattern,
+                                    functions,
                                     module_pattern,
+                                    ..
                                 } => {
-                                    *name_pattern = expand_environment_variables(name_pattern);
+                                    for func in functions.iter_mut() {
+                                        *func = expand_environment_variables(func);
+                                    }
                                     *module_pattern = expand_environment_variables(module_pattern);
                                 }
                                 RuleCondition::OperationCount { path_pattern, .. } => {

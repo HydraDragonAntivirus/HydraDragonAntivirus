@@ -8110,6 +8110,7 @@ impl BehaviorEngine {
         state: &ProcessBehaviorState,
         name_pattern: &str,
         module_pattern: &str,
+        arguments: &[crate::behavioral::rule_types::ApiArgument],
     ) -> Option<SystemTime> {
         state
             .irp_operations
@@ -8122,6 +8123,9 @@ impl BehaviorEngine {
                         module_pattern,
                         &record.function_name,
                     )
+                    && (arguments.is_empty() || arguments.iter().all(|req_arg| {
+                        Self::api_argument_matches(req_arg, record)
+                    }))
             })
             .map(|record| record.timestamp)
     }
@@ -8154,13 +8158,14 @@ impl BehaviorEngine {
                 match condition {
                     RuleCondition::Api {
                         functions,
+                        arguments,
                         module_pattern,
                         ..
                     } => {
                         let mut best_ts = None;
                         for name_pattern in functions {
                             if let Some(ts) =
-                                self.latest_api_match_time(state, name_pattern, module_pattern)
+                                self.latest_api_match_time(state, name_pattern, module_pattern, arguments)
                             {
                                 if best_ts.is_none() || ts > best_ts.unwrap() {
                                     best_ts = Some(ts);
@@ -8273,8 +8278,55 @@ impl BehaviorEngine {
                 op_type,
                 comparison,
                 threshold,
+                path_pattern,
             } => {
-                let count = state.irp_stats.get_operation_count(op_type);
+                let count = if let Some(pattern) = path_pattern {
+                    state
+                        .irp_operations
+                        .iter()
+                        .filter(|rec| {
+                            let irp_op = IrpMajorOp::from_byte(rec.irp_type);
+                            let is_match = match op_type.as_str() {
+                                "read" => irp_op == IrpMajorOp::IrpRead,
+                                "write" => irp_op == IrpMajorOp::IrpWrite,
+                                "create" => irp_op == IrpMajorOp::IrpCreate,
+                                "delete" => {
+                                    irp_op == IrpMajorOp::IrpSetInfo
+                                        && rec.file_change == FileChangeInfo::ChangeDeleteFile as u8
+                                }
+                                "rename" => {
+                                    irp_op == IrpMajorOp::IrpSetInfo
+                                        && (rec.file_change == FileChangeInfo::ChangeRenameFile as u8
+                                            || rec.file_change
+                                                == FileChangeInfo::ChangeExtensionChanged as u8)
+                                }
+                                "setinfo" => irp_op == IrpMajorOp::IrpSetInfo,
+                                "registry_read"
+                                | "registry_write"
+                                | "registry_delete"
+                                | "registry_create" => irp_op == IrpMajorOp::IrpRegistry,
+                                "process_create" => irp_op == IrpMajorOp::IrpProcessCreate,
+                                "process_terminate" => irp_op == IrpMajorOp::IrpProcessTerminate,
+                                "process_exit" => irp_op == IrpMajorOp::IrpProcessExit,
+                                "process_handle_open" => irp_op == IrpMajorOp::IrpProcessHandleOpen,
+                                "process_terminate_attempt" => {
+                                    irp_op == IrpMajorOp::IrpProcessTerminateAttempt
+                                }
+                                "hypervisor_event" => irp_op == IrpMajorOp::IrpHypervisorEvent,
+                                _ => false,
+                            };
+                            is_match
+                                && Self::matches_pattern_internal(
+                                    &self.regex_cache,
+                                    pattern,
+                                    &rec.file_path,
+                                )
+                        })
+                        .count() as u64
+                } else {
+                    state.irp_stats.get_operation_count(op_type)
+                };
+
                 match comparison {
                     Comparison::Gt => count > *threshold,
                     Comparison::Gte => count >= *threshold,
