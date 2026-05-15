@@ -23,15 +23,21 @@ if (-not (Test-Path $driverPath)) {
     Write-Error "Driver binary not found at $driverPath. Initial build failed."
 }
 
+Write-Host "[*] Signing driver to generate certificate for hash extraction..." -ForegroundColor Cyan
+if (Test-Path "sign.bat") {
+    & .\sign.bat $Profile
+} else {
+    Write-Error "sign.bat not found in current directory."
+}
+
 Write-Host "[*] Extracting To-Be-Signed Hash..." -ForegroundColor Cyan
-# We use certutil -dump to get the hash if certmgr is not in PATH
-$certOutput = & certutil -v -asn $driverPath
+# We use certutil -v -dump to get the "Content Hash (To-Be-Signed Hash)::"
+$certOutput = & certutil -v -dump $driverPath
 $hashMatch = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,8
 
 if (-not $hashMatch) {
-    # Fallback to searching for the raw bytes if the label is missing or different
-    Write-Host "[!] Could not find hash label, attempting raw certificate extraction..." -ForegroundColor Yellow
-    $certOutput = & certutil -v -dump $driverPath
+    # Fallback for different certutil versions/locales
+    Write-Host "[!] Could not find exact hash label, attempting broader search..." -ForegroundColor Yellow
     $hashMatch = $certOutput | Select-String -Pattern "Content Hash" -Context 0,10
 }
 
@@ -68,6 +74,10 @@ if ($hashMatch) {
         Write-Host "[*] Rebuilding driver with updated hash..." -ForegroundColor Cyan
         cargo clean
         cargo make $Profile
+        
+        Write-Host "[*] Final signing..." -ForegroundColor Cyan
+        & .\sign.bat $Profile
+        
         Write-Host "[+++] SUCCESS: Driver is now synchronized with ELAM identity." -ForegroundColor Green
     } else {
         Write-Error "Could not find hash placeholder in build.rs"

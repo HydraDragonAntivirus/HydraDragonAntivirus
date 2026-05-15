@@ -338,61 +338,63 @@
     status_access_denied: true
 
 - rule_id: HD-ADV-0012
-  name: '[RANSOMWARE] Volume Shadow Copy Deletion (vssadmin)'
-  description: 'Detects attempts to delete Volume Shadow Copies using vssadmin.exe or wmic, a hallmark of ransomware preparing for encryption.'
+  name: '[EVASION] AppLocker Bypass - InstallUtil/Regasm Abuse'
+  description: 'Detects execution of signed Microsoft binaries like InstallUtil.exe or Regasm.exe to run unauthorized code.'
   enabled: true
-  severity: 100
-  level: critical
+  severity: 85
+  level: high
   tags:
-    - ransomware
-    - vss
-    - exfiltration
+    - evasion
+    - lolbas
+    - applocker-bypass
   mitre_attack:
-    - T1490
+    - T1218.004
+    - T1218.009
   stages:
-    - name: Detect VSS Deletion Command
+    - name: Detect Signed Binary Abuse
       conditions:
         - type: MultiCondition
           op: and
           conditions:
             - type: Process
               op: contains
-              pattern: '(?i)(vssadmin|wmic)\.exe'
+              pattern: '(?i)(InstallUtil|Regasm|Regsvcs|MSBuild|Csc)\.exe'
             - type: CommandLineMatch
-              pattern: '(?i)(delete shadows|shadowcopy delete)'
+              pattern: '(?i)(\.exe|\.dll|\.csproj|\.txt)'
   response:
-    terminate_process: true
+    ask_user: true
     notify_user: true
     record: true
 
 - rule_id: HD-ADV-0013
-  name: '[EVASION] Security Service Termination'
-  description: 'Detects attempts to stop or disable critical security services (WinDefend, Sense, MpsSvc).'
+  name: '[EVASION] UAC Bypass - Fodhelper/ComputerDefaults'
+  description: 'Detects registry modifications associated with common UAC bypass techniques using fodhelper.exe or computerdefaults.exe.'
   enabled: true
   severity: 90
-  level: critical
+  level: high
   tags:
-    - evasion
-    - services
-    - blinding
+    - privilege-escalation
+    - uac-bypass
   mitre_attack:
-    - T1562.001
+    - T1548.002
   stages:
-    - name: Stop Service Command
+    - name: Registry Hijack
+      conditions:
+        - type: Api
+          functions:
+            - NtSetValueKey
+    - name: Target UAC Path
       conditions:
         - type: MultiCondition
-          op: and
+          op: or
           conditions:
             - type: Process
               op: contains
-              pattern: '(?i)(net|sc)\.exe'
-            - type: CommandLineMatch
-              pattern: '(?i)(stop|config.*start= disabled) (WinDefend|Sense|MpsSvc|WdNisSvc)'
+              pattern: '(?i)Software\Classes\ms-settings\shell\open\command'
   response:
     terminate_process: true
     notify_user: true
     record: true
-    ask_user: true
 
 - rule_id: HD-ADV-0014
   name: '[PERSISTENCE] Suspicious RunKey Modification'
@@ -494,3 +496,123 @@
     notify_user: true
     record: true
     ask_user: true
+
+- rule_id: HD-ADV-0017
+  name: '[CREDENTIAL] LSASS Dump via comsvcs.dll'
+  description: 'Detects attempts to dump LSASS memory using the native comsvcs.dll MiniDump export.'
+  enabled: true
+  severity: 100
+  level: critical
+  tags:
+    - credential-access
+    - lsass
+  mitre_attack:
+    - T1003.001
+  stages:
+    - name: Detect Rundll32 LSASS Dump
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)rundll32\.exe'
+            - type: CommandLineMatch
+              pattern: '(?i)comsvcs\.dll.*MiniDump.*lsass'
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0018
+  name: '[EVASION] LOLBAS - Certutil Remote Download'
+  description: 'Detects usage of certutil.exe to download files from the internet, a common malware technique to bypass firewall rules.'
+  enabled: true
+  severity: 80
+  level: high
+  tags:
+    - evasion
+    - lolbas
+    - network
+  mitre_attack:
+    - T1105
+  stages:
+    - name: Detect Certutil Download
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)certutil\.exe'
+            - type: CommandLineMatch
+              pattern: '(?i)(-urlcache|-split)'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0019
+  name: '[STEALTH] Process Hollowing - Map and Resume'
+  description: 'Detects process hollowing by monitoring for a process created in a suspended state followed by memory mapping and thread resumption.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - injection
+    - hollowing
+  mitre_attack:
+    - T1055.012
+  stages:
+    - name: Process Create Suspended
+      conditions:
+        - type: Process
+          op: contains
+          pattern: 'suspended'
+    - name: Map Section
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateSection
+            - NtMapViewOfSection
+    - name: Resume Thread
+      conditions:
+        - type: Api
+          functions:
+            - NtResumeThread
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0020
+  name: '[INJECTION] Thread Execution Hijacking'
+  description: 'Detects hijacking of a threads execution context to redirect it to malicious code.'
+  enabled: true
+  severity: 90
+  level: critical
+  tags:
+    - injection
+    - hijacking
+  mitre_attack:
+    - T1055.003
+  stages:
+    - name: Get Thread Context
+      conditions:
+        - type: Api
+          functions:
+            - NtGetContextThread
+    - name: Set Thread Context
+      conditions:
+        - type: Api
+          functions:
+            - NtSetContextThread
+    - name: Resume Thread
+      conditions:
+        - type: Api
+          functions:
+            - NtResumeThread
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
