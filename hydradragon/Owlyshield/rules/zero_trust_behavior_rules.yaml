@@ -19,7 +19,7 @@
   mitre_attack:
   - T1490
   - T1486
-  references: &id001
+  references:
   - https://attack.mitre.org/techniques/T1490/
   - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
   - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
@@ -46,7 +46,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -71,7 +71,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -89,12 +93,12 @@
       child_patterns:
       - '*\vssadmin.exe'
       command_line_patterns:
-      - pattern: (?i)resize\s+shadowstorage.*(/maxsize=([1-9]|[1-9][0-9])mb|/maxsize=1%)
+      - pattern: '(?i)resize\s+shadowstorage.*(/maxsize=([1-9]|[1-9][0-9])mb|/maxsize=1%)'
         is_regex: true
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -119,7 +123,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -142,7 +150,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -167,7 +175,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -191,7 +203,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -216,7 +228,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -239,7 +255,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -264,7 +280,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -287,7 +307,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -312,7 +332,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -335,7 +359,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -360,7 +384,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -383,7 +411,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -408,7 +436,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -432,7 +464,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -457,7 +489,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -480,7 +516,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -505,7 +541,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -530,7 +570,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -555,7 +595,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -580,7 +624,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -605,7 +649,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -630,7 +678,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -655,7 +703,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -678,7 +730,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -703,7 +755,11 @@
   mitre_attack:
   - T1490
   - T1486
-  references: *id001
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
   false_positives:
   - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
     maintenance.
@@ -727,7 +783,7 @@
   min_stages_satisfied: 1
   response:
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -770,9 +826,10 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0017
   name: '[HIGH] Ransomware IO Pattern - Mass rename to ransomware extensions'
   description: 'Detects ransomware-style file I/O behavior: mass rename to ransomware extensions.'
@@ -808,13 +865,7 @@
       op_type: rename
       match_mode: Any
       patterns:
-      - '*.lockbit'
-      - '*.blackcat'
-      - '*.alphv'
-      - '*.encrypted'
-      - '*.locked'
-      - '*.akira'
-      - '*.8base'
+      - (?i)^\.?(lockbit|lockbit3|blackcat|alphv|encrypted|locked|akira|8base)$
   min_stages_satisfied: 1
   response:
     ask_user: true
@@ -822,6 +873,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0018
   name: '[HIGH] Ransomware IO Pattern - Intermittent encryption write-rename cadence'
   description: 'Detects ransomware-style file I/O behavior: intermittent encryption write-rename cadence.'
@@ -870,9 +922,10 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0019
   name: '[HIGH] Ransomware IO Pattern - Partial overwrite of many user files'
   description: 'Detects ransomware-style file I/O behavior: partial overwrite of many user files.'
@@ -916,9 +969,10 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0020
   name: '[HIGH] Ransomware IO Pattern - Ransom note fan-out'
   description: 'Detects ransomware-style file I/O behavior: ransom note fan-out.'
@@ -948,7 +1002,7 @@
     conditions:
     - type: File
       op: write
-      path_pattern: (?i).*(readme|restore|decrypt|how_to|RECOVER).*(txt|html|hta)$
+      path_pattern: (?i).*[\\/](readme|restore|decrypt|how_to|recover)[-_ ]?(my[-_ ]?)?files?.*\.(txt|html|hta)$
     - type: OperationCount
       op_type: write
       comparison: gte
@@ -957,9 +1011,10 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0021
   name: '[HIGH] Ransomware IO Pattern - LockBit style extension and note'
   description: 'Detects ransomware-style file I/O behavior: lockbit style extension and note.'
@@ -988,21 +1043,18 @@
   - name: Ransomware IO heuristic
     conditions:
     - type: MultiCondition
-      operator: any
+      operator: at_least
       require_same_source_pid: true
       conditions:
       - type: ExtensionPattern
         op_type: rename
         match_mode: Any
         patterns:
-        - '*.lockbit'
-        - '*.lockbit3'
-        - '*.abcd'
-        - '*.id-*'
+        - (?i)^\.?(lockbit|lockbit3|abcd|id-.+)$
       - type: File
         op: write
-        path_pattern: (?i).*Restore-My-Files.*\.txt$
-      min_matches: 1
+        path_pattern: (?i).*[\\/]Restore-My-Files.*\.txt$
+      min_matches: 2
   min_stages_satisfied: 1
   response:
     ask_user: true
@@ -1010,6 +1062,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0022
   name: '[HIGH] Ransomware IO Pattern - BlackCat/ALPHV extension and note'
   description: 'Detects ransomware-style file I/O behavior: blackcat/alphv extension and note.'
@@ -1038,21 +1091,18 @@
   - name: Ransomware IO heuristic
     conditions:
     - type: MultiCondition
-      operator: any
+      operator: at_least
       require_same_source_pid: true
       conditions:
       - type: ExtensionPattern
         op_type: rename
         match_mode: Any
         patterns:
-        - '*.alphv'
-        - '*.blackcat'
-        - '*.onion'
-        - '*.locked'
+        - (?i)^\.?(alphv|blackcat|onion|locked)$
       - type: File
         op: write
-        path_pattern: (?i).*RECOVER.*FILES.*\.(txt|html)$
-      min_matches: 1
+        path_pattern: (?i).*[\\/]RECOVER.*FILES.*\.(txt|html)$
+      min_matches: 2
   min_stages_satisfied: 1
   response:
     ask_user: true
@@ -1060,6 +1110,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-MED-0023
   name: '[MEDIUM] Ransomware IO Pattern - Mass office file rewrites'
   description: 'Detects ransomware-style file I/O behavior: mass office file rewrites.'
@@ -1091,13 +1142,7 @@
       op_type: write
       match_mode: Any
       patterns:
-      - '*.doc'
-      - '*.docx'
-      - '*.xls'
-      - '*.xlsx'
-      - '*.ppt'
-      - '*.pptx'
-      - '*.pdf'
+      - (?i)^\.?(doc|docx|xls|xlsx|ppt|pptx|pdf)$
     - type: OperationCount
       op_type: write
       comparison: gte
@@ -1108,6 +1153,8 @@
     deny_while_ask: true
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
 - rule_id: HD-ZT-MED-0024
   name: '[MEDIUM] Ransomware IO Pattern - Mass source-code file rewrites'
   description: 'Detects ransomware-style file I/O behavior: mass source-code file rewrites.'
@@ -1139,15 +1186,7 @@
       op_type: write
       match_mode: Any
       patterns:
-      - '*.cs'
-      - '*.cpp'
-      - '*.h'
-      - '*.py'
-      - '*.js'
-      - '*.ts'
-      - '*.java'
-      - '*.go'
-      - '*.rs'
+      - (?i)^\.?(cs|cpp|h|py|js|ts|java|go|rs)$
     - type: OperationCount
       op_type: write
       comparison: gte
@@ -1158,6 +1197,8 @@
     deny_while_ask: true
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
 - rule_id: HD-ZT-MED-0025
   name: '[MEDIUM] Ransomware IO Pattern - High entropy writes after archive staging'
   description: 'Detects ransomware-style file I/O behavior: high entropy writes after archive staging.'
@@ -1188,9 +1229,9 @@
     conditions:
     - type: ArchiveCreation
       extensions:
-      - .zip
-      - .7z
-      - .rar
+      - '.zip'
+      - '.7z'
+      - '.rar'
       min_size: 10485760
       in_temp: true
     - type: EntropyThreshold
@@ -1203,6 +1244,8 @@
     deny_while_ask: true
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
 - rule_id: HD-ZT-MED-0026
   name: '[MEDIUM] Ransomware IO Pattern - Rapid delete after unknown extension create'
   description: 'Detects ransomware-style file I/O behavior: rapid delete after unknown extension create.'
@@ -1239,17 +1282,15 @@
       op_type: create
       match_mode: Any
       patterns:
-      - '*.tmp'
-      - '*.locked'
-      - '*.encrypted'
-      - '*.crypt'
-      - '*.pay'
+      - (?i)^\.?(tmp|locked|encrypted|crypt|pay)$
   min_stages_satisfied: 1
   response:
     ask_user: true
     deny_while_ask: true
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0027
   name: '[HIGH] Credential Dumping - procdump dumps LSASS'
   description: 'Detects credential dumping behavior: procdump dumps lsass.'
@@ -1295,6 +1336,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0028
   name: '[HIGH] Credential Dumping - rundll32 comsvcs MiniDump LSASS'
   description: 'Detects credential dumping behavior: rundll32 comsvcs minidump lsass.'
@@ -1339,6 +1381,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0029
   name: '[HIGH] Credential Dumping - Task manager style LSASS dump'
   description: 'Detects credential dumping behavior: task manager style lsass dump.'
@@ -1385,6 +1428,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0030
   name: '[HIGH] Credential Dumping - nanodump/ppldump LSASS'
   description: 'Detects credential dumping behavior: nanodump/ppldump lsass.'
@@ -1430,6 +1474,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0031
   name: '[HIGH] Credential Dumping - reg save SAM SYSTEM SECURITY'
   description: 'Detects credential dumping behavior: reg save sam system security.'
@@ -1474,6 +1519,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0032
   name: '[HIGH] Credential Dumping - ntdsutil creates IFM dump'
   description: 'Detects credential dumping behavior: ntdsutil creates ifm dump.'
@@ -1518,6 +1564,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0033
   name: '[HIGH] Credential Dumping - vssadmin exposes NTDS shadow copy'
   description: 'Detects credential dumping behavior: vssadmin exposes ntds shadow copy.'
@@ -1564,6 +1611,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-HIGH-0034
   name: '[HIGH] Credential Dumping - credential API memory read chain'
   description: Detects OpenProcess plus memory-read or minidump behavior often used against LSASS.
@@ -1612,6 +1660,7 @@
     terminate_process: true
     notify_user: true
     record: true
+    quarantine: false
 - rule_id: HD-ZT-MED-0035
   name: '[MEDIUM] Persistence - schtasks creates hidden system task'
   description: 'Detects persistence behavior: schtasks creates hidden system task.'
@@ -1653,9 +1702,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0036
   name: '[MEDIUM] Persistence - PowerShell scheduled task registration'
   description: 'Detects persistence behavior: powershell scheduled task registration.'
@@ -1698,9 +1750,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0037
   name: '[MEDIUM] Persistence - WMI event filter persistence'
   description: 'Detects persistence behavior: wmi event filter persistence.'
@@ -1743,9 +1798,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0038
   name: '[MEDIUM] Persistence - Run key persistence'
   description: 'Detects persistence behavior: run key persistence.'
@@ -1788,9 +1846,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0039
   name: '[MEDIUM] Persistence - Startup folder dropped script'
   description: 'Detects persistence behavior: startup folder dropped script.'
@@ -1834,9 +1895,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0040
   name: '[MEDIUM] Persistence - service creation for persistence'
   description: 'Detects persistence behavior: service creation for persistence.'
@@ -1879,9 +1943,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0041
   name: '[MEDIUM] Persistence - BITS job persistence or download'
   description: 'Detects persistence behavior: bits job persistence or download.'
@@ -1924,9 +1991,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0042
   name: '[MEDIUM] Persistence - mshta remote script execution'
   description: 'Detects persistence behavior: mshta remote script execution.'
@@ -1968,9 +2038,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0043
   name: '[MEDIUM] Persistence - rundll32 JavaScript or scriptlet proxy'
   description: 'Detects persistence behavior: rundll32 javascript or scriptlet proxy.'
@@ -2012,9 +2085,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0044
   name: '[MEDIUM] Persistence - installutil/regsvr32 LOLBin persistence'
   description: 'Detects persistence behavior: installutil/regsvr32 lolbin persistence.'
@@ -2058,9 +2134,12 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
 - rule_id: HD-ZT-MED-0045
   name: '[MEDIUM] Suspicious Network Beaconing - Dynamic DNS beacon domain'
   description: 'Detects suspicious outbound network pattern: dynamic dns beacon domain.'
@@ -2085,7 +2164,19 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.duckdns.org'
+        - '*.ddns.net'
+        - '*.hopto.org'
+        - '*.no-ip.org'
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2104,16 +2195,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2149,7 +2246,19 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - pastebin.com
+        - '*.pastebin.com'
+        - raw.githubusercontent.com
+        - gist.githubusercontent.com
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2168,16 +2277,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2213,7 +2328,19 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - api.telegram.org
+        case_insensitive: true
+      regex:
+        pattern: .*/bot[0-9]{5,}:[A-Za-z0-9_-]{20,}/(sendMessage|sendDocument|getUpdates).*
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2232,16 +2359,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2277,7 +2410,20 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - discord.com
+        - discordapp.com
+        case_insensitive: true
+      regex:
+        pattern: .*/api/webhooks/[0-9]+/[A-Za-z0-9_-]+.*
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2296,16 +2442,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2342,7 +2494,17 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.trycloudflare.com'
+        - '*.cloudflareaccess.com'
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2361,16 +2523,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2404,7 +2572,18 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.ngrok-free.app'
+        - '*.ngrok.io'
+        - '*.ngrok.app'
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2423,16 +2602,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2466,7 +2651,16 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.torproject.org'
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2485,16 +2679,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2527,7 +2727,18 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - api.ipify.org
+        - ifconfig.me
+        - ipinfo.io
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2546,16 +2757,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2589,7 +2806,21 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.s3.amazonaws.com'
+        - '*.blob.core.windows.net'
+        - storage.googleapis.com
+        case_insensitive: true
+      regex:
+        pattern: .*(payload|update|stage|agent|client).*(exe|dll|ps1|bin).*
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2608,16 +2839,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
@@ -2654,7 +2891,15 @@
   false_positives:
   - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
   stages:
-  - name: Beaconing process context
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      regex:
+        pattern: .*(Mozilla/5\.0.{0,40}(bot|client|agent)|POST /gate|/api/checkin|beacon_id).*
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
     conditions:
     - type: ProcessTree
       parent_patterns:
@@ -2673,16 +2918,22 @@
       - '*\cscript.exe'
       - '*\mshta.exe'
       - '*\rundll32.exe'
-      - '*.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
       command_line_patterns:
-      - pattern: (?i).*(http|https|download|string|socket|webclient|invoke-webrequest|curl|wget).*
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
         is_regex: true
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
     notify_user: true
     record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
   protocol: https
   action: ask
   condition_logic: and
