@@ -1,0 +1,496 @@
+- rule_id: HD-ADV-0001
+  name: '[POLICY] Chromium Sandbox Disabled'
+  description: 'Detects and blocks Chromium-based browsers (Chrome, Edge, Brave) running with the --no-sandbox flag, which significantly increases the attack surface.'
+  enabled: true
+  severity: 70
+  level: high
+  tags:
+    - policy
+    - sandbox
+    - chromium
+  stages:
+    - name: Detect No-Sandbox Flag
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)(chrome|msedge|brave|vivaldi)\.exe'
+            - type: CommandLineMatch
+              pattern: '(?i)--no-sandbox'
+  response:
+    ask_user: false
+    terminate_process: true
+    notify_user: true
+    quarantine: false
+    status_access_denied: true
+
+- rule_id: HD-ADV-0002
+  name: '[EVASION] Mockingjay RWX Hijacking'
+  description: 'Detects the Mockingjay technique where an attacker exploits existing RWX sections in trusted DLLs to avoid memory allocation telemetry.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - mockingjay
+    - evasion
+    - injection
+  mitre_attack:
+    - T1055
+  stages:
+    - name: RWX Section Access
+      conditions:
+        - type: Api
+          functions:
+            - NtWriteVirtualMemory
+            - NtProtectVirtualMemory
+          arguments:
+            - name: protection
+              value: '0x40' # PAGE_EXECUTE_READWRITE
+    - name: Target Trusted Module
+      conditions:
+        - type: Process
+          op: contains
+          pattern: '(?i)(ntdll|kernel32|kernelbase|user32|gdi32)\.dll'
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0003
+  name: '[EVASION] Process Herpaderping Sequence'
+  description: 'Detects Process Herpaderping by monitoring the sequence of mapping a file, modifying it, and then creating a thread.'
+  enabled: true
+  severity: 100
+  level: critical
+  tags:
+    - herpaderping
+    - evasion
+  mitre_attack:
+    - T1364
+  stages:
+    - name: Initial Image Mapping
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateSection
+          arguments:
+            - name: AllocationAttributes
+              value: '0x1000000' # SEC_IMAGE
+    - name: Post-Mapping Modification
+      conditions:
+        - type: File
+          op: write
+          path_pattern: '.*'
+    - name: Thread Execution from Mismatched Image
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateThreadEx
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0004
+  name: '[THREAT] Ransomware Canary - Rapid Header Encryption'
+  description: 'Detects rapid-fire write operations to the first 4KB of multiple files, a common pattern for header-only encryption.'
+  enabled: true
+  severity: 90
+  level: critical
+  tags:
+    - ransomware
+    - encryption
+  mitre_attack:
+    - T1486
+  stages:
+    - name: Header Write Burst
+      conditions:
+        - type: ByteThreshold
+          operation: write
+          offset_min: 0
+          offset_max: 4096
+          threshold: 20
+          window_ms: 2000
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0005
+  name: '[EVASION] Ghost Hunting - Direct Syscall via JMP/CALL'
+  description: 'Detects direct syscalls made via JMP or CALL gadgets outside of ntdll, specifically targeting stealthy shellcode.'
+  enabled: true
+  severity: 100
+  level: critical
+  tags:
+    - ghost-hunting
+    - syscall
+    - evasion
+  mitre_attack:
+    - T1055
+  stages:
+    - name: SanctumGhost Telemetry
+      conditions:
+        - type: SanctumGhost
+          functions:
+            - NtAllocateVirtualMemory
+            - NtProtectVirtualMemory
+            - NtCreateThreadEx
+            - NtWriteVirtualMemory
+          verify_indirect: true
+          check_return_address: true
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0006
+  name: '[STEALTH] ETW Blinding via NtTraceControl'
+  description: 'Detects attempts to disable Event Tracing for Windows (ETW) sessions, a common technique to blind EDR/AV solutions.'
+  enabled: true
+  severity: 85
+  level: high
+  tags:
+    - blinding
+    - etw
+    - evasion
+  mitre_attack:
+    - T1562.006
+  stages:
+    - name: Stop ETW Session
+      conditions:
+        - type: Api
+          functions:
+            - NtTraceControl
+          arguments:
+            - name: ControlCode
+              value: '1' # EVENT_TRACE_CONTROL_STOP
+  response:
+    notify_user: true
+    record: true
+    ask_user: true
+
+- rule_id: HD-ADV-0007
+  name: '[INJECTION] Remote Thread in System Process'
+  description: 'Detects thread injection into critical system processes like lsass.exe, winlogon.exe, or csrss.exe.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - injection
+    - system
+  mitre_attack:
+    - T1055.002
+  stages:
+    - name: Create Remote Thread
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateThreadEx
+    - name: Target System Process
+      conditions:
+        - type: Process
+          op: contains
+          pattern: '(?i)(lsass|winlogon|csrss|smss|services)\.exe'
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0008
+  name: '[EVASION] Module Stomping Detection'
+  description: 'Detects Module Stomping by monitoring writes to the code section of a legitimately loaded module.'
+  enabled: true
+  severity: 90
+  level: critical
+  tags:
+    - injection
+    - module-stomping
+  mitre_attack:
+    - T1055.001
+  stages:
+    - name: Modify Module Protection
+      conditions:
+        - type: Api
+          functions:
+            - NtProtectVirtualMemory
+          arguments:
+            - name: protection
+              value: '0x40'
+    - name: Write to Module
+      conditions:
+        - type: Api
+          functions:
+            - NtWriteVirtualMemory
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0009
+  name: '[EXFILTRATION] Suspicious Large Data Outbound'
+  description: 'Detects large data transfers to external IP addresses from non-browser processes.'
+  enabled: true
+  severity: 80
+  level: high
+  tags:
+    - exfiltration
+    - network
+  mitre_attack:
+    - T1041
+  stages:
+    - name: Large Outbound Transfer
+      conditions:
+        - type: NetworkCondition
+          op: and
+          conditions:
+            - type: ByteThreshold
+              operation: write
+              threshold: 10485760 # 10MB
+              window_ms: 60000
+            - type: Localhost
+              value: false
+    - name: Exclude Browsers
+      conditions:
+        - type: Process
+          op: not_contains
+          pattern: '(?i)(chrome|msedge|firefox|brave)\.exe'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0010
+  name: '[CREDENTIAL] SAM/SECURITY Hive Export'
+  description: 'Detects attempts to export SAM or SECURITY registry hives, used for offline credential cracking.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - credentials
+    - registry
+  mitre_attack:
+    - T1003.002
+  stages:
+    - name: Export Hive
+      conditions:
+        - type: Api
+          functions:
+            - NtSaveKey
+            - NtSaveKeyEx
+    - name: Check Hive Path
+      conditions:
+        - type: MultiCondition
+          op: or
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)SAM'
+            - type: Process
+              op: contains
+              pattern: '(?i)SECURITY'
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0011
+  name: '[PRIVACY] Unauthorized Screen Capture Detection'
+  description: 'Detects unauthorized screenshot and screen recording activity by monitoring GDI (BitBlt) and DXGI (Desktop Duplication) capture behaviors from non-whitelisted processes.'
+  enabled: true
+  severity: 85
+  level: high
+  tags:
+    - privacy
+    - screenshot
+    - exfiltration
+  mitre_attack:
+    - T1113
+  stages:
+    - name: DXGI Desktop Duplication Init
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '.exe'
+            - type: ExtensionPattern
+              blacklist:
+                - 'dxgi.dll'
+    - name: Capture Sequence
+      conditions:
+        - type: OperationCount
+          operation: BitBlt
+          threshold: 1
+          window_ms: 1000
+    - name: Exclude Trusted Tools
+      conditions:
+        - type: Process
+          op: not_contains
+          pattern: '(?i)(obs64|zoom|teams|discord|skype|webex)\.exe'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+    status_access_denied: true
+
+- rule_id: HD-ADV-0012
+  name: '[RANSOMWARE] Volume Shadow Copy Deletion (vssadmin)'
+  description: 'Detects attempts to delete Volume Shadow Copies using vssadmin.exe or wmic, a hallmark of ransomware preparing for encryption.'
+  enabled: true
+  severity: 100
+  level: critical
+  tags:
+    - ransomware
+    - vss
+    - exfiltration
+  mitre_attack:
+    - T1490
+  stages:
+    - name: Detect VSS Deletion Command
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)(vssadmin|wmic)\.exe'
+            - type: CommandLineMatch
+              pattern: '(?i)(delete shadows|shadowcopy delete)'
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0013
+  name: '[EVASION] Security Service Termination'
+  description: 'Detects attempts to stop or disable critical security services (WinDefend, Sense, MpsSvc).'
+  enabled: true
+  severity: 90
+  level: critical
+  tags:
+    - evasion
+    - services
+    - blinding
+  mitre_attack:
+    - T1562.001
+  stages:
+    - name: Stop Service Command
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)(net|sc)\.exe'
+            - type: CommandLineMatch
+              pattern: '(?i)(stop|config.*start= disabled) (WinDefend|Sense|MpsSvc|WdNisSvc)'
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+    ask_user: true
+
+- rule_id: HD-ADV-0014
+  name: '[PERSISTENCE] Suspicious RunKey Modification'
+  description: 'Detects unauthorized additions to Startup Run keys in the registry from non-installer processes.'
+  enabled: true
+  severity: 75
+  level: high
+  tags:
+    - persistence
+    - registry
+  mitre_attack:
+    - T1547.001
+  stages:
+    - name: Registry Write to RunKey
+      conditions:
+        - type: Api
+          functions:
+            - NtSetValueKey
+    - name: Target RunKey Path
+      conditions:
+        - type: MultiCondition
+          op: or
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+            - type: Process
+              op: contains
+              pattern: '(?i)SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+    - name: Exclude Trusted Installers
+      conditions:
+        - type: Process
+          op: not_contains
+          pattern: '(?i)(msiexec|setup|install)\.exe'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0015
+  name: '[STEALTH] Reflective DLL Loading Pattern'
+  description: 'Detects memory allocation and thread creation patterns typical of reflective DLL injection.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - injection
+    - stealth
+  mitre_attack:
+    - T1620
+  stages:
+    - name: Allocate RWX Memory
+      conditions:
+        - type: Api
+          functions:
+            - NtAllocateVirtualMemory
+          arguments:
+            - name: protection
+              value: '0x40'
+    - name: Write to Allocated Memory
+      conditions:
+        - type: Api
+          functions:
+            - NtWriteVirtualMemory
+    - name: Execute via StartRoutine
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateThreadEx
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0016
+  name: '[EXFILTRATION] DNS Tunneling Pattern'
+  description: 'Detects high-frequency DNS queries for unusual subdomains, potentially indicating DNS tunneling.'
+  enabled: true
+  severity: 80
+  level: high
+  tags:
+    - network
+    - exfiltration
+    - dns
+  mitre_attack:
+    - T1071.004
+  stages:
+    - name: High Frequency DNS
+      conditions:
+        - type: OperationCount
+          operation: DnsQuery
+          threshold: 50
+          window_ms: 10000
+    - name: Target Domain Entropy
+      conditions:
+        - type: EntropyThreshold
+          threshold: 4.5
+  response:
+    notify_user: true
+    record: true
+    ask_user: true
