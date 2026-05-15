@@ -28,12 +28,15 @@ VOID AmsiScanCommandLine(_In_ ULONG ProcessId, _In_ PCUNICODE_STRING CommandLine
     }
 
     // Convert command line to lowercase for case-insensitive matching
-    WCHAR* lowerBuffer = (WCHAR*)ExAllocatePoolWithTag(NonPagedPool, CommandLine->Length + sizeof(WCHAR), 'isma');
+    WCHAR* lowerBuffer = (WCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, CommandLine->Length + sizeof(WCHAR), 'isma');
     if (lowerBuffer == NULL) return;
 
     RtlCopyMemory(lowerBuffer, CommandLine->Buffer, CommandLine->Length);
     lowerBuffer[CommandLine->Length / sizeof(WCHAR)] = L'\0';
-    _wcslwr(lowerBuffer);
+    // Lowercase in-place using the WDK-safe helper (no CRT dependency).
+    ULONG const charCount = CommandLine->Length / sizeof(WCHAR);
+    for (ULONG i = 0; i < charCount; i++)
+        lowerBuffer[i] = RtlDowncaseUnicodeChar(lowerBuffer[i]);
 
     BOOLEAN matchFound = FALSE;
     for (ULONG i = 0; i < RTL_NUMBER_OF(g_AmsiBypassPatterns); i++) {
