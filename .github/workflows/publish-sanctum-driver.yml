@@ -79,131 +79,14 @@ jobs:
             Write-Host "Warning: Could not find rust-driver-makefile.toml at $sourceFile"
           }
 
-      - name: Build and Sign Driver
-        id: build_driver
+      - name: Build and Sign Driver (with ELAM Hash Sync)
         working-directory: Sanctum/driver
         shell: pwsh
         run: |
-          $driverBuildProfile = "release"
-          $driverPackagePath = "target\$driverBuildProfile\sanctum_package\sanctum.sys"
+          ./update_hash.ps1 -Profile release
+          $hash = Get-Content "sanctum_elam_hash.txt" -Raw
+          echo "elam_hash=$hash" >> $env:GITHUB_OUTPUT
 
-          function Invoke-Native {
-            param(
-              [Parameter(Mandatory = $true)][string]$Command,
-              [string[]]$Arguments = @()
-            )
-            & $Command @Arguments
-            if ($LASTEXITCODE -ne 0) {
-              $argText = $Arguments -join " "
-              throw "Command failed with exit code ${LASTEXITCODE}: $Command $argText"
-            }
-          }
-
-          function Restore-WdkMakefile {
-            New-Item -ItemType Directory -Force -Path "target" | Out-Null
-            Invoke-Native "cargo" @("fetch")
-
-            $metadataJson = & cargo metadata --format-version 1
-            if ($LASTEXITCODE -ne 0) {
-              throw "Command failed with exit code ${LASTEXITCODE}: cargo metadata --format-version 1"
-            }
-
-            $metadata = $metadataJson | ConvertFrom-Json
-            $wdkBuildManifest = $metadata.packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path
-            if (-not $wdkBuildManifest) {
-              throw "Could not find wdk-build in cargo metadata."
-            }
-
-            $sourceFile = Join-Path (Split-Path $wdkBuildManifest) "rust-driver-makefile.toml"
-            $destFile = "target\rust-driver-makefile.toml"
-            if (-not (Test-Path $sourceFile)) {
-              throw "Could not find rust-driver-makefile.toml at $sourceFile"
-            }
-
-            Write-Host "Copying $sourceFile to $destFile"
-            Copy-Item $sourceFile $destFile -Force
-          }
-
-          function Assert-DriverPackage {
-            param([Parameter(Mandatory = $true)][string]$Stage)
-            if (-not (Test-Path -LiteralPath $driverPackagePath -PathType Leaf)) {
-              throw "Driver package not found after $Stage`: $driverPackagePath"
-            }
-          }
-
-          Restore-WdkMakefile
-
-          Write-Host "`n=== Step 1: Initial driver build ($driverBuildProfile) ==="
-          Invoke-Native "cargo" @("make", $driverBuildProfile)
-          Assert-DriverPackage "initial build"
-
-          Write-Host "`n=== Step 2: Signing driver with sign.bat $driverBuildProfile ==="
-          Invoke-Native ".\sign.bat" @($driverBuildProfile)
-          Assert-DriverPackage "initial signing"
-
-          Write-Host "`n=== Step 4: Extracting To-Be-Signed Hash ==="
-          $certOutput = & certmgr.exe -v $driverPackagePath
-          if ($LASTEXITCODE -ne 0) {
-            throw "Command failed with exit code ${LASTEXITCODE}: certmgr.exe -v $driverPackagePath"
-          }
-          $hashLines = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,8
-
-          if ($hashLines) {
-            $hashBytes = New-Object System.Collections.Generic.List[string]
-            foreach ($line in $hashLines[0].Context.PostContext) {
-              # certmgr prints a hex dump plus an ASCII column; never include the ASCII column.
-              $byteArea = ($line -split "'", 2)[0]
-              $byteMatches = [regex]::Matches($byteArea, '(?i)(?<![0-9a-f])[0-9a-f]{2}(?![0-9a-f])') | Select-Object -First 16
-              foreach ($byteMatch in $byteMatches) {
-                if ($hashBytes.Count -lt 32) {
-                  $hashBytes.Add($byteMatch.Value.ToUpperInvariant())
-                }
-              }
-            
-              if ($hashBytes.Count -ge 32) {
-                break
-              }
-            }
-            
-            if ($hashBytes.Count -ne 32) {
-              throw "Expected 32 SHA256 bytes for ELAM To-Be-Signed hash, got $($hashBytes.Count). Raw certmgr context: $($hashLines[0].Context.PostContext -join ' | ')"
-            }
-            
-            $hash = -join $hashBytes
-            if ($hash -notmatch '^[0-9A-F]{64}$') {
-              throw "Extracted hash is not a 64-character SHA256 hex string: $hash"
-            }
-            Write-Host "Extracted hash: $hash"
-
-            $buildRsPath = "build.rs"
-            $content = Get-Content $buildRsPath -Raw
-            $pattern = 'L"[^"]*",\s*// To-Be-Signed Hash'
-            
-            if ($content -notmatch $pattern) {
-              throw "Could not find ELAM To-Be-Signed Hash line in build.rs. Pattern: $pattern"
-            }
-
-            # Robust replacement using PowerShell -replace operator
-            $newContent = $content -replace $pattern, "L`"$hash\0`", // To-Be-Signed Hash"
-            [System.IO.File]::WriteAllText((Resolve-Path $buildRsPath), $newContent, [System.Text.UTF8Encoding]::new($false))
-            Write-Host "Updated build.rs with hash: $hash (Pattern matched successfully)"
-
-            Write-Host "`n=== Step 5: Rebuilding with correct hash ($driverBuildProfile) ==="
-            Invoke-Native "cargo" @("clean")
-            Restore-WdkMakefile
-            Invoke-Native "cargo" @("make", $driverBuildProfile)
-            Assert-DriverPackage "hash rebuild"
-
-            Write-Host "`n=== Step 6: Final signing with sign.bat $driverBuildProfile ==="
-            Invoke-Native ".\sign.bat" @($driverBuildProfile)
-            Assert-DriverPackage "final signing"
-            Write-Host "`n=== SUCCESS: Driver built and signed with matching hash ==="
-            Set-Content -Path "sanctum_elam_hash.txt" -Value $hash -NoNewline
-            echo "elam_hash=$hash" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Host "ERROR: Could not extract hash from certificate"
-            exit 1
-          }
 
       - name: Stage Driver
         shell: pwsh

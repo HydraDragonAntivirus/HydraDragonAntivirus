@@ -939,14 +939,19 @@ static BOOLEAN IsChromiumInvalidHandleProbeHookFunction(_In_z_ PCSTR FunctionNam
         return FALSE;
 
     //
-    // Chromium/WebView2 sandbox code intentionally calls NtQueryObject on
-    // handles that may already be invalid and catches STATUS_INVALID_HANDLE as
-    // normal control flow.  Hooking that query path while our notification path
-    // also depends on a target-process file handle makes the hook transport race
-    // the exact thing being inspected.  Keep this exact: do not broaden it to
-    // native aliases or other handle APIs without a crash trace proving it.
+    // Chromium/WebView2 sandbox code intentionally calls NtQueryObject and 
+    // NtQueryInformationProcess (via GetProcessId) on handles that may already 
+    // be invalid and catches STATUS_INVALID_HANDLE as normal control flow.  
+    // Hooking that query path while our notification path also depends on a 
+    // target-process file handle makes the hook transport race the exact thing 
+    // being inspected.
     //
-    return EqualsInsensitiveA(FunctionName, "NtQueryObject");
+    if (EqualsInsensitiveA(FunctionName, "NtQueryObject"))
+        return TRUE;
+    if (EqualsInsensitiveA(FunctionName, "NtQueryInformationProcess"))
+        return TRUE;
+
+    return FALSE;
 }
 
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
