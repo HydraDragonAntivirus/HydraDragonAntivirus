@@ -104,8 +104,8 @@ fn classify_wintrust_result(path: &Path, result: i32) -> SignatureStatus {
 }
 
 pub fn verify_signature(path: &Path) -> SignatureInfo {
-    let mut raw_hresult = 0u32;
-    let mut status = SignatureStatus::VerificationFailed;
+    let raw_hresult: u32;
+    let mut status: SignatureStatus;
     let mut signer_name = None;
 
     unsafe {

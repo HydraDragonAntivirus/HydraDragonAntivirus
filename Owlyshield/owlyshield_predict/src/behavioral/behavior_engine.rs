@@ -2496,7 +2496,7 @@ impl BehaviorEngine {
 
     /// Ingest a telemetry event from Sanctum EDR.
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub fn ingest_sanctum_event(&self, event: &serde_json::Value) {
+    pub fn ingest_sanctum_event(&mut self, event: &serde_json::Value) {
         let pid = event["pid"].as_u64().unwrap_or(0) as u32;
         let source = event["source"].as_str().unwrap_or("-");
         let function = event["function"].as_str().unwrap_or("-");
@@ -2534,7 +2534,7 @@ impl BehaviorEngine {
         if source == "sanctum_veh" {
             let gid = self.find_gid_by_pid(pid).unwrap_or(0);
             if gid != 0 {
-                if let Some(mut state) = self.process_states.get_mut(&gid) {
+                if let Some(state) = self.process_states.get_mut(&gid) {
                     let res = crate::behavioral::amsi::AmsiAnalysisResult {
                         risk_level: crate::behavioral::amsi::AmsiRiskLevel::Critical,
                         detected_patterns: vec![format!("VEH_ABUSE: {}", function)],

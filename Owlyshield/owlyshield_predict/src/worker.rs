@@ -1373,9 +1373,7 @@ pub mod worker_instance {
             feature = "behavior_engine",
             feature = "sanctum"
         ))]
-        pub fn start_sanctum_telemetry_pipe(behavior_engine: BehaviorEngine) {
-            let engine_clone = behavior_engine;
-
+        pub fn start_sanctum_telemetry_pipe(mut behavior_engine: BehaviorEngine) {
             std::thread::Builder::new()
                 .name("sanctum_telemetry_pipe".to_string())
                 .spawn(move || {
@@ -1471,7 +1469,7 @@ pub mod worker_instance {
                                             || source == "DETECTION";
 
                                         // 1. Telemetry Ingestion (Other codes) - handled by behavior engine
-                                        engine_clone.ingest_sanctum_event(&event);
+                                        behavior_engine.ingest_sanctum_event(&event);
 
                                         // 2. Detection Handling - moved to Worker level
                                         if is_detection {

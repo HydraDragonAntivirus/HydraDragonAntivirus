@@ -1,7 +1,5 @@
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use std::collections::BTreeSet;
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -12,8 +10,6 @@ use std::thread;
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::app_settings::AppSettings;
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::behavioral::behavior_engine::BehaviorRule;
 use crate::config::Param;
 use crate::connectors::register::Connectors;
 use crate::shared_def::IOMessage;
