@@ -1259,8 +1259,8 @@ fn is_real_api_observation(raw: &str) -> bool {
     (has_path_qualifier || has_lowercase) && !has_underscore
 }
 
-fn is_benign_hypervisor_failure_status(operation_status: i32) -> bool {
-    matches!(operation_status as u32, 0xC0000008 | 0x80070006)
+fn is_benign_hypervisor_failure_status(operation_status: i32, is_acg_enabled: bool) -> bool {
+    is_acg_enabled && matches!(operation_status as u32, 0xC0000008 | 0x80070006)
 }
 
 fn is_hook_error_status(operation_status: i32) -> bool {
@@ -1272,6 +1272,7 @@ fn is_actionable_hypervisor_event(
     raw: &str,
     raw_event_type: u32,
     operation_status: i32,
+    is_acg_enabled: bool,
 ) -> bool {
     if !is_kernel_api_irp(irp_op) {
         return false;
@@ -1280,7 +1281,7 @@ fn is_actionable_hypervisor_event(
     // Benign handle-race fallout from GUI/WebView/browser lifetime churn should
     // stay visible in low-level telemetry, but must not contaminate behavioral
     // API history or trigger higher-level detections.
-    if is_benign_hypervisor_failure_status(operation_status) {
+    if is_benign_hypervisor_failure_status(operation_status, is_acg_enabled) {
         return false;
     }
 
@@ -1478,7 +1479,7 @@ pub struct ProcessBehaviorState {
     pub dll_load_details: Vec<DllLoadInfo>,
 
     // Chromium Detection
-    pub is_chromium: bool,
+    pub is_acg_enabled: bool,
 }
 
 /// Detailed information about a DLL load operation
@@ -1557,7 +1558,7 @@ impl ProcessBehaviorState {
         state.dll_load_details = Vec::new();
 
         // Initialize Chromium detection
-        state.is_chromium = false;
+        state.is_acg_enabled = false;
 
         state
     }
@@ -1724,6 +1725,7 @@ impl ProcessBehaviorState {
             &event_name,
             raw_event_type,
             operation_status,
+            msg.kernel_event_info.is_acg_enabled,
         );
 
         if !is_api_event || actionable_hypervisor_event {
@@ -2013,11 +2015,11 @@ impl ProcessBehaviorState {
             }
         }
 
-        // Chromium Detection - Update process state
-        if msg.kernel_event_info.is_chromium && !self.is_chromium {
-            self.is_chromium = true;
+        // ACG Detection - Update process state
+        if msg.kernel_event_info.is_acg_enabled && !self.is_acg_enabled {
+            self.is_acg_enabled = true;
             Logging::info(&format!(
-                "[CHROMIUM DETECTED] PID {} - Process identified as Chromium-based: {}",
+                "[ACG ENABLED] PID {} - Process has Arbitrary Code Guard (ACG) enabled: {}",
                 msg.pid, self.app_name
             ));
         }
@@ -5003,6 +5005,7 @@ impl BehaviorEngine {
             &event_name,
             raw_event_type,
             event.operation_status,
+            msg.kernel_event_info.is_acg_enabled,
         ) {
             return false;
         }
@@ -5622,6 +5625,7 @@ impl BehaviorEngine {
             &current_event_name,
             current_raw_event_type,
             current_operation_status,
+            msg.kernel_event_info.is_acg_enabled,
         );
         let mut current_event_apis = HashSet::new();
         if is_kernel_api_irp(&current_irp_kind)

@@ -18,11 +18,11 @@ typedef struct _PID_ENTRY {
     LIST_ENTRY entry;
     PUNICODE_STRING Path;
     ULONG Pid;
-    BOOLEAN IsChromium;
+    BOOLEAN IsAcgEnabled;
     _PID_ENTRY() {
         Pid = 0;
         Path = nullptr;
-        IsChromium = FALSE;
+        IsAcgEnabled = FALSE;
         entry.Flink = nullptr;
         entry.Blink = nullptr;
     }

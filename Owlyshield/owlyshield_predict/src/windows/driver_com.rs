@@ -621,7 +621,7 @@ pub struct CKernelEventInfo {
     pub is_api_based_load: c_uchar, // BOOLEAN
 
     // Chromium Detection
-    pub is_chromium: c_uchar, // BOOLEAN
+    pub is_acg_enabled: c_uchar, // BOOLEAN
 
     // AMSI Detection
     pub is_amsi_event: c_uchar,
@@ -750,7 +750,7 @@ impl CKernelEventInfo {
             },
             is_api_based_load: self.is_api_based_load != 0,
             // Chromium Detection
-            is_chromium: self.is_chromium != 0,
+            is_acg_enabled: self.is_acg_enabled != 0,
             // AMSI Detection
             is_amsi_event: self.is_amsi_event != 0,
             amsi_content_sample: if self.is_amsi_event != 0 && self.amsi_content_sample[0] != 0 {

@@ -369,7 +369,7 @@ ULONGLONG DriverData::RecordNewProcess(
 
     pStrct->Pid = ProcessId;
     pStrct->Path = ProcessName;
-    pStrct->IsChromium = FALSE;
+    pStrct->IsAcgEnabled = FALSE;
     if (gid) {  // there is Gid — child inherits parent's GID
         PidToGids.insertNode(ProcessId, (HANDLE)gid);
         InsertHeadList(&(gidRecord->HeadListPids), &(pStrct->entry));
@@ -558,7 +558,7 @@ BOOLEAN DriverData::CopyProcessPathByPid(
     return found;
 }
 
-VOID DriverData::SetProcessIsChromium(ULONG ProcessId, BOOLEAN IsChromium)
+VOID DriverData::SetProcessIsAcgEnabled(ULONG ProcessId, BOOLEAN IsAcgEnabled)
 {
     KIRQL oldIrql;
     KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
@@ -577,7 +577,7 @@ VOID DriverData::SetProcessIsChromium(ULONG ProcessId, BOOLEAN IsChromium)
                     (PPID_ENTRY)CONTAINING_RECORD(iterator, PID_ENTRY, entry);
                 if (pStrct->Pid == ProcessId)
                 {
-                    pStrct->IsChromium = IsChromium;
+                    pStrct->IsAcgEnabled = IsAcgEnabled;
                     break;
                 }
                 iterator = iterator->Flink;
@@ -588,9 +588,9 @@ VOID DriverData::SetProcessIsChromium(ULONG ProcessId, BOOLEAN IsChromium)
     KeReleaseSpinLock(&GIDSystemLock, oldIrql);
 }
 
-BOOLEAN DriverData::GetProcessIsChromium(ULONG ProcessId)
+BOOLEAN DriverData::GetProcessIsAcgEnabled(ULONG ProcessId)
 {
-    BOOLEAN isChromium = FALSE;
+    BOOLEAN isAcgEnabled = FALSE;
     KIRQL oldIrql;
     KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
 
@@ -608,7 +608,7 @@ BOOLEAN DriverData::GetProcessIsChromium(ULONG ProcessId)
                     (PPID_ENTRY)CONTAINING_RECORD(iterator, PID_ENTRY, entry);
                 if (pStrct->Pid == ProcessId)
                 {
-                    isChromium = pStrct->IsChromium;
+                    isAcgEnabled = pStrct->IsAcgEnabled;
                     break;
                 }
                 iterator = iterator->Flink;
@@ -617,7 +617,7 @@ BOOLEAN DriverData::GetProcessIsChromium(ULONG ProcessId)
     }
 
     KeReleaseSpinLock(&GIDSystemLock, oldIrql);
-    return isChromium;
+    return isAcgEnabled;
 }
 
 //clear all data related to Gid system

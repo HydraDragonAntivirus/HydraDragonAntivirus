@@ -933,27 +933,6 @@ static BOOLEAN EqualsInsensitiveA(_In_z_ PCSTR Value, _In_z_ PCSTR Literal)
     return RtlEqualString(&valueString, &literalString, TRUE);
 }
 
-static BOOLEAN IsChromiumInvalidHandleProbeHookFunction(_In_z_ PCSTR FunctionName)
-{
-    if (FunctionName == NULL || FunctionName[0] == '\0')
-        return FALSE;
-
-    //
-    // Chromium/WebView2 sandbox code intentionally calls NtQueryObject and 
-    // NtQueryInformationProcess (via GetProcessId) on handles that may already 
-    // be invalid and catches STATUS_INVALID_HANDLE as normal control flow.  
-    // Hooking that query path while our notification path also depends on a 
-    // target-process file handle makes the hook transport race the exact thing 
-    // being inspected.
-    //
-    if (EqualsInsensitiveA(FunctionName, "NtQueryObject"))
-        return TRUE;
-    if (EqualsInsensitiveA(FunctionName, "NtQueryInformationProcess"))
-        return TRUE;
-
-    return FALSE;
-}
-
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 {
     HOOK_CONFIG_DATA normalizedConfig;
@@ -3839,25 +3818,44 @@ DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef-
 // 32-bit counterpart to ResolveAndHook.  Uses the 32-bit PEB LDR to find
 // the module and the 32-bit PE export table to resolve the function.
 // -------------------------------------------------------------------------
-static BOOLEAN IsChromiumBasedHookProcess(_In_ PEPROCESS Process, _In_ BOOLEAN IsWow64)
-{
-    static const PCWSTR kChromiumModules[] = {
-        L"chrome_elf.dll",
-        L"msedge_elf.dll",
-        L"libcef.dll",
-        L"chrome.dll",
-        L"msedge.dll",
-    };
+#ifndef ProcessMitigationPolicy
+#define ProcessMitigationPolicy ((PROCESSINFOCLASS)52)
+#endif
 
-    if (Process == NULL)
+typedef struct _PROCESS_MITIGATION_DYNAMIC_CODE_POLICY {
+    union {
+        ULONG Flags;
+        struct {
+            ULONG ProhibitDynamicCode : 1;
+            ULONG AllowThreadOptOut : 1;
+            ULONG AllowRemoteDowngrade : 1;
+            ULONG AuditProhibitDynamicCode : 1;
+            ULONG ReservedFlags : 28;
+        };
+    };
+} PROCESS_MITIGATION_DYNAMIC_CODE_POLICY, *PPROCESS_MITIGATION_DYNAMIC_CODE_POLICY;
+
+extern "C" volatile QUERY_INFO_PROCESS ZwQueryInformationProcess;
+
+static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
+{
+    if (ZwQueryInformationProcess == NULL)
         return FALSE;
 
-    for (ULONG i = 0; i < RTL_NUMBER_OF(kChromiumModules); ++i)
-    {
-        if (FindModuleBaseAddress(Process, kChromiumModules[i], NULL) != NULL)
-            return TRUE;
+    HANDLE hProcess = NULL;
+    NTSTATUS status = ObOpenObjectByPointer(Process, OBJ_KERNEL_HANDLE, NULL, PROCESS_QUERY_INFORMATION, NULL, KernelMode, &hProcess);
+    if (!NT_SUCCESS(status) || hProcess == NULL)
+        return FALSE;
 
-        if (IsWow64 && FindModuleBaseAddress32(Process, kChromiumModules[i], NULL) != NULL)
+    PROCESS_MITIGATION_DYNAMIC_CODE_POLICY policy = {0};
+    ULONG retLen = 0;
+    
+    status = ZwQueryInformationProcess(hProcess, ProcessMitigationPolicy, &policy, sizeof(policy), &retLen);
+    ZwClose(hProcess);
+
+    if (NT_SUCCESS(status))
+    {
+        if (policy.ProhibitDynamicCode)
             return TRUE;
     }
 
@@ -3867,10 +3865,14 @@ static BOOLEAN IsChromiumBasedHookProcess(_In_ PEPROCESS Process, _In_ BOOLEAN I
 static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_z_ PCSTR FunctionName,
                                                 _In_ BOOLEAN IsWow64)
 {
-    if (!IsChromiumInvalidHandleProbeHookFunction(FunctionName))
-        return FALSE;
+    UNREFERENCED_PARAMETER(Process);
+    UNREFERENCED_PARAMETER(FunctionName);
+    UNREFERENCED_PARAMETER(IsWow64);
 
-    return IsChromiumBasedHookProcess(Process, IsWow64);
+    // We do NOT skip hooking ACG processes anymore. 
+    // We want the telemetry. The user-mode Behavior Engine will ignore
+    // STATUS_INVALID_HANDLE evasion if the process has ACG enabled.
+    return FALSE;
 }
 
 NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
@@ -4436,13 +4438,13 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
         // so that KERNEL_EVENT_INFO can be accurately populated during hooks.
         if (driverData != NULL)
         {
-            BOOLEAN isChromium = IsChromiumBasedHookProcess(process, hookEntry->IsWow64);
-            driverData->SetProcessIsChromium(ProcessId, isChromium);
+            BOOLEAN isAcgEnabled = IsProcessAcgEnabled(process);
+            driverData->SetProcessIsAcgEnabled(ProcessId, isAcgEnabled);
             
 #if IS_DEBUG_IRP
-            if (isChromium)
+            if (isAcgEnabled)
             {
-                DbgPrint("UserModeHook: PID %lu identified as Chromium-based\n", ProcessId);
+                DbgPrint("UserModeHook: PID %lu has ACG enabled\n", ProcessId);
             }
 #endif
         }

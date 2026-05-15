@@ -618,7 +618,7 @@ static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item, _In_ ULONG E
     Item->KernelEventInfo.SourceProcessId = SourcePid;
     Item->KernelEventInfo.TargetProcessId = TargetPid;
     Item->KernelEventInfo.OperationStatus = STATUS_SUCCESS;
-    Item->KernelEventInfo.IsChromium = (driverData != NULL) ? driverData->GetProcessIsChromium(SourcePid) : FALSE;
+    Item->KernelEventInfo.IsAcgEnabled = (driverData != NULL) ? driverData->GetProcessIsAcgEnabled(SourcePid) : FALSE;
 }
 
 static VOID SetKernelEventObjectName(_Inout_ PDRIVER_MESSAGE Item, _In_opt_z_ PCWSTR EventName)

@@ -934,7 +934,7 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     }
     
     // Chromium Detection
-    newEntry->Message.KernelEventInfo.IsChromium = EventDetails->IsChromium;
+    newEntry->Message.KernelEventInfo.IsAcgEnabled = EventDetails->IsAcgEnabled;
 
     if (EventDetails->EventName != NULL && EventDetails->EventName[0] != L'\0')
     {

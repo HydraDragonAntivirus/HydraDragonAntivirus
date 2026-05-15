@@ -74,7 +74,7 @@ typedef struct _OWLY_HV_EVENT_DETAILS
     BOOLEAN IsApiBasedLoad;
     
     // Chromium Detection
-    BOOLEAN IsChromium;
+    BOOLEAN IsAcgEnabled;
 } OWLY_HV_EVENT_DETAILS, *POWLY_HV_EVENT_DETAILS;
 
 // Independent hypervisor event queue for VMM bridge (C callable).

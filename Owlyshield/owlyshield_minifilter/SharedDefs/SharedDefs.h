@@ -456,8 +456,8 @@ typedef struct _KERNEL_EVENT_INFO
     WCHAR LoadedDllPath[MAX_FILE_NAME_LENGTH];
     BOOLEAN IsApiBasedLoad; // TRUE if loaded via API (LoadLibrary), FALSE if direct load
     
-    // Chromium Detection - Process identification at kernel level
-    BOOLEAN IsChromium;
+    // ACG Detection - Dynamic Code Policy at kernel level
+    BOOLEAN IsAcgEnabled;
 
     // AMSI Detection
     BOOLEAN IsAmsiEvent;

@@ -116,11 +116,11 @@ class DriverData {
         _Out_writes_z_(OutCch) PWCHAR OutBuffer,
         _In_ SIZE_T OutCch);
 
-    // Sets the IsChromium flag for a tracked process
-    VOID SetProcessIsChromium(ULONG ProcessId, BOOLEAN IsChromium);
+    // Sets the IsAcgEnabled flag for a tracked process
+    VOID SetProcessIsAcgEnabled(ULONG ProcessId, BOOLEAN IsAcgEnabled);
 
-    // Retrieves the IsChromium flag for a tracked process
-    BOOLEAN GetProcessIsChromium(ULONG ProcessId);
+    // Retrieves the IsAcgEnabled flag for a tracked process
+    BOOLEAN GetProcessIsAcgEnabled(ULONG ProcessId);
 
     //clear all data related to Gid system
     VOID ClearGidsPids();
