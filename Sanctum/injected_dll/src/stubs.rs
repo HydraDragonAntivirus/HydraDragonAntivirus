@@ -42,6 +42,8 @@ pub fn nt_open_process(
                     target_pid,
                     desired_mask: desired_access,
                 }),
+                0,
+                [0; 16],
             ));
 
             // send the telemetry to the engine
@@ -105,7 +107,7 @@ pub fn virtual_alloc_ex(
             protect_flags: protect,
         });
 
-        let syscall = DLLMessage::SyscallWrapper(Syscall::from_sanctum_dll(pid, data));
+        let syscall = DLLMessage::SyscallWrapper(Syscall::from_sanctum_dll(pid, data, 0, [0; 16]));
 
         send_ipc_to_engine(syscall);
     }
@@ -165,6 +167,8 @@ pub fn nt_write_virtual_memory(
             base_address: base_addr_as_usize,
             buf_len: buf_len_as_usize,
         }),
+        0,
+        [0; 16],
     );
 
     send_ipc_to_engine(DLLMessage::SyscallWrapper(data));
@@ -292,6 +296,8 @@ pub fn nt_create_thread_ex_intercept(
                 start_routine: start_routine as usize,
                 argument: arg as usize,
             }),
+            0,
+            [0; 16],
         );
 
         send_ipc_to_engine(DLLMessage::SyscallWrapper(data));

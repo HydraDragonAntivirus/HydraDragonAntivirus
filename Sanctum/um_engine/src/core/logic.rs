@@ -91,11 +91,9 @@ fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBy
 fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt) {
     use std::io::Write;
 
-    let hex_str = hunt.hex_payload.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-
     let line = format!(
         "{{\"pid\":{},\"source\":\"sanctum_ghost\",\"function\":\"{}\",\"address\":{},\"hex\":\"{}\",\"args\":{{}}}}\n",
-        hunt.pid, hunt.syscall_name, hunt.address, hex_str
+        hunt.pid, hunt.syscall_name, hunt.address, hunt.hex_payload
     );
 
     if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {

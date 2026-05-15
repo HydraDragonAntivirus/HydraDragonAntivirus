@@ -2,7 +2,7 @@
 #include "FSfilter.h"
 #include <ntstrsafe.h>
 
-extern COwlyshieldRansomFilter* driverData;
+extern DriverData* driverData;
 
 // Heuristic signatures for AMSI bypass detection (lower-case)
 static const PCWSTR g_AmsiBypassPatterns[] = {
