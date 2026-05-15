@@ -25,6 +25,8 @@ impl AmsiRiskLevel {
 pub struct AmsiAnalysisResult {
     pub risk_level: AmsiRiskLevel,
     pub detected_patterns: Vec<String>,
+    #[serde(default)]
+    pub source: String,
 }
 
 #[derive(Clone)]
@@ -58,10 +60,11 @@ impl AmsiAnalyzer {
         Self::default()
     }
 
-    pub fn analyze(&self, content: &str) -> AmsiAnalysisResult {
+    pub fn analyze(&self, content: &str, source: &str) -> AmsiAnalysisResult {
         let mut result = AmsiAnalysisResult {
             risk_level: AmsiRiskLevel::None,
             detected_patterns: Vec::new(),
+            source: source.to_string(),
         };
 
         let lower_content = content.to_lowercase();

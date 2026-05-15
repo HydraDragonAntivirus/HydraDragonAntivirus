@@ -32,4 +32,12 @@ pub struct AmsiBypassAttempt {
     pub offending_address: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GhostHunt {
+    pub pid: u32,
+    pub syscall_name: String,
+    pub address: u64,
+    pub hex_payload: String, // String for easier JSON serialization of hex
+}
+
 pub type ImageLoadQueues = BTreeSet<usize>;

@@ -2506,6 +2506,8 @@ impl BehaviorEngine {
             || event["function"] == "DETECTION"
             || source == "DETECTION";
 
+        let gid = self.find_gid_by_pid(pid).unwrap_or(0);
+
         // Register the PID as network-active if Sanctum observes
         // suspicious cross-process operations (NtOpenProcess etc.)
         // so firewall and behavior rules can correlate.
@@ -2524,22 +2526,53 @@ impl BehaviorEngine {
             )
         {
             self.firewall_net_pids.write().unwrap().insert(pid);
+            if gid != 0 {
+                if let Some(state) = self.process_states.get_mut(&gid) {
+                    state.detected_apis.insert(function.to_string());
+                }
+            }
             Logging::warning(&format!(
                 "[SanctumTelemetry] Suspicious syscall from PID {}: {}",
                 pid, function
             ));
         }
 
-        // Handle AMSI bypass attempts from Sanctum (VEH abuse etc.)
-        if source == "sanctum_veh" {
-            let gid = self.find_gid_by_pid(pid).unwrap_or(0);
+        // Handle AMSI and EDR bypass attempts from Sanctum (VEH abuse, ETW-TI, Ghost Hunting, etc.)
+        if source == "sanctum_veh" || source == "etw_ti" || source == "syscall_hook" || source == "sanctum_ghost" {
             if gid != 0 {
                 if let Some(state) = self.process_states.get_mut(&gid) {
-                    let res = crate::behavioral::amsi::AmsiAnalysisResult {
-                        risk_level: crate::behavioral::amsi::AmsiRiskLevel::Critical,
-                        detected_patterns: vec![format!("VEH_ABUSE: {}", function)],
+                    let (risk, pattern) = match source {
+                        "sanctum_veh" => (
+                            crate::behavioral::amsi::AmsiRiskLevel::Critical,
+                            format!("VEH_ABUSE: {}", function)
+                        ),
+                        "etw_ti" => {
+                            let is_suspicious = args["suspicious"].as_bool().unwrap_or(false);
+                            if is_suspicious {
+                                (crate::behavioral::amsi::AmsiRiskLevel::High, format!("ETW_TI_SUSPICIOUS: {}", function))
+                            } else {
+                                (crate::behavioral::amsi::AmsiRiskLevel::Medium, format!("ETW_TI: {}", function))
+                            }
+                        },
+                        "syscall_hook" => (
+                            crate::behavioral::amsi::AmsiRiskLevel::Medium,
+                            format!("SYSCALL_HOOK: {}", function)
+                        ),
+                        "sanctum_ghost" => (
+                            crate::behavioral::amsi::AmsiRiskLevel::Critical,
+                            format!("DIRECT_SYSCALL: {}", function)
+                        ),
+                        _ => (crate::behavioral::amsi::AmsiRiskLevel::None, String::new()),
                     };
-                    state.amsi_results.push(res);
+
+                    if risk != crate::behavioral::amsi::AmsiRiskLevel::None {
+                        let res = crate::behavioral::amsi::AmsiAnalysisResult {
+                            risk_level: risk,
+                            detected_patterns: vec![pattern],
+                            source: source.to_string(),
+                        };
+                        state.amsi_results.push(res);
+                    }
                 }
             }
         }
@@ -2552,6 +2585,30 @@ impl BehaviorEngine {
             );
             stats.syscall_count += 1;
             stats.is_detection |= is_detection;
+
+            // Handle forensic syscall telemetry (Ghost Hunting)
+            if source == "sanctum_ghost" {
+                let caller_address = args["caller_address"].as_u64().unwrap_or(0);
+                let hex_payload = args["hex"].as_str().unwrap_or("").to_string();
+                
+                if caller_address != 0 || !hex_payload.is_empty() {
+                    stats.ghost_telemetry.push(crate::realtime_learning::api_tracker::SanctumGhostTelemetry {
+                        function: function.to_string(),
+                        caller_address,
+                        hex_payload: hex_payload.clone(),
+                        timestamp_ms: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    });
+
+                    // Cap telemetry to prevent memory bloat
+                    if stats.ghost_telemetry.len() > 100 {
+                        stats.ghost_telemetry.remove(0);
+                    }
+                }
+            }
+
             stats.last_event = Some(format!(
                 "{} - {}",
                 function,
@@ -5220,36 +5277,33 @@ impl BehaviorEngine {
             state.record_irp_operation(msg, irp_op_byte);
         }
 
+        let state = self.process_states.get_mut(&gid).unwrap();
+        if state.command_line.is_empty() && !msg.runtime_features.command_line.trim().is_empty() {
+            state.command_line = msg.runtime_features.command_line.to_lowercase();
+        }
+        let pid = state.pid;
+
         // Run AMSI analysis if this is an AMSI event
         if msg.kernel_event_info.is_amsi_event && !msg.kernel_event_info.amsi_content_sample.is_empty() {
-            let amsi_res = self.amsi_analyzer.analyze(&msg.kernel_event_info.amsi_content_sample);
-            if let Some(state) = self.process_states.get_mut(&gid) {
-                state.amsi_results.push(amsi_res);
-                
-                // If critical threat, log it immediately
-                if matches!(state.amsi_results.last().map(|r| &r.risk_level), Some(crate::behavioral::amsi::AmsiRiskLevel::Critical | crate::behavioral::amsi::AmsiRiskLevel::High)) {
-                    Logging::warning(&format!("[AMSI] High-risk script content detected in process GID {} ({}). Patterns: {:?}", 
-                        gid, msg.filepathstr, state.amsi_results.last().unwrap().detected_patterns));
+            let amsi_res = self.amsi_analyzer.analyze(&msg.kernel_event_info.amsi_content_sample, "kernel");
+            state.amsi_results.push(amsi_res);
+            
+            // Log all AMSI detections for visibility
+            if let Some(last_res) = state.amsi_results.last() {
+                if last_res.risk_level > crate::behavioral::amsi::AmsiRiskLevel::None {
+                    Logging::warning(&format!("[AMSI][{}] {:?} risk script content detected in process GID {} ({}) [Cmd: {}]. Patterns: {:?}", 
+                        last_res.source, last_res.risk_level, gid, msg.filepathstr, state.command_line, last_res.detected_patterns));
                 }
             }
         }
 
-        let dev_norm = normalize_device_prefix(&msg.filepathstr);
-        let filepath = dev_norm.to_lowercase().replace("\\", "/");
-        let norm_filepath = filepath.trim_end_matches('/');
-
-        let state = self.process_states.get_mut(&gid).unwrap();
-        let pid = state.pid;
-        if state.command_line.is_empty() && !msg.runtime_features.command_line.trim().is_empty() {
-            state.command_line = msg.runtime_features.command_line.to_lowercase();
-            if state.script_file.is_empty() {
-                if let Some((fname, fpath)) = Self::extract_script_from_cmdline(
-                    &state.app_name,
-                    &msg.runtime_features.command_line,
-                ) {
-                    state.script_file = fname;
-                    state.script_file_path = fpath;
-                }
+        if state.script_file.is_empty() {
+            if let Some((fname, fpath)) = Self::extract_script_from_cmdline(
+                &state.app_name,
+                &state.command_line,
+            ) {
+                state.script_file = fname;
+                state.script_file_path = fpath;
             }
         }
 
@@ -5376,6 +5430,10 @@ impl BehaviorEngine {
                 }
             }
         }
+
+        let filepath = msg.filepathstr.clone();
+        let norm_filepath = filepath.to_lowercase().replace("\\", "/");
+        let norm_filepath = norm_filepath.trim_end_matches('/');
 
         // === STEP 5: UPDATE NAMED CONDITIONS STATE ===
         self.update_named_conditions_state(precord, gid, msg, &irp_op, &filepath);
@@ -7349,6 +7407,15 @@ impl BehaviorEngine {
                         if s.sanctum_stats.suspicious_syscall_hits.len() > 50 {
                             s.sanctum_stats.suspicious_syscall_hits.remove(0);
                         }
+
+                        // Sync forensic Ghost Hunting telemetry
+                        for ghost in stats.ghost_telemetry {
+                            s.sanctum_stats.ghost_telemetry.push(ghost);
+                        }
+                        if s.sanctum_stats.ghost_telemetry.len() > 100 {
+                            let drain = s.sanctum_stats.ghost_telemetry.len() - 100;
+                            s.sanctum_stats.ghost_telemetry.drain(0..drain);
+                        }
                     }
                 }
                 if let Ok(mut openedr_lock) = self.openedr_stats.write() {
@@ -8042,12 +8109,84 @@ impl BehaviorEngine {
                         }
                     }
 
-                    RuleCondition::Amsi { risk_at_least } => {
-                        let required_risk = crate::behavioral::amsi::AmsiRiskLevel::from_str(risk_at_least);
-                        condition_matched = state
-                            .amsi_results
-                            .iter()
-                            .any(|res| res.risk_level >= required_risk);
+                    RuleCondition::Amsi {
+                        risk_at_least,
+                        patterns,
+                        source,
+                        cmdline_patterns,
+                    } => {
+                        let required_risk = if let Some(risk_str) = risk_at_least {
+                            crate::behavioral::amsi::AmsiRiskLevel::from_str(risk_str)
+                        } else {
+                            crate::behavioral::amsi::AmsiRiskLevel::None
+                        };
+
+                        condition_matched = state.amsi_results.iter().any(|res| {
+                            let risk_ok = res.risk_level >= required_risk;
+                            let source_ok = if let Some(src) = source {
+                                res.source.contains(src)
+                            } else {
+                                true
+                            };
+                            let patterns_ok = if !patterns.is_empty() {
+                                patterns.iter().any(|p| {
+                                    res.detected_patterns
+                                        .iter()
+                                        .any(|dp| dp.contains(p))
+                                })
+                            } else {
+                                true
+                            };
+                            let cmdline_ok = if !cmdline_patterns.is_empty() {
+                                cmdline_patterns.iter().any(|p: &String| {
+                                    state.command_line.contains(&p.to_lowercase())
+                                })
+                            } else {
+                                true
+                            };
+                            risk_ok && source_ok && patterns_ok && cmdline_ok
+                        });
+                    }
+                    RuleCondition::SanctumGhost {
+                        functions,
+                        caller_address_patterns,
+                        hex_patterns,
+                        min_matches,
+                    } => {
+                        let mut match_count = 0;
+                        for ghost in &state.sanctum_stats.ghost_telemetry {
+                            let func_ok = if functions.is_empty() {
+                                true
+                            } else {
+                                functions.iter().any(|f| ghost.function.contains(f))
+                            };
+
+                            let addr_ok = if caller_address_patterns.is_empty() {
+                                true
+                            } else {
+                                let addr_hex = format!("{:X}", ghost.caller_address);
+                                caller_address_patterns.iter().any(|p| {
+                                    Self::matches_pattern_internal(&self.regex_cache, p, &addr_hex)
+                                })
+                            };
+
+                            let hex_ok = if hex_patterns.is_empty() {
+                                true
+                            } else {
+                                hex_patterns.iter().any(|p| {
+                                    Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        p,
+                                        &ghost.hex_payload,
+                                    )
+                                })
+                            };
+
+                            if func_ok && addr_ok && hex_ok {
+                                match_count += 1;
+                            }
+                        }
+                        condition_matched = match_count >= *min_matches;
                     }
                     _ => condition_matched = false,
                 }

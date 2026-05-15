@@ -61,9 +61,19 @@ pub struct ApiTracker {
 
 #[cfg(all(target_os = "windows", feature = "sanctum"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SanctumGhostTelemetry {
+    pub function: String,
+    pub caller_address: u64,
+    pub hex_payload: String,
+    pub timestamp_ms: u64,
+}
+
+#[cfg(all(target_os = "windows", feature = "sanctum"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SanctumOperationStats {
     pub syscall_count: usize,
     pub suspicious_syscall_hits: Vec<String>,
+    pub ghost_telemetry: Vec<SanctumGhostTelemetry>,
     pub injection_score: f32,
     pub cross_process_handle_count: usize,
     pub shellcode_patterns_found: bool,

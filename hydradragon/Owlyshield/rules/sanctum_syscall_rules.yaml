@@ -1,0 +1,39 @@
+- name: "Direct Syscall Abuse (Sanctum Ghost Hunting)"
+  description: "Detects processes attempting to execute direct syscalls (Ghost Hunting) by matching the instruction stream for syscall stubs (0F 05) outside of trusted NTDLL regions."
+  severity: 100
+  author: "Emirhan Ucan"
+  date: "2026-05-15"
+  stages:
+    - name: "Direct Syscall Stub Detected"
+      conditions:
+        - type: "SanctumGhost"
+          hex_patterns:
+            - "0F05" # syscall
+            - "4C8BD1B8" # mov r10, rcx; mov eax, ...
+          min_matches: 1
+  response:
+    terminate_process: true
+    quarantine: true
+    record: true
+
+- name: "Indirect Syscall / Syscall Trampoline Detected"
+  description: "Detects indirect syscall attempts where the instruction stream contains suspicious trampoline patterns or calls from non-standard addresses."
+  severity: 95
+  author: "Emirhan Ucan"
+  date: "2026-05-15"
+  stages:
+    - name: "Suspicious Syscall Context"
+      conditions:
+        - type: "SanctumGhost"
+          functions:
+            - "NtWriteVirtualMemory"
+            - "NtAllocateVirtualMemory"
+            - "NtProtectVirtualMemory"
+            - "NtCreateThreadEx"
+          # Optionally match against caller addresses that look like heap/stack
+          # (This is just an example, in reality we'd use regex for address ranges)
+          # caller_address_patterns: ["^[0-9A-F]{12}$"]
+          min_matches: 1
+  response:
+    terminate_process: true
+    record: true

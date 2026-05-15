@@ -1507,7 +1507,24 @@ pub enum RuleCondition {
         private_only: bool,
     },
     Amsi {
-        risk_at_least: String,
+        #[serde(default)]
+        risk_at_least: Option<String>,
+        #[serde(default)]
+        patterns: Vec<String>,
+        #[serde(default)]
+        cmdline_patterns: Vec<String>,
+        #[serde(default)]
+        source: Option<String>,
+    },
+    SanctumGhost {
+        #[serde(default)]
+        functions: Vec<String>,
+        #[serde(default)]
+        caller_address_patterns: Vec<String>,
+        #[serde(default)]
+        hex_patterns: Vec<String>,
+        #[serde(default)]
+        min_matches: usize,
     },
 }
 
@@ -2449,6 +2466,16 @@ impl BehaviorRule {
                         source_patterns, ..
                     } => expand_vec(source_patterns),
                     RuleCondition::MemoryScan { patterns, .. } => expand_vec(patterns),
+                    RuleCondition::SanctumGhost {
+                        functions,
+                        caller_address_patterns,
+                        hex_patterns,
+                        ..
+                    } => {
+                        expand_vec(functions);
+                        expand_vec(caller_address_patterns);
+                        expand_vec(hex_patterns);
+                    }
                     _ => {}
                 }
             }

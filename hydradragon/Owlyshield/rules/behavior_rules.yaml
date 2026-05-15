@@ -22,3 +22,4 @@
 !include ca_key_protection_rules.yaml
 !include comodo_leaktest_protection_rules.yaml
 !include critical_process_abuse_rules.yaml
+!include amsi_detection_rules.yaml

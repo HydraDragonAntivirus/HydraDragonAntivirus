@@ -26,7 +26,7 @@ const OWLYSHIELD_SANCTUM_PIPE: &str = r"\\.\pipe\HydraSanctumTelemetry";
 fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
     use std::io::Write;
 
-    // Build a simplified JSON payload: {pid, source, function, args}
+    // Build a simplified JSON payload: {pid, source, function, args, address, hex}
     let (source_str, function_name, args_json) = match &syscall.data {
         shared_no_std::ghost_hunting::NtFunction::NtOpenProcess(data) => (
             source_name(syscall.source),
@@ -61,9 +61,11 @@ fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
         shared_no_std::ghost_hunting::NtFunction::None => return, // skip empty
     };
 
+    let hex_str = syscall.hex_payload.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+
     let line = format!(
-        "{{\"pid\":{},\"source\":\"{}\",\"function\":\"{}\",\"args\":{}}}\n",
-        syscall.pid, source_str, function_name, args_json
+        "{{\"pid\":{},\"source\":\"{}\",\"function\":\"{}\",\"address\":{},\"hex\":\"{}\",\"args\":{}}}\n",
+        syscall.pid, source_str, function_name, syscall.caller_address, hex_str, args_json
     );
 
     if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
@@ -78,6 +80,22 @@ fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBy
     let line = format!(
         "{{\"pid\":{},\"source\":\"sanctum_veh\",\"function\":\"{}\",\"args\":{{\"offending_address\":{}}}}}\n",
         attempt.pid, attempt.function_name, attempt.offending_address
+    );
+
+    if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
+        let _ = pipe.write_all(line.as_bytes());
+    }
+}
+
+/// Forward a Ghost Hunting detection (direct/indirect syscall abuse) to Owlyshield.
+fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt) {
+    use std::io::Write;
+
+    let hex_str = hunt.hex_payload.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+
+    let line = format!(
+        "{{\"pid\":{},\"source\":\"sanctum_ghost\",\"function\":\"{}\",\"address\":{},\"hex\":\"{}\",\"args\":{{}}}}\n",
+        hunt.pid, hunt.syscall_name, hunt.address, hex_str
     );
 
     if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
@@ -234,6 +252,11 @@ impl Core {
                 // Forward AMSI bypass attempts to Owlyshield
                 for attempt in &driver_messages.amsi_bypass_attempts {
                     forward_amsi_bypass_to_owlyshield(attempt);
+                }
+
+                // Forward Ghost Hunting (direct syscall) detections to Owlyshield
+                for hunt in &driver_messages.ghost_hunts {
+                    forward_ghost_hunt_to_owlyshield(hunt);
                 }
             }
 

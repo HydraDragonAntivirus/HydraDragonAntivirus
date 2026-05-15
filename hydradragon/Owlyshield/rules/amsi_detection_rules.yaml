@@ -1,0 +1,63 @@
+- name: "AMSI Bypass and Malicious Script Execution"
+  description: "Detects processes attempting to subvert AMSI or executing scripts with high-risk patterns like amsiutils, amsiinitfailed, or reflection-based bypasses."
+  severity: 90
+  author: "Emirhan Ucan"
+  date: "2026-05-15"
+  stages:
+    - name: "AMSI High-Risk Content"
+      conditions:
+        - type: "Amsi"
+          risk_at_least: "High"
+  response:
+    terminate_process: true
+    record: true
+- name: "AMSI Critical Threat Detected"
+  description: "Detects critical AMSI alerts from the kernel or predictive engine where script content is highly malicious."
+  severity: 100
+  author: "Antigravity"
+  date: "2026-05-15"
+  stages:
+    - name: "AMSI Critical Content"
+      conditions:
+        - type: "Amsi"
+          risk_at_least: "Critical"
+  response:
+    terminate_process: true
+    quarantine: true
+    record: true
+
+- name: "Sanctum VEH AMSI Bypass Detected"
+  description: "Detects hardware-breakpoint based AMSI bypass attempts specifically flagged by Sanctum EDR monitoring."
+  severity: 100
+  author: "Emirhan Ucan"
+  date: "2026-05-15"
+  stages:
+    - name: "Sanctum VEH Bypass"
+      conditions:
+        - type: "Amsi"
+          source: "sanctum_veh"
+          patterns:
+            - "VEH_ABUSE"
+  response:
+    terminate_process: true
+    quarantine: true
+    record: true
+- name: "AMSI Suspicious Command Line Arguments"
+  description: "Detects AMSI events where the process command line contains suspicious bypass or obfuscation parameters."
+  severity: 85
+  author: "Emirhan Ucan"
+  date: "2026-05-15"
+  stages:
+    - name: "Suspicious AMSI Process"
+      conditions:
+        - type: "Amsi"
+          risk_at_least: "Medium"
+          cmdline_patterns:
+            - "-enc"
+            - "-encodedcommand"
+            - "-hidden"
+            - "-noprofile"
+            - "-windowstyle hidden"
+  response:
+    terminate_process: true
+    record: true

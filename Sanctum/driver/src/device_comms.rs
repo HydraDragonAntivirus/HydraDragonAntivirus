@@ -136,6 +136,21 @@ impl DriverMessagesWithMutex {
         }
     }
 
+    /// Add a new Ghost Hunt detection to the queue.
+    pub fn add_ghost_hunt_to_queue(&mut self, data: shared_no_std::driver_ipc::GhostHunt) {
+        let irql = unsafe { KeGetCurrentIrql() };
+        if irql > APC_LEVEL as u8 {
+            println!("[sanctum] [-] IRQL is above APC_LEVEL: {}", irql);
+            return;
+        }
+
+        {
+            let mut lock = self.data.lock().unwrap();
+            lock.is_empty = false;
+            lock.ghost_hunts.push(data);
+        }
+    }
+
     /// Extract all data out of the queue if there is data.
     ///
     /// # Returns
@@ -177,6 +192,7 @@ impl DriverMessagesWithMutex {
             .append(&mut q.process_terminations);
         lock.handles.append(&mut q.handles);
         lock.amsi_bypass_attempts.append(&mut q.amsi_bypass_attempts);
+        lock.ghost_hunts.append(&mut q.ghost_hunts);
 
         // IMPORTANT NOTE: As well as adding a new field to the below (compile time checked) you ALSO must
         // add the field to the above append instructions.
@@ -186,6 +202,7 @@ impl DriverMessagesWithMutex {
             process_terminations: lock.process_terminations.clone(),
             handles: lock.handles.clone(),
             amsi_bypass_attempts: lock.amsi_bypass_attempts.clone(),
+            ghost_hunts: lock.ghost_hunts.clone(),
             is_empty: false,
         });
 

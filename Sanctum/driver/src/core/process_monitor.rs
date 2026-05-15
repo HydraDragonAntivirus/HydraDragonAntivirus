@@ -267,6 +267,8 @@ pub struct GhostHuntingTimer {
     pub event_type: NtFunction,
     /// todo update docs
     pub origin: SyscallEventSource,
+    pub caller_address: u64,
+    pub hex_payload: [u8; 16],
 }
 
 impl ReportInfo for GhostHuntingTimer {
@@ -283,6 +285,21 @@ impl ReportInfo for GhostHuntingTimer {
     fn event_type() -> ReportEventType {
         ReportEventType::GhostHunt
     }
+}
+
+pub fn respond_to_gh_timer_expiry(pid: u32, timer: &GhostHuntingTimer) {
+    let ptr = crate::DRIVER_MESSAGES.load(Ordering::SeqCst);
+    if !ptr.is_null() {
+        let messages = unsafe { &mut *ptr };
+        messages.add_ghost_hunt_to_queue(shared_no_std::driver_ipc::GhostHunt {
+            pid,
+            syscall_name: format!("{:?}", timer.event_type),
+            address: timer.caller_address,
+            hex_payload: timer.hex_payload,
+        });
+    }
+
+    crate::response::contain_and_report(pid, timer);
 }
 
 impl core::fmt::Debug for GhostHuntingTimer {
@@ -496,6 +513,8 @@ impl ProcessMonitor {
                 timer_start: current_time,
                 event_type: signal.data,
                 origin: signal.source,
+                caller_address: signal.caller_address,
+                hex_payload: signal.hex_payload,
             });
         }
     }
@@ -558,7 +577,7 @@ impl ProcessMonitor {
 
         if !processes_to_terminate.is_empty() {
             for p in processes_to_terminate {
-                // respond_to_gh_timer_expiry(p.0, &p.1);
+                respond_to_gh_timer_expiry(p.0, &p.1);
             }
         }
     }
