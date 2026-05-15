@@ -5733,6 +5733,7 @@ impl BehaviorEngine {
                     !cond_group.parent_names.is_empty(),
                     has_cmdline_requirements,
                     cond_group.has_network_activity,
+                    cond_group.is_acg_enabled.is_some(),
                 ]
                 .into_iter()
                 .filter(|configured| *configured)
@@ -6718,6 +6719,7 @@ impl BehaviorEngine {
                     };
 
                     let network_ok = !cond_group.has_network_activity || network_activity_observed;
+                    let acg_ok = cond_group.is_acg_enabled.map_or(true, |expected| expected == state.is_acg_enabled);
 
                     if created_process_ok
                         && recent_payload_ok
@@ -6725,6 +6727,7 @@ impl BehaviorEngine {
                         && parent_ok
                         && cmdline_ok
                         && network_ok
+                        && acg_ok
                     {
                         matched = true;
                         let subject = if let Some(payload_path) = matched_artifact_path.as_ref() {
@@ -6741,6 +6744,17 @@ impl BehaviorEngine {
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - Process context match for PID {}: {}",
                             cond_name, state.pid, subject
+                        ));
+                    }
+                }
+
+                if !matched && !conjunctive_process_context && cond_group.is_acg_enabled.is_some() {
+                    let expected_acg = cond_group.is_acg_enabled.unwrap();
+                    if expected_acg == state.is_acg_enabled {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - ACG state match (expected={}) for PID {}",
+                            cond_name, expected_acg, state.pid
                         ));
                     }
                 }

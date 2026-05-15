@@ -620,7 +620,7 @@ pub struct CKernelEventInfo {
     pub loaded_dll_path: [wchar_t; 520],
     pub is_api_based_load: c_uchar, // BOOLEAN
 
-    // Chromium Detection
+    // ACG Detection
     pub is_acg_enabled: c_uchar, // BOOLEAN
 
     // AMSI Detection
@@ -749,7 +749,7 @@ impl CKernelEventInfo {
                 String::new()
             },
             is_api_based_load: self.is_api_based_load != 0,
-            // Chromium Detection
+            // ACG Detection
             is_acg_enabled: self.is_acg_enabled != 0,
             // AMSI Detection
             is_amsi_event: self.is_amsi_event != 0,

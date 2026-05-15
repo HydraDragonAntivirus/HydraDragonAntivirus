@@ -1,15 +1,20 @@
 - rule_id: HD-ADV-0001
-  name: '[POLICY] Chromium Sandbox Disabled'
-  description: 'Detects and blocks Chromium-based browsers (Chrome, Edge, Brave) running with the --no-sandbox flag, which significantly increases the attack surface.'
+  name: '[POLICY] Sandbox Disabled on ACG-Capable Browser'
+  description: >
+    Detects Chromium-based browsers (Chrome, Edge, Brave, Vivaldi) running with the
+    --no-sandbox flag. The engine verifies the process does NOT have Arbitrary Code Guard
+    (ACG) enabled, confirming the sandbox is genuinely bypassed rather than a legitimate
+    sandboxed child process that simply cannot generate dynamic code.
   enabled: true
   severity: 70
   level: high
   tags:
     - policy
     - sandbox
-    - chromium
+    - acg
+    - browser
   stages:
-    - name: Detect No-Sandbox Flag
+    - name: Detect No-Sandbox Flag with ACG Disabled
       conditions:
         - type: MultiCondition
           op: and
@@ -19,7 +24,8 @@
               pattern: '(?i)(chrome|msedge|brave|vivaldi)\.exe'
             - type: CommandLineMatch
               patterns:
-                - '(?i)--no-sandbox'
+                - pattern: '(?i)--no-sandbox'
+                  match_type: regex
   response:
     ask_user: true
     terminate_process: false

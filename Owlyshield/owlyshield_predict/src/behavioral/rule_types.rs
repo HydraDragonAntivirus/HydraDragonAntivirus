@@ -1695,6 +1695,8 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub created_processes: Vec<String>,
     #[serde(default)]
+    pub is_acg_enabled: Option<bool>,
+    #[serde(default)]
     pub detect_recently_written_payload_launch: bool,
     #[serde(default)]
     pub detect_self_termination: bool,
