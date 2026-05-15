@@ -440,7 +440,7 @@ This map covers the consolidated zero-trust behavioral rules generated from curr
 
 ## Consolidation Notes
 
-- `sanctum_syscall_rules.yaml` owns direct/indirect syscall, shellcode trampoline, injection chain, kernel tamper, and process ghosting/herpaderping detections.
-- `amsi_detection_rules.yaml` owns AMSI and PowerShell/.NET content detections, with wildcard and regex patterns evaluated against captured AMSI samples.
-- `zero_trust_behavior_rules.yaml` owns ransomware IO, recovery inhibition, credential access, persistence, and suspicious beaconing rules.
-- `behavior_rules.yaml` includes the consolidated files so the existing rule loader sees the expanded hierarchy.
+- `sanctum_syscall_rules_fixed.yaml` owns direct/indirect syscall, shellcode trampoline, injection chain, kernel tamper, and process ghosting/herpaderping detections.
+- `amsi_detection_rules_fixed.yaml` owns AMSI and PowerShell/.NET content detections, with wildcard and regex patterns evaluated against captured AMSI samples.
+- `zero_trust_behavior_rules_fixed.yaml` owns ransomware IO, recovery inhibition, credential access, persistence, and suspicious beaconing rules.
+- `behavior_rules_fixed.yaml` includes the consolidated files so the existing rule loader sees the expanded hierarchy.

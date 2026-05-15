@@ -93,7 +93,7 @@
       child_patterns:
       - '*\vssadmin.exe'
       command_line_patterns:
-      - pattern: '(?i)resize\s+shadowstorage.*(/maxsize=([1-9]|[1-9][0-9])mb|/maxsize=1%)'
+      - pattern: (?i)resize\s+shadowstorage.*(/maxsize=([1-9]|[1-9][0-9])mb|/maxsize=1%)
         is_regex: true
   min_stages_satisfied: 1
   response:
@@ -1229,9 +1229,9 @@
     conditions:
     - type: ArchiveCreation
       extensions:
-      - '.zip'
-      - '.7z'
-      - '.rar'
+      - .zip
+      - .7z
+      - .rar
       min_size: 10485760
       in_temp: true
     - type: EntropyThreshold

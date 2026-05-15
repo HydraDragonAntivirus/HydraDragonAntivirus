@@ -17,7 +17,7 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: &id001
+  references:
   - https://amsi.fail/
   - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
@@ -39,8 +39,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -63,7 +65,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -83,8 +87,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -107,7 +113,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -117,7 +125,7 @@
     - type: Amsi
       risk_at_least: Medium
       patterns:
-      - (?i)AmsiScan(Buffer|String)
+      - (?i)(GetProcAddress|GetDelegateForFunctionPointer|UnsafeNativeMethods).{0,160}AmsiScan(Buffer|String)|AmsiScan(Buffer|String).{0,160}(GetProcAddress|GetDelegateForFunctionPointer|UnsafeNativeMethods|VirtualProtect|patch)
       cmdline_patterns:
       - '*powershell*'
       - '*pwsh*'
@@ -127,8 +135,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -151,7 +161,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -161,7 +173,7 @@
     - type: Amsi
       risk_at_least: Medium
       patterns:
-      - (?i)AmsiOpenSession
+      - (?i)AmsiOpenSession.{0,160}(patch|VirtualProtect|Write(Int32|ProcessMemory)|Marshal|0xC3|0xB8)|(?:patch|VirtualProtect|Write(Int32|ProcessMemory)|Marshal|0xC3|0xB8).{0,160}AmsiOpenSession
       cmdline_patterns:
       - '*powershell*'
       - '*pwsh*'
@@ -171,8 +183,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -196,7 +210,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -206,7 +222,7 @@
     - type: Amsi
       risk_at_least: Medium
       patterns:
-      - (?i)amsi(Context|Session)
+      - (?i)(WriteInt32|PtrToStructure|Marshal|SetValue|zero|null|corrupt|overwrite).{0,160}amsi(Context|Session)|amsi(Context|Session).{0,160}(WriteInt32|PtrToStructure|Marshal|SetValue|zero|null|corrupt|overwrite)
       cmdline_patterns:
       - '*powershell*'
       - '*pwsh*'
@@ -216,8 +232,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -241,7 +259,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -261,8 +281,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -285,7 +307,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -305,8 +329,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -330,7 +356,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -350,8 +378,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -374,7 +404,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -394,8 +426,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -418,7 +452,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -428,7 +464,7 @@
     - type: Amsi
       risk_at_least: Medium
       patterns:
-      - (?i)LoadLibrary(A|W)?\(.{0,80}amsi\.dll
+      - (?i)LoadLibrary(A|W)?\(.{0,80}amsi\.dll.{0,220}(GetProcAddress|AmsiScanBuffer|VirtualProtect|patch)|(?:GetProcAddress|AmsiScanBuffer|VirtualProtect|patch).{0,220}LoadLibrary(A|W)?\(.{0,80}amsi\.dll
       cmdline_patterns:
       - '*powershell*'
       - '*pwsh*'
@@ -438,8 +474,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -462,7 +500,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -482,8 +522,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -506,7 +548,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -526,8 +570,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -539,7 +585,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -550,7 +596,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -560,7 +608,7 @@
     - type: Amsi
       risk_at_least: Medium
       patterns:
-      - (?i)\[Byte\[\]\].{0,80}(0x31|0x33|0xC3|195)
+      - (?i)(AmsiScanBuffer|ScanBuffer|amsi).{0,180}(\[Byte\[\]\]|0x31|0x33|0xC3|195)|(?:\[Byte\[\]\]|0x31|0x33|0xC3|195).{0,180}(AmsiScanBuffer|ScanBuffer|amsi)
       cmdline_patterns:
       - '*powershell*'
       - '*pwsh*'
@@ -572,7 +620,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0014
@@ -583,7 +633,7 @@
   severity_score: 88
   severity: 88
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -595,7 +645,9 @@
   mitre_attack:
   - T1027
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -605,7 +657,7 @@
     - type: Amsi
       risk_at_least: Medium
       patterns:
-      - (?i)ScriptBlockAst|AstInternal|InternalScriptExtent
+      - (?i)(ScriptBlockAst|AstInternal|InternalScriptExtent).{0,220}(Amsi|Bypass|Invoke-Expression|IEX|EncodedCommand|FromBase64String|obfuscat|replace)|(?:Amsi|Bypass|Invoke-Expression|IEX|EncodedCommand|FromBase64String|obfuscat|replace).{0,220}(ScriptBlockAst|AstInternal|InternalScriptExtent)
       cmdline_patterns:
       - '*powershell*'
       - '*pwsh*'
@@ -617,7 +669,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0015
@@ -629,7 +683,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -640,7 +694,9 @@
   - defense-evasion
   mitre_attack:
   - T1027
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -662,7 +718,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0016
@@ -674,7 +732,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -685,7 +743,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -707,7 +767,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0017
@@ -718,7 +780,7 @@
   severity_score: 88
   severity: 88
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -729,7 +791,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -751,7 +815,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0018
@@ -763,7 +829,7 @@
   severity_score: 92
   severity: 92
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -774,7 +840,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.006
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -796,7 +864,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0019
@@ -807,7 +877,7 @@
   severity_score: 88
   severity: 88
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -819,7 +889,9 @@
   mitre_attack:
   - T1620
   - T1027
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -841,7 +913,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0020
@@ -853,7 +927,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -865,7 +939,9 @@
   mitre_attack:
   - T1106
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -887,7 +963,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0021
@@ -899,7 +977,7 @@
   severity_score: 85
   severity: 85
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -910,7 +988,9 @@
   - defense-evasion
   mitre_attack:
   - T1106
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -920,7 +1000,7 @@
     - type: Amsi
       risk_at_least: Medium
       patterns:
-      - (?i)GetFunctionPointerForDelegate|GetDelegateForFunctionPointer
+      - (?i)(GetFunctionPointerForDelegate|GetDelegateForFunctionPointer).{0,220}(VirtualProtect|VirtualAlloc|CreateThread|Amsi|ScanBuffer|shellcode)|(?:VirtualProtect|VirtualAlloc|CreateThread|Amsi|ScanBuffer|shellcode).{0,220}(GetFunctionPointerForDelegate|GetDelegateForFunctionPointer)
       cmdline_patterns:
       - '*powershell*'
       - '*pwsh*'
@@ -932,7 +1012,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0022
@@ -944,7 +1026,7 @@
   severity_score: 88
   severity: 88
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -956,7 +1038,9 @@
   mitre_attack:
   - T1106
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -978,7 +1062,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0023
@@ -989,7 +1075,7 @@
   severity_score: 92
   severity: 92
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1000,7 +1086,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1022,7 +1110,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0024
@@ -1034,7 +1124,7 @@
   severity_score: 88
   severity: 88
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1045,7 +1135,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1067,7 +1159,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-CRIT-0025
@@ -1089,7 +1183,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1109,8 +1205,10 @@
       - '*rundll32*'
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1122,7 +1220,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1133,7 +1231,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1155,7 +1255,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0027
@@ -1166,7 +1268,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1177,7 +1279,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1199,7 +1303,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0028
@@ -1210,7 +1316,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1221,7 +1327,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1243,7 +1351,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0029
@@ -1254,7 +1364,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1266,7 +1376,9 @@
   mitre_attack:
   - T1027
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1288,7 +1400,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-MED-0030
@@ -1299,7 +1413,7 @@
   severity_score: 84
   severity: 84
   level: medium
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1310,7 +1424,9 @@
   - defense-evasion
   mitre_attack:
   - T1027
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1331,7 +1447,10 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0031
@@ -1343,7 +1462,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1354,7 +1473,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1376,7 +1497,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0032
@@ -1387,7 +1510,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1398,7 +1521,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.010
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1420,7 +1545,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0033
@@ -1431,7 +1558,7 @@
   severity_score: 88
   severity: 88
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1443,7 +1570,9 @@
   mitre_attack:
   - T1059.001
   - T1027
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1465,7 +1594,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0034
@@ -1477,7 +1608,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1489,7 +1620,9 @@
   mitre_attack:
   - T1027
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1499,7 +1632,7 @@
     - type: Amsi
       risk_at_least: Medium
       patterns:
-      - (?i)Reflection\.BindingFlags.{0,160}NonPublic.{0,80}Static
+      - (?i)(Reflection\.)?BindingFlags.{0,180}NonPublic.{0,120}Static.{0,220}(AmsiUtils|amsiInitFailed|amsiContext|amsiSession)|(?:AmsiUtils|amsiInitFailed|amsiContext|amsiSession).{0,220}(Reflection\.)?BindingFlags.{0,180}NonPublic.{0,120}Static
       cmdline_patterns:
       - '*powershell*'
       - '*pwsh*'
@@ -1511,7 +1644,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0035
@@ -1523,7 +1658,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1534,7 +1669,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1556,7 +1693,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-MED-0036
@@ -1568,7 +1707,7 @@
   severity_score: 75
   severity: 75
   level: medium
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1580,7 +1719,9 @@
   mitre_attack:
   - T1059.001
   - T1105
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1601,7 +1742,10 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-MED-0037
@@ -1613,7 +1757,7 @@
   severity_score: 82
   severity: 82
   level: medium
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1624,7 +1768,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1645,7 +1791,10 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0038
@@ -1657,7 +1806,7 @@
   severity_score: 94
   severity: 94
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1668,7 +1817,9 @@
   - defense-evasion
   mitre_attack:
   - T1562.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1690,7 +1841,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-HIGH-0039
@@ -1701,7 +1854,7 @@
   severity_score: 88
   severity: 88
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1713,7 +1866,9 @@
   mitre_attack:
   - T1620
   - T1055
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1735,7 +1890,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-AMSI-MED-0040
@@ -1747,7 +1904,7 @@
   severity_score: 78
   severity: 78
   level: medium
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1759,7 +1916,9 @@
   mitre_attack:
   - T1027
   - T1059.001
-  references: *id001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
   false_positives:
   - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
     malicious intent.
@@ -1780,6 +1939,9 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true

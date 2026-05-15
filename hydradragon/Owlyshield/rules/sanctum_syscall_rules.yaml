@@ -19,7 +19,7 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: &id001
+  references:
   - https://github.com/am0nsec/HellsGate
   - https://github.com/jthuraisamy/SysWhispers2
   - https://github.com/klezVirus/SysWhispers3
@@ -41,8 +41,10 @@
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -67,7 +69,12 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
@@ -83,8 +90,10 @@
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -109,21 +118,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)b8[0-9a-f]{8}0f05c3
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -148,21 +180,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)0f05c3
-      min_matches: 1
+      min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -187,21 +242,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)0f05c2[0-9a-f]{4}
-      min_matches: 1
+      min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -226,21 +304,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)4c8bd1b8[0-9a-f]{8}cd2e
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -265,21 +366,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)b8[0-9a-f]{8}0f34
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -304,21 +428,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)49bb[0-9a-f]{16}41ffe3
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -343,21 +490,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)4989ca49bb[0-9a-f]{16}41ffe3
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -382,21 +552,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)48b8[0-9a-f]{16}ffe0
-      min_matches: 1
+      min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -421,21 +614,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)ff25[0-9a-f]{8}
-      min_matches: 1
+      min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -460,21 +676,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)e9[0-9a-f]{8}.{0,32}0f05c3
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -499,21 +738,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)4c8bd1b8[0-9a-f]{8}e9[0-9a-f]{8}
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -538,21 +800,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)488d(05|15)[0-9a-f]{8}ff(e0|22)
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -577,21 +862,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)(4c8bd1b8[0-9a-f]{8}.{0,24}0f05c3.{0,64}){2,}
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -616,21 +924,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)4c8bd1b8[0-9a-f]{8}.{0,16}0f05.{0,16}(4883c4|c3)
       min_matches: 1
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -655,21 +986,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)(41ff(e3|d3)|ffe0|ffd0).{0,64}0f05c3
-      min_matches: 1
+      min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -694,21 +1048,44 @@
   mitre_attack:
   - T1055
   - T1562.001
-  references: *id001
+  references:
+  - https://github.com/am0nsec/HellsGate
+  - https://github.com/jthuraisamy/SysWhispers2
+  - https://github.com/klezVirus/SysWhispers3
+  - https://joasasantos-syswhispers4.mintlify.app/advanced/freshycalls
+  - https://www.elastic.co/docs/reference/integrations/endpoint
   false_positives:
   - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
   stages:
   - name: SanctumGhost regex shellcode pattern
     conditions:
     - type: SanctumGhost
-      functions: []
+      functions:
+      - NtAllocateVirtualMemory
+      - NtProtectVirtualMemory
+      - NtWriteVirtualMemory
+      - NtCreateThreadEx
+      - NtQueueApcThread
+      - NtCreateSection
+      - NtMapViewOfSection
+      - NtSetContextThread
+      - NtOpenProcess
+      - NtReadVirtualMemory
+      - NtLoadDriver
+      - NtSetSystemInformation
+      - RtlCreateUserThread
+      - CreateRemoteThread
+      - VirtualAllocEx
+      - WriteProcessMemory
       hex_patterns:
       - (?i)(ea[0-9a-f]{8}3300|64ff15c0000000|0f05c3)
-      min_matches: 1
+      min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -753,12 +1130,14 @@
       - type: Api
         name_pattern: NtCreateThreadEx
         module_pattern: '*'
-      within_ms: 500
+      within_ms: 1000
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -803,12 +1182,14 @@
       - type: Api
         name_pattern: NtQueueApcThread
         module_pattern: '*'
-      within_ms: 750
+      within_ms: 1000
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -857,8 +1238,10 @@
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -907,8 +1290,10 @@
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -960,8 +1345,10 @@
       min_matches: 4
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1003,12 +1390,14 @@
       - type: Api
         name_pattern: RtlCreateUserThread
         module_pattern: '*'
-      within_ms: 750
+      within_ms: 1000
       min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1057,8 +1446,10 @@
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1100,12 +1491,14 @@
       - type: Api
         name_pattern: QueueUserAPC
         module_pattern: '*'
-      within_ms: 750
+      within_ms: 1000
       min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1154,8 +1547,10 @@
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1204,8 +1599,10 @@
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1257,8 +1654,10 @@
       min_matches: 4
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1308,8 +1707,10 @@
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1359,8 +1760,10 @@
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1413,8 +1816,10 @@
       min_matches: 4
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1426,7 +1831,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1468,7 +1873,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0034
@@ -1479,7 +1886,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1515,7 +1922,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0035
@@ -1526,7 +1935,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1556,13 +1965,15 @@
       - type: Api
         name_pattern: ReadProcessMemory
         module_pattern: '*'
-      within_ms: 750
+      within_ms: 1000
       min_matches: 2
   min_stages_satisfied: 1
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0036
@@ -1573,7 +1984,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1609,7 +2020,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-CRIT-0037
@@ -1655,8 +2068,10 @@
       min_matches: 2
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1706,8 +2121,10 @@
       min_matches: 3
   min_stages_satisfied: 1
   response:
+    ask_user: true
+    deny_while_ask: true
     terminate_process: true
-    quarantine: true
+    quarantine: false
     status_access_denied: true
     notify_user: true
     record: true
@@ -1719,7 +2136,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1759,7 +2176,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0040
@@ -1770,7 +2189,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1809,7 +2228,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0041
@@ -1820,7 +2241,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1860,7 +2281,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0042
@@ -1871,7 +2294,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1910,7 +2333,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0043
@@ -1921,7 +2346,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -1957,7 +2382,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0044
@@ -1968,7 +2395,7 @@
   severity_score: 90
   severity: 90
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -2010,7 +2437,9 @@
   response:
     ask_user: true
     deny_while_ask: true
-    terminate_process: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0045
@@ -2022,7 +2451,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -2060,8 +2489,10 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
-    terminate_process: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0046
@@ -2073,7 +2504,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -2110,8 +2541,10 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
-    terminate_process: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0047
@@ -2123,7 +2556,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -2159,8 +2592,10 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
-    terminate_process: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
 - rule_id: HD-SAN-HIGH-0048
@@ -2172,7 +2607,7 @@
   severity_score: 86
   severity: 86
   level: high
-  status: stable
+  status: experimental
   author: Emirhan Ucan
   date: '2026-05-15'
   tags:
@@ -2207,7 +2642,9 @@
   min_stages_satisfied: 1
   response:
     ask_user: true
-    deny_while_ask: true
-    terminate_process: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
     notify_user: true
     record: true
