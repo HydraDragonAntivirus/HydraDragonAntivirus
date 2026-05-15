@@ -291,15 +291,30 @@ pub fn respond_to_gh_timer_expiry(pid: u32, timer: &GhostHuntingTimer) {
     let ptr = crate::DRIVER_MESSAGES.load(Ordering::SeqCst);
     if !ptr.is_null() {
         let messages = unsafe { &mut *ptr };
+        
+        // Convert [u8; 16] to hex String for IPC
+        let hex_str = timer.hex_payload.iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
+
         messages.add_ghost_hunt_to_queue(shared_no_std::driver_ipc::GhostHunt {
             pid,
             syscall_name: format!("{:?}", timer.event_type),
             address: timer.caller_address,
-            hex_payload: timer.hex_payload,
+            hex_payload: hex_str,
         });
     }
 
-    crate::response::contain_and_report(pid, timer);
+    // Only report certain event types as they may not be inherently malicious
+    match &timer.event_type {
+        NtFunction::None => (),
+        NtFunction::NtOpenProcess(_)
+        | NtFunction::NtWriteVirtualMemory(_)
+        | NtFunction::NtAllocateVirtualMemory(_)
+        | NtFunction::NtCreateThreadEx(_) => crate::response::contain_and_report(pid, timer),
+        NtFunction::EtwThreatIntelligence(_) => (),
+        NtFunction::NetworkActivity(_) => (),
+    }
 }
 
 impl core::fmt::Debug for GhostHuntingTimer {
@@ -997,19 +1012,4 @@ fn extract_monitored_user_fn_ptrs_as_rva(path: &str, name: &str) -> Option<usize
     let relative: usize = kernel_absolute as usize - base as usize;
 
     Some(relative)
-}
-
-/// Determines what to do in the case of detecting an expired [`GhostHuntingTimer`], as not all timers are created equal.
-/// There are edge cases around certain timers going off which may not inherently be bad behaviour (depending on edge cases
-/// as they crop up).
-fn respond_to_gh_timer_expiry(pid: u32, timer: &GhostHuntingTimer) {
-    match &timer.event_type {
-        NtFunction::None => (),
-        NtFunction::NtOpenProcess(_)
-        | NtFunction::NtWriteVirtualMemory(_)
-        | NtFunction::NtAllocateVirtualMemory(_)
-        | NtFunction::NtCreateThreadEx(_) => contain_and_report(pid, timer),
-        NtFunction::EtwThreatIntelligence(_) => (),
-        NtFunction::NetworkActivity(_) => (),
-    }
 }
