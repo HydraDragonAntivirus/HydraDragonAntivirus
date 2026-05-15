@@ -8427,26 +8427,36 @@ impl BehaviorEngine {
                 hex_patterns,
                 min_matches,
             } => {
-                let mut match_count = 0;
+                let mut unique_matches = std::collections::HashSet::new();
                 for ghost in &state.sanctum_stats.ghost_telemetry {
                     let func_ok = functions.is_empty()
                         || functions.iter().any(|f| ghost.function.contains(f));
+                    
                     let addr_ok = caller_address_patterns.is_empty() || {
                         let addr_hex = format!("{:X}", ghost.caller_address);
                         caller_address_patterns.iter().any(|p| {
-                            Self::matches_pattern_internal(&self.regex_cache, p, &addr_hex)
+                            let p_lower = p.to_lowercase();
+                            if p_lower == "unknown" || p_lower == "unbacked" {
+                                // If the driver couldn't resolve the caller or it's unbacked, it often reports 0
+                                ghost.caller_address == 0
+                            } else {
+                                Self::matches_pattern_internal(&self.regex_cache, p, &addr_hex)
+                            }
                         })
                     };
+                    
                     let hex_ok = hex_patterns.is_empty()
                         || hex_patterns.iter().any(|p| {
                             Self::matches_pattern_internal(&self.regex_cache, p, &ghost.hex_payload)
                         });
 
                     if func_ok && addr_ok && hex_ok {
-                        match_count += 1;
+                        // Deduplicate: same function from same caller address counts as 1 unique match
+                        let key = format!("{}_{}", ghost.function, ghost.caller_address);
+                        unique_matches.insert(key);
                     }
                 }
-                match_count >= *min_matches
+                unique_matches.len() >= *min_matches
             }
             RuleCondition::Api {
                 functions,
