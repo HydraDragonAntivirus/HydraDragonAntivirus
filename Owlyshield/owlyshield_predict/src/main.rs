@@ -33,10 +33,7 @@ use std::{env, path::Path, sync::OnceLock};
 
 // Conditionally compile AVIntegration `use` statement
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-#[path = "windows/av_integration.rs"]
-pub mod av_integration;
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-pub mod detectiteasy;
+pub mod hydradragon;
 // Conditionally compile AVIntegration `use` statement
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 mod behavioral;
@@ -73,7 +70,7 @@ pub fn is_hydra_dragon_enabled() -> bool {
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub fn init_hydra_dragon(
     config: &crate::config::Config,
-) -> Option<av_integration::AVIntegration<'_>> {
+) -> Option<hydradragon::av_integration::AVIntegration<'_>> {
     if !is_hydra_dragon_enabled() {
         crate::logging::Logging::warning(
             "HydraDragon install path was not found; starting pipe integration anyway",
@@ -87,7 +84,7 @@ pub fn init_hydra_dragon(
 
     // Create AVIntegration on this thread
     // This is safe because we're not trying to share it across threads
-    Some(av_integration::AVIntegration::new(
+    Some(hydradragon::av_integration::AVIntegration::new(
         config,
         predictor_malware,
     ))

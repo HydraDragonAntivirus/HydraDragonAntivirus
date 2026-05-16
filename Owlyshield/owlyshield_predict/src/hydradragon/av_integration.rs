@@ -517,6 +517,18 @@ fn apply_fast_driver_action(event: &AVThreatEvent) {
         return;
     }
 
+    if event.virus_name.to_lowercase().contains("sality") {
+        let file_path = PathBuf::from(&event.file_path);
+        if let Some(tinyav_console) = resolve_tinyav_console_path() {
+            if let Err(e) = thread::Builder::new()
+                .name("tinyav_sality_disinfect".to_string())
+                .spawn(move || run_tinyav_scan(tinyav_console, file_path))
+            {
+                Logging::error(&format!("[TinyAV] Failed to spawn sality disinfect worker: {}", e));
+            }
+        }
+    }
+
     if matches!(event.action_required, ThreatAction::Monitor) {
         return;
     }
@@ -1041,6 +1053,89 @@ fn load_yara_x_rules() -> Option<yara_x::Rules> {
     if added { Some(compiler.build()) } else { None }
 }
 
+fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> thread::JoinHandle<()> {
+    thread::spawn(move || unsafe {
+        let pipe_name_c = match CString::new(r"\\.\pipe\Global\owlyshield_manual_scan") {
+            Ok(s) => s,
+            Err(e) => {
+                Logging::error(&format!("[ManualScan] Invalid pipe name: {}", e));
+                return;
+            }
+        };
+
+        Logging::info("[ManualScan] Listener started on \\\\.\\pipe\\Global\\owlyshield_manual_scan");
+        loop {
+            let pipe_handle = match CreateNamedPipeA(
+                PCSTR(pipe_name_c.as_ptr() as *const u8),
+                PIPE_ACCESS_INBOUND,
+                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                PIPE_UNLIMITED_INSTANCES,
+                PIPE_READ_BUFFER_SIZE,
+                PIPE_READ_BUFFER_SIZE,
+                0,
+                None,
+            ) {
+                Ok(h) => h,
+                Err(e) => {
+                    Logging::error(&format!("[ManualScan] CreateNamedPipeA failed: {:?}", e));
+                    thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+            };
+
+            if pipe_handle.is_invalid() {
+                Logging::error(&format!("[ManualScan] CreateNamedPipeA returned invalid handle: {:?}", GetLastError()));
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+
+            let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
+            let connect_err = GetLastError();
+            if connect_ok.as_bool() || connect_err == ERROR_PIPE_CONNECTED {
+                let mut buffer = vec![0u8; PIPE_READ_BUFFER_SIZE as usize];
+                let mut bytes_read = 0u32;
+                let read_ok = ReadFile(
+                    pipe_handle,
+                    Some(buffer.as_mut_ptr().cast()),
+                    PIPE_READ_BUFFER_SIZE,
+                    Some(&mut bytes_read as *mut u32),
+                    None,
+                );
+
+                if read_ok.as_bool() && bytes_read > 0 {
+                    let message = String::from_utf8_lossy(&buffer[..bytes_read as usize]).trim().to_string();
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) {
+                        if let Some(file_path) = value.get("file_path").and_then(|v| v.as_str()) {
+                            let scan_mode = value.get("scan_mode").and_then(|v| v.as_str()).unwrap_or("minimal").to_string();
+                            let deep_scan = scan_mode == "deep";
+                            
+                            let request = EDRScanRequest {
+                                event_type: "MANUAL_SCAN_REQUEST".to_string(),
+                                file_path: normalize_nt_path(file_path),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                pid: None,
+                                additional_context: None,
+                                signature_status: None, // Skipped for manual scans via pipe
+                                yara_x_matches: None,
+                                is_vmprotect: false,
+                                deep_scan,
+                                scan_mode,
+                                detectiteasy_scan_result: None,
+                            };
+                            
+                            Logging::info(&format!("[ManualScan] Queueing {} manual scan for: {}", request.scan_mode, request.file_path));
+                            let _ = internal_scan_tx.send(request);
+                        }
+                    }
+                }
+                let _ = DisconnectNamedPipe(pipe_handle);
+            }
+            let _ = CloseHandle(pipe_handle);
+            thread::sleep(Duration::from_millis(50));
+        }
+    })
+}
+
 impl<'a> AVIntegration<'a> {
     /// Create new AVIntegration instance
     pub fn new(config: &'a Config, predictor_malware: PredictorMalware<'a>) -> Self {
@@ -1053,14 +1148,13 @@ impl<'a> AVIntegration<'a> {
         let av_to_edr_listener_handle = spawn_av_to_edr_listener();
         let _mbr_listener_handle = spawn_mbr_alert_listener();
         let _self_defense_listener_handle = spawn_self_defense_listener();
+        let _manual_scan_listener_handle = spawn_manual_scan_listener(internal_scan_tx.clone());
 
         AVIntegration {
             config, // <-- MODIFIED: Assigns the borrow
             predictor_malware,
             internal_scan_tx,
             signature_cache: HashMap::new(),
-            tinyav_recent_scans: HashMap::new(),
-            tinyav_missing_logged: false,
             yara_rules: load_yara_x_rules(),
             excluded_yara_rules: load_excluded_rules(),
             _scan_request_handle: scan_request_handle,
@@ -1176,8 +1270,6 @@ impl<'a> AVIntegration<'a> {
             return;
         }
 
-        self.queue_tinyav_scan_for_new_file(iomsg);
-
         let (signature_status, yara_x_matches, is_vmprotect, detectiteasy_scan_result) =
             self.collect_scan_metadata(&file_path, &scan_target);
 
@@ -1233,6 +1325,43 @@ impl<'a> AVIntegration<'a> {
 
         if let Err(e) = self.internal_scan_tx.send(request) {
             Logging::error(&format!("Failed to send Sanctum deep scan request: {}", e));
+        }
+    }
+
+    pub fn queue_manual_scan_request(
+        &mut self,
+        file_path: &Path,
+        pid: Option<u32>,
+        additional_context: Option<String>,
+        scan_mode: &str, // "deep" or "minimal"
+    ) {
+        let file_path_string = file_path.to_string_lossy().to_string();
+        if file_path_string.trim().is_empty()
+            || is_openedr_cloud_safe(&file_path_string)
+            || !file_path.is_file()
+        {
+            return;
+        }
+
+        let (signature_status, yara_x_matches, is_vmprotect, detectiteasy_scan_result) =
+            self.collect_scan_metadata(&file_path_string, file_path);
+
+        let request = EDRScanRequest {
+            event_type: "MANUAL_SCAN_REQUEST".to_string(),
+            file_path: file_path_string,
+            timestamp: Utc::now().to_rfc3339(),
+            pid,
+            additional_context,
+            signature_status,
+            yara_x_matches: Some(yara_x_matches),
+            is_vmprotect,
+            deep_scan: scan_mode == "deep",
+            scan_mode: scan_mode.to_string(),
+            detectiteasy_scan_result,
+        };
+
+        if let Err(e) = self.internal_scan_tx.send(request) {
+            Logging::error(&format!("Failed to send manual scan request: {}", e));
         }
     }
 
@@ -1293,56 +1422,6 @@ impl<'a> AVIntegration<'a> {
             is_vmprotect,
             detectiteasy_scan_result,
         )
-    }
-
-    fn queue_tinyav_scan_for_new_file(&mut self, iomsg: &IOMessage) {
-        if !is_new_file_event(iomsg) || iomsg.filepathstr.trim().is_empty() {
-            return;
-        }
-
-        let normalized_path = normalize_nt_path(&iomsg.filepathstr);
-        if normalized_path.trim().is_empty() || is_protected_path(&normalized_path) {
-            return;
-        }
-
-        let file_path = PathBuf::from(&normalized_path);
-        if file_path.file_name().is_none() {
-            return;
-        }
-
-        let now = Instant::now();
-        self.tinyav_recent_scans
-            .retain(|_, last_seen| now.duration_since(*last_seen) <= TINYAV_SCAN_DEBOUNCE);
-
-        let scan_key = normalize_path_for_compare(&normalized_path);
-        if let Some(last_seen) = self.tinyav_recent_scans.get(&scan_key)
-            && now.duration_since(*last_seen) <= TINYAV_SCAN_DEBOUNCE
-        {
-            return;
-        }
-
-        if self.tinyav_recent_scans.len() >= TINYAV_RECENT_SCAN_LIMIT {
-            self.tinyav_recent_scans.clear();
-        }
-        self.tinyav_recent_scans.insert(scan_key, now);
-
-        let Some(tinyav_console) = resolve_tinyav_console_path() else {
-            if !self.tinyav_missing_logged {
-                Logging::warning(&format!(
-                    "[TinyAV] TinyAvConsole.exe was not found at {}",
-                    TINYAV_PREFERRED_INSTALL_PATH
-                ));
-                self.tinyav_missing_logged = true;
-            }
-            return;
-        };
-
-        if let Err(e) = thread::Builder::new()
-            .name("tinyav_new_file_scan".to_string())
-            .spawn(move || run_tinyav_scan(tinyav_console, file_path))
-        {
-            Logging::error(&format!("[TinyAV] Failed to spawn scan worker: {}", e));
-        }
     }
 
     fn get_or_compute_signature_status(

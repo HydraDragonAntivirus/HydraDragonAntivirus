@@ -44,11 +44,7 @@ pub mod worker;
 pub mod realtime_learning;
 
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-#[path = "windows/av_integration.rs"]
-pub mod av_integration;
-
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-pub mod detectiteasy;
+pub mod hydradragon;
 
 #[cfg(target_os = "windows")]
 #[path = "windows/quarantine.rs"]
@@ -80,7 +76,7 @@ pub fn is_hydra_dragon_enabled() -> bool {
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub fn init_hydra_dragon(
     config: &crate::config::Config,
-) -> Option<av_integration::AVIntegration<'_>> {
+) -> Option<hydradragon::av_integration::AVIntegration<'_>> {
     if !is_hydra_dragon_enabled() {
         crate::logging::Logging::warning(
             "HydraDragon install path was not found; starting pipe integration anyway",
@@ -89,7 +85,7 @@ pub fn init_hydra_dragon(
 
     use crate::worker::predictor::PredictorMalware;
     let predictor_malware = PredictorMalware::new(config);
-    Some(av_integration::AVIntegration::new(
+    Some(hydradragon::av_integration::AVIntegration::new(
         config,
         predictor_malware,
     ))

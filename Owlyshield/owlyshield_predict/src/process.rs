@@ -41,7 +41,7 @@ use crate::shared_def::{
 };
 
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-use crate::av_integration::AVIntegration;
+use crate::hydradragon::av_integration::AVIntegration;
 use crate::extensions::ExtensionsCount;
 use crate::novelty::DirectoriesContent;
 
@@ -1150,7 +1150,7 @@ mod tests {
     fn add_record(pr: &mut ProcessRecord, iomsg: &IOMessage) {
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         {
-            use crate::av_integration::AVIntegration;
+            use crate::hydradragon::av_integration::AVIntegration;
             pr.add_irp_record(iomsg, None::<&mut AVIntegration>);
         }
 
@@ -1190,7 +1190,7 @@ mod tests {
         for iomsg in iomsgs {
             #[cfg(all(target_os = "windows", feature = "hydradragon"))]
             {
-                use crate::av_integration::AVIntegration;
+                use crate::hydradragon::av_integration::AVIntegration;
                 pr.add_irp_record(&iomsg, None::<&mut AVIntegration>);
             }
 

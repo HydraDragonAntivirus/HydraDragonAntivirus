@@ -101,16 +101,16 @@
 		// Events
 		//
 
-		// submitting a folder for analysis
 		var submit_folder_for_scan = function(event) {
 			event.preventDefault();
 			const file_path = document.getElementById("folder_path_input").value;			
+			const scan_mode = document.getElementById("scan_mode_input").value;			
 
 			scan_in_progress = true;
 			set_scan_button_state(scan_in_progress);
 			document.getElementById("folder_scan_err").textContent = ""
 
-			invoke('scanner_start_folder_scan', { filePath: file_path })
+			invoke('scanner_start_folder_scan', { filePath: file_path, scanMode: scan_mode })
 				.then((response) => {
 					document.getElementById("folder_scan_result").innerHTML = response;
 				})
@@ -268,6 +268,11 @@
 					<p>Enter either the path to the fil you wish to scan, or the directory root you wish to scan. If you wish to scan the full filesystem you should indicate the drive letter, such as C:\.</p>
 					<form action="#" id="folder_scan_form">
 						<input type="text" value="C:\" autocomplete="off" placeholder="Enter folder path" id="folder_path_input" />
+						
+						<select id="scan_mode_input" class="dropdown" style="margin-top: 10px; margin-bottom: 10px; padding: 5px;">
+							<option value="minimal">Minimal Scan</option>
+							<option value="deep">Deep Scan</option>
+						</select>
 
 						<div id="scan_button_full">
 							<button type="submit" class="single_box_button scan_control_button" id="scan_submit_btn">Scan</button>

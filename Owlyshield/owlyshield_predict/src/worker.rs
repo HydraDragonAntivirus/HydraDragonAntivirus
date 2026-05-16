@@ -885,7 +885,7 @@ pub mod worker_instance {
         exepath_handler: Box<dyn Exepath>,
         iomsg_postprocessors: Vec<Box<dyn IOMsgPostProcessor>>,
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-        av_integration: Option<crate::av_integration::AVIntegration<'a>>,
+        av_integration: Option<crate::hydradragon::av_integration::AVIntegration<'a>>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub behavior_engine: BehaviorEngine,
         #[cfg(feature = "realtime_learning")]
@@ -2033,7 +2033,7 @@ pub mod worker_instance {
         #[allow(dead_code)]
         pub fn av_integration(
             mut self,
-            av_integration: Option<crate::av_integration::AVIntegration<'a>>,
+            av_integration: Option<crate::hydradragon::av_integration::AVIntegration<'a>>,
         ) -> Worker<'a> {
             self.av_integration = av_integration;
             self

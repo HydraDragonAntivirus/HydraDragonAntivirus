@@ -50,11 +50,55 @@ pub async fn scanner_stop_scan() -> Result<(), ()> {
     Ok(())
 }
 
+fn send_manual_scan_to_owlyshield(file_path: &str, scan_mode: &str) {
+    let message = serde_json::json!({
+        "file_path": file_path,
+        "scan_mode": scan_mode
+    }).to_string();
+
+    let pipe_name = r"\\.\pipe\Global\owlyshield_manual_scan";
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true);
+
+    if let Ok(mut file) = options.open(pipe_name) {
+        use std::io::Write;
+        let _ = file.write_all(message.as_bytes());
+    }
+}
+
+fn scan_dir_recursively(dir: &std::path::Path, scan_mode: &str) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_file() {
+                send_manual_scan_to_owlyshield(&path.to_string_lossy(), scan_mode);
+            } else if path.is_dir() {
+                scan_dir_recursively(&path, scan_mode);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn scanner_start_folder_scan(
     file_path: String,
+    scanMode: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, ()> {
+    let mode = scanMode.unwrap_or_else(|| "minimal".to_string());
+    let path_clone = file_path.clone();
+    let mode_clone = mode.clone();
+    
+    // Spawn a thread to send the manual scan requests to Owlyshield
+    std::thread::spawn(move || {
+        let p = PathBuf::from(path_clone);
+        if p.is_file() {
+            send_manual_scan_to_owlyshield(&p.to_string_lossy(), &mode_clone);
+        } else if p.is_dir() {
+            scan_dir_recursively(&p, &mode_clone);
+        }
+    });
+
     let path = to_value(vec![PathBuf::from(file_path)]).unwrap();
 
     tokio::spawn(async move {
@@ -117,6 +161,17 @@ pub async fn scanner_start_quick_scan(app_handle: tauri::AppHandle) -> Result<St
         )
         .await
         .unwrap();
+
+        let paths_clone = paths.clone();
+        std::thread::spawn(move || {
+            for p in paths_clone {
+                if p.is_file() {
+                    send_manual_scan_to_owlyshield(&p.to_string_lossy(), "minimal");
+                } else if p.is_dir() {
+                    scan_dir_recursively(&p, "minimal");
+                }
+            }
+        });
 
         // The result is wrapped inside of an enum from the filescanner module, so we need to first match on that
         // as DirectoryResult (since we are scanning a dir). The result should never be anything else for this scan
