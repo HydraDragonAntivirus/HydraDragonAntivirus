@@ -1,5 +1,5 @@
 - name: "HEUR:HydraDragonFirewall.CaKeyFileAccessDeny.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Security Team"
   date: "2026-03-26"
   status: stable

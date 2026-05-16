@@ -1,5 +1,5 @@
 - name: "HEUR:Win.DefEvasion.ProxyTrustTamper.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test
@@ -133,7 +133,7 @@
 
 
 - name: "HEUR:Win.Info.BrowserAntiMitmIndicators.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test

@@ -1,5 +1,5 @@
 - name: "TaskMgr Disable / Worm Sabotage"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects batch-script style malware that disables Task Manager, locks shell tooling, and plants autorun persistence.
   author: "Emirhan Ucan"

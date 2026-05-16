@@ -8,7 +8,7 @@
 
 # TEST #4: RootkitInstallation:ChangeDrvPath — Prevent driver path modification
 - name: "HEUR:Win.Rootkit.DriverPathRemapping.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -159,7 +159,7 @@
 
 # TEST #5: Invasion:Runner — Browser tamper followed by network use
 - name: "HEUR:Win.Invasion.Runner.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -217,7 +217,7 @@
 
 # TEST #6: Invasion:RawDisk — Block raw disk device access entirely
 - name: "HEUR:Win.Invasion.RawDiskAccess.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -325,7 +325,7 @@
 
 # TEST #8: Invasion:FileDrop — Prevent suspicious file creation in critical paths
 - name: "HEUR:Win.Invasion.MaliciousFileDrop.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -467,7 +467,7 @@
 
 # TEST #10: Injection:SetWinEventHook — Detect and block hook-based DLL injection
 - name: "HEUR:Win.Injection.WinEventHook.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -528,7 +528,7 @@
 
 # TEST #11: Injection:SetWindowsHookEx — Detect keyboard/mouse hook injection
 - name: "HEUR:Win.Injection.WindowsHookEx.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -590,7 +590,7 @@
 
 # TEST #13: Injection:Services — Block malicious service installation from non-System processes
 - name: "HEUR:Win.Injection.MaliciousServiceCreation.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -780,7 +780,7 @@
 
 # TEST #21: InfoSend:DNS Test — Detect DNS exfiltration and C2 beaconing
 - name: "HEUR:Win.InfoSend.DNSExfiltration.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -907,7 +907,7 @@
 
 # TEST #25: Impersonation:Coat — Browser masquerade and network use
 - name: "HEUR:Win.Impersonation.COATProcImpersonate.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -985,7 +985,7 @@
 
 # TEST #30: Hijacking:SupersedeServiceDll — Block service DLL replacement
 - name: "HEUR:Win.Hijacking.ServiceDLLSupersede.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -1137,7 +1137,7 @@
 
 # TEST #31: Hijacking:StartupPrograms — Block suspicious startup registry modification
 - name: "HEUR:Win.Hijacking.StartupProgramsModification.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -1290,7 +1290,7 @@
 
 # TEST #32: Hijacking:ChangeDebuggerPath — Prevent Image File Execution Options tampering
 - name: "HEUR:Win.Hijacking.ImageFileExecutionOptions.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -1365,7 +1365,7 @@
 
 # TEST #33: Hijacking:AppinitDlls — Block AppInit_DLLs injection
 - name: "HEUR:Win.Hijacking.AppinitDlls.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-26"
   status: production
@@ -1467,7 +1467,7 @@
 
 # TEST #31 supplement: Hijacking:BootConfiguration — Protect BCD and Boot.ini
 - name: "HEUR:Win.Hijacking.BootConfigTampering.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-27"
   status: production
@@ -1531,7 +1531,7 @@
 
 # TEST #25: Hijacking:BHO — Block Browser Helper Object registration
 - name: "HEUR:Win.Hijacking.BHO.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-27"
   status: production
@@ -1593,7 +1593,7 @@
 
 # TEST #30 supplement: Hijacking:GDIPlus — Block GDI+ extension hijacking
 - name: "HEUR:Win.Hijacking.GDIPlus.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-03-27"
   status: production
@@ -1644,7 +1644,7 @@
 
 # REFINEMENT: Injection:Hooks — Strengthen hook-based injection detection
 - name: "HEUR:Win.Injection.HookAPI.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -1708,7 +1708,7 @@
 
 # TEST #1: RootkitInstallation:MissingDriverLoad — Prevent abandoned service path hijacking
 - name: "HEUR:Win.Rootkit.MissingDriverHijack.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects attempts to create a registry service entry pointing to a non-existent
     driver file, followed by a file drop of an unsigned binary into that path.
@@ -1770,7 +1770,7 @@
 
 # TEST #2: RootkitInstallation:LoadAndCallImage — Prevent direct driver loading
 - name: "HEUR:Win.Rootkit.DirectDriverLoad.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects calls to driver loading APIs (NtLoadDriver) from unauthorized processes.
     COMODO Test #2: RootkitInstallation:LoadAndCallImage
@@ -1805,7 +1805,7 @@
 
 # TEST #3: RootkitInstallation:DriverSupersede — Prevent driver file overwrite
 - name: "HEUR:Win.Rootkit.DriverFileOverwrite.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects attempts to overwrite existing driver files in System32\drivers.
     COMODO Test #3: RootkitInstallation:DriverSupersede
@@ -1836,7 +1836,7 @@
 
 # TEST #7: Invasion:PhysicalMemory — Block direct physical memory access
 - name: "HEUR:Win.Invasion.PhysicalMemoryAccess.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects attempts to open the PhysicalMemory device for write access.
     COMODO Test #7: Invasion:PhysicalMemory
@@ -1862,7 +1862,7 @@
 
 # TEST #9: Invasion:DebugControl — Block kernel debug control abuse
 - name: "HEUR:Win.Invasion.SystemDebugControl.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects use of NtSystemDebugControl to manipulate kernel memory or CPU state.
     COMODO Test #9: Invasion:DebugControl
@@ -1892,7 +1892,7 @@
 
 # TEST #12: Injection:SetThreadContext — Prevent thread context hijacking
 - name: "HEUR:Win.Injection.SetThreadContext.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects attempts to modify the execution context of a thread in another process.
     COMODO Test #12: Injection:SetThreadContext
@@ -1929,7 +1929,7 @@
 
 # TEST #14/17/18: Injection:ProcessInject/CreateRemoteThread/APC — Block remote execution
 - name: "HEUR:Win.Injection.RemoteExecution.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects common remote code injection patterns: CreateRemoteThread,
     NtCreateThreadEx, and QueueUserAPC into target processes.
@@ -1971,7 +1971,7 @@
 
 # TEST #15: Injection:KnownDlls — Prevent KnownDlls redirection
 - name: "HEUR:Win.Injection.KnownDllsTamper.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects attempts to modify the KnownDlls registry key or the \KnownDlls object.
     COMODO Test #15: Injection:KnownDlls
@@ -1999,7 +1999,7 @@
 
 # TEST #16: Injection:DupHandles — Block handle stealing/duplication
 - name: "HEUR:Win.Injection.HandleDuplication.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects DuplicateHandle calls targeting protected system processes.
     COMODO Test #16: Injection:DupHandles
@@ -2033,7 +2033,7 @@
 
 # TEST #19: Injection:AdvancedProcessTermination — Block debug-based termination
 - name: "HEUR:Win.Injection.DebugTermination.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects attempts to terminate processes using debugging APIs.
     COMODO Test #19: Injection:AdvancedProcessTermination
@@ -2067,7 +2067,7 @@
 
 # TEST #20: InfoSend:ICMP Test — Block ICMP-based data exfiltration
 - name: "HEUR:Win.InfoSend.ICMPExfiltration.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects suspicious ICMP traffic from unsigned processes, characteristic of
     ICMP tunneling used for data exfiltration.
@@ -2137,7 +2137,7 @@
 # subkey creation or ImagePath/Type/Start writes directly under a Services\<n> path,
 # not on arbitrary SOFTWARE\CurrentVersion\* keys.
 - name: "HEUR:Win.Persist.ServiceInstall.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -2279,7 +2279,7 @@
 
 # TEST #22: Impersonation:OLE automation — IE control from unsigned callers
 - name: "HEUR:Win.Impersonation.OLEAutomation.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -2328,7 +2328,7 @@
 
 # TEST #23: Impersonation:ExplorerAsParent — Engine-compatible approximation
 - name: "HEUR:Win.Impersonation.ExplorerParentSpoof.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -2377,7 +2377,7 @@
 
 # TEST #24: Impersonation:DDE — IE control via DDE from unsigned callers
 - name: "HEUR:Win.Impersonation.DDE.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-01"
   status: production
@@ -2427,7 +2427,7 @@
 
 # TEST #26: Impersonation:BITS — Block BITS service abuse
 - name: "HEUR:Win.Impersonation.BITSTamper.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects unauthorized use of the BITS service for background file transfers.
     COMODO Test #26: Impersonation:BITS
@@ -2459,7 +2459,7 @@
 
 # TEST #27/28/29: Hijacking:Winlogon/Userinit/UIHost — Protect logon persistence
 - name: "HEUR:Win.Hijacking.LogonPersistence.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects modification of critical logon-related registry keys used for persistence.
     COMODO Test #27: Hijacking:WinlogonNotify
@@ -2493,7 +2493,7 @@
 
 # TEST #34: Hijacking:ActiveDesktop — Protect desktop wallpaper/HTML
 - name: "HEUR:Win.Hijacking.ActiveDesktopTamper.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: |
     Detects modification of Active Desktop registry keys to point to malicious HTML.
     COMODO Test #34: Hijacking:ActiveDesktop

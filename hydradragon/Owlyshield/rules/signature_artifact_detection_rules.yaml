@@ -1,5 +1,5 @@
 - name: "HEUR:Win.AntiAnalysis.SignatureArtifactPathProbe.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test
@@ -90,7 +90,7 @@
 
 
 - name: "HEUR:Win.AntiAnalysis.SignatureArtifactRegistryRead.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test
@@ -154,7 +154,7 @@
 
 
 - name: "HEUR:Win.AntiAnalysis.SignatureArtifactCommandProbe.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test
@@ -396,7 +396,7 @@
 
 
 - name: "HEUR:Win.AntiAnalysis.AnalysisToolTermination.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test

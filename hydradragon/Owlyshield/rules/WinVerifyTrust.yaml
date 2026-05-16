@@ -1,5 +1,5 @@
 - name: "Trusted Signer Whitelist"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   description: "This rule enforces that only executables signed by trusted vendors are allowed to run. Applications signed by vendors in the allowlist are permitted."
   severity: 10
   level: critical

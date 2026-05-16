@@ -4,7 +4,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 - name: "INFO:Win.Exec.LOLBINUsage.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -68,7 +68,7 @@
 
 
 - name: "INFO:Win.Recon.NetworkDiscovery.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -133,7 +133,7 @@
 
 
 - name: "INFO:Win.Recon.SystemEnumeration.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -197,7 +197,7 @@
 
 
 - name: "INFO:Win.Exec.ScriptInterpreter.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -247,7 +247,7 @@
 
 
 - name: "INFO:Win.Exec.PowerShellBaseline.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -295,7 +295,7 @@
 
 
 - name: "INFO:Win.Net.LOLBINNetworkActivity.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test

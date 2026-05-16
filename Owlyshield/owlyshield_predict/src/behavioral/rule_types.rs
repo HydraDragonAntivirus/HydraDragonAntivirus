@@ -1924,7 +1924,7 @@ pub struct BehaviorRule {
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
-    pub should_trust_cloud: bool,
+    pub should_trust_comodo_cloud: bool,
     #[serde(default)]
     pub stages: Vec<AttackStage>,
     #[serde(default)]

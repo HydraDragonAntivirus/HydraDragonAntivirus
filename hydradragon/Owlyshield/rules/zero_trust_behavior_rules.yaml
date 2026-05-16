@@ -3,7 +3,7 @@
   description: Detects recovery inhibition via vssadmin delete all shadows, including ransomware-prep variants beyond simple
     vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -55,7 +55,7 @@
   description: Detects recovery inhibition via vssadmin resize shadowstorage tiny, including ransomware-prep variants beyond
     simple vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -93,7 +93,7 @@
       child_patterns:
       - '*\vssadmin.exe'
       command_line_patterns:
-      - pattern: (?i)resize\s+shadowstorage.*(/maxsize=([1-9]|[1-9][0-9])mb|/maxsize=1%)
+param($m) $indent = $m.Groups[1].Value; $value = $m.Groups[2].Value; "$indent`"$value`"" 
         is_regex: true
   min_stages_satisfied: 1
   response:
@@ -107,7 +107,7 @@
   description: Detects recovery inhibition via wmic shadowcopy delete, including ransomware-prep variants beyond simple vssadmin
     execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -159,7 +159,7 @@
   description: Detects recovery inhibition via PowerShell WMI shadow copy delete, including ransomware-prep variants beyond
     simple vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -212,7 +212,7 @@
   description: Detects recovery inhibition via wbadmin backup catalog deletion, including ransomware-prep variants beyond
     simple vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -264,7 +264,7 @@
   description: Detects recovery inhibition via diskshadow deletes all shadows, including ransomware-prep variants beyond simple
     vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -316,7 +316,7 @@
   description: Detects recovery inhibition via bcdedit disables recovery, including ransomware-prep variants beyond simple
     vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -368,7 +368,7 @@
   description: Detects recovery inhibition via reagentc disables WinRE, including ransomware-prep variants beyond simple vssadmin
     execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -420,7 +420,7 @@
   description: Detects recovery inhibition via PowerShell deletes restore points, including ransomware-prep variants beyond
     simple vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -473,7 +473,7 @@
   description: Detects recovery inhibition via registry disables system restore, including ransomware-prep variants beyond
     simple vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -525,7 +525,7 @@
   description: Detects recovery inhibition via VSS service stop or disable, including ransomware-prep variants beyond simple
     vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -579,7 +579,7 @@
   description: Detects recovery inhibition via backup product service termination, including ransomware-prep variants beyond
     simple vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -633,7 +633,7 @@
   description: Detects recovery inhibition via delete Windows backup files, including ransomware-prep variants beyond simple
     vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -687,7 +687,7 @@
   description: Detects recovery inhibition via wevtutil clears logs pre-impact, including ransomware-prep variants beyond
     simple vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 96
   severity: 96
   level: critical
@@ -739,7 +739,7 @@
   description: Detects recovery inhibition via compound recovery sabotage chain, including ransomware-prep variants beyond
     simple vssadmin execution.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -791,7 +791,7 @@
   name: '[HIGH] Ransomware IO Pattern - High-rate encrypted document writes'
   description: 'Detects ransomware-style file I/O behavior: high-rate encrypted document writes.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -834,7 +834,7 @@
   name: '[HIGH] Ransomware IO Pattern - Mass rename to ransomware extensions'
   description: 'Detects ransomware-style file I/O behavior: mass rename to ransomware extensions.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -878,7 +878,7 @@
   name: '[HIGH] Ransomware IO Pattern - Intermittent encryption write-rename cadence'
   description: 'Detects ransomware-style file I/O behavior: intermittent encryption write-rename cadence.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -930,7 +930,7 @@
   name: '[HIGH] Ransomware IO Pattern - Partial overwrite of many user files'
   description: 'Detects ransomware-style file I/O behavior: partial overwrite of many user files.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -977,7 +977,7 @@
   name: '[HIGH] Ransomware IO Pattern - Ransom note fan-out'
   description: 'Detects ransomware-style file I/O behavior: ransom note fan-out.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -1019,7 +1019,7 @@
   name: '[HIGH] Ransomware IO Pattern - LockBit style extension and note'
   description: 'Detects ransomware-style file I/O behavior: lockbit style extension and note.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1067,7 +1067,7 @@
   name: '[HIGH] Ransomware IO Pattern - BlackCat/ALPHV extension and note'
   description: 'Detects ransomware-style file I/O behavior: blackcat/alphv extension and note.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1115,7 +1115,7 @@
   name: '[MEDIUM] Ransomware IO Pattern - Mass office file rewrites'
   description: 'Detects ransomware-style file I/O behavior: mass office file rewrites.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 78
   severity: 78
   level: medium
@@ -1159,7 +1159,7 @@
   name: '[MEDIUM] Ransomware IO Pattern - Mass source-code file rewrites'
   description: 'Detects ransomware-style file I/O behavior: mass source-code file rewrites.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -1203,7 +1203,7 @@
   name: '[MEDIUM] Ransomware IO Pattern - High entropy writes after archive staging'
   description: 'Detects ransomware-style file I/O behavior: high entropy writes after archive staging.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 80
   severity: 80
   level: medium
@@ -1250,7 +1250,7 @@
   name: '[MEDIUM] Ransomware IO Pattern - Rapid delete after unknown extension create'
   description: 'Detects ransomware-style file I/O behavior: rapid delete after unknown extension create.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 78
   severity: 78
   level: medium
@@ -1295,7 +1295,7 @@
   name: '[HIGH] Credential Dumping - procdump dumps LSASS'
   description: 'Detects credential dumping behavior: procdump dumps lsass.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1341,7 +1341,7 @@
   name: '[HIGH] Credential Dumping - rundll32 comsvcs MiniDump LSASS'
   description: 'Detects credential dumping behavior: rundll32 comsvcs minidump lsass.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1386,7 +1386,7 @@
   name: '[HIGH] Credential Dumping - Task manager style LSASS dump'
   description: 'Detects credential dumping behavior: task manager style lsass dump.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1433,7 +1433,7 @@
   name: '[HIGH] Credential Dumping - nanodump/ppldump LSASS'
   description: 'Detects credential dumping behavior: nanodump/ppldump lsass.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1479,7 +1479,7 @@
   name: '[HIGH] Credential Dumping - reg save SAM SYSTEM SECURITY'
   description: 'Detects credential dumping behavior: reg save sam system security.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1524,7 +1524,7 @@
   name: '[HIGH] Credential Dumping - ntdsutil creates IFM dump'
   description: 'Detects credential dumping behavior: ntdsutil creates ifm dump.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1569,7 +1569,7 @@
   name: '[HIGH] Credential Dumping - vssadmin exposes NTDS shadow copy'
   description: 'Detects credential dumping behavior: vssadmin exposes ntds shadow copy.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1616,7 +1616,7 @@
   name: '[HIGH] Credential Dumping - credential API memory read chain'
   description: Detects OpenProcess plus memory-read or minidump behavior often used against LSASS.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1643,13 +1643,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: OpenProcess
+        name_pattern: [OpenProcess]
         module_pattern: '*'
       - type: Api
-        name_pattern: ReadProcessMemory
+        name_pattern: [ReadProcessMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: MiniDumpWriteDump
+        name_pattern: [MiniDumpWriteDump]
         module_pattern: '*'
       within_ms: 1500
       min_matches: 2
@@ -1665,7 +1665,7 @@
   name: '[MEDIUM] Persistence - schtasks creates hidden system task'
   description: 'Detects persistence behavior: schtasks creates hidden system task.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -1712,7 +1712,7 @@
   name: '[MEDIUM] Persistence - PowerShell scheduled task registration'
   description: 'Detects persistence behavior: powershell scheduled task registration.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -1760,7 +1760,7 @@
   name: '[MEDIUM] Persistence - WMI event filter persistence'
   description: 'Detects persistence behavior: wmi event filter persistence.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -1808,7 +1808,7 @@
   name: '[MEDIUM] Persistence - Run key persistence'
   description: 'Detects persistence behavior: run key persistence.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -1856,7 +1856,7 @@
   name: '[MEDIUM] Persistence - Startup folder dropped script'
   description: 'Detects persistence behavior: startup folder dropped script.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -1905,7 +1905,7 @@
   name: '[MEDIUM] Persistence - service creation for persistence'
   description: 'Detects persistence behavior: service creation for persistence.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -1953,7 +1953,7 @@
   name: '[MEDIUM] Persistence - BITS job persistence or download'
   description: 'Detects persistence behavior: bits job persistence or download.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -2001,7 +2001,7 @@
   name: '[MEDIUM] Persistence - mshta remote script execution'
   description: 'Detects persistence behavior: mshta remote script execution.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -2048,7 +2048,7 @@
   name: '[MEDIUM] Persistence - rundll32 JavaScript or scriptlet proxy'
   description: 'Detects persistence behavior: rundll32 javascript or scriptlet proxy.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -2095,7 +2095,7 @@
   name: '[MEDIUM] Persistence - installutil/regsvr32 LOLBin persistence'
   description: 'Detects persistence behavior: installutil/regsvr32 lolbin persistence.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 76
   severity: 76
   level: medium
@@ -2144,7 +2144,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Dynamic DNS beacon domain'
   description: 'Detects suspicious outbound network pattern: dynamic dns beacon domain.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2225,7 +2225,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Paste/service C2 staging'
   description: 'Detects suspicious outbound network pattern: paste/service c2 staging.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2307,7 +2307,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Telegram bot API beacon'
   description: 'Detects suspicious outbound network pattern: telegram bot api beacon.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2389,7 +2389,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Discord webhook exfil'
   description: 'Detects suspicious outbound network pattern: discord webhook exfil.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2473,7 +2473,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Cloudflare tunnel client beacon'
   description: 'Detects suspicious outbound network pattern: cloudflare tunnel client beacon.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2551,7 +2551,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Ngrok tunnel client beacon'
   description: 'Detects suspicious outbound network pattern: ngrok tunnel client beacon.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2631,7 +2631,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Tor bootstrap from non-browser'
   description: 'Detects suspicious outbound network pattern: tor bootstrap from non-browser.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2706,7 +2706,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Suspicious IP check and payload fetch'
   description: 'Detects suspicious outbound network pattern: suspicious ip check and payload fetch.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2786,7 +2786,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Object storage payload staging'
   description: 'Detects suspicious outbound network pattern: object storage payload staging.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium
@@ -2871,7 +2871,7 @@
   name: '[MEDIUM] Suspicious Network Beaconing - Rare user-agent beacon body marker'
   description: 'Detects suspicious outbound network pattern: rare user-agent beacon body marker.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 72
   severity: 72
   level: medium

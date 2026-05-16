@@ -7658,7 +7658,7 @@ impl BehaviorEngine {
 
             // Cloud Trust Filter: only OpenEDR FLS Safe (code 1) may bypass.
             // Labels such as "clean", "trusted", or "safe" are display-only and never drive decisions.
-            if rule.should_trust_cloud {
+            if rule.should_trust_comodo_cloud {
                 let is_cloud_allowed = is_openedr_fls_safe_code(state_ref.cloud_static_verdict)
                     || is_openedr_fls_safe_code(state_ref.cloud_dynamic_verdict);
 
@@ -9524,7 +9524,7 @@ impl BehaviorEngine {
                 }
 
                 // Cloud Trust Filter: only OpenEDR FLS Safe (code 1) may bypass.
-                if rule.should_trust_cloud
+                if rule.should_trust_comodo_cloud
                     && (is_openedr_fls_safe_code(state.cloud_static_verdict)
                         || is_openedr_fls_safe_code(state.cloud_dynamic_verdict))
                 {

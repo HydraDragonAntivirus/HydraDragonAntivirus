@@ -1,5 +1,5 @@
 - name: "HEUR:Win.ForcedRestart.MaliciousActions.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-05-06"
   status: stable
@@ -223,7 +223,7 @@
     - "Kiosk software may use full-screen APIs, but should not combine them with persistence hijacks or tool lockout"
 
 - name: "HEUR:Win.ScreenLocker.Behavior.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-05-06"
   status: stable

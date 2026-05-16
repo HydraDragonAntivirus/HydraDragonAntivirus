@@ -3,7 +3,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: Hell''s Gate x64 mov-r10 syscall ret.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -53,7 +53,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: Hell''s Gate syscall without ret.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -102,7 +102,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: mov eax syscall ret shellcode stub.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -164,7 +164,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: raw syscall ret gadget outside ntdll.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -226,7 +226,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: syscall ret immediate gadget.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -288,7 +288,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: legacy int2e syscall replacement.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -350,7 +350,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: sysenter replacement stub.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -412,7 +412,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: SysWhispers3 r11 jumper.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -474,7 +474,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: SysWhispers3 r10-r11 trampoline.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -536,7 +536,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: mov rax immediate jmp rax.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -598,7 +598,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: RIP-relative indirect syscall jmp.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -660,7 +660,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: near-jump hook into syscall gadget.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -722,7 +722,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: service id load followed by near jump.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -784,7 +784,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: LEA/JMP dynamically resolved gate.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -846,7 +846,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: clustered direct syscall stubs.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -908,7 +908,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: FreshyCalls unhooked syscall harvest.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -970,7 +970,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: BouncyGate-style indirect transfer.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1032,7 +1032,7 @@
   description: 'Detects direct or indirect syscall shellcode bytes associated with HellsGate, SysWhispers3, FreshyCalls, or
     recycled syscall gates: WoW64 far transition syscall gate.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1093,7 +1093,7 @@
   name: '[CRITICAL] Remote allocation-write-thread syscall chain'
   description: Detects timed same-source API sequence for remote allocation-write-thread syscall chain.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1122,13 +1122,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtAllocateVirtualMemory
+        name_pattern: [NtAllocateVirtualMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtWriteVirtualMemory
+        name_pattern: [NtWriteVirtualMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtCreateThreadEx
+        name_pattern: [NtCreateThreadEx]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 3
@@ -1145,7 +1145,7 @@
   name: '[CRITICAL] RWX protect-write-APC syscall chain'
   description: Detects timed same-source API sequence for rwx protect-write-apc syscall chain.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1174,13 +1174,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtProtectVirtualMemory
+        name_pattern: [NtProtectVirtualMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtWriteVirtualMemory
+        name_pattern: [NtWriteVirtualMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtQueueApcThread
+        name_pattern: [NtQueueApcThread]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 3
@@ -1197,7 +1197,7 @@
   name: '[CRITICAL] Section map plus remote thread'
   description: Detects timed same-source API sequence for section map plus remote thread.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1226,13 +1226,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtCreateSection
+        name_pattern: [NtCreateSection]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtMapViewOfSection
+        name_pattern: [NtMapViewOfSection]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtCreateThreadEx
+        name_pattern: [NtCreateThreadEx]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 3
@@ -1249,7 +1249,7 @@
   name: '[CRITICAL] Thread context hijack and resume'
   description: Detects timed same-source API sequence for thread context hijack and resume.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1278,13 +1278,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtGetContextThread
+        name_pattern: [NtGetContextThread]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtSetContextThread
+        name_pattern: [NtSetContextThread]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtResumeThread
+        name_pattern: [NtResumeThread]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 3
@@ -1301,7 +1301,7 @@
   name: '[CRITICAL] Process hollowing unmap-write-context'
   description: Detects timed same-source API sequence for process hollowing unmap-write-context.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1330,16 +1330,16 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtUnmapViewOfSection
+        name_pattern: [NtUnmapViewOfSection]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtWriteVirtualMemory
+        name_pattern: [NtWriteVirtualMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtSetContextThread
+        name_pattern: [NtSetContextThread]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtResumeThread
+        name_pattern: [NtResumeThread]
         module_pattern: '*'
       within_ms: 1500
       min_matches: 4
@@ -1356,7 +1356,7 @@
   name: '[CRITICAL] RtlCreateUserThread after remote write'
   description: Detects timed same-source API sequence for rtlcreateuserthread after remote write.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1385,10 +1385,10 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtWriteVirtualMemory
+        name_pattern: [NtWriteVirtualMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: RtlCreateUserThread
+        name_pattern: [RtlCreateUserThread]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 2
@@ -1405,7 +1405,7 @@
   name: '[CRITICAL] Classic Win32 remote thread injection'
   description: Detects timed same-source API sequence for classic win32 remote thread injection.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1434,13 +1434,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: VirtualAllocEx
+        name_pattern: [VirtualAllocEx]
         module_pattern: '*'
       - type: Api
-        name_pattern: WriteProcessMemory
+        name_pattern: [WriteProcessMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: CreateRemoteThread
+        name_pattern: [CreateRemoteThread]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 3
@@ -1457,7 +1457,7 @@
   name: '[CRITICAL] QueueUserAPC with remote memory staging'
   description: Detects timed same-source API sequence for queueuserapc with remote memory staging.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1486,10 +1486,10 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: WriteProcessMemory
+        name_pattern: [WriteProcessMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: QueueUserAPC
+        name_pattern: [QueueUserAPC]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 2
@@ -1506,7 +1506,7 @@
   name: '[CRITICAL] MapView shellcode execution pivot'
   description: Detects timed same-source API sequence for mapview shellcode execution pivot.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1535,13 +1535,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: CreateFileMappingW
+        name_pattern: [CreateFileMappingW]
         module_pattern: '*'
       - type: Api
-        name_pattern: MapViewOfFile
+        name_pattern: [MapViewOfFile]
         module_pattern: '*'
       - type: Api
-        name_pattern: CreateThread
+        name_pattern: [CreateThread]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 3
@@ -1558,7 +1558,7 @@
   name: '[CRITICAL] Native section-backed remote map'
   description: Detects timed same-source API sequence for native section-backed remote map.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1587,13 +1587,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtCreateSection
+        name_pattern: [NtCreateSection]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtMapViewOfSection
+        name_pattern: [NtMapViewOfSection]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtProtectVirtualMemory
+        name_pattern: [NtProtectVirtualMemory]
         module_pattern: '*'
       within_ms: 1200
       min_matches: 3
@@ -1610,7 +1610,7 @@
   name: '[CRITICAL] Process doppelganging transaction rollback'
   description: Detects timed same-source API sequence for process doppelganging transaction rollback.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1639,16 +1639,16 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: CreateTransactionW
+        name_pattern: [CreateTransactionW]
         module_pattern: '*'
       - type: Api
-        name_pattern: CreateFileTransactedW
+        name_pattern: [CreateFileTransactedW]
         module_pattern: '*'
       - type: Api
-        name_pattern: RollbackTransaction
+        name_pattern: [RollbackTransaction]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtCreateSection
+        name_pattern: [NtCreateSection]
         module_pattern: '*'
       within_ms: 2000
       min_matches: 4
@@ -1665,7 +1665,7 @@
   name: '[CRITICAL] Process ghosting delete-pending image section'
   description: Detects timed same-source API sequence for process ghosting delete-pending image section.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1698,10 +1698,10 @@
         name_pattern: NtSetInformationFile
         module_pattern: '*'
       - type: Api
-        name_pattern: NtCreateSection
+        name_pattern: [NtCreateSection]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtCreateProcessEx
+        name_pattern: [NtCreateProcessEx]
         module_pattern: '*'
       within_ms: 2000
       min_matches: 3
@@ -1718,7 +1718,7 @@
   name: '[CRITICAL] Process herpaderping overwrite-after-section'
   description: Detects timed same-source API sequence for process herpaderping overwrite-after-section.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1748,13 +1748,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtCreateSection
+        name_pattern: [NtCreateSection]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtCreateProcessEx
+        name_pattern: [NtCreateProcessEx]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtWriteFile
+        name_pattern: [NtWriteFile]
         module_pattern: '*'
       within_ms: 2500
       min_matches: 3
@@ -1771,7 +1771,7 @@
   name: '[CRITICAL] Ghosted executable close-delete-execute'
   description: Detects timed same-source API sequence for ghosted executable close-delete-execute.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -1801,16 +1801,16 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtCreateFile
+        name_pattern: [NtCreateFile]
         module_pattern: '*'
       - type: Api
         name_pattern: NtSetInformationFile
         module_pattern: '*'
       - type: Api
-        name_pattern: NtCreateSection
+        name_pattern: [NtCreateSection]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtCreateProcessEx
+        name_pattern: [NtCreateProcessEx]
         module_pattern: '*'
       within_ms: 2500
       min_matches: 4
@@ -1827,7 +1827,7 @@
   name: '[HIGH] Reflective DLL loader chain'
   description: Detects timed same-source API sequence for reflective dll loader chain.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1856,16 +1856,16 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: LoadLibraryW
+        name_pattern: [LoadLibraryW]
         module_pattern: '*'
       - type: Api
-        name_pattern: GetProcAddress
+        name_pattern: [GetProcAddress]
         module_pattern: '*'
       - type: Api
-        name_pattern: VirtualProtect
+        name_pattern: [VirtualProtect]
         module_pattern: '*'
       - type: Api
-        name_pattern: CreateThread
+        name_pattern: [CreateThread]
         module_pattern: '*'
       within_ms: 1500
       min_matches: 4
@@ -1882,7 +1882,7 @@
   name: '[HIGH] SetWindowsHookEx DLL injection'
   description: Detects timed same-source API sequence for setwindowshookex dll injection.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1911,10 +1911,10 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: SetWindowsHookExW
+        name_pattern: [SetWindowsHookExW]
         module_pattern: '*'
       - type: Api
-        name_pattern: LoadLibraryW
+        name_pattern: [LoadLibraryW]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 2
@@ -1931,7 +1931,7 @@
   name: '[HIGH] LSASS OpenProcess ReadProcessMemory'
   description: Detects timed same-source API sequence for lsass openprocess readprocessmemory.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1960,10 +1960,10 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: OpenProcess
+        name_pattern: [OpenProcess]
         module_pattern: '*'
       - type: Api
-        name_pattern: ReadProcessMemory
+        name_pattern: [ReadProcessMemory]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 2
@@ -1980,7 +1980,7 @@
   name: '[HIGH] LSASS MiniDumpWriteDump chain'
   description: Detects timed same-source API sequence for lsass minidumpwritedump chain.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -2009,10 +2009,10 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: OpenProcess
+        name_pattern: [OpenProcess]
         module_pattern: '*'
       - type: Api
-        name_pattern: MiniDumpWriteDump
+        name_pattern: [MiniDumpWriteDump]
         module_pattern: '*'
       within_ms: 1000
       min_matches: 2
@@ -2029,7 +2029,7 @@
   name: '[CRITICAL] Unsigned driver load through Native API'
   description: Detects timed same-source API sequence for unsigned driver load through native api.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -2059,7 +2059,7 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtLoadDriver
+        name_pattern: [NtLoadDriver]
         module_pattern: '*'
       - type: Api
         name_pattern: NtSetSystemInformation
@@ -2079,7 +2079,7 @@
   name: '[CRITICAL] Kernel callback tamper DeviceIoControl burst'
   description: Detects timed same-source API sequence for kernel callback tamper deviceiocontrol burst.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -2109,7 +2109,7 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: CreateFileW
+        name_pattern: [CreateFileW]
         module_pattern: '*'
       - type: Api
         name_pattern: DeviceIoControl
@@ -2132,7 +2132,7 @@
   name: '[HIGH] ETW Threat Intelligence provider patch'
   description: Detects timed same-source API sequence for etw threat intelligence provider patch.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -2162,13 +2162,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: EtwEventWrite
+        name_pattern: [EtwEventWrite]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtProtectVirtualMemory
+        name_pattern: [NtProtectVirtualMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtWriteVirtualMemory
+        name_pattern: [NtWriteVirtualMemory]
         module_pattern: '*'
       within_ms: 2000
       min_matches: 3
@@ -2185,7 +2185,7 @@
   name: '[HIGH] AMSI module memory patch from native telemetry'
   description: Detects timed same-source API sequence for amsi module memory patch from native telemetry.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -2214,13 +2214,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: GetProcAddress
+        name_pattern: [GetProcAddress]
         module_pattern: '*'
       - type: Api
-        name_pattern: VirtualProtect
+        name_pattern: [VirtualProtect]
         module_pattern: '*'
       - type: Api
-        name_pattern: WriteProcessMemory
+        name_pattern: [WriteProcessMemory]
         module_pattern: '*'
       within_ms: 1500
       min_matches: 3
@@ -2237,7 +2237,7 @@
   name: '[HIGH] Process protection disable attempt'
   description: Detects timed same-source API sequence for process protection disable attempt.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -2270,10 +2270,10 @@
         name_pattern: NtSetInformationProcess
         module_pattern: '*'
       - type: Api
-        name_pattern: OpenProcess
+        name_pattern: [OpenProcess]
         module_pattern: '*'
       - type: Api
-        name_pattern: TerminateProcess
+        name_pattern: [TerminateProcess]
         module_pattern: '*'
       within_ms: 2000
       min_matches: 3
@@ -2290,7 +2290,7 @@
   name: '[HIGH] Unbacked shellcode execution plus sensitive API'
   description: Detects timed same-source API sequence for unbacked shellcode execution plus sensitive api.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -2319,13 +2319,13 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: VirtualAlloc
+        name_pattern: [VirtualAlloc]
         module_pattern: '*'
       - type: Api
-        name_pattern: VirtualProtect
+        name_pattern: [VirtualProtect]
         module_pattern: '*'
       - type: Api
-        name_pattern: CreateThread
+        name_pattern: [CreateThread]
         module_pattern: '*'
       within_ms: 1500
       min_matches: 3
@@ -2342,7 +2342,7 @@
   name: '[HIGH] Hardware breakpoint EDR bypass setup'
   description: Detects timed same-source API sequence for hardware breakpoint edr bypass setup.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -2371,10 +2371,10 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: AddVectoredExceptionHandler
+        name_pattern: [AddVectoredExceptionHandler]
         module_pattern: '*'
       - type: Api
-        name_pattern: SetThreadContext
+        name_pattern: [SetThreadContext]
         module_pattern: '*'
       within_ms: 1500
       min_matches: 2
@@ -2391,7 +2391,7 @@
   name: '[HIGH] Hook bypass by restoring ntdll text'
   description: Detects timed same-source API sequence for hook bypass by restoring ntdll text.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -2420,16 +2420,16 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: CreateFileW
+        name_pattern: [CreateFileW]
         module_pattern: '*'
       - type: Api
-        name_pattern: ReadFile
+        name_pattern: [ReadFile]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtProtectVirtualMemory
+        name_pattern: [NtProtectVirtualMemory]
         module_pattern: '*'
       - type: Api
-        name_pattern: memcpy
+        name_pattern: [memcpy]
         module_pattern: '*'
       within_ms: 2500
       min_matches: 4
@@ -2447,7 +2447,7 @@
   description: 'Detects process-tree context often observed around Process Ghosting or Herpaderping: compiler or temp builder
     launches ghosted child.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -2500,7 +2500,7 @@
   description: 'Detects process-tree context often observed around Process Ghosting or Herpaderping: office parent spawns
     unusual renamed executable.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -2552,7 +2552,7 @@
   description: 'Detects process-tree context often observed around Process Ghosting or Herpaderping: script host starts nonstandard
     executable extension.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -2603,7 +2603,7 @@
   description: 'Detects process-tree context often observed around Process Ghosting or Herpaderping: archive utility parent
     starts transient pe.'
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -2637,7 +2637,7 @@
       - '*.dat'
       - '*.bin'
       command_line_patterns:
-      - pattern: (?i).*(%temp%|appdata|downloads).*
+param($m) $indent = $m.Groups[1].Value; $value = $m.Groups[2].Value; "$indent`"$value`"" 
         is_regex: true
   min_stages_satisfied: 1
   response:

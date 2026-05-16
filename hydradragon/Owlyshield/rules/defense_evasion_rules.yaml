@@ -3,7 +3,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 - name: "HEUR:Win.DefEvasion.AMSIBypass.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -105,7 +105,7 @@
 
 
 - name: "HEUR:Win.DefEvasion.Base64EncodedCommand.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -163,7 +163,7 @@
 
 
 - name: "HEUR:Win.DefEvasion.FileAttributeHiding.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -228,7 +228,7 @@
 
 
 - name: "HEUR:Win.DefEvasion.SafeModeServicePersistence.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -299,7 +299,7 @@
 
 
 - name: "HEUR:Win.DefEvasion.ShadowCopyDeletion.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -387,7 +387,7 @@
 
 
 - name: "INFO:Win.DefEvasion.ClearEventLog.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -455,7 +455,7 @@
 
 
 - name: "INFO:Win.DefEvasion.ProcessInjectionAPIs.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -522,7 +522,7 @@
 
 
 - name: "INFO:Win.DefEvasion.DisableWindowsDefender.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test

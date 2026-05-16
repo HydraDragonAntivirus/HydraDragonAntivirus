@@ -218,7 +218,7 @@
                   value: '1' # EVENT_TRACE_CONTROL_STOP
             - type: CommandLineMatch
               patterns:
-                - '(?i)(EventLog-Security|Microsoft-Windows-Threat-Intelligence|EtwRTMS-Antimalware-Service)'
+                - pattern: '(?i)(EventLog-Security|Microsoft-Windows-Threat-Intelligence|EtwRTMS-Antimalware-Service)'
   response:
     notify_user: true
     record: true
@@ -423,7 +423,7 @@
               pattern: '(?i)(InstallUtil|Regasm|Regsvcs|MSBuild|Csc)\.exe'
             - type: CommandLineMatch
               patterns:
-                - '(?i)(\.exe|\.dll|\.csproj|\.txt)'
+                - pattern: '(?i)(\.exe|\.dll|\.csproj|\.txt)'
             - type: MultiCondition
               op: or
               conditions:
@@ -595,7 +595,7 @@
               pattern: '(?i)rundll32\.exe'
             - type: CommandLineMatch
               patterns:
-                - '(?i)comsvcs\.dll.*MiniDump.*lsass'
+                - pattern: '(?i)comsvcs\.dll.*MiniDump.*lsass'
   response:
     terminate_process: true
     notify_user: true
@@ -624,7 +624,7 @@
               pattern: '(?i)certutil\.exe'
             - type: CommandLineMatch
               patterns:
-                - '(?i)(-urlcache|-split)'
+                - pattern: '(?i)(-urlcache|-split)'
             - type: MultiCondition
               op: and
               conditions:
@@ -732,7 +732,7 @@
         - 3221226037 # 0xC0000235 STATUS_HANDLE_NOT_CLOSABLE
         - 3221225506 # 0xC0000022 STATUS_ACCESS_DENIED
       hook_error_api_patterns:
-        - '(?i)(^|!)(Nt|Zw)(Close|SetInformationObject|DuplicateObject)$'
+        - pattern: '(?i)(^|!)(Nt|Zw)(Close|SetInformationObject|DuplicateObject)$'
       hook_error_min_count: 1
       hook_error_exclude_benign: true
   detection_logic:

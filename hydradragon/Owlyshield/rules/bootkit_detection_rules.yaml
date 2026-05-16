@@ -2,7 +2,7 @@
 # These rules target EFI System Partition exposure and suspicious .efi drops.
 
 - name: "HEUR:Win.Bootkit.ESPMount.Access.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test
@@ -54,7 +54,7 @@
 
 
 - name: "HEUR:Win.Bootkit.ESPWrite.AfterMount.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test
@@ -143,7 +143,7 @@
 
 
 - name: "HEUR:Win.Bootkit.ESPDirectEfiWrite.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-25"
   status: test

@@ -4,7 +4,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 - name: "HEUR:Win.LateralMov.WMIRemoteExecution.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -70,7 +70,7 @@
 
 
 - name: "HEUR:Win.LateralMov.PsExecStyleExecution.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -131,7 +131,7 @@
 
 
 - name: "HEUR:Win.Exec.CobaltStrikeIndicators.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -219,7 +219,7 @@
 
 
 - name: "HEUR:Win.Exec.PowerShellEmpireIndicators.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -291,7 +291,7 @@
 
 
 - name: "HEUR:Win.PrivEsc.LocalGroupMembership.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -370,7 +370,7 @@
 
 
 - name: "HEUR:Win.LateralMov.PassTheHashPTT.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -442,7 +442,7 @@
 
 
 - name: "INFO:Win.LateralMov.SMBFileCopy.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -498,7 +498,7 @@
 
 
 - name: "HEUR:Win.Exec.DComExecution.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
@@ -564,7 +564,7 @@
 
 
 - name: "HEUR:Win.PrivEsc.TokenImpersonation.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test

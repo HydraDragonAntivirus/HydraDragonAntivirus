@@ -1,5 +1,5 @@
 - name: "HEUR:Win64.Loader.BehavesLike.SafeModeAbuse.gen"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test

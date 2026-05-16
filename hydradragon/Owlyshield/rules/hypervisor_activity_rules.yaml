@@ -1,5 +1,5 @@
 - name: "INFO:Win.Hypervisor.CallbackActivity"
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   author: "HydraDragon"
   date: "2026-04-02"
   status: production

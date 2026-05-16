@@ -361,6 +361,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - https://github.com/Cisco-Talos/clamav
 - https://github.com/develbranch/TinyAntivirus
 - https://github.com/87owo/PYAS
+- https://github.com/danisss9/Xvirus/releases/tag/XvirusSDK_5.1.1
 
 - I used these projects for Antivirus
 
@@ -405,7 +406,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - Inno Setup version 6.7.1
 
 **Note 8:**
-- The Sanctum scanner is not a full antivirus engine scan. It only checks Sanctum-related components.
+- The Sanctum scanner is not a full antivirus engine scan. It only checks some static components.
 
 ## Tips
 

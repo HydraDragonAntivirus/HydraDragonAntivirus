@@ -2,7 +2,7 @@
   name: '[CRITICAL] AMSI Bypass - AmsiUtils reflection type lookup'
   description: Detects AMSI bypass content associated with amsiutils reflection type lookup using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -50,7 +50,7 @@
   name: '[CRITICAL] AMSI Bypass - amsiInitFailed static field flip'
   description: Detects AMSI bypass content associated with amsiinitfailed static field flip using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -98,7 +98,7 @@
   name: '[CRITICAL] AMSI Bypass - AmsiScanBuffer export resolution'
   description: Detects AMSI bypass content associated with amsiscanbuffer export resolution using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 98
   severity: 98
   level: critical
@@ -146,7 +146,7 @@
   name: '[CRITICAL] AMSI Bypass - AmsiOpenSession patch target'
   description: Detects AMSI bypass content associated with amsiopensession patch target using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 96
   severity: 96
   level: critical
@@ -195,7 +195,7 @@
   description: Detects AMSI bypass content associated with amsicontext or amsisession corruption using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 96
   severity: 96
   level: critical
@@ -244,7 +244,7 @@
   description: Detects AMSI bypass content associated with virtualprotect against amsi region using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -292,7 +292,7 @@
   name: '[CRITICAL] AMSI Bypass - Marshal Copy AMSI memory patch'
   description: Detects AMSI bypass content associated with marshal copy amsi memory patch using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -341,7 +341,7 @@
   description: Detects AMSI bypass content associated with nonpublic static getfield reflection using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 98
   severity: 98
   level: critical
@@ -389,7 +389,7 @@
   name: '[CRITICAL] AMSI Bypass - SetValue null true AMSI flip'
   description: Detects AMSI bypass content associated with setvalue null true amsi flip using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 96
   severity: 96
   level: critical
@@ -437,7 +437,7 @@
   name: '[CRITICAL] AMSI Bypass - LoadLibrary amsi.dll'
   description: Detects AMSI bypass content associated with loadlibrary amsi.dll using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 96
   severity: 96
   level: critical
@@ -485,7 +485,7 @@
   name: '[CRITICAL] AMSI Bypass - GetProcAddress AmsiScanBuffer'
   description: Detects AMSI bypass content associated with getprocaddress amsiscanbuffer using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 98
   severity: 98
   level: critical
@@ -533,7 +533,7 @@
   name: '[CRITICAL] AMSI Bypass - AMSI E_INVALIDARG patch bytes'
   description: Detects AMSI bypass content associated with amsi e_invalidarg patch bytes using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 100
   severity: 100
   level: critical
@@ -581,7 +581,7 @@
   name: '[HIGH] AMSI Bypass - Byte array return clean patch'
   description: Detects AMSI bypass content associated with byte array return clean patch using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -629,7 +629,7 @@
   name: '[HIGH] AMSI Bypass - ScriptBlockAst manipulation'
   description: Detects AMSI bypass content associated with scriptblockast manipulation using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -679,7 +679,7 @@
   description: Detects AMSI bypass content associated with scriptblock create from obfuscated string using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -728,7 +728,7 @@
   description: Detects AMSI bypass content associated with cached group policy logging suppression using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -776,7 +776,7 @@
   name: '[HIGH] AMSI Bypass - Script block logging disabled'
   description: Detects AMSI bypass content associated with script block logging disabled using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -825,7 +825,7 @@
   description: Detects AMSI bypass content associated with etw eventwrite tamper from script using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 92
   severity: 92
   level: high
@@ -873,7 +873,7 @@
   name: '[HIGH] AMSI Bypass - .NET Assembly.Load from Base64'
   description: Detects AMSI bypass content associated with .net assembly.load from base64 using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -923,7 +923,7 @@
   description: Detects AMSI bypass content associated with add-type dllimport virtualprotect using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -973,7 +973,7 @@
   description: Detects AMSI bypass content associated with delegate getfunctionpointerfordelegate using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 85
   severity: 85
   level: high
@@ -1022,7 +1022,7 @@
   description: Detects AMSI bypass content associated with unsafenativemethods getprocaddress using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -1071,7 +1071,7 @@
   name: '[HIGH] AMSI Bypass - WriteInt32 amsiContext overwrite'
   description: Detects AMSI bypass content associated with writeint32 amsicontext overwrite using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 92
   severity: 92
   level: high
@@ -1120,7 +1120,7 @@
   description: Detects AMSI bypass content associated with ptrtostructure amsi context manipulation using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -1168,7 +1168,7 @@
   name: '[CRITICAL] AMSI Bypass - Hardware breakpoint AMSI bypass'
   description: Detects AMSI bypass content associated with hardware breakpoint amsi bypass using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 96
   severity: 96
   level: critical
@@ -1216,7 +1216,7 @@
   name: '[HIGH] AMSI Bypass - AmsiX64/AmsiX32 patch helper'
   description: Detects AMSI bypass content associated with amsix64/amsix32 patch helper using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1264,7 +1264,7 @@
   name: '[HIGH] AMSI Bypass - AMSI provider nulling'
   description: Detects AMSI bypass content associated with amsi provider nulling using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1312,7 +1312,7 @@
   name: '[HIGH] AMSI Bypass - CLR amsi scan patcher'
   description: Detects AMSI bypass content associated with clr amsi scan patcher using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1360,7 +1360,7 @@
   name: '[HIGH] AMSI Bypass - Concatenated AmsiUtils string'
   description: Detects AMSI bypass content associated with concatenated amsiutils string using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -1409,7 +1409,7 @@
   name: '[MEDIUM] AMSI Bypass - char-code AMSI string build'
   description: Detects AMSI bypass content associated with char-code amsi string build using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 84
   severity: 84
   level: medium
@@ -1458,7 +1458,7 @@
   description: Detects AMSI bypass content associated with scanbuffer forced clean/invalid return using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 90
   severity: 90
   level: high
@@ -1506,7 +1506,7 @@
   name: '[HIGH] AMSI Bypass - PowerShell v2 downgrade'
   description: Detects AMSI bypass content associated with powershell v2 downgrade using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -1554,7 +1554,7 @@
   name: '[HIGH] AMSI Bypass - NOP hidden encoded PowerShell'
   description: Detects AMSI bypass content associated with nop hidden encoded powershell using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -1604,7 +1604,7 @@
   description: Detects AMSI bypass content associated with reflection bindingflags nonpublic static using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -1654,7 +1654,7 @@
   description: Detects AMSI bypass content associated with appdomain assembly enumeration for amsi using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 86
   severity: 86
   level: high
@@ -1703,7 +1703,7 @@
   description: Detects AMSI bypass content associated with obfuscated web cradle plus invoke expression using AMSI regex or
     wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 75
   severity: 75
   level: medium
@@ -1753,7 +1753,7 @@
   description: Detects AMSI bypass content associated with powershell defender preference disable using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 82
   severity: 82
   level: medium
@@ -1802,7 +1802,7 @@
   description: Detects AMSI bypass content associated with amsi.fail generated bypass markers using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 94
   severity: 94
   level: high
@@ -1850,7 +1850,7 @@
   name: '[HIGH] AMSI Bypass - Reflection Emit shellcode loader'
   description: Detects AMSI bypass content associated with reflection emit shellcode loader using AMSI regex or wildcard matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 88
   severity: 88
   level: high
@@ -1900,7 +1900,7 @@
   description: Detects AMSI bypass content associated with suspicious base64 compressed powershell using AMSI regex or wildcard
     matching.
   enabled: true
-  should_trust_cloud: false
+  should_trust_comodo_cloud: false
   severity_score: 78
   severity: 78
   level: medium
