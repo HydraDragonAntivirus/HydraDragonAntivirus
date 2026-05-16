@@ -108,7 +108,9 @@ pub enum IrpMajorOp {
     /// Single normalized opcode for real VMM/HyperDbg-origin activity only.
     /// Kernel process-protection signals stay in the dedicated IrpKernel* variants below.
     IrpHypervisorEvent,
-    /// User-mode API hook callback from UserModeHookEngine shellcode (via IOCTL_REPORT_HOOK_EVENT)
+    /// User-mode API hook callback from UserModeHookEngine shellcode.
+    /// With the handle-free ring transport, the driver drains the ring and
+    /// emits this same opcode into the normal IOMessage pipeline.
     IrpUserModeHookEvent,
     /// Kernel process-protection signal: remote thread creation
     IrpKernelRemoteThread,

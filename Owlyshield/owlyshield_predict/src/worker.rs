@@ -2608,7 +2608,11 @@ pub mod worker_instance {
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                if iomsg.irp_op == 12 {
+                let irp_kind_for_name_resolution = IrpMajorOp::from_byte(iomsg.irp_op);
+                if matches!(
+                    irp_kind_for_name_resolution,
+                    IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent
+                ) {
                     iomsg.normalize_hypervisor_event();
 
                     let raw_event_type = effective_hypervisor_raw_event_type(iomsg);
