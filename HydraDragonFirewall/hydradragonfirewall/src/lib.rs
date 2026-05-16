@@ -6,6 +6,7 @@ pub mod http_parser;
 pub mod proxy;
 pub mod quarantine;
 pub mod sdk;
+pub mod shared_defs;
 pub mod tls_parser;
 pub mod web_filter;
 pub mod windivert_api;
@@ -517,7 +518,7 @@ async fn get_owlyshield_report_raw(path: Option<String>) -> String {
 
 #[tauri::command]
 async fn list_firewall_quarantine_files() -> FirewallQuarantineDirectoryView {
-    let dir = std::path::PathBuf::from(crate::quarantine::QUARANTINE_PATH);
+    let dir = std::path::PathBuf::from(crate::shared_defs::QUARANTINE_PATH);
     let mut files = if dir.is_dir() {
         std::fs::read_dir(&dir)
             .ok()
@@ -698,11 +699,11 @@ async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRu
         let active = !engine.stop_signal.load(std::sync::atomic::Ordering::SeqCst);
         let status = if active {
             let settings = engine.settings.read().unwrap();
-            if settings.tls_proxy.mode == crate::engine::TlsInspectionMode::TlsProxy
+            if settings.tls_proxy.mode == crate::shared_defs::TlsInspectionMode::TlsProxy
                 && settings.tls_proxy.auto_start
             {
                 "Firewall Engine ACTIVE (MITM proxy managed)".to_string()
-            } else if settings.tls_proxy.mode == crate::engine::TlsInspectionMode::MetadataOnly {
+            } else if settings.tls_proxy.mode == crate::shared_defs::TlsInspectionMode::MetadataOnly {
                 "Firewall Engine ACTIVE (metadata-only TLS visibility)".to_string()
             } else {
                 "Firewall Engine ACTIVE (MITM proxy disabled)".to_string()
@@ -712,7 +713,7 @@ async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRu
         };
 
         let settings = engine.settings.read().unwrap();
-        let mitm_enabled = settings.tls_proxy.mode == crate::engine::TlsInspectionMode::TlsProxy
+        let mitm_enabled = settings.tls_proxy.mode == crate::shared_defs::TlsInspectionMode::TlsProxy
             && settings.tls_proxy.auto_start;
         let mitm_bypass_count = settings.tls_proxy.bypass_hosts.len();
 

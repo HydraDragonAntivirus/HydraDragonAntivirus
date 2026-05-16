@@ -1,3 +1,4 @@
+use hydradragonfirewall::shared_defs::{TlsInspectionMode, TlsProxyConfig};
 use js_sys::Reflect;
 use leptos::*;
 use leptos::{event_target_checked, event_target_value};
@@ -856,51 +857,6 @@ pub enum AppDecision {
     Block,
     Pending,
     AllowOnce,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum TlsInspectionMode {
-    MetadataOnly,
-    TlsProxy,
-}
-
-impl Default for TlsInspectionMode {
-    fn default() -> Self {
-        Self::TlsProxy
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TlsProxyConfig {
-    #[serde(default)]
-    pub mode: TlsInspectionMode,
-    #[serde(default)]
-    pub listen_host: String,
-    #[serde(default)]
-    pub listen_port: u16,
-    #[serde(default)]
-    pub block_quic_udp_443: bool,
-    #[serde(default)]
-    pub auto_start: bool,
-    #[serde(default)]
-    pub bypass_hosts: Vec<String>,
-    #[serde(default)]
-    pub cert_install_consent: bool,
-}
-
-impl Default for TlsProxyConfig {
-    fn default() -> Self {
-        Self {
-            mode: TlsInspectionMode::TlsProxy,
-            listen_host: "127.0.0.1".to_string(),
-            listen_port: 8877,
-            block_quic_udp_443: true,
-            auto_start: true,
-            bypass_hosts: Vec::new(),
-            cert_install_consent: false,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -1,5 +1,6 @@
 use crate::file_magic::FileMagicChecker;
 use crate::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
+use crate::shared_defs::{TlsInspectionMode, TlsProxyConfig};
 
 use crate::web_filter::WebFilter;
 use lazy_static::lazy_static;
@@ -416,50 +417,6 @@ pub enum AppDecision {
     Allow,
     Block,
     AllowOnce,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TlsInspectionMode {
-    MetadataOnly,
-    TlsProxy,
-}
-
-impl Default for TlsInspectionMode {
-    fn default() -> Self {
-        TlsInspectionMode::TlsProxy
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct TlsProxyConfig {
-    pub mode: TlsInspectionMode,
-    pub listen_host: String,
-    pub listen_port: u16,
-    pub block_quic_udp_443: bool,
-    /// Whether to auto-start the embedded proxy when the firewall starts.
-    pub auto_start: bool,
-    #[serde(default)]
-    pub bypass_hosts: Vec<String>,
-    /// Whether user has consented to certificate installation for MITM interception.
-    /// If false, certificates will not be automatically installed.
-    #[serde(default)]
-    pub cert_install_consent: bool,
-}
-
-impl Default for TlsProxyConfig {
-    fn default() -> Self {
-        Self {
-            mode: TlsInspectionMode::TlsProxy,
-            listen_host: "127.0.0.1".to_string(),
-            listen_port: 8877,
-            block_quic_udp_443: true,
-            auto_start: true,
-            bypass_hosts: Vec::new(),
-            cert_install_consent: false, // Default to false - require explicit consent
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -4510,7 +4467,7 @@ impl FirewallEngine {
             return;
         }
 
-        let qdir = PathBuf::from(crate::quarantine::QUARANTINE_PATH);
+        let qdir = PathBuf::from(crate::shared_defs::QUARANTINE_PATH);
         let _ = fs::create_dir_all(&qdir);
         let dst = Self::build_quarantine_destination(src, &qdir);
         let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());

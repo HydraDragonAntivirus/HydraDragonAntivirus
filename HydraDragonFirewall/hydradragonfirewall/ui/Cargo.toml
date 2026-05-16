@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+hydradragonfirewall = { path = ".." }
 leptos = { version = "0.6", features = ["csr"] }
 console_error_panic_hook = "0.1"
 wasm-bindgen = "0.2"
