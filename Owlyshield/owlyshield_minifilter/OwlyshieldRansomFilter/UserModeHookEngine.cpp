@@ -920,18 +920,6 @@ static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA *A, _In_ const HOOK_
     return RtlEqualString(&aFunc, &bFunc, TRUE);
 }
 
-static BOOLEAN EqualsInsensitiveA(_In_z_ PCSTR Value, _In_z_ PCSTR Literal)
-{
-    ANSI_STRING valueString;
-    ANSI_STRING literalString;
-
-    if (Value == NULL || Literal == NULL)
-        return FALSE;
-
-    RtlInitAnsiString(&valueString, Value);
-    RtlInitAnsiString(&literalString, Literal);
-    return RtlEqualString(&valueString, &literalString, TRUE);
-}
 
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 {
