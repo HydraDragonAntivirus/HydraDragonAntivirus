@@ -47,6 +47,9 @@ pub mod realtime_learning;
 #[path = "windows/av_integration.rs"]
 pub mod av_integration;
 
+#[cfg(all(target_os = "windows", feature = "hydradragon"))]
+pub mod detectiteasy;
+
 #[cfg(target_os = "windows")]
 #[path = "windows/quarantine.rs"]
 pub mod quarantine;

@@ -101,9 +101,6 @@ system_file_names_path = os.path.join(known_extensions_dir, "system_filenames.tx
 extensions_path = os.path.join(owlyshield_rules_dir, "extensions.txt")
 de4dot_cex_dir = os.path.join(script_dir, "de4dotEx")
 de4dot_cex_x64_path = os.path.join(de4dot_cex_dir, "de4dot.exe")
-detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
-detectiteasy_db_dir = os.path.join(detectiteasy_dir, "db")
-detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_dir = os.path.join(script_dir, "ILSpyCmd")
 ilspycmd_path = os.path.join(ilspycmd_dir, "ilspycmd.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
@@ -234,11 +231,11 @@ seven_zip_path = os.path.join(seven_zip_folder, "7z.exe")
 # Cache of { file_path: last_md5 }
 file_md5_cache: dict[str, str] = {}
 
-# Global cache: md5 -> (die_output, plain_text_flag)
-die_cache: dict[str, tuple[str, bool]] = {}
+# Global cache: md5 -> (detectiteasy_output, plain_text_flag)
+detectiteasy_cache: dict[str, tuple[str, bool]] = {}
 
-# Separate cache for "binary-only" DIE results
-binary_die_cache: dict[str, str] = {}
+# Separate cache for "binary-only" DetectItEasy results received from Owlyshield
+binary_detectiteasy_cache: dict[str, str] = {}
 
 # global, near top-level of module
 malicious_hashes = set()

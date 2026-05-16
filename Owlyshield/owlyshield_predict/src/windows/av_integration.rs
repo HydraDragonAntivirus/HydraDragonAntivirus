@@ -154,6 +154,9 @@ pub struct EDRScanRequest {
     pub yara_x_matches: Option<Vec<String>>,
     #[serde(default)]
     pub is_vmprotect: bool,
+    /// DetectItEasy scan result computed by Owlyshield/Rust.
+    #[serde(default)]
+    pub detectiteasy_scan_result: Option<crate::detectiteasy::DetectItEasyScanResult>,
 }
 
 /// AV scan response (sent to EDR as a threat event)
@@ -1192,6 +1195,22 @@ impl<'a> AVIntegration<'a> {
             }
         }
 
+        let detectiteasy_scan_result = {
+            use crate::detectiteasy::DetectItEasyScanner;
+
+            let scanner = DetectItEasyScanner::new();
+            Some(match scanner.scan_file(Path::new(&file_path)) {
+                Ok(result) => result,
+                Err(error) => {
+                    Logging::warning(&format!(
+                        "[DetectItEasy] Scan failed for {}: {}",
+                        file_path, error
+                    ));
+                    DetectItEasyScanner::error_result(Path::new(&file_path), error)
+                }
+            })
+        };
+
         let request = EDRScanRequest {
             event_type: "NEW_IO_EVENT".to_string(),
             file_path,
@@ -1201,6 +1220,7 @@ impl<'a> AVIntegration<'a> {
             signature_status,
             yara_x_matches: Some(yara_x_matches),
             is_vmprotect,
+            detectiteasy_scan_result,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
