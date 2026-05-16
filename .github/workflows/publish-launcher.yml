@@ -27,6 +27,10 @@ jobs:
         toolchain: stable
         targets: x86_64-pc-windows-msvc
     
+    - name: Update Launcher lockfile
+      working-directory: HydraDragonLauncher
+      run: cargo update
+    
     - name: Build Release
       working-directory: HydraDragonLauncher
       run: cargo build --release --verbose
