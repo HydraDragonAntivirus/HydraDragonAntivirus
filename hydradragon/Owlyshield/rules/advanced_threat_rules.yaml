@@ -703,3 +703,45 @@
     terminate_process: true
     notify_user: true
     record: true
+
+- rule_id: HD-ADV-0021
+  name: '[ANTI-TAMPER] Hook notification handle close/protect tamper'
+  description: >
+    Detects attempts to close, duplicate, or weaken the HydraDragon/Owlyshield
+    user-mode hook notification transport handle. This rule uses hook-error
+    telemetry only and keeps benign failure filtering enabled so ACG/WebView
+    mitigation noise is not promoted into a behavioral detection.
+  enabled: true
+  severity: 92
+  level: critical
+  tags:
+    - anti-tamper
+    - hook-transport
+    - usermode-hook
+    - edr-evasion
+    - defense-evasion
+  mitre_attack:
+    - T1562.001
+    - T1562
+  false_positives:
+    - Legitimate security tooling may probe or duplicate process handles during diagnostics.
+    - ACG/WebView/browser mitigation failures must remain ignored by the benign hook failure check.
+  named_conditions:
+    hook_notify_handle_tamper_status:
+      hook_error_statuses:
+        - 3221226037 # 0xC0000235 STATUS_HANDLE_NOT_CLOSABLE
+        - 3221225506 # 0xC0000022 STATUS_ACCESS_DENIED
+      hook_error_api_patterns:
+        - '(?i)(^|!)(Nt|Zw)(Close|SetInformationObject|DuplicateObject)$'
+      hook_error_min_count: 1
+      hook_error_exclude_benign: true
+  detection_logic:
+    condition: hook_notify_handle_tamper_status
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
