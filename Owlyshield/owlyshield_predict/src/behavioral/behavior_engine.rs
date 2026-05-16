@@ -1259,8 +1259,69 @@ fn is_real_api_observation(raw: &str) -> bool {
     (has_path_qualifier || has_lowercase) && !has_underscore
 }
 
+const STATUS_SUCCESS_U32: u32 = 0x00000000;
+const STATUS_INVALID_HANDLE_U32: u32 = 0xC0000008;
+const HRESULT_INVALID_HANDLE_U32: u32 = 0x80070006;
+const STATUS_ACCESS_DENIED_U32: u32 = 0xC0000022;
+const STATUS_OBJECT_NAME_NOT_FOUND_U32: u32 = 0xC0000034;
+const STATUS_INVALID_PAGE_PROTECTION_U32: u32 = 0xC0000045;
+const STATUS_DYNAMIC_CODE_BLOCKED_U32: u32 = 0xC0000604;
+const HRESULT_DYNAMIC_CODE_BLOCKED_U32: u32 = 0x80070677;
+const STATUS_HANDLE_NOT_CLOSABLE_U32: u32 = 0xC0000235;
+
+fn hook_status_code(operation_status: i32) -> u32 {
+    operation_status as u32
+}
+
+fn hook_status_name(operation_status: i32) -> &'static str {
+    match hook_status_code(operation_status) {
+        STATUS_SUCCESS_U32 => "STATUS_SUCCESS",
+        STATUS_INVALID_HANDLE_U32 => "STATUS_INVALID_HANDLE",
+        HRESULT_INVALID_HANDLE_U32 => "HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE)",
+        STATUS_ACCESS_DENIED_U32 => "STATUS_ACCESS_DENIED",
+        STATUS_OBJECT_NAME_NOT_FOUND_U32 => "STATUS_OBJECT_NAME_NOT_FOUND",
+        STATUS_INVALID_PAGE_PROTECTION_U32 => "STATUS_INVALID_PAGE_PROTECTION",
+        STATUS_DYNAMIC_CODE_BLOCKED_U32 => "STATUS_DYNAMIC_CODE_BLOCKED",
+        HRESULT_DYNAMIC_CODE_BLOCKED_U32 => "HRESULT_FROM_WIN32(ERROR_DYNAMIC_CODE_BLOCKED)",
+        STATUS_HANDLE_NOT_CLOSABLE_U32 => "STATUS_HANDLE_NOT_CLOSABLE",
+        _ => "STATUS_UNKNOWN",
+    }
+}
+
+fn is_handle_lifetime_failure_status(operation_status: i32) -> bool {
+    matches!(
+        hook_status_code(operation_status),
+        STATUS_INVALID_HANDLE_U32 | HRESULT_INVALID_HANDLE_U32
+    )
+}
+
+fn is_dynamic_code_or_page_protection_status(operation_status: i32) -> bool {
+    matches!(
+        hook_status_code(operation_status),
+        STATUS_INVALID_PAGE_PROTECTION_U32
+            | STATUS_DYNAMIC_CODE_BLOCKED_U32
+            | HRESULT_DYNAMIC_CODE_BLOCKED_U32
+    )
+}
+
+fn is_antitamper_status(operation_status: i32) -> bool {
+    matches!(
+        hook_status_code(operation_status),
+        STATUS_HANDLE_NOT_CLOSABLE_U32 | STATUS_ACCESS_DENIED_U32
+    )
+}
+
 fn is_benign_hypervisor_failure_status(operation_status: i32, is_acg_enabled: bool) -> bool {
-    is_acg_enabled && matches!(operation_status as u32, 0xC0000008 | 0x80070006)
+    if operation_status == 0 {
+        return false;
+    }
+
+    // These failures are expected fallout from ACG/code-integrity/page-protection
+    // guarded processes. Keep them in hook_error telemetry, but do not let them
+    // become normal successful API observations or behavior score input.
+    is_acg_enabled
+        && (is_handle_lifetime_failure_status(operation_status)
+            || is_dynamic_code_or_page_protection_status(operation_status))
 }
 
 fn is_hook_error_status(operation_status: i32) -> bool {
@@ -1581,6 +1642,16 @@ impl ProcessBehaviorState {
             }
         }
 
+        let status_alias = format!("status:{}", hook_status_name(record.operation_status));
+        *self.hook_error_api_counts.entry(status_alias).or_insert(0) += 1;
+
+        if is_antitamper_status(record.operation_status) {
+            *self
+                .hook_error_api_counts
+                .entry("status:ANTI_TAMPER".to_string())
+                .or_insert(0) += 1;
+        }
+
         if self.recent_hook_errors.len() >= 128 {
             self.recent_hook_errors.pop_front();
         }
@@ -1796,8 +1867,12 @@ impl ProcessBehaviorState {
             };
 
             let mut event_summary = format!(
-                "{}:{} raw=0x{:X} status=0x{:08X}",
-                event_family, event_name, raw_event_type, operation_status as u32
+                "{}:{} raw=0x{:X} status=0x{:08X}({})",
+                event_family,
+                event_name,
+                raw_event_type,
+                operation_status as u32,
+                hook_status_name(operation_status)
             );
             if source_pid != 0 || target_pid != 0 {
                 event_summary.push_str(&format!(" src={} tgt={}", source_pid, target_pid));
@@ -3344,7 +3419,11 @@ impl BehaviorEngine {
                     .as_ref()
                     .map(|event| event.operation_status)
                     .unwrap_or(msg.kernel_event_info.operation_status);
-                parts.push(format!("Status=0x{:08X}", operation_status as u32));
+                parts.push(format!(
+                    "Status=0x{:08X}({})",
+                    operation_status as u32,
+                    hook_status_name(operation_status)
+                ));
                 let raw_argument1 = kernel_event
                     .as_ref()
                     .map(|event| event.raw_argument1)
@@ -3475,9 +3554,10 @@ impl BehaviorEngine {
                 .map(|entry| {
                     Self::truncate_detail_value(
                         &format!(
-                            "{} status=0x{:08X} raw=0x{:X} src={} tgt={}",
+                            "{} status=0x{:08X}({}) raw=0x{:X} src={} tgt={}",
                             entry.api_name,
                             entry.operation_status as u32,
+                            hook_status_name(entry.operation_status),
                             entry.raw_event_type,
                             entry.source_pid,
                             entry.target_pid
@@ -4941,6 +5021,22 @@ impl BehaviorEngine {
             return false;
         }
 
+        let status_name = hook_status_name(record.operation_status);
+        let status_alias = format!("status:{}", status_name);
+        let antitamper_alias = "status:ANTI_TAMPER";
+
+        let api_or_status_matches = Self::hook_error_api_matches(
+            cache,
+            &cond_group.hook_error_api_patterns,
+            &record.api_name,
+        ) || (!cond_group.hook_error_api_patterns.is_empty()
+            && cond_group.hook_error_api_patterns.iter().any(|pattern| {
+                Self::matches_pattern_internal(cache, pattern, status_name)
+                    || Self::matches_pattern_internal(cache, pattern, &status_alias)
+                    || (is_antitamper_status(record.operation_status)
+                        && Self::matches_pattern_internal(cache, pattern, antitamper_alias))
+            }));
+
         (cond_group.hook_error_statuses.is_empty()
             || cond_group
                 .hook_error_statuses
@@ -4949,11 +5045,7 @@ impl BehaviorEngine {
                 &cond_group.hook_error_raw_event_types,
                 record.raw_event_type,
             )
-            && Self::hook_error_api_matches(
-                cache,
-                &cond_group.hook_error_api_patterns,
-                &record.api_name,
-            )
+            && api_or_status_matches
     }
 
     fn matching_hook_error_summary(
@@ -4978,9 +5070,10 @@ impl BehaviorEngine {
 
         let latest = matches.last()?;
         Some(format!(
-            "hook_error:{}:status=0x{:08X}:raw=0x{:X}:api={}",
+            "hook_error:{}:status=0x{:08X}:status_name={}:raw=0x{:X}:api={}",
             matches.len(),
             latest.operation_status as u32,
+            hook_status_name(latest.operation_status),
             latest.raw_event_type,
             latest.api_name
         ))

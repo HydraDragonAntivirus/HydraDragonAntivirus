@@ -1,0 +1,747 @@
+- rule_id: HD-ADV-0001
+  name: '[POLICY] Sandbox Disabled on ACG-Capable Browser'
+  description: >
+    Detects Chromium-based browsers (Chrome, Edge, Brave, Vivaldi) running with the
+    --no-sandbox flag. The engine verifies the process does NOT have Arbitrary Code Guard
+    (ACG) enabled, confirming the sandbox is genuinely bypassed rather than a legitimate
+    sandboxed child process that simply cannot generate dynamic code.
+  enabled: true
+  severity: 70
+  level: high
+  tags:
+    - policy
+    - sandbox
+    - acg
+    - browser
+  stages:
+    - name: Detect No-Sandbox Flag with ACG Disabled
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)(chrome|msedge|brave|vivaldi)\.exe'
+            - type: CommandLineMatch
+              patterns:
+                - pattern: '(?i)--no-sandbox'
+                  match_type: regex
+  response:
+    ask_user: true
+    terminate_process: false
+    notify_user: true
+    quarantine: false
+    status_access_denied: true
+    suspend_while_ask: true
+
+- rule_id: HD-ADV-0002
+  name: '[EVASION] Mockingjay RWX Hijacking'
+  description: 'Detects the Mockingjay technique where an attacker exploits existing RWX sections in trusted DLLs to avoid memory allocation telemetry.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - mockingjay
+    - evasion
+    - injection
+  mitre_attack:
+    - T1055
+  stages:
+    - name: RWX Section Access
+      conditions:
+        - type: Api
+          functions:
+            - NtWriteVirtualMemory
+            - NtProtectVirtualMemory
+          arguments:
+            - name: protection
+              value: '0x40' # PAGE_EXECUTE_READWRITE
+    - name: Target Trusted Module
+      conditions:
+        - type: Process
+          op: contains
+          pattern: '(?i)(ntdll|kernel32|kernelbase|user32|gdi32)\.dll'
+  response:
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0003
+  name: '[EVASION] Process Herpaderping Sequence'
+  description: 'Detects Process Herpaderping by monitoring the sequence of mapping a file, modifying it, and then creating a thread.'
+  enabled: true
+  severity: 100
+  level: critical
+  tags:
+    - herpaderping
+    - evasion
+  mitre_attack:
+    - T1364
+  stages:
+    - name: Initial Image Mapping
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateSection
+          arguments:
+            - name: AllocationAttributes
+              value: '0x1000000' # SEC_IMAGE
+    - name: Post-Mapping Modification
+      conditions:
+        - type: File
+          op: write
+          path_pattern: '.*'
+    - name: Thread Execution from Mismatched Image
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateThreadEx
+  response:
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0004
+  name: '[THREAT] Ransomware Canary - Rapid Header Encryption'
+  description: 'Detects rapid-fire write operations to the first 4KB of multiple files, a common pattern for header-only encryption.'
+  enabled: true
+  severity: 90
+  level: critical
+  tags:
+    - ransomware
+    - encryption
+  mitre_attack:
+    - T1486
+  stages:
+    - name: Ransomware Behavior Chain
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: ByteThreshold
+              direction: write
+              comparison: gte
+              threshold: 4096
+            - type: EntropyThreshold
+              metric: file_write
+              comparison: gte
+              threshold: 7.5
+            - type: MultiCondition
+              op: or
+              conditions:
+                - type: File
+                  op: create
+                  path_pattern: '(?i).*(README|DECRYPT|HELP_RESTORE).*'
+                - type: Process
+                  op: contains
+                  pattern: '(?i)(vssadmin|wmic|wbadmin|bcdedit)\.exe'
+  response:
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0005
+  name: '[EVASION] Ghost Hunting - Direct Syscall via JMP/CALL'
+  description: 'Detects direct syscalls made via JMP or CALL gadgets outside of ntdll, specifically targeting stealthy shellcode.'
+  enabled: true
+  severity: 100
+  level: critical
+  tags:
+    - ghost-hunting
+    - syscall
+    - evasion
+  mitre_attack:
+    - T1055
+  stages:
+    - name: SanctumGhost Telemetry
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: SanctumGhost
+              functions:
+                - NtAllocateVirtualMemory
+                - NtProtectVirtualMemory
+                - NtWriteVirtualMemory
+              caller_address_patterns:
+                - 'unknown'
+              min_matches: 5
+            - type: MultiCondition
+              op: and
+              conditions:
+                - type: ProcessTree
+                  parent_patterns: ['(?i)(cmd|powershell|wscript|explorer|temp.*)\.exe']
+                - type: Process
+                  op: not_contains
+                  pattern: '(?i)(chrome|msedge|brave|firefox|devenv|code|discord|steam)\.exe'
+  response:
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
+    notify_user: true
+    record: true
+  allowlisted_apps:
+    - pattern: '(?i)svchost\.exe'
+      signers:
+        - 'Microsoft*'
+      must_be_signed: true
+
+- rule_id: HD-ADV-0006
+  name: '[STEALTH] ETW Blinding via NtTraceControl'
+  description: 'Detects attempts to disable Event Tracing for Windows (ETW) sessions, a common technique to blind EDR/AV solutions.'
+  enabled: true
+  severity: 85
+  level: high
+  tags:
+    - blinding
+    - etw
+    - evasion
+  mitre_attack:
+    - T1562.006
+  stages:
+    - name: Stop Security ETW Session
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Api
+              functions:
+                - NtTraceControl
+              arguments:
+                - name: ControlCode
+                  value: '1' # EVENT_TRACE_CONTROL_STOP
+            - type: CommandLineMatch
+              patterns:
+                - '(?i)(EventLog-Security|Microsoft-Windows-Threat-Intelligence|EtwRTMS-Antimalware-Service)'
+  response:
+    notify_user: true
+    record: true
+    ask_user: true
+
+- rule_id: HD-ADV-0007
+  name: '[INJECTION] Remote Thread in System Process'
+  description: 'Detects thread injection into critical system processes like lsass.exe, winlogon.exe, or csrss.exe.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - injection
+    - system
+  mitre_attack:
+    - T1055.002
+  stages:
+    - name: Create Remote Thread
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateThreadEx
+    - name: Target System Process
+      conditions:
+        - type: Process
+          op: contains
+          pattern: '(?i)(lsass|winlogon|csrss|smss|services)\.exe'
+  response:
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0008
+  name: '[EVASION] Module Stomping Detection'
+  description: 'Detects Module Stomping by monitoring writes to the code section of a legitimately loaded module.'
+  enabled: true
+  severity: 90
+  level: critical
+  tags:
+    - injection
+    - module-stomping
+  mitre_attack:
+    - T1055.001
+  stages:
+    - name: Modify Module Protection
+      conditions:
+        - type: Api
+          functions:
+            - NtProtectVirtualMemory
+          arguments:
+            - name: protection
+              value: '0x40'
+    - name: Write to Module
+      conditions:
+        - type: Api
+          functions:
+            - NtWriteVirtualMemory
+  response:
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0009
+  name: '[EXFILTRATION] Suspicious Large Data Outbound'
+  description: 'Detects large data transfers to external IP addresses from non-browser processes.'
+  enabled: true
+  severity: 80
+  level: high
+  tags:
+    - exfiltration
+    - network
+  mitre_attack:
+    - T1041
+  stages:
+    - name: Large Outbound Transfer
+      conditions:
+        - type: NetworkCondition
+          op: and
+          conditions:
+            - type: ByteThreshold
+              operation: write
+              threshold: 10485760 # 10MB
+              window_ms: 60000
+            - type: Localhost
+              value: false
+    - name: Exclude Browsers
+      conditions:
+        - type: Process
+          op: not_contains
+          pattern: '(?i)(chrome|msedge|firefox|brave)\.exe'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0010
+  name: '[CREDENTIAL] SAM/SECURITY Hive Export'
+  description: 'Detects attempts to export SAM or SECURITY registry hives, used for offline credential cracking.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - credentials
+    - registry
+  mitre_attack:
+    - T1003.002
+  stages:
+    - name: Export Hive
+      conditions:
+        - type: Api
+          functions:
+            - NtSaveKey
+            - NtSaveKeyEx
+    - name: Check Hive Path
+      conditions:
+        - type: MultiCondition
+          op: or
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)SAM'
+            - type: Process
+              op: contains
+              pattern: '(?i)SECURITY'
+  response:
+    ask_user: true
+    terminate_process: false
+    suspend_while_ask: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0011
+  name: '[PRIVACY] Unauthorized Screen Capture Detection'
+  description: 'Detects unauthorized screenshot and screen recording activity by monitoring GDI (BitBlt) and DXGI (Desktop Duplication) capture behaviors from non-whitelisted processes.'
+  enabled: true
+  severity: 85
+  level: high
+  tags:
+    - privacy
+    - screenshot
+    - exfiltration
+  mitre_attack:
+    - T1113
+  stages:
+    - name: DXGI Desktop Duplication Init
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '.exe'
+            - type: ExtensionPattern
+              patterns:
+                - '.bmp'
+                - '.jpg'
+                - '.png'
+              op_type: write
+    - name: Exfiltration Pattern
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: OperationCount
+              op_type: BitBlt
+              comparison: gte
+              threshold: 5
+            - type: Network
+              op: connect
+              dest_pattern: '.*'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+    status_access_denied: true
+
+- rule_id: HD-ADV-0012
+  name: '[EVASION] AppLocker Bypass - InstallUtil/Regasm Abuse'
+  description: 'Detects execution of signed Microsoft binaries like InstallUtil.exe or Regasm.exe to run unauthorized code.'
+  enabled: true
+  severity: 85
+  level: high
+  tags:
+    - evasion
+    - lolbas
+    - applocker-bypass
+  mitre_attack:
+    - T1218.004
+    - T1218.009
+  stages:
+    - name: Detect Signed Binary Abuse
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)(InstallUtil|Regasm|Regsvcs|MSBuild|Csc)\.exe'
+            - type: CommandLineMatch
+              patterns:
+                - '(?i)(\.exe|\.dll|\.csproj|\.txt)'
+            - type: MultiCondition
+              op: or
+              conditions:
+                - type: ProcessTree
+                  parent_patterns: ['(?i)(powershell|cmd|wscript|cscript)\.exe']
+                - type: File
+                  op: write
+                  path_pattern: '(?i)\\Users\\Public\\.*'
+                - type: Network
+                  op: connect
+                  dest_pattern: '.*'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0013
+  name: '[EVASION] UAC Bypass - Fodhelper/ComputerDefaults'
+  description: 'Detects registry modifications associated with common UAC bypass techniques using fodhelper.exe or computerdefaults.exe.'
+  enabled: true
+  severity: 90
+  level: high
+  tags:
+    - privilege-escalation
+    - uac-bypass
+  mitre_attack:
+    - T1548.002
+  stages:
+    - name: Registry Hijack
+      conditions:
+        - type: Api
+          functions:
+            - NtSetValueKey
+    - name: Target UAC Path
+      conditions:
+        - type: MultiCondition
+          op: or
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)Software\Classes\ms-settings\shell\open\command'
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0014
+  name: '[PERSISTENCE] Suspicious RunKey Modification'
+  description: 'Detects unauthorized additions to Startup Run keys in the registry from non-installer processes.'
+  enabled: true
+  severity: 75
+  level: high
+  tags:
+    - persistence
+    - registry
+  mitre_attack:
+    - T1547.001
+  stages:
+    - name: Registry Write to RunKey
+      conditions:
+        - type: Api
+          functions:
+            - NtSetValueKey
+    - name: Target RunKey Path
+      conditions:
+        - type: MultiCondition
+          op: or
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+            - type: Process
+              op: contains
+              pattern: '(?i)SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+    - name: Exclude Trusted Installers
+      conditions:
+        - type: Process
+          op: not_contains
+          pattern: '(?i)(msiexec|setup|install)\.exe'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0015
+  name: '[STEALTH] Reflective DLL Loading Pattern'
+  description: 'Detects memory allocation and thread creation patterns typical of reflective DLL injection.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - injection
+    - stealth
+  mitre_attack:
+    - T1620
+  stages:
+    - name: Allocate RWX Memory
+      conditions:
+        - type: Api
+          functions:
+            - NtAllocateVirtualMemory
+          arguments:
+            - name: protection
+              value: '0x40'
+    - name: Write to Allocated Memory
+      conditions:
+        - type: Api
+          functions:
+            - NtWriteVirtualMemory
+    - name: Execute via StartRoutine
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateThreadEx
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0016
+  name: '[EXFILTRATION] DNS Tunneling Pattern'
+  description: 'Detects high-frequency DNS queries for unusual subdomains, potentially indicating DNS tunneling.'
+  enabled: true
+  severity: 80
+  level: high
+  tags:
+    - network
+    - exfiltration
+    - dns
+  mitre_attack:
+    - T1071.004
+  stages:
+    - name: High Frequency DNS
+      conditions:
+        - type: OperationCount
+          op_type: dns_query
+          comparison: gte
+          threshold: 50
+    - name: Target Domain Entropy
+      conditions:
+        - type: EntropyThreshold
+          metric: dns_domain
+          comparison: gte
+          threshold: 4.5
+  response:
+    notify_user: true
+    record: true
+    ask_user: true
+
+- rule_id: HD-ADV-0017
+  name: '[CREDENTIAL] LSASS Dump via comsvcs.dll'
+  description: 'Detects attempts to dump LSASS memory using the native comsvcs.dll MiniDump export.'
+  enabled: true
+  severity: 100
+  level: critical
+  tags:
+    - credential-access
+    - lsass
+  mitre_attack:
+    - T1003.001
+  stages:
+    - name: Detect Rundll32 LSASS Dump
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)rundll32\.exe'
+            - type: CommandLineMatch
+              patterns:
+                - '(?i)comsvcs\.dll.*MiniDump.*lsass'
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0018
+  name: '[EVASION] LOLBAS - Certutil Remote Download'
+  description: 'Detects usage of certutil.exe to download files from the internet, a common malware technique to bypass firewall rules.'
+  enabled: true
+  severity: 80
+  level: high
+  tags:
+    - evasion
+    - lolbas
+    - network
+  mitre_attack:
+    - T1105
+  stages:
+    - name: Detect Certutil Download
+      conditions:
+        - type: MultiCondition
+          op: and
+          conditions:
+            - type: Process
+              op: contains
+              pattern: '(?i)certutil\.exe'
+            - type: CommandLineMatch
+              patterns:
+                - '(?i)(-urlcache|-split)'
+            - type: MultiCondition
+              op: and
+              conditions:
+                - type: Network
+                  op: connect
+                  dest_pattern: '.*'
+                - type: File
+                  op: create
+                  path_pattern: '(?i).*\.(exe|dll|vbs|ps1|bat)'
+  response:
+    ask_user: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0019
+  name: '[STEALTH] Process Hollowing - Map and Resume'
+  description: 'Detects process hollowing by monitoring for a process created in a suspended state followed by memory mapping and thread resumption.'
+  enabled: true
+  severity: 95
+  level: critical
+  tags:
+    - injection
+    - hollowing
+  mitre_attack:
+    - T1055.012
+  stages:
+    - name: Process Create Suspended
+      conditions:
+        - type: Process
+          op: contains
+          pattern: 'suspended'
+    - name: Map Section
+      conditions:
+        - type: Api
+          functions:
+            - NtCreateSection
+            - NtMapViewOfSection
+    - name: Resume Thread
+      conditions:
+        - type: Api
+          functions:
+            - NtResumeThread
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0020
+  name: '[INJECTION] Thread Execution Hijacking'
+  description: 'Detects hijacking of a threads execution context to redirect it to malicious code.'
+  enabled: true
+  severity: 90
+  level: critical
+  tags:
+    - injection
+    - hijacking
+  mitre_attack:
+    - T1055.003
+  stages:
+    - name: Get Thread Context
+      conditions:
+        - type: Api
+          functions:
+            - NtGetContextThread
+    - name: Set Thread Context
+      conditions:
+        - type: Api
+          functions:
+            - NtSetContextThread
+    - name: Resume Thread
+      conditions:
+        - type: Api
+          functions:
+            - NtResumeThread
+  response:
+    terminate_process: true
+    notify_user: true
+    record: true
+
+- rule_id: HD-ADV-0021
+  name: '[ANTI-TAMPER] Hook notification handle close/protect tamper'
+  description: >
+    Detects attempts to close, duplicate, or weaken the HydraDragon/Owlyshield
+    user-mode hook notification transport handle. This rule uses hook-error
+    telemetry only and keeps benign failure filtering enabled so ACG/WebView
+    mitigation noise is not promoted into a behavioral detection.
+  enabled: true
+  severity: 92
+  level: critical
+  tags:
+    - anti-tamper
+    - hook-transport
+    - usermode-hook
+    - edr-evasion
+    - defense-evasion
+  mitre_attack:
+    - T1562.001
+    - T1562
+  false_positives:
+    - Legitimate security tooling may probe or duplicate process handles during diagnostics.
+    - ACG/WebView/browser mitigation failures must remain ignored by the benign hook failure check.
+  named_conditions:
+    hook_notify_handle_tamper_status:
+      hook_error_statuses:
+        - 3221226037 # 0xC0000235 STATUS_HANDLE_NOT_CLOSABLE
+        - 3221225506 # 0xC0000022 STATUS_ACCESS_DENIED
+      hook_error_api_patterns:
+        - '(?i)(^|!)(Nt|Zw)(Close|SetInformationObject|DuplicateObject)$'
+      hook_error_min_count: 1
+      hook_error_exclude_benign: true
+  detection_logic:
+    condition: hook_notify_handle_tamper_status
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
