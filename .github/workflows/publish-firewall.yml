@@ -15,7 +15,9 @@ permissions:
 
 jobs:
   build-and-stage:
-    if: (!startsWith(github.ref_name, 'auto-update-'))
+    if: |
+      !startsWith(github.ref_name, 'auto-update-') &&
+      !contains(github.event.head_commit.message, 'chore(firewall): update binaries and lockfiles')
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths

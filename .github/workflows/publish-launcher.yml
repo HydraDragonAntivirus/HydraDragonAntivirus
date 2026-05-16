@@ -2,29 +2,35 @@ name: Publish Launcher
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: ["**"]
     paths:
       - 'HydraDragonLauncher/**'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'HydraDragonLauncher/**'
+      - '.github/workflows/publish-launcher.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    runs-on: windows-latest
+  build-and-stage:
+    if: |
+      !startsWith(github.ref_name, 'auto-update-') &&
+      !contains(github.event.head_commit.message, 'chore(launcher): update binaries and lockfile')
+    runs-on: windows-2022
     
     steps:
+    - name: Enable Git long paths
+      run: git config --global core.longpaths true
+      
     - uses: actions/checkout@v6
     
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
         targets: x86_64-pc-windows-msvc
     
     - name: Update Launcher lockfile
@@ -39,19 +45,31 @@ jobs:
       working-directory: HydraDragonLauncher
       run: cargo test --release --verbose
     
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: hydradragonlauncher-windows-x64
-        path: HydraDragonLauncher/target/release/hydradragonlauncher.exe
-        retention-days: 30
+    - name: Stage
+      shell: pwsh
+      run: |
+        $dist = "hydradragon/HydraDragonLauncher"
+        New-Item -ItemType Directory -Force -Path $dist
+        Copy-Item "HydraDragonLauncher/target/release/hydradragonlauncher.exe" "$dist/" -Force
     
-    - name: Create Release (on tag)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
+    - name: Check for publishable changes
+      id: check_changes
+      uses: ./.github/actions/check-publishable-changes
       with:
-        files: HydraDragonLauncher/target/release/hydradragonlauncher.exe
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        paths: |
+          hydradragon/HydraDragonLauncher
+          HydraDragonLauncher/Cargo.lock
+    
+    - name: Create PR
+      if: steps.check_changes.outputs.changed == 'true'
+      uses: peter-evans/create-pull-request@v8
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore(launcher): update binaries and lockfile"
+        title: "Update Launcher Binaries and Lockfile"
+        add-paths: |
+          ${{ steps.check_changes.outputs.publishable_files }}
+        branch: "auto-update-launcher"
+        base: ${{ github.ref_name }}
+        delete-branch: true
+        labels: binaries, automated-pr, launcher, development-version
