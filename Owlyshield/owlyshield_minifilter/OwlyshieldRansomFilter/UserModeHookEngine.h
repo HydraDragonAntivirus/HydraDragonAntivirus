@@ -234,7 +234,59 @@ extern PZW_FLUSH_INSTRUCTION_CACHE fnZwFlushInstructionCache;
                                             //   steal >= 14 bytes, rounded up to
                                             //   instruction boundary (max 28)
 #define USERMODE_HOOK_SIZE_32 5   // 5-byte  E9 rel32 JMP    for WoW64 (32-bit) hooks
+
 #define MAX_CUSTOM_HOOKS 65536
+
+//
+// Handle-free user-mode hook telemetry transport.
+//
+// legacy device handle/NtDeviceIoControlFile notification was intentionally
+// removed from the injected shellcode path.  Each target process now gets
+// a user-mode ring buffer mapped inside the same target VA allocation as the
+// trampolines.  Shellcode writes UMH_RING_EVENT records directly; a kernel
+// drain bridge can later read them and convert them to the existing internal
+// hook-event pipeline.
+//
+// Keep UMH_RING_EVENT_SIZE at 64: the x64/WoW64 shellcode uses a left shift
+// by 6 when indexing the ring.
+#define UMH_RING_MAGIC       0x484D5552UL  // 'RUMH' little-endian marker
+#define UMH_RING_VERSION     1UL
+#define UMH_RING_EVENT_COUNT 1024UL
+#define UMH_RING_EVENT_MASK  (UMH_RING_EVENT_COUNT - 1UL)
+#define UMH_RING_EVENT_SIZE  64UL
+#define UMH_RING_FLAG_ACTIVE 0x00000001UL
+#define UMH_RING_FLAG_RETIRING 0x00000002UL
+#define UMH_RING_HEADER_SIZE 64UL
+
+typedef struct _UMH_RING_EVENT
+{
+    volatile ULONG Sequence;       // written last by shellcode
+    ULONG EventId;
+    ULONG ProcessId;
+    ULONG ThreadId;
+    ULONG64 Arg1;
+    ULONG64 Arg2;
+    ULONG64 Arg3;
+    ULONG64 Arg4;
+    ULONG64 OperationStatus;
+    ULONG64 Reserved;
+} UMH_RING_EVENT, *PUMH_RING_EVENT;
+
+typedef struct _UMH_SHARED_RING
+{
+    ULONG Magic;
+    ULONG Version;
+    volatile ULONG Flags;
+    volatile LONG WriteIndex;
+    volatile LONG ReadIndex;
+    volatile LONG LostEvents;
+    ULONG Generation;
+    UCHAR Reserved[UMH_RING_HEADER_SIZE - 28];
+    UMH_RING_EVENT Events[UMH_RING_EVENT_COUNT];
+} UMH_SHARED_RING, *PUMH_SHARED_RING;
+
+static_assert(sizeof(UMH_RING_EVENT) == UMH_RING_EVENT_SIZE, "UMH_RING_EVENT must remain 64 bytes");
+static_assert(FIELD_OFFSET(UMH_SHARED_RING, Events) == UMH_RING_HEADER_SIZE, "UMH_SHARED_RING header must remain 64 bytes");
 
 typedef struct _HOOK_DEF {
     PVOID Address;
@@ -262,7 +314,12 @@ typedef struct _PROCESS_HOOK_ENTRY
     PVOID ShellcodeBase;
     SIZE_T ShellcodeSize;
     SIZE_T ShellcodeUsed;
-    HANDLE DriverDeviceHandle;
+
+    // Handle-free telemetry ring. RingBase is a user VA in ProcessObject.
+    // It lives inside the same allocation as ShellcodeBase, after ShellcodeSize.
+    PVOID RingBase;
+    SIZE_T RingSize;
+    ULONG RingGeneration;
 } PROCESS_HOOK_ENTRY, *PPROCESS_HOOK_ENTRY;
 
 typedef struct _USERMODE_HOOK_ENGINE
@@ -284,6 +341,8 @@ VOID ReloadHookExcludeRules(VOID);
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId);
 NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry);
+NTSTATUS UserModeHookDrainRingForProcess(_In_ ULONG ProcessId, _Out_writes_all_(MaxEvents) PUMH_RING_EVENT Events, _In_ ULONG MaxEvents, _Out_ PULONG EventsRead);
+NTSTATUS UserModeHookDrainHookEventsForProcess(_In_ ULONG ProcessId, _Out_writes_all_(MaxEvents) PHOOK_EVENT_DATA Events, _In_ ULONG MaxEvents, _Out_ PULONG EventsRead);
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config);
 _Success_(return != FALSE)
 BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutName, _In_ ULONG OutNameCch);

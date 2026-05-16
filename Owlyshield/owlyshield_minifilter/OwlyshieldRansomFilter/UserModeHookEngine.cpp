@@ -15,21 +15,16 @@ Abstract:
     64-bit process:
       Shellcode written to the target VA, uses 14-byte FF 25 indirect JMP.
       Stolen instructions: first 14 bytes of the target function.
-      Notification: calls 64-bit ntdll!NtDeviceIoControlFile via absolute
-      mov rax / call rax.  The driver opens one master hook-device handle
-      with FILE_SYNCHRONOUS_IO_NONALERT, then duplicates that same FILE_OBJECT
-      into each target process.  NtDeviceIoControlFile therefore runs
-      synchronously and the shellcode's stack-resident IO_STATUS_BLOCK remains
-      valid until completion.
+      Notification: handle-free ring buffer write.  The trampoline no longer
+      embeds legacy device handle and no longer calls NtDeviceIoControlFile from
+      target process shellcode.
 
     32-bit (WoW64) process:
       Module base resolved via PEB32 (PsGetProcessWow64Process).
       Shellcode written to the target VA, uses 5-byte E9 rel32 JMP.
       Stolen instructions: first 5 bytes of the target function.
-      Notification: calls 32-bit ntdll!NtDeviceIoControlFile via 32-bit
-      stdcall (mov eax / call eax).  It uses the same duplicated synchronous
-      device handle, so the WoW64 shellcode also waits for completion before
-      returning to the caller.
+      Notification: handle-free ring buffer write in the low WoW64 address
+      range.  No target-process device handle is embedded in x86 shellcode.
 
     NOTE - required changes to UserModeHookEngine.h
     -------------------------------------------------
@@ -116,12 +111,10 @@ typedef struct _PEB32
 //
 // The shellcode stores this sentinel in TEB.NtTib.ArbitraryUserPointer
 // (GS:[0x28] on x64, FS:[0x14] on x86/WoW64) while it is executing.
-// Before calling NtDeviceIoControlFile, the shellcode checks whether the
-// sentinel is already present.  If it is, the IOCTL call is skipped and
-// the stolen bytes + return jump execute normally.  This prevents infinite
-// recursion when a hooked function is called from within the driver's own
-// IOCTL dispatch path (e.g. minifilter pre-operation -> NtCreateFile hook ->
-// shellcode -> NtDeviceIoControlFile -> minifilter pre-operation -> ...).
+// Before writing hook telemetry into the shared ring, the shellcode checks
+// whether the sentinel is already present.  If it is, the ring write is
+// skipped and the stolen bytes + return jump execute normally.  This avoids
+// recursive hook telemetry from nested hooked APIs.
 //
 // The magic value is distinctive enough that accidental collision with a
 // real ArbitraryUserPointer usage is negligible.  The old value is saved
@@ -161,21 +154,12 @@ typedef NTSTATUS(NTAPI *PZW_QUERY_INFORMATION_PROCESS)(_In_ HANDLE ProcessHandle
                                                         _In_ ULONG ProcessInformationLength,
                                                         _Out_opt_ PULONG ReturnLength);
 
-typedef struct _OWLY_OBJECT_HANDLE_FLAG_INFORMATION
-{
-    BOOLEAN Inherit;
-    BOOLEAN ProtectFromClose;
-} OWLY_OBJECT_HANDLE_FLAG_INFORMATION, *POWLY_OBJECT_HANDLE_FLAG_INFORMATION;
-
-#define OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS ((OBJECT_INFORMATION_CLASS)4)
-
 //
 // Global Function Pointers
 //
 PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory = NULL;
 PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
 PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
-PZW_SET_INFORMATION_OBJECT fnZwSetInformationObject = NULL;
 PZW_QUERY_INFORMATION_PROCESS fnZwQueryInformationProcess = NULL;
 PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 PPS_IS_PROTECTED_PROCESS fnPsIsProtectedProcess = NULL;
@@ -184,12 +168,9 @@ PPS_GET_PROCESS_INHERITED_FROM_UNIQUE_PROCESS_ID fnPsGetProcessInheritedFromUniq
 PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
-// Master hook notification FILE_OBJECT. Opened once with synchronous I/O
-// semantics during engine init, then re-opened as a user handle inside each
-// target process so shellcode receives a normal user-visible handle without
-// duplicating a kernel handle into the target token.
-static HANDLE g_HookNotifyMasterHandle = NULL;
-static POBJECT_TYPE *g_HookIoFileObjectType = NULL;
+// Engine shutdown guard.  The legacy legacy device handle/NtDeviceIoControlFile
+// notification transport was removed; target shellcode now writes only to the
+// per-process UMH_SHARED_RING.
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
 // Dynamic Configuration
@@ -233,85 +214,6 @@ static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesR
 
 static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars);
 
-static NTSTATUS ValidateHookNotifyUserHandle(_In_ HANDLE Handle)
-{
-    NTSTATUS status;
-    PFILE_OBJECT fileObject = NULL;
-
-    if (Handle == NULL || Handle == NtCurrentProcess() || Handle == NtCurrentThread())
-    {
-        return STATUS_INVALID_HANDLE;
-    }
-
-    if (g_HookIoFileObjectType == NULL || *g_HookIoFileObjectType == NULL)
-    {
-        return STATUS_SUCCESS;
-    }
-
-    status = ObReferenceObjectByHandle(Handle,
-                                       FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                                       *g_HookIoFileObjectType,
-                                       UserMode,
-                                       (PVOID *)&fileObject,
-                                       NULL);
-    if (NT_SUCCESS(status) && fileObject != NULL)
-    {
-        ObDereferenceObject(fileObject);
-    }
-
-    return status;
-}
-
-static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
-{
-    NTSTATUS status;
-
-    if (Handle == NULL || *Handle == NULL)
-    {
-        return;
-    }
-
-    __try
-    {
-        status = ValidateHookNotifyUserHandle(*Handle);
-        if (!NT_SUCCESS(status))
-        {
-            *Handle = NULL;
-            return;
-        }
-
-        if (fnZwSetInformationObject != NULL)
-        {
-            OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
-            NTSTATUS flagStatus;
-            handleFlags.Inherit = FALSE;
-            handleFlags.ProtectFromClose = FALSE;
-            flagStatus = fnZwSetInformationObject(*Handle,
-                                                  OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
-                                                  &handleFlags,
-                                                  sizeof(handleFlags));
-            if (!NT_SUCCESS(flagStatus))
-            {
-                *Handle = NULL;
-                return;
-            }
-        }
-
-        status = ZwClose(*Handle);
-        if (!NT_SUCCESS(status))
-        {
-            *Handle = NULL;
-            return;
-        }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        // Ignore exception from invalid handles or destroyed handle tables
-    }
-
-    *Handle = NULL;
-}
-
 static BOOLEAN IsRecoverableHookInstallStatus(_In_ NTSTATUS Status)
 {
     switch (Status)
@@ -323,7 +225,7 @@ static BOOLEAN IsRecoverableHookInstallStatus(_In_ NTSTATUS Status)
     case STATUS_INVALID_ADDRESS:
     case STATUS_CONFLICTING_ADDRESSES:
     case STATUS_INVALID_PARAMETER:
-    case STATUS_INVALID_HANDLE:
+    case STATUS_INVALID_IMAGE_FORMAT:
     case STATUS_ACCESS_DENIED:
     case STATUS_DYNAMIC_CODE_BLOCKED:
     case OWLY_HRESULT_DYNAMIC_CODE_BLOCKED:
@@ -1039,14 +941,6 @@ _Success_(return != FALSE) BOOLEAN
 }
 
 // -------------------------------------------------------------------------
-// FIX #4a: Define the IOCTL code used by the injected shellcode.
-// HOOK_NOTIFY_IOCTL_CODE must match the driver-side CTL_CODE definition.
-// -------------------------------------------------------------------------
-#ifndef HOOK_NOTIFY_IOCTL_CODE
-#define HOOK_NOTIFY_IOCTL_CODE IOCTL_REPORT_HOOK_EVENT
-#endif
-
-// -------------------------------------------------------------------------
 // -------------------------------------------------------------------------
 // X64InstrLen
 //
@@ -1530,140 +1424,34 @@ static BOOLEAN ContainsUnrelocatableInstructions32(_In_reads_bytes_(StolenSize) 
 //   kEventSig32       C7 44 24 08 [11x4]    -> imm32  = EventId
 //   kPidSig32         C7 44 24 0C [22x4]    -> imm32  = ProcessId
 //   kSizeSig32        68 [77x4]             -> imm32  = sizeof(HOOK_EVENT_DATA)
-//   kIoctlSig32       68 [66x4]             -> imm32  = HOOK_NOTIFY_IOCTL_CODE
-//   kHandleSig32      68 [33x4]             -> imm32  = DriverDeviceHandle
+//   kIoctlSig32       68 [66x4]             -> imm32  = legacy IOCTL code
+//   kHandleSig32      68 [33x4]             -> imm32  = legacy device handle
 //   kNtIoSig32        B8 [44x4]             -> imm32  = NtDeviceIoControlFile VA
 //   kSkipLabelSig32   0F 1F 00              -> (3-byte NOP - JE rel32 target)
 //   kRetSig32         E9 [55x4]             -> rel32  = return target
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate32[] = {
-    // ---- Save all GP registers and flags --------------------------------
-    0x60, // pushad
-    0x9C, // pushfd
-
-    // ---- Allocate local frame: 0x80 bytes --------------------------------
-    0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, // sub esp, 0x80
-
-    // ---- RE-ENTRANCY GUARD (new) -----------------------------------------
-    // Load sentinel into EBX (already saved by PUSHAD at [LB+0x90]).
-    // kGuardMagicSig32 = { 0xBB, 0x88, 0x88, 0x88, 0x88 }
-    0xBB, 0x88, 0x88, 0x88, 0x88, // mov ebx, MAGIC32
-
-    // Read TEB32.NtTib.ArbitraryUserPointer from FS:[0x14]
-    // FS(64) A1 [14 00 00 00]  = MOV EAX, moffs32 with FS prefix (6 bytes)
-    0x64, 0xA1, 0x14, 0x00, 0x00, 0x00, // mov eax, fs:[0x14]
-
-    // Save old value so we can restore it after the IOCTL
-    0x89, 0x44, 0x24, 0x78, // mov [esp+0x78], eax
-    // Preserve TEB32.LastErrorValue so the helper NtDeviceIoControlFile does
-    // not leak its failure state into the hooked API's caller.
-    0x64, 0xA1, 0x34, 0x00, 0x00, 0x00, // mov eax, fs:[0x34]
-    0x89, 0x44, 0x24, 0x7C,             // mov [esp+0x7C], eax
-    // Reload the saved ArbitraryUserPointer before comparing with the
-    // re-entrancy sentinel.
-    0x8B, 0x44, 0x24, 0x78, // mov eax, [esp+0x78]
-
-    // If eax == magic -> already inside shellcode, skip IOCTL
-    0x3B, 0xC3, // cmp eax, ebx
-
-    // je rel32 - kJeSig32 = { 0x0F, 0x84, 0x00, 0x00, 0x00, 0x00 }
-    // rel32 patched at install time to reach kSkipLabelSig32
-    0x0F, 0x84, 0x00, 0x00, 0x00, 0x00, // je skip_notification32
-
-    // Set guard: FS(64) 89 1D [14 00 00 00] = MOV [moffs32], EBX
-    0x64, 0x89, 0x1D, 0x14, 0x00, 0x00, 0x00, // mov fs:[0x14], ebx
-
-    // ---- Zero IoStatusBlock at [esp+0x00..0x07] -------------------------
-    0x31, 0xC0,             // xor eax, eax
-    0x89, 0x04, 0x24,       // mov [esp+0x00], eax
-    0x89, 0x44, 0x24, 0x04, // mov [esp+0x04], eax
-
-    // ---- Fill HOOK_EVENT_DATA at [esp+0x08] -----------------------------
-    // EventType <- patched: kEventSig32
-    0xC7, 0x44, 0x24, 0x08, 0x11, 0x11, 0x11, 0x11,
-    // ProcessId <- patched: kPidSig32
-    0xC7, 0x44, 0x24, 0x0C, 0x22, 0x22, 0x22, 0x22,
-    // FunctionName[0] = '\0'
-    0xC6, 0x44, 0x24, 0x10, 0x00,
-
-    // ---- Arg1 -> HOOK_EVENT_DATA.Arg1 ------------------------------------
-    // [esp+0xA8] = arg1 of hooked fn (LB+0x80=EFLAGS + 0x84..0xA0=PUSHAD + 0xA4=retaddr)
-    0x8B, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00,       // mov eax, [esp+0xA8]
-    0x89, 0x44, 0x24, 0x50,                         // mov [esp+0x50], eax
-    0xC7, 0x44, 0x24, 0x54, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x54] = 0
-
-    // ---- Arg2 -> HOOK_EVENT_DATA.Arg2 ------------------------------------
-    0x8B, 0x84, 0x24, 0xAC, 0x00, 0x00, 0x00,       // mov eax, [esp+0xAC]
-    0x89, 0x44, 0x24, 0x58,                         // mov [esp+0x58], eax
-    0xC7, 0x44, 0x24, 0x5C, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x5C] = 0
-
-    // ---- Arg3/Arg4 are unknown for generic hooks; keep the wire data clean
-    0xC7, 0x44, 0x24, 0x60, 0x00, 0x00, 0x00, 0x00, // Arg3 low  = 0
-    0xC7, 0x44, 0x24, 0x64, 0x00, 0x00, 0x00, 0x00, // Arg3 high = 0
-    0xC7, 0x44, 0x24, 0x68, 0x00, 0x00, 0x00, 0x00, // Arg4 low  = 0
-    0xC7, 0x44, 0x24, 0x6C, 0x00, 0x00, 0x00, 0x00, // Arg4 high = 0
-
-    // ---- Build NtDeviceIoControlFile args (stdcall, right-to-left) ------
-    // arg10: OutputBufferLength = 0
-    0x6A, 0x00, // push 0               ESP=LB-4
-    // arg9: OutputBuffer = NULL
-    0x6A, 0x00, // push 0               ESP=LB-8
-    // arg8: InputBufferLength <- patched: kSizeSig32
-    0x68, 0x77, 0x77, 0x77, 0x77, //                       ESP=LB-0xC
-    // arg7: InputBuffer = &HOOK_EVENT_DATA = [esp+0x14] at this point
-    0x8D, 0x44, 0x24, 0x14, // lea eax,[esp+0x14]
-    0x50,                   // push eax              ESP=LB-0x10
-    // arg6: IoControlCode <- patched: kIoctlSig32
-    0x68, 0x66, 0x66, 0x66, 0x66, //                       ESP=LB-0x14
-    // arg5: &IoStatusBlock = [esp+0x14] at this point
-    0x8D, 0x44, 0x24, 0x14, // lea eax,[esp+0x14]
-    0x50,                   // push eax              ESP=LB-0x18
-    // arg4: ApcContext = NULL
-    0x6A, 0x00, //                       ESP=LB-0x1C
-    // arg3: ApcRoutine = NULL
-    0x6A, 0x00, //                       ESP=LB-0x20
-    // arg2: Event = NULL
-    0x6A, 0x00, //                       ESP=LB-0x24
-    // arg1: FileHandle <- patched: kHandleSig32
-    0x68, 0x33, 0x33, 0x33, 0x33, //                       ESP=LB-0x28
-
-    // ---- Call NtDeviceIoControlFile (stdcall - callee cleans 40 bytes) --
-    // Address <- patched: kNtIoSig32
-    0xB8, 0x44, 0x44, 0x44, 0x44, // mov eax, imm32
-    0xFF, 0xD0,                   // call eax
-
-    // ---- Restore TEB32.LastErrorValue and re-entrancy guard -------------
-    0x8B, 0x44, 0x24, 0x7C,       // mov eax, [esp+0x7C]
-    0x64, 0xA3, 0x34, 0x00, 0x00, 0x00, // mov fs:[0x34], eax
-    // ---- Restore re-entrancy guard (clear back to old FS:[0x14] value) --
-    0x8B, 0x44, 0x24, 0x78, // mov eax, [esp+0x78]
-    // FS(64) A3 [14 00 00 00] = MOV [moffs32], EAX
-    0x64, 0xA3, 0x14, 0x00, 0x00, 0x00, // mov fs:[0x14], eax
-
-    // ---- skip_notification32 label <- JE rel32 target --------------------
-    // kSkipLabelSig32 = { 0x0F, 0x1F, 0x00 }  (3-byte NOP)
-    0x0F, 0x1F, 0x00, // nop dword ptr [eax]
-
-    // ---- Restore local frame and all registers --------------------------
-    0x81, 0xC4, 0x80, 0x00, 0x00, 0x00, // add esp, 0x80
-    0x9D,                               // popfd
-    0x61,                               // popad
-
-    // ---- 5-byte stolen-instruction placeholder --------------------------
-    0x90, 0x90, 0x90, 0x90, 0x90,
-
-    // ---- Return jump <- patched: kRetSig32 (E9 rel32) --------------------
-    0xE9, 0x55, 0x55, 0x55, 0x55,
-
-    // ---- Padding --------------------------------------------------------
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+    0x9C, 0x60, 0xBB, 0x33, 0x33, 0x33, 0x33, 0xB8, 0x01, 0x00, 0x00, 0x00,
+    0xF0, 0x0F, 0xC1, 0x43, 0x0C, 0x25, 0xFF, 0x03, 0x00, 0x00, 0xC1, 0xE0,
+    0x06, 0x8D, 0x5C, 0x03, 0x40, 0xC7, 0x03, 0x00, 0x00, 0x00, 0x00, 0xC7,
+    0x43, 0x04, 0x11, 0x11, 0x11, 0x11, 0xC7, 0x43, 0x08, 0x22, 0x22, 0x22,
+    0x22, 0x64, 0xA1, 0x24, 0x00, 0x00, 0x00, 0x89, 0x43, 0x0C, 0x8B, 0x44,
+    0x24, 0x28, 0x89, 0x43, 0x10, 0x31, 0xC0, 0x89, 0x43, 0x14, 0x8B, 0x44,
+    0x24, 0x2C, 0x89, 0x43, 0x18, 0x31, 0xC0, 0x89, 0x43, 0x1C, 0x8B, 0x44,
+    0x24, 0x30, 0x89, 0x43, 0x20, 0x31, 0xC0, 0x89, 0x43, 0x24, 0x8B, 0x44,
+    0x24, 0x34, 0x89, 0x43, 0x28, 0x31, 0xC0, 0x89, 0x43, 0x2C, 0x31, 0xC0,
+    0x89, 0x43, 0x30, 0x89, 0x43, 0x34, 0x89, 0x43, 0x38, 0x89, 0x43, 0x3C,
+    0xC7, 0x03, 0x01, 0x00, 0x00, 0x00, 0x61, 0x9D, 0x90, 0x90, 0x90, 0x90,
+    0x90, 0xE9, 0x55, 0x55, 0x55, 0x55, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90, 0x90,
+};
 // NtDeviceIoControlFile, leaving the rest as garbage - causing an access
 // violation inside the kernel on almost every hooked call.
 //
 // STACK LAYOUT (RSP = RSP_entry - 304 after pushes + sub):
 //   RSP+0x00..0x1F  shadow space for the call
 //   RSP+0x20        arg5:  &IO_STATUS_BLOCK  (points to RSP+0x80)
-//   RSP+0x28        arg6:  IoControlCode     (patched: HOOK_NOTIFY_IOCTL_CODE)
+//   RSP+0x28        arg6:  IoControlCode     (patched: legacy IOCTL code)
 //   RSP+0x30        arg7:  InputBuffer       (points to RSP+0x90 = HOOK_EVENT_DATA)
 //   RSP+0x38        arg8:  InputBufferLength (patched: sizeof HOOK_EVENT_DATA)
 //   RSP+0x40        arg9:  OutputBuffer      NULL
@@ -1726,160 +1514,32 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   kJeSig64        0F 84 [00x4]         -> rel32  = offset to kSkipLabelSig
 //   kEventSig       C7 84 24 90 .. 11x4  -> imm32  = EventId
 //   kPidSig         C7 84 24 94 .. 22x4  -> imm32  = ProcessId
-//   kHandleSig      48 B9 [33x8]         -> imm64  = DriverDeviceHandle
-//   kIoctlSig       48 B8 [66x8]         -> imm64  = HOOK_NOTIFY_IOCTL_CODE
+//   kHandleSig      48 B9 [33x8]         -> imm64  = legacy device handle
+//   kIoctlSig       48 B8 [66x8]         -> imm64  = legacy IOCTL code
 //   kSizeSig        48 B8 [77x8]         -> imm64  = sizeof(HOOK_EVENT_DATA)
 //   kNtIoSig        48 B8 [44x8]         -> imm64  = NtDeviceIoControlFile VA
 //   kSkipLabelSig   0F 1F 44 00 00       -> (5-byte NOP - JE rel32 target)
 //   kRetSig         48 B8 [55x8]         -> imm64  = return target VA
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate[] = {
-    // ---- Save volatile registers ----------------------------------------
-    0x50,       // push rax
-    0x51,       // push rcx
-    0x52,       // push rdx
-    0x53,       // push rbx
-    0x41, 0x50, // push r8
-    0x41, 0x51, // push r9
-    0x41, 0x52, // push r10
-    0x41, 0x53, // push r11
-
-    // ---- Allocate 0xF8 bytes of local frame -----------------------------
-    // After 8 pushes (64 bytes) RSP%16 == 8.  sub 0xF8 (248, 8 mod 16):
-    // RSP%16 -> 0 at the CALL, satisfying the x64 ABI.
-    0x48, 0x81, 0xEC, 0xF8, 0x00, 0x00, 0x00, // sub rsp, 0xF8
-
-    // ---- RE-ENTRANCY GUARD (new) ----------------------------------------
-    // Load sentinel into R10 (already saved at [RSP+0x100]).
-    // Placeholder 0x88... is patched with HOOK_REENTRANCY_MAGIC_64.
-    // kGuardMagicSig = { 0x49,0xBA,0x88,0x88,0x88,0x88,0x88,0x88,0x88,0x88 }
-    0x49, 0xBA, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, // mov r10, MAGIC  (imm64)
-
-    // Read TEB.NtTib.ArbitraryUserPointer from GS:[0x28]
-    // Encoding: GS(65) REX.W(48) 8B /r SIB(04 25) disp32
-    0x65, 0x48, 0x8B, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00, // mov rax, gs:[0x28]
-
-    // Save old value so we can restore it after the IOCTL
-    0x48, 0x89, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00, // mov [rsp+0x70], rax
-    // Preserve TEB.LastErrorValue and LastStatusValue so the helper
-    // NtDeviceIoControlFile remains side-effect free for the hooked caller.
-    0x65, 0x8B, 0x04, 0x25, 0x68, 0x00, 0x00, 0x00, // mov eax, gs:[0x68]
-    0x89, 0x84, 0x24, 0x78, 0x00, 0x00, 0x00,       // mov [rsp+0x78], eax
-    0x65, 0x8B, 0x04, 0x25, 0x50, 0x12, 0x00, 0x00, // mov eax, gs:[0x1250]
-    0x89, 0x84, 0x24, 0x7C, 0x00, 0x00, 0x00,       // mov [rsp+0x7C], eax
-    // Reload the saved ArbitraryUserPointer before comparing with the
-    // re-entrancy sentinel.
-    0x48, 0x8B, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00, // mov rax, [rsp+0x70]
-
-    // If rax == magic -> already inside shellcode on this thread, skip IOCTL
-    // cmp rax, r10  -> REX.WB(49) 3B C2
-    0x49, 0x3B, 0xC2, // cmp rax, r10
-
-    // je rel32 - kJeSig64 = { 0x0F,0x84,0x00,0x00,0x00,0x00 }
-    // rel32 patched at install time to reach kSkipLabelSig
-    0x0F, 0x84, 0x00, 0x00, 0x00, 0x00, // je skip_notification
-
-    // Set guard: mark this thread as inside our shellcode
-    // mov gs:[0x28], r10  -> GS(65) REX.WR(4C) 89 SIB(14 25) disp32
-    0x65, 0x4C, 0x89, 0x14, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], r10
-
-    // ---- Zero IO_STATUS_BLOCK at RSP+0x80 --------------------------------
-    0x48, 0x31, 0xC0,                               // xor rax, rax
-    0x48, 0x89, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00, // mov [rsp+0x80], rax
-    0x48, 0x89, 0x84, 0x24, 0x88, 0x00, 0x00, 0x00, // mov [rsp+0x88], rax
-
-    // ---- Fill HOOK_EVENT_DATA (starts at RSP+0x90) -----------------------
-    // EventType at RSP+0x90  <- patched: kEventSig
-    0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11,
-    // ProcessId at RSP+0x94 <- patched: kPidSig
-    0xC7, 0x84, 0x24, 0x94, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22,
-    // FunctionName[0] = '\0'
-    0xC6, 0x84, 0x24, 0x98, 0x00, 0x00, 0x00, 0x00,
-
-    // ---- Copy original RCX (arg1) -> HOOK_EVENT_DATA.Arg1 at RSP+0xD8 ----
-    // Register save layout after sub rsp,0xF8:
-    //   r11=[RSP+0xF8] r10=[RSP+0x100] r9=[RSP+0x108] r8=[RSP+0x110]
-    //   rbx=[RSP+0x118] rdx=[RSP+0x120] rcx=[RSP+0x128] rax=[RSP+0x130]
-    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00, // mov rax,[rsp+0x128] <- RCX
-    0x48, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00, // mov [rsp+0xD8],rax -> Arg1
-
-    // ---- Copy original RDX (arg2) -> HOOK_EVENT_DATA.Arg2 at RSP+0xE0 ----
-    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00, // mov rax,[rsp+0x120] <- RDX
-    0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00, // mov [rsp+0xE0],rax -> Arg2
-
-    // ---- Arg3/Arg4 are not reliably known for generic hooks -------------
-    0x48, 0x31, 0xC0,                               // xor rax, rax
-    0x48, 0x89, 0x84, 0x24, 0xE8, 0x00, 0x00, 0x00, // mov [rsp+0xE8],rax -> Arg3
-    0x48, 0x89, 0x84, 0x24, 0xF0, 0x00, 0x00, 0x00, // mov [rsp+0xF0],rax -> Arg4
-
-    // ---- Build NtDeviceIoControlFile argument frame ----------------------
-    // RCX = FileHandle <- patched: kHandleSig
-    0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-    // RDX = Event = NULL
-    0x31, 0xD2, // xor edx, edx
-    // R8 = ApcRoutine = NULL
-    0x45, 0x31, 0xC0, // xor r8d, r8d
-    // R9 = ApcContext = NULL
-    0x45, 0x31, 0xC9, // xor r9d, r9d
-    // arg5 [rsp+0x20] = &IoStatusBlock
-    0x48, 0x8D, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00, // lea rax,[rsp+0x80]
-    0x48, 0x89, 0x44, 0x24, 0x20,                   // mov [rsp+0x20], rax
-    // arg6 [rsp+0x28] = IoControlCode <- patched: kIoctlSig
-    0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x48, 0x89, 0x44, 0x24, 0x28, // mov [rsp+0x28], rax
-    // arg7 [rsp+0x30] = InputBuffer = &HOOK_EVENT_DATA
-    0x48, 0x8D, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, // lea rax,[rsp+0x90]
-    0x48, 0x89, 0x44, 0x24, 0x30,                   // mov [rsp+0x30], rax
-    // arg8 [rsp+0x38] = InputBufferLength <- patched: kSizeSig
-    0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x48, 0x89, 0x44, 0x24, 0x38, // mov [rsp+0x38], rax
-    // arg9 [rsp+0x40] = NULL, arg10 [rsp+0x48] = 0
-    0x48, 0x31, 0xC0,             // xor rax, rax
-    0x48, 0x89, 0x44, 0x24, 0x40, // mov [rsp+0x40], rax
-    0x48, 0x89, 0x44, 0x24, 0x48, // mov [rsp+0x48], rax
-
-    // ---- Call NtDeviceIoControlFile <- patched: kNtIoSig -----------------
-    0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0xFF, 0xD0, // call rax
-
-    // ---- Restore TEB error/status and re-entrancy guard ------------------
-    0x8B, 0x84, 0x24, 0x7C, 0x00, 0x00, 0x00,       // mov eax, [rsp+0x7C]
-    0x65, 0x89, 0x04, 0x25, 0x50, 0x12, 0x00, 0x00, // mov gs:[0x1250], eax
-    0x8B, 0x84, 0x24, 0x78, 0x00, 0x00, 0x00,       // mov eax, [rsp+0x78]
-    0x65, 0x89, 0x04, 0x25, 0x68, 0x00, 0x00, 0x00, // mov gs:[0x68], eax
-    // Restores the old TEB.ArbitraryUserPointer value saved at [RSP+0x70].
-    // This correctly handles the case where the field was non-zero before we
-    // set the sentinel (e.g. the CRT had its own value there).
-    0x48, 0x8B, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00, // mov rax, [rsp+0x70]
-    // mov gs:[0x28], rax -> GS(65) REX.W(48) 89 SIB(04 25) disp32
-    0x65, 0x48, 0x89, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], rax
-
-    // ---- skip_notification label <- JE rel32 target ----------------------
-    // kSkipLabelSig = { 0x0F,0x1F,0x44,0x00,0x00 }
-    // 5-byte NOP: nop dword ptr [rax+rax*1+0h]
-    // On the re-entrant path the JE jumps here, bypassing the IOCTL entirely.
-    // On the normal path execution falls through from the guard restore above.
-    0x0F, 0x1F, 0x44, 0x00, 0x00, // (5-byte NPAD)
-
-    // ---- Restore local space and registers ------------------------------
-    0x48, 0x81, 0xC4, 0xF8, 0x00, 0x00, 0x00, // add rsp, 0xF8
-    0x41, 0x5B,                               // pop r11
-    0x41, 0x5A,                               // pop r10
-    0x41, 0x59,                               // pop r9
-    0x41, 0x58,                               // pop r8
-    0x5B,                                     // pop rbx
-    0x5A,                                     // pop rdx
-    0x59,                                     // pop rcx
-    0x58,                                     // pop rax
-
-    // ---- 28-byte stolen-instruction placeholder -------------------------
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-
-    // ---- Return jump <- patched: kRetSig ---------------------------------
-    // jmp qword ptr [rip+0] followed by the 8-byte address
-    0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
-
-    // ---- Padding --------------------------------------------------------
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90};
+    0x9C, 0x50, 0x51, 0x52, 0x53, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41,
+    0x53, 0x48, 0xBB, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0xB8,
+    0x01, 0x00, 0x00, 0x00, 0xF0, 0x0F, 0xC1, 0x43, 0x0C, 0x25, 0xFF, 0x03,
+    0x00, 0x00, 0x48, 0xC1, 0xE0, 0x06, 0x48, 0x8D, 0x5C, 0x03, 0x40, 0xC7,
+    0x03, 0x00, 0x00, 0x00, 0x00, 0xC7, 0x43, 0x04, 0x11, 0x11, 0x11, 0x11,
+    0xC7, 0x43, 0x08, 0x22, 0x22, 0x22, 0x22, 0x65, 0x8B, 0x04, 0x25, 0x48,
+    0x00, 0x00, 0x00, 0x89, 0x43, 0x0C, 0x48, 0x8B, 0x44, 0x24, 0x30, 0x48,
+    0x89, 0x43, 0x10, 0x48, 0x8B, 0x44, 0x24, 0x28, 0x48, 0x89, 0x43, 0x18,
+    0x48, 0x8B, 0x44, 0x24, 0x18, 0x48, 0x89, 0x43, 0x20, 0x48, 0x8B, 0x44,
+    0x24, 0x10, 0x48, 0x89, 0x43, 0x28, 0x31, 0xC0, 0x48, 0x89, 0x43, 0x30,
+    0x48, 0x89, 0x43, 0x38, 0xC7, 0x03, 0x01, 0x00, 0x00, 0x00, 0x41, 0x5B,
+    0x41, 0x5A, 0x41, 0x59, 0x41, 0x58, 0x5B, 0x5A, 0x59, 0x58, 0x9D, 0x90,
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90, 0x90, 0x90, 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x55, 0x55, 0x55,
+    0x55, 0x55, 0x55, 0x55, 0x55, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90,
+};
 
 //
 // Initialize the user-mode hooking engine
@@ -1952,11 +1612,6 @@ DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
 
     }
 
-    // Resolve ZwSetInformationObject - used to protect the per-process hook
-    // device handle from user-mode close sanitizers such as browser sandboxes.
-    RtlInitUnicodeString(&routineName, L"ZwSetInformationObject");
-    fnZwSetInformationObject = (PZW_SET_INFORMATION_OBJECT)MmGetSystemRoutineAddress(&routineName);
-
     // Resolve ZwQueryInformationProcess - optional, used for ACG detection.
     // Keep it dynamic to avoid analyzer/linker warnings on WDKs that do not
     // expose a prototype in the selected kernel headers.
@@ -1969,9 +1624,6 @@ DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
 DbgPrint("!!! UserModeHook: ZwQueryInformationProcess unavailable - ACG detection disabled\n");
 #endif
     }
-
-    RtlInitUnicodeString(&routineName, L"IoFileObjectType");
-    g_HookIoFileObjectType = (POBJECT_TYPE *)MmGetSystemRoutineAddress(&routineName);
 
     // Resolve optional process protection helpers (best-effort).
     RtlInitUnicodeString(&routineName, L"PsIsProtectedProcess");
@@ -1997,38 +1649,6 @@ DbgPrint("!!! UserModeHook: PsGetProcessWow64Process unavailable - WoW64 hooking
 
     }
 
-    {
-        UNICODE_STRING devName;
-        OBJECT_ATTRIBUTES oa;
-        IO_STATUS_BLOCK ioStatus;
-
-        RtlInitUnicodeString(&devName, L"\\Device\\OwlyshieldHook");
-        InitializeObjectAttributes(&oa, &devName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-        RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-
-        status = ZwCreateFile(&g_HookNotifyMasterHandle,
-                              FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                              &oa,
-                              &ioStatus,
-                              NULL,
-                              FILE_ATTRIBUTE_NORMAL,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE,
-                              FILE_OPEN,
-                              FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-                              NULL,
-                              0);
-        if (!NT_SUCCESS(status))
-        {
-            g_HookNotifyMasterHandle = NULL;
-            
-#if IS_DEBUG_IRP
-DbgPrint("!!! UserModeHook: ZwCreateFile master notify handle failed 0x%X\n", status);
-#endif
-
-            return status;
-        }
-    }
-
     // ---------------------------------------------------------------------
     // Allocate Engine
     // ---------------------------------------------------------------------
@@ -2038,8 +1658,6 @@ DbgPrint("!!! UserModeHook: ZwCreateFile master notify handle failed 0x%X\n", st
 
     if (g_UserHookEngine == NULL)
     {
-        ZwClose(g_HookNotifyMasterHandle);
-        g_HookNotifyMasterHandle = NULL;
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -2145,11 +1763,6 @@ VOID UserModeHookEngineCleanup(VOID)
     InterlockedExchange64((volatile LONG64 *)&g_HookExcludeFailRetryTime, 0);
     InterlockedExchange(&g_HookExcludeLoadState, 0);
 
-    if (g_HookNotifyMasterHandle != NULL)
-    {
-        ZwClose(g_HookNotifyMasterHandle);
-        g_HookNotifyMasterHandle = NULL;
-    }
 
     ExFreePoolWithTag(g_UserHookEngine, 'UMHk');
     g_UserHookEngine = NULL;
@@ -3283,7 +2896,7 @@ DbgPrint("!!! UserModeHook: Protect failed: 0x%X\n", status);
 // Helper to Inject a Single Hook
 //
 NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-                          _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId, _In_ PVOID TargetNtDeviceIo)
+                          _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId)
 {
     NTSTATUS status = STATUS_SUCCESS;
     UNREFERENCED_PARAMETER(Process);
@@ -3293,21 +2906,14 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     if (HookDef->IsHooked)
         return STATUS_SUCCESS; // Already hooked
 
-    // Do not build shellcode unless the per-process notify path is usable.
-    // If this handle is NULL/stale, patching it into shellcode guarantees
-    // NtDeviceIoControlFile will return STATUS_INVALID_HANDLE in the target.
-    if (HookEntry == NULL || HookEntry->DriverDeviceHandle == NULL ||
-        HookEntry->ShellcodeBase == NULL || HookEntry->ShellcodeSize == 0 ||
-        TargetNtDeviceIo == NULL)
+    // Do not build shellcode unless the per-process ring transport is usable.
+    if (HookEntry == NULL || HookEntry->ShellcodeBase == NULL || HookEntry->ShellcodeSize == 0 ||
+        HookEntry->RingBase == NULL || HookEntry->RingSize < sizeof(UMH_SHARED_RING))
     {
 #if IS_DEBUG_IRP
-        DbgPrint("UserModeHook: PID %lu skipping hook at %p - notify infrastructure unavailable\n",
+        DbgPrint("UserModeHook: PID %lu skipping hook at %p - ring infrastructure unavailable\n",
                  ProcessId, HookDef->Address);
 #endif
-        // This is a target-process hook support problem, not a failure of the
-        // user-mode communication port that requested the hook.  Do not let it
-        // escape as STATUS_INVALID_HANDLE or FilterSendMessage callers will
-        // mistake it for a stale driver handle and reconnect needlessly.
         return STATUS_NOT_SUPPORTED;
     }
 
@@ -3373,61 +2979,29 @@ DbgPrint("UserModeHook: Skipping %p - stolen bytes contain relative branch\n", H
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
 
     {
-        // Updated signatures matching the corrected shellcode template
-        static const UCHAR kGuardMagicSig[] = {0x49, 0xBA, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88};
-        static const UCHAR kJeSig64[] = {0x0F, 0x84, 0x00, 0x00, 0x00, 0x00};
-        static const UCHAR kSkipLabelSig[] = {0x0F, 0x1F, 0x44, 0x00, 0x00};
-        static const UCHAR kEventSig[] = {0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11};
-        static const UCHAR kPidSig[] = {0xC7, 0x84, 0x24, 0x94, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22};
-        static const UCHAR kHandleSig[] = {0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33};
-        static const UCHAR kIoctlSig[] = {0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66};
-        static const UCHAR kSizeSig[] = {0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77};
-        static const UCHAR kNtIoSig[] = {0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44};
-        // Updated the signature to match the new 14-byte JMP pattern
+        // Signatures for handle-free ring telemetry shellcode.
+        static const UCHAR kRingBaseSig[] = {0x48, 0xBB, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33};
+        static const UCHAR kEventSig[] = {0xC7, 0x43, 0x04, 0x11, 0x11, 0x11, 0x11};
+        static const UCHAR kPidSig[] = {0xC7, 0x43, 0x08, 0x22, 0x22, 0x22, 0x22};
         static const UCHAR kRetSig[] = {0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
 
-        SIZE_T offGuardMagic = FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig, sizeof(kGuardMagicSig));
-        SIZE_T offJe64 = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig64, sizeof(kJeSig64));
-        SIZE_T offSkipLabel = FindPatternOffset(shellcode, sizeof(shellcode), kSkipLabelSig, sizeof(kSkipLabelSig));
+        SIZE_T offRingBase = FindPatternOffset(shellcode, sizeof(shellcode), kRingBaseSig, sizeof(kRingBaseSig));
         SIZE_T offEvent = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig, sizeof(kEventSig));
         SIZE_T offPid = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig, sizeof(kPidSig));
-        SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig, sizeof(kHandleSig));
-        SIZE_T offIoctl = FindPatternOffset(shellcode, sizeof(shellcode), kIoctlSig, sizeof(kIoctlSig));
-        SIZE_T offSize = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig, sizeof(kSizeSig));
-        SIZE_T offNtIo = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig, sizeof(kNtIoSig));
         SIZE_T offRet = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig, sizeof(kRetSig));
 
-        if (offGuardMagic == (SIZE_T)-1 || offJe64 == (SIZE_T)-1 || offSkipLabel == (SIZE_T)-1 ||
-            offEvent == (SIZE_T)-1 || offPid == (SIZE_T)-1 || offHandle == (SIZE_T)-1 || offIoctl == (SIZE_T)-1 ||
-            offSize == (SIZE_T)-1 || offNtIo == (SIZE_T)-1 || offRet == (SIZE_T)-1 || offRet < USERMODE_HOOK_STOLEN_MAX)
+        if (offRingBase == (SIZE_T)-1 || offEvent == (SIZE_T)-1 || offPid == (SIZE_T)-1 ||
+            offRet == (SIZE_T)-1 || offRet < USERMODE_HOOK_STOLEN_MAX)
         {
             return STATUS_INVALID_IMAGE_FORMAT;
         }
 
-        // Patch re-entrancy guard magic (imm64 starting at kGuardMagicSig+2)
-        *(PULONG64)(shellcode + offGuardMagic + 2) = HOOK_REENTRANCY_MAGIC_64;
+        // Patch RingBase - user VA of UMH_SHARED_RING in the target process.
+        *(PVOID *)(shellcode + offRingBase + 2) = HookEntry->RingBase;
 
-        // Patch JE rel32: target = kSkipLabelSig, source = kJeSig64+6
-        // rel32 = offSkipLabel - (offJe64 + 6)
-        *(PLONG)(shellcode + offJe64 + 2) = (LONG)(offSkipLabel - (offJe64 + 6));
-
-        // Patch EventId - ULONG at instruction+7 (mov dword ptr [rsp+0x90], imm32)
-        *(PULONG)(shellcode + offEvent + 7) = EventId;
-
-        // Patch ProcessId - ULONG at instruction+7
-        *(PULONG)(shellcode + offPid + 7) = ProcessId;
-
-        // Patch FileHandle - HANDLE (8 bytes) at mov rcx, imm64 offset+2
-        *(PHANDLE)(shellcode + offHandle + 2) = HookEntry->DriverDeviceHandle;
-
-        // Patch IoControlCode - store as ULONG64 in the mov rax, imm64 slot
-        *(PULONG64)(shellcode + offIoctl + 2) = (ULONG64)HOOK_NOTIFY_IOCTL_CODE;
-
-        // Patch InputBufferLength - sizeof(HOOK_EVENT_DATA) as ULONG64
-        *(PULONG64)(shellcode + offSize + 2) = (ULONG64)sizeof(HOOK_EVENT_DATA);
-
-        // Patch NtDeviceIoControlFile address
-        *(PVOID *)(shellcode + offNtIo + 2) = TargetNtDeviceIo;
+        // Patch EventId / ProcessId.
+        *(PULONG)(shellcode + offEvent + 3) = EventId;
+        *(PULONG)(shellcode + offPid + 3) = ProcessId;
 
         // Save first USERMODE_HOOK_SIZE bytes for unhook (the JMP patch area).
         // Embed stolenSize bytes in the shellcode trampoline.
@@ -3591,9 +3165,7 @@ DbgPrint("UserModeHook: 14-byte patch at %p straddles VAD boundary - skipping\n"
 //     The HOOK_DEF structure must carry this field (see header note).
 // -------------------------------------------------------------------------
 NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-                            _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
-                            _In_ PVOID TargetNtDeviceIo32 // 32-bit VA of NtDeviceIoControlFile
-)
+                            _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId)
 {
     NTSTATUS status = STATUS_SUCCESS;
     UNREFERENCED_PARAMETER(Process);
@@ -3603,19 +3175,14 @@ NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout
     if (HookDef->IsHooked)
         return STATUS_SUCCESS;
 
-    // Do not build shellcode unless the per-process notify path is usable.
-    // A NULL/stale 32-bit handle patched into the x86 shellcode guarantees
-    // STATUS_INVALID_HANDLE from NtDeviceIoControlFile in the target.
-    if (HookEntry == NULL || HookEntry->DriverDeviceHandle == NULL ||
-        HookEntry->ShellcodeBase == NULL || HookEntry->ShellcodeSize == 0 ||
-        TargetNtDeviceIo32 == NULL)
+    // Do not build shellcode unless the per-process ring transport is usable.
+    if (HookEntry == NULL || HookEntry->ShellcodeBase == NULL || HookEntry->ShellcodeSize == 0 ||
+        HookEntry->RingBase == NULL || HookEntry->RingSize < sizeof(UMH_SHARED_RING))
     {
 #if IS_DEBUG_IRP
-        DbgPrint("UserModeHook32: PID %lu skipping hook at %p - notify infrastructure unavailable\n",
+        DbgPrint("UserModeHook32: PID %lu skipping hook at %p - ring infrastructure unavailable\n",
                  ProcessId, HookDef->Address);
 #endif
-        // Same as the native path: the notify handle cannot be safely embedded
-        // into this target, so skip the hook without poisoning caller IPC state.
         return STATUS_NOT_SUPPORTED;
     }
 
@@ -3667,63 +3234,27 @@ DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef-
     RtlCopyMemory(shellcode, g_ShellcodeTemplate32, sizeof(shellcode));
 
     {
-        // Signature definitions (must be unique within the template).
-        static const UCHAR kGuardMagicSig32[] = {0xBB, 0x88, 0x88, 0x88, 0x88};
-        static const UCHAR kJeSig32[] = {0x0F, 0x84, 0x00, 0x00, 0x00, 0x00};
-        static const UCHAR kSkipLabelSig32[] = {0x0F, 0x1F, 0x00};
-        static const UCHAR kEventSig32[] = {0xC7, 0x44, 0x24, 0x08, 0x11, 0x11, 0x11, 0x11};
-        static const UCHAR kPidSig32[] = {0xC7, 0x44, 0x24, 0x0C, 0x22, 0x22, 0x22, 0x22};
-        static const UCHAR kSizeSig32[] = {0x68, 0x77, 0x77, 0x77, 0x77};
-        static const UCHAR kIoctlSig32[] = {0x68, 0x66, 0x66, 0x66, 0x66};
-        static const UCHAR kHandleSig32[] = {0x68, 0x33, 0x33, 0x33, 0x33};
-        static const UCHAR kNtIoSig32[] = {0xB8, 0x44, 0x44, 0x44, 0x44};
+        // Signature definitions for handle-free ring telemetry shellcode.
+        static const UCHAR kRingBaseSig32[] = {0xBB, 0x33, 0x33, 0x33, 0x33};
+        static const UCHAR kEventSig32[] = {0xC7, 0x43, 0x04, 0x11, 0x11, 0x11, 0x11};
+        static const UCHAR kPidSig32[] = {0xC7, 0x43, 0x08, 0x22, 0x22, 0x22, 0x22};
         static const UCHAR kRetSig32[] = {0xE9, 0x55, 0x55, 0x55, 0x55};
 
-        SIZE_T offGuardMagic32 =
-            FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig32, sizeof(kGuardMagicSig32));
-        SIZE_T offJe32 = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig32, sizeof(kJeSig32));
-        SIZE_T offSkipLabel32 =
-            FindPatternOffset(shellcode, sizeof(shellcode), kSkipLabelSig32, sizeof(kSkipLabelSig32));
+        SIZE_T offRingBase32 = FindPatternOffset(shellcode, sizeof(shellcode), kRingBaseSig32, sizeof(kRingBaseSig32));
         SIZE_T offEvent = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig32, sizeof(kEventSig32));
         SIZE_T offPid = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig32, sizeof(kPidSig32));
-        SIZE_T offSize = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig32, sizeof(kSizeSig32));
-        SIZE_T offIoctl = FindPatternOffset(shellcode, sizeof(shellcode), kIoctlSig32, sizeof(kIoctlSig32));
-        SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig32, sizeof(kHandleSig32));
-        SIZE_T offNtIo = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig32, sizeof(kNtIoSig32));
         SIZE_T offRet = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig32, sizeof(kRetSig32));
 
-        if (offGuardMagic32 == (SIZE_T)-1 || offJe32 == (SIZE_T)-1 || offSkipLabel32 == (SIZE_T)-1 ||
-            offEvent == (SIZE_T)-1 || offPid == (SIZE_T)-1 || offSize == (SIZE_T)-1 || offIoctl == (SIZE_T)-1 ||
-            offHandle == (SIZE_T)-1 || offNtIo == (SIZE_T)-1 || offRet == (SIZE_T)-1 || offRet < USERMODE_HOOK_SIZE_32)
+        if (offRingBase32 == (SIZE_T)-1 || offEvent == (SIZE_T)-1 || offPid == (SIZE_T)-1 ||
+            offRet == (SIZE_T)-1 || offRet < USERMODE_HOOK_SIZE_32)
         {
             return STATUS_INVALID_IMAGE_FORMAT;
         }
 
-        // Patch re-entrancy guard magic (imm32 starting at kGuardMagicSig32+1)
-        *(PULONG)(shellcode + offGuardMagic32 + 1) = HOOK_REENTRANCY_MAGIC_32;
-
-        // Patch JE rel32: target = kSkipLabelSig32, source = kJeSig32+6
-        *(PLONG)(shellcode + offJe32 + 2) = (LONG)(offSkipLabel32 - (offJe32 + 6));
-
-        // Patch EventId (ULONG at kEventSig32 + 4)
-        *(PULONG)(shellcode + offEvent + 4) = EventId;
-
-        // Patch ProcessId (ULONG at kPidSig32 + 4)
-        *(PULONG)(shellcode + offPid + 4) = ProcessId;
-
-        // Patch InputBufferLength (ULONG at kSizeSig32 + 1)
-        *(PULONG)(shellcode + offSize + 1) = (ULONG)sizeof(HOOK_EVENT_DATA);
-
-        // Patch IoControlCode (ULONG at kIoctlSig32 + 1)
-        *(PULONG)(shellcode + offIoctl + 1) = (ULONG)HOOK_NOTIFY_IOCTL_CODE;
-
-        // Patch FileHandle (HANDLE -> ULONG in 32-bit process)
-        // Handles are architecturally neutral integers; safe to truncate on
-        // Windows where all kernel handles fit in 32 bits.
-        *(PULONG)(shellcode + offHandle + 1) = (ULONG)(ULONG_PTR)HookEntry->DriverDeviceHandle;
-
-        // Patch NtDeviceIoControlFile address (32-bit VA fits in ULONG)
-        *(PULONG)(shellcode + offNtIo + 1) = (ULONG)(ULONG_PTR)TargetNtDeviceIo32;
+        // Patch RingBase / EventId / ProcessId.
+        *(PULONG)(shellcode + offRingBase32 + 1) = (ULONG)(ULONG_PTR)HookEntry->RingBase;
+        *(PULONG)(shellcode + offEvent + 3) = EventId;
+        *(PULONG)(shellcode + offPid + 3) = ProcessId;
 
         // Save original 5 bytes and copy them into the stolen-instruction slot.
         __try
@@ -3919,14 +3450,13 @@ static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_ PCW
     UNREFERENCED_PARAMETER(IsWow64);
 
     // Keep NtClose/NtSetInformationObject/NtDuplicateObject hookable for
-    // malware detection.  The notify handle is protected at creation time;
-    // do not solve STATUS_INVALID_HANDLE by hiding these APIs from telemetry.
+    // malware detection.  legacy device handle notification was removed; do not
+    // hide these APIs from telemetry.
     return FALSE;
 }
 
 NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
-                          _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
-                          _In_ PVOID TargetNtDeviceIo32)
+                          _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId)
 {
     SIZE_T modSize = 0;
     PVOID modBase = IsMainExecutableHookModule(ModuleName)
@@ -3953,14 +3483,14 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
         }
     }
 
-    return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo32);
+    return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId);
 }
 //
 // -------------------------------------------------------------------------
 // FIX 1: Per-process independent FILE_OBJECT via ZwCreateFile.
 //
 // PREVIOUS DESIGN (root cause of freeze):
-//   ObReferenceObjectByHandle(g_HookNotifyMasterHandle) retrieved the one
+//   ObReferenceObjectByHandle(legacy master handle) retrieved the one
 //   master FILE_OBJECT. ObOpenObjectByPointer then inserted a new handle into
 //   the target process's handle table pointing at that SAME FILE_OBJECT.
 //   Because the master was opened with FILE_SYNCHRONOUS_IO_NONALERT, the
@@ -3977,180 +3507,74 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
 //   target process's handle table as a user-mode handle. Each hooked process
 //   now has a fully independent FILE_OBJECT; concurrent IOCTLs from different
 //   processes no longer contend at all.
-//   g_HookNotifyMasterHandle is kept as an engine-initialized sentinel only.
+//   legacy master handle is kept as an engine-initialized sentinel only.
 // -------------------------------------------------------------------------
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
-    BOOLEAN isWow64 = HookEntry->IsWow64;
-    NTSTATUS status;
+    BOOLEAN isWow64;
+    NTSTATUS status = STATUS_SUCCESS;
     PVOID baseAddress = NULL;
-    HANDLE targetDeviceHandle = NULL;
-    SIZE_T hookSlots = (SIZE_T)HookEntry->CustomHookCapacity;
+    SIZE_T hookSlots;
+    SIZE_T shellcodeRegionSize;
+    SIZE_T ringRegionSize = (sizeof(UMH_SHARED_RING) + 0xFFF) & ~(SIZE_T)0xFFF;
+    SIZE_T totalRegionSize;
+
+    if (Process == NULL || HookEntry == NULL)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    isWow64 = HookEntry->IsWow64;
+    hookSlots = (SIZE_T)HookEntry->CustomHookCapacity;
     if (hookSlots == 0)
     {
         hookSlots = 32;
     }
-    SIZE_T regionSize = (SIZE_T)(sizeof(g_ShellcodeTemplate) * (hookSlots + 32));
-    if (regionSize < (SIZE_T)0x4000)
-    {
-        regionSize = (SIZE_T)0x4000;
-    }
-    regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
-    // Sentinel: engine must be initialized before we can install hooks.
-    if (g_HookNotifyMasterHandle == NULL)
+    shellcodeRegionSize = (SIZE_T)(sizeof(g_ShellcodeTemplate) * (hookSlots + 32));
+    if (shellcodeRegionSize < (SIZE_T)0x4000)
     {
-        return STATUS_DEVICE_NOT_READY;
+        shellcodeRegionSize = (SIZE_T)0x4000;
+    }
+    shellcodeRegionSize = (shellcodeRegionSize + 0xFFF) & ~(SIZE_T)0xFFF;
+    totalRegionSize = shellcodeRegionSize + ringRegionSize;
+
+    if (!fnZwAllocateVirtualMemory)
+    {
+        return STATUS_NOT_IMPLEMENTED;
     }
 
     {
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
-        __try // outer: guarantees detach
+        __try
         {
-            __try // inner: catches exceptions from ZwCreateFile / ZwAllocate
+            __try
             {
-                // FIX 1: Open a fresh handle to the hook device from within the
-                // target process context. ZwCreateFile without OBJ_KERNEL_HANDLE
-                // inserts the handle into the TARGET process's handle table and
-                // creates an independent FILE_OBJECT. Each process therefore owns
-                // its own FO_SYNCHRONOUS_IO event, eliminating cross-process lock
-                // contention entirely.
-                {
-                    UNICODE_STRING devName;
-                    OBJECT_ATTRIBUTES oa;
-                    IO_STATUS_BLOCK ioSb;
-                    RtlInitUnicodeString(&devName, L"\\Device\\OwlyshieldHook");
-                    InitializeObjectAttributes(&oa, &devName,
-                                               OBJ_CASE_INSENSITIVE, // no OBJ_KERNEL_HANDLE
-                                               NULL, NULL);
-                    RtlZeroMemory(&ioSb, sizeof(ioSb));
-                    status = ZwCreateFile(&targetDeviceHandle,
-                                          FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                                          &oa, &ioSb, NULL,
-                                          FILE_ATTRIBUTE_NORMAL,
-                                          FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                          FILE_OPEN,
-                                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-                                          NULL, 0);
-                    if (!NT_SUCCESS(status))
-                    {
-                        
-#if IS_DEBUG_IRP
-DbgPrint("UserModeHook: ZwCreateFile per-process notify handle failed 0x%X\n", status);
-#endif
-
-                        if (status == STATUS_INVALID_HANDLE)
-                        {
-                            status = STATUS_NOT_SUPPORTED;
-                        }
-                        __leave;
-                    }
-
-                    if (targetDeviceHandle == NULL)
-                    {
-                        
-#if IS_DEBUG_IRP
-DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL handle\n");
-#endif
-
-                        status = STATUS_NOT_SUPPORTED;
-                        __leave;
-                    }
-
-                    status = ValidateHookNotifyUserHandle(targetDeviceHandle);
-                    if (!NT_SUCCESS(status))
-                    {
-#if IS_DEBUG_IRP
-                        DbgPrint("UserModeHook: per-process notify handle validation failed for PID %lu (0x%X)\n",
-                                 HookEntry->ProcessId,
-                                 status);
-#endif
-                        __leave;
-                    }
-
-                    if (fnZwSetInformationObject != NULL)
-                    {
-                        OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
-                        NTSTATUS handleProtectStatus;
-
-                        //
-                        // Anti-tamper / STATUS_INVALID_HANDLE fix:
-                        // the trampoline embeds this per-process user handle and
-                        // later calls NtDeviceIoControlFile with the embedded value.
-                        // If target code, sandbox cleanup, or malware closes it,
-                        // every already-patched trampoline can report
-                        // STATUS_INVALID_HANDLE.  Keep the handle close-protected
-                        // for the lifetime of the target process.  Driver-controlled
-                        // cleanup uses CloseHookNotifyHandleSafe(), which clears the
-                        // flag before ZwClose when it is actually safe to close.
-                        //
-                        handleFlags.ProtectFromClose = TRUE;
-                        handleFlags.Inherit = FALSE;
-                        handleProtectStatus = fnZwSetInformationObject(targetDeviceHandle,
-                                                                       OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
-                                                                       &handleFlags,
-                                                                       sizeof(handleFlags));
-                        if (!NT_SUCCESS(handleProtectStatus))
-                        {
-                            
-#if IS_DEBUG_IRP
-DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu (0x%X); continuing\n",
-                                     HookEntry->ProcessId,
-                                     handleProtectStatus);
-#endif
-                        }
-
-                        status = ValidateHookNotifyUserHandle(targetDeviceHandle);
-                        if (!NT_SUCCESS(status))
-                        {
-#if IS_DEBUG_IRP
-                            DbgPrint("UserModeHook: protected notify handle validation failed for PID %lu (0x%X)\n",
-                                     HookEntry->ProcessId,
-                                     status);
-#endif
-                            __leave;
-                        }
-                    }
-                }
-
-                if (!fnZwAllocateVirtualMemory)
-                {
-                    status = STATUS_NOT_IMPLEMENTED;
-                    __leave;
-                }
-
                 if (!isWow64)
                 {
-                    // Native 64-bit: FF 25 absolute JMP, no range limit.
-                    status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize,
+                    status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &totalRegionSize,
                                                        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
                 }
                 else
                 {
-                    // WoW64: do NOT use ZeroBits=33 here.
-                    // Nt/ZwAllocateVirtualMemory interprets ZeroBits > 32 as a
-                    // bitmask, not a count of high-order bits, so 33 does not
-                    // reliably mean "below 0x80000000".  Search explicitly in
-                    // the low address range so the 5-byte E9 rel32 trampoline
-                    // remains reachable.
                     const ULONG_PTR lowBaseStart = 0x10000000UL;
                     const ULONG_PTR lowBaseEnd = 0x70000000UL;
-                    const ULONG_PTR granularity = 0x00010000UL; // 64 KB
+                    const ULONG_PTR granularity = 0x00010000UL;
                     NTSTATUS lastAllocStatus = STATUS_CONFLICTING_ADDRESSES;
                     BOOLEAN allocated = FALSE;
 
-                    for (ULONG_PTR hint = lowBaseStart; hint + regionSize < lowBaseEnd; hint += granularity)
+                    for (ULONG_PTR hint = lowBaseStart; hint + totalRegionSize < lowBaseEnd; hint += granularity)
                     {
                         PVOID candidate = (PVOID)hint;
-                        SIZE_T candidateSize = regionSize;
+                        SIZE_T candidateSize = totalRegionSize;
                         NTSTATUS allocStatus =
                             fnZwAllocateVirtualMemory(ZwCurrentProcess(), &candidate, 0, &candidateSize,
                                                       MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
                         if (NT_SUCCESS(allocStatus))
                         {
                             baseAddress = candidate;
-                            regionSize = candidateSize;
+                            totalRegionSize = candidateSize;
                             status = STATUS_SUCCESS;
                             allocated = TRUE;
                             break;
@@ -4170,10 +3594,27 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
                 }
 
                 HookEntry->ShellcodeBase = baseAddress;
-                HookEntry->ShellcodeSize = regionSize;
+                HookEntry->ShellcodeSize = shellcodeRegionSize;
                 HookEntry->ShellcodeUsed = 0;
-                HookEntry->DriverDeviceHandle = targetDeviceHandle;
-                targetDeviceHandle = NULL; // ownership moved to hook entry
+                HookEntry->RingBase = (PVOID)((ULONG_PTR)baseAddress + shellcodeRegionSize);
+                HookEntry->RingSize = sizeof(UMH_SHARED_RING);
+                HookEntry->RingGeneration++;
+
+                __try
+                {
+                    PUMH_SHARED_RING ring = (PUMH_SHARED_RING)HookEntry->RingBase;
+                    ProbeForWrite(ring, sizeof(UMH_SHARED_RING), sizeof(ULONG));
+                    RtlZeroMemory(ring, sizeof(UMH_SHARED_RING));
+                    ring->Magic = UMH_RING_MAGIC;
+                    ring->Version = UMH_RING_VERSION;
+                    ring->Flags = UMH_RING_FLAG_ACTIVE;
+                    ring->Generation = HookEntry->RingGeneration;
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    status = GetExceptionCode();
+                    __leave;
+                }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -4182,10 +3623,6 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
 
             if (!NT_SUCCESS(status))
             {
-                if (targetDeviceHandle != NULL)
-                {
-                    CloseHookNotifyHandleSafe(&targetDeviceHandle);
-                }
                 if (baseAddress != NULL && fnZwFreeVirtualMemory != NULL)
                 {
                     SIZE_T freeSize = 0;
@@ -4194,7 +3631,8 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
                 HookEntry->ShellcodeBase = NULL;
                 HookEntry->ShellcodeSize = 0;
                 HookEntry->ShellcodeUsed = 0;
-                HookEntry->DriverDeviceHandle = NULL;
+                HookEntry->RingBase = NULL;
+                HookEntry->RingSize = 0;
             }
         }
         __finally
@@ -4206,17 +3644,245 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
     return status;
 }
 
+
+NTSTATUS UserModeHookDrainRingForProcess(_In_ ULONG ProcessId,
+                                         _Out_writes_all_(MaxEvents) PUMH_RING_EVENT Events,
+                                         _In_ ULONG MaxEvents,
+                                         _Out_ PULONG EventsRead)
+{
+    NTSTATUS status = STATUS_NOT_FOUND;
+    PPROCESS_HOOK_ENTRY hookEntry = NULL;
+    PEPROCESS process = NULL;
+    ULONG copied = 0;
+
+    if (EventsRead == NULL)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+    *EventsRead = 0;
+
+    if (Events == NULL || MaxEvents == 0 || MaxEvents > UMH_RING_EVENT_COUNT)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    // Satisfy PREfast/SAL and make every successful return deterministic:
+    // callers receive zeroed padding for slots beyond *EventsRead.
+    RtlZeroMemory(Events, sizeof(UMH_RING_EVENT) * MaxEvents);
+
+    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
+    {
+        return STATUS_DEVICE_NOT_READY;
+    }
+
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; ++i)
+    {
+        if (g_UserHookEngine->Processes[i].ProcessId == ProcessId &&
+            g_UserHookEngine->Processes[i].RingBase != NULL &&
+            g_UserHookEngine->Processes[i].ProcessObject != NULL)
+        {
+            hookEntry = &g_UserHookEngine->Processes[i];
+            process = hookEntry->ProcessObject;
+            ObReferenceObject(process);
+            status = STATUS_SUCCESS;
+            break;
+        }
+    }
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    if (PsGetProcessExitStatus(process) != STATUS_PENDING)
+    {
+        ObDereferenceObject(process);
+        return STATUS_PROCESS_IS_TERMINATING;
+    }
+
+    {
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)process, &apcState);
+        __try
+        {
+            PUMH_SHARED_RING ring = (PUMH_SHARED_RING)hookEntry->RingBase;
+            ProbeForRead(ring, sizeof(UMH_SHARED_RING), sizeof(ULONG));
+            if (ring->Magic != UMH_RING_MAGIC || ring->Version != UMH_RING_VERSION)
+            {
+                status = STATUS_INVALID_PARAMETER;
+            }
+            else
+            {
+                LONG readIndex = ring->ReadIndex;
+                LONG writeIndex = ring->WriteIndex;
+
+                while (readIndex < writeIndex && copied < MaxEvents)
+                {
+                    ULONG slotIndex = ((ULONG)readIndex) & UMH_RING_EVENT_MASK;
+                    PUMH_RING_EVENT src = &ring->Events[slotIndex];
+                    UMH_RING_EVENT localEvent;
+
+                    ProbeForRead(src, sizeof(UMH_RING_EVENT), sizeof(ULONG));
+                    RtlCopyMemory(&localEvent, src, sizeof(localEvent));
+
+                    if (localEvent.Sequence != 0)
+                    {
+                        RtlCopyMemory(&Events[copied], &localEvent, sizeof(localEvent));
+                        copied++;
+                    }
+
+                    readIndex++;
+                }
+
+                ring->ReadIndex = readIndex;
+                *EventsRead = copied;
+                status = STATUS_SUCCESS;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            status = GetExceptionCode();
+        }
+        KeUnstackDetachProcess(&apcState);
+    }
+
+    ObDereferenceObject(process);
+    return status;
+}
+
+// Compatibility drain bridge for the old hook-event pipeline.
+// Shellcode no longer calls NtDeviceIoControlFile/IOCTL_REPORT_HOOK_EVENT directly,
+// because that required embedding a per-process DriverDeviceHandle and caused
+// STATUS_INVALID_HANDLE when the handle became stale.  Instead, shellcode writes
+// UMH_RING_EVENT records.  This helper converts those records back into the
+// existing HOOK_EVENT_DATA wire format so Communication.cpp / behavior_engine can
+// keep using the same event parser and rule pipeline.
+NTSTATUS UserModeHookDrainHookEventsForProcess(_In_ ULONG ProcessId,
+                                               _Out_writes_all_(MaxEvents) PHOOK_EVENT_DATA Events,
+                                               _In_ ULONG MaxEvents,
+                                               _Out_ PULONG EventsRead)
+{
+    NTSTATUS status = STATUS_NOT_FOUND;
+    PPROCESS_HOOK_ENTRY hookEntry = NULL;
+    PEPROCESS process = NULL;
+    ULONG copied = 0;
+
+    if (EventsRead == NULL)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+    *EventsRead = 0;
+
+    if (Events == NULL || MaxEvents == 0 || MaxEvents > UMH_RING_EVENT_COUNT)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    RtlZeroMemory(Events, sizeof(HOOK_EVENT_DATA) * MaxEvents);
+
+    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
+    {
+        return STATUS_DEVICE_NOT_READY;
+    }
+
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; ++i)
+    {
+        if (g_UserHookEngine->Processes[i].ProcessId == ProcessId &&
+            g_UserHookEngine->Processes[i].RingBase != NULL &&
+            g_UserHookEngine->Processes[i].ProcessObject != NULL)
+        {
+            hookEntry = &g_UserHookEngine->Processes[i];
+            process = hookEntry->ProcessObject;
+            ObReferenceObject(process);
+            status = STATUS_SUCCESS;
+            break;
+        }
+    }
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    if (PsGetProcessExitStatus(process) != STATUS_PENDING)
+    {
+        ObDereferenceObject(process);
+        return STATUS_PROCESS_IS_TERMINATING;
+    }
+
+    {
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)process, &apcState);
+        __try
+        {
+            PUMH_SHARED_RING ring = (PUMH_SHARED_RING)hookEntry->RingBase;
+            ProbeForRead(ring, sizeof(UMH_SHARED_RING), sizeof(ULONG));
+            if (ring->Magic != UMH_RING_MAGIC || ring->Version != UMH_RING_VERSION)
+            {
+                status = STATUS_INVALID_PARAMETER;
+            }
+            else
+            {
+                LONG readIndex = ring->ReadIndex;
+                LONG writeIndex = ring->WriteIndex;
+
+                while (readIndex < writeIndex && copied < MaxEvents)
+                {
+                    ULONG slotIndex = ((ULONG)readIndex) & UMH_RING_EVENT_MASK;
+                    PUMH_RING_EVENT src = &ring->Events[slotIndex];
+                    UMH_RING_EVENT localEvent;
+
+                    ProbeForRead(src, sizeof(UMH_RING_EVENT), sizeof(ULONG));
+                    RtlCopyMemory(&localEvent, src, sizeof(localEvent));
+
+                    if (localEvent.Sequence != 0)
+                    {
+                        PHOOK_EVENT_DATA dst = &Events[copied];
+                        RtlZeroMemory(dst, sizeof(*dst));
+                        dst->EventType = localEvent.EventId;
+                        dst->ProcessId = localEvent.ProcessId;
+                        dst->FunctionName[0] = '\0';
+                        dst->Arg1 = (ULONG_PTR)localEvent.Arg1;
+                        dst->Arg2 = (ULONG_PTR)localEvent.Arg2;
+                        dst->Arg3 = (ULONG_PTR)localEvent.Arg3;
+                        dst->Arg4 = (ULONG_PTR)localEvent.Arg4;
+                        copied++;
+                    }
+
+                    readIndex++;
+                }
+
+                ring->ReadIndex = readIndex;
+                *EventsRead = copied;
+                status = STATUS_SUCCESS;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            status = GetExceptionCode();
+        }
+        KeUnstackDetachProcess(&apcState);
+    }
+
+    ObDereferenceObject(process);
+    return status;
+}
+
+
+
 //
 // Helper: Resolve and Prepare Hook
 //
 // Per-function exclusions are intentionally narrow.  Chromium/WebView2 code
 // treats STATUS_INVALID_HANDLE from NtQueryObject as normal sandbox probing, so
 // that single API is skipped only when Chromium-family modules are loaded.
-// The TEB re-entrancy sentinel still protects the NtDeviceIoControlFile
-// transport hook path.
+// The TEB re-entrancy sentinel protects the ring-write hook path.
 NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
-                        _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
-                        _In_ PVOID TargetNtDeviceIo)
+                        _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId)
 {
     SIZE_T modSize = 0;
     PVOID modBase = IsMainExecutableHookModule(ModuleName)
@@ -4243,7 +3909,7 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEnt
         }
     }
 
-    return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
+    return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId);
 }
 
 static VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef);
@@ -4255,8 +3921,6 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
     ULONG customHookCountSnapshot = 0;
     ULONG customHookCountToApply = 0;
-    PVOID ntdllBase = NULL;
-    PVOID targetNtDeviceIo = NULL;
     BOOLEAN existingHookEntry = FALSE;
     ULONG appliedHookCount = 0;
     ULONG recoverableHookFailureCount = 0;
@@ -4395,33 +4059,10 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
     {
         BOOLEAN rebuildInfrastructure = FALSE;
 
-        if (hookEntry->DriverDeviceHandle == NULL || hookEntry->ShellcodeBase == NULL ||
-            hookEntry->ShellcodeSize == 0)
+        if (hookEntry->ShellcodeBase == NULL || hookEntry->ShellcodeSize == 0 ||
+            hookEntry->RingBase == NULL || hookEntry->RingSize < sizeof(UMH_SHARED_RING))
         {
             rebuildInfrastructure = TRUE;
-        }
-        else
-        {
-            KAPC_STATE validateApcState;
-            KeStackAttachProcess((PRKPROCESS)process, &validateApcState);
-            __try
-            {
-                status = ValidateHookNotifyUserHandle(hookEntry->DriverDeviceHandle);
-                if (!NT_SUCCESS(status))
-                {
-#if IS_DEBUG_IRP
-                    DbgPrint("UserModeHook: PID %lu stale notify handle detected during refresh (0x%X)\n",
-                             ProcessId,
-                             status);
-#endif
-                    rebuildInfrastructure = TRUE;
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                rebuildInfrastructure = TRUE;
-            }
-            KeUnstackDetachProcess(&validateApcState);
         }
 
         if (rebuildInfrastructure)
@@ -4432,24 +4073,17 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
                 KeStackAttachProcess((PRKPROCESS)process, &rebuildApcState);
                 __try
                 {
+                    if (hookEntry->RingBase != NULL)
+                    {
+                        ((PUMH_SHARED_RING)hookEntry->RingBase)->Flags = UMH_RING_FLAG_RETIRING;
+                    }
+
                     for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
                     {
                         if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked)
                         {
                             UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
                         }
-                    }
-
-                    if (hookEntry->DriverDeviceHandle != NULL)
-                    {
-                        // Do not close the old embedded notify handle during a
-                        // live infrastructure rebuild.  Another thread may already
-                        // be executing old shellcode that still contains this
-                        // handle immediate.  Closing here recreates the exact
-                        // STATUS_INVALID_HANDLE race we are trying to eliminate.
-                        // Forget it in bookkeeping and let process teardown reclaim
-                        // the protected user handle.
-                        hookEntry->DriverDeviceHandle = NULL;
                     }
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
@@ -4465,15 +4099,17 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
             }
 
             hookEntry->CustomHookCapacity = customHookCountSnapshot;
-            hookEntry->DriverDeviceHandle = NULL;
             hookEntry->ShellcodeBase = NULL;
             hookEntry->ShellcodeSize = 0;
             hookEntry->ShellcodeUsed = 0;
+            hookEntry->RingBase = NULL;
+            hookEntry->RingSize = 0;
             hookEntry->IsHooked = FALSE;
         }
     }
 
-    if (!existingHookEntry || hookEntry->ShellcodeBase == NULL || hookEntry->DriverDeviceHandle == NULL)
+    if (!existingHookEntry || hookEntry->ShellcodeBase == NULL ||
+        hookEntry->RingBase == NULL || hookEntry->RingSize < sizeof(UMH_SHARED_RING))
     {
         // Detect WoW64 BEFORE allocating shellcode so the allocator can
         // constrain the region to the low 2 GB.  32-bit E9 rel32 JMPs
@@ -4573,38 +4209,6 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
         {
             __try // inner: catches exceptions from resolve/hook calls
             {
-                ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", NULL);
-                targetNtDeviceIo = FindExportedFunctionResolved(process, ntdllBase, "NtDeviceIoControlFile");
-                if (!targetNtDeviceIo)
-                {
-                    status = STATUS_NOT_FOUND;
-                    __leave;
-                }
-
-                // For WoW64 processes, also resolve the 32-bit NtDeviceIoControlFile
-                // from the 32-bit ntdll.dll mapped in the WoW64 VA space.
-                PVOID ntdllBase32 = NULL;
-                PVOID targetNtDeviceIo32 = NULL;
-                if (hookEntry->IsWow64)
-                {
-                    ntdllBase32 = FindModuleBaseAddress32(process, L"ntdll.dll", NULL);
-                    if (ntdllBase32)
-                        targetNtDeviceIo32 =
-                            FindExportedFunction32Resolved(process, ntdllBase32, "NtDeviceIoControlFile");
-
-                    if (!targetNtDeviceIo32)
-                    {
-                        
-#if IS_DEBUG_IRP
-DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoControlFile\n",
-                                 ProcessId);
-#endif
-
-                        status = STATUS_NOT_FOUND;
-                        __leave;
-                    }
-                }
-
                 if (hookCountToInstall > 0 && (activeHookConfigSnapshot == NULL || hookEntry->CustomHooks == NULL))
                 {
                     status = STATUS_INSUFFICIENT_RESOURCES;
@@ -4624,8 +4228,7 @@ DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoContr
                             // use 32-bit shellcode template.
                             hookStatus = ResolveAndHook32(process, hookEntry, currentHookConfig->ModuleName,
                                                           currentHookConfig->FunctionName,
-                                                          &hookEntry->CustomHooks[i], currentHookConfig->EventId,
-                                                          targetNtDeviceIo32);
+                                                          &hookEntry->CustomHooks[i], currentHookConfig->EventId);
                         }
                         else
                         {
@@ -4633,7 +4236,7 @@ DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoContr
                             // FF 25 JMP, use 64-bit shellcode template.
                             hookStatus = ResolveAndHook(process, hookEntry, currentHookConfig->ModuleName,
                                                         currentHookConfig->FunctionName, &hookEntry->CustomHooks[i],
-                                                        currentHookConfig->EventId, targetNtDeviceIo);
+                                                        currentHookConfig->EventId);
                         }
                     }
                     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -4810,19 +4413,18 @@ DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, 
         // Initial hook failure cleanup has two very different cases:
         //
         //   1. No hook bytes were ever published (appliedHookCount == 0).
-        //      Safe to close the per-process user handle and free the shellcode
-        //      region immediately because nothing in user mode can jump there.
+        //      Safe to retire the ring and free the shellcode/ring region
+        //      immediately because nothing in user mode can jump there.
         //
         //   2. At least one hook was already installed before a later fatal
         //      error.  In that case we must first restore the original bytes.
-        //      We intentionally DO NOT free ShellcodeBase or force-close the
-        //      user handle afterwards because another thread may already be
+        //      We intentionally DO NOT free ShellcodeBase/ring afterwards because another thread may already be
         //      executing in the trampoline.  Unhooking prevents any NEW entry;
         //      normal process teardown reclaims the leaked VA + handle safely.
         //
         // Also avoid attaching to a dying process: the OS will reclaim its
-        // handle table and VA space during rundown.
-        if ((hookEntry->CustomHooks != NULL || hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL) &&
+        // VA space during rundown.
+        if ((hookEntry->CustomHooks != NULL || hookEntry->RingBase != NULL || hookEntry->ShellcodeBase != NULL) &&
             process != NULL && PsGetProcessExitStatus(process) == STATUS_PENDING)
         {
             KAPC_STATE cleanupApcState;
@@ -4841,16 +4443,18 @@ DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, 
                             }
                         }
 
-                        hookEntry->DriverDeviceHandle = NULL;
+                        if (hookEntry->RingBase != NULL) { ((PUMH_SHARED_RING)hookEntry->RingBase)->Flags = UMH_RING_FLAG_RETIRING; }
+                        hookEntry->RingBase = NULL;
+                        hookEntry->RingSize = 0;
                         hookEntry->ShellcodeBase = NULL;
                         hookEntry->ShellcodeSize = 0;
                         hookEntry->ShellcodeUsed = 0;
                     }
                     else
                     {
-                        if (hookEntry->DriverDeviceHandle != NULL)
+                        if (hookEntry->RingBase != NULL)
                         {
-                            CloseHookNotifyHandleSafe(&hookEntry->DriverDeviceHandle);
+                            ((PUMH_SHARED_RING)hookEntry->RingBase)->Flags = UMH_RING_FLAG_RETIRING;
                         }
 
                         if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
@@ -4867,7 +4471,8 @@ DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, 
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
                 {
-                    hookEntry->DriverDeviceHandle = NULL;
+                    hookEntry->RingBase = NULL;
+                    hookEntry->RingSize = 0;
                     hookEntry->ShellcodeBase = NULL;
                     hookEntry->ShellcodeSize = 0;
                     hookEntry->ShellcodeUsed = 0;
@@ -4880,7 +4485,8 @@ DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, 
         }
         else
         {
-            hookEntry->DriverDeviceHandle = NULL;
+            hookEntry->RingBase = NULL;
+            hookEntry->RingSize = 0;
             hookEntry->ShellcodeBase = NULL;
             hookEntry->ShellcodeSize = 0;
             hookEntry->ShellcodeUsed = 0;
@@ -5028,7 +4634,8 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         // The Object Manager tears down the handle table for us as part of
         // process exit rundown, so the actual kernel handle is cleaned up.
         // We just clear our pointer so NeedsCleanup path does not double-close.
-        hookEntry->DriverDeviceHandle = NULL;
+        hookEntry->RingBase = NULL;
+        hookEntry->RingSize = 0;
         hookEntry->ShellcodeBase = NULL;
         hookEntry->ShellcodeSize = 0;
         ObDereferenceObject(process);
@@ -5037,24 +4644,21 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
     // 3. PHASE 1: RESTORE BYTES
     //
-    // IMPORTANT: do NOT close DriverDeviceHandle before or immediately after
+    // IMPORTANT: do NOT free ShellcodeBase/RingBase before or immediately after
     // restoring the bytes.  WebView2/Edge is highly multi-threaded, and a
     // thread may already be executing inside our trampoline when this unhook
-    // starts.  That in-flight trampoline can reach NtDeviceIoControlFile after
-    // the original function bytes are restored.  If we close the embedded user
-    // handle without a real shellcode in-flight/rundown counter, that thread
-    // receives STATUS_INVALID_HANDLE.
+    // starts.  That in-flight trampoline can still write to the ring after
+    // the original function bytes are restored.  Without a real shellcode
+    // in-flight/rundown counter, freeing the VA here can crash the target.
     //
     // Safe ordering without a rundown counter:
     //   1. Restore all patched function entries first.
-    //   2. Forget the per-process handle in our bookkeeping.
-    //   3. Let process teardown reclaim the still-open protected user handle
-    //      and shellcode VA region.
+    //   2. Mark the ring retiring and forget it in our bookkeeping.
+    //   3. Let process teardown reclaim the shellcode/ring VA region.
     //
-    // This intentionally leaks one small handle/VA allocation until target
-    // process exit, but prevents the msedgewebview2.exe STATUS_INVALID_HANDLE
-    // race.  If you later add an in-flight counter in the shellcode, you can
-    // wait for it to drain here and then call CloseHookNotifyHandleSafe.
+    // This intentionally leaves one small VA allocation until target
+    // process exit, but removes the legacy legacy device handle invalid-handle race.  If you later add an in-flight counter in the shellcode, you can
+    // wait for it to drain here and then free the VA region.
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
     __try // outer: guarantees detach
     {
@@ -5068,11 +4672,12 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
                 }
             }
 
-            // Do not close this handle here.  It may already be embedded in an
-            // in-flight trampoline on another thread.  Clearing our copy avoids
-            // a later double-close; the target process will close the real user
-            // handle during normal handle-table teardown.
-            hookEntry->DriverDeviceHandle = NULL;
+            // Do not free the ring/shellcode VA here.  It may already be used by an
+            // in-flight trampoline on another thread.  Mark it retiring and
+            // clear our bookkeeping; target process teardown reclaims the VA.
+            if (hookEntry->RingBase != NULL) { ((PUMH_SHARED_RING)hookEntry->RingBase)->Flags = UMH_RING_FLAG_RETIRING; }
+            hookEntry->RingBase = NULL;
+            hookEntry->RingSize = 0;
             hookEntry->ShellcodeBase = NULL;
             hookEntry->ShellcodeSize = 0;
             hookEntry->ShellcodeUsed = 0;
