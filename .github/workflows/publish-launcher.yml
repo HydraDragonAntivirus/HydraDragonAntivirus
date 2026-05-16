@@ -19,7 +19,8 @@ jobs:
   build-and-stage:
     if: |
       !startsWith(github.ref_name, 'auto-update-') &&
-      !contains(github.event.head_commit.message, 'chore(launcher): update binaries and lockfile')
+      !contains(github.event.head_commit.message, 'chore(launcher): update binaries and lockfile') &&
+      github.event.head_commit.author.name != 'github-actions[bot]'
     runs-on: windows-2022
     
     steps:
