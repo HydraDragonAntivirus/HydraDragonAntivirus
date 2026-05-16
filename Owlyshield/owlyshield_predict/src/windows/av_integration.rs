@@ -154,9 +154,17 @@ pub struct EDRScanRequest {
     pub yara_x_matches: Option<Vec<String>>,
     #[serde(default)]
     pub is_vmprotect: bool,
+    #[serde(default)]
+    pub deep_scan: bool,
+    #[serde(default = "default_scan_mode")]
+    pub scan_mode: String,
     /// DetectItEasy scan result computed by Owlyshield/Rust.
     #[serde(default)]
     pub detectiteasy_scan_result: Option<crate::detectiteasy::DetectItEasyScanResult>,
+}
+
+fn default_scan_mode() -> String {
+    "minimal".to_string()
 }
 
 /// AV scan response (sent to EDR as a threat event)
@@ -1170,13 +1178,81 @@ impl<'a> AVIntegration<'a> {
 
         self.queue_tinyav_scan_for_new_file(iomsg);
 
-        let signature_status = self.get_or_compute_signature_status(&file_path, &scan_target);
+        let (signature_status, yara_x_matches, is_vmprotect, detectiteasy_scan_result) =
+            self.collect_scan_metadata(&file_path, &scan_target);
+
+        let request = EDRScanRequest {
+            event_type: "NEW_IO_EVENT".to_string(),
+            file_path,
+            timestamp: Utc::now().to_rfc3339(),
+            pid: Some(iomsg.pid),
+            additional_context: Some(format!("Event triggered by GID: {}", precord.gid)),
+            signature_status,
+            yara_x_matches: Some(yara_x_matches),
+            is_vmprotect,
+            deep_scan: false,
+            scan_mode: "minimal".to_string(),
+            detectiteasy_scan_result,
+        };
+
+        if let Err(e) = self.internal_scan_tx.send(request) {
+            Logging::error(&format!("Failed to send internal scan request: {}", e));
+        }
+    }
+
+    pub fn queue_deep_scan_request(
+        &mut self,
+        file_path: &Path,
+        pid: Option<u32>,
+        additional_context: Option<String>,
+    ) {
+        let file_path_string = file_path.to_string_lossy().to_string();
+        if file_path_string.trim().is_empty()
+            || is_openedr_cloud_safe(&file_path_string)
+            || !file_path.is_file()
+        {
+            return;
+        }
+
+        let (signature_status, yara_x_matches, is_vmprotect, detectiteasy_scan_result) =
+            self.collect_scan_metadata(&file_path_string, file_path);
+
+        let request = EDRScanRequest {
+            event_type: "SANCTUM_DEEP_SCAN_REQUEST".to_string(),
+            file_path: file_path_string,
+            timestamp: Utc::now().to_rfc3339(),
+            pid,
+            additional_context,
+            signature_status,
+            yara_x_matches: Some(yara_x_matches),
+            is_vmprotect,
+            deep_scan: true,
+            scan_mode: "deep".to_string(),
+            detectiteasy_scan_result,
+        };
+
+        if let Err(e) = self.internal_scan_tx.send(request) {
+            Logging::error(&format!("Failed to send Sanctum deep scan request: {}", e));
+        }
+    }
+
+    fn collect_scan_metadata(
+        &mut self,
+        file_path: &str,
+        scan_target: &Path,
+    ) -> (
+        Option<FileSignatureStatus>,
+        Vec<String>,
+        bool,
+        Option<crate::detectiteasy::DetectItEasyScanResult>,
+    ) {
+        let signature_status = self.get_or_compute_signature_status(file_path, scan_target);
 
         let mut yara_x_matches = Vec::new();
         let mut is_vmprotect = false;
 
         if let Some(rules) = &self.yara_rules {
-            if let Ok(data) = std::fs::read(&scan_target) {
+            if let Ok(data) = std::fs::read(scan_target) {
                 let mut scanner = yara_x::Scanner::new(rules);
                 if let Ok(scan_results) = scanner.scan(&data) {
                     for matching_rule in scan_results.matching_rules() {
@@ -1199,33 +1275,24 @@ impl<'a> AVIntegration<'a> {
             use crate::detectiteasy::DetectItEasyScanner;
 
             let scanner = DetectItEasyScanner::new();
-            Some(match scanner.scan_file(Path::new(&file_path)) {
+            Some(match scanner.scan_file(scan_target) {
                 Ok(result) => result,
                 Err(error) => {
                     Logging::warning(&format!(
                         "[DetectItEasy] Scan failed for {}: {}",
                         file_path, error
                     ));
-                    DetectItEasyScanner::error_result(Path::new(&file_path), error)
+                    DetectItEasyScanner::error_result(scan_target, error)
                 }
             })
         };
 
-        let request = EDRScanRequest {
-            event_type: "NEW_IO_EVENT".to_string(),
-            file_path,
-            timestamp: Utc::now().to_rfc3339(),
-            pid: Some(iomsg.pid),
-            additional_context: Some(format!("Event triggered by GID: {}", precord.gid)),
+        (
             signature_status,
-            yara_x_matches: Some(yara_x_matches),
+            yara_x_matches,
             is_vmprotect,
             detectiteasy_scan_result,
-        };
-
-        if let Err(e) = self.internal_scan_tx.send(request) {
-            Logging::error(&format!("Failed to send internal scan request: {}", e));
-        }
+        )
     }
 
     fn queue_tinyav_scan_for_new_file(&mut self, iomsg: &IOMessage) {

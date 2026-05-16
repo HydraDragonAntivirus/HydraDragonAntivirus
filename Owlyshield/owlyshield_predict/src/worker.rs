@@ -2438,6 +2438,7 @@ pub mod worker_instance {
                         .read()
                         .unwrap()
                         .clone();
+                    let mut sanctum_deep_scan_requests: Vec<(PathBuf, u32, String)> = Vec::new();
                     for (pid, stats) in sanctum_stats {
                         if stats.is_detection {
                             if let Some(gid) = self.find_gid_by_pid(pid) {
@@ -2465,6 +2466,14 @@ pub mod worker_instance {
                                             );
 
                                             let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                                            sanctum_deep_scan_requests.push((
+                                                record.exepath.clone(),
+                                                pid,
+                                                format!(
+                                                    "Sanctum detection: {}",
+                                                    stats.last_event.clone().unwrap_or_default()
+                                                ),
+                                            ));
                                             let threat_info = ThreatInfo {
                                                 threat_type_label: "Sanctum EDR Detection",
                                                 virus_name: "Sanctum.Malware.Gen",
@@ -2498,6 +2507,12 @@ pub mod worker_instance {
                                     }
                                 }
                             }
+                        }
+                    }
+                    #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                    if let Some(av_integration) = self.av_integration.as_mut() {
+                        for (path, pid, context) in sanctum_deep_scan_requests {
+                            av_integration.queue_deep_scan_request(&path, Some(pid), Some(context));
                         }
                     }
                 }

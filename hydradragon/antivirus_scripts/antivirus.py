@@ -7781,6 +7781,8 @@ async def scan_and_warn(
     flag_vmprotect=False,
     main_file_path=None,
     owlyshield_signature_status=None,
+    deep_scan=True,
+    owlyshield_yara_x_matches=None,
 ):
     """
     Scans a file for potential issues with comprehensive threading for performance.
@@ -7878,13 +7880,19 @@ async def scan_and_warn(
         detectiteasy_result = _detectiteasy_result(norm_path) or {}
         plain_text_flag = bool(detectiteasy_result.get("is_plain_text"))
 
-        # CRITICAL: Unknown file check that can cause early return - NO THREADING
-        if detectiteasy_result.get("is_unknown"):
+        # CRITICAL: Unknown file check that can cause early return - NO THREADING.
+        # A Sanctum deep-scan request is the explicit exception: it asks Python to run the heavy path.
+        if detectiteasy_result.get("is_unknown") and not deep_scan:
             if mega_optimization_with_anti_false_positive:
                 logger.info(f"Stopped analysis; unknown data detected in {norm_path}")
                 return False  # EARLY EXIT - must not be threaded
 
         # CRITICAL: File type checks that can cause early return - NO THREADING
+        if detectiteasy_result.get("is_broken_executable") and mega_optimization_with_anti_false_positive:
+            broken_type = detectiteasy_result.get("broken_executable_type") or "Executable"
+            logger.info(f"The file {norm_path} is a broken {broken_type} file. Skipping scan...")
+            return False
+
         pefile_result = detectiteasy_result.get("pe_result")
         if pefile_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logger.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
@@ -7907,6 +7915,16 @@ async def scan_and_warn(
         if macho_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logger.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
             return False  # EARLY EXIT
+
+        owlyshield_yara_x_matches = owlyshield_yara_x_matches or []
+        if owlyshield_yara_x_matches:
+            virus_name = str(owlyshield_yara_x_matches[0])
+            logger.critical(f"File {norm_path} is malicious. Virus: {virus_name} (Owlyshield YARA-X)")
+            if virus_name.startswith("PUA."):
+                await notify_user_pua(norm_path, virus_name, "OwlyshieldYARAX", main_file_path=main_file_path)
+            else:
+                await notify_user(norm_path, virus_name, "OwlyshieldYARAX", main_file_path=main_file_path)
+            return True
 
         if norm_path == hosts_path:
             asyncio.create_task(check_hosts_file_for_blocked_antivirus())
@@ -7951,6 +7969,23 @@ async def scan_and_warn(
 
         except Exception as e:
             logger.debug(f"UEFI detection check failed for {norm_path}: {e}")
+
+        if not deep_scan:
+            logger.info(f"Running minimal EDR antivirus scan for {norm_path}")
+            is_malicious, virus_name, engine_detected, is_vmprotect = await asyncio.to_thread(scan_with_hydradragon_engine, norm_path)
+            if is_vmprotect:
+                logger.warning(f"VMProtect detected by HydraDragonAV in minimal scan: {norm_path}")
+            if is_malicious:
+                if signature_check and signature_check.get("is_valid"):
+                    virus_name = f"{virus_name}.SIG"
+                logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
+                if virus_name.startswith("PUA."):
+                    await notify_user_pua(norm_path, virus_name, engine_detected or "HydraDragonAV", main_file_path=main_file_path)
+                else:
+                    await notify_user(norm_path, virus_name, engine_detected or "HydraDragonAV", main_file_path=main_file_path)
+                return True
+            logger.info(f"Minimal EDR antivirus scan clean: {norm_path}")
+            return False
 
         # ========== ASYNC/THREADED OPERATIONS START HERE ==========
         # Now we can safely use threading since no more early returns
@@ -9074,12 +9109,18 @@ async def _handle_edr_scan_request(request_obj: dict) -> None:
         cache_detectiteasy_result(normalized, detectiteasy_scan_result)
         logger.info(f"[EDR->AV] Cached DetectItEasy result from Owlyshield for: {normalized}")
 
-    logger.info(f"[EDR->AV] Received scan request from Owlyshield: {normalized}")
+    scan_mode = str(request_obj.get("scan_mode") or "").strip().lower()
+    deep_scan = bool(request_obj.get("deep_scan", False)) or scan_mode == "deep"
+    yara_x_matches = request_obj.get("yara_x_matches") or []
+
+    logger.info(f"[EDR->AV] Received scan request from Owlyshield: {normalized} (mode={'deep' if deep_scan else 'minimal'})")
     await scan_and_warn(
         normalized,
         main_file_path=normalized,
         flag_vmprotect=bool(request_obj.get("is_vmprotect", False)),
         owlyshield_signature_status=request_obj.get("signature_status"),
+        deep_scan=deep_scan,
+        owlyshield_yara_x_matches=yara_x_matches,
     )
 
 
