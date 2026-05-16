@@ -3828,6 +3828,10 @@ extern "C" NTSYSAPI NTSTATUS NTAPI ZwQueryInformationProcess(
     _Out_opt_ PULONG           ReturnLength
 );
 
+#ifndef PROCESS_QUERY_INFORMATION
+#define PROCESS_QUERY_INFORMATION (0x0400)
+#endif
+
 typedef struct _OWLY_PROCESS_MITIGATION_POLICY_INFORMATION {
     ULONG Policy; // OwlyProcessMitigationDynamicCodePolicy = 2
     union {
@@ -3838,8 +3842,8 @@ typedef struct _OWLY_PROCESS_MITIGATION_POLICY_INFORMATION {
             ULONG AllowRemoteDowngrade : 1;
             ULONG AuditProhibitDynamicCode : 1;
             ULONG ReservedFlags : 28;
-        };
-    };
+        } DynamicCodePolicy;
+    } U;
 } OWLY_PROCESS_MITIGATION_POLICY_INFORMATION;
 
 static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
@@ -3875,7 +3879,7 @@ static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
 
         if (NT_SUCCESS(status))
         {
-            if (policyInfo.ProhibitDynamicCode)
+            if (policyInfo.U.DynamicCodePolicy.ProhibitDynamicCode)
             {
                 isAcgEnabled = TRUE;
             }
