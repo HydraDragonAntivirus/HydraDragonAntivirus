@@ -3815,46 +3815,77 @@ DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef-
 // -------------------------------------------------------------------------
 // IsProcessAcgEnabled
 //
-// Detects Arbitrary Code Guard (ACG) by querying ProhibitDynamicCode via
-// PsGetProcessMitigationOption.  The function is resolved at runtime with
-// MmGetSystemRoutineAddress so the driver compiles on any WDK version and
-// gracefully returns FALSE on systems that do not export it (pre-RS3).
-//
-// PS_MITIGATION_OPTION_PROHIBIT_DYNAMIC_CODE = 9  (ntddk.h constant).
+// Detects Arbitrary Code Guard (ACG) by querying ProcessMitigationPolicy (52)
+// via ZwQueryInformationProcess. This method is robust across all modern
+// Windows 10/11 builds since the API is officially exported and stable.
 // -------------------------------------------------------------------------
 
-// Function pointer type — avoids depending on the WDK enum declaration.
-typedef BOOLEAN (NTAPI *PFN_PS_GET_PROCESS_MITIGATION_OPTION)(
-    _In_  PEPROCESS Process,
-    _In_  ULONG     Option,      // PS_MITIGATION_OPTION ordinal
-    _Out_ PULONG64  ReturnedState
+extern "C" NTSYSAPI NTSTATUS NTAPI ZwQueryInformationProcess(
+    _In_      HANDLE           ProcessHandle,
+    _In_      ULONG            ProcessInformationClass,
+    _Out_     PVOID            ProcessInformation,
+    _In_      ULONG            ProcessInformationLength,
+    _Out_opt_ PULONG           ReturnLength
 );
+
+typedef struct _OWLY_PROCESS_MITIGATION_POLICY_INFORMATION {
+    ULONG Policy; // OwlyProcessMitigationDynamicCodePolicy = 2
+    union {
+        ULONG Flags;
+        struct {
+            ULONG ProhibitDynamicCode : 1;
+            ULONG AllowThreadOptOut : 1;
+            ULONG AllowRemoteDowngrade : 1;
+            ULONG AuditProhibitDynamicCode : 1;
+            ULONG ReservedFlags : 28;
+        };
+    };
+} OWLY_PROCESS_MITIGATION_POLICY_INFORMATION;
 
 static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
 {
-    // Resolved once on first call; NULL if the export does not exist.
-    static PFN_PS_GET_PROCESS_MITIGATION_OPTION s_pfn = NULL;
-    static volatile LONG s_resolved = 0;
+    NTSTATUS status;
+    HANDLE hProcess = NULL;
+    BOOLEAN isAcgEnabled = FALSE;
 
-    if (InterlockedCompareExchange(&s_resolved, 1, 0) == 0)
+    status = ObOpenObjectByPointer(
+        Process,
+        OBJ_KERNEL_HANDLE,
+        NULL,
+        PROCESS_QUERY_INFORMATION,
+        *PsProcessType,
+        KernelMode,
+        &hProcess);
+
+    if (NT_SUCCESS(status))
     {
-        UNICODE_STRING fnName;
-        RtlInitUnicodeString(&fnName, L"PsGetProcessMitigationOption");
-        s_pfn = (PFN_PS_GET_PROCESS_MITIGATION_OPTION)
-                    MmGetSystemRoutineAddress(&fnName);
+        OWLY_PROCESS_MITIGATION_POLICY_INFORMATION policyInfo;
+        RtlZeroMemory(&policyInfo, sizeof(policyInfo));
+        
+        policyInfo.Policy = 2; // ProcessDynamicCodePolicy
+
+        ULONG returnLength = 0;
+        // 52 = ProcessMitigationPolicy
+        status = ZwQueryInformationProcess(
+            hProcess,
+            52, 
+            &policyInfo,
+            sizeof(policyInfo),
+            &returnLength);
+
+        if (NT_SUCCESS(status))
+        {
+            if (policyInfo.ProhibitDynamicCode)
+            {
+                isAcgEnabled = TRUE;
+            }
+        }
+
+        ZwClose(hProcess);
     }
-    // Spin-wait for the first thread to finish resolving (extremely brief).
-    while (s_resolved == 0) { /* no-op */ }
 
-    if (s_pfn == NULL)
-        return FALSE;   // OS too old or export missing — treat as no ACG
-
-    ULONG64 mitigationState = 0;
-    // Ordinal 9 = PS_MITIGATION_OPTION_PROHIBIT_DYNAMIC_CODE (ACG).
-    // Returns TRUE when enforcement is active (not audit-only).
-    return s_pfn(Process, 9, &mitigationState);
+    return isAcgEnabled;
 }
-
 
 
 static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _In_z_ PCSTR FunctionName,
