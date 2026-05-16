@@ -3848,11 +3848,10 @@ typedef struct _OWLY_PROCESS_MITIGATION_POLICY_INFORMATION {
 
 static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
 {
-    NTSTATUS status;
     HANDLE hProcess = NULL;
     BOOLEAN isAcgEnabled = FALSE;
 
-    status = ObOpenObjectByPointer(
+    NTSTATUS status = ObOpenObjectByPointer(
         Process,
         OBJ_KERNEL_HANDLE,
         NULL,
@@ -3861,33 +3860,40 @@ static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
         KernelMode,
         &hProcess);
 
-    if (NT_SUCCESS(status))
+    if (!NT_SUCCESS(status))
     {
-        OWLY_PROCESS_MITIGATION_POLICY_INFORMATION policyInfo;
-        RtlZeroMemory(&policyInfo, sizeof(policyInfo));
-        
-        policyInfo.Policy = 2; // ProcessDynamicCodePolicy
-
-        ULONG returnLength = 0;
-        // 52 = ProcessMitigationPolicy
-        status = ZwQueryInformationProcess(
-            hProcess,
-            52, 
-            &policyInfo,
-            sizeof(policyInfo),
-            &returnLength);
-
-        if (NT_SUCCESS(status))
-        {
-            if (policyInfo.U.DynamicCodePolicy.ProhibitDynamicCode)
-            {
-                isAcgEnabled = TRUE;
-            }
-        }
-
-        ZwClose(hProcess);
+        status = ObOpenObjectByPointer(
+            Process,
+            OBJ_KERNEL_HANDLE,
+            NULL,
+            PROCESS_QUERY_LIMITED_INFORMATION,
+            *PsProcessType,
+            KernelMode,
+            &hProcess);
     }
 
+    if (!NT_SUCCESS(status))
+        return FALSE;
+
+    OWLY_PROCESS_MITIGATION_POLICY_INFORMATION policyInfo;
+    RtlZeroMemory(&policyInfo, sizeof(policyInfo));
+    policyInfo.Policy = 2; // ProcessDynamicCodePolicy — must be set after zero
+
+    ULONG returnLength = 0;
+    // 52 = ProcessMitigationPolicy
+    status = ZwQueryInformationProcess(
+        hProcess,
+        52,
+        &policyInfo,
+        sizeof(policyInfo),
+        &returnLength);
+
+    if (NT_SUCCESS(status))
+    {
+        isAcgEnabled = (policyInfo.U.DynamicCodePolicy.ProhibitDynamicCode != 0);
+    }
+
+    ZwClose(hProcess);
     return isAcgEnabled;
 }
 
@@ -3895,25 +3901,10 @@ static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
 static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _In_z_ PCSTR FunctionName,
                                                 _In_ BOOLEAN IsWow64)
 {
+    UNREFERENCED_PARAMETER(Process);
+    UNREFERENCED_PARAMETER(ModuleName);
     UNREFERENCED_PARAMETER(FunctionName);
     UNREFERENCED_PARAMETER(IsWow64);
-
-    if (IsProcessAcgEnabled(Process))
-    {
-        // If ACG is enabled, we only skip hooking ntdll.dll.
-        // We still want to hook other modules if possible.
-        if (ModuleName != NULL)
-        {
-            UNICODE_STRING usModuleName;
-            UNICODE_STRING usNtdll;
-            RtlInitUnicodeString(&usModuleName, ModuleName);
-            RtlInitUnicodeString(&usNtdll, L"ntdll.dll");
-            if (RtlCompareUnicodeString(&usModuleName, &usNtdll, TRUE) == 0)
-            {
-                return TRUE;
-            }
-        }
-    }
 
     return FALSE;
 }
