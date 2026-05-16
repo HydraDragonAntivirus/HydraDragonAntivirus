@@ -22,6 +22,31 @@ pub const DEFAULT_BLOCK_QUIC_UDP_443: bool = true;
 /// Default auto-start setting for TLS proxy
 pub const DEFAULT_TLS_AUTO_START: bool = true;
 
+/// Helper function for serde default - returns true for cert_install_consent
+fn default_cert_install_consent() -> bool {
+    DEFAULT_CERT_INSTALL_CONSENT
+}
+
+/// Helper function for serde default - returns default listen host
+fn default_listen_host() -> String {
+    DEFAULT_TLS_LISTEN_HOST.to_string()
+}
+
+/// Helper function for serde default - returns default listen port
+fn default_listen_port() -> u16 {
+    DEFAULT_TLS_LISTEN_PORT
+}
+
+/// Helper function for serde default - returns true for block_quic_udp_443
+fn default_block_quic_udp_443() -> bool {
+    DEFAULT_BLOCK_QUIC_UDP_443
+}
+
+/// Helper function for serde default - returns true for auto_start
+fn default_auto_start() -> bool {
+    DEFAULT_TLS_AUTO_START
+}
+
 /// TLS inspection mode
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,16 +68,20 @@ impl Default for TlsInspectionMode {
 #[serde(default)]
 pub struct TlsProxyConfig {
     pub mode: TlsInspectionMode,
+    #[serde(default = "default_listen_host")]
     pub listen_host: String,
+    #[serde(default = "default_listen_port")]
     pub listen_port: u16,
+    #[serde(default = "default_block_quic_udp_443")]
     pub block_quic_udp_443: bool,
     /// Whether to auto-start the embedded proxy when the firewall starts.
+    #[serde(default = "default_auto_start")]
     pub auto_start: bool,
     #[serde(default)]
     pub bypass_hosts: Vec<String>,
     /// Whether user has consented to certificate installation for MITM interception.
     /// If false, certificates will not be automatically installed.
-    #[serde(default)]
+    #[serde(default = "default_cert_install_consent")]
     pub cert_install_consent: bool,
 }
 
