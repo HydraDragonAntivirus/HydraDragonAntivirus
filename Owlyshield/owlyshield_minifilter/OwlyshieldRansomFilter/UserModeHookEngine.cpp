@@ -155,6 +155,12 @@ typedef HANDLE(NTAPI *PPS_GET_PROCESS_INHERITED_FROM_UNIQUE_PROCESS_ID)(_In_ PEP
 // or NULL if the process is a native 64-bit process.
 typedef PVOID(NTAPI *PPS_GET_PROCESS_WOW64_PROCESS)(_In_ PEPROCESS Process);
 
+typedef NTSTATUS(NTAPI *PZW_QUERY_INFORMATION_PROCESS)(_In_ HANDLE ProcessHandle,
+                                                        _In_ ULONG ProcessInformationClass,
+                                                        _Out_ PVOID ProcessInformation,
+                                                        _In_ ULONG ProcessInformationLength,
+                                                        _Out_opt_ PULONG ReturnLength);
+
 typedef struct _OWLY_OBJECT_HANDLE_FLAG_INFORMATION
 {
     BOOLEAN Inherit;
@@ -170,6 +176,7 @@ PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory = NULL;
 PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
 PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
 PZW_SET_INFORMATION_OBJECT fnZwSetInformationObject = NULL;
+PZW_QUERY_INFORMATION_PROCESS fnZwQueryInformationProcess = NULL;
 PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 PPS_IS_PROTECTED_PROCESS fnPsIsProtectedProcess = NULL;
 PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
@@ -405,7 +412,7 @@ static NTSTATUS InitializeHookExcludeRules(VOID)
 
     // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
-    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\HydraDragonAntivirus", 37);
+    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\HydraDragonAntivirus", 35);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);
@@ -1951,6 +1958,19 @@ DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
     RtlInitUnicodeString(&routineName, L"ZwSetInformationObject");
     fnZwSetInformationObject = (PZW_SET_INFORMATION_OBJECT)MmGetSystemRoutineAddress(&routineName);
 
+    // Resolve ZwQueryInformationProcess - optional, used for ACG detection.
+    // Keep it dynamic to avoid analyzer/linker warnings on WDKs that do not
+    // expose a prototype in the selected kernel headers.
+    RtlInitUnicodeString(&routineName, L"ZwQueryInformationProcess");
+    fnZwQueryInformationProcess =
+        (PZW_QUERY_INFORMATION_PROCESS)MmGetSystemRoutineAddress(&routineName);
+    if (!fnZwQueryInformationProcess)
+    {
+#if IS_DEBUG_IRP
+DbgPrint("!!! UserModeHook: ZwQueryInformationProcess unavailable - ACG detection disabled\n");
+#endif
+    }
+
     RtlInitUnicodeString(&routineName, L"IoFileObjectType");
     g_HookIoFileObjectType = (POBJECT_TYPE *)MmGetSystemRoutineAddress(&routineName);
 
@@ -2924,6 +2944,10 @@ static BOOLEAN ParseUnsigned64A(_In_z_ PCSTR Text, _In_ BOOLEAN ForceHex, _Out_ 
     if (Text == NULL || Value == NULL)
         return FALSE;
 
+    // Initialize output so every early-return path leaves *Value in a defined
+    // state (C6101: returning uninitialized memory).
+    *Value = 0;
+
     if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
     {
         base = 16;
@@ -3808,14 +3832,6 @@ DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef-
 // Windows 10/11 builds since the API is officially exported and stable.
 // -------------------------------------------------------------------------
 
-extern "C" NTSYSAPI NTSTATUS NTAPI ZwQueryInformationProcess(
-    _In_      HANDLE           ProcessHandle,
-    _In_      ULONG            ProcessInformationClass,
-    _Out_     PVOID            ProcessInformation,
-    _In_      ULONG            ProcessInformationLength,
-    _Out_opt_ PULONG           ReturnLength
-);
-
 #ifndef PROCESS_QUERY_INFORMATION
 #define PROCESS_QUERY_INFORMATION (0x0400)
 #endif
@@ -3842,6 +3858,11 @@ static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
 {
     HANDLE hProcess = NULL;
     BOOLEAN isAcgEnabled = FALSE;
+
+    if (fnZwQueryInformationProcess == NULL)
+    {
+        return FALSE;
+    }
 
     NTSTATUS status = ObOpenObjectByPointer(
         Process,
@@ -3873,7 +3894,7 @@ static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
 
     ULONG returnLength = 0;
     // 52 = ProcessMitigationPolicy
-    status = ZwQueryInformationProcess(
+    status = fnZwQueryInformationProcess(
         hProcess,
         52,
         &policyInfo,
