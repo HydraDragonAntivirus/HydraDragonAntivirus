@@ -139,7 +139,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)libyara\include;$(ProjectDir)libyara;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)libyara\include;$(ProjectDir)libyara;$(SolutionDir)..\Xvirus\NativeSDK-Windows\example;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;HAVE_STRLCPY=0;HAVE_STRLCAT=0;HAVE_MEMMEM=0;HAVE_WINCRYPT_H;HASH_MODULE;DOTNET_MODULE;MACHO_MODULE;DEX_MODULE;BUCKETS_128;USE_WINDOWS_PROC;YR_DEBUG_VERBOSITY=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
@@ -147,6 +147,7 @@
     </ClCompile>
     <Link>
       <AdditionalDependencies>Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)..\Xvirus\NativeSDK-Windows;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
