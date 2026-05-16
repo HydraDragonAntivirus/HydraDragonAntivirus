@@ -160,7 +160,7 @@ pub struct EDRScanRequest {
     pub scan_mode: String,
     /// DetectItEasy scan result computed by Owlyshield/Rust.
     #[serde(default)]
-    pub detectiteasy_scan_result: Option<crate::detectiteasy::DetectItEasyScanResult>,
+    pub detectiteasy_scan_result: Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
 }
 
 fn default_scan_mode() -> String {
@@ -1155,6 +1155,8 @@ impl<'a> AVIntegration<'a> {
             predictor_malware,
             internal_scan_tx,
             signature_cache: HashMap::new(),
+            tinyav_recent_scans: HashMap::new(),
+            tinyav_missing_logged: false,
             yara_rules: load_yara_x_rules(),
             excluded_yara_rules: load_excluded_rules(),
             _scan_request_handle: scan_request_handle,
@@ -1373,7 +1375,7 @@ impl<'a> AVIntegration<'a> {
         Option<FileSignatureStatus>,
         Vec<String>,
         bool,
-        Option<crate::detectiteasy::DetectItEasyScanResult>,
+        Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
     ) {
         let signature_status = self.get_or_compute_signature_status(file_path, scan_target);
 
@@ -1401,7 +1403,7 @@ impl<'a> AVIntegration<'a> {
         }
 
         let detectiteasy_scan_result = {
-            use crate::detectiteasy::DetectItEasyScanner;
+            use crate::hydradragon::detectiteasy::DetectItEasyScanner;
 
             let scanner = DetectItEasyScanner::new();
             Some(match scanner.scan_file(scan_target) {
