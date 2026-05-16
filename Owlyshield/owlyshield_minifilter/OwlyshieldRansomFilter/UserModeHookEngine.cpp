@@ -59,9 +59,6 @@ Environment:
 #ifndef OWLY_HRESULT_DYNAMIC_CODE_BLOCKED
 #define OWLY_HRESULT_DYNAMIC_CODE_BLOCKED ((NTSTATUS)0x80070677L)
 #endif
-#ifndef STATUS_INVALID_PAGE_PROTECTION
-#define STATUS_INVALID_PAGE_PROTECTION ((NTSTATUS)0xC0000045L)
-#endif
 
 // -------------------------------------------------------------------------
 // WoW64 / 32-bit PE type definitions
@@ -315,53 +312,6 @@ static VOID CloseHookNotifyHandleSafe(_Inout_ PHANDLE Handle)
     *Handle = NULL;
 }
 
-
-// -------------------------------------------------------------------------
-// Hook notify handle anti-tamper
-// -------------------------------------------------------------------------
-// The shellcode embeds HookEntry->DriverDeviceHandle and later uses it as the
-// FileHandle argument to NtDeviceIoControlFile.  If user-mode closes that handle
-// or clears close protection and then closes it, the trampoline reports
-// STATUS_INVALID_HANDLE.  Therefore every live notify handle must be marked
-// ProtectFromClose while any trampoline may reference it.
-//
-// CloseHookNotifyHandleSafe() is the only driver-owned close path; it clears
-// ProtectFromClose immediately before ZwClose.  User-mode should never be able
-// to close this handle accidentally or through a naive NtClose attack.
-static NTSTATUS ProtectHookNotifyUserHandle(_In_ HANDLE Handle)
-{
-    NTSTATUS status;
-
-    if (Handle == NULL || Handle == NtCurrentProcess() || Handle == NtCurrentThread())
-    {
-        return STATUS_INVALID_HANDLE;
-    }
-
-    status = ValidateHookNotifyUserHandle(Handle);
-    if (!NT_SUCCESS(status))
-    {
-        return status;
-    }
-
-    if (fnZwSetInformationObject != NULL)
-    {
-        OWLY_OBJECT_HANDLE_FLAG_INFORMATION handleFlags = {0};
-        handleFlags.Inherit = FALSE;
-        handleFlags.ProtectFromClose = TRUE;
-
-        status = fnZwSetInformationObject(Handle,
-                                          OWLY_OBJECT_HANDLE_FLAG_INFORMATION_CLASS,
-                                          &handleFlags,
-                                          sizeof(handleFlags));
-        if (!NT_SUCCESS(status))
-        {
-            return status;
-        }
-    }
-
-    return ValidateHookNotifyUserHandle(Handle);
-}
-
 static BOOLEAN IsRecoverableHookInstallStatus(_In_ NTSTATUS Status)
 {
     switch (Status)
@@ -377,7 +327,6 @@ static BOOLEAN IsRecoverableHookInstallStatus(_In_ NTSTATUS Status)
     case STATUS_ACCESS_DENIED:
     case STATUS_DYNAMIC_CODE_BLOCKED:
     case OWLY_HRESULT_DYNAMIC_CODE_BLOCKED:
-    case STATUS_INVALID_PAGE_PROTECTION:
         return TRUE;
     default:
         return FALSE;
@@ -3966,27 +3915,12 @@ static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_ PCW
 {
     UNREFERENCED_PARAMETER(Process);
     UNREFERENCED_PARAMETER(ModuleName);
+    UNREFERENCED_PARAMETER(FunctionName);
     UNREFERENCED_PARAMETER(IsWow64);
 
-    if (FunctionName == NULL || FunctionName[0] == '\0')
-    {
-        return TRUE;
-    }
-
-    // Anti-tamper transport guard.  The hook notification path itself depends
-    // on a close-protected user handle.  Do not install normal telemetry hooks
-    // on APIs that can close that handle or clear its close-protection flag;
-    // doing so creates recursion and lets wildcard rules attack the transport.
-    if (_stricmp(FunctionName, "NtClose") == 0 ||
-        _stricmp(FunctionName, "ZwClose") == 0 ||
-        _stricmp(FunctionName, "NtSetInformationObject") == 0 ||
-        _stricmp(FunctionName, "ZwSetInformationObject") == 0 ||
-        _stricmp(FunctionName, "NtDuplicateObject") == 0 ||
-        _stricmp(FunctionName, "ZwDuplicateObject") == 0)
-    {
-        return TRUE;
-    }
-
+    // Keep NtClose/NtSetInformationObject/NtDuplicateObject hookable for
+    // malware detection.  The notify handle is protected at creation time;
+    // do not solve STATUS_INVALID_HANDLE by hiding these APIs from telemetry.
     return FALSE;
 }
 
@@ -4141,11 +4075,15 @@ DbgPrint("UserModeHook: ZwCreateFile per-process notify handle returned NULL han
                         NTSTATUS handleProtectStatus;
 
                         //
-                        // Anti-tamper: the shellcode embeds this handle value and
-                        // later uses it in NtDeviceIoControlFile.  If user-mode
-                        // closes it, the next trampoline call returns
+                        // Anti-tamper / STATUS_INVALID_HANDLE fix:
+                        // the trampoline embeds this per-process user handle and
+                        // later calls NtDeviceIoControlFile with the embedded value.
+                        // If target code, sandbox cleanup, or malware closes it,
+                        // every already-patched trampoline can report
                         // STATUS_INVALID_HANDLE.  Keep the handle close-protected
-                        // for the whole lifetime of the hook entry.
+                        // for the lifetime of the target process.  Driver-controlled
+                        // cleanup uses CloseHookNotifyHandleSafe(), which clears the
+                        // flag before ZwClose when it is actually safe to close.
                         //
                         handleFlags.ProtectFromClose = TRUE;
                         handleFlags.Inherit = FALSE;
@@ -4167,7 +4105,7 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
                         if (!NT_SUCCESS(status))
                         {
 #if IS_DEBUG_IRP
-                            DbgPrint("UserModeHook: anti-tamper notify handle validation failed for PID %lu (0x%X)\n",
+                            DbgPrint("UserModeHook: protected notify handle validation failed for PID %lu (0x%X)\n",
                                      HookEntry->ProcessId,
                                      status);
 #endif
@@ -4226,12 +4164,6 @@ DbgPrint("UserModeHook: failed to protect per-process notify handle for PID %lu 
                     }
                 }
 
-                if (!NT_SUCCESS(status))
-                {
-                    __leave;
-                }
-
-                status = ProtectHookNotifyUserHandle(targetDeviceHandle);
                 if (!NT_SUCCESS(status))
                 {
                     __leave;
@@ -4474,19 +4406,14 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
             KeStackAttachProcess((PRKPROCESS)process, &validateApcState);
             __try
             {
-                status = ProtectHookNotifyUserHandle(hookEntry->DriverDeviceHandle);
+                status = ValidateHookNotifyUserHandle(hookEntry->DriverDeviceHandle);
                 if (!NT_SUCCESS(status))
                 {
 #if IS_DEBUG_IRP
-                    DbgPrint("UserModeHook: PID %lu notify handle failed anti-tamper validation during refresh (0x%X)\n",
+                    DbgPrint("UserModeHook: PID %lu stale notify handle detected during refresh (0x%X)\n",
                              ProcessId,
                              status);
 #endif
-                    // Do not close the old embedded handle here.  Another target
-                    // thread may already be executing trampoline code that will use
-                    // that exact handle value.  Rebuilding by closing the old handle
-                    // recreates STATUS_INVALID_HANDLE.  Restore bytes and forget it;
-                    // the process handle table will reclaim it on process exit.
                     rebuildInfrastructure = TRUE;
                 }
             }
@@ -4515,11 +4442,13 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
 
                     if (hookEntry->DriverDeviceHandle != NULL)
                     {
-                        // Anti-tamper/lifetime rule: do not close the handle value
-                        // embedded in existing shellcode during live refresh.
-                        // Closing it here can race an in-flight trampoline and cause
-                        // STATUS_INVALID_HANDLE.  Forget it and let process exit close
-                        // the target handle table.
+                        // Do not close the old embedded notify handle during a
+                        // live infrastructure rebuild.  Another thread may already
+                        // be executing old shellcode that still contains this
+                        // handle immediate.  Closing here recreates the exact
+                        // STATUS_INVALID_HANDLE race we are trying to eliminate.
+                        // Forget it in bookkeeping and let process teardown reclaim
+                        // the protected user handle.
                         hookEntry->DriverDeviceHandle = NULL;
                     }
                 }
