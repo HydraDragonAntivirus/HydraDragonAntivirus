@@ -11,6 +11,7 @@ tauri-build = { version = "2.5.6", features = [] }
 embed-resource = "3.0.9"
 
 [dependencies]
+hydradragon-shared = { path = "../hydradragon-shared" }
 tauri = { version = "2.11.1", features = ["tray-icon"] }
 csv = "1.3"
 serde = { version = "1.0", features = ["derive"] }

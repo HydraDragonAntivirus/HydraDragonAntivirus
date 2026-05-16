@@ -1,4 +1,4 @@
-use hydradragonfirewall::shared_defs::{TlsInspectionMode, TlsProxyConfig};
+use hydradragon_shared::{TlsInspectionMode, TlsProxyConfig};
 use js_sys::Reflect;
 use leptos::*;
 use leptos::{event_target_checked, event_target_value};

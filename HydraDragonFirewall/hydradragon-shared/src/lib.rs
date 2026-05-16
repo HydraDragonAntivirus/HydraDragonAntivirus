@@ -1,5 +1,6 @@
-/// Shared constants and types for HydraDragon Firewall
-/// This module contains constants and type definitions used across both the engine and UI
+/// Shared types and constants for HydraDragon Firewall
+/// This lightweight crate contains only serializable types with no platform-specific dependencies,
+/// making it suitable for both native and WASM targets.
 
 use serde::{Deserialize, Serialize};
 

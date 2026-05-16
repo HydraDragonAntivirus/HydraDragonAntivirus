@@ -1534,6 +1534,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hydradragon-shared"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "hydradragonfirewall"
 version = "0.1.0"
 dependencies = [
@@ -1547,6 +1554,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "http-mitm-proxy",
+ "hydradragon-shared",
  "lazy_static",
  "moka",
  "rcgen",

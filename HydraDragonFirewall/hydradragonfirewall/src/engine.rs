@@ -1,8 +1,7 @@
 use crate::file_magic::FileMagicChecker;
 use crate::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
-use crate::shared_defs::{TlsInspectionMode, TlsProxyConfig};
-
 use crate::web_filter::WebFilter;
+use hydradragon_shared::{TlsInspectionMode, TlsProxyConfig, QUARANTINE_PATH};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -4467,7 +4466,7 @@ impl FirewallEngine {
             return;
         }
 
-        let qdir = PathBuf::from(crate::shared_defs::QUARANTINE_PATH);
+        let qdir = PathBuf::from(QUARANTINE_PATH);
         let _ = fs::create_dir_all(&qdir);
         let dst = Self::build_quarantine_destination(src, &qdir);
         let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());
