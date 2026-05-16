@@ -28,6 +28,9 @@ Environment :
 
 const WCHAR *const ComPortName = L"\\RWFilter";
 
+// Quarantine directory path (shared across all components)
+const WCHAR *const QuarantinePath = L"\\??\\C:\\ProgramData\\HydraDragonQuarantine";
+
 // Rule file paths removed for security (mitigates path-based vulnerabilities).
 // Rules are now pushed via Comms from a PPL process.
 

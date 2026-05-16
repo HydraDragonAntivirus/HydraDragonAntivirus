@@ -398,7 +398,7 @@ impl ThreatHandler for WindowsThreatHandler {
 
         // 3. Prepare quarantine path
         let quarantine_dir =
-            std::path::Path::new(r"C:\ProgramData\HydraDragonAntivirus\Quarantine");
+            std::path::Path::new(crate::shared_def::QUARANTINE_PATH);
         if let Err(e) = std::fs::create_dir_all(quarantine_dir) {
             Logging::error(&format!(
                 "[ThreatHandler] Failed to create quarantine directory {}: {}",

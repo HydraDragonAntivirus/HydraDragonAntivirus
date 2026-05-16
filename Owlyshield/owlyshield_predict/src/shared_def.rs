@@ -10,6 +10,9 @@ pub const FILE_ID_LEN: usize = 16;
 #[cfg(target_os = "linux")]
 pub const FILE_ID_LEN: usize = 32;
 
+/// Quarantine directory path (shared across all Rust components)
+pub const QUARANTINE_PATH: &str = r"C:\ProgramData\HydraDragonQuarantine";
+
 /// See [`IOMessage`] struct. Used with [`crate::shared_def::IrpMajorOp::IrpSetInfo`]
 #[allow(non_local_definitions)]
 #[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]

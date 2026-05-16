@@ -10,6 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const QUARANTINE_MAGIC: &[u8; 7] = b"HYDRA\x00\x01";
 const XOR_KEY: u8 = 0xA5;
 
+/// Quarantine directory path (shared constant)
+pub const QUARANTINE_PATH: &str = r"C:\ProgramData\HydraDragonQuarantine";
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct QuarantineMeta {
     pub original_path: String,

@@ -4510,9 +4510,7 @@ impl FirewallEngine {
             return;
         }
 
-        let qdir = PathBuf::from("C:\\ProgramData")
-            .join("HydraDragonAntivirus")
-            .join("Quarantine");
+        let qdir = PathBuf::from(crate::quarantine::QUARANTINE_PATH);
         let _ = fs::create_dir_all(&qdir);
         let dst = Self::build_quarantine_destination(src, &qdir);
         let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());

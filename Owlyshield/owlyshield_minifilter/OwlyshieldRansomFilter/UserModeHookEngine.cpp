@@ -412,7 +412,6 @@ static NTSTATUS InitializeHookExcludeRules(VOID)
 
     // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
-    (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\HydraDragonAntivirus", 35);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
     (VOID) AddHookExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);

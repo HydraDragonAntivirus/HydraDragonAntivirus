@@ -308,7 +308,6 @@ static NTSTATUS InitializeProcessProtectionRules(VOID)
 
     // HydraDragonAntivirus-specific examples
     (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\HydraDragonAntivirus", 37);
     (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
     (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
     (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);

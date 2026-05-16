@@ -448,7 +448,6 @@ static NTSTATUS InitializeOwlyshieldRules(VOID)
 
     // HydraDragonAntivirus-specific examples
     (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Program Files\\HydraDragonAntivirus", 38);
-    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\ProgramData\\HydraDragonAntivirus", 37);
     (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\ProgramData\\edrsvc", 22);
     (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
     (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrpm64.dll", 29);
@@ -792,7 +791,7 @@ Return Value:
 
     // Set the quarantine path
     UNICODE_STRING quarantinePathString;
-    RtlInitUnicodeString(&quarantinePathString, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
+    RtlInitUnicodeString(&quarantinePathString, QuarantinePath);
     driverData->SetQuarantinePath(&quarantinePathString);
 
 #if DBG
@@ -2896,7 +2895,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
     // Define quarantine path for HydraDragon
     UNICODE_STRING quarantineDir;
-    RtlInitUnicodeString(&quarantineDir, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
+    RtlInitUnicodeString(&quarantineDir, QuarantinePath);
 
     // Create quarantine directory if it doesn't exist
     InitializeObjectAttributes(&objAttribs, &quarantineDir, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
