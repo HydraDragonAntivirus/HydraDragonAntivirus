@@ -3857,16 +3857,29 @@ static BOOLEAN IsProcessAcgEnabled(_In_ PEPROCESS Process)
 
 
 
-static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_z_ PCSTR FunctionName,
+static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _In_z_ PCSTR FunctionName,
                                                 _In_ BOOLEAN IsWow64)
 {
-    UNREFERENCED_PARAMETER(Process);
     UNREFERENCED_PARAMETER(FunctionName);
     UNREFERENCED_PARAMETER(IsWow64);
 
-    // We do NOT skip hooking ACG processes anymore. 
-    // We want the telemetry. The user-mode Behavior Engine will ignore
-    // STATUS_INVALID_HANDLE evasion if the process has ACG enabled.
+    if (IsProcessAcgEnabled(Process))
+    {
+        // If ACG is enabled, we only skip hooking ntdll.dll.
+        // We still want to hook other modules if possible.
+        if (ModuleName != NULL)
+        {
+            UNICODE_STRING usModuleName;
+            UNICODE_STRING usNtdll;
+            RtlInitUnicodeString(&usModuleName, ModuleName);
+            RtlInitUnicodeString(&usNtdll, L"ntdll.dll");
+            if (RtlCompareUnicodeString(&usModuleName, &usNtdll, TRUE) == 0)
+            {
+                return TRUE;
+            }
+        }
+    }
+
     return FALSE;
 }
 
@@ -3879,7 +3892,7 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
                         ? FindMainImageBaseAddress32(Process, &modSize)
                         : FindModuleBaseAddress32(Process, ModuleName, &modSize);
 
-    if (ShouldSkipHookFunctionForProcess(Process, FunctionName, TRUE))
+    if (ShouldSkipHookFunctionForProcess(Process, ModuleName, FunctionName, TRUE))
         return STATUS_NOT_SUPPORTED;
 
     if (!modBase)
@@ -4170,7 +4183,7 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEnt
                         ? FindMainImageBaseAddress(Process, &modSize)
                         : FindModuleBaseAddress(Process, ModuleName, &modSize);
 
-    if (ShouldSkipHookFunctionForProcess(Process, FunctionName, FALSE))
+    if (ShouldSkipHookFunctionForProcess(Process, ModuleName, FunctionName, FALSE))
         return STATUS_NOT_SUPPORTED;
 
     if (!modBase)
