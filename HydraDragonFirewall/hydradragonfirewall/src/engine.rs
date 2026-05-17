@@ -3859,7 +3859,7 @@ impl FirewallEngine {
 
                                          if is_tcp {
                                              if outbound {
-                                                 if dst_port == 443 && pid != std::process::id() {
+                                                 if dst_port == 443 && pid != 0 && pid != std::process::id() {
                                                      if let Some(orig_dst) = dst_ip_v4 {
                                                          if !orig_dst.is_loopback() && !orig_dst.is_unspecified() && !orig_dst.is_multicast() {
                                                              nat_table_w.insert(src_port, (orig_dst, 443));
