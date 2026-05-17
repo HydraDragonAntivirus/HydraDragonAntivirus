@@ -1239,6 +1239,125 @@ impl AppManager {
 }
 
 // ============================================================================
+// TRANSPARENT NAT TABLE — maps client connections to their original destinations
+// ============================================================================
+
+/// Key: client source port (unique per connection on the local machine).
+/// Value: (original_dst_ip, original_dst_port).
+/// Used to reverse-NAT inbound packets from the proxy back to the original IP
+/// so the client's TCP stack accepts them.
+#[derive(Clone)]
+pub struct TransparentNatTable {
+    inner: Arc<std::sync::RwLock<HashMap<u16, (Ipv4Addr, u16)>>>,
+}
+
+impl TransparentNatTable {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(std::sync::RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn insert(&self, client_src_port: u16, original_dst: (Ipv4Addr, u16)) {
+        self.inner.write().unwrap().insert(client_src_port, original_dst);
+    }
+
+    pub fn get(&self, client_src_port: u16) -> Option<(Ipv4Addr, u16)> {
+        self.inner.read().unwrap().get(&client_src_port).copied()
+    }
+
+    pub fn remove(&self, client_src_port: u16) {
+        self.inner.write().unwrap().remove(&client_src_port);
+    }
+
+    /// Prune stale entries — call periodically.
+    pub fn len(&self) -> usize {
+        self.inner.read().unwrap().len()
+    }
+}
+
+// ── IPv4 + TCP header rewrite helpers for transparent proxy NAT ─────────────
+
+/// Rewrite the destination IPv4 address and TCP port in a raw packet.
+/// Returns true if the rewrite was performed (IPv4 + TCP with enough bytes).
+fn nat_rewrite_dst_ipv4(data: &mut [u8], new_ip: Ipv4Addr, new_port: u16) -> bool {
+    if data.len() < 20 {
+        return false;
+    }
+    let ip_version = (data[0] >> 4) & 0x0F;
+    if ip_version != 4 {
+        return false;
+    }
+    // Protocol must be TCP (6)
+    if data[9] != 6 {
+        return false;
+    }
+    let ihl = ((data[0] & 0x0F) as usize) * 4;
+    if data.len() < ihl + 4 {
+        return false;
+    }
+    // Overwrite dst IP (bytes 16..20)
+    let octets = new_ip.octets();
+    data[16] = octets[0];
+    data[17] = octets[1];
+    data[18] = octets[2];
+    data[19] = octets[3];
+    // Overwrite dst port (bytes ihl+2..ihl+4)
+    let port_bytes = new_port.to_be_bytes();
+    data[ihl + 2] = port_bytes[0];
+    data[ihl + 3] = port_bytes[1];
+    true
+}
+
+/// Rewrite the source IPv4 address and TCP port in a raw packet.
+/// Used for reverse-NAT on inbound packets from the proxy.
+fn nat_rewrite_src_ipv4(data: &mut [u8], new_ip: Ipv4Addr, new_port: u16) -> bool {
+    if data.len() < 20 {
+        return false;
+    }
+    let ip_version = (data[0] >> 4) & 0x0F;
+    if ip_version != 4 {
+        return false;
+    }
+    if data[9] != 6 {
+        return false;
+    }
+    let ihl = ((data[0] & 0x0F) as usize) * 4;
+    if data.len() < ihl + 4 {
+        return false;
+    }
+    // Overwrite src IP (bytes 12..16)
+    let octets = new_ip.octets();
+    data[12] = octets[0];
+    data[13] = octets[1];
+    data[14] = octets[2];
+    data[15] = octets[3];
+    // Overwrite src port (bytes ihl..ihl+2)
+    let port_bytes = new_port.to_be_bytes();
+    data[ihl] = port_bytes[0];
+    data[ihl + 1] = port_bytes[1];
+    true
+}
+
+/// Check if the TCP FIN or RST flag is set (connection teardown).
+fn tcp_is_fin_or_rst(data: &[u8]) -> bool {
+    let ip_version = (data[0] >> 4) & 0x0F;
+    if ip_version != 4 || data.len() < 20 {
+        return false;
+    }
+    if data[9] != 6 {
+        return false;
+    }
+    let ihl = ((data[0] & 0x0F) as usize) * 4;
+    if data.len() < ihl + 14 {
+        return false;
+    }
+    let flags = data[ihl + 13];
+    // FIN = 0x01, RST = 0x04
+    (flags & 0x01) != 0 || (flags & 0x04) != 0
+}
+
+// ============================================================================
 // PACKET PROCESSING RESULT - Using raw bytes for cross-thread safety
 // ============================================================================
 #[allow(dead_code)]
@@ -1267,6 +1386,8 @@ pub struct FirewallEngine {
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
     pub divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::NetworkLayer>>>>,
     pub hydranet_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>,
+    /// Transparent NAT table for WinDivert-based TLS proxy redirection.
+    pub nat_table: TransparentNatTable,
 }
 
 // RADICAL REFACTOR: Wrapper to make WinDivert Send + Sync (Safe for WinDivert handles)
@@ -1281,8 +1402,6 @@ impl<L: windivert::layer::WinDivertLayerTrait> Clone for WinDivertArc<L> {
 impl<L: windivert::layer::WinDivertLayerTrait> std::ops::Deref for WinDivertArc<L> {
     type Target = WinDivert<L>;
     fn deref(&self) -> &Self::Target {
-        // Expose the inner WinDivert handle so wrapper instances support all
-        // WinDivert methods (e.g., send/recv) instead of just Arc methods.
         self.0.as_ref()
     }
 }
@@ -1311,6 +1430,7 @@ impl FirewallEngine {
         let browser_mitm_warning_cache = Arc::new(Mutex::new(HashSet::new()));
         let divert_handle = Arc::new(Mutex::new(None));
         let hydranet_tx = Arc::new(Mutex::new(None));
+        let nat_table = TransparentNatTable::new();
 
         Self {
             stats,
@@ -1328,6 +1448,7 @@ impl FirewallEngine {
             browser_mitm_warning_cache,
             divert_handle,
             hydranet_tx,
+            nat_table,
         }
     }
 
@@ -3441,6 +3562,7 @@ impl FirewallEngine {
             let divert_w = divert.clone();
             let net_ev_tx = net_event_tx.clone();
             let raw_packet_tx_w = raw_packet_tx.clone();
+            let nat_table_w = self.nat_table.clone();
 
             std::thread::Builder::new()
                 .name(format!("packet_worker_{}", worker_id))
@@ -3713,19 +3835,74 @@ impl FirewallEngine {
                                 }
 
                                 if decision.should_forward {
-                                    // REINJECT IMMEDIATELY from the SAME thread
-                                    let mut reinject_packet = windivert::packet::WinDivertPacket {
-                                        address: packet.address,
-                                        data: std::borrow::Cow::Owned(decision.packet_data),
-                                    };
-                                    if decision.recalc_checksums {
-                                        let _ = reinject_packet
-                                            .recalculate_checksums(Default::default());
-                                    }
-                                    if let Err(_e) = divert_w.send(&reinject_packet) {
-                                        // Log error selectively?
-                                    }
-                                } else {
+                                    let mut packet_data = decision.packet_data;
+                                    let mut recalc_checksums = decision.recalc_checksums;
+
+                                    let tls_proxy_cfg = settings_w.read().unwrap().tls_proxy.clone();
+                                    if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy {
+                                         let mut is_tcp = false;
+                                         let mut src_port = 0;
+                                         let mut dst_port = 0;
+                                         let mut src_ip_v4 = None;
+                                         let mut dst_ip_v4 = None;
+                                         if let Some((ref p_info, _)) = pre_parsed {
+                                             is_tcp = matches!(p_info.protocol, crate::engine::Protocol::TCP);
+                                             src_port = p_info.src_port;
+                                             dst_port = p_info.dst_port;
+                                             if let IpAddr::V4(v4) = p_info.src_ip {
+                                                 src_ip_v4 = Some(v4);
+                                             }
+                                             if let IpAddr::V4(v4) = p_info.dst_ip {
+                                                 dst_ip_v4 = Some(v4);
+                                             }
+                                         }
+
+                                         if is_tcp {
+                                             if outbound {
+                                                 if dst_port == 443 && pid != std::process::id() {
+                                                     if let Some(orig_dst) = dst_ip_v4 {
+                                                         if !orig_dst.is_loopback() && !orig_dst.is_unspecified() && !orig_dst.is_multicast() {
+                                                             nat_table_w.insert(src_port, (orig_dst, 443));
+                                                             if nat_rewrite_dst_ipv4(&mut packet_data, Ipv4Addr::new(127, 0, 0, 1), tls_proxy_cfg.listen_port) {
+                                                                 recalc_checksums = true;
+                                                                 if tcp_is_fin_or_rst(&packet_data) {
+                                                                     nat_table_w.remove(src_port);
+                                                                 }
+                                                             }
+                                                         }
+                                                     }
+                                                 }
+                                             } else {
+                                                 // Inbound returning from proxy
+                                                 if let Some(src_ip) = src_ip_v4 {
+                                                     if (src_ip.is_loopback() || src_ip == Ipv4Addr::new(127, 0, 0, 1)) && src_port == tls_proxy_cfg.listen_port {
+                                                         if let Some((orig_ip, orig_port)) = nat_table_w.get(dst_port) {
+                                                             if nat_rewrite_src_ipv4(&mut packet_data, orig_ip, orig_port) {
+                                                                 recalc_checksums = true;
+                                                                 if tcp_is_fin_or_rst(&packet_data) {
+                                                                     nat_table_w.remove(dst_port);
+                                                                 }
+                                                             }
+                                                         }
+                                                     }
+                                                 }
+                                             }
+                                         }
+                                     }
+
+                                     // REINJECT IMMEDIATELY from the SAME thread
+                                     let mut reinject_packet = windivert::packet::WinDivertPacket {
+                                         address: packet.address,
+                                         data: std::borrow::Cow::Owned(packet_data),
+                                     };
+                                     if recalc_checksums {
+                                         let _ = reinject_packet
+                                             .recalculate_checksums(Default::default());
+                                     }
+                                     if let Err(_e) = divert_w.send(&reinject_packet) {
+                                         // Log error selectively?
+                                     }
+                                 } else {
                                     // Packet is blocked - we just don't call divert.send()
                                     // WinDivert drops it automatically since we didn't send it.
                                 }
