@@ -4,6 +4,7 @@
 //! HydraDragon can consume the detection data without spawning DIE itself.
 
 use crate::logging::Logging;
+use goblin::Object;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
@@ -253,31 +254,34 @@ impl DetectItEasyScanner {
         let packer_type = self.packer_type(die_output);
         let nuitka_type = self.is_nuitka(die_output);
         let dotnet_type = self.is_dotnet(die_output);
-        let pe_status = inspect_pe_file(file_path);
-        let elf_status = inspect_elf_file(file_path);
-        let macho_status = inspect_macho_file(file_path);
-        let apk_status = inspect_apk_file(file_path);
+        let format_validation = inspect_binary_formats(file_path);
+
+        let detected_pe = self.is_pe_file(die_output) || format_validation.pe == FormatValidation::Valid;
+        let detected_elf = self.is_elf_file(die_output) || format_validation.elf == FormatValidation::Valid;
+        let detected_macho = self.is_macho_file(die_output) || format_validation.macho == FormatValidation::Valid;
+        let detected_apk = self.is_apk_file(die_output) || format_validation.apk == FormatValidation::Valid;
+
         let pe_result = file_type_result(
-            self.is_pe_file(die_output),
-            pe_status,
+            detected_pe,
+            format_validation.pe,
             "Broken Executable",
         );
         let elf_result = file_type_result(
-            self.is_elf_file(die_output),
-            elf_status,
+            detected_elf,
+            format_validation.elf,
             "Broken Executable",
         );
         let macho_result = file_type_result(
-            self.is_macho_file(die_output),
-            macho_status,
+            detected_macho,
+            format_validation.macho,
             "Broken Executable",
         );
-        let apk_result = file_type_result(self.is_apk_file(die_output), apk_status, "Broken APK");
+        let apk_result = file_type_result(detected_apk, format_validation.apk, "Broken APK");
         let broken_executable_type = [
-            ("PE", pe_status, pe_result.as_deref()),
-            ("ELF", elf_status, elf_result.as_deref()),
-            ("Mach-O", macho_status, macho_result.as_deref()),
-            ("APK", apk_status, apk_result.as_deref()),
+            ("PE", format_validation.pe, pe_result.as_deref()),
+            ("ELF", format_validation.elf, elf_result.as_deref()),
+            ("Mach-O", format_validation.macho, macho_result.as_deref()),
+            ("APK", format_validation.apk, apk_result.as_deref()),
         ]
         .iter()
         .find_map(|(name, status, result)| {
@@ -298,11 +302,13 @@ impl DetectItEasyScanner {
             die_output: die_output.to_string(),
 
             // File types
-            is_pe: self.is_pe_file(die_output),
-            is_elf: self.is_elf_file(die_output),
-            is_macho: self.is_macho_file(die_output),
-            is_apk: self.is_apk_file(die_output),
-            file_type: self.get_file_type(die_output),
+            is_pe: detected_pe,
+            is_elf: detected_elf,
+            is_macho: detected_macho,
+            is_apk: detected_apk,
+            file_type: format_validation
+                .file_type
+                .or_else(|| self.get_file_type(die_output)),
             pe_result,
             elf_result,
             macho_result,
@@ -722,6 +728,12 @@ enum FormatValidation {
     Broken,
 }
 
+impl Default for FormatValidation {
+    fn default() -> Self {
+        Self::NotDetected
+    }
+}
+
 fn file_type_result(
     detected_by_die: bool,
     validation: FormatValidation,
@@ -738,221 +750,130 @@ fn file_type_result(
     None
 }
 
-fn inspect_pe_file(file_path: &Path) -> FormatValidation {
-    let Ok(data) = std::fs::read(file_path) else {
-        return FormatValidation::NotDetected;
-    };
-    if data.len() < 0x40 || &data[0..2] != b"MZ" {
-        return FormatValidation::NotDetected;
-    }
-
-    let pe_offset = read_u32_le(&data, 0x3c).unwrap_or(0) as usize;
-    if pe_offset < 0x40 || pe_offset.checked_add(24).map_or(true, |end| end > data.len()) {
-        return FormatValidation::Broken;
-    }
-    if data.get(pe_offset..pe_offset + 4) != Some(b"PE\0\0".as_slice()) {
-        return FormatValidation::Broken;
-    }
-
-    let coff = pe_offset + 4;
-    let machine = read_u16_le(&data, coff).unwrap_or(0);
-    let sections = read_u16_le(&data, coff + 2).unwrap_or(0) as usize;
-    let optional_size = read_u16_le(&data, coff + 16).unwrap_or(0) as usize;
-    if machine == 0 || sections == 0 || sections > 96 || optional_size < 2 {
-        return FormatValidation::Broken;
-    }
-
-    let optional_offset = coff + 20;
-    let Some(section_table) = optional_offset.checked_add(optional_size) else {
-        return FormatValidation::Broken;
-    };
-    if section_table > data.len() {
-        return FormatValidation::Broken;
-    }
-
-    let optional_magic = read_u16_le(&data, optional_offset).unwrap_or(0);
-    if !matches!(optional_magic, 0x10b | 0x20b | 0x107) {
-        return FormatValidation::Broken;
-    }
-
-    let section_table_size = sections.saturating_mul(40);
-    if section_table
-        .checked_add(section_table_size)
-        .map_or(true, |end| end > data.len())
-    {
-        return FormatValidation::Broken;
-    }
-
-    for index in 0..sections {
-        let section = section_table + index * 40;
-        let raw_size = read_u32_le(&data, section + 16).unwrap_or(0) as usize;
-        let raw_ptr = read_u32_le(&data, section + 20).unwrap_or(0) as usize;
-        if raw_size == 0 {
-            continue;
-        }
-        if raw_ptr == 0
-            || raw_ptr
-                .checked_add(raw_size)
-                .map_or(true, |end| end > data.len())
-        {
-            return FormatValidation::Broken;
-        }
-    }
-
-    FormatValidation::Valid
+#[derive(Debug, Clone, Default)]
+struct BinaryFormatValidation {
+    pe: FormatValidation,
+    elf: FormatValidation,
+    macho: FormatValidation,
+    apk: FormatValidation,
+    file_type: Option<String>,
 }
 
-fn inspect_elf_file(file_path: &Path) -> FormatValidation {
+fn inspect_binary_formats(file_path: &Path) -> BinaryFormatValidation {
     let Ok(data) = std::fs::read(file_path) else {
-        return FormatValidation::NotDetected;
-    };
-    if data.len() < 4 || &data[0..4] != b"\x7fELF" {
-        return FormatValidation::NotDetected;
-    }
-    if data.len() < 16 {
-        return FormatValidation::Broken;
-    }
-
-    let class = data[4];
-    let endian = data[5];
-    if !matches!(class, 1 | 2) || !matches!(endian, 1 | 2) {
-        return FormatValidation::Broken;
-    }
-
-    let header_size = if class == 1 { 52usize } else { 64usize };
-    if data.len() < header_size {
-        return FormatValidation::Broken;
-    }
-
-    let read_u16 = |offset| read_u16_endian(&data, offset, endian);
-    let read_u32 = |offset| read_u32_endian(&data, offset, endian);
-    let read_u64 = |offset| read_u64_endian(&data, offset, endian);
-
-    let (phoff, shoff, ehsize, phentsize, phnum, shentsize, shnum) = if class == 1 {
-        (
-            read_u32(28).unwrap_or(0) as u64,
-            read_u32(32).unwrap_or(0) as u64,
-            read_u16(40).unwrap_or(0),
-            read_u16(42).unwrap_or(0),
-            read_u16(44).unwrap_or(0),
-            read_u16(46).unwrap_or(0),
-            read_u16(48).unwrap_or(0),
-        )
-    } else {
-        (
-            read_u64(32).unwrap_or(0),
-            read_u64(40).unwrap_or(0),
-            read_u16(52).unwrap_or(0),
-            read_u16(54).unwrap_or(0),
-            read_u16(56).unwrap_or(0),
-            read_u16(58).unwrap_or(0),
-            read_u16(60).unwrap_or(0),
-        )
+        return BinaryFormatValidation::default();
     };
 
-    if ehsize as usize != header_size {
-        return FormatValidation::Broken;
-    }
-    if phnum > 0 && !table_fits(data.len(), phoff, phentsize, phnum) {
-        return FormatValidation::Broken;
-    }
-    if shnum > 0 && !table_fits(data.len(), shoff, shentsize, shnum) {
-        return FormatValidation::Broken;
+    let mut validation = BinaryFormatValidation::default();
+
+    match Object::parse(&data) {
+        Ok(Object::PE(_)) => {
+            validation.pe = FormatValidation::Valid;
+            validation.file_type = pe_file_type(&data).or_else(|| Some("PE".to_string()));
+        }
+        Ok(Object::Elf(_)) => {
+            validation.elf = FormatValidation::Valid;
+            validation.file_type = elf_file_type(&data).or_else(|| Some("ELF".to_string()));
+        }
+        Ok(Object::Mach(_)) => {
+            validation.macho = FormatValidation::Valid;
+            validation.file_type = Some("Mach-O".to_string());
+        }
+        Ok(Object::COFF(_)) | Ok(Object::Archive(_)) | Ok(Object::Unknown(_)) | Err(_) => {
+            mark_broken_executable_magic(&data, &mut validation);
+        }
+        Ok(_) => {
+            mark_broken_executable_magic(&data, &mut validation);
+        }
     }
 
-    FormatValidation::Valid
+    validation.apk = inspect_apk_bytes(&data);
+    if validation.file_type.is_none() && validation.apk == FormatValidation::Valid {
+        validation.file_type = Some("APK".to_string());
+    }
+
+    validation
 }
 
-fn inspect_macho_file(file_path: &Path) -> FormatValidation {
-    let Ok(data) = std::fs::read(file_path) else {
-        return FormatValidation::NotDetected;
-    };
-    if data.len() < 4 {
-        return FormatValidation::NotDetected;
+fn mark_broken_executable_magic(data: &[u8], validation: &mut BinaryFormatValidation) {
+    if has_pe_magic(data) {
+        validation.pe = FormatValidation::Broken;
+        validation.file_type.get_or_insert_with(|| "PE".to_string());
+    } else if has_elf_magic(data) {
+        validation.elf = FormatValidation::Broken;
+        validation.file_type.get_or_insert_with(|| "ELF".to_string());
+    } else if has_macho_magic(data) {
+        validation.macho = FormatValidation::Broken;
+        validation.file_type.get_or_insert_with(|| "Mach-O".to_string());
     }
-
-    let magic = read_u32_be(&data, 0).unwrap_or(0);
-    let (is_64, little_endian) = match magic {
-        0xfeedface => (false, false),
-        0xcefaedfe => (false, true),
-        0xfeedfacf => (true, false),
-        0xcffaedfe => (true, true),
-        0xcafebabe | 0xbebafeca => return inspect_fat_macho(&data, false),
-        0xcafebabf | 0xbfbafeca => return inspect_fat_macho(&data, true),
-        _ => return FormatValidation::NotDetected,
-    };
-
-    let header_size = if is_64 { 32usize } else { 28usize };
-    if data.len() < header_size {
-        return FormatValidation::Broken;
-    }
-
-    let ncmds = read_u32_macho(&data, 16, little_endian).unwrap_or(0) as usize;
-    let sizeofcmds = read_u32_macho(&data, 20, little_endian).unwrap_or(0) as usize;
-    if ncmds == 0
-        || header_size
-            .checked_add(sizeofcmds)
-            .map_or(true, |end| end > data.len())
-    {
-        return FormatValidation::Broken;
-    }
-
-    let mut offset = header_size;
-    for _ in 0..ncmds {
-        if offset.checked_add(8).map_or(true, |end| end > data.len()) {
-            return FormatValidation::Broken;
-        }
-        let cmdsize = read_u32_macho(&data, offset + 4, little_endian).unwrap_or(0) as usize;
-        if cmdsize < 8 || offset.checked_add(cmdsize).map_or(true, |end| end > data.len()) {
-            return FormatValidation::Broken;
-        }
-        offset += cmdsize;
-    }
-
-    FormatValidation::Valid
 }
 
-fn inspect_apk_file(file_path: &Path) -> FormatValidation {
-    let Ok(data) = std::fs::read(file_path) else {
-        return FormatValidation::NotDetected;
-    };
+fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
     if data.len() < 4 || &data[0..2] != b"PK" {
         return FormatValidation::NotDetected;
     }
-    if !contains_bytes(&data, b"AndroidManifest.xml") && !contains_bytes(&data, b"classes.dex") {
+    if !contains_bytes(data, b"AndroidManifest.xml") && !contains_bytes(data, b"classes.dex") {
         return FormatValidation::NotDetected;
     }
-    if !contains_bytes(&data, b"PK\x05\x06") {
+    if !contains_bytes(data, b"PK\x05\x06") {
         return FormatValidation::Broken;
     }
 
     FormatValidation::Valid
 }
 
-fn inspect_fat_macho(data: &[u8], is_64: bool) -> FormatValidation {
-    if data.len() < 8 {
-        return FormatValidation::Broken;
+fn pe_file_type(data: &[u8]) -> Option<String> {
+    if !has_pe_magic(data) || data.len() < 0x40 {
+        return None;
     }
-    let nfat_arch = read_u32_be(data, 4).unwrap_or(0) as usize;
-    let arch_size = if is_64 { 32usize } else { 20usize };
-    if nfat_arch == 0
-        || 8usize
-            .checked_add(nfat_arch.saturating_mul(arch_size))
-            .map_or(true, |end| end > data.len())
-    {
-        return FormatValidation::Broken;
+
+    let pe_offset = read_u32_le(data, 0x3c)? as usize;
+    let optional_header_offset = pe_offset.checked_add(24)?;
+    let optional_magic = read_u16_le(data, optional_header_offset)?;
+
+    match optional_magic {
+        0x20b => Some("PE64".to_string()),
+        0x10b | 0x107 => Some("PE32".to_string()),
+        _ => Some("PE".to_string()),
     }
-    FormatValidation::Valid
 }
 
-fn table_fits(file_len: usize, offset: u64, entry_size: u16, count: u16) -> bool {
-    if offset == 0 || entry_size == 0 {
+fn elf_file_type(data: &[u8]) -> Option<String> {
+    if !has_elf_magic(data) || data.len() < 5 {
+        return None;
+    }
+
+    match data[4] {
+        1 => Some("ELF32".to_string()),
+        2 => Some("ELF64".to_string()),
+        _ => Some("ELF".to_string()),
+    }
+}
+
+fn has_pe_magic(data: &[u8]) -> bool {
+    data.len() >= 2 && &data[0..2] == b"MZ"
+}
+
+fn has_elf_magic(data: &[u8]) -> bool {
+    data.len() >= 4 && &data[0..4] == b"\x7fELF"
+}
+
+fn has_macho_magic(data: &[u8]) -> bool {
+    if data.len() < 4 {
         return false;
     }
-    let size = (entry_size as u64).saturating_mul(count as u64);
-    offset
-        .checked_add(size)
-        .map_or(false, |end| end <= file_len as u64)
+
+    matches!(
+        read_u32_be(data, 0).unwrap_or(0),
+        0xfeedface
+            | 0xcefaedfe
+            | 0xfeedfacf
+            | 0xcffaedfe
+            | 0xcafebabe
+            | 0xbebafeca
+            | 0xcafebabf
+            | 0xbfbafeca
+    )
 }
 
 fn read_u16_le(data: &[u8], offset: usize) -> Option<u16> {
@@ -965,39 +886,6 @@ fn read_u32_le(data: &[u8], offset: usize) -> Option<u32> {
 
 fn read_u32_be(data: &[u8], offset: usize) -> Option<u32> {
     Some(u32::from_be_bytes(data.get(offset..offset + 4)?.try_into().ok()?))
-}
-
-fn read_u16_endian(data: &[u8], offset: usize, endian: u8) -> Option<u16> {
-    if endian == 1 {
-        read_u16_le(data, offset)
-    } else {
-        Some(u16::from_be_bytes(data.get(offset..offset + 2)?.try_into().ok()?))
-    }
-}
-
-fn read_u32_endian(data: &[u8], offset: usize, endian: u8) -> Option<u32> {
-    if endian == 1 {
-        read_u32_le(data, offset)
-    } else {
-        read_u32_be(data, offset)
-    }
-}
-
-fn read_u64_endian(data: &[u8], offset: usize, endian: u8) -> Option<u64> {
-    let bytes: [u8; 8] = data.get(offset..offset + 8)?.try_into().ok()?;
-    Some(if endian == 1 {
-        u64::from_le_bytes(bytes)
-    } else {
-        u64::from_be_bytes(bytes)
-    })
-}
-
-fn read_u32_macho(data: &[u8], offset: usize, little_endian: bool) -> Option<u32> {
-    if little_endian {
-        read_u32_le(data, offset)
-    } else {
-        read_u32_be(data, offset)
-    }
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
