@@ -25,7 +25,7 @@ use tokio::sync::oneshot;
 use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
 use crate::sdk::{PacketContext, RuleAction, SdkRegistry};
 
-// ── Rich HTTP event emitted by the explicit local TLS proxy ───────────────────
+// ── Rich HTTP event emitted by the Transparent TLS Proxy ───────────────────
 
 /// Full HTTP-level detail for every intercepted request/response.
 /// Emitted as a `"proxy_http"` Tauri event so the UI can show decrypted traffic.
@@ -198,7 +198,7 @@ fn now_ts() -> u64 {
         .as_millis() as u64
 }
 
-/// Start the explicit local TLS proxy on `addr`, drive it until `stop_rx` fires.
+/// Start the Transparent TLS Proxy on `addr`, drive it until `stop_rx` fires.
 pub async fn run_proxy<R: Runtime>(
     addr: SocketAddr,
     ca: rcgen::Issuer<'static, KeyPair>,
@@ -207,7 +207,12 @@ pub async fn run_proxy<R: Runtime>(
     settings: Arc<RwLock<FirewallSettings>>,
     mut stop_rx: oneshot::Receiver<()>,
 ) {
-    let proxy = MitmProxy::new(Some(ca), Some(Cache::new(512)));
+    let handshake_timeout = {
+        let s = settings.read().unwrap();
+        std::time::Duration::from_millis(s.tls_proxy.handshake_timeout_ms)
+    };
+    let proxy = MitmProxy::new(Some(ca), Some(Cache::new(512)))
+        .with_handshake_timeout(handshake_timeout);
 
     let client = DefaultClient::new();
     let app_handle_cloned = app_handle.clone();
@@ -262,7 +267,7 @@ pub async fn run_proxy<R: Runtime>(
                     id: format!("{}-proxy-ready", ts),
                     timestamp: ts,
                     level: LogLevel::Success,
-                    message: format!("Explicit local TLS proxy active on {}", addr),
+                    message: format!("Transparent TLS Proxy active on {}", addr),
                 },
             );
 

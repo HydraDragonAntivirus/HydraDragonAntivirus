@@ -545,7 +545,7 @@ impl WebFilter {
                         ips_v6.push(ip);
                     }
                 } else {
-                    // Assume domain if not explicitly IP file, or auto-detect?
+                    // Assume domain if not specifically IP file, or auto-detect?
                     // Relying on filename heuristic for now as it's cleaner.
                     if is_domain {
                         domains.push(addr_str.to_lowercase());
@@ -756,7 +756,7 @@ mod tests {
         );
         assert!(
             filter.check_hostname("login.trusted.example").is_none(),
-            "Explicit popularity subdomains must be whitelisted"
+            "Specific popularity subdomains must be whitelisted"
         );
 
         let malware_block = filter

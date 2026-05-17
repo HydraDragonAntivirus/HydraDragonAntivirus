@@ -45,6 +45,8 @@ pub struct MitmProxy<I> {
     ///
     /// The key of cache is hostname.
     pub cert_cache: Option<Cache<String, CertifiedKeyDer>>,
+    /// Configurable handshake timeout for SNI peeking.
+    pub handshake_timeout: std::time::Duration,
 }
 
 impl<I> MitmProxy<I> {
@@ -53,7 +55,14 @@ impl<I> MitmProxy<I> {
         Self {
             root_issuer,
             cert_cache: cache,
+            handshake_timeout: std::time::Duration::from_secs(5),
         }
+    }
+
+    /// Set a custom handshake timeout for SNI peeking
+    pub fn with_handshake_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.handshake_timeout = timeout;
+        self
     }
 }
 
@@ -140,7 +149,7 @@ where
                 let service = service.clone();
                 let proxy = proxy.clone();
                 tokio::spawn(async move {
-                    match peek_tls_sni(&stream).await {
+                    match peek_tls_sni(&stream, proxy.handshake_timeout).await {
                         Some(host) => {
                             Self::serve_transparent_tls_connection(
                                 proxy,
@@ -459,10 +468,47 @@ where
     }
 }
 
-async fn peek_tls_sni(stream: &TcpStream) -> Option<String> {
+async fn peek_tls_sni(stream: &TcpStream, timeout: std::time::Duration) -> Option<String> {
     let mut buf = [0u8; 4096];
-    let len = stream.peek(&mut buf).await.ok()?;
-    parse_tls_sni(&buf[..len])
+    let fut = async {
+        loop {
+            let len = stream.peek(&mut buf).await.ok()?;
+            if len < 5 {
+                if len == 0 {
+                    return None;
+                }
+                if stream.readable().await.is_err() {
+                    return None;
+                }
+                continue;
+            }
+
+            if buf[0] != 0x16 {
+                return None;
+            }
+
+            let record_len = u16::from_be_bytes([buf[3], buf[4]]) as usize;
+            let expected_len = 5 + record_len;
+
+            if expected_len > buf.len() {
+                return None;
+            }
+
+            if len < expected_len {
+                if stream.readable().await.is_err() {
+                    return None;
+                }
+                continue;
+            }
+
+            return parse_tls_sni(&buf[..len]);
+        }
+    };
+
+    tokio::time::timeout(timeout, fut)
+        .await
+        .ok()
+        .flatten()
 }
 
 fn parse_tls_sni(data: &[u8]) -> Option<String> {

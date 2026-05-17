@@ -22,6 +22,9 @@ pub const DEFAULT_BLOCK_QUIC_UDP_443: bool = true;
 /// Default auto-start setting for TLS proxy
 pub const DEFAULT_TLS_AUTO_START: bool = true;
 
+/// Default handshake timeout in milliseconds
+pub const DEFAULT_HANDSHAKE_TIMEOUT_MS: u64 = 5000;
+
 /// Helper function for serde default - returns true for cert_install_consent
 fn default_cert_install_consent() -> bool {
     DEFAULT_CERT_INSTALL_CONSENT
@@ -45,6 +48,11 @@ fn default_block_quic_udp_443() -> bool {
 /// Helper function for serde default - returns true for auto_start
 fn default_auto_start() -> bool {
     DEFAULT_TLS_AUTO_START
+}
+
+/// Helper function for serde default - returns default handshake timeout
+fn default_handshake_timeout_ms() -> u64 {
+    DEFAULT_HANDSHAKE_TIMEOUT_MS
 }
 
 /// TLS inspection mode
@@ -83,6 +91,8 @@ pub struct TlsProxyConfig {
     /// If false, certificates will not be automatically installed.
     #[serde(default = "default_cert_install_consent")]
     pub cert_install_consent: bool,
+    #[serde(default = "default_handshake_timeout_ms")]
+    pub handshake_timeout_ms: u64,
 }
 
 impl Default for TlsProxyConfig {
@@ -95,6 +105,7 @@ impl Default for TlsProxyConfig {
             auto_start: DEFAULT_TLS_AUTO_START,
             bypass_hosts: Vec::new(),
             cert_install_consent: DEFAULT_CERT_INSTALL_CONSENT,
+            handshake_timeout_ms: DEFAULT_HANDSHAKE_TIMEOUT_MS,
         }
     }
 }

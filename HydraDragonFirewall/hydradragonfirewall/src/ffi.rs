@@ -29,8 +29,8 @@ fn clear_last_error() {
 fn candidate_executable_paths() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    if let Ok(explicit_path) = std::env::var("HYDRADRAGON_FIREWALL_EXE") {
-        candidates.push(PathBuf::from(explicit_path));
+    if let Ok(custom_path) = std::env::var("HYDRADRAGON_FIREWALL_EXE") {
+        candidates.push(PathBuf::from(custom_path));
     }
 
     if let Ok(current_exe) = std::env::current_exe() {

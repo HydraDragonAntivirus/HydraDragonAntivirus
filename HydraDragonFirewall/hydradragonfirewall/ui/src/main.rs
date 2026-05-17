@@ -3760,10 +3760,10 @@ pub fn App() -> impl IntoView {
                                                                     });
                                                                 }
                                                             />
-                                                            "Enable explicit local TLS proxy interception"
+                                                            "Enable Transparent TLS Proxy/Inspector"
                                                         </label>
                                                         <p style="margin: 0 0 10px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                            "Turning this off keeps the firewall running but clears the Windows proxy and stops HTTPS interception."
+                                                            "Turning this off keeps the firewall running but stops HTTPS interception."
                                                         </p>
                                                         <div class="input-group" style="margin-bottom: 10px">
                                                             <label>"TLS visibility mode"</label>
@@ -3788,7 +3788,7 @@ pub fn App() -> impl IntoView {
                                                                 }
                                                             >
                                                                 <option value="metadata_only">"Metadata only"</option>
-                                                                <option value="tls_proxy">"Explicit Local TLS Proxy"</option>
+                                                                <option value="tls_proxy">"Transparent TLS Proxy/Inspector"</option>
                                                             </select>
                                                         </div>
                                                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 10px;">
@@ -3847,7 +3847,7 @@ pub fn App() -> impl IntoView {
                                                                     }
                                                                     disabled=move || settings.get().tls_proxy.mode != TlsInspectionMode::TlsProxy
                                                                 />
-                                                                "Block QUIC/UDP 443 while explicit TLS proxy mode is active"
+                                                                "Block QUIC/UDP 443 while Transparent TLS Proxy/Inspector is active"
                                                             </label>
                                                         </div>
                                                         <div class="input-group" style="padding: 14px; border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px; background: rgba(245, 158, 11, 0.08)">
@@ -3861,11 +3861,11 @@ pub fn App() -> impl IntoView {
                                                                     }
                                                                     disabled=move || settings.get().tls_proxy.mode != TlsInspectionMode::TlsProxy
                                                                 />
-                                                                <span style="font-weight: 600">"I consent to automatic certificate installation for explicit TLS proxy interception"</span>
+                                                                <span style="font-weight: 600">"I consent to automatic certificate installation for Transparent TLS Proxy/Inspector"</span>
                                                             </label>
                                                             <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
                                                                 <strong style="color: var(--accent-orange)">"Security Notice: "</strong>
-                                                                "Enabling this allows HydraDragon to automatically install its root certificate into your system's trust store (Windows Root and Firefox). This enables HTTPS interception through the explicit local TLS proxy, but also means the firewall can decrypt your encrypted traffic. Only enable if you understand and accept this. Without consent, browsers will show certificate warnings until you manually install the certificate or disable TLS proxy mode."
+                                                                "Enabling this allows HydraDragon to automatically install its root certificate into your system's trust store (Windows Root and Firefox). This enables HTTPS interception through the Transparent TLS Proxy, but also means the firewall can decrypt your encrypted traffic. Only enable if you understand and accept this. Without consent, browsers will show certificate warnings until you manually install the certificate or disable TLS proxy mode."
                                                             </p>
                                                             <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;">
                                                                 <button
@@ -3921,7 +3921,7 @@ pub fn App() -> impl IntoView {
                                                             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 12px;">
                                                                 <div>
                                                                     <strong>"Mode: "</strong>
-                                                                    {move || if mitm_enabled.get() { "Explicit local TLS proxy active" } else { "TLS proxy disabled / metadata only" }}
+                                                                    {move || if mitm_enabled.get() { "Transparent TLS Proxy/Inspector active" } else { "TLS proxy disabled / metadata only" }}
                                                                 </div>
                                                                 <div>
                                                                     <strong>"Windows trust: "</strong>
@@ -3941,16 +3941,16 @@ pub fn App() -> impl IntoView {
                                                                     let cfg = settings.get().tls_proxy;
                                                                     if cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start {
                                                                         format!(
-                                                                            "Current explicit TLS proxy listener: {}:{} . Firefox may need a restart after trust changes. Website alerts can now be trusted without TLS interception, which adds that host to this bypass list.",
+                                                                            "Current Transparent TLS Proxy/Inspector listener: {}:{} . Firefox may need a restart after trust changes. Website alerts can now be trusted without TLS interception, which adds that host to this bypass list.",
                                                                             cfg.listen_host, cfg.listen_port
                                                                         )
                                                                     } else {
-                                                                        "Explicit local TLS proxy is currently disabled; packet and metadata logging remain available.".to_string()
+                                                                        "Transparent TLS Proxy/Inspector is currently disabled; packet and metadata logging remain available.".to_string()
                                                                     }
                                                                 }}
                                                             </p>
                                                             <p style="margin: 8px 0 0 0; color: var(--accent-orange); font-size: 12px; line-height: 1.5">
-                                                                "Even when interception is hidden, some browsers and other antivirus/security products can still flag explicit TLS interception if trust is not accepted."
+                                                                "Even when interception is hidden, some browsers and other antivirus/security products can still flag Transparent TLS interception if trust is not accepted."
                                                             </p>
                                                         </div>
                                                     </div>
@@ -4400,7 +4400,7 @@ fn AlertWindow(
                              .clone()
                              .filter(|value| !value.trim().is_empty())
                              .unwrap_or_else(|| format!(
-                                 "{} reported browser-side anti-interception behavior. This can be a legitimate trust mismatch or explicit anti-interception logic. Choose ALLOW TLS PROXY to keep interception enabled, ALLOW TLS PROXY ONCE for a one-time retry, or BYPASS TLS PROXY to skip interception for this target.",
+                                 "{} reported browser-side anti-interception behavior. This can be a legitimate trust mismatch or specific anti-interception logic. Choose ALLOW TLS PROXY to keep interception enabled, ALLOW TLS PROXY ONCE for a one-time retry, or BYPASS TLS PROXY to skip interception for this target.",
                                  app.name
                              ))
                      } else if is_registry_alert {

@@ -274,9 +274,9 @@ pub struct PacketInfo {
     pub image_path: String,
     /// Detected file type from magic bytes (e.g. "exe", "zip", "pdf")
     pub detected_file_type: Option<String>,
-    /// Decrypted HTTP request body captured by the explicit local TLS proxy (UTF-8 text or hex)
+    /// Decrypted HTTP request body captured by the Transparent TLS Proxy (UTF-8 text or hex)
     pub http_request_body: Option<String>,
-    /// Decrypted HTTP response body captured by the explicit local TLS proxy (UTF-8 text or hex)
+    /// Decrypted HTTP response body captured by the Transparent TLS Proxy (UTF-8 text or hex)
     pub http_response_body: Option<String>,
 }
 
@@ -1531,21 +1531,21 @@ impl FirewallEngine {
     fn select_proxy_bypass_target(
         hostname: Option<&str>,
         full_url: Option<&str>,
-        explicit_target: Option<&str>,
+        bypass_target: Option<&str>,
     ) -> Option<String> {
         hostname
             .and_then(Self::normalize_proxy_bypass_entry)
             .or_else(|| full_url.and_then(Self::normalize_proxy_bypass_entry))
-            .or_else(|| explicit_target.and_then(Self::normalize_proxy_bypass_entry))
+            .or_else(|| bypass_target.and_then(Self::normalize_proxy_bypass_entry))
     }
 
     fn proxy_bypass_matches_target(
         tls_proxy: &TlsProxyConfig,
         hostname: Option<&str>,
         full_url: Option<&str>,
-        explicit_target: Option<&str>,
+        bypass_target: Option<&str>,
     ) -> bool {
-        let Some(target) = Self::select_proxy_bypass_target(hostname, full_url, explicit_target)
+        let Some(target) = Self::select_proxy_bypass_target(hostname, full_url, bypass_target)
         else {
             return false;
         };
@@ -1744,7 +1744,7 @@ impl FirewallEngine {
                     protocol: Protocol::TCP,
                     hostname: hostname.map(|value| value.to_string()),
                     reason: Some(format!(
-                        "{} is rejecting or warning on HTTPS interception for {} because {}. This can be benign browser trust behavior or explicit anti-interception logic. Choose ALLOW TLS PROXY to keep interception enabled, ALLOW TLS PROXY ONCE for a one-time retry, or BYPASS TLS PROXY to bypass interception for this target.",
+                        "{} is rejecting or warning on HTTPS interception for {} because {}. This can be benign browser trust behavior or specific anti-interception logic. Choose ALLOW TLS PROXY to keep interception enabled, ALLOW TLS PROXY ONCE for a one-time retry, or BYPASS TLS PROXY to bypass interception for this target.",
                         browser_name,
                         target,
                         trust_text
@@ -1901,7 +1901,7 @@ impl FirewallEngine {
             // BLOCK_EXE to be sent to owlyshield with a misleading reason and
             // resulting in the process being killed even though it was user-allowed.
             *reason = Some(
-                "Explicit local TLS proxy mode: blocked QUIC (UDP/443); the local proxy handles TCP only"
+                "Transparent TLS Proxy mode: blocked QUIC (UDP/443); the local proxy handles TCP only"
                     .to_string(),
             );
         }
@@ -2007,7 +2007,7 @@ impl FirewallEngine {
                     timestamp: now,
                     level: LogLevel::Warning,
                     message: format!(
-                        "Certificate installation requires user consent. The explicit local TLS proxy will start but browsers will show certificate warnings until you grant consent in settings. Certificate location: '{}'",
+                        "Certificate installation requires user consent. The Transparent TLS Proxy will start but browsers will show certificate warnings until you grant consent in settings. Certificate location: '{}'",
                         Self::proxy_ca_cert_path().display()
                     ),
                 },
@@ -2054,7 +2054,7 @@ impl FirewallEngine {
                             timestamp: now,
                             level: LogLevel::Success,
                             message: format!(
-                                "Explicit local TLS proxy ready on {}; Windows proxy settings left unchanged",
+                                "Transparent TLS Proxy/Inspector ready on {}; Windows proxy settings left unchanged",
                                 addr_string
                             ),
                         },
@@ -2068,7 +2068,7 @@ impl FirewallEngine {
                             timestamp: now,
                             level: LogLevel::Warning,
                             message: format!(
-                                "Explicit local TLS proxy did not become ready on {} - Windows proxy was left disabled to avoid breaking internet access",
+                                "Transparent TLS Proxy/Inspector did not become ready on {} - Windows proxy was left disabled to avoid breaking internet access",
                                 addr_string
                             ),
                         },
@@ -2465,12 +2465,12 @@ foreach ($store in $stores) {
         let missing_stable_path = active_alert
             .as_ref()
             .is_some_and(|alert| is_unresolved_identity(&alert.path));
-        let has_explicit_decision_key = active_alert
+        let has_configured_decision_key = active_alert
             .as_ref()
             .and_then(|alert| alert.decision_key.as_ref())
             .is_some();
 
-        if effective_decision == "allow_always" && missing_stable_path && !has_explicit_decision_key
+        if effective_decision == "allow_always" && missing_stable_path && !has_configured_decision_key
         {
             effective_decision = "allow_once".to_string();
             persist_settings = false;
@@ -2599,7 +2599,7 @@ foreach ($store in $stores) {
             _ => {}
         }
 
-        if effective_decision == "allow_once" && missing_stable_path && !has_explicit_decision_key {
+        if effective_decision == "allow_once" && missing_stable_path && !has_configured_decision_key {
             emit_log_event(
                 tx,
                 LogEntry {
@@ -2933,7 +2933,7 @@ impl FirewallEngine {
             .name("web_filter_loader".to_string())
             .spawn(move || {
                 let ts = Self::now_ts();
-                // Prioritize the user's explicit request: "website"
+                // Prioritize the user's configured request: "website"
                 // We check settings first, but default strictly to "website" if empty/invalid.
                 let path_str = {
                     let s = settings_arc_loader.read().unwrap();
@@ -5329,7 +5329,7 @@ impl FirewallEngine {
         // Calling shutdown() unblocks all recv() calls immediately with an error.
         // shutdown() takes &mut self but Arc only yields &T via Deref.
         // Safety: stop_signal is already true so workers will exit on their next
-        // loop check. WinDivert shutdown() is explicitly designed to be called
+        // loop check. WinDivert shutdown() is specifically designed to be called
         // concurrently from a different thread — that is its entire purpose.
         if let Some(d) = self.divert_handle.lock().unwrap().take() {
             let ptr =
