@@ -1474,16 +1474,14 @@ impl FirewallEngine {
             let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
             let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
 
-            let proxy_enabled = key.get_value::<u32, _>("ProxyEnable").unwrap_or(0);
             let proxy_server = key
                 .get_value::<String, _>("ProxyServer")
                 .unwrap_or_default();
             let addr_lc = addr.to_ascii_lowercase();
             let server_lc = proxy_server.to_ascii_lowercase();
-            let owned = proxy_enabled != 0
-                && (server_lc.contains(&format!("http={}", addr_lc))
-                    || server_lc.contains(&format!("https={}", addr_lc))
-                    || server_lc == addr_lc);
+            let owned = server_lc.contains(&format!("http={}", addr_lc))
+                || server_lc.contains(&format!("https={}", addr_lc))
+                || server_lc == addr_lc;
 
             if owned {
                 Self::clear_windows_proxy()?;
@@ -2017,12 +2015,20 @@ impl FirewallEngine {
     }
 
     fn stop_embedded_proxy(&self) {
-        if let Some(tx) = self.tls_proxy_backend_child.lock().unwrap().take() {
+        let had_embedded_proxy = if let Some(tx) = self.tls_proxy_backend_child.lock().unwrap().take() {
             let _ = tx.send(());
-        }
+            true
+        } else {
+            false
+        };
         self.browser_mitm_warning_cache.lock().unwrap().clear();
-        // Clear Windows system proxy on shutdown.
-        let _ = Self::clear_windows_proxy();
+        if had_embedded_proxy {
+            let addr = {
+                let settings = self.settings.read().unwrap();
+                Self::proxy_addr_string(&settings.tls_proxy)
+            };
+            let _ = Self::clear_owned_windows_proxy(&addr);
+        }
     }
 
     /// Point the Windows system HTTP+HTTPS proxy to our embedded listener.
@@ -2054,6 +2060,8 @@ impl FirewallEngine {
         let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
         key.set_value("ProxyEnable", &0u32)
             .map_err(|e| e.to_string())?;
+        let _ = key.delete_value("ProxyServer");
+        let _ = key.delete_value("ProxyOverride");
         Ok(())
     }
 
@@ -2293,6 +2301,58 @@ foreach ($store in $stores) {
             );
             Err(message)
         }
+    }
+
+    pub fn clear_firewall_proxy_settings<R: Runtime>(
+        &self,
+        tx: &AppHandle<R>,
+    ) -> Result<String, String> {
+        let addr = {
+            let settings = self.settings.read().unwrap();
+            Self::proxy_addr_string(&settings.tls_proxy)
+        };
+        let default_addr = Self::proxy_addr_string(&TlsProxyConfig::default());
+
+        let mut checked_addrs = vec![addr.clone()];
+        if !default_addr.eq_ignore_ascii_case(&addr) {
+            checked_addrs.push(default_addr);
+        }
+
+        let mut cleared_addr = None;
+        for candidate in checked_addrs {
+            if Self::clear_owned_windows_proxy(&candidate)? {
+                cleared_addr = Some(candidate);
+                break;
+            }
+        }
+
+        let cleared = cleared_addr.is_some();
+        let (level, message) = if cleared {
+            (
+                LogLevel::Success,
+                format!(
+                    "Cleared HydraDragon Windows proxy settings for {}.",
+                    cleared_addr.unwrap_or(addr)
+                ),
+            )
+        } else {
+            (
+                LogLevel::Info,
+                format!("No HydraDragon-owned Windows proxy entry found for {addr}."),
+            )
+        };
+
+        emit_log_event(
+            tx,
+            LogEntry {
+                id: format!("{}-windows-proxy-clear-manual", Self::now_ts()),
+                timestamp: Self::now_ts(),
+                level,
+                message: message.clone(),
+            },
+        );
+
+        Ok(message)
     }
 
     // CA auto-trust is handled natively via `install_ca_der` during proxy startup

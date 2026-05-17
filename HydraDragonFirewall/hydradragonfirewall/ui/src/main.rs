@@ -1394,6 +1394,7 @@ pub fn App() -> impl IntoView {
     let (firefox_policy_ready, set_firefox_policy_ready) = create_signal(false);
     let (certificate_action_status, set_certificate_action_status) =
         create_signal(String::new());
+    let (proxy_action_status, set_proxy_action_status) = create_signal(String::new());
     let (mitm_bypass_count, set_mitm_bypass_count) = create_signal(0usize);
     let (settings_loaded, set_settings_loaded) = create_signal(false);
     let (graph_data, set_graph_data) = create_signal(vec![0u32; ACTIVITY_GRAPH_POINTS]);
@@ -1851,6 +1852,20 @@ pub fn App() -> impl IntoView {
             fetch_saved_logs();
             set_windows_root_trust_ready.set(false);
             set_firefox_policy_ready.set(false);
+        });
+    };
+
+    let clear_windows_proxy_action = move || {
+        set_proxy_action_status.set("Clearing HydraDragon Windows proxy settings...".to_string());
+        spawn_local(async move {
+            let result = invoke("clear_firewall_proxy_settings", JsValue::NULL).await;
+            set_proxy_action_status.set(
+                result
+                    .as_string()
+                    .unwrap_or_else(|| "Windows proxy cleanup requested.".to_string()),
+            );
+            fetch_settings();
+            fetch_saved_logs();
         });
     };
 
@@ -3804,6 +3819,23 @@ pub fn App() -> impl IntoView {
                                                                 />
                                                             </div>
                                                         </div>
+                                                        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;">
+                                                            <button
+                                                                class="btn-secondary"
+                                                                on:click=move |_| clear_windows_proxy_action()
+                                                            >
+                                                                "Clear Windows Proxy"
+                                                            </button>
+                                                        </div>
+                                                        {move || if !proxy_action_status.get().is_empty() {
+                                                            view! {
+                                                                <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                                    {proxy_action_status.get()}
+                                                                </p>
+                                                            }.into_view()
+                                                        } else {
+                                                            view! {}.into_view()
+                                                        }}
                                                         <div class="input-group">
                                                             <label style="display: flex; align-items: center; gap: 10px">
                                                                 <input

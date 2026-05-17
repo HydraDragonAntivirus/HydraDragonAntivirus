@@ -806,6 +806,18 @@ async fn remove_firewall_certificate(handle: AppHandle) -> String {
     }
 }
 
+#[tauri::command]
+async fn clear_firewall_proxy_settings(handle: AppHandle) -> String {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        match engine.clear_firewall_proxy_settings(&handle) {
+            Ok(message) => message,
+            Err(error) => format!("Windows proxy cleanup failed: {error}"),
+        }
+    } else {
+        "Windows proxy cleanup failed: engine not initialized".to_string()
+    }
+}
+
 /// Return all body changer rules stored in body_changers.json.
 #[tauri::command]
 async fn get_body_changers() -> Vec<BodyChangerRule> {
@@ -1105,6 +1117,7 @@ pub fn run() {
             grant_cert_install_consent,
             install_firewall_certificate,
             remove_firewall_certificate,
+            clear_firewall_proxy_settings,
             get_body_changers,
             save_body_changers,
             list_owlyshield_rules_files,
