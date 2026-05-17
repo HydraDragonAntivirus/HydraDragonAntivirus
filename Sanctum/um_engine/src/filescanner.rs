@@ -7,14 +7,13 @@ use md5::{Digest, Md5};
 use shared_no_std::constants::{IOC_LIST_LOCATION, IOC_URL};
 use shared_std::file_scanner::{FileScannerState, MatchedIOC, ScanningLiveInfo};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     fs::{self, File},
     io::{self, BufRead, BufReader, Read, Write},
-    os::windows::fs::MetadataExt,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use crate::utils::log::{Log, LogLevel};
@@ -22,6 +21,8 @@ use crate::utils::log::{Log, LogLevel};
 
 const PARALLEL_SCAN_QUEUE_BOUND: usize = 4096;
 const MAX_PARALLEL_SCAN_WORKERS: usize = 8;
+const HASH_CACHE_LIMIT: usize = 16384;
+const MAX_HASH_SCAN_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
 const HASH_READ_BUFFER_LIMIT: usize = 1024 * 1024; // 1 MiB per worker; keeps parallel scans memory-safe.
 
 fn parallel_scan_worker_count() -> usize {
@@ -35,21 +36,68 @@ fn state_is_cancelled(state: &Arc<Mutex<FileScannerState>>) -> bool {
     *state.lock().unwrap() == FileScannerState::Cancelled
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FileIdentity {
+    normalized_path: String,
+    size: u64,
+    modified_unix_nanos: u128,
+}
+
+fn normalize_path_for_hash_cache(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase()
+}
+
+fn file_identity_for_hash_cache(path: &Path) -> Option<FileIdentity> {
+    let metadata = path.metadata().ok()?;
+    let modified_unix_nanos = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+
+    Some(FileIdentity {
+        normalized_path: normalize_path_for_hash_cache(path),
+        size: metadata.len(),
+        modified_unix_nanos,
+    })
+}
+
+fn increment_files_scanned(files_scanned: &Arc<Mutex<u32>>) {
+    let mut files_scanned = files_scanned.lock().unwrap();
+    *files_scanned += 1;
+}
+
 fn scan_path_against_hashes(
     iocs: &BTreeSet<String>,
     state: &Arc<Mutex<FileScannerState>>,
     target: &PathBuf,
     files_scanned: &Arc<Mutex<u32>>,
+    hash_cache: &Arc<Mutex<HashMap<FileIdentity, String>>>,
 ) -> Result<Option<(String, PathBuf)>, std::io::Error> {
+    let Some(identity) = file_identity_for_hash_cache(target) else {
+        return Ok(None);
+    };
+
+    if identity.size > MAX_HASH_SCAN_FILE_SIZE {
+        return Ok(None);
+    }
+
+    if let Some(cached_hash) = hash_cache.lock().unwrap().get(&identity).cloned() {
+        increment_files_scanned(files_scanned);
+        if iocs.contains(cached_hash.as_str()) {
+            return Ok(Some((cached_hash, target.clone())));
+        }
+        return Ok(None);
+    }
+
     let file = File::open(target)?;
     let mut reader = BufReader::new(&file);
 
-    let alloc_size = if let Ok(metadata) = file.metadata() {
-        let file_size = metadata.file_size() as usize;
-        file_size.clamp(1, HASH_READ_BUFFER_LIMIT)
-    } else {
-        HASH_READ_BUFFER_LIMIT
-    };
+    let alloc_size = (identity.size as usize).clamp(1, HASH_READ_BUFFER_LIMIT);
 
     let mut hasher = Md5::new();
     let mut buf = vec![0u8; alloc_size];
@@ -69,9 +117,14 @@ fn scan_path_against_hashes(
     let hash = hasher.finalize();
     let hash: String = hash.iter().map(|byte| format!("{:02X}", byte)).collect();
 
+    increment_files_scanned(files_scanned);
+
     {
-        let mut files_scanned = files_scanned.lock().unwrap();
-        *files_scanned += 1;
+        let mut cache = hash_cache.lock().unwrap();
+        if cache.len() >= HASH_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(identity, hash.clone());
     }
 
     if iocs.contains(hash.as_str()) {
@@ -94,6 +147,7 @@ pub struct FileScanner {
     // state - The state of the scanner so we can lock it whilst scanning
     pub state: Arc<Mutex<FileScannerState>>,
     pub scanning_info: Arc<Mutex<ScanningLiveInfo>>,
+    hash_cache: Arc<Mutex<HashMap<FileIdentity, String>>>,
     log: Log,
 }
 
@@ -167,6 +221,7 @@ impl FileScanner {
             iocs: bts,
             state: Arc::new(Mutex::new(FileScannerState::Inactive)),
             scanning_info: Arc::new(Mutex::new(ScanningLiveInfo::new())),
+            hash_cache: Arc::new(Mutex::new(HashMap::new())),
             log,
         })
     }
@@ -209,7 +264,7 @@ impl FileScanner {
         target: &PathBuf,
         files_scanned: &Arc<Mutex<u32>>,
     ) -> Result<Option<(String, PathBuf)>, std::io::Error> {
-        scan_path_against_hashes(&self.iocs, &self.state, target, files_scanned)
+        scan_path_against_hashes(&self.iocs, &self.state, target, files_scanned, &self.hash_cache)
     }
 
     /// Public API entry point, scans from a root folder including all children, this can be used on a small
@@ -317,6 +372,7 @@ impl FileScanner {
                 let scanning_info = Arc::clone(&self.scanning_info);
                 let state = Arc::clone(&self.state);
                 let worker_errors = Arc::clone(&worker_errors);
+                let hash_cache = Arc::clone(&self.hash_cache);
                 let iocs = &self.iocs;
 
                 scope.spawn(move || loop {
@@ -329,7 +385,7 @@ impl FileScanner {
                         break;
                     }
 
-                    match scan_path_against_hashes(iocs, &state, &path, &files_scanned) {
+                    match scan_path_against_hashes(iocs, &state, &path, &files_scanned, &hash_cache) {
                         Ok(Some((hash, file))) => {
                             let mut lock = scanning_info.lock().unwrap();
                             lock.scan_results.push(MatchedIOC { hash, file });

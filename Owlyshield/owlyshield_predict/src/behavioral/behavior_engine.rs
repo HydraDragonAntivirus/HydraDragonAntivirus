@@ -1385,9 +1385,151 @@ fn normalize_extension_token(extension: &str) -> String {
         .to_lowercase()
 }
 
-fn build_default_extension_whitelist() -> HashSet<String> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExtensionWhitelistSourceMode {
+    Feedback,
+    ExtensionsRsOnly,
+    ExtensionsTxtOnly,
+}
+
+impl ExtensionWhitelistSourceMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            ExtensionWhitelistSourceMode::Feedback => "feedback",
+            ExtensionWhitelistSourceMode::ExtensionsRsOnly => "extensions_rs_only",
+            ExtensionWhitelistSourceMode::ExtensionsTxtOnly => "extensions_txt_only",
+        }
+    }
+}
+
+fn parse_extension_whitelist_source_mode(raw: &str) -> Option<ExtensionWhitelistSourceMode> {
+    let normalized = raw
+        .trim()
+        .to_ascii_lowercase()
+        .replace(' ', "_")
+        .replace('-', "_")
+        .replace('.', "_");
+
+    match normalized.as_str() {
+        "" | "feedback" | "feedback_mode" | "auto" | "auto_feedback" => {
+            Some(ExtensionWhitelistSourceMode::Feedback)
+        }
+        "extensions_rs_only" | "extension_rs_only" | "rs_only" | "rust_only" | "hardcoded_only" => {
+            Some(ExtensionWhitelistSourceMode::ExtensionsRsOnly)
+        }
+        "extensions_txt_only" | "extension_txt_only" | "txt_only" | "list_only" | "rules_only" => {
+            Some(ExtensionWhitelistSourceMode::ExtensionsTxtOnly)
+        }
+        _ => None,
+    }
+}
+
+fn extension_whitelist_source_mode(configured_mode: Option<&str>) -> ExtensionWhitelistSourceMode {
+    if let Some(raw_mode) = configured_mode.map(str::trim).filter(|mode| !mode.is_empty()) {
+        if let Some(mode) = parse_extension_whitelist_source_mode(raw_mode) {
+            Logging::info(&format!(
+                "[BehaviorEngine] ExtensionSource config param=EXTENSION_SOURCE_MODE value={} resolved_mode={}",
+                raw_mode,
+                mode.as_str()
+            ));
+            return mode;
+        }
+        Logging::warning(&format!(
+            "[BehaviorEngine] Unknown extension source mode config value={}; using feedback mode. \
+             Valid values: feedback, extensions_rs_only, extensions_txt_only",
+            raw_mode
+        ));
+        return ExtensionWhitelistSourceMode::Feedback;
+    }
+
+    for env_key in [
+        "OWLYSHIELD_EXTENSION_SOURCE_MODE",
+        "HYDRADRAGON_EXTENSION_SOURCE_MODE",
+    ] {
+        let Ok(raw_mode) = std::env::var(env_key) else {
+            continue;
+        };
+        if let Some(mode) = parse_extension_whitelist_source_mode(&raw_mode) {
+            Logging::info(&format!(
+                "[BehaviorEngine] ExtensionSource config env={} value={} resolved_mode={}",
+                env_key,
+                raw_mode,
+                mode.as_str()
+            ));
+            return mode;
+        }
+        Logging::warning(&format!(
+            "[BehaviorEngine] Unknown extension source mode env={} value={}; using feedback mode. \
+             Valid values: feedback, extensions_rs_only, extensions_txt_only",
+            env_key, raw_mode
+        ));
+        return ExtensionWhitelistSourceMode::Feedback;
+    }
+
+    ExtensionWhitelistSourceMode::Feedback
+}
+
+fn extension_txt_candidates() -> Vec<(&'static str, PathBuf)> {
+    let mut candidates = Vec::new();
+
+    if let Some(rules_path) = crate::globals::RULES_PATH.get() {
+        candidates.push(("rules_path", rules_path.join("extensions.txt")));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push((
+            "repo_hydradragon_rules",
+            cwd.join("hydradragon")
+                .join("Owlyshield")
+                .join("rules")
+                .join("extensions.txt"),
+        ));
+        candidates.push(("cwd_rules", cwd.join("rules").join("extensions.txt")));
+    }
+
+    candidates
+}
+
+fn load_extensions_txt_whitelist() -> Option<(HashSet<String>, &'static str, PathBuf)> {
+    for (candidate_name, path) in extension_txt_candidates() {
+        if !path.exists() {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) => {
+                Logging::warning(&format!(
+                    "[BehaviorEngine] Failed to read extensions.txt candidate={} path={}: {}",
+                    candidate_name,
+                    path.display(),
+                    error
+                ));
+                continue;
+            }
+        };
+
+        let mut whitelist = HashSet::new();
+        for line in content.lines() {
+            let trimmed = line.trim().trim_matches('"');
+            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
+                continue;
+            }
+            let normalized = normalize_extension_token(trimmed);
+            if !normalized.is_empty() {
+                whitelist.insert(normalized);
+            }
+        }
+
+        return Some((whitelist, candidate_name, path));
+    }
+
+    None
+}
+
+fn load_extensions_rs_whitelist() -> HashSet<String> {
     let mut whitelist = HashSet::new();
     let extension_list = ExtensionList::new();
+
     for category in extension_list.categories.values() {
         for ext in category {
             let normalized = normalize_extension_token(ext);
@@ -1396,7 +1538,87 @@ fn build_default_extension_whitelist() -> HashSet<String> {
             }
         }
     }
+
     whitelist
+}
+
+fn log_extension_source(
+    mode: ExtensionWhitelistSourceMode,
+    source: &str,
+    count: usize,
+    detail: &str,
+) {
+    Logging::info(&format!(
+        "[BehaviorEngine] ExtensionSource mode={} source={} engine=behavior_engine count={} feedback=\"{}\"",
+        mode.as_str(),
+        source,
+        count,
+        detail
+    ));
+}
+
+fn build_default_extension_whitelist(configured_mode: Option<&str>) -> HashSet<String> {
+    let mode = extension_whitelist_source_mode(configured_mode);
+
+    match mode {
+        ExtensionWhitelistSourceMode::ExtensionsRsOnly => {
+            let whitelist = load_extensions_rs_whitelist();
+            log_extension_source(
+                mode,
+                "extensions.rs",
+                whitelist.len(),
+                "hardcoded Rust ExtensionList only; extensions.txt is not read",
+            );
+            whitelist
+        }
+        ExtensionWhitelistSourceMode::ExtensionsTxtOnly => {
+            if let Some((whitelist, candidate_name, path)) = load_extensions_txt_whitelist() {
+                log_extension_source(
+                    mode,
+                    "extensions.txt",
+                    whitelist.len(),
+                    &format!(
+                        "strict extensions.txt only; candidate={} path={}; extensions.rs fallback disabled",
+                        candidate_name,
+                        path.display()
+                    ),
+                );
+                return whitelist;
+            }
+
+            Logging::warning(
+                "[BehaviorEngine] ExtensionSource mode=extensions_txt_only source=none \
+                 engine=behavior_engine count=0 feedback=\"extensions.txt not found; \
+                 extensions.rs fallback disabled; extensionless files are still scanned\"",
+            );
+            HashSet::new()
+        }
+        ExtensionWhitelistSourceMode::Feedback => {
+            if let Some((whitelist, candidate_name, path)) = load_extensions_txt_whitelist() {
+                log_extension_source(
+                    mode,
+                    "extensions.txt",
+                    whitelist.len(),
+                    &format!(
+                        "preferred repo rule list; candidate={} path={}; extensions.rs not used",
+                        candidate_name,
+                        path.display()
+                    ),
+                );
+                return whitelist;
+            }
+
+            let whitelist = load_extensions_rs_whitelist();
+            Logging::warning(&format!(
+                "[BehaviorEngine] ExtensionSource mode=feedback source=extensions.rs \
+                 engine=behavior_engine count={} feedback=\"extensions.txt not found; \
+                 falling back to hardcoded Rust ExtensionList; set \
+                 OWLYSHIELD_EXTENSION_SOURCE_MODE=extensions_txt_only to forbid fallback\"",
+                whitelist.len()
+            ));
+            whitelist
+        }
+    }
 }
 
 const ROOTKIT_GLOBAL_GID: u64 = 0xFFFF_FFFF_FFFF_FFFEu64;
@@ -2174,12 +2396,16 @@ impl Default for BehaviorEngine {
 
 impl BehaviorEngine {
     pub fn new() -> Self {
+        Self::new_with_extension_source_mode(None)
+    }
+
+    pub fn new_with_extension_source_mode(extension_source_mode: Option<&str>) -> Self {
         BehaviorEngine {
             rules: Vec::new(),
             process_states: HashMap::new(),
             regex_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
             process_terminated: HashSet::new(),
-            default_extension_whitelist: build_default_extension_whitelist(),
+            default_extension_whitelist: build_default_extension_whitelist(extension_source_mode),
             openedr_net_pids: shared_openedr_net_pids(),
             openedr_net_details: shared_openedr_net_details(),
             openedr_stats: shared_openedr_stats(),
@@ -6579,44 +6805,69 @@ impl BehaviorEngine {
                             }
                         }
 
+                        if ext.is_empty()
+                            && !matched
+                            && cond_group.detect_non_whitelisted_extensions
+                        {
+                            matched = true;
+                            if !filepath.is_empty()
+                                && matches!(current_file_op, Some("create") | Some("write"))
+                            {
+                                if current_file_op == Some("create") {
+                                    state.created_unknown_ext_stems.insert(filepath.clone());
+                                } else {
+                                    state.written_unknown_ext_stems.insert(filepath.clone());
+                                }
+                            }
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Extensionless file matched non-whitelisted extension scan for PID {}: {}",
+                                cond_name, state.pid, filepath
+                            ));
+                        }
+
                         if !matched && extension_changed {
                             if cond_group.detect_known_to_unknown_extension_change {
                                 let matched_known_to_unknown = if let Some(previous_ext) =
                                     previous_extension.as_ref()
                                 {
-                                    if event_extension.is_empty() {
+                                    let previous_ext_with_dot = format!(".{}", previous_ext);
+                                    let previous_is_known = Self::is_extension_whitelisted(
+                                        &self.regex_cache,
+                                        &self.default_extension_whitelist,
+                                        cond_group,
+                                        previous_ext,
+                                        &previous_ext_with_dot,
+                                    );
+                                    let current_is_known = if event_extension.is_empty() {
                                         false
                                     } else {
-                                        let previous_ext_with_dot = format!(".{}", previous_ext);
                                         let current_ext_with_dot = format!(".{}", event_extension);
-                                        let previous_is_known = Self::is_extension_whitelisted(
-                                            &self.regex_cache,
-                                            &self.default_extension_whitelist,
-                                            cond_group,
-                                            previous_ext,
-                                            &previous_ext_with_dot,
-                                        );
-                                        let current_is_known = Self::is_extension_whitelisted(
+                                        Self::is_extension_whitelisted(
                                             &self.regex_cache,
                                             &self.default_extension_whitelist,
                                             cond_group,
                                             &event_extension,
                                             &current_ext_with_dot,
-                                        );
-                                        previous_is_known && !current_is_known
-                                    }
+                                        )
+                                    };
+                                    previous_is_known && !current_is_known
                                 } else {
                                     false
                                 };
 
                                 if matched_known_to_unknown {
+                                    let new_ext_label = if event_extension.is_empty() {
+                                        "<extensionless>".to_string()
+                                    } else {
+                                        format!(".{}", event_extension)
+                                    };
                                     matched = true;
                                     Logging::info(&format!(
-                                        "[BehaviorEngine] Condition '{}' - Known-to-unknown extension change for PID {} (prev: .{}, new: .{})",
+                                        "[BehaviorEngine] Condition '{}' - Known-to-unknown extension change for PID {} (prev: .{}, new: {})",
                                         cond_name,
                                         state.pid,
                                         previous_extension.as_deref().unwrap_or(""),
-                                        event_extension
+                                        new_ext_label
                                     ));
                                 }
                             } else if cond_group.detect_extension_changes {

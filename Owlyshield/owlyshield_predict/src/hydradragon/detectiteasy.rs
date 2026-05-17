@@ -9,8 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 use zip::ZipArchive;
+
+const DIE_SCAN_TIMEOUT: Duration = Duration::from_secs(12);
+const MAX_DIE_SCAN_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 /// Complete DetectItEasy scan result with all detections
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +94,36 @@ pub struct DetectItEasyScanner {
     diec_path: Option<PathBuf>,
 }
 
+fn run_diec_with_timeout(mut command: Command, timeout: Duration) -> Result<Output, String> {
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("Failed to run diec.exe: {}", e))?;
+    let start = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                return child
+                    .wait_with_output()
+                    .map_err(|e| format!("Failed to collect diec.exe output: {}", e));
+            }
+            Ok(None) => {}
+            Err(e) => return Err(format!("Failed to poll diec.exe: {}", e)),
+        }
+
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "diec.exe timed out after {} ms",
+                timeout.as_millis()
+            ));
+        }
+
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
 impl DetectItEasyScanner {
     pub fn new() -> Self {
         DetectItEasyScanner {
@@ -140,6 +175,17 @@ impl DetectItEasyScanner {
     pub fn scan_file(&self, file_path: &Path) -> Result<DetectItEasyScanResult, String> {
         Logging::info(&format!("[DetectItEasy] Scanning: {}", file_path.display()));
 
+        if file_path
+            .metadata()
+            .map(|metadata| metadata.len() > MAX_DIE_SCAN_FILE_SIZE)
+            .unwrap_or(false)
+        {
+            return Err(format!(
+                "DIE scan skipped because file is over 2 GiB: {}",
+                file_path.display()
+            ));
+        }
+
         if is_plain_text_file(file_path).unwrap_or(false) {
             Logging::debug(&format!(
                 "[DetectItEasy] Plain-text gate matched before DIE: {}",
@@ -164,9 +210,7 @@ impl DetectItEasyScanner {
             command.current_dir(diec_dir);
         }
 
-        let output = command
-            .output()
-            .map_err(|e| format!("Failed to run diec.exe: {}", e))?;
+        let output = run_diec_with_timeout(command, DIE_SCAN_TIMEOUT)?;
 
         let die_output = if output.status.success() {
             String::from_utf8_lossy(&output.stdout).to_string()

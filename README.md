@@ -140,6 +140,12 @@ This project does not aim to replace your primary daily antivirus solution.
 
 ---
 
+### Known Limitations
+
+- Files larger than **2 GB** are skipped by the scanner and are not scanned. Do not treat a skipped file as clean.
+
+---
+
 ### Sample Detection Policy
 
 - Very old malware samples may not be detected.

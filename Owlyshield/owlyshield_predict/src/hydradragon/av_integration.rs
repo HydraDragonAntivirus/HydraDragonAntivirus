@@ -6,9 +6,10 @@ use std::ffi::CString;
 use std::os::windows::io::{AsHandle, AsRawHandle};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use windows::core::PCSTR;
@@ -58,6 +59,16 @@ const HYDRADRAGON_VENV_PYTHON_EXE: &str =
 const HYDRADRAGON_BUNDLED_PYTHON_EXE: &str =
     r"C:\Program Files\HydraDragonAntivirus\python\python.exe";
 const PYTHON312_SUFFIX: &str = r"python312\python.exe";
+
+const MAX_SCANNABLE_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
+const SCAN_METADATA_CACHE_LIMIT: usize = 4096;
+const DIE_METADATA_WORKER_LIMIT: usize = 2;
+const DIE_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_millis(750);
+const DEEP_SCAN_TIMEOUT_MS: u64 = 180_000;
+const MINIMAL_SCAN_TIMEOUT_MS: u64 = 30_000;
+const LATE_CHILD_SCAN_GRACE_MS: u64 = 30_000;
+
+static ACTIVE_DIE_METADATA_SCANS: AtomicUsize = AtomicUsize::new(0);
 
 /// Action to take when a threat is detected
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
@@ -161,12 +172,67 @@ pub struct EDRScanRequest {
     /// DetectItEasy scan result computed by Owlyshield/Rust.
     #[serde(default)]
     pub detectiteasy_scan_result: Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+    /// Root file that initiated this scan chain. Python propagates this to
+    /// extracted/decompiled child scans for reporting and late-timeout handling.
+    #[serde(default)]
+    pub scan_origin_path: Option<String>,
+    /// Optional timeout hint for the HydraDragon/Python side. Rust sends the
+    /// request, Python must enforce this timeout while running deep scan.
+    #[serde(default)]
+    pub deep_scan_timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub late_child_scan_grace_ms: Option<u64>,
 }
 
 fn default_scan_mode() -> String {
     "minimal".to_string()
 }
 
+fn timeout_for_scan_mode(config: &Config, scan_mode: &str) -> Option<u64> {
+    if is_deep_scan_mode(scan_mode) {
+        Some(config.deep_scan_timeout_ms(DEEP_SCAN_TIMEOUT_MS))
+    } else {
+        Some(config.minimal_scan_timeout_ms(MINIMAL_SCAN_TIMEOUT_MS))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FileIdentity {
+    normalized_path: String,
+    size: u64,
+    modified_unix_nanos: u128,
+}
+
+fn modified_unix_nanos(path: &Path) -> u128 {
+    path.metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+fn file_identity_for_path(file_path: &str, path: &Path) -> Option<FileIdentity> {
+    let metadata = path.metadata().ok()?;
+    Some(FileIdentity {
+        normalized_path: normalize_path_for_compare(file_path),
+        size: metadata.len(),
+        modified_unix_nanos: modified_unix_nanos(path),
+    })
+}
+
+fn file_is_over_scan_limit(path: &Path) -> bool {
+    path.metadata()
+        .map(|m| m.len() > MAX_SCANNABLE_FILE_SIZE)
+        .unwrap_or(false)
+}
+
+fn log_skip_large_file(context: &str, path: &Path) {
+    Logging::debug(&format!(
+        "[AVIntegration] Skipping {context}; file is over 2 GiB: {}",
+        path.display()
+    ));
+}
 
 #[derive(Debug, Clone)]
 struct ScanMetadata {
@@ -213,6 +279,35 @@ fn should_skip_die_scan(scan_target: &Path) -> bool {
     is_plain_text_file(scan_target).unwrap_or(false)
 }
 
+struct DieMetadataWorkerGuard;
+
+impl DieMetadataWorkerGuard {
+    fn acquire() -> Option<Self> {
+        let start = Instant::now();
+        loop {
+            let active = ACTIVE_DIE_METADATA_SCANS.load(Ordering::Relaxed);
+            if active < DIE_METADATA_WORKER_LIMIT {
+                if ACTIVE_DIE_METADATA_SCANS
+                    .compare_exchange(active, active + 1, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    return Some(DieMetadataWorkerGuard);
+                }
+            } else if start.elapsed() >= DIE_WORKER_ACQUIRE_TIMEOUT {
+                return None;
+            }
+
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+impl Drop for DieMetadataWorkerGuard {
+    fn drop(&mut self) {
+        ACTIVE_DIE_METADATA_SCANS.fetch_sub(1, Ordering::Release);
+    }
+}
+
 fn run_detectiteasy_metadata_scan(
     file_path: &str,
     scan_target: &Path,
@@ -224,6 +319,14 @@ fn run_detectiteasy_metadata_scan(
         ));
         return None;
     }
+
+    let Some(_guard) = DieMetadataWorkerGuard::acquire() else {
+        Logging::warning(&format!(
+            "[DetectItEasy] Worker limit reached; skipping DIE metadata scan for {}",
+            file_path
+        ));
+        return None;
+    };
 
     use crate::hydradragon::detectiteasy::DetectItEasyScanner;
 
@@ -1144,7 +1247,8 @@ pub struct AVIntegration<'a> {
     config: &'a Config, // <-- MODIFIED: Now a borrow
     predictor_malware: PredictorMalware<'a>,
     internal_scan_tx: Sender<EDRScanRequest>,
-    signature_cache: HashMap<String, FileSignatureStatus>,
+    signature_cache: HashMap<FileIdentity, FileSignatureStatus>,
+    scan_metadata_cache: HashMap<FileIdentity, ScanMetadata>,
     tinyav_recent_scans: HashMap<String, Instant>,
     tinyav_missing_logged: bool,
     yara_rules: Option<yara_x::Rules>,
@@ -1251,12 +1355,39 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                     let message = String::from_utf8_lossy(&buffer[..bytes_read as usize]).trim().to_string();
                     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) {
                         if let Some(file_path) = value.get("file_path").and_then(|v| v.as_str()) {
+                            let normalized_file_path = normalize_nt_path(file_path);
+                            let scan_target = PathBuf::from(&normalized_file_path);
+                            if file_is_over_scan_limit(&scan_target) {
+                                log_skip_large_file("manual scan pipe request", &scan_target);
+                                let _ = DisconnectNamedPipe(pipe_handle);
+                                let _ = CloseHandle(pipe_handle);
+                                continue;
+                            }
                             let scan_mode = value.get("scan_mode").and_then(|v| v.as_str()).unwrap_or("minimal").to_string();
                             let deep_scan = scan_mode == "deep";
+                            let requested_timeout_ms = value
+                                .get("deep_scan_timeout_ms")
+                                .and_then(|v| v.as_u64())
+                                .filter(|v| *v > 0)
+                                .unwrap_or(if deep_scan {
+                                    DEEP_SCAN_TIMEOUT_MS
+                                } else {
+                                    MINIMAL_SCAN_TIMEOUT_MS
+                                });
+                            let requested_grace_ms = value
+                                .get("late_child_scan_grace_ms")
+                                .and_then(|v| v.as_u64())
+                                .filter(|v| *v > 0)
+                                .unwrap_or(LATE_CHILD_SCAN_GRACE_MS);
+                            let scan_origin_path = value
+                                .get("scan_origin_path")
+                                .and_then(|v| v.as_str())
+                                .map(normalize_nt_path)
+                                .unwrap_or_else(|| normalized_file_path.clone());
                             
                             let request = EDRScanRequest {
                                 event_type: "MANUAL_SCAN_REQUEST".to_string(),
-                                file_path: normalize_nt_path(file_path),
+                                file_path: normalized_file_path,
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                                 pid: None,
                                 additional_context: None,
@@ -1266,6 +1397,9 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                                 deep_scan,
                                 scan_mode,
                                 detectiteasy_scan_result: None,
+                                scan_origin_path: Some(scan_origin_path),
+                                deep_scan_timeout_ms: Some(requested_timeout_ms),
+                                late_child_scan_grace_ms: Some(requested_grace_ms),
                             };
                             
                             Logging::info(&format!("[ManualScan] Queueing {} manual scan for: {}", request.scan_mode, request.file_path));
@@ -1300,6 +1434,7 @@ impl<'a> AVIntegration<'a> {
             predictor_malware,
             internal_scan_tx,
             signature_cache: HashMap::new(),
+            scan_metadata_cache: HashMap::new(),
             tinyav_recent_scans: HashMap::new(),
             tinyav_missing_logged: false,
             yara_rules: load_yara_x_rules(),
@@ -1416,6 +1551,10 @@ impl<'a> AVIntegration<'a> {
         if is_openedr_cloud_safe(&file_path) {
             return;
         }
+        if file_is_over_scan_limit(&scan_target) {
+            log_skip_large_file("minimal scan request", &scan_target);
+            return;
+        }
 
         let metadata = self.collect_scan_metadata(&file_path, &scan_target, "minimal");
         if !metadata.should_queue_scan {
@@ -1424,7 +1563,7 @@ impl<'a> AVIntegration<'a> {
 
         let request = EDRScanRequest {
             event_type: "NEW_IO_EVENT".to_string(),
-            file_path,
+            file_path: file_path.clone(),
             timestamp: Utc::now().to_rfc3339(),
             pid: Some(iomsg.pid),
             additional_context: Some(format!("Event triggered by GID: {}", precord.gid)),
@@ -1434,6 +1573,12 @@ impl<'a> AVIntegration<'a> {
             deep_scan: false,
             scan_mode: "minimal".to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,
+            scan_origin_path: Some(file_path.clone()),
+            deep_scan_timeout_ms: timeout_for_scan_mode(self.config, "minimal"),
+            late_child_scan_grace_ms: Some(
+                self.config
+                    .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
+            ),
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -1454,6 +1599,10 @@ impl<'a> AVIntegration<'a> {
         {
             return;
         }
+        if file_is_over_scan_limit(file_path) {
+            log_skip_large_file("deep scan request", file_path);
+            return;
+        }
 
         let metadata = self.collect_scan_metadata(&file_path_string, file_path, "deep");
         if !metadata.should_queue_scan {
@@ -1462,7 +1611,7 @@ impl<'a> AVIntegration<'a> {
 
         let request = EDRScanRequest {
             event_type: "SANCTUM_DEEP_SCAN_REQUEST".to_string(),
-            file_path: file_path_string,
+            file_path: file_path_string.clone(),
             timestamp: Utc::now().to_rfc3339(),
             pid,
             additional_context,
@@ -1472,6 +1621,12 @@ impl<'a> AVIntegration<'a> {
             deep_scan: true,
             scan_mode: "deep".to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,
+            scan_origin_path: Some(file_path_string.clone()),
+            deep_scan_timeout_ms: timeout_for_scan_mode(self.config, "deep"),
+            late_child_scan_grace_ms: Some(
+                self.config
+                    .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
+            ),
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -1493,6 +1648,10 @@ impl<'a> AVIntegration<'a> {
         {
             return;
         }
+        if file_is_over_scan_limit(file_path) {
+            log_skip_large_file("manual scan request", file_path);
+            return;
+        }
 
         let normalized_scan_mode = if is_deep_scan_mode(scan_mode) { "deep" } else { "minimal" };
         let metadata = self.collect_scan_metadata(&file_path_string, file_path, normalized_scan_mode);
@@ -1502,7 +1661,7 @@ impl<'a> AVIntegration<'a> {
 
         let request = EDRScanRequest {
             event_type: "MANUAL_SCAN_REQUEST".to_string(),
-            file_path: file_path_string,
+            file_path: file_path_string.clone(),
             timestamp: Utc::now().to_rfc3339(),
             pid,
             additional_context,
@@ -1512,6 +1671,12 @@ impl<'a> AVIntegration<'a> {
             deep_scan: normalized_scan_mode == "deep",
             scan_mode: normalized_scan_mode.to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,
+            scan_origin_path: Some(file_path_string.clone()),
+            deep_scan_timeout_ms: timeout_for_scan_mode(self.config, normalized_scan_mode),
+            late_child_scan_grace_ms: Some(
+                self.config
+                    .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
+            ),
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -1525,6 +1690,17 @@ impl<'a> AVIntegration<'a> {
         scan_target: &Path,
         scan_mode: &str,
     ) -> ScanMetadata {
+        let file_identity = file_identity_for_path(file_path, scan_target);
+        if let Some(identity) = file_identity.as_ref() {
+            if let Some(cached) = self.scan_metadata_cache.get(identity) {
+                Logging::debug(&format!(
+                    "[AVIntegration] Reusing cached scan metadata for unchanged file: {}",
+                    file_path
+                ));
+                return cached.clone();
+            }
+        }
+
         let mut metadata = ScanMetadata::new();
         let deep_mode = is_deep_scan_mode(scan_mode);
 
@@ -1535,13 +1711,22 @@ impl<'a> AVIntegration<'a> {
         // Plain-text files never run DIE; they continue without this gate.
         if deep_mode && !should_skip_die_scan(scan_target) {
             metadata.detectiteasy_scan_result = run_detectiteasy_metadata_scan(file_path, scan_target);
+            if metadata.detectiteasy_scan_result.is_none() {
+                Logging::debug(&format!(
+                    "[DetectItEasy] Deep scan gate skipped because DIE metadata was unavailable: {}",
+                    file_path
+                ));
+                metadata.should_queue_scan = false;
+                return self.cache_scan_metadata(file_identity.clone(), metadata);
+            }
+
             if die_result_is_fully_unknown(&metadata.detectiteasy_scan_result) {
                 Logging::debug(&format!(
                     "[DetectItEasy] Deep scan gate skipped fully unknown DIE result: {}",
                     file_path
                 ));
                 metadata.should_queue_scan = false;
-                return metadata;
+                return self.cache_scan_metadata(file_identity.clone(), metadata);
             }
 
             if die_result_is_unsupported_for_deep_scan(&metadata.detectiteasy_scan_result) {
@@ -1550,11 +1735,11 @@ impl<'a> AVIntegration<'a> {
                     file_path
                 ));
                 metadata.should_queue_scan = false;
-                return metadata;
+                return self.cache_scan_metadata(file_identity.clone(), metadata);
             }
         }
 
-        metadata.signature_status = self.get_or_compute_signature_status(file_path, scan_target);
+        metadata.signature_status = self.get_or_compute_signature_status(file_identity.as_ref(), scan_target);
 
         if let Some(rules) = &self.yara_rules {
             if let Ok(data) = std::fs::read(scan_target) {
@@ -1597,16 +1782,33 @@ impl<'a> AVIntegration<'a> {
             }
         }
 
+        self.cache_scan_metadata(file_identity, metadata)
+    }
+
+    fn cache_scan_metadata(
+        &mut self,
+        file_identity: Option<FileIdentity>,
+        metadata: ScanMetadata,
+    ) -> ScanMetadata {
+        if let Some(identity) = file_identity {
+            if self.scan_metadata_cache.len() >= SCAN_METADATA_CACHE_LIMIT {
+                self.scan_metadata_cache.clear();
+            }
+            self.scan_metadata_cache.insert(identity, metadata.clone());
+        }
+
         metadata
     }
 
     fn get_or_compute_signature_status(
         &mut self,
-        cache_key: &str,
+        cache_key: Option<&FileIdentity>,
         path: &std::path::Path,
     ) -> Option<FileSignatureStatus> {
-        if let Some(existing) = self.signature_cache.get(cache_key) {
-            return Some(existing.clone());
+        if let Some(cache_key) = cache_key {
+            if let Some(existing) = self.signature_cache.get(cache_key) {
+                return Some(existing.clone());
+            }
         }
 
         if !path.exists() {
@@ -1627,10 +1829,16 @@ impl<'a> AVIntegration<'a> {
             invalid_signature: info.invalid_signature,
         };
 
-        self.signature_cache
-            .insert(cache_key.to_string(), status.clone());
+        if let Some(cache_key) = cache_key {
+            if self.signature_cache.len() >= SCAN_METADATA_CACHE_LIMIT {
+                self.signature_cache.clear();
+            }
+            self.signature_cache.insert(cache_key.clone(), status.clone());
+        }
+
         Some(status)
     }
+
 }
 
 /// AV -> EDR client (one-shot): connect to AV->EDR pipe and write threat event

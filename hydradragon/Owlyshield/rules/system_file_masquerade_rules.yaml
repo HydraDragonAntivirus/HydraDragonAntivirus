@@ -1,0 +1,167 @@
+- name: "HEUR:Win.SystemFile.Masquerade.Untrusted.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-05-17"
+  status: stable
+  level: critical
+  severity: 95
+  description: |
+    Detects unsigned or untrusted processes that use well-known Windows system
+    executable names such as svchost.exe. Legitimate Microsoft system binaries
+    are allowlisted by exact System32 path and Microsoft signature.
+  debug: false
+
+  named_conditions:
+    system_process_name:
+      orderless: true
+      process_names:
+        - "svchost.exe"
+        - "rundll32.exe"
+        - "powershell.exe"
+        - "regsvr32.exe"
+        - "spoolsv.exe"
+        - "lsass.exe"
+        - "smss.exe"
+        - "csrss.exe"
+        - "conhost.exe"
+        - "wininit.exe"
+        - "winlogon.exe"
+        - "taskhost.exe"
+        - "taskmgr.exe"
+        - "runtimebroker.exe"
+        - "smartscreen.exe"
+        - "dllhost.exe"
+        - "services.exe"
+        - "explorer.exe"
+      min_matches: 1
+
+    unsigned_or_untrusted:
+      orderless: true
+      is_valid_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "system_process_name"
+      - condition: "unsigned_or_untrusted"
+
+  response:
+    status_access_denied: true
+    terminate_process: true
+    quarantine: true
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/rundll32.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/SysWOW64/rundll32.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/regsvr32.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/SysWOW64/regsvr32.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/spoolsv.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/conhost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/SysWOW64/conhost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/taskhost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/taskhostw.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/SysWOW64/taskhostw.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/taskmgr.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/RuntimeBroker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/SmartScreen.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/dllhost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/SysWOW64/dllhost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+  tags:
+    - "masquerading"
+    - "fake-system-file"
+    - "svchost"
+    - "defense-evasion"
+
+  mitre_attack:
+    - "T1036.005"
+
+  false_positives:
+    - "Unsigned third-party tools intentionally named after Windows system binaries for lab testing"

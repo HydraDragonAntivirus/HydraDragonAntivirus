@@ -18,6 +18,9 @@ detectiteasy_results_cache: Dict[str, Dict[str, Any]] = {}
 detectiteasy_results_md5_cache: Dict[str, Dict[str, Any]] = {}
 detectiteasy_cache_lock = threading.Lock()
 current_detectiteasy_result: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("current_detectiteasy_result", default=None)
+current_scan_origin_path: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_scan_origin_path", default=None)
+current_scan_deadline_monotonic: contextvars.ContextVar[Optional[float]] = contextvars.ContextVar("current_scan_deadline_monotonic", default=None)
+current_late_child_scan_grace_seconds: contextvars.ContextVar[float] = contextvars.ContextVar("current_late_child_scan_grace_seconds", default=30.0)
 
 def cache_detectiteasy_result(file_path: str, detectiteasy_result: Dict[str, Any]) -> None:
     """Cache DetectItEasy result received from Owlyshield."""
@@ -113,8 +116,8 @@ from .path_and_variables import (
     nuitka_dir,
     ole2_dir,
     vineflower_path,
-    system_file_names_path,
     extensions_path,
+    sanctum_settings_path,
     vmprotect_unpacked_dir,
     python_source_code_dir,
     python_deobfuscated_dir,
@@ -156,7 +159,6 @@ from .path_and_variables import (
     existing_projects,
     running_processes,
     started_interfaces,
-    system_drive,
     system32_dir,
     file_md5_cache,
     detectiteasy_cache,
@@ -534,7 +536,6 @@ from .notify_user import (  # noqa: E402
     notify_user_susp_archive_file_name_warning,
     notify_user_susp_name,
     notify_user_scr,
-    notify_user_for_detected_fake_system_file,
     notify_user_invalid,
     notify_user_fake_size,
     notify_user_startup,
@@ -1793,11 +1794,11 @@ def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
         parts = filename.split(".")
         if len(parts) > 5:  # More than 4 extensions (5 parts = filename + 4 extensions)
             extensions = ["." + part.lower() for part in parts[1:]]
-            known_extensions = [ext for ext in extensions if ext in fileTypes]
+            known_suffixes = [ext for ext in extensions if ext in fileTypes]
 
-            if known_extensions:  # Only flag if there are known extensions
+            if known_suffixes:  # Only flag if there are known extensions
                 results["multiple_extensions"] = True
-                results["details"].append(f"Excessive extensions detected ({len(parts) - 1} extensions): {known_extensions}")
+                results["details"].append(f"Excessive extensions detected ({len(parts) - 1} extensions): {known_suffixes}")
 
         # Mark as suspicious if any attack detected
         results["suspicious"] = any([results["rlo_attack"], results["excessive_spaces"], results["multiple_extensions"]])
@@ -2288,36 +2289,6 @@ async def scan_tar_file(file_path):
         return False, ""
 
 
-async def check_pe_file(file_path, signature_check, file_name):
-    """
-    Check a PE file for fake system file indicators after signature validation.
-
-    Returns:
-        True  -> detection found (e.g., fake system file)
-        False -> no detection
-    """
-    try:
-        logger.info(f"File {file_path} is a valid PE file.")
-
-        # Defensive access to signature_check (in case it's missing keys)
-        is_valid_sig = bool(signature_check and signature_check.get("is_valid"))
-
-        # Check for fake system files after signature validation
-        if file_name in fake_system_files and os.path.abspath(file_path).startswith(system_drive):
-            # If signature is not valid, consider it a fake system file
-            if not is_valid_sig:
-                logger.critical(f"Detected fake system file: {file_path}")
-                await notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
-                return True
-
-        # No detection
-        return False
-
-    except Exception as ex:
-        logger.error(f"Error checking PE file {file_path}: {ex}")
-        return False
-
-
 def is_zip_file(file_path):
     """
     Return True if file_path is a valid ZIP (AES or standard), False otherwise.
@@ -2438,10 +2409,6 @@ async def ml_fastpath_should_continue(norm_path, signature_check, pe_file, benig
     # Otherwise (ML said Clean or gave no opinion) -> continue to full scan
     return True
 
-
-# Read the file and store the names in a list (ignoring empty lines)
-with open(system_file_names_path, "r") as f:
-    fake_system_files = [line.strip() for line in f if line.strip()]
 
 # --- Synchronous helper to run in a thread ---
 
@@ -3285,22 +3252,6 @@ def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, d
     thread_lock_real_time = threading.Lock()
     sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
-    def pe_scan_worker():
-        """Worker function for PE file analysis."""
-        if stop_event.is_set():
-            return False
-
-        try:
-            if pe_file:
-                match_found = check_pe_file(file_path, signature_check, file_name)
-                if match_found:
-                    logger.info(f"PE scan worker: detection found for {file_path}")
-                    return False
-            return True
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
-            return False
-
     def cpp_scanner_worker():
         """Worker function for HydraDragonAV C++ engine (ClamAV + Legacy YARA)."""
         if stop_event.is_set():
@@ -3325,7 +3276,6 @@ def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, d
 
     try:
         workers = [
-            pe_scan_worker,
             cpp_scanner_worker,
         ]
 
@@ -7791,9 +7741,10 @@ async def scan_and_warn(
         main_file_path: Original main file that initiated this scan chain (for tracking)
     """
     try:
-        # MODIFIED: Set main_file_path to the current file_path if it's None at the top level
+        # MODIFIED: Set main_file_path to the current file_path if it's None at the top level.
+        # EDR-originated scans set contextvars so extracted/decompiled child scans keep the root file.
         if main_file_path is None:
-            main_file_path = file_path
+            main_file_path = current_scan_origin_path.get() or file_path
 
         # Initialize variables
         is_decompiled = False
@@ -7843,6 +7794,36 @@ async def scan_and_warn(
 
         # Normalize the original path
         norm_path = os.path.abspath(file_path)
+        scan_origin_path = current_scan_origin_path.get() or main_file_path or norm_path
+        try:
+            scan_origin_path = os.path.abspath(str(scan_origin_path))
+        except Exception:
+            scan_origin_path = str(scan_origin_path)
+        main_file_path = scan_origin_path
+
+        deadline = current_scan_deadline_monotonic.get()
+        if deadline is not None:
+            remaining_seconds = deadline - time.monotonic()
+            grace_seconds = current_late_child_scan_grace_seconds.get()
+            is_child_scan = scan_origin_path.lower() != norm_path.lower()
+            if remaining_seconds <= 0:
+                if is_child_scan and abs(remaining_seconds) <= grace_seconds:
+                    logger.warning(
+                        f"[EDR->AV] Deep scan deadline reached; finishing late child scan "
+                        f"{norm_path} from origin {scan_origin_path} "
+                        f"(overrun={abs(remaining_seconds):.1f}s, grace={grace_seconds:.1f}s)"
+                    )
+                else:
+                    logger.warning(
+                        f"[EDR->AV] Skipping scan after deadline: {norm_path} "
+                        f"(origin={scan_origin_path}, overrun={abs(remaining_seconds):.1f}s)"
+                    )
+                    return False
+            elif is_child_scan and remaining_seconds <= max(5.0, grace_seconds):
+                logger.info(
+                    f"[EDR->AV] Late child scan queued with {remaining_seconds:.1f}s remaining: "
+                    f"{norm_path} from origin {scan_origin_path}"
+                )
 
         # Compute a quick MD5
         md5 = await asyncio.to_thread(compute_md5, norm_path)
@@ -8985,6 +8966,71 @@ async def scan_and_warn(
 # =========================
 # EDR -> AV (Scan Requests)
 # =========================
+_DEFAULT_EDR_DEEP_SCAN_TIMEOUT_MS = 180_000
+_DEFAULT_EDR_MINIMAL_SCAN_TIMEOUT_MS = 30_000
+_DEFAULT_LATE_CHILD_SCAN_GRACE_MS = 30_000
+_MAX_EDR_SCAN_TIMEOUT_MS = 24 * 60 * 60 * 1000
+
+
+def _load_sanctum_settings() -> dict:
+    try:
+        if os.path.exists(sanctum_settings_path):
+            with open(sanctum_settings_path, "r", encoding="utf-8") as settings_file:
+                loaded = json.load(settings_file)
+                if isinstance(loaded, dict):
+                    return loaded
+    except Exception as ex:
+        logger.debug(f"[EDR->AV] Could not read Sanctum settings from {sanctum_settings_path}: {ex}")
+    return {}
+
+
+def _setting_int(settings: dict, key: str, default_value: int) -> int:
+    raw_value = settings.get(key, default_value)
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        return default_value
+    return parsed if parsed > 0 else default_value
+
+
+def _scan_default_timeout_ms(deep_scan: bool) -> int:
+    settings = _load_sanctum_settings()
+    if deep_scan:
+        return _setting_int(settings, "deep_scan_timeout_ms", _DEFAULT_EDR_DEEP_SCAN_TIMEOUT_MS)
+    return _setting_int(settings, "minimal_scan_timeout_ms", _DEFAULT_EDR_MINIMAL_SCAN_TIMEOUT_MS)
+
+
+def _scan_timeout_seconds_from_request(request_obj: dict, deep_scan: bool) -> float:
+    default_ms = _scan_default_timeout_ms(deep_scan)
+    raw_timeout_ms = request_obj.get("deep_scan_timeout_ms", default_ms)
+    try:
+        timeout_ms = int(raw_timeout_ms)
+    except (TypeError, ValueError):
+        logger.warning(f"[EDR->AV] Invalid deep_scan_timeout_ms={raw_timeout_ms!r}; using {default_ms} ms")
+        timeout_ms = default_ms
+
+    if timeout_ms <= 0:
+        logger.warning(f"[EDR->AV] Non-positive deep_scan_timeout_ms={timeout_ms}; using {default_ms} ms")
+        timeout_ms = default_ms
+
+    timeout_ms = min(timeout_ms, _MAX_EDR_SCAN_TIMEOUT_MS)
+    return timeout_ms / 1000.0
+
+
+def _late_child_scan_grace_seconds_from_request(request_obj: dict) -> float:
+    settings = _load_sanctum_settings()
+    default_ms = _setting_int(settings, "late_child_scan_grace_ms", _DEFAULT_LATE_CHILD_SCAN_GRACE_MS)
+    raw_grace_ms = request_obj.get("late_child_scan_grace_ms", default_ms)
+    try:
+        grace_ms = int(raw_grace_ms)
+    except (TypeError, ValueError):
+        logger.warning(f"[EDR->AV] Invalid late_child_scan_grace_ms={raw_grace_ms!r}; using {default_ms} ms")
+        grace_ms = default_ms
+    if grace_ms <= 0:
+        grace_ms = default_ms
+    return min(grace_ms, _MAX_EDR_SCAN_TIMEOUT_MS) / 1000.0
+
+
 async def queue_scan_request(request_obj: dict) -> None:
     """
     Queue an Owlyshield-originated scan request for local HydraDragon scanning.
@@ -9112,16 +9158,50 @@ async def _handle_edr_scan_request(request_obj: dict) -> None:
     scan_mode = str(request_obj.get("scan_mode") or "").strip().lower()
     deep_scan = bool(request_obj.get("deep_scan", False)) or scan_mode == "deep"
     yara_x_matches = request_obj.get("yara_x_matches") or []
-
-    logger.info(f"[EDR->AV] Received scan request from Owlyshield: {normalized} (mode={'deep' if deep_scan else 'minimal'})")
-    await scan_and_warn(
-        normalized,
-        main_file_path=normalized,
-        flag_vmprotect=bool(request_obj.get("is_vmprotect", False)),
-        owlyshield_signature_status=request_obj.get("signature_status"),
-        deep_scan=deep_scan,
-        owlyshield_yara_x_matches=yara_x_matches,
+    timeout_seconds = _scan_timeout_seconds_from_request(request_obj, deep_scan)
+    late_child_grace_seconds = _late_child_scan_grace_seconds_from_request(request_obj)
+    scan_origin_path = (
+        request_obj.get("scan_origin_path")
+        or request_obj.get("origin_file_path")
+        or request_obj.get("source_file_path")
+        or normalized
     )
+    try:
+        scan_origin_path = await normalize_nt_path(str(scan_origin_path))
+    except Exception:
+        scan_origin_path = normalized
+
+    logger.info(
+        f"[EDR->AV] Received scan request from Owlyshield: {normalized} "
+        f"(mode={'deep' if deep_scan else 'minimal'}, timeout={timeout_seconds:.1f}s, "
+        f"origin={scan_origin_path}, late_child_grace={late_child_grace_seconds:.1f}s)"
+    )
+    origin_token = current_scan_origin_path.set(scan_origin_path)
+    deadline_token = current_scan_deadline_monotonic.set(time.monotonic() + timeout_seconds)
+    grace_token = current_late_child_scan_grace_seconds.set(late_child_grace_seconds)
+    total_timeout_seconds = timeout_seconds + late_child_grace_seconds
+    try:
+        await asyncio.wait_for(
+            scan_and_warn(
+                normalized,
+                main_file_path=scan_origin_path,
+                flag_vmprotect=bool(request_obj.get("is_vmprotect", False)),
+                owlyshield_signature_status=request_obj.get("signature_status"),
+                deep_scan=deep_scan,
+                owlyshield_yara_x_matches=yara_x_matches,
+            ),
+            timeout=total_timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"[EDR->AV] Scan request timed out after {total_timeout_seconds:.1f}s "
+            f"(deadline={timeout_seconds:.1f}s, late_child_grace={late_child_grace_seconds:.1f}s): "
+            f"{normalized} (mode={'deep' if deep_scan else 'minimal'}, origin={scan_origin_path})"
+        )
+    finally:
+        current_late_child_scan_grace_seconds.reset(grace_token)
+        current_scan_deadline_monotonic.reset(deadline_token)
+        current_scan_origin_path.reset(origin_token)
 
 
 async def monitor_scan_requests_from_edr():

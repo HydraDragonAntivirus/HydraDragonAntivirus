@@ -3,6 +3,7 @@
 
 use serde_json::{to_value, Value};
 use shared_std::file_scanner::{FileScannerState, ScanningLiveInfo};
+use shared_std::settings::SanctumSettings;
 use std::path::PathBuf;
 use tauri::Emitter;
 
@@ -50,10 +51,18 @@ pub async fn scanner_stop_scan() -> Result<(), ()> {
     Ok(())
 }
 
-fn send_manual_scan_to_owlyshield(file_path: &str, scan_mode: &str) {
+fn send_manual_scan_to_owlyshield(
+    file_path: &str,
+    scan_mode: &str,
+    timeout_ms: u64,
+    late_child_scan_grace_ms: u64,
+) {
     let message = serde_json::json!({
         "file_path": file_path,
-        "scan_mode": scan_mode
+        "scan_mode": scan_mode,
+        "scan_origin_path": file_path,
+        "deep_scan_timeout_ms": timeout_ms,
+        "late_child_scan_grace_ms": late_child_scan_grace_ms
     }).to_string();
 
     let pipe_name = r"\\.\pipe\Global\owlyshield_manual_scan";
@@ -66,14 +75,24 @@ fn send_manual_scan_to_owlyshield(file_path: &str, scan_mode: &str) {
     }
 }
 
-fn scan_dir_recursively(dir: &std::path::Path, scan_mode: &str) {
+fn scan_dir_recursively(
+    dir: &std::path::Path,
+    scan_mode: &str,
+    timeout_ms: u64,
+    late_child_scan_grace_ms: u64,
+) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
             if path.is_file() {
-                send_manual_scan_to_owlyshield(&path.to_string_lossy(), scan_mode);
+                send_manual_scan_to_owlyshield(
+                    &path.to_string_lossy(),
+                    scan_mode,
+                    timeout_ms,
+                    late_child_scan_grace_ms,
+                );
             } else if path.is_dir() {
-                scan_dir_recursively(&path, scan_mode);
+                scan_dir_recursively(&path, scan_mode, timeout_ms, late_child_scan_grace_ms);
             }
         }
     }
@@ -86,16 +105,37 @@ pub async fn scanner_start_folder_scan(
     app_handle: tauri::AppHandle,
 ) -> Result<String, ()> {
     let mode = scanMode.unwrap_or_else(|| "minimal".to_string());
+    let settings = IpcClient::send_ipc::<SanctumSettings, Option<Value>>(
+        "settings_load_page_state",
+        None,
+    )
+    .await
+    .unwrap_or_default();
+    let timeout_ms = if mode.eq_ignore_ascii_case("deep") {
+        settings.deep_scan_timeout_ms
+    } else {
+        settings.minimal_scan_timeout_ms
+    };
     let path_clone = file_path.clone();
     let mode_clone = mode.clone();
-    
+
     // Spawn a thread to send the manual scan requests to Owlyshield
     std::thread::spawn(move || {
         let p = PathBuf::from(path_clone);
         if p.is_file() {
-            send_manual_scan_to_owlyshield(&p.to_string_lossy(), &mode_clone);
+            send_manual_scan_to_owlyshield(
+                &p.to_string_lossy(),
+                &mode_clone,
+                timeout_ms,
+                settings.late_child_scan_grace_ms,
+            );
         } else if p.is_dir() {
-            scan_dir_recursively(&p, &mode_clone);
+            scan_dir_recursively(
+                &p,
+                &mode_clone,
+                timeout_ms,
+                settings.late_child_scan_grace_ms,
+            );
         }
     });
 
@@ -155,6 +195,12 @@ pub async fn scanner_start_folder_scan(
 #[tauri::command]
 pub async fn scanner_start_quick_scan(app_handle: tauri::AppHandle) -> Result<String, ()> {
     tokio::spawn(async move {
+        let settings = IpcClient::send_ipc::<SanctumSettings, Option<Value>>(
+            "settings_load_page_state",
+            None,
+        )
+        .await
+        .unwrap_or_default();
         let paths = IpcClient::send_ipc::<Vec<PathBuf>, Option<Value>>(
             "settings_get_common_scan_areas",
             None,
@@ -166,9 +212,19 @@ pub async fn scanner_start_quick_scan(app_handle: tauri::AppHandle) -> Result<St
         std::thread::spawn(move || {
             for p in paths_clone {
                 if p.is_file() {
-                    send_manual_scan_to_owlyshield(&p.to_string_lossy(), "minimal");
+                    send_manual_scan_to_owlyshield(
+                        &p.to_string_lossy(),
+                        "minimal",
+                        settings.minimal_scan_timeout_ms,
+                        settings.late_child_scan_grace_ms,
+                    );
                 } else if p.is_dir() {
-                    scan_dir_recursively(&p, "minimal");
+                    scan_dir_recursively(
+                        &p,
+                        "minimal",
+                        settings.minimal_scan_timeout_ms,
+                        settings.late_child_scan_grace_ms,
+                    );
                 }
             }
         });

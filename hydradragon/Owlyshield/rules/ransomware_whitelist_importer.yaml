@@ -103,9 +103,9 @@
 
     ransomware_create_activity:
       # orderless: create events are counted as a set regardless of sequence.
-      # Requires the created file to have an unknown (non-whitelisted) extension so
+      # Requires the created file to have an unknown (non-whitelisted) or no extension so
       # that ordinary file creation (e.g. temp files, documents) does not satisfy
-      # this condition — only the encrypted output file (.winball, .encrypted, etc.)
+      # this condition; encrypted output may be .winball/.encrypted or extensionless.
       orderless: true
       file_operations: ["create"]
       detect_non_whitelisted_extensions: true

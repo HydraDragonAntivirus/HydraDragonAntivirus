@@ -8,6 +8,9 @@ use strum_macros::EnumIter;
 
 use crate::extensions::ExtensionList;
 
+const SANCTUM_SETTINGS_PATH: &str =
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\config.cfg";
+
 #[derive(Debug, EnumIter, PartialEq, Eq, Hash, Clone)]
 pub enum Param {
     RealTimeLearningPath,
@@ -27,6 +30,10 @@ pub enum Param {
     OpenEdrTelemetryPath,
     VerboseLogging,
     ProcessActivityPath,
+    ExtensionSourceMode,
+    MinimalScanTimeoutMs,
+    DeepScanTimeoutMs,
+    LateChildScanGraceMs,
     Unknown,
 }
 
@@ -60,6 +67,10 @@ impl Param {
             Param::OpenEdrTelemetryPath => "OPENEDR_TELEMETRY_PATH", // Optional OpenEDR output_events directory override
             Param::VerboseLogging => "VERBOSE_LOGGING", // 1 if verbose logging is active, 0 if not
             Param::ProcessActivityPath => "PROCESS_ACTIVITY_PATH", // Path to process activity debug output
+            Param::ExtensionSourceMode => "EXTENSION_SOURCE_MODE", // feedback / extensions_rs_only / extensions_txt_only
+            Param::MinimalScanTimeoutMs => "MINIMAL_SCAN_TIMEOUT_MS",
+            Param::DeepScanTimeoutMs => "DEEP_SCAN_TIMEOUT_MS",
+            Param::LateChildScanGraceMs => "LATE_CHILD_SCAN_GRACE_MS",
             _ => "UNKNOWN",
         }
     }
@@ -84,6 +95,10 @@ impl Param {
             Param::OpenEdrTelemetryPath => "openedr_telemetry_path", // Optional OpenEDR output_events directory override
             Param::VerboseLogging => "verbose_logging", // 1 if verbose logging is active, 0 if not
             Param::ProcessActivityPath => "process_activity_path", // Path to process activity debug output
+            Param::ExtensionSourceMode => "extension_source_mode", // feedback / extensions_rs_only / extensions_txt_only
+            Param::MinimalScanTimeoutMs => "minimal_scan_timeout_ms",
+            Param::DeepScanTimeoutMs => "deep_scan_timeout_ms",
+            Param::LateChildScanGraceMs => "late_child_scan_grace_ms",
             _ => "unknown",
         }
     }
@@ -100,6 +115,10 @@ impl Param {
             Param::OpenEdrTelemetryPath,
             Param::VerboseLogging,
             Param::ProcessActivityPath,
+            Param::ExtensionSourceMode,
+            Param::MinimalScanTimeoutMs,
+            Param::DeepScanTimeoutMs,
+            Param::LateChildScanGraceMs,
         ];
 
         if cfg!(target_os = "windows") {
@@ -144,6 +163,10 @@ impl Param {
             "OPENEDR_TELEMETRY_PATH" => Param::OpenEdrTelemetryPath, // Optional OpenEDR output_events directory override
             "VERBOSE_LOGGING" => Param::VerboseLogging, // 1 if verbose logging is active, 0 if not
             "PROCESS_ACTIVITY_PATH" => Param::ProcessActivityPath, // Path to process activity debug output
+            "EXTENSION_SOURCE_MODE" => Param::ExtensionSourceMode, // feedback / extensions_rs_only / extensions_txt_only
+            "MINIMAL_SCAN_TIMEOUT_MS" => Param::MinimalScanTimeoutMs,
+            "DEEP_SCAN_TIMEOUT_MS" => Param::DeepScanTimeoutMs,
+            "LATE_CHILD_SCAN_GRACE_MS" => Param::LateChildScanGraceMs,
             _ => Param::Unknown,
         }
     }
@@ -168,6 +191,10 @@ impl Param {
             "openedr_telemetry_path" => Param::OpenEdrTelemetryPath, // Optional OpenEDR output_events directory override
             "verbose_logging" => Param::VerboseLogging, // 1 if verbose logging is active, 0 if not
             "process_activity_path" => Param::ProcessActivityPath, // Path to process activity debug output
+            "extension_source_mode" => Param::ExtensionSourceMode, // feedback / extensions_rs_only / extensions_txt_only
+            "minimal_scan_timeout_ms" => Param::MinimalScanTimeoutMs,
+            "deep_scan_timeout_ms" => Param::DeepScanTimeoutMs,
+            "late_child_scan_grace_ms" => Param::LateChildScanGraceMs,
             _ => Param::Unknown,
         }
     }
@@ -295,6 +322,75 @@ impl Config {
 
     pub fn get_param(&self, param: Param) -> Option<&str> {
         self.params.get(&param).map(|s| s.as_str())
+    }
+
+    fn get_non_empty_param(&self, param: Param) -> Option<&str> {
+        self.get_param(param).and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+    }
+
+    fn read_sanctum_setting_value(key: &str) -> Option<serde_json::Value> {
+        let content = std::fs::read_to_string(SANCTUM_SETTINGS_PATH).ok()?;
+        let root: serde_json::Value = serde_json::from_str(&content).ok()?;
+        root.get(key).cloned()
+    }
+
+    fn parse_u64_setting(value: &str) -> Option<u64> {
+        value.trim().parse::<u64>().ok().filter(|v| *v > 0)
+    }
+
+    pub fn extension_source_mode(&self) -> Option<String> {
+        self.get_non_empty_param(Param::ExtensionSourceMode)
+            .map(ToString::to_string)
+            .or_else(|| {
+                Self::read_sanctum_setting_value("extension_source_mode")
+                    .and_then(|value| value.as_str().map(ToString::to_string))
+                    .filter(|value| !value.trim().is_empty())
+            })
+    }
+
+    fn u64_setting(&self, param: Param, sanctum_key: &str, default_value: u64) -> u64 {
+        if let Some(value) = self
+            .get_non_empty_param(param)
+            .and_then(Self::parse_u64_setting)
+        {
+            return value;
+        }
+
+        Self::read_sanctum_setting_value(sanctum_key)
+            .and_then(|value| {
+                value
+                    .as_u64()
+                    .or_else(|| value.as_str().and_then(Self::parse_u64_setting))
+            })
+            .filter(|value| *value > 0)
+            .unwrap_or(default_value)
+    }
+
+    pub fn minimal_scan_timeout_ms(&self, default_value: u64) -> u64 {
+        self.u64_setting(
+            Param::MinimalScanTimeoutMs,
+            "minimal_scan_timeout_ms",
+            default_value,
+        )
+    }
+
+    pub fn deep_scan_timeout_ms(&self, default_value: u64) -> u64 {
+        self.u64_setting(Param::DeepScanTimeoutMs, "deep_scan_timeout_ms", default_value)
+    }
+
+    pub fn late_child_scan_grace_ms(&self, default_value: u64) -> u64 {
+        self.u64_setting(
+            Param::LateChildScanGraceMs,
+            "late_child_scan_grace_ms",
+            default_value,
+        )
     }
 
     pub fn get_kill_policy(&self) -> KillPolicy {

@@ -14,6 +14,17 @@
 			const { listen } = window.__TAURI__.event;
 
 			const common_scan_dir_box = document.getElementById('common_scan_dirs');
+			const extensionSourceMode = document.getElementById('extension_source_mode');
+			const minimalScanTimeout = document.getElementById('minimal_scan_timeout_ms');
+			const deepScanTimeout = document.getElementById('deep_scan_timeout_ms');
+			const lateChildScanGrace = document.getElementById('late_child_scan_grace_ms');
+			const settingsStatus = document.getElementById('settings_status');
+			const defaults = {
+				extension_source_mode: 'feedback',
+				minimal_scan_timeout_ms: 30000,
+				deep_scan_timeout_ms: 180000,
+				late_child_scan_grace_ms: 30000
+			};
 
 			//
 			// Page initialisation
@@ -25,12 +36,15 @@
 				const common_scan_areas = 'common_scan_areas';
 
 				if (Array.isArray(jsonObject[common_scan_areas])) {
-					jsonObject[common_scan_areas].forEach(item => {
-						common_scan_dir_box.value = jsonObject[common_scan_areas].join('\n');
-					});
+					common_scan_dir_box.value = jsonObject[common_scan_areas].join('\n');
 				} else {
 					console.log(`Key "${common_scan_areas}" is not an array or does not exist.`);
 				}
+
+				extensionSourceMode.value = jsonObject.extension_source_mode || defaults.extension_source_mode;
+				minimalScanTimeout.value = jsonObject.minimal_scan_timeout_ms || defaults.minimal_scan_timeout_ms;
+				deepScanTimeout.value = jsonObject.deep_scan_timeout_ms || defaults.deep_scan_timeout_ms;
+				lateChildScanGrace.value = jsonObject.late_child_scan_grace_ms || defaults.late_child_scan_grace_ms;
 			})
 			.catch((error) => console.error("Invoke error:", error));
 
@@ -44,15 +58,27 @@
 
 				const common_scan_dir_box_val = common_scan_dir_box.value;
 				const lines = common_scan_dir_box_val.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+				const positiveInt = (field, fallback) => {
+					const value = parseInt(field.value, 10);
+					return Number.isFinite(value) && value > 0 ? value : fallback;
+				};
 				const settings = {
-					common_scan_areas: lines
+					common_scan_areas: lines,
+					extension_source_mode: extensionSourceMode.value || defaults.extension_source_mode,
+					minimal_scan_timeout_ms: positiveInt(minimalScanTimeout, defaults.minimal_scan_timeout_ms),
+					deep_scan_timeout_ms: positiveInt(deepScanTimeout, defaults.deep_scan_timeout_ms),
+					late_child_scan_grace_ms: positiveInt(lateChildScanGrace, defaults.late_child_scan_grace_ms)
 				};
 
 				invoke('settings_update_settings', { settings: JSON.stringify(settings) })
 				.then((response) => {
 					console.log("response: ", response)
+					settingsStatus.textContent = "Settings updated.";
 				})
-				.catch((error) => console.error("Invoke error:", error));
+				.catch((error) => {
+					settingsStatus.textContent = "Settings update failed.";
+					console.error("Invoke error:", error);
+				});
 			};
 
 			var update_app_settings_form = document.getElementById("app_settings_callout");
@@ -77,7 +103,20 @@
 					<p>Enter on new lines folders to scan which are included in the common scan. The defaults are provided for you and are recommended.</p>
 					<form action="#" id="app_settings_form">
 						<textarea id="common_scan_dirs" rows="10" cols="70" placeholder="Type something and press Enter..."></textarea>
+						<label for="extension_source_mode">Extension source mode</label>
+						<select id="extension_source_mode">
+							<option value="feedback">Feedback mode</option>
+							<option value="extensions_txt_only">extensions.txt only</option>
+							<option value="extensions_rs_only">extensions.rs only</option>
+						</select>
+						<label for="minimal_scan_timeout_ms">Minimal scan timeout (ms)</label>
+						<input id="minimal_scan_timeout_ms" type="number" min="1000" step="1000">
+						<label for="deep_scan_timeout_ms">Deep scan timeout (ms)</label>
+						<input id="deep_scan_timeout_ms" type="number" min="1000" step="1000">
+						<label for="late_child_scan_grace_ms">Late child scan grace (ms)</label>
+						<input id="late_child_scan_grace_ms" type="number" min="1000" step="1000">
 						<button type="submit" id="app_settings_submit">Update</button>
+						<p id="settings_status" class="settings_status"></p>
 					</form>
 				</div>
 

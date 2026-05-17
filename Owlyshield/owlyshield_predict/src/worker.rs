@@ -1173,7 +1173,9 @@ pub mod worker_instance {
             static SANCTUM_PIPE_START: std::sync::Once = std::sync::Once::new();
             static OPENEDR_TAIL_START: std::sync::Once = std::sync::Once::new();
 
-            let engine = BehaviorEngine::new();
+            let extension_source_mode = config.extension_source_mode();
+            let engine =
+                BehaviorEngine::new_with_extension_source_mode(extension_source_mode.as_deref());
             let openedr_candidates = Self::openedr_log_dir_candidates(config);
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             FIREWALL_PIPE_START.call_once(|| {

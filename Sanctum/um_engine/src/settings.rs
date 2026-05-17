@@ -27,6 +27,7 @@ impl SanctumSettingsImpl for SanctumSettings {
                     PathBuf::from("C:\\Temp"),
                     PathBuf::from("C:\\temp"),
                 ],
+                ..SanctumSettings::default()
             };
 
             let settings_string = serde_json::to_string(&settings).unwrap();
@@ -53,6 +54,10 @@ impl SanctumSettingsImpl for SanctumSettings {
     fn _update_settings(&mut self, settings: SanctumSettings) -> Self {
         // update self fields in memory
         self.common_scan_areas = settings.clone().common_scan_areas;
+        self.extension_source_mode = settings.clone().extension_source_mode;
+        self.minimal_scan_timeout_ms = settings.minimal_scan_timeout_ms;
+        self.deep_scan_timeout_ms = settings.deep_scan_timeout_ms;
+        self.late_child_scan_grace_ms = settings.late_child_scan_grace_ms;
 
         // write new file to disk
         let settings_str = serde_json::to_string(&settings).unwrap();

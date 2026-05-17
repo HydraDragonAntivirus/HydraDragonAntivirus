@@ -123,6 +123,8 @@
       min_matches: 1
 
     sandbox_probe:
+      # detect_non_whitelisted_extensions also covers extensionless drops; this
+      # catches loader probes that avoid suffix-based extension lists entirely.
       orderless: true
       file_paths:
         - Program Files

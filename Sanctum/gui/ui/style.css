@@ -386,6 +386,8 @@ p {
 
 /* Inputs & Buttons */
 input[type="text"],
+input[type="number"],
+select,
 textarea {
     width: 100% !important;
     background: var(--bg-void);
@@ -401,10 +403,28 @@ textarea {
 }
 
 input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus,
 textarea:focus {
     outline: none;
     border-color: var(--accent-blue);
     box-shadow: 0 0 15px var(--glow-blue);
+}
+
+label {
+    display: block;
+    color: var(--t-secondary);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    margin: 8px 0 6px;
+}
+
+.settings_status {
+    min-height: 20px;
+    margin: 12px 0 0;
+    color: var(--accent-green);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
 }
 
 button.single_box_button,

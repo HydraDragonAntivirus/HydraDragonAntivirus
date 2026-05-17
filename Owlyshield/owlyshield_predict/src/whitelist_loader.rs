@@ -37,8 +37,8 @@ impl ExtensionWhitelist {
         exts.clear();
 
         for line in content.lines() {
-            let ext = line.trim().trim_matches('"');
-            if !ext.is_empty() {
+            let ext = line.trim().trim_matches('"').trim_start_matches('.');
+            if !ext.is_empty() && !ext.starts_with('#') && !ext.starts_with("//") {
                 exts.insert(ext.to_lowercase());
             }
         }
