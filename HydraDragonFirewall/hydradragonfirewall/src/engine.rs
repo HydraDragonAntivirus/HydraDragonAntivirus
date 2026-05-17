@@ -11,6 +11,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -2126,7 +2127,176 @@ impl FirewallEngine {
         }
     }
 
-    // CA auto-trust is handled natively via `install_ca_der` during proxy startup.
+    fn remove_firewall_ca_from_windows_stores() -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            let script = r#"
+$ErrorActionPreference = "SilentlyContinue"
+$stores = @(
+  "Cert:\LocalMachine\Root",
+  "Cert:\CurrentUser\Root",
+  "Cert:\LocalMachine\CA",
+  "Cert:\CurrentUser\CA",
+  "Cert:\LocalMachine\TrustedPublisher",
+  "Cert:\CurrentUser\TrustedPublisher",
+  "Cert:\LocalMachine\My",
+  "Cert:\CurrentUser\My"
+)
+foreach ($store in $stores) {
+  Get-ChildItem -Path $store |
+    Where-Object { $_.Subject -like "*HydraDragon Firewall CA*" } |
+    Remove-Item -Force
+}
+"#;
+
+            let status = Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script,
+                ])
+                .status()
+                .map_err(|error| format!("Failed to start PowerShell certificate cleanup: {error}"))?;
+
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "PowerShell certificate cleanup exited with status {status}"
+                ))
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(())
+        }
+    }
+
+    fn remove_firefox_ca_policy(cert_path: &Path) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::RegKey;
+            use winreg::enums::*;
+
+            let cert_path_string = cert_path.to_string_lossy().to_string();
+            let remove_policy = |root: RegKey| -> Result<(), String> {
+                if let Ok(install_key) = root.open_subkey_with_flags(
+                    r"Software\Policies\Mozilla\Firefox\Certificates\Install",
+                    KEY_READ | KEY_WRITE,
+                ) {
+                    if install_key
+                        .get_value::<String, _>("1")
+                        .is_ok_and(|value| value.eq_ignore_ascii_case(&cert_path_string))
+                    {
+                        let _ = install_key.delete_value("1");
+                    }
+                }
+                Ok(())
+            };
+
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            remove_policy(hkcu)?;
+
+            let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+            let _ = remove_policy(hklm);
+
+            return Ok(());
+        }
+
+        #[allow(unreachable_code)]
+        Ok(())
+    }
+
+    pub fn install_firewall_certificate<R: Runtime>(
+        &self,
+        tx: &AppHandle<R>,
+    ) -> Result<String, String> {
+        let ca_bundle = crate::proxy::generate_ca();
+        Self::install_ca_der(&ca_bundle.cert_der)?;
+        self.windows_root_trust_ready.store(true, Ordering::SeqCst);
+
+        let cert_path = Self::proxy_ca_cert_path();
+        Self::install_firefox_ca_policy(&cert_path)?;
+        self.firefox_policy_ready.store(true, Ordering::SeqCst);
+
+        {
+            let mut settings = self.settings.write().unwrap();
+            settings.tls_proxy.cert_install_consent = true;
+        }
+        self.save_settings();
+
+        let message =
+            "HydraDragon Firewall CA installed into Windows trust and Firefox policy.".to_string();
+        emit_log_event(
+            tx,
+            LogEntry {
+                id: format!("{}-certificate-installed-manual", Self::now_ts()),
+                timestamp: Self::now_ts(),
+                level: LogLevel::Success,
+                message: message.clone(),
+            },
+        );
+
+        Ok(message)
+    }
+
+    pub fn remove_firewall_certificate<R: Runtime>(
+        &self,
+        tx: &AppHandle<R>,
+    ) -> Result<String, String> {
+        let mut errors = Vec::new();
+        if let Err(error) = Self::remove_firewall_ca_from_windows_stores() {
+            errors.push(error);
+        }
+        if let Err(error) = Self::remove_firefox_ca_policy(&Self::proxy_ca_cert_path()) {
+            errors.push(error);
+        }
+
+        self.windows_root_trust_ready.store(false, Ordering::SeqCst);
+        self.firefox_policy_ready.store(false, Ordering::SeqCst);
+        {
+            let mut settings = self.settings.write().unwrap();
+            settings.tls_proxy.cert_install_consent = false;
+        }
+        self.save_settings();
+
+        if errors.is_empty() {
+            let message =
+                "HydraDragon Firewall CA removed from trust stores and Firefox policy.".to_string();
+            emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-certificate-removed-manual", Self::now_ts()),
+                    timestamp: Self::now_ts(),
+                    level: LogLevel::Success,
+                    message: message.clone(),
+                },
+            );
+            Ok(message)
+        } else {
+            let message = format!(
+                "HydraDragon Firewall CA removal finished with warnings: {}",
+                errors.join("; ")
+            );
+            emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-certificate-remove-warning", Self::now_ts()),
+                    timestamp: Self::now_ts(),
+                    level: LogLevel::Warning,
+                    message: message.clone(),
+                },
+            );
+            Err(message)
+        }
+    }
+
+    // CA auto-trust is handled natively via `install_ca_der` during proxy startup
+    // and can also be controlled manually from the firewall settings UI.
 
     pub fn send_hydranet_message(&self, message: String) {
         let tx_opt = self.hydranet_tx.lock().unwrap().clone();

@@ -782,6 +782,30 @@ async fn grant_cert_install_consent(handle: AppHandle) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+async fn install_firewall_certificate(handle: AppHandle) -> String {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        match engine.install_firewall_certificate(&handle) {
+            Ok(message) => message,
+            Err(error) => format!("Certificate install failed: {error}"),
+        }
+    } else {
+        "Certificate install failed: engine not initialized".to_string()
+    }
+}
+
+#[tauri::command]
+async fn remove_firewall_certificate(handle: AppHandle) -> String {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        match engine.remove_firewall_certificate(&handle) {
+            Ok(message) => message,
+            Err(error) => error,
+        }
+    } else {
+        "Certificate removal failed: engine not initialized".to_string()
+    }
+}
+
 /// Return all body changer rules stored in body_changers.json.
 #[tauri::command]
 async fn get_body_changers() -> Vec<BodyChangerRule> {
@@ -1079,6 +1103,8 @@ pub fn run() {
             close_window,
             quit_app,
             grant_cert_install_consent,
+            install_firewall_certificate,
+            remove_firewall_certificate,
             get_body_changers,
             save_body_changers,
             list_owlyshield_rules_files,

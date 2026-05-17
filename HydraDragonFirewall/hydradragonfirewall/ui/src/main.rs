@@ -1392,6 +1392,8 @@ pub fn App() -> impl IntoView {
     let (mitm_enabled, set_mitm_enabled) = create_signal(false);
     let (windows_root_trust_ready, set_windows_root_trust_ready) = create_signal(false);
     let (firefox_policy_ready, set_firefox_policy_ready) = create_signal(false);
+    let (certificate_action_status, set_certificate_action_status) =
+        create_signal(String::new());
     let (mitm_bypass_count, set_mitm_bypass_count) = create_signal(0usize);
     let (settings_loaded, set_settings_loaded) = create_signal(false);
     let (graph_data, set_graph_data) = create_signal(vec![0u32; ACTIVITY_GRAPH_POINTS]);
@@ -1820,6 +1822,36 @@ pub fn App() -> impl IntoView {
                 set_settings_raw_status.set(format!("Invalid JSON: {}", error));
             }
         }
+    };
+
+    let install_certificate_action = move || {
+        set_certificate_action_status.set("Installing HydraDragon Firewall CA...".to_string());
+        spawn_local(async move {
+            let result = invoke("install_firewall_certificate", JsValue::NULL).await;
+            set_certificate_action_status.set(
+                result
+                    .as_string()
+                    .unwrap_or_else(|| "Certificate install requested.".to_string()),
+            );
+            fetch_settings();
+            fetch_saved_logs();
+        });
+    };
+
+    let remove_certificate_action = move || {
+        set_certificate_action_status.set("Removing HydraDragon Firewall CA...".to_string());
+        spawn_local(async move {
+            let result = invoke("remove_firewall_certificate", JsValue::NULL).await;
+            set_certificate_action_status.set(
+                result
+                    .as_string()
+                    .unwrap_or_else(|| "Certificate removal requested.".to_string()),
+            );
+            fetch_settings();
+            fetch_saved_logs();
+            set_windows_root_trust_ready.set(false);
+            set_firefox_policy_ready.set(false);
+        });
     };
 
     let update_path = move |path: String| {
@@ -3803,6 +3835,29 @@ pub fn App() -> impl IntoView {
                                                                 <strong style="color: var(--accent-orange)">"Security Notice: "</strong>
                                                                 "Enabling this allows HydraDragon to automatically install its root certificate into your system's trust store (Windows Root and Firefox). This enables HTTPS interception but also means the firewall can decrypt your encrypted traffic. Only enable if you understand and accept this. Without consent, browsers will show certificate warnings until you manually install the certificate or disable MITM mode."
                                                             </p>
+                                                            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;">
+                                                                <button
+                                                                    class="btn-primary"
+                                                                    on:click=move |_| install_certificate_action()
+                                                                >
+                                                                    "Add Certificate"
+                                                                </button>
+                                                                <button
+                                                                    class="btn-secondary"
+                                                                    on:click=move |_| remove_certificate_action()
+                                                                >
+                                                                    "Remove Certificate"
+                                                                </button>
+                                                            </div>
+                                                            {move || if !certificate_action_status.get().is_empty() {
+                                                                view! {
+                                                                    <p style="margin: 10px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                                        {certificate_action_status.get()}
+                                                                    </p>
+                                                                }.into_view()
+                                                            } else {
+                                                                view! {}.into_view()
+                                                            }}
                                                         </div>
                                                         <div class="input-group" style="margin-top: 10px">
                                                             <label>"MITM bypass hosts/domains"</label>
