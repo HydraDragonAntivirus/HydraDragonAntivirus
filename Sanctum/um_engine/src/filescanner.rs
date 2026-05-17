@@ -12,12 +12,74 @@ use std::{
     io::{self, BufRead, BufReader, Read, Write},
     os::windows::fs::MetadataExt,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
 
 use crate::utils::log::{Log, LogLevel};
+
+
+const PARALLEL_SCAN_QUEUE_BOUND: usize = 4096;
+const MAX_PARALLEL_SCAN_WORKERS: usize = 8;
+const HASH_READ_BUFFER_LIMIT: usize = 1024 * 1024; // 1 MiB per worker; keeps parallel scans memory-safe.
+
+fn parallel_scan_worker_count() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(2, MAX_PARALLEL_SCAN_WORKERS)
+}
+
+fn state_is_cancelled(state: &Arc<Mutex<FileScannerState>>) -> bool {
+    *state.lock().unwrap() == FileScannerState::Cancelled
+}
+
+fn scan_path_against_hashes(
+    iocs: &BTreeSet<String>,
+    state: &Arc<Mutex<FileScannerState>>,
+    target: &PathBuf,
+    files_scanned: &Arc<Mutex<u32>>,
+) -> Result<Option<(String, PathBuf)>, std::io::Error> {
+    let file = File::open(target)?;
+    let mut reader = BufReader::new(&file);
+
+    let alloc_size = if let Ok(metadata) = file.metadata() {
+        let file_size = metadata.file_size() as usize;
+        file_size.clamp(1, HASH_READ_BUFFER_LIMIT)
+    } else {
+        HASH_READ_BUFFER_LIMIT
+    };
+
+    let mut hasher = Md5::new();
+    let mut buf = vec![0u8; alloc_size];
+
+    loop {
+        if state_is_cancelled(state) {
+            return Ok(None);
+        }
+
+        let count = reader.read(&mut buf)?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buf[..count]);
+    }
+
+    let hash = hasher.finalize();
+    let hash: String = hash.iter().map(|byte| format!("{:02X}", byte)).collect();
+
+    {
+        let mut files_scanned = files_scanned.lock().unwrap();
+        *files_scanned += 1;
+    }
+
+    if iocs.contains(hash.as_str()) {
+        return Ok(Some((hash, target.clone())));
+    }
+
+    Ok(None)
+}
 
 /// The FileScanner is the public interface into the module handling any static file scanning type capability.
 /// This struct is public for visibility from lib.rs the core of um_engine, but it not intended to be accessed from the
@@ -147,82 +209,7 @@ impl FileScanner {
         target: &PathBuf,
         files_scanned: &Arc<Mutex<u32>>,
     ) -> Result<Option<(String, PathBuf)>, std::io::Error> {
-        //
-        // In order to not read the whole file into memory (would be bad if the file size is > the amount of RAM available)
-        // I've decided to loop over an array of 1024 bytes at at time until the end of the file, and use the hashing crate sha2
-        // to update the hash values, this should produce the hash without requiring the whole file read into memory.
-        //
-
-        let file = File::open(target)?;
-        let mut reader = BufReader::new(&file);
-
-        let hash = {
-            let mut hasher = Md5::new();
-
-            //
-            // We are going to put the file data as bytes onto the heap to prevent a stack buffer overrun, and in doing so
-            // we don't want to consume all the available memory. Therefore, we will limit the maximum heap allocation to
-            // 50 mb per file. If the file is of a size less than this, we will only heap allocate the amount of size needed
-            // otherwise, we will heap allocate 50 mb.
-            //
-
-            const MAX_HEAP_SIZE: usize = 50000000; // 50 mb
-
-            let alloc_size: usize = if let Ok(f) = file.metadata() {
-                let file_size = f.file_size() as usize;
-
-                if file_size < MAX_HEAP_SIZE {
-                    // less than 50 mb
-                    file_size
-                } else {
-                    MAX_HEAP_SIZE
-                }
-            } else {
-                // if there was an error getting the metadata, default to the max size
-                MAX_HEAP_SIZE
-            };
-
-            let mut buf = vec![0u8; alloc_size];
-
-            // let mut buf = vec![0u8; alloc_size];
-
-            //
-            // ingest the file and update hash value per chunk(if chunking)
-            //
-            loop {
-                //
-                // This is a sensible place to check whether the user has cancelled the scan, anything before this is likely
-                // too short a time period to have the user stop the scan.
-                //
-                if self.get_state() == FileScannerState::Cancelled {
-                    return Ok(None);
-                }
-
-                let count = reader.read(&mut buf)?;
-                if count == 0 {
-                    break;
-                }
-                hasher.update(&buf[..count]);
-            }
-
-            hasher.finalize()
-        };
-        let hash: String = hash.iter().map(|byte| format!("{:02X}", byte)).collect();
-
-        // increment the number of files scanned
-        {
-            let mut files_scanned = files_scanned.lock().unwrap();
-            *files_scanned += 1;
-        }
-
-        // check the BTreeSet
-        if self.iocs.contains(hash.as_str()) {
-            // if we have a match on the malware..
-            return Ok(Some((hash, target.clone())));
-        }
-
-        // No malware found
-        Ok(None)
+        scan_path_against_hashes(&self.iocs, &self.state, target, files_scanned)
     }
 
     /// Public API entry point, scans from a root folder including all children, this can be used on a small
@@ -300,6 +287,7 @@ impl FileScanner {
                         return Ok(FileScannerState::Finished);
                     }
 
+                    *stop_clock.lock().unwrap() = true;
                     return Ok(FileScannerState::Finished);
                 }
                 Err(e) => {
@@ -315,73 +303,117 @@ impl FileScanner {
             }
         }
 
-        // otherwise, we are a directory so start this off
-        while !discovered_dirs.is_empty() {
-            // pop a directory
-            let target = discovered_dirs.pop();
-            if target.is_none() {
-                continue;
+        // otherwise, we are a directory so start this off with a bounded worker pool.
+        // One producer walks directories; multiple workers hash files in parallel.
+        let worker_count = parallel_scan_worker_count();
+        let (file_tx, file_rx) = mpsc::sync_channel::<PathBuf>(PARALLEL_SCAN_QUEUE_BOUND);
+        let file_rx = Arc::new(Mutex::new(file_rx));
+        let worker_errors = Arc::new(Mutex::new(Vec::<String>::new()));
+
+        thread::scope(|scope| {
+            for worker_id in 0..worker_count {
+                let file_rx = Arc::clone(&file_rx);
+                let files_scanned = Arc::clone(&files_scanned_for_scanner);
+                let scanning_info = Arc::clone(&self.scanning_info);
+                let state = Arc::clone(&self.state);
+                let worker_errors = Arc::clone(&worker_errors);
+                let iocs = &self.iocs;
+
+                scope.spawn(move || loop {
+                    let path = match file_rx.lock().unwrap().recv() {
+                        Ok(path) => path,
+                        Err(_) => break,
+                    };
+
+                    if state_is_cancelled(&state) {
+                        break;
+                    }
+
+                    match scan_path_against_hashes(iocs, &state, &path, &files_scanned) {
+                        Ok(Some((hash, file))) => {
+                            let mut lock = scanning_info.lock().unwrap();
+                            lock.scan_results.push(MatchedIOC { hash, file });
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            let mut errors = worker_errors.lock().unwrap();
+                            if errors.len() < 64 {
+                                errors.push(format!(
+                                    "worker {} failed to scan {}: {}",
+                                    worker_id,
+                                    path.display(),
+                                    e
+                                ));
+                            }
+                        }
+                    }
+                });
             }
 
-            // attempt to read the directory, if we don't have permission, continue to next item.
-            let read_dir = fs::read_dir(target.unwrap());
-            if read_dir.is_err() {
-                continue;
-            }
+            while !discovered_dirs.is_empty() {
+                if state_is_cancelled(&self.state) {
+                    break;
+                }
 
-            for entry in read_dir.unwrap() {
-                let entry = match entry {
-                    Ok(b) => b,
+                let Some(target) = discovered_dirs.pop() else {
+                    continue;
+                };
+
+                let read_dir = match fs::read_dir(&target) {
+                    Ok(read_dir) => read_dir,
                     Err(e) => {
-                        self.log
-                            .log(LogLevel::Warning, &format!("[-] Error with entry, e: {e}"));
+                        self.log.log(
+                            LogLevel::Warning,
+                            &format!("[-] Error reading directory {}: {e}", target.display()),
+                        );
                         continue;
                     }
                 };
 
-                // check whether the scan is cancelled
-                {
-                    let lock = self.state.lock().unwrap();
-                    if *lock == FileScannerState::Cancelled {
-                        // todo update the error type of this fn to something more flexible
-                        *stop_clock.lock().unwrap() = true;
-                        return Err(io::Error::new(
-                            io::ErrorKind::Uncategorized,
-                            "User cancelled scan.",
-                        ));
+                for entry in read_dir {
+                    if state_is_cancelled(&self.state) {
+                        break;
                     }
-                }
 
-                let path = entry.path();
-
-                // todo some profiling here to see where the slowdowns are and if it can be improved
-                // i suspect large file size ingests is causing the difference in speed as it reads it
-                // into a buffer.
-
-                // add the folder to the next iteration
-                if path.is_dir() {
-                    discovered_dirs.push(path);
-                    continue; // keep searching for a file
-                }
-
-                //
-                // Check the file against the hashes, we are only interested in positive matches at this stage
-                //
-                match self.scan_file_against_hashes(&path, &files_scanned_for_scanner) {
-                    Ok(v) => {
-                        if let Some(v) = v {
-                            let mut lock = self.scanning_info.lock().unwrap();
-                            lock.scan_results.push(MatchedIOC {
-                                hash: v.0,
-                                file: v.1,
-                            });
+                    let entry = match entry {
+                        Ok(entry) => entry,
+                        Err(e) => {
+                            self.log
+                                .log(LogLevel::Warning, &format!("[-] Error with entry, e: {e}"));
+                            continue;
                         }
+                    };
+
+                    let path = entry.path();
+                    if path.is_dir() {
+                        discovered_dirs.push(path);
+                        continue;
                     }
-                    Err(e) => self
-                        .log
-                        .log(LogLevel::Warning, &format!("[-] Error scanning: {e}")),
+
+                    if let Err(e) = file_tx.send(path) {
+                        self.log.log(
+                            LogLevel::Warning,
+                            &format!("[-] File scan worker queue closed: {e}"),
+                        );
+                        break;
+                    }
                 }
             }
+
+            drop(file_tx);
+        });
+
+        for error in worker_errors.lock().unwrap().iter() {
+            self.log
+                .log(LogLevel::Warning, &format!("[-] Error scanning: {error}"));
+        }
+
+        if state_is_cancelled(&self.state) {
+            *stop_clock.lock().unwrap() = true;
+            return Err(io::Error::new(
+                io::ErrorKind::Uncategorized,
+                "User cancelled scan.",
+            ));
         }
 
         *stop_clock.lock().unwrap() = true;

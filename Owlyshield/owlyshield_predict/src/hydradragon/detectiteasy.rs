@@ -73,6 +73,7 @@ pub struct DetectItEasyScanResult {
     pub is_compiled_autohotkey: bool,
 
     // Archives
+    pub is_archive: bool,
     pub is_7z: bool,
     pub is_asar: bool,
     pub is_microsoft_compound: bool,
@@ -238,6 +239,7 @@ impl DetectItEasyScanner {
             is_clickteam: false,
             is_autoit: false,
             is_compiled_autohotkey: false,
+            is_archive: false,
             is_7z: false,
             is_asar: false,
             is_microsoft_compound: false,
@@ -356,6 +358,7 @@ impl DetectItEasyScanner {
             is_compiled_autohotkey: self.is_compiled_autohotkey(die_output),
 
             // Archives
+            is_archive: self.is_archive(die_output),
             is_7z: self.is_7z(die_output),
             is_asar: self.is_asar(die_output),
             is_microsoft_compound: self.is_microsoft_compound(die_output),
@@ -455,6 +458,10 @@ impl DetectItEasyScanner {
         die_output.contains("Packer: npm")
             && die_output.contains("Language: JavaScript")
             && (die_output.contains("PE32") || die_output.contains("PE64"))
+    }
+
+    pub fn is_archive(&self, die_output: &str) -> bool {
+        die_output.lines().any(|line| line.trim_start().starts_with("Archive:"))
     }
 
     pub fn is_asar(&self, die_output: &str) -> bool {
@@ -970,5 +977,8 @@ mod tests {
 
         // Test unknown
         assert!(scanner.is_file_fully_unknown("Binary\nUnknown: Unknown"));
+
+        // Test generic archive detection
+        assert!(scanner.is_archive("Binary\nArchive: Zip archive data"));
     }
 }

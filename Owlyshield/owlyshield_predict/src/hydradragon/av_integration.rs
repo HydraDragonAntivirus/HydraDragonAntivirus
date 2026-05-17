@@ -167,6 +167,151 @@ fn default_scan_mode() -> String {
     "minimal".to_string()
 }
 
+
+#[derive(Debug, Clone)]
+struct ScanMetadata {
+    signature_status: Option<FileSignatureStatus>,
+    yara_x_matches: Vec<String>,
+    is_vmprotect: bool,
+    detectiteasy_scan_result: Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+    should_queue_scan: bool,
+}
+
+impl ScanMetadata {
+    fn new() -> Self {
+        ScanMetadata {
+            signature_status: None,
+            yara_x_matches: Vec::new(),
+            is_vmprotect: false,
+            detectiteasy_scan_result: None,
+            should_queue_scan: true,
+        }
+    }
+}
+
+fn is_deep_scan_mode(scan_mode: &str) -> bool {
+    scan_mode.trim().eq_ignore_ascii_case("deep")
+}
+
+fn signature_status_is_suspicious(status: &Option<FileSignatureStatus>) -> bool {
+    status.as_ref().is_some_and(|s| {
+        s.invalid_signature || s.signature_status_issues || s.verification_failed
+    })
+}
+
+fn metadata_is_suspicious(
+    signature_status: &Option<FileSignatureStatus>,
+    yara_x_matches: &[String],
+    is_vmprotect: bool,
+) -> bool {
+    is_vmprotect || !yara_x_matches.is_empty() || signature_status_is_suspicious(signature_status)
+}
+
+fn should_skip_die_scan(scan_target: &Path) -> bool {
+    use crate::hydradragon::detectiteasy::is_plain_text_file;
+
+    is_plain_text_file(scan_target).unwrap_or(false)
+}
+
+fn run_detectiteasy_metadata_scan(
+    file_path: &str,
+    scan_target: &Path,
+) -> Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult> {
+    if should_skip_die_scan(scan_target) {
+        Logging::debug(&format!(
+            "[DetectItEasy] Skipping DIE metadata scan for plain-text file: {}",
+            file_path
+        ));
+        return None;
+    }
+
+    use crate::hydradragon::detectiteasy::DetectItEasyScanner;
+
+    let scanner = DetectItEasyScanner::new();
+    Some(match scanner.scan_file(scan_target) {
+        Ok(result) => result,
+        Err(error) => {
+            Logging::warning(&format!(
+                "[DetectItEasy] Scan failed for {}: {}",
+                file_path, error
+            ));
+            DetectItEasyScanner::error_result(scan_target, error)
+        }
+    })
+}
+
+fn die_result_is_fully_unknown(
+    result: &Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+) -> bool {
+    result.as_ref().is_some_and(|r| r.scan_ok && r.is_unknown)
+}
+
+fn die_result_has_supported_deep_scan_type(
+    result: &Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+) -> bool {
+    let Some(result) = result.as_ref() else {
+        return false;
+    };
+
+    if !result.scan_ok || result.is_plain_text || result.is_unknown {
+        return false;
+    }
+
+    result.is_pe
+        || result.is_elf
+        || result.is_macho
+        || result.is_apk
+        || result.is_broken_executable
+        || result.pe_result.is_some()
+        || result.elf_result.is_some()
+        || result.macho_result.is_some()
+        || result.apk_result.is_some()
+        || result.file_type.is_some()
+        || result.is_protected
+        || result.protector_name.is_some()
+        || result.is_themida
+        || result.themida_type.is_some()
+        || result.is_vmprotect
+        || result.is_packed
+        || result.packer_name.is_some()
+        || result.packer_type.is_some()
+        || result.is_upx
+        || result.is_pyinstaller
+        || result.is_nuitka
+        || result.nuitka_type.is_some()
+        || result.is_cx_freeze
+        || result.is_nexe
+        || result.is_npm
+        || result.is_dotnet
+        || result.dotnet_type.is_some()
+        || result.is_go_garble
+        || result.is_pyc
+        || result.is_pyarmor_archive
+        || result.is_jar
+        || result.is_java_class
+        || result.is_jsc.is_some()
+        || result.is_inno_setup
+        || result.is_nsis
+        || result.is_advanced_installer
+        || result.is_installshield
+        || result.is_clickteam
+        || result.is_autoit
+        || result.is_compiled_autohotkey
+        || result.is_archive
+        || result.is_7z
+        || result.is_asar
+        || result.is_microsoft_compound
+        || result.is_enigma_virtual_box
+}
+
+fn die_result_is_unsupported_for_deep_scan(
+    result: &Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+) -> bool {
+    result
+        .as_ref()
+        .is_some_and(|r| r.scan_ok && !die_result_has_supported_deep_scan_type(result))
+}
+
 /// AV scan response (sent to EDR as a threat event)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AVScanResponse {
@@ -1272,8 +1417,10 @@ impl<'a> AVIntegration<'a> {
             return;
         }
 
-        let (signature_status, yara_x_matches, is_vmprotect, detectiteasy_scan_result) =
-            self.collect_scan_metadata(&file_path, &scan_target);
+        let metadata = self.collect_scan_metadata(&file_path, &scan_target, "minimal");
+        if !metadata.should_queue_scan {
+            return;
+        }
 
         let request = EDRScanRequest {
             event_type: "NEW_IO_EVENT".to_string(),
@@ -1281,12 +1428,12 @@ impl<'a> AVIntegration<'a> {
             timestamp: Utc::now().to_rfc3339(),
             pid: Some(iomsg.pid),
             additional_context: Some(format!("Event triggered by GID: {}", precord.gid)),
-            signature_status,
-            yara_x_matches: Some(yara_x_matches),
-            is_vmprotect,
+            signature_status: metadata.signature_status,
+            yara_x_matches: Some(metadata.yara_x_matches),
+            is_vmprotect: metadata.is_vmprotect,
             deep_scan: false,
             scan_mode: "minimal".to_string(),
-            detectiteasy_scan_result,
+            detectiteasy_scan_result: metadata.detectiteasy_scan_result,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -1308,8 +1455,10 @@ impl<'a> AVIntegration<'a> {
             return;
         }
 
-        let (signature_status, yara_x_matches, is_vmprotect, detectiteasy_scan_result) =
-            self.collect_scan_metadata(&file_path_string, file_path);
+        let metadata = self.collect_scan_metadata(&file_path_string, file_path, "deep");
+        if !metadata.should_queue_scan {
+            return;
+        }
 
         let request = EDRScanRequest {
             event_type: "SANCTUM_DEEP_SCAN_REQUEST".to_string(),
@@ -1317,12 +1466,12 @@ impl<'a> AVIntegration<'a> {
             timestamp: Utc::now().to_rfc3339(),
             pid,
             additional_context,
-            signature_status,
-            yara_x_matches: Some(yara_x_matches),
-            is_vmprotect,
+            signature_status: metadata.signature_status,
+            yara_x_matches: Some(metadata.yara_x_matches),
+            is_vmprotect: metadata.is_vmprotect,
             deep_scan: true,
             scan_mode: "deep".to_string(),
-            detectiteasy_scan_result,
+            detectiteasy_scan_result: metadata.detectiteasy_scan_result,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -1345,8 +1494,11 @@ impl<'a> AVIntegration<'a> {
             return;
         }
 
-        let (signature_status, yara_x_matches, is_vmprotect, detectiteasy_scan_result) =
-            self.collect_scan_metadata(&file_path_string, file_path);
+        let normalized_scan_mode = if is_deep_scan_mode(scan_mode) { "deep" } else { "minimal" };
+        let metadata = self.collect_scan_metadata(&file_path_string, file_path, normalized_scan_mode);
+        if !metadata.should_queue_scan {
+            return;
+        }
 
         let request = EDRScanRequest {
             event_type: "MANUAL_SCAN_REQUEST".to_string(),
@@ -1354,12 +1506,12 @@ impl<'a> AVIntegration<'a> {
             timestamp: Utc::now().to_rfc3339(),
             pid,
             additional_context,
-            signature_status,
-            yara_x_matches: Some(yara_x_matches),
-            is_vmprotect,
-            deep_scan: scan_mode == "deep",
-            scan_mode: scan_mode.to_string(),
-            detectiteasy_scan_result,
+            signature_status: metadata.signature_status,
+            yara_x_matches: Some(metadata.yara_x_matches),
+            is_vmprotect: metadata.is_vmprotect,
+            deep_scan: normalized_scan_mode == "deep",
+            scan_mode: normalized_scan_mode.to_string(),
+            detectiteasy_scan_result: metadata.detectiteasy_scan_result,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -1371,16 +1523,38 @@ impl<'a> AVIntegration<'a> {
         &mut self,
         file_path: &str,
         scan_target: &Path,
-    ) -> (
-        Option<FileSignatureStatus>,
-        Vec<String>,
-        bool,
-        Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
-    ) {
-        let signature_status = self.get_or_compute_signature_status(file_path, scan_target);
+        scan_mode: &str,
+    ) -> ScanMetadata {
+        let mut metadata = ScanMetadata::new();
+        let deep_mode = is_deep_scan_mode(scan_mode);
 
-        let mut yara_x_matches = Vec::new();
-        let mut is_vmprotect = false;
+        // Deep mode uses DIE as an early metadata/type gate. Python deep scan is
+        // only useful for the known file families we parse from DIE output. If
+        // DIE says the file is fully unknown, or it is a parsed binary/archive
+        // with no supported HydraDragon type flags, do not queue deep scan.
+        // Plain-text files never run DIE; they continue without this gate.
+        if deep_mode && !should_skip_die_scan(scan_target) {
+            metadata.detectiteasy_scan_result = run_detectiteasy_metadata_scan(file_path, scan_target);
+            if die_result_is_fully_unknown(&metadata.detectiteasy_scan_result) {
+                Logging::debug(&format!(
+                    "[DetectItEasy] Deep scan gate skipped fully unknown DIE result: {}",
+                    file_path
+                ));
+                metadata.should_queue_scan = false;
+                return metadata;
+            }
+
+            if die_result_is_unsupported_for_deep_scan(&metadata.detectiteasy_scan_result) {
+                Logging::debug(&format!(
+                    "[DetectItEasy] Deep scan gate skipped unsupported DIE type: {}",
+                    file_path
+                ));
+                metadata.should_queue_scan = false;
+                return metadata;
+            }
+        }
+
+        metadata.signature_status = self.get_or_compute_signature_status(file_path, scan_target);
 
         if let Some(rules) = &self.yara_rules {
             if let Ok(data) = std::fs::read(scan_target) {
@@ -1391,39 +1565,39 @@ impl<'a> AVIntegration<'a> {
                         let id_lower = id.to_lowercase();
 
                         if id_lower.contains("vmprotect") {
-                            is_vmprotect = true;
+                            metadata.is_vmprotect = true;
                         }
 
                         if !self.excluded_yara_rules.contains(&id) {
-                            yara_x_matches.push(id.clone());
+                            metadata.yara_x_matches.push(id.clone());
                         }
                     }
                 }
             }
         }
 
-        let detectiteasy_scan_result = {
-            use crate::hydradragon::detectiteasy::DetectItEasyScanner;
+        // Minimal mode stays fast: do not run DIE unless another detector already
+        // produced a suspicious signal. Also, unknown DIE output is not forwarded
+        // in minimal mode, so "unknown" cannot become a malware verdict.
+        if !deep_mode
+            && metadata_is_suspicious(
+                &metadata.signature_status,
+                &metadata.yara_x_matches,
+                metadata.is_vmprotect,
+            )
+        {
+            let die_result = run_detectiteasy_metadata_scan(file_path, scan_target);
+            if die_result_is_fully_unknown(&die_result) {
+                Logging::debug(&format!(
+                    "[DetectItEasy] Minimal scan ignored fully unknown DIE result: {}",
+                    file_path
+                ));
+            } else {
+                metadata.detectiteasy_scan_result = die_result;
+            }
+        }
 
-            let scanner = DetectItEasyScanner::new();
-            Some(match scanner.scan_file(scan_target) {
-                Ok(result) => result,
-                Err(error) => {
-                    Logging::warning(&format!(
-                        "[DetectItEasy] Scan failed for {}: {}",
-                        file_path, error
-                    ));
-                    DetectItEasyScanner::error_result(scan_target, error)
-                }
-            })
-        };
-
-        (
-            signature_status,
-            yara_x_matches,
-            is_vmprotect,
-            detectiteasy_scan_result,
-        )
+        metadata
     }
 
     fn get_or_compute_signature_status(
