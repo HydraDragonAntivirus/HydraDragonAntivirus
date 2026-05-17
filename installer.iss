@@ -191,7 +191,8 @@ const
     '  2. DISABLE Windows Test Signing mode (testsigning off).'#13#10 +
     '  3. RE-ENABLE Windows Hypervisor, VBS, and HVCI security stack.'#13#10 +
     '  4. Remove driver registrations and INF files (best-effort).'#13#10 +
-    '  5. Schedule a deep-cleanup script for Safe Mode.'#13#10#13#10 +
+    '  5. Remove HydraDragon firewall rules and firewall CA certificates.'#13#10 +
+    '  6. Schedule a deep-cleanup script for Safe Mode.'#13#10#13#10 +
     'IMPORTANT: Full removal of protected kernel drivers requires SAFE MODE.'#13#10 +
     'The following drivers CANNOT be deleted while Windows is running:'#13#10 +
     '  - OwlyshieldRansomFilter, MBRFilter, SimplePYASProtection'#13#10 +
@@ -250,6 +251,48 @@ end;
 procedure RemoveDriverInf(const InfName: String);
 begin
   ExecSilent(ExpandConstant('{sys}\pnputil.exe'), '/delete-driver "' + InfName + '" /uninstall /force');
+end;
+
+procedure RemoveFirewallAndCertificates(const AppDir: String);
+var
+  ScriptPath, Script: String;
+begin
+  ScriptPath := ExpandConstant('{tmp}') + '\HydraDragonFirewallCertificateCleanup.ps1';
+  Script :=
+    '$ErrorActionPreference = "SilentlyContinue"' + #13#10 +
+    '$appDir = "' + AppDir + '"' + #13#10 +
+    '$programPrefixes = @($appDir, (Join-Path $appDir "hydradragon"), (Join-Path $appDir "hydradragon\HydraDragonFirewall"))' + #13#10 +
+    '$namePatterns = @("*HydraDragon*", "*HydraDragon Firewall*", "*Owlyshield*", "*Sanctum*", "*OpenEDR*")' + #13#10 +
+    'foreach ($pattern in $namePatterns) {' + #13#10 +
+    '  Get-NetFirewallRule -DisplayName $pattern | Remove-NetFirewallRule' + #13#10 +
+    '}' + #13#10 +
+    'Get-NetFirewallApplicationFilter | Where-Object {' + #13#10 +
+    '  $program = $_.Program' + #13#10 +
+    '  $program -and ($programPrefixes | Where-Object { $program.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) })' + #13#10 +
+    '} | ForEach-Object {' + #13#10 +
+    '  Get-NetFirewallRule -AssociatedNetFirewallApplicationFilter $_ | Remove-NetFirewallRule' + #13#10 +
+    '}' + #13#10 +
+    '$subjects = @("HydraDragon Firewall CA")' + #13#10 +
+    '$stores = @("Cert:\LocalMachine\Root", "Cert:\CurrentUser\Root", "Cert:\LocalMachine\CA", "Cert:\CurrentUser\CA", "Cert:\LocalMachine\TrustedPublisher", "Cert:\CurrentUser\TrustedPublisher", "Cert:\LocalMachine\My", "Cert:\CurrentUser\My")' + #13#10 +
+    'foreach ($store in $stores) {' + #13#10 +
+    '  foreach ($subject in $subjects) {' + #13#10 +
+    '    Get-ChildItem -Path $store | Where-Object { $_.Subject -like "*$subject*" } | Remove-Item -Force' + #13#10 +
+    '  }' + #13#10 +
+    '}' + #13#10 +
+    '$firewallCertFiles = @((Join-Path $appDir "hydradragon\HydraDragonFirewall\hydradragon_ca.der"), (Join-Path $appDir "hydradragon\HydraDragonFirewall\hydradragon_ca.key.der"))' + #13#10 +
+    'foreach ($certFile in $firewallCertFiles) { Remove-Item -LiteralPath $certFile -Force }' + #13#10 +
+    '$firefoxPolicyRoots = @("HKCU:\Software\Policies\Mozilla\Firefox\Certificates", "HKLM:\Software\Policies\Mozilla\Firefox\Certificates")' + #13#10 +
+    'foreach ($policyRoot in $firefoxPolicyRoots) {' + #13#10 +
+    '  Remove-ItemProperty -Path $policyRoot -Name "ImportEnterpriseRoots"' + #13#10 +
+    '  Remove-Item -Path (Join-Path $policyRoot "Install") -Recurse -Force' + #13#10 +
+    '}' + #13#10 +
+    '$internetSettings = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"' + #13#10 +
+    'Set-ItemProperty -Path $internetSettings -Name "ProxyEnable" -Value 0' + #13#10 +
+    'Remove-ItemProperty -Path $internetSettings -Name "ProxyServer", "ProxyOverride"' + #13#10;
+
+  SaveStringToFile(ScriptPath, Script, False);
+  ExecSilent(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ScriptPath + '"');
+  DeleteFile(ScriptPath);
 end;
 
 procedure ScheduleSafeModeCleanup(const AppDir: String);
@@ -384,6 +427,8 @@ begin
     RemoveDriverInf('SimplePYASProtection.inf');
     RemoveDriverInf('RedDbgDrv.inf');
     RemoveDriverInf('hyperhv.inf');
+
+    RemoveFirewallAndCertificates(AppDir);
 
     ExecSilent('schtasks.exe', '/delete /tn "HydraDragonAntivirus" /f');
 
