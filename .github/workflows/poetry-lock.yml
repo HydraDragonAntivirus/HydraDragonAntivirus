@@ -13,11 +13,12 @@ on:
       - "**"
     paths:
       - "pyproject.toml"
+      - "poetry.lock"
       - ".github/workflows/poetry-lock.yml"
 
 jobs:
   rebuild-lock:
-    runs-on: windows-latest
+    runs-on: windows-2022
     defaults:
       run:
         shell: bash
@@ -56,15 +57,15 @@ jobs:
             poetry.lock
 
       - name: Create pull request for lockfile changes
-        if: github.ref_name != github.event.repository.default_branch && steps.check_changes.outputs.changed == 'true'
+        if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "Rebuild poetry.lock (auto)"
           author: "github-actions <41898282+github-actions[bot]@users.noreply.github.com>"
           committer: "github-actions <41898282+github-actions[bot]@users.noreply.github.com>"
-          branch: "${{ github.ref_name }}"
+          branch: "automation/rebuild-poetry-lock"
           base: "${{ github.event.repository.default_branch }}"
-          delete-branch: false
+          delete-branch: true
           title: "Rebuild poetry.lock"
           body: |
             This PR regenerates `poetry.lock` automatically after changes to `pyproject.toml`
