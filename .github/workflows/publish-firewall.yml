@@ -6,6 +6,7 @@ on:
     paths:
       - 'HydraDragonFirewall/hydradragon-shared/**'
       - 'HydraDragonFirewall/hydradragonfirewall/**'
+      - 'HydraDragonFirewall/http-mitm-proxy/**'
       - '.github/workflows/publish-firewall.yml'
   workflow_dispatch:
 
@@ -46,6 +47,8 @@ jobs:
           cargo generate-lockfile --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml
           cargo update --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml
           # Then update dependent crates
+          cargo generate-lockfile --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml
           cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml
           cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml
           
@@ -73,6 +76,7 @@ jobs:
           paths: |
             hydradragon/HydraDragonFirewall
             HydraDragonFirewall/hydradragon-shared/Cargo.lock
+            HydraDragonFirewall/http-mitm-proxy/Cargo.lock
             HydraDragonFirewall/hydradragonfirewall/Cargo.lock
             HydraDragonFirewall/hydradragonfirewall/ui/Cargo.lock
       
