@@ -7,9 +7,10 @@ use crate::logging::Logging;
 use goblin::Object;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use zip::ZipArchive;
 
 /// Complete DetectItEasy scan result with all detections
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -809,17 +810,51 @@ fn mark_broken_executable_magic(data: &[u8], validation: &mut BinaryFormatValida
 }
 
 fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
-    if data.len() < 4 || &data[0..2] != b"PK" {
+    let has_zip_magic = looks_like_zip(data);
+    let has_apk_marker = contains_bytes(data, b"AndroidManifest.xml")
+        || contains_bytes(data, b"classes.dex")
+        || contains_bytes(data, b"classes2.dex");
+
+    if !has_zip_magic && !has_apk_marker {
         return FormatValidation::NotDetected;
     }
-    if !contains_bytes(data, b"AndroidManifest.xml") && !contains_bytes(data, b"classes.dex") {
-        return FormatValidation::NotDetected;
+
+    let cursor = Cursor::new(data);
+    let Ok(mut archive) = ZipArchive::new(cursor) else {
+        return if has_apk_marker {
+            FormatValidation::Broken
+        } else {
+            FormatValidation::NotDetected
+        };
+    };
+
+    let mut has_android_manifest = false;
+    let mut has_dex = false;
+
+    for index in 0..archive.len() {
+        let Ok(file) = archive.by_index(index) else {
+            return FormatValidation::Broken;
+        };
+
+        let name = file.name();
+        if name == "AndroidManifest.xml" {
+            has_android_manifest = true;
+        } else if name == "classes.dex"
+            || (name.starts_with("classes") && name.ends_with(".dex"))
+        {
+            has_dex = true;
+        }
     }
-    if !contains_bytes(data, b"PK\x05\x06") {
+
+    if has_android_manifest {
+        return FormatValidation::Valid;
+    }
+
+    if has_apk_marker || has_dex {
         return FormatValidation::Broken;
     }
 
-    FormatValidation::Valid
+    FormatValidation::NotDetected
 }
 
 fn pe_file_type(data: &[u8]) -> Option<String> {
@@ -874,6 +909,14 @@ fn has_macho_magic(data: &[u8]) -> bool {
             | 0xcafebabf
             | 0xbfbafeca
     )
+}
+
+fn looks_like_zip(data: &[u8]) -> bool {
+    data.len() >= 4
+        && (data.starts_with(b"PK\x03\x04")
+            || data.starts_with(b"PK\x05\x06")
+            || data.starts_with(b"PK\x07\x08")
+            || contains_bytes(data, b"PK\x05\x06"))
 }
 
 fn read_u16_le(data: &[u8], offset: usize) -> Option<u16> {
