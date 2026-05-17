@@ -103,7 +103,7 @@ where
                 let service = service.clone();
 
                 let proxy = proxy.clone();
-                tokio::spawn(Self::serve_explicit_proxy_connection(
+                tokio::spawn(Self::serve_standard_proxy_connection(
                     proxy,
                     service,
                     stream,
@@ -113,10 +113,10 @@ where
         })
     }
 
-    /// Bind to a socket and accept both explicit HTTP proxy connections and
+    /// Bind to a socket and accept both standard HTTP proxy connections and
     /// transparent TLS connections redirected to this listener.
     ///
-    /// Explicit proxy clients send HTTP/CONNECT first. Transparent TLS clients
+    /// Standard proxy clients send HTTP/CONNECT first. Transparent TLS clients
     /// send a TLS ClientHello first; for those we peek SNI, generate a forged
     /// certificate for that host, terminate TLS, and forward decrypted HTTP to
     /// the wrapped service.
@@ -161,7 +161,7 @@ where
                             .await;
                         }
                         None => {
-                            Self::serve_explicit_proxy_connection(
+                            Self::serve_standard_proxy_connection(
                                 proxy,
                                 service,
                                 stream,
@@ -175,7 +175,7 @@ where
         })
     }
 
-    async fn serve_explicit_proxy_connection<S>(
+    async fn serve_standard_proxy_connection<S>(
         proxy: Arc<Self>,
         service: S,
         stream: TcpStream,

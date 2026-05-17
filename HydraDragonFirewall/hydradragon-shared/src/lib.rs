@@ -61,7 +61,7 @@ fn default_handshake_timeout_ms() -> u64 {
 pub enum TlsInspectionMode {
     /// Only capture TLS metadata (SNI, certificates) without decryption
     MetadataOnly,
-    /// Explicit local TLS proxy with decryption via the Windows proxy settings.
+    /// Transparent TLS Proxy/Inspector with decryption via the transparent network layers.
     TlsProxy,
 }
 
@@ -87,7 +87,7 @@ pub struct TlsProxyConfig {
     pub auto_start: bool,
     #[serde(default)]
     pub bypass_hosts: Vec<String>,
-    /// Whether user has consented to certificate installation for explicit TLS proxy interception.
+    /// Whether user has consented to certificate installation for transparent TLS proxy interception.
     /// If false, certificates will not be automatically installed.
     #[serde(default = "default_cert_install_consent")]
     pub cert_install_consent: bool,
