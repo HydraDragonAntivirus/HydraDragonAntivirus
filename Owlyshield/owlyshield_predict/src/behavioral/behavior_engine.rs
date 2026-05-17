@@ -6814,9 +6814,9 @@ impl BehaviorEngine {
                                 && matches!(current_file_op, Some("create") | Some("write"))
                             {
                                 if current_file_op == Some("create") {
-                                    state.created_unknown_ext_stems.insert(filepath.clone());
+                                    state.created_unknown_ext_stems.insert(filepath.to_string());
                                 } else {
-                                    state.written_unknown_ext_stems.insert(filepath.clone());
+                                    state.written_unknown_ext_stems.insert(filepath.to_string());
                                 }
                             }
                             Logging::info(&format!(
