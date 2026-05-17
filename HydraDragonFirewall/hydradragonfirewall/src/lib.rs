@@ -701,11 +701,11 @@ async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRu
             if settings.tls_proxy.mode == hydradragon_shared::TlsInspectionMode::TlsProxy
                 && settings.tls_proxy.auto_start
             {
-                "Firewall Engine ACTIVE (MITM proxy managed)".to_string()
+                "Firewall Engine ACTIVE (explicit local TLS proxy managed)".to_string()
             } else if settings.tls_proxy.mode == hydradragon_shared::TlsInspectionMode::MetadataOnly {
                 "Firewall Engine ACTIVE (metadata-only TLS visibility)".to_string()
             } else {
-                "Firewall Engine ACTIVE (MITM proxy disabled)".to_string()
+                "Firewall Engine ACTIVE (explicit local TLS proxy disabled)".to_string()
             }
         } else {
             "Firewall Engine INACTIVE".to_string()

@@ -24,7 +24,7 @@ regex = "1.12"
 lazy_static = "1.4"
 glob = "0.3"
 crossbeam-channel = "0.5"
-http-mitm-proxy = "0.18.0"
+http-mitm-proxy = { path = "../http-mitm-proxy" }
 http-body-util = "0.1"
 bytes = "1"
 rcgen = "0.14.8"

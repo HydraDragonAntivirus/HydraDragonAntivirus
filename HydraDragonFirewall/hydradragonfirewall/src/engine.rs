@@ -274,9 +274,9 @@ pub struct PacketInfo {
     pub image_path: String,
     /// Detected file type from magic bytes (e.g. "exe", "zip", "pdf")
     pub detected_file_type: Option<String>,
-    /// Decrypted HTTP request body captured by the MITM proxy (UTF-8 text or hex)
+    /// Decrypted HTTP request body captured by the explicit local TLS proxy (UTF-8 text or hex)
     pub http_request_body: Option<String>,
-    /// Decrypted HTTP response body captured by the MITM proxy (UTF-8 text or hex)
+    /// Decrypted HTTP response body captured by the explicit local TLS proxy (UTF-8 text or hex)
     pub http_response_body: Option<String>,
 }
 
@@ -1444,26 +1444,6 @@ impl FirewallEngine {
         )
     }
 
-    fn proxy_override_string(tls_proxy: &TlsProxyConfig) -> String {
-        let mut overrides = vec![
-            "localhost".to_string(),
-            "127.0.0.1".to_string(),
-            "<local>".to_string(),
-        ];
-
-        for host in &tls_proxy.bypass_hosts {
-            if let Some(normalized) = Self::normalize_proxy_bypass_entry(host)
-                && !overrides
-                    .iter()
-                    .any(|existing| existing.eq_ignore_ascii_case(&normalized))
-            {
-                overrides.push(normalized);
-            }
-        }
-
-        overrides.join(";")
-    }
-
     fn clear_owned_windows_proxy(addr: &str) -> Result<bool, String> {
         #[cfg(target_os = "windows")]
         {
@@ -1527,32 +1507,18 @@ impl FirewallEngine {
 
         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
             let now = Self::now_ts();
-            match Self::set_windows_proxy(&tls_proxy_cfg) {
-                Ok(()) => emit_log_event(
-                    tx,
-                    LogEntry {
-                        id: format!("{}-proxy-bypass-added", now),
-                        timestamp: now,
-                        level: LogLevel::Info,
-                        message: format!(
-                            "MITM bypass added: {} will stay trusted without interception",
-                            normalized
-                        ),
-                    },
-                ),
-                Err(error) => emit_log_event(
-                    tx,
-                    LogEntry {
-                        id: format!("{}-proxy-bypass-add-failed", now),
-                        timestamp: now,
-                        level: LogLevel::Warning,
-                        message: format!(
-                            "MITM bypass saved for {} but Windows proxy override refresh failed: {}",
-                            normalized, error
-                        ),
-                    },
-                ),
-            }
+            emit_log_event(
+                tx,
+                LogEntry {
+                    id: format!("{}-proxy-bypass-added", now),
+                    timestamp: now,
+                    level: LogLevel::Info,
+                    message: format!(
+                        "TLS proxy bypass saved for {}; Windows proxy settings are left unchanged",
+                        normalized
+                    ),
+                },
+            );
         }
 
         true
@@ -1637,7 +1603,7 @@ impl FirewallEngine {
                 timestamp: now,
                 level: LogLevel::Warning,
                 message: format!(
-                    "Browser MITM warning likely for {} on {}: {}. The browser may show {} or a visible MITM/certificate attack warning until the proxy trust is accepted or the site is trusted without MITM. This may also trigger other antivirus or security products even if the interception is hidden.",
+                    "Browser HTTPS interception warning likely for {} on {}: {}. The browser may show {} or a visible TLS interception/certificate warning until the proxy trust is accepted or the site is trusted without TLS interception. This may also trigger other antivirus or security products even if the interception is hidden.",
                     browser_name,
                     target,
                     trust_text,
@@ -1657,7 +1623,7 @@ impl FirewallEngine {
                     protocol: Protocol::TCP,
                     hostname: hostname.map(|value| value.to_string()),
                     reason: Some(format!(
-                        "{} is rejecting or warning on HTTPS interception for {} because {}. This can be benign browser trust behavior or explicit anti-MITM logic. Choose ALLOW MITM to keep interception enabled, ALLOW MITM ONCE for a one-time retry, or NO MITM to bypass interception for this target.",
+                        "{} is rejecting or warning on HTTPS interception for {} because {}. This can be benign browser trust behavior or explicit anti-interception logic. Choose ALLOW TLS PROXY to keep interception enabled, ALLOW TLS PROXY ONCE for a one-time retry, or BYPASS TLS PROXY to bypass interception for this target.",
                         browser_name,
                         target,
                         trust_text
@@ -1814,7 +1780,7 @@ impl FirewallEngine {
             // BLOCK_EXE to be sent to owlyshield with a misleading reason and
             // resulting in the process being killed even though it was user-allowed.
             *reason = Some(
-                "TLS Proxy Mode: blocked QUIC (UDP/443); embedded proxy handles TCP only"
+                "Explicit local TLS proxy mode: blocked QUIC (UDP/443); the local proxy handles TCP only"
                     .to_string(),
             );
         }
@@ -1920,7 +1886,7 @@ impl FirewallEngine {
                     timestamp: now,
                     level: LogLevel::Warning,
                     message: format!(
-                        "Certificate installation requires user consent. MITM proxy will start but browsers will show certificate warnings until you grant consent in settings. Certificate location: '{}'",
+                        "Certificate installation requires user consent. The explicit local TLS proxy will start but browsers will show certificate warnings until you grant consent in settings. Certificate location: '{}'",
                         Self::proxy_ca_cert_path().display()
                     ),
                 },
@@ -1938,7 +1904,6 @@ impl FirewallEngine {
         let sdk = self.sdk.clone();
         let settings = self.settings.clone();
         let proxy_runtime = Arc::clone(&self.tls_proxy_backend_child);
-        let tls_proxy_cfg = tls_proxy.clone();
         tauri::async_runtime::spawn(crate::proxy::run_proxy(
             addr,
             ca_bundle.issuer,
@@ -1960,39 +1925,17 @@ impl FirewallEngine {
 
                 let now = Self::now_ts();
                 if listener_ready {
-                    match Self::set_windows_proxy(&tls_proxy_cfg) {
-                        Ok(()) => emit_log_event(
-                            &tx_ready,
-                            LogEntry {
-                                id: format!("{}-proxy-ready", now),
-                                timestamp: now,
-                                level: LogLevel::Success,
-                                message: format!(
-                                    "Embedded MITM proxy ready on {} - Windows proxy enabled",
-                                    addr_string
-                                ),
-                            },
-                        ),
-                        Err(e) => emit_log_event(
-                            &tx_ready,
-                            LogEntry {
-                                id: format!("{}-proxy-enable-failed", now),
-                                timestamp: now,
-                                level: LogLevel::Error,
-                                message: format!(
-                                    "Embedded MITM proxy listener started but Windows proxy could not be enabled: {}",
-                                    e
-                                ),
-                            },
-                        ),
-                    }
+                    let _ = Self::clear_owned_windows_proxy(&addr_string);
                     emit_log_event(
                         &tx_ready,
                         LogEntry {
-                            id: format!("{}-proxy-stealth-warning", now),
+                            id: format!("{}-proxy-ready", now),
                             timestamp: now,
-                            level: LogLevel::Warning,
-                            message: "Embedded MITM interception is active. Browsers may still surface a MITM/certificate attack warning, and other antivirus or security products may flag the interception even if it is hidden.".to_string(),
+                            level: LogLevel::Success,
+                            message: format!(
+                                "Explicit local TLS proxy ready on {}; Windows proxy settings left unchanged",
+                                addr_string
+                            ),
                         },
                     );
                 } else {
@@ -2004,7 +1947,7 @@ impl FirewallEngine {
                             timestamp: now,
                             level: LogLevel::Warning,
                             message: format!(
-                                "Embedded MITM proxy did not become ready on {} - Windows proxy was left disabled to avoid breaking internet access",
+                                "Explicit local TLS proxy did not become ready on {} - Windows proxy was left disabled to avoid breaking internet access",
                                 addr_string
                             ),
                         },
@@ -2031,27 +1974,7 @@ impl FirewallEngine {
         }
     }
 
-    /// Point the Windows system HTTP+HTTPS proxy to our embedded listener.
-    fn set_windows_proxy(tls_proxy: &TlsProxyConfig) -> Result<(), String> {
-        use winreg::RegKey;
-        use winreg::enums::*;
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-        let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
-        let addr = Self::proxy_addr_string(tls_proxy);
-        // `addr` is already "host:port" (e.g. "127.0.0.1:8877").
-        // Route both HTTP and HTTPS through the embedded MITM proxy so we can
-        // inspect both plaintext and TLS-intercepted traffic.
-        key.set_value("ProxyServer", &format!("http={};https={}", addr, addr))
-            .map_err(|e| e.to_string())?;
-        key.set_value("ProxyEnable", &1u32)
-            .map_err(|e| e.to_string())?;
-        key.set_value("ProxyOverride", &Self::proxy_override_string(tls_proxy))
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    /// Remove the system proxy settings we set on startup.
+    /// Remove stale HydraDragon system proxy settings from older runs.
     fn clear_windows_proxy() -> Result<(), String> {
         use winreg::RegKey;
         use winreg::enums::*;
@@ -2537,7 +2460,10 @@ foreach ($store in $stores) {
                     id: format!("{}-user-allow-no-mitm", now),
                     timestamp: now,
                     level: LogLevel::Success,
-                    message: format!("Trusted Without MITM: User decision for {}", decision_label),
+                    message: format!(
+                        "Trusted With TLS Proxy Bypass: User decision for {}",
+                        decision_label
+                    ),
                 },
             ),
             "allow_once" => emit_log_event(
@@ -4136,7 +4062,7 @@ impl FirewallEngine {
                         info.full_url.as_deref(),
                         Some(&web_match.target),
                     ) {
-                        "Website trusted without MITM"
+                        "Website trusted with TLS proxy bypass"
                     } else {
                         "Website trusted"
                     };

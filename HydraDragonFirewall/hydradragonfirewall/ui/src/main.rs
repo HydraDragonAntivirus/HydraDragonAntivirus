@@ -3760,7 +3760,7 @@ pub fn App() -> impl IntoView {
                                                                     });
                                                                 }
                                                             />
-                                                            "Enable embedded MITM/TLS proxy interception"
+                                                            "Enable explicit local TLS proxy interception"
                                                         </label>
                                                         <p style="margin: 0 0 10px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
                                                             "Turning this off keeps the firewall running but clears the Windows proxy and stops HTTPS interception."
@@ -3788,12 +3788,12 @@ pub fn App() -> impl IntoView {
                                                                 }
                                                             >
                                                                 <option value="metadata_only">"Metadata only"</option>
-                                                                <option value="tls_proxy">"Embedded MITM proxy"</option>
+                                                                <option value="tls_proxy">"Explicit Local TLS Proxy"</option>
                                                             </select>
                                                         </div>
                                                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 10px;">
                                                             <div class="input-group" style="margin: 0">
-                                                                <label>"MITM listen host"</label>
+                                                                <label>"TLS proxy listen host"</label>
                                                                 <input
                                                                     type="text"
                                                                     prop:value=move || settings.get().tls_proxy.listen_host.clone()
@@ -3805,7 +3805,7 @@ pub fn App() -> impl IntoView {
                                                                 />
                                                             </div>
                                                             <div class="input-group" style="margin: 0">
-                                                                <label>"MITM listen port"</label>
+                                                                <label>"TLS proxy listen port"</label>
                                                                 <input
                                                                     type="number"
                                                                     min="1"
@@ -3847,7 +3847,7 @@ pub fn App() -> impl IntoView {
                                                                     }
                                                                     disabled=move || settings.get().tls_proxy.mode != TlsInspectionMode::TlsProxy
                                                                 />
-                                                                "Block QUIC/UDP 443 while MITM proxy mode is active"
+                                                                "Block QUIC/UDP 443 while explicit TLS proxy mode is active"
                                                             </label>
                                                         </div>
                                                         <div class="input-group" style="padding: 14px; border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px; background: rgba(245, 158, 11, 0.08)">
@@ -3861,11 +3861,11 @@ pub fn App() -> impl IntoView {
                                                                     }
                                                                     disabled=move || settings.get().tls_proxy.mode != TlsInspectionMode::TlsProxy
                                                                 />
-                                                                <span style="font-weight: 600">"I consent to automatic certificate installation for MITM interception"</span>
+                                                                <span style="font-weight: 600">"I consent to automatic certificate installation for explicit TLS proxy interception"</span>
                                                             </label>
                                                             <p style="margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
                                                                 <strong style="color: var(--accent-orange)">"Security Notice: "</strong>
-                                                                "Enabling this allows HydraDragon to automatically install its root certificate into your system's trust store (Windows Root and Firefox). This enables HTTPS interception but also means the firewall can decrypt your encrypted traffic. Only enable if you understand and accept this. Without consent, browsers will show certificate warnings until you manually install the certificate or disable MITM mode."
+                                                                "Enabling this allows HydraDragon to automatically install its root certificate into your system's trust store (Windows Root and Firefox). This enables HTTPS interception through the explicit local TLS proxy, but also means the firewall can decrypt your encrypted traffic. Only enable if you understand and accept this. Without consent, browsers will show certificate warnings until you manually install the certificate or disable TLS proxy mode."
                                                             </p>
                                                             <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;">
                                                                 <button
@@ -3892,7 +3892,7 @@ pub fn App() -> impl IntoView {
                                                             }}
                                                         </div>
                                                         <div class="input-group" style="margin-top: 10px">
-                                                            <label>"MITM bypass hosts/domains"</label>
+                                                            <label>"TLS proxy bypass hosts/domains"</label>
                                                             <textarea
                                                                 style="min-height: 110px; width: 100%; box-sizing: border-box; padding: 10px; resize: vertical"
                                                                 prop:value=move || settings.get().tls_proxy.bypass_hosts.join("\n")
@@ -3913,15 +3913,15 @@ pub fn App() -> impl IntoView {
                                                                 }
                                                             />
                                                             <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                                "One host, domain, or pattern per line. Matching targets bypass the embedded MITM proxy through Windows proxy override rules."
+                                                                "One host, domain, or pattern per line. Matching targets are kept out of TLS interception decisions."
                                                             </p>
                                                         </div>
                                                         <div style="margin-top: 12px; padding: 12px; border-radius: 8px; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.18);">
-                                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 8px;">"MITM Trust Status"</div>
+                                                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 8px;">"TLS Proxy Trust Status"</div>
                                                             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 12px;">
                                                                 <div>
                                                                     <strong>"Mode: "</strong>
-                                                                    {move || if mitm_enabled.get() { "Embedded MITM active" } else { "MITM disabled / metadata only" }}
+                                                                    {move || if mitm_enabled.get() { "Explicit local TLS proxy active" } else { "TLS proxy disabled / metadata only" }}
                                                                 </div>
                                                                 <div>
                                                                     <strong>"Windows trust: "</strong>
@@ -3941,16 +3941,16 @@ pub fn App() -> impl IntoView {
                                                                     let cfg = settings.get().tls_proxy;
                                                                     if cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start {
                                                                         format!(
-                                                                            "Current MITM listener: {}:{} . Firefox may need a restart after trust changes. Website alerts can now be trusted without MITM, which adds that host to this bypass list.",
+                                                                            "Current explicit TLS proxy listener: {}:{} . Firefox may need a restart after trust changes. Website alerts can now be trusted without TLS interception, which adds that host to this bypass list.",
                                                                             cfg.listen_host, cfg.listen_port
                                                                         )
                                                                     } else {
-                                                                        "MITM proxy is currently disabled; packet and metadata logging remain available.".to_string()
+                                                                        "Explicit local TLS proxy is currently disabled; packet and metadata logging remain available.".to_string()
                                                                     }
                                                                 }}
                                                             </p>
                                                             <p style="margin: 8px 0 0 0; color: var(--accent-orange); font-size: 12px; line-height: 1.5">
-                                                                "Even when interception is hidden, some browsers and other antivirus/security products can still flag it as a MITM-style attack if trust is not accepted."
+                                                                "Even when interception is hidden, some browsers and other antivirus/security products can still flag explicit TLS interception if trust is not accepted."
                                                             </p>
                                                         </div>
                                                     </div>
@@ -4368,7 +4368,7 @@ fn AlertWindow(
                          "allow_always".to_string()
                      };
                      let always_label = if is_website_alert {
-                         "TRUST (NO MITM)"
+                         "TRUST (BYPASS TLS PROXY)"
                      } else {
                          "TRUST"
                      };
@@ -4400,7 +4400,7 @@ fn AlertWindow(
                              .clone()
                              .filter(|value| !value.trim().is_empty())
                              .unwrap_or_else(|| format!(
-                                 "{} reported browser-side anti-MITM behavior. This can be a legitimate trust mismatch or explicit anti-interception logic. Choose ALLOW MITM to keep interception enabled, ALLOW MITM ONCE for a one-time retry, or NO MITM to bypass interception for this target.",
+                                 "{} reported browser-side anti-interception behavior. This can be a legitimate trust mismatch or explicit anti-interception logic. Choose ALLOW TLS PROXY to keep interception enabled, ALLOW TLS PROXY ONCE for a one-time retry, or BYPASS TLS PROXY to skip interception for this target.",
                                  app.name
                              ))
                      } else if is_registry_alert {
@@ -4414,7 +4414,7 @@ fn AlertWindow(
                              .filter(|value| !value.trim().is_empty())
                              .unwrap_or_else(|| "The request matched the website intelligence feeds and is waiting for your decision.".to_string());
                          format!(
-                             "{} Choosing TRUST (NO MITM) keeps the site allowed while adding it to the MITM bypass list.",
+                             "{} Choosing TRUST (BYPASS TLS PROXY) keeps the site allowed while adding it to the TLS proxy bypass list.",
                              base
                          )
                      } else if is_behavior_alert {
@@ -4553,9 +4553,9 @@ fn AlertWindow(
                              {if is_browser_mitm_prompt {
                                  view! {
                                      <>
-                                         <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ALLOW MITM ONCE" </button>
-                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res5(n5.clone(), p.clone(), "allow_always_no_mitm".to_string())}> "NO MITM" </button>
-                                         <button class="alert-btn always" on:click={let p = app.path.clone(); move |_| res2(n2.clone(), p.clone(), "allow_always".to_string())}> "ALLOW MITM" </button>
+                                         <button class="alert-btn session" on:click={let p = app.path.clone(); move |_| res1(n1.clone(), p.clone(), "allow_once".to_string())}> "ALLOW TLS PROXY ONCE" </button>
+                                         <button class="alert-btn quarantine" on:click={let p = app.path.clone(); move |_| res5(n5.clone(), p.clone(), "allow_always_no_mitm".to_string())}> "BYPASS TLS PROXY" </button>
+                                         <button class="alert-btn always" on:click={let p = app.path.clone(); move |_| res2(n2.clone(), p.clone(), "allow_always".to_string())}> "ALLOW TLS PROXY" </button>
                                      </>
                                  }.into_view()
                              } else {

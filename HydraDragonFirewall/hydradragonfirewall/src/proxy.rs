@@ -25,7 +25,7 @@ use tokio::sync::oneshot;
 use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
 use crate::sdk::{PacketContext, RuleAction, SdkRegistry};
 
-// ── Rich HTTP event emitted by the MITM proxy ─────────────────────────────────
+// ── Rich HTTP event emitted by the explicit local TLS proxy ───────────────────
 
 /// Full HTTP-level detail for every intercepted request/response.
 /// Emitted as a `"proxy_http"` Tauri event so the UI can show decrypted traffic.
@@ -198,7 +198,7 @@ fn now_ts() -> u64 {
         .as_millis() as u64
 }
 
-/// Start the embedded MITM proxy on `addr`, drive it until `stop_rx` fires.
+/// Start the explicit local TLS proxy on `addr`, drive it until `stop_rx` fires.
 pub async fn run_proxy<R: Runtime>(
     addr: SocketAddr,
     ca: rcgen::Issuer<'static, KeyPair>,
@@ -214,7 +214,7 @@ pub async fn run_proxy<R: Runtime>(
 
     let bind_result =
         proxy
-            .bind(
+            .bind_transparent_or_proxy(
                 addr,
                 service_fn(
                     move |req: http_mitm_proxy::hyper::Request<
@@ -262,7 +262,7 @@ pub async fn run_proxy<R: Runtime>(
                     id: format!("{}-proxy-ready", ts),
                     timestamp: ts,
                     level: LogLevel::Success,
-                    message: format!("Embedded MITM proxy active on {}", addr),
+                    message: format!("Explicit local TLS proxy active on {}", addr),
                 },
             );
 

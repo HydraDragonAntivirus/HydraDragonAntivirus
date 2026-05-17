@@ -53,7 +53,7 @@ fn default_auto_start() -> bool {
 pub enum TlsInspectionMode {
     /// Only capture TLS metadata (SNI, certificates) without decryption
     MetadataOnly,
-    /// Full MITM proxy with decryption
+    /// Explicit local TLS proxy with decryption via the Windows proxy settings.
     TlsProxy,
 }
 
@@ -79,7 +79,7 @@ pub struct TlsProxyConfig {
     pub auto_start: bool,
     #[serde(default)]
     pub bypass_hosts: Vec<String>,
-    /// Whether user has consented to certificate installation for MITM interception.
+    /// Whether user has consented to certificate installation for explicit TLS proxy interception.
     /// If false, certificates will not be automatically installed.
     #[serde(default = "default_cert_install_consent")]
     pub cert_install_consent: bool,

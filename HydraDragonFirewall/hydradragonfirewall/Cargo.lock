@@ -1520,8 +1520,6 @@ dependencies = [
 [[package]]
 name = "http-mitm-proxy"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65029632aa142f33073069bf7138dc9499fb06310e7a10401cb900d1d5a83689"
 dependencies = [
  "bytes",
  "futures",
