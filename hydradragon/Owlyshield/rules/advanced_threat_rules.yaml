@@ -1,40 +1,4 @@
-- rule_id: HD-ADV-0001
-  name: '[POLICY] Sandbox Disabled on ACG-Capable Browser'
-  description: >
-    Detects Chromium-based browsers (Chrome, Edge, Brave, Vivaldi) running with the
-    --no-sandbox flag. The engine verifies the process does NOT have Arbitrary Code Guard
-    (ACG) enabled, confirming the sandbox is genuinely bypassed rather than a legitimate
-    sandboxed child process that simply cannot generate dynamic code.
-  enabled: true
-  severity: 70
-  level: high
-  tags:
-    - policy
-    - sandbox
-    - acg
-    - browser
-  stages:
-    - name: Detect No-Sandbox Flag with ACG Disabled
-      conditions:
-        - type: MultiCondition
-          op: and
-          conditions:
-            - type: Process
-              op: contains
-              pattern: '(?i)(chrome|msedge|brave|vivaldi)\.exe'
-            - type: CommandLineMatch
-              patterns:
-                - pattern: '(?i)--no-sandbox'
-                  match_type: regex
-  response:
-    ask_user: true
-    terminate_process: false
-    notify_user: true
-    quarantine: false
-    status_access_denied: true
-    suspend_while_ask: true
-
-- rule_id: HD-ADV-0002
+- rule_id: HD-EVASION-MOCKINGJAY-RWX
   name: '[EVASION] Mockingjay RWX Hijacking'
   description: 'Detects the Mockingjay technique where an attacker exploits existing RWX sections in trusted DLLs to avoid memory allocation telemetry.'
   enabled: true
@@ -55,7 +19,7 @@
             - NtProtectVirtualMemory
           arguments:
             - name: protection
-              value: '0x40' # PAGE_EXECUTE_READWRITE
+              value: '0x40'
     - name: Target Trusted Module
       conditions:
         - type: Process
@@ -68,7 +32,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0003
+- rule_id: HD-EVASION-HERPADERPING-SEQ
   name: '[EVASION] Process Herpaderping Sequence'
   description: 'Detects Process Herpaderping by monitoring the sequence of mapping a file, modifying it, and then creating a thread.'
   enabled: true
@@ -87,7 +51,7 @@
             - NtCreateSection
           arguments:
             - name: AllocationAttributes
-              value: '0x1000000' # SEC_IMAGE
+              value: '0x1000000'
     - name: Post-Mapping Modification
       conditions:
         - type: File
@@ -105,7 +69,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0004
+- rule_id: HD-THREAT-RANSOMWARE-HEADER-ENC
   name: '[THREAT] Ransomware Canary - Rapid Header Encryption'
   description: 'Detects rapid-fire write operations to the first 4KB of multiple files, a common pattern for header-only encryption.'
   enabled: true
@@ -146,7 +110,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0005
+- rule_id: HD-EVASION-GHOST-DIRECT-SYSCALL
   name: '[EVASION] Ghost Hunting - Direct Syscall via JMP/CALL'
   description: 'Detects direct syscalls made via JMP or CALL gadgets outside of ntdll, specifically targeting stealthy shellcode.'
   enabled: true
@@ -192,7 +156,7 @@
         - 'Microsoft*'
       must_be_signed: true
 
-- rule_id: HD-ADV-0006
+- rule_id: HD-STEALTH-ETW-NTTRACECONTROL-BLIND
   name: '[STEALTH] ETW Blinding via NtTraceControl'
   description: 'Detects attempts to disable Event Tracing for Windows (ETW) sessions, a common technique to blind EDR/AV solutions.'
   enabled: true
@@ -215,7 +179,7 @@
                 - NtTraceControl
               arguments:
                 - name: ControlCode
-                  value: '1' # EVENT_TRACE_CONTROL_STOP
+                  value: '1'
             - type: CommandLineMatch
               patterns:
                 - pattern: '(?i)(EventLog-Security|Microsoft-Windows-Threat-Intelligence|EtwRTMS-Antimalware-Service)'
@@ -224,7 +188,7 @@
     record: true
     ask_user: true
 
-- rule_id: HD-ADV-0007
+- rule_id: HD-INJECTION-REMOTE-THREAD-SYSPROC
   name: '[INJECTION] Remote Thread in System Process'
   description: 'Detects thread injection into critical system processes like lsass.exe, winlogon.exe, or csrss.exe.'
   enabled: true
@@ -253,7 +217,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0008
+- rule_id: HD-EVASION-MODULE-STOMPING
   name: '[EVASION] Module Stomping Detection'
   description: 'Detects Module Stomping by monitoring writes to the code section of a legitimately loaded module.'
   enabled: true
@@ -285,7 +249,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0009
+- rule_id: HD-EXFIL-LARGE-OUTBOUND-TRANSFER
   name: '[EXFILTRATION] Suspicious Large Data Outbound'
   description: 'Detects large data transfers to external IP addresses from non-browser processes.'
   enabled: true
@@ -304,7 +268,7 @@
           conditions:
             - type: ByteThreshold
               operation: write
-              threshold: 10485760 # 10MB
+              threshold: 10485760
               window_ms: 60000
             - type: Localhost
               value: false
@@ -318,7 +282,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0010
+- rule_id: HD-CRED-SAM-HIVE-EXPORT
   name: '[CREDENTIAL] SAM/SECURITY Hive Export'
   description: 'Detects attempts to export SAM or SECURITY registry hives, used for offline credential cracking.'
   enabled: true
@@ -354,7 +318,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0011
+- rule_id: HD-PRIVACY-UNAUTHORIZED-SCREENCAP
   name: '[PRIVACY] Unauthorized Screen Capture Detection'
   description: 'Detects unauthorized screenshot and screen recording activity by monitoring GDI (BitBlt) and DXGI (Desktop Duplication) capture behaviors from non-whitelisted processes.'
   enabled: true
@@ -399,7 +363,7 @@
     record: true
     status_access_denied: true
 
-- rule_id: HD-ADV-0012
+- rule_id: HD-EVASION-APPLOCKER-BYPASS-LOLBAS
   name: '[EVASION] AppLocker Bypass - InstallUtil/Regasm Abuse'
   description: 'Detects execution of signed Microsoft binaries like InstallUtil.exe or Regasm.exe to run unauthorized code.'
   enabled: true
@@ -440,7 +404,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0013
+- rule_id: HD-PRIVESC-UAC-BYPASS-FODHELPER
   name: '[EVASION] UAC Bypass - Fodhelper/ComputerDefaults'
   description: 'Detects registry modifications associated with common UAC bypass techniques using fodhelper.exe or computerdefaults.exe.'
   enabled: true
@@ -470,7 +434,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0014
+- rule_id: HD-PERSIST-RUNKEY-MODIFICATION
   name: '[PERSISTENCE] Suspicious RunKey Modification'
   description: 'Detects unauthorized additions to Startup Run keys in the registry from non-installer processes.'
   enabled: true
@@ -508,7 +472,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0015
+- rule_id: HD-STEALTH-REFLECTIVE-DLL-LOAD
   name: '[STEALTH] Reflective DLL Loading Pattern'
   description: 'Detects memory allocation and thread creation patterns typical of reflective DLL injection.'
   enabled: true
@@ -543,7 +507,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0016
+- rule_id: HD-EXFIL-DNS-TUNNELING-PATTERN
   name: '[EXFILTRATION] DNS Tunneling Pattern'
   description: 'Detects high-frequency DNS queries for unusual subdomains, potentially indicating DNS tunneling.'
   enabled: true
@@ -573,7 +537,7 @@
     record: true
     ask_user: true
 
-- rule_id: HD-ADV-0017
+- rule_id: HD-CRED-LSASS-DUMP-COMSVCS
   name: '[CREDENTIAL] LSASS Dump via comsvcs.dll'
   description: 'Detects attempts to dump LSASS memory using the native comsvcs.dll MiniDump export.'
   enabled: true
@@ -601,7 +565,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0018
+- rule_id: HD-EVASION-LOLBAS-CERTUTIL-DL
   name: '[EVASION] LOLBAS - Certutil Remote Download'
   description: 'Detects usage of certutil.exe to download files from the internet, a common malware technique to bypass firewall rules.'
   enabled: true
@@ -639,7 +603,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0019
+- rule_id: HD-STEALTH-PROCESS-HOLLOWING-MAP
   name: '[STEALTH] Process Hollowing - Map and Resume'
   description: 'Detects process hollowing by monitoring for a process created in a suspended state followed by memory mapping and thread resumption.'
   enabled: true
@@ -672,9 +636,9 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0020
+- rule_id: HD-INJECTION-THREAD-CTX-HIJACK
   name: '[INJECTION] Thread Execution Hijacking'
-  description: 'Detects hijacking of a threads execution context to redirect it to malicious code.'
+  description: 'Detects hijacking of a thread execution context to redirect it to malicious code.'
   enabled: true
   severity: 90
   level: critical
@@ -704,7 +668,7 @@
     notify_user: true
     record: true
 
-- rule_id: HD-ADV-0021
+- rule_id: HD-ANTITAMPER-HOOK-HANDLE-TAMPER
   name: '[ANTI-TAMPER] Hook notification handle close/protect tamper'
   description: >
     Detects attempts to close, duplicate, or weaken the HydraDragon/Owlyshield
@@ -729,8 +693,8 @@
   named_conditions:
     hook_notify_handle_tamper_status:
       hook_error_statuses:
-        - 3221226037 # 0xC0000235 STATUS_HANDLE_NOT_CLOSABLE
-        - 3221225506 # 0xC0000022 STATUS_ACCESS_DENIED
+        - 3221226037
+        - 3221225506
       hook_error_api_patterns:
         - pattern: '(?i)(^|!)(Nt|Zw)(Close|SetInformationObject|DuplicateObject)$'
       hook_error_min_count: 1
@@ -745,3 +709,554 @@
     status_access_denied: true
     notify_user: true
     record: true
+
+- rule_id: HD-HVNC-HIDDEN-DESKTOP-CREATE
+  name: "HEUR:Win.RAT.HVNC.HiddenDesktopCreation.gen"
+  description: "Process creates a new Windows desktop object outside the visible session and attaches its thread to it. This is the primary behavioral indicator of HVNC implementations including Overlord, DarkVNC, and TinyNuke derivatives."
+  enabled: true
+  status: experimental
+  severity: 85
+  level: high
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.defense_evasion
+    - attack.command_and_control
+    - hvnc
+    - rat
+  mitre_attack:
+    - T1021.005
+    - T1055
+  references:
+    - "https://attack.mitre.org/techniques/T1021/005/"
+  false_positives:
+    - "Remote desktop software (TeamViewer, AnyDesk)"
+    - "Screen reader accessibility tools (NVDA, JAWS)"
+  named_conditions:
+    hidden_desktop_create:
+      apis:
+        - "CreateDesktopW"
+        - "CreateDesktopA"
+        - "NtUserCreateDesktop"
+      api_threshold: 1
+    thread_desktop_switch:
+      apis:
+        - "SetThreadDesktop"
+      api_threshold: 1
+  detection_logic:
+    and:
+      - condition: "hidden_desktop_create"
+      - condition: "thread_desktop_switch"
+  response:
+    notify_user: true
+    ask_user: true
+    suspend_while_ask: true
+  allowlisted_apps:
+    - pattern: "*\\TeamViewer\\TeamViewer.exe"
+    - pattern: "*\\AnyDesk\\AnyDesk.exe"
+    - pattern: "*\\nvda\\nvda.exe"
+    - pattern: "*\\Program Files\\JAWS*\\jfw.exe"
+
+- rule_id: HD-HVNC-SCREEN-CAPTURE-EXFIL
+  name: "HEUR:Win.RAT.HVNC.ScreenCaptureExfil.gen"
+  description: "Process performs GDI-based screen capture using BitBlt or GetDIBits while maintaining an active outbound network connection and a hidden desktop context. Matches the HVNC screen streaming loop used to relay the hidden desktop to a remote operator."
+  enabled: true
+  status: experimental
+  severity: 80
+  level: high
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.collection
+    - attack.exfiltration
+    - hvnc
+    - screen_capture
+  mitre_attack:
+    - T1113
+    - T1041
+  false_positives:
+    - "Screen recording software (OBS, Camtasia) - add to allowlist"
+    - "Video conferencing applications (Zoom, Teams) - add to allowlist"
+  named_conditions:
+    gdi_screen_capture:
+      apis:
+        - "BitBlt"
+        - "StretchBlt"
+        - "GetDIBits"
+        - "PrintWindow"
+      api_threshold: 2
+    gdi_dc_setup:
+      apis:
+        - "GetDC"
+        - "GetWindowDC"
+        - "CreateCompatibleDC"
+        - "CreateCompatibleBitmap"
+      api_threshold: 2
+    active_outbound:
+      has_network_activity: true
+      firewall_dst_ports:
+        - 443
+        - 80
+        - 8080
+        - 4444
+        - 1337
+        - 5900
+        - 5901
+    hidden_desktop_present:
+      apis:
+        - "SetThreadDesktop"
+        - "CreateDesktopW"
+        - "CreateDesktopA"
+      api_threshold: 1
+  detection_logic:
+    and:
+      - condition: "gdi_screen_capture"
+      - condition: "gdi_dc_setup"
+      - condition: "hidden_desktop_present"
+      - condition: "active_outbound"
+  response:
+    notify_user: true
+    ask_user: true
+    suspend_while_ask: true
+  allowlisted_apps:
+    - pattern: "*\\obs64.exe"
+    - pattern: "*\\obs32.exe"
+    - pattern: "*\\zoom.exe"
+    - pattern: "*\\ms-teams.exe"
+
+- rule_id: HD-HVNC-INPUT-INJECTION
+  name: "HEUR:Win.RAT.HVNC.InputInjection.gen"
+  description: "Process injects keyboard and mouse input into a hidden desktop context using SendInput or PostMessage/SendMessage while maintaining an active network connection. Matches the input forwarding component of HVNC allowing an operator to interact with a hidden browser or application."
+  enabled: true
+  status: experimental
+  severity: 75
+  level: high
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.execution
+    - attack.collection
+    - hvnc
+    - input_injection
+  mitre_attack:
+    - T1056.001
+    - T1021.005
+  false_positives:
+    - "Test automation tools (AutoIt, AutoHotKey) - evaluate by context"
+    - "Accessibility software"
+  named_conditions:
+    input_injection_apis:
+      apis:
+        - "SendInput"
+        - "mouse_event"
+        - "keybd_event"
+        - "NtUserSendInput"
+      api_threshold: 1
+    remote_window_message:
+      apis:
+        - "PostMessageW"
+        - "PostMessageA"
+        - "SendMessageW"
+        - "SendMessageA"
+      api_threshold: 3
+    hidden_desktop_ctx:
+      apis:
+        - "SetThreadDesktop"
+        - "CreateDesktopW"
+        - "CreateDesktopA"
+      api_threshold: 1
+    network_present:
+      has_network_activity: true
+  detection_logic:
+    and:
+      - condition: "hidden_desktop_ctx"
+      - or:
+          - condition: "input_injection_apis"
+          - condition: "remote_window_message"
+      - condition: "network_present"
+  response:
+    notify_user: true
+    ask_user: true
+
+- rule_id: HD-HVNC-EXPLORER-INJECTION
+  name: "HEUR:Win.RAT.HVNC.ExplorerInjection.gen"
+  description: "Process allocates executable memory in a remote process, writes a payload, and creates a remote thread. The target process or the injector itself has a hidden desktop context. Matches the technique used by Overlord-family HVNC to spawn a hidden shell by injecting into explorer.exe."
+  enabled: true
+  status: experimental
+  severity: 90
+  level: critical
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - process_injection
+    - hvnc
+    - overlord
+  mitre_attack:
+    - T1055.001
+    - T1055.002
+    - T1021.005
+  false_positives:
+    - "Virtually none - no legitimate software injects into explorer while creating hidden desktops"
+  named_conditions:
+    injection_alloc:
+      apis:
+        - "VirtualAllocEx"
+        - "NtAllocateVirtualMemory"
+      api_threshold: 1
+    injection_write:
+      apis:
+        - "WriteProcessMemory"
+        - "NtWriteVirtualMemory"
+      api_threshold: 1
+    injection_thread:
+      apis:
+        - "CreateRemoteThread"
+        - "CreateRemoteThreadEx"
+        - "NtCreateThreadEx"
+        - "RtlCreateUserThread"
+      api_threshold: 1
+    explorer_involved:
+      created_processes:
+        - "explorer.exe"
+      terminated_processes:
+        - "explorer.exe"
+    hidden_desktop:
+      apis:
+        - "CreateDesktopW"
+        - "CreateDesktopA"
+        - "SetThreadDesktop"
+      api_threshold: 1
+  detection_logic:
+    and:
+      - condition: "injection_alloc"
+      - condition: "injection_write"
+      - condition: "injection_thread"
+      - or:
+          - condition: "explorer_involved"
+          - condition: "hidden_desktop"
+  response:
+    notify_user: true
+    terminate_process: true
+    quarantine: true
+    status_access_denied: true
+
+- rule_id: HD-HVNC-FULL-CHAIN-STAGES
+  name: "HEUR:Win.RAT.HVNC.FullChain.gen"
+  description: "Detects the complete HVNC operational chain across three attack stages: persistence establishment, hidden desktop initialization, and screen capture with C2 communication. Two of three stages are sufficient for detection. Represents the full behavioral flow of Overlord and related HVNC RATs."
+  enabled: true
+  status: experimental
+  severity: 95
+  level: critical
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.persistence
+    - attack.defense_evasion
+    - attack.collection
+    - attack.command_and_control
+    - hvnc
+    - overlord
+    - rat
+    - full_chain
+  mitre_attack:
+    - T1547.001
+    - T1021.005
+    - T1113
+    - T1041
+  false_positives:
+    - "Virtually none - the three-stage combination is highly specific"
+  stages:
+    - name: persistence_setup
+      conditions:
+        - type: Registry
+          op: write
+          key_pattern: "*\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run*"
+        - type: Registry
+          op: write
+          key_pattern: "*\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce*"
+    - name: hvnc_desktop_init
+      conditions:
+        - type: Api
+          functions:
+            - "CreateDesktopW"
+            - "CreateDesktopA"
+            - "NtUserCreateDesktop"
+        - type: Api
+          functions:
+            - "SetThreadDesktop"
+    - name: screen_capture_and_c2
+      conditions:
+        - type: Api
+          functions:
+            - "BitBlt"
+            - "GetDIBits"
+            - "PrintWindow"
+        - type: Network
+          op: connect
+          dest_pattern: "*"
+  min_stages_satisfied: 2
+  mapping:
+    or:
+      - stage: "hvnc_desktop_init"
+      - and:
+          - stage: "persistence_setup"
+          - stage: "screen_capture_and_c2"
+  response:
+    notify_user: true
+    terminate_process: true
+    quarantine: true
+    status_access_denied: true
+    auto_revert: true
+
+- rule_id: HD-HVNC-UNSIGNED-HIDDEN-DESKTOP
+  name: "HEUR:Win.RAT.HVNC.UnsignedHiddenDesktop.gen"
+  description: "An unsigned or invalidly signed process creates a hidden desktop and switches the current thread to it. Legitimate software that uses multiple desktops always carries a valid digital signature."
+  enabled: true
+  status: experimental
+  severity: 88
+  level: high
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.defense_evasion
+    - hvnc
+    - unsigned
+  mitre_attack:
+    - T1021.005
+    - T1036
+  false_positives:
+    - "Self-compiled legitimate tooling (rare)"
+  named_conditions:
+    no_valid_signature:
+      signature_no_signature: true
+    invalid_sig:
+      signature_invalid: true
+    desktop_creation:
+      apis:
+        - "CreateDesktopW"
+        - "CreateDesktopA"
+      api_threshold: 1
+    thread_switch:
+      apis:
+        - "SetThreadDesktop"
+      api_threshold: 1
+  detection_logic:
+    and:
+      - or:
+          - condition: "no_valid_signature"
+          - condition: "invalid_sig"
+      - condition: "desktop_creation"
+      - condition: "thread_switch"
+  response:
+    notify_user: true
+    ask_user: true
+    suspend_while_ask: true
+
+- rule_id: HD-HVNC-BROWSER-LAUNCH-HIDDEN
+  name: "HEUR:Win.RAT.HVNC.BrowserLaunchHidden.gen"
+  description: "A browser process is spawned within a hidden desktop context while an outbound network connection is active. Overlord and DarkVNC variants use this technique to access web banking sessions and cryptocurrency wallets without victim awareness."
+  enabled: true
+  status: experimental
+  severity: 92
+  level: critical
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.credential_access
+    - attack.collection
+    - hvnc
+    - browser_hijack
+    - financial_fraud
+  mitre_attack:
+    - T1021.005
+    - T1185
+    - T1539
+  false_positives:
+    - "Headless browser test frameworks (Selenium, Playwright) - add to allowlist"
+  named_conditions:
+    hidden_desktop_ctx:
+      apis:
+        - "SetThreadDesktop"
+        - "CreateDesktopW"
+      api_threshold: 1
+    browser_spawn:
+      created_processes:
+        - "chrome.exe"
+        - "firefox.exe"
+        - "msedge.exe"
+        - "iexplore.exe"
+        - "brave.exe"
+        - "opera.exe"
+    network_active:
+      has_network_activity: true
+      firewall_dst_ports:
+        - 443
+        - 80
+  detection_logic:
+    and:
+      - condition: "hidden_desktop_ctx"
+      - condition: "browser_spawn"
+      - condition: "network_active"
+  response:
+    notify_user: true
+    terminate_process: true
+    quarantine: true
+  allowlisted_apps:
+    - pattern: "*\\chromedriver.exe"
+    - pattern: "*\\geckodriver.exe"
+    - pattern: "*\\msedgedriver.exe"
+
+- rule_id: HD-HVNC-ENCRYPTED-SCREEN-DATA
+  name: "HEUR:Win.RAT.HVNC.EncryptedScreenData.gen"
+  description: "Process invokes HVNC-related desktop and GDI APIs while generating high-entropy outbound network traffic consistent with compressed or encrypted screen frame data being relayed to a C2 server."
+  enabled: true
+  status: experimental
+  severity: 78
+  level: high
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.exfiltration
+    - attack.command_and_control
+    - hvnc
+    - encrypted_exfil
+  mitre_attack:
+    - T1041
+    - T1573
+    - T1113
+  false_positives:
+    - "Encrypted video conferencing traffic - add application to allowlist"
+  named_conditions:
+    hvnc_apis:
+      apis:
+        - "CreateDesktopW"
+        - "SetThreadDesktop"
+        - "BitBlt"
+      api_threshold: 2
+    high_entropy_traffic:
+      has_network_activity: true
+  detection_logic:
+    and:
+      - condition: "hvnc_apis"
+      - condition: "high_entropy_traffic"
+  entropy_threshold: 7.2
+  response:
+    notify_user: true
+    ask_user: true
+
+- rule_id: HD-HVNC-CHROME-NOSANDBOX-LAUNCH
+  name: "HEUR:Win.RAT.HVNC.ChromeNoSandbox.gen"
+  description: "Chrome or a Chromium-based browser is launched with --no-sandbox and/or --remote-debugging-port arguments. When combined with a hidden desktop context this is a definitive HVNC browser hijack indicator used by Overlord and related RATs to bypass Chrome sandbox protections."
+  enabled: true
+  status: experimental
+  severity: 93
+  level: critical
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.defense_evasion
+    - attack.credential_access
+    - hvnc
+    - chrome_bypass
+    - no_sandbox
+  mitre_attack:
+    - T1021.005
+    - T1185
+    - T1539
+  false_positives:
+    - "Selenium/Playwright CI pipelines - add chromedriver to allowlist"
+    - "Developer machines running headless tests"
+  named_conditions:
+    nosandbox_cmdline:
+      cmdline_patterns:
+        - pattern: "*--no-sandbox*"
+          is_regex: false
+        - pattern: "*--remote-debugging-port*"
+          is_regex: false
+    browser_process:
+      process_names:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "brave.exe"
+        - "opera.exe"
+        - "vivaldi.exe"
+    hidden_desktop_ctx:
+      apis:
+        - "SetThreadDesktop"
+        - "CreateDesktopW"
+      api_threshold: 1
+    parent_not_browser:
+      parent_names:
+        - "chrome.exe"
+        - "msedge.exe"
+  detection_logic:
+    and:
+      - condition: "nosandbox_cmdline"
+      - condition: "browser_process"
+      - condition: "hidden_desktop_ctx"
+      - not:
+          condition: "parent_not_browser"
+  response:
+    notify_user: true
+    terminate_process: true
+    quarantine: true
+    status_access_denied: true
+  allowlisted_apps:
+    - pattern: "*\\chromedriver.exe"
+    - pattern: "*\\msedgedriver.exe"
+    - pattern: "*\\playwright*"
+
+- rule_id: HD-HVNC-CHROME-CDP-PORT-ABUSE
+  name: "HEUR:Win.RAT.HVNC.ChromeDebugPortAbuse.gen"
+  description: "A non-browser process establishes a loopback TCP connection to port 9222 or other known Chrome DevTools Protocol ports. This indicates programmatic access to a Chrome session for cookie theft, session hijacking, or DOM manipulation via the CDP interface."
+  enabled: true
+  status: experimental
+  severity: 88
+  level: high
+  author: "HydraDragon AV Research"
+  date: "2025-01-01"
+  tags:
+    - attack.credential_access
+    - attack.collection
+    - chrome_cdp
+    - session_hijack
+  mitre_attack:
+    - T1539
+    - T1185
+    - T1056.003
+  false_positives:
+    - "Browser automation tools communicating with a locally controlled instance"
+    - "Developer tooling (VS Code browser debugger)"
+  named_conditions:
+    cdp_loopback_connect:
+      has_network_activity: true
+      firewall_dst_ports:
+        - 9222
+        - 9223
+        - 9229
+        - 9333
+      network_ips:
+        - "127.0.0.1"
+        - "::1"
+    not_browser_self:
+      process_names:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "brave.exe"
+    hidden_desktop_ctx:
+      apis:
+        - "SetThreadDesktop"
+        - "CreateDesktopW"
+      api_threshold: 1
+  detection_logic:
+    and:
+      - condition: "cdp_loopback_connect"
+      - condition: "hidden_desktop_ctx"
+      - not:
+          condition: "not_browser_self"
+  response:
+    notify_user: true
+    ask_user: true
+    suspend_while_ask: true
