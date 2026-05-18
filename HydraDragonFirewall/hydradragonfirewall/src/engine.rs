@@ -714,7 +714,12 @@ pub struct FirewallSettings {
     #[serde(default)]
     pub log_mode: bool,
     #[serde(default)]
-    pub show_blocked_only: bool,
+    #[serde(alias = "show_blocked_only")]
+    pub show_blocked_logs_only: bool,
+    #[serde(default)]
+    pub show_blocked_http_inspector_only: bool,
+    #[serde(default)]
+    pub show_blocked_graphics_only: bool,
     #[serde(default)]
     pub no_alert_mode: bool,
     #[serde(default = "default_true")]
@@ -755,7 +760,9 @@ impl Default for FirewallSettings {
             late_blocking_mode: false,
             headless_mode: false,
             log_mode: false,
-            show_blocked_only: false,
+            show_blocked_logs_only: false,
+            show_blocked_http_inspector_only: false,
+            show_blocked_graphics_only: false,
             no_alert_mode: false,
             save_all_logs: true,
             prune_old_logs: true,
@@ -1922,7 +1929,9 @@ impl FirewallEngine {
             late_blocking_mode: current_settings.late_blocking_mode,
             headless_mode: current_settings.headless_mode,
             log_mode: current_settings.log_mode,
-            show_blocked_only: current_settings.show_blocked_only,
+            show_blocked_logs_only: current_settings.show_blocked_logs_only,
+            show_blocked_graphics_only: current_settings.show_blocked_graphics_only,
+            show_blocked_http_inspector_only: current_settings.show_blocked_http_inspector_only,
             no_alert_mode: current_settings.no_alert_mode,
             save_all_logs: current_settings.save_all_logs,
             prune_old_logs: current_settings.prune_old_logs,
@@ -2039,7 +2048,6 @@ impl FirewallEngine {
         dns_handler: &Arc<DnsHandler>,
         info: &PacketInfo,
         tls_proxy: &TlsProxyConfig,
-        show_blocked_only: bool,
         no_alert_mode: bool,
         windows_root_trust_ready: &Arc<AtomicBool>,
         firefox_policy_ready: &Arc<AtomicBool>,
@@ -2081,7 +2089,7 @@ impl FirewallEngine {
             browser_mitm_warning_cache,
         );
 
-        if show_blocked_only {
+        if tls_proxy.show_blocked_only {
             return;
         }
 
@@ -2977,7 +2985,7 @@ foreach ($store in $stores) {
             return Vec::new();
         }
 
-        if settings.show_blocked_only {
+        if settings.show_blocked_logs_only {
             return Vec::new();
         }
 
@@ -3866,7 +3874,7 @@ impl FirewallEngine {
                             Ok(packet) => {
                                 packet_count += 1;
                                 if packet_count % 100 == 0
-                                    && !settings_w.read().unwrap().show_blocked_only
+                                    && !settings_w.read().unwrap().show_blocked_logs_only
                                 {
                                     let ts = Self::now_ts();
                                     emit_log_event(
@@ -4047,7 +4055,7 @@ impl FirewallEngine {
                                 // EMIT RAW PACKET FOR UI (Wireshark-like view)
                                 if let Some(info) = decision_info {
                                     let show_blocked_only =
-                                        settings_w.read().unwrap().show_blocked_only;
+                                        settings_w.read().unwrap().show_blocked_logs_only;
                                     if !(show_blocked_only && decision.should_forward) {
                                         let ts = Self::now_ts();
                                         let app_info = am_w.info_cache.get_info(pid);
@@ -4358,7 +4366,7 @@ impl FirewallEngine {
                 s.late_blocking_mode,
                 s.tls_proxy.clone(),
                 s.log_mode,
-                s.show_blocked_only,
+                s.show_blocked_logs_only && s.show_blocked_graphics_only,
                 s.no_alert_mode,
             )
         };
@@ -4807,7 +4815,6 @@ impl FirewallEngine {
                     dns_handler,
                     &info,
                     &tls_proxy_cfg,
-                    show_blocked_only,
                     no_alert_mode,
                     windows_root_trust_ready,
                     firefox_policy_ready,

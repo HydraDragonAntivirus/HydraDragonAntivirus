@@ -940,7 +940,12 @@ pub struct FirewallSettings {
     #[serde(default)]
     pub log_mode: bool,
     #[serde(default)]
-    pub show_blocked_only: bool,
+    #[serde(alias = "show_blocked_only")]
+    pub show_blocked_logs_only: bool,
+    #[serde(default)]
+    pub show_blocked_graphics_only: bool,
+    #[serde(default)]
+    pub show_blocked_http_inspector_only: bool,
     #[serde(default)]
     pub no_alert_mode: bool,
     #[serde(default = "default_true")]
@@ -978,7 +983,9 @@ impl Default for FirewallSettings {
             late_blocking_mode: false,
             headless_mode: false,
             log_mode: false,
-            show_blocked_only: false,
+            show_blocked_logs_only: false,
+            show_blocked_graphics_only: false,
+            show_blocked_http_inspector_only: false,
             no_alert_mode: false,
             save_all_logs: true,
             prune_old_logs: true,
@@ -1682,19 +1689,28 @@ pub fn App() -> impl IntoView {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
                         let current_settings = settings.get_untracked();
-                        if current_settings.show_blocked_only && !pkt.action.eq_ignore_ascii_case("block") {
+                        let is_blocked = pkt.action.eq_ignore_ascii_case("block");
+                        
+                        let add_to_graphics = !(current_settings.show_blocked_graphics_only && !is_blocked);
+                        let add_to_logs = !(current_settings.show_blocked_logs_only && !is_blocked);
+                        
+                        if !add_to_graphics && !add_to_logs {
                             return;
                         }
+                        
                         let pkt_log = build_raw_packet_log_entry(&pkt);
-                        set_raw_packet_count.update(|count| *count += 1);
-                        set_raw_packets.update(|p| {
-                            p.push(pkt);
-                            if p.len() > 100 {
-                                p.remove(0);
-                            }
-                        });
-                        set_logs.update(|l| {
-                            l.push(pkt_log);
+                        if add_to_graphics {
+                            set_raw_packet_count.update(|count| *count += 1);
+                            set_raw_packets.update(|p| {
+                                p.push(pkt.clone());
+                                if p.len() > 100 {
+                                    p.remove(0);
+                                }
+                            });
+                        }
+                        if add_to_logs {
+                            set_logs.update(|l| {
+                                l.push(pkt_log);
                             if current_settings.prune_old_logs {
                                 let keep = current_settings.max_visible_logs.max(1);
                                 if l.len() > keep {
@@ -1717,7 +1733,7 @@ pub fn App() -> impl IntoView {
                 if let Some(payload_obj) = payload.get("payload") {
                     if let Ok(ev) = serde_json::from_value::<ProxyHttpEvent>(payload_obj.clone()) {
                         let current_settings = settings.get_untracked();
-                        if current_settings.show_blocked_only {
+                        if current_settings.show_blocked_http_inspector_only && ev.status != 403 {
                             return;
                         }
                         let http_log = build_proxy_log_entry(&ev);
@@ -4015,15 +4031,30 @@ pub fn App() -> impl IntoView {
                                                         <label style="display: flex; align-items: center; gap: 10px">
                                                             <input
                                                                 type="checkbox"
-                                                                prop:checked=move || settings.get().show_blocked_only
+                                                                prop:checked=move || settings.get().show_blocked_logs_only
                                                                 on:change=move |ev| {
-                                                                    set_settings.update(|s| s.show_blocked_only = event_target_checked(&ev));
+                                                                    set_settings.update(|s| s.show_blocked_logs_only = event_target_checked(&ev));
                                                                 }
                                                             />
-                                                            "Only show blocked firewall events"
+                                                            "Only show blocked logs"
                                                         </label>
                                                         <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                                            "Skips allowed packet, proxy, and HTTP activity events before they enter the GUI lists. Blocked and error events stay visible."
+                                                            "Skips allowed packets from the Packet Reader log list."
+                                                        </p>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().show_blocked_graphics_only
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.show_blocked_graphics_only = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Only show blocked graphics"
+                                                        </label>
+                                                        <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "Skips allowed packets from the dashboard graphics and process charts."
                                                         </p>
                                                     </div>
                                                     <div class="input-group">
@@ -4080,6 +4111,21 @@ pub fn App() -> impl IntoView {
                                                             />
                                                             "Prune HTTP inspector history in the GUI"
                                                         </label>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().show_blocked_http_inspector_only
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.show_blocked_http_inspector_only = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Only show blocked HTTP inspector events"
+                                                        </label>
+                                                        <p style="margin: 8px 0 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                                            "Skips allowed HTTP activity from showing up in the HTTP Inspector list."
+                                                        </p>
                                                     </div>
                                                     <div class="input-group">
                                                         <label>"HTTP inspector history limit"</label>

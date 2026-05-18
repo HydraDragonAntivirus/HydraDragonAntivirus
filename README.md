@@ -371,6 +371,10 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 
 - I used these projects for Antivirus
 
+- https://github.com/hatoo/http-mitm-proxy
+
+- I used these projects for MITM
+
 - https://github.com/VirusTotal/yara-x
 - https://github.com/VirusTotal/yara
 

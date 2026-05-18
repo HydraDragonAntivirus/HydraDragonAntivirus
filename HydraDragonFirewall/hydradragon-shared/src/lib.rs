@@ -113,6 +113,8 @@ pub struct TlsProxyConfig {
     pub request_timeout_secs: u64,
     #[serde(default = "default_response_timeout_secs")]
     pub response_timeout_secs: u64,
+    #[serde(default)]
+    pub show_blocked_only: bool,
 }
 
 impl Default for TlsProxyConfig {
@@ -128,6 +130,7 @@ impl Default for TlsProxyConfig {
             handshake_timeout_ms: DEFAULT_HANDSHAKE_TIMEOUT_MS,
             request_timeout_secs: DEFAULT_REQUEST_TIMEOUT_SECS,
             response_timeout_secs: DEFAULT_RESPONSE_TIMEOUT_SECS,
+            show_blocked_only: false,
         }
     }
 }

@@ -474,6 +474,31 @@ async fn handle_proxy_request<R: Runtime>(
     };
 
     if blocked {
+        let ts = now_ts();
+        let _ = app.emit(
+            "proxy_http",
+            ProxyHttpEvent {
+                id: format!("{}-http-{}-{}", ts, host, port),
+                timestamp: ts,
+                method: method.clone(),
+                host: host.clone(),
+                port,
+                path: path.clone(),
+                full_url: full_url.clone(),
+                status: 403,
+                request_headers: request_headers.clone(),
+                response_headers: HashMap::new(),
+                user_agent: user_agent.clone(),
+                content_type: content_type.clone(),
+                referer: referer.clone(),
+                response_content_type: None,
+                response_content_length: None,
+                request_body: request_body.clone(),
+                request_body_truncated: body_truncated,
+                response_body: None,
+                response_body_truncated: false,
+            },
+        );
         return Err("Blocked by SDK rule (request)".to_string());
     }
 
@@ -566,6 +591,31 @@ async fn handle_proxy_request<R: Runtime>(
     };
 
     if resp_blocked {
+        let ts = now_ts();
+        let _ = app.emit(
+            "proxy_http",
+            ProxyHttpEvent {
+                id: format!("{}-http-{}-{}", ts, host, port),
+                timestamp: ts,
+                method: method.clone(),
+                host: host.clone(),
+                port,
+                path: path.clone(),
+                full_url: full_url.clone(),
+                status: 403,
+                request_headers: request_headers.clone(),
+                response_headers: response_headers.clone(),
+                user_agent: user_agent.clone(),
+                content_type: content_type.clone(),
+                referer: referer.clone(),
+                response_content_type: response_content_type.clone(),
+                response_content_length: response_content_length.clone(),
+                request_body: request_body.clone(),
+                request_body_truncated: body_truncated,
+                response_body: response_body.clone(),
+                response_body_truncated: res_body_truncated,
+            },
+        );
         return Err("Blocked by SDK rule (response)".to_string());
     }
 
@@ -582,8 +632,8 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Emit events ─────────────────────────────────────────────────────────
     let ts = now_ts();
-    let show_blocked_only = settings.read().unwrap().show_blocked_only;
-    if !show_blocked_only {
+    let show_blocked_http_only = settings.read().unwrap().tls_proxy.show_blocked_only;
+    if !show_blocked_http_only {
         emit_log_event(
             &app,
             LogEntry {
@@ -618,7 +668,7 @@ async fn handle_proxy_request<R: Runtime>(
         }
     }
 
-    if !show_blocked_only {
+    if !show_blocked_http_only {
         let _ = app.emit(
             "proxy_http",
             ProxyHttpEvent {
