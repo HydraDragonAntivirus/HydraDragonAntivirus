@@ -4,12 +4,12 @@ on:
   push:
     branches: [ "**" ]
     paths:
-      - 'hydradragonstatic/**'
+      - 'Owlyshield/hydradragonstatic/**'
       - '.github/workflows/vs2022hydradragonstatic.yml'
   pull_request:
     branches: [ "**" ]
     paths:
-      - 'hydradragonstatic/**'
+      - 'Owlyshield/hydradragonstatic/**'
       - '.github/workflows/vs2022hydradragonstatic.yml'
   workflow_dispatch:
 
