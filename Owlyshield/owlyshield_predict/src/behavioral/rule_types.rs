@@ -1880,6 +1880,26 @@ pub struct NamedConditionGroup {
     pub rootkit_total_min: Option<usize>,
     #[serde(default)]
     pub rootkit_description_contains: Vec<String>,
+
+    // Self-defense telemetry from SimplePYAS/Owlyshield kernel sensors. These
+    // conditions observe tamper attempts and leave blocking to rule response or
+    // user decision.
+    #[serde(default)]
+    pub self_defense_attack_types: Vec<String>,
+    #[serde(default)]
+    pub self_defense_categories: Vec<String>,
+    #[serde(default)]
+    pub self_defense_operations: Vec<String>,
+    #[serde(default)]
+    pub self_defense_target_patterns: Vec<String>,
+    #[serde(default)]
+    pub self_defense_attacker_patterns: Vec<String>,
+    #[serde(default)]
+    pub self_defense_sources: Vec<String>,
+    #[serde(default)]
+    pub self_defense_actions: Vec<String>,
+    #[serde(default)]
+    pub self_defense_min_count: Option<usize>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -2465,6 +2485,13 @@ impl BehaviorRule {
             expand_network_rules(&mut cond_group.network_rules);
             expand_vec(&mut cond_group.registry_value_data_patterns);
             expand_vec(&mut cond_group.dns_query_patterns);
+            expand_vec(&mut cond_group.self_defense_attack_types);
+            expand_vec(&mut cond_group.self_defense_categories);
+            expand_vec(&mut cond_group.self_defense_operations);
+            expand_vec(&mut cond_group.self_defense_target_patterns);
+            expand_vec(&mut cond_group.self_defense_attacker_patterns);
+            expand_vec(&mut cond_group.self_defense_sources);
+            expand_vec(&mut cond_group.self_defense_actions);
         }
 
         for stage in &mut self.stages {

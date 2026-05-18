@@ -2,6 +2,7 @@
 #include "Driver.h"
 #include "Driver_File.h"
 #include "Driver_Common.h" // Include common helpers
+#include "Driver_Process.h"
 #include "ProtectionRules.h"
 
 // globals
@@ -29,6 +30,57 @@ NTSTATUS QueueAlertToUserMode(
     PCWSTR AttackType
 );
 VOID SendAlertWorker(PVOID Context);
+
+#define FILE_SELF_DEFENSE_WRITE_MASK (FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | \
+                                      FILE_DELETE_CHILD | FILE_WRITE_ATTRIBUTES | DELETE | \
+                                      WRITE_DAC | WRITE_OWNER)
+
+#define FILE_SELF_DEFENSE_SAFE_ACCESS (FILE_READ_DATA | FILE_READ_EA | FILE_READ_ATTRIBUTES | \
+                                       READ_CONTROL | SYNCHRONIZE)
+
+static ACCESS_MASK ExpandFileDesiredAccess(_In_ ACCESS_MASK DesiredAccess)
+{
+    RtlMapGenericMask(&DesiredAccess, IoGetFileObjectGenericMapping());
+    return DesiredAccess;
+}
+
+static BOOLEAN HasProtectedFileWriteAccess(_In_ ACCESS_MASK DesiredAccess)
+{
+    if (DesiredAccess & MAXIMUM_ALLOWED)
+        return TRUE;
+
+    ACCESS_MASK expandedAccess = ExpandFileDesiredAccess(DesiredAccess);
+    return (expandedAccess & FILE_SELF_DEFENSE_WRITE_MASK) != 0;
+}
+
+static ACCESS_MASK RestrictProtectedFileAccess(_In_ ACCESS_MASK DesiredAccess)
+{
+    if (DesiredAccess & MAXIMUM_ALLOWED)
+        return FILE_SELF_DEFENSE_SAFE_ACCESS;
+
+    ACCESS_MASK expandedAccess = ExpandFileDesiredAccess(DesiredAccess);
+    if ((expandedAccess & FILE_SELF_DEFENSE_WRITE_MASK) == 0)
+        return DesiredAccess;
+
+    ACCESS_MASK restrictedAccess = expandedAccess & ~FILE_SELF_DEFENSE_WRITE_MASK;
+    if (restrictedAccess == 0)
+        restrictedAccess = FILE_SELF_DEFENSE_SAFE_ACCESS;
+
+    return restrictedAccess;
+}
+
+static BOOLEAN IsCurrentProductProcess(VOID)
+{
+    HANDLE pid = PsGetCurrentProcessId();
+
+    if (IsProcessTrusted(pid) || IsProtectedProcessByPid(pid))
+        return TRUE;
+
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return FALSE;
+
+    return IsProtectedProcessByPath(PsGetCurrentProcess());
+}
 
 // entry/unload (call from your DriverEntry/DriverUnload)
 NTSTATUS FileDriverEntry()
@@ -108,7 +160,7 @@ BOOLEAN GetFileDosName(PFILE_OBJECT FileObject, POBJECT_NAME_INFORMATION* OutNam
     // BUGFIX: Avoid STATUS_OBJECT_NAME_NOT_FOUND by filtering out non-disk file objects
     // Check if this is a special file object type (pipe, mailslot, device) that doesn't have a DOS device name
     // These objects don't need protection checks since protected files are disk-based
-    if (FileObject->Flags & (FO_NAMED_PIPE | FO_MAILSLOT)) {
+    if (FileObject->Flags & (FO_NAMED_PIPE | FO_MAILSLOT | FO_VOLUME_OPEN)) {
         // This is a named pipe or mailslot - skip protection (not a disk file)
         *OutNameInfo = NULL;
         return FALSE;
@@ -159,34 +211,43 @@ OB_PREOP_CALLBACK_STATUS PreCallBack(
     // Normalize path to ensure consistency with rules
     NormalizeDevicePathToDos(&fileName);
 
-    BOOLEAN isProtected = FALSE;
-
-    isProtected = IsPathProtectedByType(fileName.Buffer, RuleTypeFile);
+    BOOLEAN isProtected = IsPathProtectedByType(fileName.Buffer, RuleTypeFile);
 
     if (isProtected) {
-        ACCESS_MASK desiredAccess = 0;
-        if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE) {
-            desiredAccess = OperationInformation->Parameters->CreateHandleInformation.DesiredAccess;
-        }
-        else if (OperationInformation->Operation == OB_OPERATION_HANDLE_DUPLICATE) {
-            desiredAccess = OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess;
+        if (IsCurrentProductProcess())
+        {
+            ExFreePool(nameInfo);
+            return OB_PREOP_SUCCESS;
         }
 
-        if (desiredAccess & (DELETE | FILE_WRITE_DATA | GENERIC_WRITE)) {
+        PACCESS_MASK desiredAccess = NULL;
+        if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE) {
+            desiredAccess = &OperationInformation->Parameters->CreateHandleInformation.DesiredAccess;
+        }
+        else if (OperationInformation->Operation == OB_OPERATION_HANDLE_DUPLICATE) {
+            desiredAccess = &OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess;
+        }
+
+        if (desiredAccess && HasProtectedFileWriteAccess(*desiredAccess)) {
             HANDLE currentPid = PsGetCurrentProcessId();
             PUNICODE_STRING attackerPath = NULL;
             (VOID)SeLocateProcessImageName(PsGetCurrentProcess(), &attackerPath);
 
-            // Strip dangerous access rights
-            if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE) {
-                OperationInformation->Parameters->CreateHandleInformation.DesiredAccess &= ~(DELETE | FILE_WRITE_DATA | GENERIC_WRITE);
-                DbgPrint("[SELF-DEFENSE] Stripped CREATE access to: %wZ by PID: %p\n", &fileName, currentPid);
-                QueueAlertToUserMode(&fileName, attackerPath, currentPid, L"FILE_TAMPERING_BLOCKED");
-            }
-            else {
-                OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess &= ~(DELETE | FILE_WRITE_DATA | GENERIC_WRITE);
-                DbgPrint("[SELF-DEFENSE] Stripped DUP access to: %wZ by PID: %p\n", &fileName, currentPid);
-                QueueAlertToUserMode(&fileName, attackerPath, currentPid, L"HANDLE_HIJACK_BLOCKED");
+            ACCESS_MASK originalAccess = *desiredAccess;
+            ACCESS_MASK restrictedAccess = RestrictProtectedFileAccess(originalAccess);
+
+            if (restrictedAccess != originalAccess)
+            {
+                *desiredAccess = restrictedAccess;
+
+                if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE) {
+                    DbgPrint("[SELF-DEFENSE] Stripped CREATE access to: %wZ by PID: %p\n", &fileName, currentPid);
+                    QueueAlertToUserMode(&fileName, attackerPath, currentPid, L"FILE_TAMPERING_BLOCKED");
+                }
+                else {
+                    DbgPrint("[SELF-DEFENSE] Stripped DUP access to: %wZ by PID: %p\n", &fileName, currentPid);
+                    QueueAlertToUserMode(&fileName, attackerPath, currentPid, L"HANDLE_HIJACK_BLOCKED");
+                }
             }
 
             if (attackerPath) {
@@ -215,6 +276,7 @@ NTSTATUS QueueAlertToUserMode(
         DbgPrint("[SELF-DEFENSE] QueueAlert: allocation failed\n");
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+    RtlZeroMemory(workItem, sizeof(ALERT_WORK_ITEM));
 
     if (ProtectedFile && ProtectedFile->Buffer && ProtectedFile->Length > 0) {
         USHORT needed = (USHORT)(ProtectedFile->Length + sizeof(WCHAR));
@@ -271,8 +333,11 @@ VOID SendAlertWorker(PVOID Context)
     }
 
     NTSTATUS status = RtlStringCchPrintfW(messageBuffer, RTL_NUMBER_OF(messageBuffer),
-        L"{\"protected_file\":\"%ws\",\"attacker_path\":\"%ws\",\"attacker_pid\":%p,\"attack_type\":\"%ws\"}",
-        escapedProtected, escapedAttacker, workItem->AttackingPid, workItem->AttackType);
+        L"{\"source\":\"simplepyas\",\"category\":\"file\",\"action\":\"blocked\",\"protected_file\":\"%ws\",\"attacker_path\":\"%ws\",\"attacker_pid\":%llu,\"attack_type\":\"%ws\"}",
+        escapedProtected,
+        escapedAttacker,
+        (ULONGLONG)(ULONG_PTR)workItem->AttackingPid,
+        workItem->AttackType);
 
     if (NT_SUCCESS(status))
     {

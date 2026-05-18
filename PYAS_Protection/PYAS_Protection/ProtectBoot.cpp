@@ -137,7 +137,7 @@ ProtectBoot_SendDiskWiperAlert(
     status = RtlStringCbPrintfW(
         messageBuffer,
         sizeof(messageBuffer),
-        L"{\"protected_file\":\"%ws\",\"attacker_path\":\"%ws\",\"attacker_pid\":%llu,\"attack_type\":\"DISK_WIPER_ATTEMPT\",\"ioctl_code\":%lu}",
+        L"{\"source\":\"simplepyas\",\"category\":\"disk\",\"action\":\"blocked\",\"protected_file\":\"%ws\",\"attacker_path\":\"%ws\",\"attacker_pid\":%llu,\"attack_type\":\"DISK_WIPER_ATTEMPT\",\"ioctl_code\":%lu}",
         escapedTarget,
         escapedAttacker,
         (unsigned long long)(ULONG_PTR)Pid,

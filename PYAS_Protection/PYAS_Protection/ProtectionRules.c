@@ -4,6 +4,7 @@
 #include <ntstrsafe.h>
 
 #define MAX_RULE_BLOB_SECTION_SIZE (256 * 1024) // per rule category, from user mode
+#define ADD_RULE_LITERAL(RuleSet, Literal, RuleType) AddRuleString((RuleSet), (Literal), ARRAYSIZE(Literal) - 1, (RuleType))
 
 static PROTECTION_RULE_SET g_RuleSets[RuleTypeMax] = { 0 };
 static FAST_MUTEX g_RuleMutex;
@@ -114,8 +115,7 @@ static BOOLEAN ValidateAndNormalizeRegistryRule(
 //   \??\         -  NT device namespace path
 //   \            -  relative/suffix path (accepted for user-profile paths whose
 //                 full absolute path is unknown at rule-authoring time, e.g.
-//                 \AppData\Roaming\Sanctum\).  Matching still uses
-//                 ContainsSubstringInsensitive so these work correctly.
+//                 \AppData\Roaming\Sanctum\).
 //
 // Bare filenames or paths without any leading separator are rejected.
 // ---------------------------------------------------------------------------
@@ -185,6 +185,148 @@ static NTSTATUS EnsureRuleCapacity(PPROTECTION_RULE_SET RuleSet, ULONG RequiredC
     RuleSet->Rules    = newArray;
     RuleSet->Capacity = newCapacity;
     return STATUS_SUCCESS;
+}
+
+static BOOLEAN IsPathSeparator(_In_ WCHAR Character)
+{
+    return Character == L'\\' || Character == L'/';
+}
+
+static BOOLEAN IsDriveLetterPath(_In_ PCWSTR Path)
+{
+    if (!Path || wcslen(Path) < 3)
+        return FALSE;
+
+    return ((Path[0] >= L'A' && Path[0] <= L'Z') ||
+            (Path[0] >= L'a' && Path[0] <= L'z')) &&
+           Path[1] == L':' &&
+           IsPathSeparator(Path[2]);
+}
+
+static BOOLEAN HasRuleBoundary(_In_ PCWSTR Path, _In_ SIZE_T RuleLength)
+{
+    WCHAR next = Path[RuleLength];
+    return next == L'\0' || IsPathSeparator(next) || next == L':';
+}
+
+static BOOLEAN StartsWithRuleBoundary(_In_ PCWSTR Path, _In_ PCWSTR Rule)
+{
+    if (!Path || !Rule)
+        return FALSE;
+
+    SIZE_T ruleLen = wcslen(Rule);
+    if (ruleLen == 0)
+        return FALSE;
+
+    if (!StartsWithInsensitive(Path, Rule))
+        return FALSE;
+
+    return HasRuleBoundary(Path, ruleLen) ||
+           (ruleLen > 0 && IsPathSeparator(Rule[ruleLen - 1]));
+}
+
+static BOOLEAN FileRuleMatchesPath(_In_ PCWSTR Path, _In_ PCWSTR Rule)
+{
+    if (!Path || !Rule)
+        return FALSE;
+
+    if (StartsWithRuleBoundary(Path, Rule))
+        return TRUE;
+
+    if (StartsWithInsensitive(Path, L"\\??\\") && IsDriveLetterPath(Rule))
+    {
+        if (StartsWithRuleBoundary(Path + 4, Rule))
+            return TRUE;
+    }
+    else if (StartsWithInsensitive(Rule, L"\\??\\") && IsDriveLetterPath(Path))
+    {
+        if (StartsWithRuleBoundary(Path, Rule + 4))
+            return TRUE;
+    }
+
+    if (Rule[0] == L'\\' && !StartsWithInsensitive(Rule, L"\\??\\") && !StartsWithInsensitive(Rule, L"\\REGISTRY\\"))
+    {
+        for (PCWSTR cursor = Path; *cursor; cursor++)
+        {
+            if (*cursor == L'\\' && StartsWithRuleBoundary(cursor, Rule))
+                return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN RegistrySubpathMatchesPath(_In_ PCWSTR Path, _In_ PCWSTR Subpath)
+{
+    if (!Path || !Subpath || Subpath[0] != L'\\')
+        return FALSE;
+
+    for (PCWSTR cursor = Path; *cursor; cursor++)
+    {
+        if (*cursor == L'\\' && StartsWithRuleBoundary(cursor, Subpath))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN RegistryRuleMatchesPath(_In_ PCWSTR Path, _In_ PCWSTR Rule)
+{
+    if (!Path || !Rule)
+        return FALSE;
+
+    if (StartsWithRuleBoundary(Path, Rule))
+        return TRUE;
+
+    static const PCWSTR kCurrentControlSetRule = L"\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\";
+    static const PCWSTR kControlSetPath = L"\\REGISTRY\\MACHINE\\SYSTEM\\ControlSet";
+
+    if (StartsWithInsensitive(Rule, kCurrentControlSetRule) &&
+        StartsWithInsensitive(Path, kControlSetPath))
+    {
+        PCWSTR pathSuffix = Path + wcslen(kControlSetPath);
+        while (*pathSuffix >= L'0' && *pathSuffix <= L'9')
+            pathSuffix++;
+
+        if (*pathSuffix == L'\\')
+        {
+            PCWSTR ruleSuffix = Rule + wcslen(kCurrentControlSetRule);
+            SIZE_T ruleSuffixLen = wcslen(ruleSuffix);
+
+            if (ruleSuffixLen > 0 &&
+                StartsWithInsensitive(pathSuffix + 1, ruleSuffix) &&
+                HasRuleBoundary(pathSuffix + 1, ruleSuffixLen))
+            {
+                return TRUE;
+            }
+        }
+    }
+
+    if (StartsWithInsensitive(Rule, L"\\REGISTRY\\USER\\"))
+    {
+        PCWSTR userSubpath = Rule + ARRAYSIZE(L"\\REGISTRY\\USER\\") - 2;
+        if (userSubpath[0] == L'\\' && RegistrySubpathMatchesPath(Path, userSubpath))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOLEAN RuleMatchesPathByType(_In_ PCWSTR Path, _In_ PCWSTR Rule, _In_ RULE_TYPE RuleType)
+{
+    if (!Path || !Rule)
+        return FALSE;
+
+    if (RuleType == RuleTypeProcess)
+        return EndsWithInsensitive(Path, Rule);
+
+    if (RuleType == RuleTypeFile)
+        return FileRuleMatchesPath(Path, Rule);
+
+    if (RuleType == RuleTypeRegistry)
+        return RegistryRuleMatchesPath(Path, Rule);
+
+    return FALSE;
 }
 
 // ---------------------------------------------------------------------------
@@ -571,47 +713,48 @@ NTSTATUS InitializeProtectionRules()
     ExAcquireFastMutex(&g_RuleMutex);
     
     // --- FILE PROTECTION RULES ---
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Program Files\\HydraDragonAntivirus", 40, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\ProgramData\\HydraDragonAntivirus", 39, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\ProgramData\\edrsvc", 24, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\sanctum.dll", 36, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\tasks\\hydradragonantivirus", 47, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\owlyshieldransomfilter.sys", 60, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 47, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\hyperhv.sys", 45, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\simplepyasprotection.sys", 59, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\mbrfilter.sys", 47, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\fs_minifilter.sys", 51, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\sanctum.sys", 45, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\edrdrv.sys", 44, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrpm64.dll", 36, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrpm32.dll", 36, RuleTypeFile);
-    AddRuleString(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrmm.dll", 34, RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Program Files\\HydraDragonAntivirus", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\ProgramData\\HydraDragonAntivirus", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\ProgramData\\edrsvc", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\sanctum.dll", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\tasks\\hydradragonantivirus", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\owlyshieldransomfilter.sys", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\hyperhv.sys", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\simplepyasprotection.sys", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\mbrfilter.sys", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\fs_minifilter.sys", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\sanctum.sys", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\drivers\\edrdrv.sys", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrpm64.dll", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrpm32.dll", RuleTypeFile);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeFile], L"\\??\\C:\\Windows\\System32\\edrmm.dll", RuleTypeFile);
 
     // --- PROCESS PROTECTION RULES ---
-    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Program Files\\HydraDragonAntivirus", 40, RuleTypeProcess);
-    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\ProgramData\\HydraDragonAntivirus", 39, RuleTypeProcess);
-    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\ProgramData\\edrsvc", 24, RuleTypeProcess);
-    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\sanctum.sys", 45, RuleTypeProcess);
-    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\edrdrv.sys", 44, RuleTypeProcess);
-    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 61, RuleTypeProcess);
-    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 47, RuleTypeProcess);
-    AddRuleString(&g_RuleSets[RuleTypeProcess], L"\\??\\C:\\Windows\\System32\\drivers\\hyperhv.sys", 45, RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\OpenEDR\\edrsvc.exe", RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\OpenEDR\\edrcon.exe", RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\hydradragon\\HydraDragonLauncher\\hydradragonlauncher.exe", RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\hydradragon\\HydraDragonAV\\HydraDragonAV.exe", RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\hydradragon\\HydraDragonFirewall\\hydradragonfirewall.exe", RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\hydradragon\\Owlyshield\\Owlyshield Service\\owlyshield_ransom.exe", RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\hydradragon\\Sanctum\\um_engine.exe", RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe", RuleTypeProcess);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeProcess], L"\\hydradragon\\Sanctum\\app.exe", RuleTypeProcess);
 
     // --- REGISTRY PROTECTION RULES ---
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SOFTWARE\\Owlyshield", 25, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\owlyshield_ransom", 57, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SimplePYASProtection", 62, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\RedDbg", 46, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\HyperDbg", 48, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\hyperhv", 47, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\sanctum_ppl_runner", 58, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\MBRFilter", 49, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\fs_minifilter", 53, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\sanctum", 47, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\edrdrv", 47, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\edrsvc", 47, RuleTypeRegistry);
-    AddRuleString(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", 63, RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SOFTWARE\\Owlyshield", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\owlyshield_ransom", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\SimplePYASProtection", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\RedDbg", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\HyperDbg", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\hyperhv", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\sanctum_ppl_runner", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\MBRFilter", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\fs_minifilter", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\sanctum", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\edrdrv", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\edrsvc", RuleTypeRegistry);
+    ADD_RULE_LITERAL(&g_RuleSets[RuleTypeRegistry], L"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", RuleTypeRegistry);
 
     g_RulesLoaded = TRUE;
 
@@ -664,14 +807,51 @@ BOOLEAN IsPathProtectedByType(_In_ PCWSTR Path, _In_ RULE_TYPE RuleType)
     if (!Path || (LONG)RuleType < 0 || RuleType >= RuleTypeMax)
         return FALSE;
 
-    static const PCWSTR kHardcodedRoots[] = {
-        L"\\??\\C:\\Program Files\\HydraDragonAntivirus"
-    };
-
-    for (ULONG i = 0; i < ARRAYSIZE(kHardcodedRoots); ++i)
+    if (RuleType == RuleTypeFile)
     {
-        if (ContainsSubstringInsensitive(Path, kHardcodedRoots[i]))
-            return TRUE;
+        static const PCWSTR kHardcodedRoots[] = {
+            L"\\??\\C:\\Program Files\\HydraDragonAntivirus",
+            L"\\??\\C:\\ProgramData\\HydraDragonAntivirus",
+            L"\\??\\C:\\ProgramData\\edrsvc"
+        };
+
+        for (ULONG i = 0; i < ARRAYSIZE(kHardcodedRoots); ++i)
+        {
+            if (FileRuleMatchesPath(Path, kHardcodedRoots[i]))
+                return TRUE;
+        }
+    }
+    else if (RuleType == RuleTypeRegistry)
+    {
+        static const PCWSTR kHardcodedRegistryRoots[] = {
+            L"\\REGISTRY\\MACHINE\\SOFTWARE\\Owlyshield",
+            L"\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+        };
+        static const PCWSTR kHardcodedRegistrySubpaths[] = {
+            L"\\Services\\owlyshield_ransom",
+            L"\\Services\\SimplePYASProtection",
+            L"\\Services\\RedDbg",
+            L"\\Services\\HyperDbg",
+            L"\\Services\\hyperhv",
+            L"\\Services\\sanctum_ppl_runner",
+            L"\\Services\\MBRFilter",
+            L"\\Services\\fs_minifilter",
+            L"\\Services\\sanctum",
+            L"\\Services\\edrdrv",
+            L"\\Services\\edrsvc"
+        };
+
+        for (ULONG i = 0; i < ARRAYSIZE(kHardcodedRegistryRoots); ++i)
+        {
+            if (RegistryRuleMatchesPath(Path, kHardcodedRegistryRoots[i]))
+                return TRUE;
+        }
+
+        for (ULONG i = 0; i < ARRAYSIZE(kHardcodedRegistrySubpaths); ++i)
+        {
+            if (RegistrySubpathMatchesPath(Path, kHardcodedRegistrySubpaths[i]))
+                return TRUE;
+        }
     }
 
     if (!g_RulesLoaded || !g_RuleMutexInitialized)
@@ -684,7 +864,7 @@ BOOLEAN IsPathProtectedByType(_In_ PCWSTR Path, _In_ RULE_TYPE RuleType)
 
     for (ULONG i = 0; i < ruleSet->Count; i++)
     {
-        if (ruleSet->Rules[i] && ContainsSubstringInsensitive(Path, ruleSet->Rules[i]))
+        if (ruleSet->Rules[i] && RuleMatchesPathByType(Path, ruleSet->Rules[i], RuleType))
         {
             matched = TRUE;
             break;

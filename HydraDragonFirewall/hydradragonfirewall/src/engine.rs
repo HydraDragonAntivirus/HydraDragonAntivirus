@@ -1248,7 +1248,7 @@ impl AppManager {
 /// so the client's TCP stack accepts them.
 #[derive(Clone)]
 pub struct TransparentNatTable {
-    inner: Arc<std::sync::RwLock<HashMap<u16, (Ipv4Addr, u16)>>>,
+    inner: Arc<std::sync::RwLock<HashMap<u16, (IpAddr, u16, IpAddr)>>>,
 }
 
 impl TransparentNatTable {
@@ -1258,11 +1258,11 @@ impl TransparentNatTable {
         }
     }
 
-    pub fn insert(&self, client_src_port: u16, original_dst: (Ipv4Addr, u16)) {
+    pub fn insert(&self, client_src_port: u16, original_dst: (IpAddr, u16, IpAddr)) {
         self.inner.write().unwrap().insert(client_src_port, original_dst);
     }
 
-    pub fn get(&self, client_src_port: u16) -> Option<(Ipv4Addr, u16)> {
+    pub fn get(&self, client_src_port: u16) -> Option<(IpAddr, u16, IpAddr)> {
         self.inner.read().unwrap().get(&client_src_port).copied()
     }
 
@@ -1339,22 +1339,99 @@ fn nat_rewrite_src_ipv4(data: &mut [u8], new_ip: Ipv4Addr, new_port: u16) -> boo
     true
 }
 
+// ── IPv6 + TCP header rewrite helpers for transparent proxy NAT ─────────────
+
+/// Rewrite the destination IPv6 address and TCP port in a raw packet.
+fn nat_rewrite_dst_ipv6(data: &mut [u8], new_ip: std::net::Ipv6Addr, new_port: u16) -> bool {
+    if data.len() < 40 {
+        return false;
+    }
+    let ip_version = (data[0] >> 4) & 0x0F;
+    if ip_version != 6 {
+        return false;
+    }
+    // Protocol (Next Header) must be TCP (6)
+    if data[6] != 6 {
+        return false;
+    }
+    if data.len() < 44 {
+        return false;
+    }
+    // Overwrite dst IP (bytes 24..40)
+    let octets = new_ip.octets();
+    data[24..40].copy_from_slice(&octets);
+    // Overwrite dst port (bytes 42..44)
+    let port_bytes = new_port.to_be_bytes();
+    data[42] = port_bytes[0];
+    data[43] = port_bytes[1];
+    true
+}
+
+/// Rewrite the source IPv6 address and TCP port in a raw packet.
+fn nat_rewrite_src_ipv6(data: &mut [u8], new_ip: std::net::Ipv6Addr, new_port: u16) -> bool {
+    if data.len() < 40 {
+        return false;
+    }
+    let ip_version = (data[0] >> 4) & 0x0F;
+    if ip_version != 6 {
+        return false;
+    }
+    // Next Header must be TCP (6)
+    if data[6] != 6 {
+        return false;
+    }
+    if data.len() < 42 {
+        return false;
+    }
+    // Overwrite src IP (bytes 8..24)
+    let octets = new_ip.octets();
+    data[8..24].copy_from_slice(&octets);
+    // Overwrite src port (bytes 40..42)
+    let port_bytes = new_port.to_be_bytes();
+    data[40] = port_bytes[0];
+    data[41] = port_bytes[1];
+    true
+}
+
 /// Check if the TCP FIN or RST flag is set (connection teardown).
 fn tcp_is_fin_or_rst(data: &[u8]) -> bool {
+    if data.is_empty() {
+        return false;
+    }
     let ip_version = (data[0] >> 4) & 0x0F;
-    if ip_version != 4 || data.len() < 20 {
-        return false;
+    match ip_version {
+        4 => {
+            if data.len() < 20 {
+                return false;
+            }
+            if data[9] != 6 {
+                return false;
+            }
+            let ihl = ((data[0] & 0x0F) as usize) * 4;
+            if data.len() < ihl + 14 {
+                return false;
+            }
+            let flags = data[ihl + 13];
+            // FIN = 0x01, RST = 0x04
+            (flags & 0x01) != 0 || (flags & 0x04) != 0
+        }
+        6 => {
+            if data.len() < 40 {
+                return false;
+            }
+            if data[6] != 6 {
+                return false;
+            }
+            let tcp_header_start = 40;
+            if data.len() < tcp_header_start + 14 {
+                return false;
+            }
+            let flags = data[tcp_header_start + 13];
+            // FIN = 0x01, RST = 0x04
+            (flags & 0x01) != 0 || (flags & 0x04) != 0
+        }
+        _ => false,
     }
-    if data[9] != 6 {
-        return false;
-    }
-    let ihl = ((data[0] & 0x0F) as usize) * 4;
-    if data.len() < ihl + 14 {
-        return false;
-    }
-    let flags = data[ihl + 13];
-    // FIN = 0x01, RST = 0x04
-    (flags & 0x01) != 0 || (flags & 0x04) != 0
 }
 
 // ============================================================================
@@ -1598,8 +1675,13 @@ impl FirewallEngine {
 
     fn wait_for_proxy_listener(addr: std::net::SocketAddr, timeout: Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
+        let test_addr = if addr.ip().is_unspecified() || addr.ip().is_loopback() {
+            std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)), addr.port())
+        } else {
+            addr
+        };
         while std::time::Instant::now() < deadline {
-            if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok() {
+            if std::net::TcpStream::connect_timeout(&test_addr, Duration::from_millis(250)).is_ok() {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -1847,7 +1929,10 @@ impl FirewallEngine {
     }
 
     fn is_proxy_host(ip: IpAddr, tls_proxy: &TlsProxyConfig) -> bool {
-        if tls_proxy.listen_host.eq_ignore_ascii_case("localhost") {
+        if tls_proxy.listen_host.eq_ignore_ascii_case("localhost")
+            || tls_proxy.listen_host == "127.0.0.1"
+            || tls_proxy.listen_host == "::1"
+        {
             return Self::is_loopback(ip);
         }
 
@@ -1917,11 +2002,14 @@ impl FirewallEngine {
             return;
         }
 
-        let addr: std::net::SocketAddr =
-            format!("{}:{}", tls_proxy.listen_host, tls_proxy.listen_port)
-                .parse()
-                .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
-        let addr_string = addr.to_string();
+        let listen_port = tls_proxy.listen_port;
+        let addr_v4: std::net::SocketAddr = format!("127.0.0.1:{}", listen_port)
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
+        let addr_v6: std::net::SocketAddr = format!("[::1]:{}", listen_port)
+            .parse()
+            .unwrap_or_else(|_| "[::1]:8877".parse().unwrap());
+        let addr_string = format!("127.0.0.1:{}", listen_port);
 
         let ca_bundle = crate::proxy::generate_ca();
 
@@ -2017,28 +2105,49 @@ impl FirewallEngine {
         // Clear any stale proxy setting for the same listener before we start.
         let _ = Self::clear_owned_windows_proxy(&addr_string);
 
-        let (stop_tx, stop_rx) = oneshot::channel::<()>();
-        *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx);
+        let (stop_tx_main, stop_rx_main) = oneshot::channel::<()>();
+        let (stop_tx4, stop_rx4) = oneshot::channel::<()>();
+        let (stop_tx6, stop_rx6) = oneshot::channel::<()>();
+
+        tauri::async_runtime::spawn(async move {
+            let _ = stop_rx_main.await;
+            let _ = stop_tx4.send(());
+            let _ = stop_tx6.send(());
+        });
+
+        *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx_main);
         self.browser_mitm_warning_cache.lock().unwrap().clear();
 
         let app = tx.clone();
         let sdk = self.sdk.clone();
         let settings = self.settings.clone();
         let proxy_runtime = Arc::clone(&self.tls_proxy_backend_child);
+
+        let ca_bundle_v4 = crate::proxy::generate_ca();
         tauri::async_runtime::spawn(crate::proxy::run_proxy(
-            addr,
-            ca_bundle.issuer,
+            addr_v4,
+            ca_bundle_v4.issuer,
+            app.clone(),
+            sdk.clone(),
+            settings.clone(),
+            stop_rx4,
+        ));
+
+        let ca_bundle_v6 = crate::proxy::generate_ca();
+        tauri::async_runtime::spawn(crate::proxy::run_proxy(
+            addr_v6,
+            ca_bundle_v6.issuer,
             app,
             sdk,
             settings,
-            stop_rx,
+            stop_rx6,
         ));
 
         let tx_ready = tx.clone();
         std::thread::Builder::new()
             .name("proxy_ready_waiter".to_string())
             .spawn(move || {
-                let listener_ready = Self::wait_for_proxy_listener(addr, Duration::from_secs(5));
+                let listener_ready = Self::wait_for_proxy_listener(addr_v4, Duration::from_secs(5));
                 let still_running = proxy_runtime.lock().unwrap().is_some();
                 if !still_running {
                     return;
@@ -3837,51 +3946,93 @@ impl FirewallEngine {
                                 if decision.should_forward {
                                     let mut packet_data = decision.packet_data;
                                     let mut recalc_checksums = decision.recalc_checksums;
+                                    let mut loopback_flag = None;
 
                                     let tls_proxy_cfg = settings_w.read().unwrap().tls_proxy.clone();
                                     if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy {
                                          let mut is_tcp = false;
                                          let mut src_port = 0;
                                          let mut dst_port = 0;
-                                         let mut src_ip_v4 = None;
-                                         let mut dst_ip_v4 = None;
+                                         let mut src_ip = None;
+                                         let mut dst_ip = None;
                                          if let Some((ref p_info, _)) = pre_parsed {
                                              is_tcp = matches!(p_info.protocol, crate::engine::Protocol::TCP);
                                              src_port = p_info.src_port;
                                              dst_port = p_info.dst_port;
-                                             if let IpAddr::V4(v4) = p_info.src_ip {
-                                                 src_ip_v4 = Some(v4);
-                                             }
-                                             if let IpAddr::V4(v4) = p_info.dst_ip {
-                                                 dst_ip_v4 = Some(v4);
-                                             }
+                                             src_ip = Some(p_info.src_ip);
+                                             dst_ip = Some(p_info.dst_ip);
                                          }
 
                                          if is_tcp {
-                                             if outbound {
-                                                 if dst_port == 443 && pid != 0 && pid != std::process::id() {
-                                                     if let Some(orig_dst) = dst_ip_v4 {
-                                                         if !orig_dst.is_loopback() && !orig_dst.is_unspecified() && !orig_dst.is_multicast() {
-                                                             nat_table_w.insert(src_port, (orig_dst, 443));
-                                                             if nat_rewrite_dst_ipv4(&mut packet_data, Ipv4Addr::new(127, 0, 0, 1), tls_proxy_cfg.listen_port) {
-                                                                 recalc_checksums = true;
-                                                                 if tcp_is_fin_or_rst(&packet_data) {
-                                                                     nat_table_w.remove(src_port);
-                                                                 }
-                                                             }
+                                             let proxy_return_flow = src_ip.is_some_and(Self::is_loopback)
+                                                 && src_port == tls_proxy_cfg.listen_port;
+
+                                             if proxy_return_flow {
+                                                 if let Some((orig_ip, orig_port, orig_src)) = nat_table_w.get(dst_port) {
+                                                     let ok = match orig_ip {
+                                                         IpAddr::V4(v4) => nat_rewrite_src_ipv4(
+                                                             &mut packet_data,
+                                                             v4,
+                                                             orig_port,
+                                                         ),
+                                                         IpAddr::V6(v6) => {
+                                                             let ok_src = nat_rewrite_src_ipv6(
+                                                                 &mut packet_data,
+                                                                 v6,
+                                                                 orig_port,
+                                                             );
+                                                             let ok_dst = if let IpAddr::V6(orig_client_ip) = orig_src {
+                                                                 nat_rewrite_dst_ipv6(
+                                                                     &mut packet_data,
+                                                                     orig_client_ip,
+                                                                     dst_port,
+                                                                 )
+                                                             } else {
+                                                                 false
+                                                             };
+                                                             ok_src && ok_dst
+                                                         }
+                                                     };
+                                                     if ok {
+                                                         recalc_checksums = true;
+                                                         loopback_flag = Some(false);
+                                                         if tcp_is_fin_or_rst(&packet_data) {
+                                                             nat_table_w.remove(dst_port);
                                                          }
                                                      }
                                                  }
-                                             } else {
-                                                 // Inbound returning from proxy
-                                                 if let Some(src_ip) = src_ip_v4 {
-                                                     if (src_ip.is_loopback() || src_ip == Ipv4Addr::new(127, 0, 0, 1)) && src_port == tls_proxy_cfg.listen_port {
-                                                         if let Some((orig_ip, orig_port)) = nat_table_w.get(dst_port) {
-                                                             if nat_rewrite_src_ipv4(&mut packet_data, orig_ip, orig_port) {
-                                                                 recalc_checksums = true;
-                                                                 if tcp_is_fin_or_rst(&packet_data) {
-                                                                     nat_table_w.remove(dst_port);
-                                                                 }
+                                             } else if outbound && dst_port == 443 && pid != std::process::id() {
+                                                 if let (Some(orig_dst), Some(orig_src)) = (dst_ip, src_ip) {
+                                                     if !Self::is_loopback(orig_dst)
+                                                         && !orig_dst.is_unspecified()
+                                                         && !orig_dst.is_multicast()
+                                                     {
+                                                         nat_table_w.insert(src_port, (orig_dst, 443, orig_src));
+                                                         let ok = match orig_dst {
+                                                             IpAddr::V4(_v4) => nat_rewrite_dst_ipv4(
+                                                                 &mut packet_data,
+                                                                 Ipv4Addr::new(127, 0, 0, 1),
+                                                                 tls_proxy_cfg.listen_port,
+                                                             ),
+                                                             IpAddr::V6(_v6) => {
+                                                                 let ok_dst = nat_rewrite_dst_ipv6(
+                                                                     &mut packet_data,
+                                                                     std::net::Ipv6Addr::LOCALHOST,
+                                                                     tls_proxy_cfg.listen_port,
+                                                                 );
+                                                                 let ok_src = nat_rewrite_src_ipv6(
+                                                                     &mut packet_data,
+                                                                     std::net::Ipv6Addr::LOCALHOST,
+                                                                     src_port,
+                                                                 );
+                                                                 ok_dst && ok_src
+                                                             }
+                                                         };
+                                                         if ok {
+                                                             recalc_checksums = true;
+                                                             loopback_flag = Some(true);
+                                                             if tcp_is_fin_or_rst(&packet_data) {
+                                                                 nat_table_w.remove(src_port);
                                                              }
                                                          }
                                                      }
@@ -3891,8 +4042,12 @@ impl FirewallEngine {
                                      }
 
                                      // REINJECT IMMEDIATELY from the SAME thread
+                                     let mut reinject_address = packet.address.clone();
+                                     if let Some(val) = loopback_flag {
+                                         reinject_address.as_mut().set_loopback(val);
+                                     }
                                      let mut reinject_packet = windivert::packet::WinDivertPacket {
-                                         address: packet.address,
+                                         address: reinject_address,
                                          data: std::borrow::Cow::Owned(packet_data),
                                      };
                                      if recalc_checksums {

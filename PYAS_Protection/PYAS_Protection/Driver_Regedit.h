@@ -12,8 +12,6 @@
 #define REG_PROTECT_WINLOGON                                                   \
   L"\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
 
-#define REG_TAG 'gkER'
-
 // Driver Entry ve Unload
 NTSTATUS RegeditDriverEntry();
 NTSTATUS RegeditUnloadDriver();

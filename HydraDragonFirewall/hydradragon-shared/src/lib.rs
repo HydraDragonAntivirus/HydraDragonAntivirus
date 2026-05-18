@@ -25,6 +25,12 @@ pub const DEFAULT_TLS_AUTO_START: bool = true;
 /// Default handshake timeout in milliseconds
 pub const DEFAULT_HANDSHAKE_TIMEOUT_MS: u64 = 5000;
 
+/// Default request timeout in seconds
+pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
+
+/// Default response timeout in seconds
+pub const DEFAULT_RESPONSE_TIMEOUT_SECS: u64 = 30;
+
 /// Helper function for serde default - returns true for cert_install_consent
 fn default_cert_install_consent() -> bool {
     DEFAULT_CERT_INSTALL_CONSENT
@@ -53,6 +59,16 @@ fn default_auto_start() -> bool {
 /// Helper function for serde default - returns default handshake timeout
 fn default_handshake_timeout_ms() -> u64 {
     DEFAULT_HANDSHAKE_TIMEOUT_MS
+}
+
+/// Helper function for serde default - returns default request timeout
+fn default_request_timeout_secs() -> u64 {
+    DEFAULT_REQUEST_TIMEOUT_SECS
+}
+
+/// Helper function for serde default - returns default response timeout
+fn default_response_timeout_secs() -> u64 {
+    DEFAULT_RESPONSE_TIMEOUT_SECS
 }
 
 /// TLS inspection mode
@@ -93,6 +109,10 @@ pub struct TlsProxyConfig {
     pub cert_install_consent: bool,
     #[serde(default = "default_handshake_timeout_ms")]
     pub handshake_timeout_ms: u64,
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+    #[serde(default = "default_response_timeout_secs")]
+    pub response_timeout_secs: u64,
 }
 
 impl Default for TlsProxyConfig {
@@ -106,6 +126,8 @@ impl Default for TlsProxyConfig {
             bypass_hosts: Vec::new(),
             cert_install_consent: DEFAULT_CERT_INSTALL_CONSENT,
             handshake_timeout_ms: DEFAULT_HANDSHAKE_TIMEOUT_MS,
+            request_timeout_secs: DEFAULT_REQUEST_TIMEOUT_SECS,
+            response_timeout_secs: DEFAULT_RESPONSE_TIMEOUT_SECS,
         }
     }
 }

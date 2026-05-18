@@ -1,6 +1,8 @@
 ﻿// Regedit.c - Registry protection with user-mode alerting (FIXED)
 #include "Driver.h"
 #include "Driver_Regedit.h"
+#include "Driver_Common.h"
+#include "Driver_Process.h"
 #include "ProtectionRules.h"
 
 LARGE_INTEGER Cookie;
@@ -18,6 +20,22 @@ typedef struct _REGISTRY_ALERT_WORK_ITEM {
 NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_ PVOID Argument2);
 VOID RegistryAlertWorker(PVOID Context);
 NTSTATUS QueueRegistryAlertToUserMode(PUNICODE_STRING RegPath, PCWSTR Operation);
+
+#define REGISTRY_READONLY_WRITE_MASK (KEY_SET_VALUE | KEY_CREATE_SUB_KEY | KEY_CREATE_LINK | \
+                                      DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL)
+
+static BOOLEAN IsCurrentRegistryTrusted(VOID);
+static BOOLEAN RegistryAccessRequestsWrite(_In_ ACCESS_MASK DesiredAccess);
+static BOOLEAN IsRegistryPathProtected(_In_ PUNICODE_STRING RegPath);
+static BOOLEAN IsComRegistryPath(_In_ PUNICODE_STRING RegPath);
+static BOOLEAN IsPerUserComRegistryPath(_In_ PUNICODE_STRING RegPath);
+static NTSTATUS DenyRegistryOperation(_In_ PUNICODE_STRING RegPath, _In_ PCWSTR Operation);
+static NTSTATUS ReportComRegistryOperation(_In_ PUNICODE_STRING RegPath, _In_ PCWSTR Operation);
+static BOOLEAN BuildRegistryPath(
+    _Inout_ PUNICODE_STRING RegPath,
+    _In_opt_ PVOID RootObject,
+    _In_opt_ PUNICODE_STRING CompleteName
+);
 
 // NOTE: Function definitions now have SAL annotations matching the header file.
 _IRQL_requires_max_(PASSIVE_LEVEL)
@@ -62,30 +80,30 @@ VOID RegistryAlertWorker(PVOID Context)
     NTSTATUS status;
     WCHAR messageBuffer[2048];
     WCHAR escapedRegPath[1024];
+    WCHAR escapedAttacker[1024];
+    PCWSTR attackType;
+    PCWSTR category;
+    PCWSTR action;
 
     PCWSTR attackerName = workItem->AttackerPath.Buffer ? workItem->AttackerPath.Buffer : L"Unknown";
+    BOOLEAN isComEvent = StartsWithInsensitive(workItem->Operation, L"COM_");
+    BOOLEAN isTelemetryOnly = ContainsSubstringInsensitive(workItem->Operation, L"TELEMETRY");
+    attackType = isComEvent ? L"COM_REGISTRY_TAMPERING" : L"REGISTRY_TAMPERING";
+    category = isComEvent ? L"com" : L"registry";
+    action = isTelemetryOnly ? L"telemetry" : L"blocked";
 
-    // Escape backslashes in registry path for JSON
     RtlZeroMemory(escapedRegPath, sizeof(escapedRegPath));
+    RtlZeroMemory(escapedAttacker, sizeof(escapedAttacker));
 
-    if (workItem->RegPath.Buffer && workItem->RegPath.Length > 0)
+    if (workItem->RegPath.Buffer && workItem->RegPath.Length > 0 &&
+        !EscapeJsonString(escapedRegPath, sizeof(escapedRegPath), workItem->RegPath.Buffer))
     {
-        ULONG j = 0;
-        for (ULONG i = 0; i < workItem->RegPath.Length / sizeof(WCHAR) && j + 1 < ARRAYSIZE(escapedRegPath); ++i)
-        {
-            if (workItem->RegPath.Buffer[i] == L'\\')
-            {
-                if (j + 2 < ARRAYSIZE(escapedRegPath)) {
-                    escapedRegPath[j++] = L'\\';
-                    escapedRegPath[j++] = L'\\';
-                }
-            }
-            else
-            {
-                escapedRegPath[j++] = workItem->RegPath.Buffer[i];
-            }
-        }
-        escapedRegPath[j] = L'\0';
+        RtlStringCbCopyW(escapedRegPath, sizeof(escapedRegPath), L"ErrorEscapingPath");
+    }
+
+    if (!EscapeJsonString(escapedAttacker, sizeof(escapedAttacker), attackerName))
+    {
+        RtlStringCbCopyW(escapedAttacker, sizeof(escapedAttacker), L"ErrorEscapingPath");
     }
 
     // Build JSON message
@@ -93,10 +111,13 @@ VOID RegistryAlertWorker(PVOID Context)
     status = RtlStringCbPrintfW(
         messageBuffer,
         sizeof(messageBuffer),
-        L"{\"protected_file\":\"%s\",\"attacker_path\":\"%s\",\"attacker_pid\":%llu,\"attack_type\":\"REGISTRY_TAMPERING\",\"operation\":\"%s\"}",
+        L"{\"source\":\"simplepyas\",\"category\":\"%ws\",\"action\":\"%ws\",\"protected_file\":\"%ws\",\"attacker_path\":\"%ws\",\"attacker_pid\":%llu,\"attack_type\":\"%ws\",\"operation\":\"%ws\"}",
+        category,
+        action,
         escapedRegPath[0] ? escapedRegPath : L"",
-        attackerName,
+        escapedAttacker,
         (ULONGLONG)(ULONG_PTR)workItem->AttackerPid,
+        attackType,
         workItem->Operation
     );
 
@@ -126,7 +147,7 @@ VOID RegistryAlertWorker(PVOID Context)
     if (workItem->RegPath.Buffer)
         ExFreePoolWithTag(workItem->RegPath.Buffer, REG_TAG);
     if (workItem->AttackerPath.Buffer)
-        ExFreePool(workItem->AttackerPath.Buffer);
+        ExFreePoolWithTag(workItem->AttackerPath.Buffer, REG_TAG);
 
     ExFreePoolWithTag(workItem, REG_TAG);
 }
@@ -151,6 +172,8 @@ NTSTATUS QueueRegistryAlertToUserMode(
 
     if (!workItem)
         return STATUS_INSUFFICIENT_RESOURCES;
+
+    RtlZeroMemory(workItem, sizeof(REGISTRY_ALERT_WORK_ITEM));
 
     // Copy registry path
     if (RegPath && RegPath->Buffer && RegPath->Length > 0)
@@ -195,7 +218,7 @@ NTSTATUS QueueRegistryAlertToUserMode(
 
     // Copy PID and operation
     workItem->AttackerPid = currentPid;
-    RtlStringCbCopyW(workItem->Operation, sizeof(workItem->Operation), Operation);
+    RtlStringCbCopyW(workItem->Operation, sizeof(workItem->Operation), Operation ? Operation : L"UNKNOWN");
 
     // Queue work item
 #pragma warning(suppress: 4996)
@@ -246,7 +269,7 @@ BOOLEAN GetNameForRegistryObject(
     }
 
     // Ensure destination buffer is large enough
-    if (NameInfo->Name.Length > pRegistryPath->MaximumLength)
+    if (NameInfo->Name.Length + sizeof(WCHAR) > pRegistryPath->MaximumLength)
     {
         ExFreePoolWithTag(NameInfo, REG_TAG);
         return FALSE;
@@ -254,6 +277,7 @@ BOOLEAN GetNameForRegistryObject(
 
     // Copy into caller-provided UNICODE_STRING
     RtlCopyUnicodeString(pRegistryPath, &NameInfo->Name);
+    pRegistryPath->Buffer[pRegistryPath->Length / sizeof(WCHAR)] = L'\0';
 
     ExFreePoolWithTag(NameInfo, REG_TAG);
     return TRUE;
@@ -300,6 +324,170 @@ BOOLEAN UnicodeContainsInsensitive(_In_ PUNICODE_STRING Source, _In_ PCWSTR Patt
     return found;
 }
 
+static BOOLEAN IsCurrentRegistryTrusted(VOID)
+{
+    HANDLE pid = PsGetCurrentProcessId();
+
+    if (IsProcessTrusted(pid) || IsProtectedProcessByPid(pid))
+        return TRUE;
+
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return FALSE;
+
+    return IsProtectedProcessByPath(PsGetCurrentProcess());
+}
+
+static BOOLEAN RegistryAccessRequestsWrite(_In_ ACCESS_MASK DesiredAccess)
+{
+    if (DesiredAccess == 0)
+        return FALSE;
+
+    if (DesiredAccess & MAXIMUM_ALLOWED)
+        return TRUE;
+
+    return (DesiredAccess & REGISTRY_READONLY_WRITE_MASK) != 0;
+}
+
+static BOOLEAN IsRegistryPathProtected(_In_ PUNICODE_STRING RegPath)
+{
+    return RegPath &&
+           RegPath->Buffer &&
+           RegPath->Length > 0 &&
+           IsPathProtectedByType(RegPath->Buffer, RuleTypeRegistry);
+}
+
+static BOOLEAN IsComRegistryPath(_In_ PUNICODE_STRING RegPath)
+{
+    if (!RegPath || !RegPath->Buffer || RegPath->Length == 0)
+        return FALSE;
+
+    return UnicodeContainsInsensitive(RegPath, L"\\SOFTWARE\\Classes\\CLSID\\") ||
+           UnicodeContainsInsensitive(RegPath, L"\\SOFTWARE\\Classes\\AppID\\") ||
+           UnicodeContainsInsensitive(RegPath, L"\\Software\\Classes\\CLSID\\") ||
+           UnicodeContainsInsensitive(RegPath, L"\\Software\\Classes\\AppID\\");
+}
+
+static BOOLEAN IsPerUserComRegistryPath(_In_ PUNICODE_STRING RegPath)
+{
+    if (!RegPath || !RegPath->Buffer || RegPath->Length == 0)
+        return FALSE;
+
+    return UnicodeContainsInsensitive(RegPath, L"\\REGISTRY\\USER\\") &&
+           (UnicodeContainsInsensitive(RegPath, L"\\Software\\Classes\\CLSID\\") ||
+            UnicodeContainsInsensitive(RegPath, L"\\Software\\Classes\\AppID\\"));
+}
+
+static NTSTATUS DenyRegistryOperation(_In_ PUNICODE_STRING RegPath, _In_ PCWSTR Operation)
+{
+    QueueRegistryAlertToUserMode(RegPath, Operation);
+    return STATUS_ACCESS_DENIED;
+}
+
+static NTSTATUS ReportComRegistryOperation(_In_ PUNICODE_STRING RegPath, _In_ PCWSTR Operation)
+{
+    if (!IsComRegistryPath(RegPath))
+        return STATUS_SUCCESS;
+
+    BOOLEAN perUser = IsPerUserComRegistryPath(RegPath);
+    WCHAR operationName[64];
+    RtlZeroMemory(operationName, sizeof(operationName));
+    if (!NT_SUCCESS(RtlStringCbPrintfW(
+            operationName,
+            sizeof(operationName),
+            perUser ? L"%ws_BLOCKED" : L"%ws_TELEMETRY",
+            Operation ? Operation : L"COM_REGISTRY")))
+    {
+        RtlStringCbCopyW(operationName, sizeof(operationName),
+            perUser ? L"COM_REGISTRY_BLOCKED" : L"COM_REGISTRY_TELEMETRY");
+    }
+
+    QueueRegistryAlertToUserMode(RegPath, operationName);
+    if (perUser)
+        return STATUS_ACCESS_DENIED;
+
+    return STATUS_SUCCESS;
+}
+
+static BOOLEAN AppendRegistryString(_Inout_ PUNICODE_STRING RegPath, _In_ PUNICODE_STRING Text)
+{
+    if (!RegPath || !RegPath->Buffer || !Text || !Text->Buffer || Text->Length == 0)
+        return TRUE;
+
+    if ((ULONG)RegPath->Length + (ULONG)Text->Length + sizeof(WCHAR) > RegPath->MaximumLength)
+        return FALSE;
+
+    if (!NT_SUCCESS(RtlAppendUnicodeStringToString(RegPath, Text)))
+        return FALSE;
+
+    RegPath->Buffer[RegPath->Length / sizeof(WCHAR)] = L'\0';
+    return TRUE;
+}
+
+static BOOLEAN AppendRegistrySlash(_Inout_ PUNICODE_STRING RegPath)
+{
+    if (!RegPath || !RegPath->Buffer)
+        return FALSE;
+
+    if (RegPath->Length == 0)
+        return TRUE;
+
+    WCHAR last = RegPath->Buffer[(RegPath->Length / sizeof(WCHAR)) - 1];
+    if (last == L'\\')
+        return TRUE;
+
+    if ((ULONG)RegPath->Length + sizeof(WCHAR) + sizeof(WCHAR) > RegPath->MaximumLength)
+        return FALSE;
+
+    if (!NT_SUCCESS(RtlAppendUnicodeToString(RegPath, L"\\")))
+        return FALSE;
+
+    RegPath->Buffer[RegPath->Length / sizeof(WCHAR)] = L'\0';
+    return TRUE;
+}
+
+static BOOLEAN BuildRegistryPath(
+    _Inout_ PUNICODE_STRING RegPath,
+    _In_opt_ PVOID RootObject,
+    _In_opt_ PUNICODE_STRING CompleteName
+)
+{
+    if (!RegPath || !RegPath->Buffer || RegPath->MaximumLength == 0)
+        return FALSE;
+
+    RtlZeroMemory(RegPath->Buffer, RegPath->MaximumLength);
+    RegPath->Length = 0;
+
+    if (CompleteName && CompleteName->Buffer && CompleteName->Length > 0 && CompleteName->Buffer[0] == L'\\')
+    {
+        if ((ULONG)CompleteName->Length + sizeof(WCHAR) > RegPath->MaximumLength)
+            return FALSE;
+
+        RtlCopyUnicodeString(RegPath, CompleteName);
+        RegPath->Buffer[RegPath->Length / sizeof(WCHAR)] = L'\0';
+        return TRUE;
+    }
+
+    if (RootObject)
+    {
+        if (!GetNameForRegistryObject(RegPath, RootObject))
+            return FALSE;
+    }
+
+    if (CompleteName && CompleteName->Buffer && CompleteName->Length > 0)
+    {
+        if (RegPath->Length == 0)
+            return FALSE;
+
+        if (!AppendRegistrySlash(RegPath))
+            return FALSE;
+
+        if (!AppendRegistryString(RegPath, CompleteName))
+            return FALSE;
+    }
+
+    return RegPath->Length > 0;
+}
+
 NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_ PVOID Argument2)
 {
     UNREFERENCED_PARAMETER(CallbackContext);
@@ -311,11 +499,18 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
     RegPath.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, RegPath.MaximumLength, REG_TAG);
     if (!RegPath.Buffer)
         return Status;
+    RtlZeroMemory(RegPath.Buffer, RegPath.MaximumLength);
 
     // Length is already 0 from RtlZeroMemory, but being explicit does no harm.
     RegPath.Length = 0;
 
     REG_NOTIFY_CLASS NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
+
+    if (IsCurrentRegistryTrusted())
+    {
+        ExFreePoolWithTag(RegPath.Buffer, REG_TAG);
+        return Status;
+    }
 
     __try
     {
@@ -330,22 +525,17 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                 {
                     if (pInfo->ValueName && pInfo->ValueName->Length > 0)
                     {
-                        RtlAppendUnicodeToString(&RegPath, L"\\");
-                        RtlAppendUnicodeStringToString(&RegPath, pInfo->ValueName);
+                        AppendRegistrySlash(&RegPath);
+                        AppendRegistryString(&RegPath, pInfo->ValueName);
                     }
 
-                    // --- end Winlogon Shell whitelist ---
+                    Status = ReportComRegistryOperation(&RegPath, L"COM_DELETE_VALUE");
+                    if (!NT_SUCCESS(Status))
+                        break;
 
-                    if (UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SUBPATH) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_PYAS) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_OWLY) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SANCTUM) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER) ||
-                        IsPathProtectedByType(RegPath.Buffer, RuleTypeRegistry))
+                    if (IsRegistryPathProtected(&RegPath))
                     {
-                        // Queue alert (non-blocking)
-                        QueueRegistryAlertToUserMode(&RegPath, L"DELETE_VALUE");
-                        Status = STATUS_ACCESS_DENIED;
+                        Status = DenyRegistryOperation(&RegPath, L"DELETE_VALUE");
                     }
                 }
             }
@@ -359,15 +549,13 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    if (UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SUBPATH) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_PYAS) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_OWLY) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SANCTUM) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER) ||
-                        IsPathProtectedByType(RegPath.Buffer, RuleTypeRegistry))
+                    Status = ReportComRegistryOperation(&RegPath, L"COM_DELETE_KEY");
+                    if (!NT_SUCCESS(Status))
+                        break;
+
+                    if (IsRegistryPathProtected(&RegPath))
                     {
-                        QueueRegistryAlertToUserMode(&RegPath, L"DELETE_KEY");
-                        Status = STATUS_ACCESS_DENIED;
+                        Status = DenyRegistryOperation(&RegPath, L"DELETE_KEY");
                     }
                 }
             }
@@ -383,8 +571,8 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                 {
                     if (pInfo->ValueName && pInfo->ValueName->Length > 0)
                     {
-                        RtlAppendUnicodeToString(&RegPath, L"\\");
-                        RtlAppendUnicodeStringToString(&RegPath, pInfo->ValueName);
+                        AppendRegistrySlash(&RegPath);
+                        AppendRegistryString(&RegPath, pInfo->ValueName);
                     }
 
                     // --- Winlogon Shell whitelist (BUGFIX: MOVED HERE AND CORRECTED) ---
@@ -487,17 +675,13 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                     }
                     // --- end Winlogon Shell whitelist ---
 
+                    Status = ReportComRegistryOperation(&RegPath, L"COM_SET_VALUE");
+                    if (!NT_SUCCESS(Status))
+                        break;
 
-                    // Standard hardcoded checks
-                    if (UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SUBPATH) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_PYAS) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_OWLY) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SANCTUM) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER) ||
-                        IsPathProtectedByType(RegPath.Buffer, RuleTypeRegistry))
+                    if (IsRegistryPathProtected(&RegPath))
                     {
-                        QueueRegistryAlertToUserMode(&RegPath, L"SET_VALUE");
-                        Status = STATUS_ACCESS_DENIED;
+                        Status = DenyRegistryOperation(&RegPath, L"SET_VALUE");
                     }
                 }
             }
@@ -513,20 +697,56 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                 {
                     if (pInfo->NewName && pInfo->NewName->Length > 0)
                     {
-                        RtlAppendUnicodeToString(&RegPath, L"\\");
-                        RtlAppendUnicodeStringToString(&RegPath, pInfo->NewName);
+                        AppendRegistrySlash(&RegPath);
+                        AppendRegistryString(&RegPath, pInfo->NewName);
                     }
 
-                    if (UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SUBPATH) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_PYAS) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_OWLY) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SANCTUM) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER) ||
-                        IsPathProtectedByType(RegPath.Buffer, RuleTypeRegistry))
+                    Status = ReportComRegistryOperation(&RegPath, L"COM_RENAME_KEY");
+                    if (!NT_SUCCESS(Status))
+                        break;
+
+                    if (IsRegistryPathProtected(&RegPath))
                     {
-                        QueueRegistryAlertToUserMode(&RegPath, L"RENAME_KEY");
-                        Status = STATUS_ACCESS_DENIED;
+                        Status = DenyRegistryOperation(&RegPath, L"RENAME_KEY");
                     }
+                }
+            }
+            break;
+        }
+
+        case RegNtPreCreateKeyEx:
+        {
+            PREG_CREATE_KEY_INFORMATION_V1 pInfo = (PREG_CREATE_KEY_INFORMATION_V1)Argument2;
+            if (pInfo && BuildRegistryPath(&RegPath, pInfo->RootObject, pInfo->CompleteName))
+            {
+                Status = ReportComRegistryOperation(&RegPath, L"COM_CREATE_KEY");
+                if (!NT_SUCCESS(Status))
+                    break;
+
+                if (IsRegistryPathProtected(&RegPath))
+                {
+                    Status = DenyRegistryOperation(&RegPath, L"CREATE_KEY");
+                }
+            }
+            break;
+        }
+
+        case RegNtPreOpenKeyEx:
+        {
+            PREG_OPEN_KEY_INFORMATION_V1 pInfo = (PREG_OPEN_KEY_INFORMATION_V1)Argument2;
+            if (pInfo && BuildRegistryPath(&RegPath, pInfo->RootObject, pInfo->CompleteName))
+            {
+                if (RegistryAccessRequestsWrite(pInfo->DesiredAccess))
+                {
+                    Status = ReportComRegistryOperation(&RegPath, L"COM_OPEN_KEY_WRITE");
+                    if (!NT_SUCCESS(Status))
+                        break;
+                }
+
+                if (IsRegistryPathProtected(&RegPath) &&
+                    RegistryAccessRequestsWrite(pInfo->DesiredAccess))
+                {
+                    Status = DenyRegistryOperation(&RegPath, L"OPEN_KEY_WRITE");
                 }
             }
             break;

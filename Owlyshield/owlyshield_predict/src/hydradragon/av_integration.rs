@@ -430,14 +430,49 @@ struct SelfDefenseAlert {
     protected_file: String,
     #[serde(default)]
     attacker_path: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_u32_lossy")]
     attacker_pid: u32,
     #[serde(default)]
     attack_type: String,
     #[serde(default)]
     operation: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_u32_lossy")]
     target_pid: u32,
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    category: String,
+    #[serde(default)]
+    action: String,
+}
+
+fn deserialize_u32_lossy<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+
+    if let Some(num) = value.as_u64() {
+        return Ok(num.min(u32::MAX as u64) as u32);
+    }
+
+    let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+        return Ok(0);
+    };
+
+    let parsed = if let Some(hex) = text
+        .strip_prefix("0x")
+        .or_else(|| text.strip_prefix("0X"))
+    {
+        u64::from_str_radix(hex, 16)
+    } else {
+        text.parse::<u64>()
+            .or_else(|_| u64::from_str_radix(text, 16))
+    };
+
+    parsed
+        .map(|num| num.min(u32::MAX as u64) as u32)
+        .map_err(serde::de::Error::custom)
 }
 
 unsafe fn validate_hydradragon_python_client(pipe_handle: HANDLE) -> bool {
@@ -1216,8 +1251,25 @@ fn spawn_self_defense_listener() -> thread::JoinHandle<()> {
                         Ok(mut alert) => {
                             alert.protected_file = normalize_nt_path(&alert.protected_file);
                             alert.attacker_path = normalize_nt_path(&alert.attacker_path);
+                            if alert.source.trim().is_empty() {
+                                alert.source = "simplepyas".to_string();
+                            }
+                            if alert.action.trim().is_empty() {
+                                let marker = format!("{} {}", alert.attack_type, alert.operation)
+                                    .to_ascii_lowercase();
+                                alert.action = if marker.contains("blocked")
+                                    || marker.contains("denied")
+                                {
+                                    "blocked".to_string()
+                                } else {
+                                    "telemetry".to_string()
+                                };
+                            }
                             Logging::warning(&format!(
-                                "[SELF-DEFENSE] attack_type={} attacker_pid={} target_pid={} operation={} attacker_path={} protected={}",
+                                "[SELF-DEFENSE] source={} category={} action={} attack_type={} attacker_pid={} target_pid={} operation={} attacker_path={} protected={}",
+                                alert.source,
+                                alert.category,
+                                alert.action,
                                 alert.attack_type,
                                 alert.attacker_pid,
                                 alert.target_pid,
@@ -1225,6 +1277,23 @@ fn spawn_self_defense_listener() -> thread::JoinHandle<()> {
                                 alert.attacker_path,
                                 alert.protected_file
                             ));
+
+                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                            {
+                                crate::behavioral::behavior_engine::record_self_defense_telemetry(
+                                    serde_json::json!({
+                                        "source": alert.source,
+                                        "category": alert.category,
+                                        "action": alert.action,
+                                        "attack_type": alert.attack_type,
+                                        "operation": alert.operation,
+                                        "protected_file": alert.protected_file,
+                                        "attacker_path": alert.attacker_path,
+                                        "attacker_pid": alert.attacker_pid,
+                                        "target_pid": alert.target_pid,
+                                    }),
+                                );
+                            }
                         }
                         Err(e) => Logging::error(&format!(
                             "[SelfDefense] Failed to parse alert JSON: {} | raw={}",

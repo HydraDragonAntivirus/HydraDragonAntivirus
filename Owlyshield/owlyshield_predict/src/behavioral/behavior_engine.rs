@@ -25,7 +25,8 @@ use crate::utils::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
@@ -60,6 +61,24 @@ type FirewallFullPackets = Arc<std::sync::RwLock<HashMap<u32, VecDeque<PacketInf
 type FirewallGenerateReport = Arc<AtomicBool>;
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 type FirewallFileVerdicts = Arc<std::sync::RwLock<HashMap<String, FileVerdictInfo>>>;
+
+fn rule_file_fingerprint(path: &Path) -> String {
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            let mut hasher = DefaultHasher::new();
+            bytes.hash(&mut hasher);
+            format!("hash={:016x};len={}", hasher.finish(), bytes.len())
+        }
+        Err(_) => "file-unreadable".to_string(),
+    }
+}
+
+fn should_log_rule_load_error(key: &str) -> bool {
+    static RULE_LOAD_ERROR_CACHE: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+    let cache = RULE_LOAD_ERROR_CACHE.get_or_init(|| RwLock::new(HashSet::new()));
+    let mut cache = cache.write().unwrap();
+    cache.insert(key.to_string())
+}
 
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 fn shared_firewall_net_pids() -> FirewallNetPids {
@@ -194,6 +213,8 @@ fn shared_firewall_sanctum_stats() -> FirewallSanctumStats {
 type OpenEdrTelemetryStatsMap = Arc<std::sync::RwLock<HashMap<u32, OpenEdrTelemetryStats>>>;
 type OpenEdrNetPids = Arc<std::sync::RwLock<HashSet<u32>>>;
 type OpenEdrNetDetails = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, u16)>>>>;
+type SelfDefenseTelemetryMap =
+    Arc<std::sync::RwLock<HashMap<u32, VecDeque<SelfDefenseTelemetryEvent>>>>;
 
 fn shared_openedr_stats() -> OpenEdrTelemetryStatsMap {
     static OPENEDR_STATS: OnceLock<OpenEdrTelemetryStatsMap> = OnceLock::new();
@@ -214,6 +235,227 @@ fn shared_openedr_net_details() -> OpenEdrNetDetails {
     OPENEDR_NET_DETAILS
         .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
         .clone()
+}
+
+fn shared_self_defense_telemetry() -> SelfDefenseTelemetryMap {
+    static SELF_DEFENSE_TELEMETRY: OnceLock<SelfDefenseTelemetryMap> = OnceLock::new();
+    SELF_DEFENSE_TELEMETRY
+        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
+        .clone()
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SelfDefenseTelemetryEvent {
+    pub timestamp_ms: u64,
+    pub source: String,
+    pub category: String,
+    pub attack_type: String,
+    pub operation: String,
+    pub protected_path: String,
+    pub attacker_path: String,
+    pub attacker_pid: u32,
+    pub target_pid: u32,
+    pub action: String,
+}
+
+impl SelfDefenseTelemetryEvent {
+    fn string_field(event: &serde_json::Value, names: &[&str]) -> String {
+        names
+            .iter()
+            .find_map(|name| event.get(*name))
+            .and_then(|value| {
+                value
+                    .as_str()
+                    .map(|text| text.trim().to_string())
+                    .or_else(|| value.as_u64().map(|num| num.to_string()))
+            })
+            .unwrap_or_default()
+    }
+
+    fn u32_field(event: &serde_json::Value, names: &[&str]) -> u32 {
+        let Some(value) = names.iter().find_map(|name| event.get(*name)) else {
+            return 0;
+        };
+
+        if let Some(num) = value.as_u64() {
+            return num.min(u32::MAX as u64) as u32;
+        }
+
+        let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+            return 0;
+        };
+
+        let parsed = if let Some(hex) = text
+            .strip_prefix("0x")
+            .or_else(|| text.strip_prefix("0X"))
+        {
+            u64::from_str_radix(hex, 16)
+        } else {
+            text.parse::<u64>()
+                .or_else(|_| u64::from_str_radix(text, 16))
+        };
+
+        parsed
+            .map(|num| num.min(u32::MAX as u64) as u32)
+            .unwrap_or(0)
+    }
+
+    fn classify_category(attack_type: &str, operation: &str, protected_path: &str) -> String {
+        let haystack = format!("{attack_type} {operation} {protected_path}").to_ascii_lowercase();
+
+        if haystack.contains("com_")
+            || haystack.contains("com registry")
+            || haystack.contains("\\classes\\clsid")
+            || haystack.contains("\\classes\\appid")
+            || haystack.contains("\\clsid\\")
+            || haystack.contains("\\appid\\")
+        {
+            "com".to_string()
+        } else if haystack.contains("registry")
+            || haystack.contains("reg_")
+            || haystack.starts_with("hklm\\")
+            || haystack.starts_with("hkcu\\")
+            || haystack.contains("\\registry\\")
+        {
+            "registry".to_string()
+        } else if haystack.contains("process") || haystack.contains("thread") {
+            "process".to_string()
+        } else if haystack.contains("disk") || haystack.contains("mbr") || haystack.contains("ioctl") {
+            "disk".to_string()
+        } else {
+            "file".to_string()
+        }
+    }
+
+    fn classify_action(event: &serde_json::Value, attack_type: &str, operation: &str) -> String {
+        let explicit = Self::string_field(event, &["action", "result", "disposition"]);
+        if !explicit.is_empty() {
+            return explicit.to_ascii_lowercase();
+        }
+
+        let marker = format!("{attack_type} {operation}").to_ascii_lowercase();
+        if marker.contains("blocked") || marker.contains("denied") {
+            "blocked".to_string()
+        } else {
+            "telemetry".to_string()
+        }
+    }
+
+    pub fn from_json(event: &serde_json::Value) -> Option<Self> {
+        let attack_type = Self::string_field(event, &["attack_type", "event_type", "type"]);
+        let operation = Self::string_field(event, &["operation", "op"]);
+        let protected_path = Self::string_field(
+            event,
+            &["protected_file", "protected_path", "target_path", "path"],
+        );
+        let attacker_path =
+            Self::string_field(event, &["attacker_path", "process_path", "image_path"]);
+        let attacker_pid = Self::u32_field(event, &["attacker_pid", "pid", "process_id"]);
+        let target_pid = Self::u32_field(event, &["target_pid"]);
+
+        if attack_type.is_empty()
+            && operation.is_empty()
+            && protected_path.is_empty()
+            && attacker_pid == 0
+        {
+            return None;
+        }
+
+        let timestamp_ms = event
+            .get("timestamp_ms")
+            .and_then(|value| value.as_u64())
+            .unwrap_or_else(|| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64
+            });
+        let source = Self::string_field(event, &["source"]).if_empty("simplepyas");
+        let category = Self::string_field(event, &["category"])
+            .if_empty(Self::classify_category(&attack_type, &operation, &protected_path));
+        let action = Self::classify_action(event, &attack_type, &operation);
+
+        Some(Self {
+            timestamp_ms,
+            source,
+            category,
+            attack_type,
+            operation,
+            protected_path,
+            attacker_path,
+            attacker_pid,
+            target_pid,
+            action,
+        })
+    }
+
+    fn match_key(&self) -> String {
+        format!(
+            "{}:{}:{}:{}:{}:{}",
+            self.source,
+            self.category,
+            self.attack_type,
+            self.operation,
+            self.protected_path,
+            self.timestamp_ms
+        )
+    }
+}
+
+trait IfEmpty {
+    fn if_empty(self, fallback: impl Into<String>) -> String;
+}
+
+impl IfEmpty for String {
+    fn if_empty(self, fallback: impl Into<String>) -> String {
+        if self.trim().is_empty() {
+            fallback.into()
+        } else {
+            self
+        }
+    }
+}
+
+pub fn record_self_defense_telemetry(event: serde_json::Value) {
+    let Some(event) = SelfDefenseTelemetryEvent::from_json(&event) else {
+        Logging::warning("[SelfDefenseTelemetry] Ignored incomplete self-defense event");
+        return;
+    };
+
+    let attacker_pid = event.attacker_pid;
+    if attacker_pid == 0 {
+        Logging::warning(&format!(
+            "[SelfDefenseTelemetry] Event has no attacker PID; source={} category={} attack_type={} target={}",
+            event.source, event.category, event.attack_type, event.protected_path
+        ));
+        return;
+    }
+
+    let telemetry = shared_self_defense_telemetry();
+    let mut guard = telemetry.write().unwrap();
+    let queue = guard
+        .entry(attacker_pid)
+        .or_insert_with(|| VecDeque::with_capacity(128));
+    if queue.len() >= 128 {
+        queue.pop_front();
+    }
+    queue.push_back(event.clone());
+
+    Logging::warning(&format!(
+        "[SelfDefenseTelemetry] source={} category={} action={} attacker_pid={} target_pid={} operation={} attack_type={} target={}",
+        event.source,
+        event.category,
+        event.action,
+        event.attacker_pid,
+        event.target_pid,
+        event.operation,
+        event.attack_type,
+        event.protected_path
+    ));
+}
+
+fn event_time(event: &SelfDefenseTelemetryEvent) -> SystemTime {
+    UNIX_EPOCH + std::time::Duration::from_millis(event.timestamp_ms)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1693,6 +1935,12 @@ pub struct ProcessBehaviorState {
     pub observed_hypervisor_event_labels: HashSet<String>,
     pub recent_kernel_api_events: VecDeque<String>,
 
+    // Self-defense telemetry from SimplePYAS/Owlyshield kernel sensors.
+    pub self_defense_events: VecDeque<SelfDefenseTelemetryEvent>,
+    pub self_defense_event_count: u32,
+    pub self_defense_category_counts: HashMap<String, usize>,
+    pub self_defense_attack_counts: HashMap<String, usize>,
+
     // User-mode hook / kernel API failure telemetry. This stays separate from
     // successful API observations so sandbox/handle-query failures can be used
     // by rules without polluting API behavior scores.
@@ -1807,6 +2055,10 @@ impl ProcessBehaviorState {
         state.all_apis_called = HashSet::new();
         state.observed_hypervisor_event_labels = HashSet::new();
         state.recent_kernel_api_events = VecDeque::with_capacity(128);
+        state.self_defense_events = VecDeque::with_capacity(128);
+        state.self_defense_event_count = 0;
+        state.self_defense_category_counts = HashMap::new();
+        state.self_defense_attack_counts = HashMap::new();
         state.hook_error_count = 0;
         state.hook_error_status_counts = HashMap::new();
         state.hook_error_api_counts = HashMap::new();
@@ -2348,6 +2600,8 @@ pub struct BehaviorEngine {
     pub openedr_net_details: OpenEdrNetDetails,
     /// Per-PID OpenEDR telemetry counters and aliases synced into rule state.
     pub openedr_stats: OpenEdrTelemetryStatsMap,
+    /// Per-PID self-defense telemetry emitted by SimplePYAS/Owlyshield sensors.
+    pub self_defense_telemetry: SelfDefenseTelemetryMap,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub firewall_net_pids: FirewallNetPids,
@@ -2409,6 +2663,7 @@ impl BehaviorEngine {
             openedr_net_pids: shared_openedr_net_pids(),
             openedr_net_details: shared_openedr_net_details(),
             openedr_stats: shared_openedr_stats(),
+            self_defense_telemetry: shared_self_defense_telemetry(),
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             firewall_net_pids: shared_firewall_net_pids(),
             #[cfg(all(target_os = "windows", feature = "firewall"))]
@@ -4786,7 +5041,7 @@ impl BehaviorEngine {
                 "[BehaviorEngine] CRITICAL: No rules were loaded from {:?}.                 The engine will run with zero detection capability.                 Check that rule files exist, are valid YAML, and that all string values                 (file paths, env vars like %TEMP%, API names like dll!Fn, extensions like .zip)                 are enclosed in double quotes.",
                 path
             );
-            Logging::error(&msg);
+            Self::log_rule_load_error_once(path, "no-rules-loaded", msg.clone());
             return Err(msg.into());
         }
 
@@ -4796,6 +5051,18 @@ impl BehaviorEngine {
             count, path
         ));
         Ok(())
+    }
+
+    fn log_rule_load_error_once(path: &Path, key_suffix: &str, message: String) {
+        let key = format!(
+            "{}|{}|{}",
+            path.display(),
+            rule_file_fingerprint(path),
+            key_suffix
+        );
+        if should_log_rule_load_error(&key) {
+            Logging::error(&message);
+        }
     }
 
     /// Scan raw YAML text for common authoring mistakes that cause silent parse failures:
@@ -5068,11 +5335,16 @@ impl BehaviorEngine {
             let value = match serde_yaml::Value::deserialize(document) {
                 Ok(v) => v,
                 Err(e) => {
-                    Logging::error(&format!(
-                        "[BehaviorEngine] Failed to parse YAML document #{} in {:?}: {}.                         Hint: ensure all file paths, env vars (%VAR%), API names (dll!Fn),                         and file extensions (.zip) are enclosed in double quotes.",
-                        doc_index, path, e
-                    ));
-                    continue;
+                    let error_text = e.to_string();
+                    Self::log_rule_load_error_once(
+                        path,
+                        &format!("yaml-parse-doc-{}|{}", doc_index, error_text),
+                        format!(
+                            "[BehaviorEngine] Failed to parse YAML document #{} in {:?}: {}.                         Hint: ensure all file paths, env vars (%VAR%), API names (dll!Fn),                         and file extensions (.zip) are enclosed in double quotes.",
+                            doc_index, path, error_text
+                        ),
+                    );
+                    break;
                 }
             };
 
@@ -5429,6 +5701,231 @@ impl BehaviorEngine {
         }
     }
 
+    fn record_named_condition_match(
+        state: &mut ProcessBehaviorState,
+        rule_name: &str,
+        cond_name: &str,
+        match_key: String,
+        now: SystemTime,
+        required: usize,
+        debug: bool,
+    ) {
+        let scoped_name = format!("{}::{}", rule_name, cond_name);
+        let values = state
+            .condition_match_values
+            .entry(scoped_name.clone())
+            .or_insert_with(HashSet::new);
+        if values.len() > 256 {
+            values.clear();
+        }
+        let is_new = values.insert(match_key.clone());
+        let count = state
+            .condition_match_counts
+            .entry(scoped_name.clone())
+            .or_insert(0);
+        if is_new {
+            *count += 1;
+        }
+        state
+            .condition_first_seen
+            .entry(scoped_name.clone())
+            .or_insert(now);
+        state.condition_last_seen.insert(scoped_name.clone(), now);
+
+        if *count >= required.max(1) {
+            state.satisfied_named_conditions.insert(scoped_name);
+            if debug {
+                Logging::debug(&format!(
+                    "[BehaviorEngine] Named condition '{}' satisfied for PID {} (count: {}/{}, matches: {})",
+                    cond_name,
+                    state.pid,
+                    *count,
+                    required.max(1),
+                    match_key
+                ));
+            }
+        } else if is_new && debug {
+            Logging::debug(&format!(
+                "[BehaviorEngine] Condition '{}' match #{}/{} for PID {} ({})",
+                cond_name,
+                *count,
+                required.max(1),
+                state.pid,
+                match_key
+            ));
+        }
+    }
+
+    fn record_self_defense_event_in_state(
+        state: &mut ProcessBehaviorState,
+        event: SelfDefenseTelemetryEvent,
+    ) {
+        state.self_defense_event_count = state.self_defense_event_count.saturating_add(1);
+        *state
+            .self_defense_category_counts
+            .entry(event.category.to_ascii_lowercase())
+            .or_insert(0) += 1;
+        *state
+            .self_defense_attack_counts
+            .entry(event.attack_type.to_ascii_lowercase())
+            .or_insert(0) += 1;
+        if state.self_defense_events.len() >= 128 {
+            state.self_defense_events.pop_front();
+        }
+        state.self_defense_events.push_back(event);
+    }
+
+    fn is_self_defense_condition_group(cond_group: &NamedConditionGroup) -> bool {
+        !cond_group.self_defense_attack_types.is_empty()
+            || !cond_group.self_defense_categories.is_empty()
+            || !cond_group.self_defense_operations.is_empty()
+            || !cond_group.self_defense_target_patterns.is_empty()
+            || !cond_group.self_defense_attacker_patterns.is_empty()
+            || !cond_group.self_defense_sources.is_empty()
+            || !cond_group.self_defense_actions.is_empty()
+            || cond_group.self_defense_min_count.is_some()
+    }
+
+    fn pattern_list_matches_any(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        patterns: &[String],
+        candidates: &[&str],
+    ) -> bool {
+        patterns.is_empty()
+            || patterns.iter().any(|pattern| {
+                candidates.iter().any(|candidate| {
+                    !candidate.trim().is_empty()
+                        && Self::matches_pattern_internal(cache, pattern, candidate)
+                })
+            })
+    }
+
+    fn self_defense_event_matches(
+        cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        cond_group: &NamedConditionGroup,
+        event: &SelfDefenseTelemetryEvent,
+    ) -> bool {
+        Self::pattern_list_matches_any(cache, &cond_group.self_defense_sources, &[&event.source])
+            && Self::pattern_list_matches_any(
+                cache,
+                &cond_group.self_defense_categories,
+                &[&event.category],
+            )
+            && Self::pattern_list_matches_any(
+                cache,
+                &cond_group.self_defense_attack_types,
+                &[&event.attack_type],
+            )
+            && Self::pattern_list_matches_any(
+                cache,
+                &cond_group.self_defense_operations,
+                &[&event.operation],
+            )
+            && Self::pattern_list_matches_any(
+                cache,
+                &cond_group.self_defense_target_patterns,
+                &[&event.protected_path],
+            )
+            && Self::pattern_list_matches_any(
+                cache,
+                &cond_group.self_defense_attacker_patterns,
+                &[&event.attacker_path],
+            )
+            && Self::pattern_list_matches_any(cache, &cond_group.self_defense_actions, &[&event.action])
+    }
+
+    fn apply_self_defense_named_conditions(&mut self, gid: u64, event: &SelfDefenseTelemetryEvent) {
+        let Some(state_snapshot) = self.process_states.get(&gid).cloned() else {
+            return;
+        };
+
+        let debug_enabled = self.rules.iter().any(|rule| rule.debug);
+        let mut matches = Vec::new();
+
+        for rule in &self.rules {
+            for (cond_name, cond_group) in &rule.named_conditions {
+                if !Self::is_self_defense_condition_group(cond_group)
+                    || Self::rule_condition_satisfied(&state_snapshot, rule, cond_name)
+                {
+                    continue;
+                }
+
+                if Self::self_defense_event_matches(&self.regex_cache, cond_group, event) {
+                    let required = cond_group
+                        .self_defense_min_count
+                        .or_else(|| {
+                            if cond_group.min_matches > 0 {
+                                Some(cond_group.min_matches)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(1);
+                    matches.push((
+                        rule.name.clone(),
+                        cond_name.clone(),
+                        required,
+                        event.match_key(),
+                        rule.debug || debug_enabled,
+                    ));
+                }
+            }
+        }
+
+        if matches.is_empty() {
+            return;
+        }
+
+        if let Some(state) = self.process_states.get_mut(&gid) {
+            for (rule_name, cond_name, required, match_key, debug) in matches {
+                Self::record_named_condition_match(
+                    state, &rule_name, &cond_name, match_key, event_time(event), required, debug,
+                );
+                Logging::info(&format!(
+                    "[BehaviorEngine] Self-defense telemetry matched condition '{}' for PID {}: category={} action={} attack_type={} target={}",
+                    cond_name,
+                    state.pid,
+                    event.category,
+                    event.action,
+                    event.attack_type,
+                    event.protected_path
+                ));
+            }
+        }
+    }
+
+    pub fn drain_self_defense_telemetry_for_pid(&mut self, pid: u32) {
+        if pid == 0 {
+            return;
+        }
+        let Some(gid) = self.find_gid_by_pid(pid) else {
+            return;
+        };
+
+        let mut events = {
+            let mut telemetry = self.self_defense_telemetry.write().unwrap();
+            telemetry.remove(&pid).unwrap_or_default()
+        };
+
+        while let Some(event) = events.pop_front() {
+            if let Some(state) = self.process_states.get_mut(&gid) {
+                Self::record_self_defense_event_in_state(state, event.clone());
+            }
+            self.apply_self_defense_named_conditions(gid, &event);
+        }
+    }
+
+    pub fn drain_self_defense_telemetry_for_known_states(&mut self) {
+        let pids: Vec<u32> = self
+            .process_states
+            .values()
+            .filter_map(|state| (state.pid != 0).then_some(state.pid))
+            .collect();
+        for pid in pids {
+            self.drain_self_defense_telemetry_for_pid(pid);
+        }
+    }
+
     // ==========================================================================
     // EVENT DETECTION FROM HIM EVENTS
     // ==========================================================================
@@ -5535,6 +6032,8 @@ impl BehaviorEngine {
 
             self.process_states.insert(gid, s);
         }
+
+        self.drain_self_defense_telemetry_for_pid(msg.pid);
 
         // Self-heal: if the state was created with placeholder values before worker.rs
         // resolved the real appname/exepath (race between event arrival and IrpProcessCreate),
@@ -9649,6 +10148,8 @@ impl BehaviorEngine {
         _config: &Config,
         _threat_handler: &dyn ThreatHandler,
     ) -> Vec<ProcessRecord> {
+        self.drain_self_defense_telemetry_for_known_states();
+
         let mut detected_processes = Vec::new();
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
 

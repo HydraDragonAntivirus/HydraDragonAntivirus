@@ -321,16 +321,18 @@ async fn handle_proxy_request<R: Runtime>(
     // ── Validate request ────────────────────────────────────────────────────
     validate_request(&req)?;
 
-    // Determine MAX_BODY based on settings
-    let max_body = {
+    // Determine MAX_BODY and timeouts based on settings
+    let (max_body, request_timeout, response_timeout) = {
         let settings_guard = settings.read().unwrap();
-        if settings_guard.log_full_bodies {
+        let max = if settings_guard.log_full_bodies {
             usize::MAX
         } else {
             64 * 1024
-        }
+        };
+        let req_t = settings_guard.tls_proxy.request_timeout_secs;
+        let res_t = settings_guard.tls_proxy.response_timeout_secs;
+        (max, req_t, res_t)
     };
-    const TIMEOUT_SECS: u64 = 30;
 
     let method = req.method().to_string();
     let uri = req.uri().clone();
@@ -363,11 +365,12 @@ async fn handle_proxy_request<R: Runtime>(
     // ── Collect request body with timeout ───────────────────────────────────
     let (parts, body) = req.into_parts();
     let raw_body: Bytes =
-        tokio::time::timeout(std::time::Duration::from_secs(TIMEOUT_SECS), body.collect())
+        tokio::time::timeout(std::time::Duration::from_secs(request_timeout), body.collect())
             .await
             .map_err(|_| "Request body timeout".to_string())?
             .map_err(|e| e.to_string())?
             .to_bytes();
+    let raw_request_body_len = raw_body.len();
 
     let body_truncated = raw_body.len() > max_body;
     let body_bytes = if body_truncated {
@@ -389,17 +392,39 @@ async fn handle_proxy_request<R: Runtime>(
         })
     };
 
+    // Get client's port to lookup PID
+    let client_port = parts
+        .extensions
+        .get::<http_mitm_proxy::RemoteAddr>()
+        .map(|r| r.0.port())
+        .unwrap_or(0);
+
+    let mut resolved_pid = 0;
+    let mut app_name = "hydradragonfirewall_proxy".to_string();
+    let mut app_path = String::new();
+
+    if client_port != 0 {
+        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
+            if let Some(pid) = engine.app_manager.get_pid_for_port(client_port) {
+                resolved_pid = pid;
+                let info = engine.app_manager.info_cache.get_info(pid);
+                app_name = info.name;
+                app_path = info.path;
+            }
+        }
+    }
+
     // ── Create mock packet for SDK evaluation ────────────────────────────────
     let mock_packet = PacketInfo {
         timestamp: now_ts(),
         protocol: Protocol::TCP,
         src_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         dst_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-        src_port: 0,
+        src_port: client_port,
         dst_port: port,
         size: 0,
         outbound: true,
-        process_id: 0,
+        process_id: resolved_pid,
         dns_query: None,
         hostname: Some(host.clone()),
         full_url: Some(full_url.clone()),
@@ -413,16 +438,16 @@ async fn handle_proxy_request<R: Runtime>(
         payload_sample: None,
         payload_urls: vec![],
         payload_domains: vec![],
-        image_path: String::new(),
+        image_path: app_path.clone(),
         detected_file_type: None,
         http_request_body: request_body.clone(),
         http_response_body: None,
     };
 
     let _mock_context = PacketContext {
-        process_id: 0,
-        process_name: "hydradragonfirewall_proxy".to_string(),
-        process_path: String::new(),
+        process_id: resolved_pid,
+        process_name: app_name,
+        process_path: app_path,
     };
 
     // ── SDK Rule Evaluation (request) ───────────────────────────────────────
@@ -486,13 +511,14 @@ async fn handle_proxy_request<R: Runtime>(
     // ── Collect response body with timeout ──────────────────────────────────
     let (mut res_parts, res_body) = res.into_parts();
     let raw_res_body: Bytes = tokio::time::timeout(
-        std::time::Duration::from_secs(TIMEOUT_SECS),
+        std::time::Duration::from_secs(response_timeout),
         res_body.collect(),
     )
     .await
     .map_err(|_| "Response body timeout".to_string())?
     .map_err(|e| e.to_string())?
     .to_bytes();
+    let raw_response_body_len = raw_res_body.len();
 
     let res_body_truncated = raw_res_body.len() > max_body;
     let res_body_bytes = if res_body_truncated {
@@ -569,12 +595,20 @@ async fn handle_proxy_request<R: Runtime>(
         );
     }
 
-    if request_body.is_some() || response_body.is_some() {
-        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
+    if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
+        let mut telemetry_packet = mock_packet.clone();
+        telemetry_packet.size = raw_request_body_len + raw_response_body_len;
+        telemetry_packet.http_response_body = response_body.clone();
+        if let Ok(json) = serde_json::to_string(&telemetry_packet) {
+            engine.send_hydranet_message(format!("FULL_PACKET:{}\n", json));
+        }
+
+        if request_body.is_some() || response_body.is_some() {
             let req_b = request_body.as_deref().unwrap_or("").replace('|', " ");
             let resp_b = response_body.as_deref().unwrap_or("").replace('|', " ");
             let msg = format!(
-                "HTTP_BODY:0|{}|{}|{}|{}\n",
+                "HTTP_BODY:{}|{}|{}|{}|{}\n",
+                resolved_pid,
                 method.replace('|', " "),
                 full_url.replace('|', " "),
                 req_b,

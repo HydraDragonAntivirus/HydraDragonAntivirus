@@ -2495,6 +2495,91 @@
     status_access_denied: false
     notify_user: true
     record: true
+- rule_id: HD-SD-MED-0001
+  name: '[MEDIUM] Self-defense tamper telemetry against security tooling'
+  description: Detects SimplePYAS/Owlyshield self-defense telemetry for file, registry, process, or disk tamper attempts against AV/EDR components.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-18'
+  tags:
+  - self-defense
+  - telemetry
+  - anti-tamper
+  mitre_attack:
+  - T1562.001
+  false_positives:
+  - Security product updates, repair tools, or uninstallers can touch protected components.
+  named_conditions:
+    security_tool_tamper_telemetry:
+      self_defense_sources:
+      - simplepyas
+      self_defense_categories:
+      - file
+      - registry
+      - process
+      - disk
+      self_defense_actions:
+      - blocked
+      - telemetry
+      self_defense_target_patterns:
+      - "(?i).*(hydradragon|owlyshield|sanctum|openedr|simplepyas|edrsvc|edrdrv|mbrfilter|fs_minifilter|windefend|defender|kaspersky|avast|avg|bitdefender|crowdstrike|sentinel|sophos|eset|malwarebytes).*"
+      self_defense_min_count: 1
+  detection_logic:
+    condition: security_tool_tamper_telemetry
+  response:
+    ask_user: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-SD-HIGH-0002
+  name: '[HIGH] COM registry hijack self-defense telemetry'
+  description: Detects COM registration tampering telemetry from SimplePYAS/Owlyshield so COM hijack attempts can be reviewed by the behavior engine before enforcement.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 84
+  severity: 84
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-18'
+  tags:
+  - self-defense
+  - com
+  - registry
+  - hijack
+  mitre_attack:
+  - T1546.015
+  false_positives:
+  - Legitimate COM registration by installers may trigger telemetry.
+  named_conditions:
+    com_registry_tamper_telemetry:
+      self_defense_sources:
+      - simplepyas
+      self_defense_categories:
+      - com
+      self_defense_operations:
+      - COM_*
+      self_defense_target_patterns:
+      - "(?i).*\\\\Software\\\\Classes\\\\(CLSID|AppID)\\\\.*"
+      self_defense_min_count: 1
+  detection_logic:
+    condition: com_registry_tamper_telemetry
+  response:
+    ask_user: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
 - rule_id: HD-SAN-HIGH-0046
   name: '[HIGH] Office parent spawns unusual renamed executable'
   description: 'Detects process-tree context often observed around Process Ghosting or Herpaderping: office parent spawns
@@ -2637,7 +2722,7 @@
       - '*.dat'
       - '*.bin'
       command_line_patterns:
-param($m) $indent = $m.Groups[1].Value; $value = $m.Groups[2].Value; "$indent`"$value`"" 
+      - pattern: "(?i).*(extract|archive|temp|appdata|7z|winrar).*"
         is_regex: true
   min_stages_satisfied: 1
   response:

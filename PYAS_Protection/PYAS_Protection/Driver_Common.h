@@ -71,6 +71,43 @@ FORCEINLINE BOOLEAN ContainsSubstringInsensitive(PCWSTR Source, PCWSTR Substring
     return FALSE;
 }
 
+FORCEINLINE BOOLEAN StartsWithInsensitive(PCWSTR Source, PCWSTR Prefix)
+{
+    if (!Source || !Prefix) return FALSE;
+
+    SIZE_T sourceLen = wcslen(Source);
+    SIZE_T prefixLen = wcslen(Prefix);
+
+    if (prefixLen > sourceLen) return FALSE;
+
+    for (SIZE_T i = 0; i < prefixLen; i++)
+    {
+        if (RtlUpcaseUnicodeChar(Source[i]) != RtlUpcaseUnicodeChar(Prefix[i]))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+FORCEINLINE BOOLEAN EndsWithInsensitive(PCWSTR Source, PCWSTR Suffix)
+{
+    if (!Source || !Suffix) return FALSE;
+
+    SIZE_T srcLen = wcslen(Source);
+    SIZE_T suffixLen = wcslen(Suffix);
+
+    if (suffixLen > srcLen) return FALSE;
+
+    PCWSTR tail = Source + (srcLen - suffixLen);
+    for (SIZE_T i = 0; i < suffixLen; i++)
+    {
+        if (RtlUpcaseUnicodeChar(tail[i]) != RtlUpcaseUnicodeChar(Suffix[i]))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
 // Helper: Escape JSON string (backslashes)
 // Dest must be large enough. Returns TRUE if successful.
 // 'DestSize' is in bytes.

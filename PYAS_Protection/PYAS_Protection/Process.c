@@ -16,45 +16,63 @@ PVOID g_ObRegistrationHandle = NULL;
 static POB_CALLBACK_REGISTRATION g_ObReg = NULL;
 static POB_OPERATION_REGISTRATION g_OpReg = NULL;
 
-//
-// --- Process trust cache for ProtectBoot / malware-style checks ---
-//
-// This intentionally uses PID-based cache entries, not cached PEPROCESS
-// pointers. That avoids stale referenced object bugs and keeps unload simple.
-//
-#define TRUST_CACHE_SIZE 64
-#define TRUST_CACHE_TTL_SEC 10
-
-typedef struct _TRUST_CACHE_ENTRY {
-    HANDLE ProcessId;
-    BOOLEAN IsTrusted;
-    LARGE_INTEGER CacheTime;
-} TRUST_CACHE_ENTRY, * PTRUST_CACHE_ENTRY;
-
-static TRUST_CACHE_ENTRY g_TrustCache[TRUST_CACHE_SIZE];
-static FAST_MUTEX g_TrustCacheLock;
-static BOOLEAN g_TrustCacheInitialized = FALSE;
 static BOOLEAN g_ProtectedPidTrackingInitialized = FALSE;
 
-static VOID InitializeTrustCache(VOID)
+static GENERIC_MAPPING g_ProcessGenericMapping =
 {
-    if (!g_TrustCacheInitialized)
-    {
-        RtlZeroMemory(g_TrustCache, sizeof(g_TrustCache));
-        ExInitializeFastMutex(&g_TrustCacheLock);
-        g_TrustCacheInitialized = TRUE;
-    }
+    0x21410,            // GenericRead
+    0x20BEA,            // GenericWrite
+    0x121001,           // GenericExecute
+    PROCESS_ALL_ACCESS  // GenericAll
+};
+
+static GENERIC_MAPPING g_ThreadGenericMapping =
+{
+    STANDARD_RIGHTS_READ | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
+    STANDARD_RIGHTS_WRITE | THREAD_TERMINATE | THREAD_SUSPEND_RESUME | THREAD_ALERT |
+        THREAD_SET_INFORMATION | THREAD_SET_CONTEXT | THREAD_SET_THREAD_TOKEN |
+        THREAD_IMPERSONATE | THREAD_DIRECT_IMPERSONATION,
+    STANDARD_RIGHTS_EXECUTE | SYNCHRONIZE,
+    THREAD_ALL_ACCESS
+};
+
+static ACCESS_MASK ExpandDesiredAccess(_In_ ACCESS_MASK DesiredAccess, _In_ PGENERIC_MAPPING Mapping)
+{
+    RtlMapGenericMask(&DesiredAccess, Mapping);
+    return DesiredAccess;
 }
 
-static VOID CleanupTrustCache(VOID)
+static ACCESS_MASK RestrictProcessAccessLikeOpenEdr(_In_ ACCESS_MASK DesiredAccess)
 {
-    if (!g_TrustCacheInitialized)
-        return;
+    ACCESS_MASK expandedAccess = ExpandDesiredAccess(DesiredAccess, &g_ProcessGenericMapping);
 
-    ExAcquireFastMutex(&g_TrustCacheLock);
-    RtlZeroMemory(g_TrustCache, sizeof(g_TrustCache));
-    ExReleaseFastMutex(&g_TrustCacheLock);
+    if ((expandedAccess & PROCESS_DANGEROUS_MASK) == 0)
+        return DesiredAccess;
+
+    ACCESS_MASK restrictedAccess = expandedAccess & ~PROCESS_DANGEROUS_MASK;
+    if (restrictedAccess == 0)
+        restrictedAccess = PROCESS_QUERY_LIMITED_INFORMATION;
+
+    return restrictedAccess;
 }
+
+static ACCESS_MASK RestrictThreadAccessLikeOpenEdr(_In_ ACCESS_MASK DesiredAccess)
+{
+    ACCESS_MASK expandedAccess = ExpandDesiredAccess(DesiredAccess, &g_ThreadGenericMapping);
+
+    if ((expandedAccess & THREAD_DANGEROUS_MASK) == 0)
+        return DesiredAccess;
+
+    ACCESS_MASK restrictedAccess = expandedAccess & ~THREAD_DANGEROUS_MASK;
+    if (restrictedAccess == 0)
+        restrictedAccess = THREAD_QUERY_LIMITED_INFORMATION;
+
+    return restrictedAccess;
+}
+
+static BOOLEAN IsProtectedProcessByPidEx(_In_ HANDLE ProcessId, _Out_opt_ PHANDLE ParentProcessId);
+static BOOLEAN IsProtectedProcessByPidOrPath(_In_ HANDLE ProcessId, _In_ PEPROCESS Process, _Out_opt_ PHANDLE ParentProcessId);
+static BOOLEAN IsParentChildAccess(_In_ HANDLE CallerPid, _In_opt_ HANDLE DuplicateTargetPid, _In_opt_ HANDLE TargetParentPid);
 
 
 //
@@ -94,7 +112,6 @@ NTSTATUS ProcessDriverUnload() {
     }
 
     g_ProtectedPidTrackingInitialized = FALSE;
-    CleanupTrustCache();
 
     // Clean up the protected PID list
     KLOCK_QUEUE_HANDLE lockHandle;
@@ -139,7 +156,6 @@ NTSTATUS ProtectProcess(void)
     InitializeListHead(&g_ProtectedPidsList);
     KeInitializeSpinLock(&g_ProtectedPidsLock);
     g_ProtectedPidTrackingInitialized = TRUE;
-    InitializeTrustCache();
 
     // Register process notify
     // The second parameter FALSE indicates registration.
@@ -222,6 +238,7 @@ VOID CreateProcessNotifyRoutine(
 
             if (pNewEntry) {
                 pNewEntry->ProcessId = ProcessId;
+                pNewEntry->ParentProcessId = CreateInfo->ParentProcessId;
 
                 KLOCK_QUEUE_HANDLE lockHandle;
                 KeAcquireInStackQueuedSpinLock(&g_ProtectedPidsLock, &lockHandle);
@@ -279,42 +296,59 @@ OB_PREOP_CALLBACK_STATUS preCall(
     HANDLE callerPid = PsGetProcessId(currentProc);
     HANDLE targetPid = PsGetProcessId(targetProc);
 
+    PACCESS_MASK desiredAccess = NULL;
+    HANDLE duplicateTargetPid = NULL;
+
+    if (pOperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
+    {
+        desiredAccess = &pOperationInformation->Parameters->CreateHandleInformation.DesiredAccess;
+    }
+    else if (pOperationInformation->Operation == OB_OPERATION_HANDLE_DUPLICATE)
+    {
+        desiredAccess = &pOperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess;
+        if (pOperationInformation->Parameters->DuplicateHandleInformation.TargetProcess)
+        {
+            duplicateTargetPid = PsGetProcessId((PEPROCESS)pOperationInformation->Parameters->DuplicateHandleInformation.TargetProcess);
+        }
+    }
+    else
+    {
+        return OB_PREOP_SUCCESS;
+    }
+
     // 3. PID EQUALITY CHECK
     if (callerPid == targetPid)
         return OB_PREOP_SUCCESS;
 
-    // 4. SYSTEM PROCESS CHECK (Improved for CSRSS compatibility)
+    // 4. SYSTEM PROCESS CHECK
     // Must be done WITHOUT opening handles to avoid recursion.
-    // Checks both PID 0/4 and critical system process names.
+    // Only PID 0/4 bypass protection.
     if (IsSystemProcess(currentProc))
         return OB_PREOP_SUCCESS;
 
-    BOOLEAN callerIsProtected = IsProtectedProcessByPid(callerPid);
-    BOOLEAN targetIsProtected = IsProtectedProcessByPid(targetPid);
+    HANDLE targetParentPid = NULL;
+    BOOLEAN targetIsProtected = IsProtectedProcessByPidOrPath(targetPid, targetProc, &targetParentPid);
 
     // If the target is not protected, leave normal processing
     if (!targetIsProtected)
         return OB_PREOP_SUCCESS;
 
-    // If caller is protected, grant full access
-    if (callerIsProtected)
-    {
-        if (pOperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
-            pOperationInformation->Parameters->CreateHandleInformation.DesiredAccess = PROCESS_ALL_ACCESS;
-        else if (pOperationInformation->Operation == OB_OPERATION_HANDLE_DUPLICATE)
-            pOperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess = PROCESS_ALL_ACCESS;
-
+    // OpenEDR allows parent-to-child process access.
+    if (IsParentChildAccess(callerPid, duplicateTargetPid, targetParentPid))
         return OB_PREOP_SUCCESS;
+
+    // Product/protected processes keep their originally requested access.
+    if (IsProtectedProcessByPidOrPath(callerPid, currentProc, NULL))
+        return OB_PREOP_SUCCESS;
+
+    ACCESS_MASK originalAccess = *desiredAccess;
+    ACCESS_MASK restrictedAccess = RestrictProcessAccessLikeOpenEdr(originalAccess);
+
+    if (restrictedAccess != originalAccess)
+    {
+        QueueProcessAlertToUserMode(targetProc, currentProc, L"PROCESS_ACCESS_BLOCKED");
+        *desiredAccess = restrictedAccess;
     }
-
-    // Alert user-mode for any non-protected caller trying to access a protected process
-    QueueProcessAlertToUserMode(targetProc, currentProc, L"PROCESS_ACCESS_BLOCKED");
-
-    // Strip dangerous access but allow minimal query rights
-    if (pOperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
-        pOperationInformation->Parameters->CreateHandleInformation.DesiredAccess = SAFE_PROCESS_ACCESS;
-    else
-        pOperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess = SAFE_PROCESS_ACCESS;
 
     return OB_PREOP_SUCCESS;
 }
@@ -343,6 +377,26 @@ OB_PREOP_CALLBACK_STATUS threadPreCall(
 
     HANDLE targetPid = PsGetProcessId(targetProc);
 
+    PACCESS_MASK desiredAccess = NULL;
+    HANDLE duplicateTargetPid = NULL;
+
+    if (pOperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
+    {
+        desiredAccess = &pOperationInformation->Parameters->CreateHandleInformation.DesiredAccess;
+    }
+    else if (pOperationInformation->Operation == OB_OPERATION_HANDLE_DUPLICATE)
+    {
+        desiredAccess = &pOperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess;
+        if (pOperationInformation->Parameters->DuplicateHandleInformation.TargetProcess)
+        {
+            duplicateTargetPid = PsGetProcessId((PEPROCESS)pOperationInformation->Parameters->DuplicateHandleInformation.TargetProcess);
+        }
+    }
+    else
+    {
+        return OB_PREOP_SUCCESS;
+    }
+
     // 2. SELF-ACCESS CHECK
     if (callerPid == targetPid)
         return OB_PREOP_SUCCESS;
@@ -351,31 +405,26 @@ OB_PREOP_CALLBACK_STATUS threadPreCall(
     if (IsSystemProcess(currentProc))
         return OB_PREOP_SUCCESS;
 
-    BOOLEAN callerIsProtected = IsProtectedProcessByPid(callerPid);
-    BOOLEAN targetIsProtected = IsProtectedProcessByPid(targetPid);
+    HANDLE targetParentPid = NULL;
+    BOOLEAN targetIsProtected = IsProtectedProcessByPidOrPath(targetPid, targetProc, &targetParentPid);
 
     if (!targetIsProtected)
         return OB_PREOP_SUCCESS;
 
-    // If caller is protected, grant full thread access
-    if (callerIsProtected)
-    {
-        if (pOperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
-            pOperationInformation->Parameters->CreateHandleInformation.DesiredAccess = THREAD_ALL_ACCESS;
-        else if (pOperationInformation->Operation == OB_OPERATION_HANDLE_DUPLICATE)
-            pOperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess = THREAD_ALL_ACCESS;
-
+    if (IsParentChildAccess(callerPid, duplicateTargetPid, targetParentPid))
         return OB_PREOP_SUCCESS;
+
+    if (IsProtectedProcessByPidOrPath(callerPid, currentProc, NULL))
+        return OB_PREOP_SUCCESS;
+
+    ACCESS_MASK originalAccess = *desiredAccess;
+    ACCESS_MASK restrictedAccess = RestrictThreadAccessLikeOpenEdr(originalAccess);
+
+    if (restrictedAccess != originalAccess)
+    {
+        QueueProcessAlertToUserMode(targetProc, currentProc, L"THREAD_ACCESS_BLOCKED");
+        *desiredAccess = restrictedAccess;
     }
-
-    // Alert user-mode for non-protected caller
-    QueueProcessAlertToUserMode(targetProc, currentProc, L"THREAD_ACCESS_BLOCKED");
-
-    // Strip dangerous access but allow minimal query rights
-    if (pOperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
-        pOperationInformation->Parameters->CreateHandleInformation.DesiredAccess = SAFE_THREAD_ACCESS;
-    else
-        pOperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess = SAFE_THREAD_ACCESS;
 
     return OB_PREOP_SUCCESS;
 }
@@ -384,9 +433,16 @@ OB_PREOP_CALLBACK_STATUS threadPreCall(
 // --- Helper Functions ---
 //
 
-// CHECKS: Checks if a PID is in our protected list. (Fast)
-BOOLEAN IsProtectedProcessByPid(HANDLE ProcessId) {
+static BOOLEAN IsProtectedProcessByPidEx(_In_ HANDLE ProcessId, _Out_opt_ PHANDLE ParentProcessId)
+{
     BOOLEAN isProtected = FALSE;
+
+    if (ParentProcessId)
+        *ParentProcessId = NULL;
+
+    if (!g_ProtectedPidTrackingInitialized)
+        return FALSE;
+
     KLOCK_QUEUE_HANDLE lockHandle;
     KeAcquireInStackQueuedSpinLock(&g_ProtectedPidsLock, &lockHandle);
 
@@ -395,6 +451,8 @@ BOOLEAN IsProtectedProcessByPid(HANDLE ProcessId) {
         PPROTECTED_PID_ENTRY pEntry = CONTAINING_RECORD(pCurrent, PROTECTED_PID_ENTRY, ListEntry);
         if (pEntry->ProcessId == ProcessId) {
             isProtected = TRUE;
+            if (ParentProcessId)
+                *ParentProcessId = pEntry->ParentProcessId;
             break;
         }
         pCurrent = pCurrent->Flink;
@@ -404,7 +462,32 @@ BOOLEAN IsProtectedProcessByPid(HANDLE ProcessId) {
     return isProtected;
 }
 
-// CHECKS: Checks if a process path is one we should protect. (Slower, used only at process creation)
+// CHECKS: Checks if a PID is in our protected list. (Fast)
+BOOLEAN IsProtectedProcessByPid(HANDLE ProcessId) {
+    return IsProtectedProcessByPidEx(ProcessId, NULL);
+}
+
+static BOOLEAN IsProtectedProcessByPidOrPath(_In_ HANDLE ProcessId, _In_ PEPROCESS Process, _Out_opt_ PHANDLE ParentProcessId)
+{
+    if (IsProtectedProcessByPidEx(ProcessId, ParentProcessId))
+        return TRUE;
+
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+        return FALSE;
+
+    return IsProtectedProcessByPath(Process);
+}
+
+static BOOLEAN IsParentChildAccess(_In_ HANDLE CallerPid, _In_opt_ HANDLE DuplicateTargetPid, _In_opt_ HANDLE TargetParentPid)
+{
+    if (!TargetParentPid)
+        return FALSE;
+
+    return (TargetParentPid == CallerPid) ||
+           (DuplicateTargetPid && TargetParentPid == DuplicateTargetPid);
+}
+
+// CHECKS: Checks if a process path is one we should protect.
 BOOLEAN IsProtectedProcessByPath(PEPROCESS Process) {
     PUNICODE_STRING pImageName = NULL;
     NTSTATUS status;
@@ -427,75 +510,13 @@ BOOLEAN IsProtectedProcessByPath(PEPROCESS Process) {
     return result;
 }
 
-
-static
-BOOLEAN
-IsHardcodedTrustedProcessPath(
-    _In_ PCWSTR ImagePath
-)
-{
-    if (!ImagePath)
-        return FALSE;
-
-    static const PCWSTR kTrustedHardcodedPaths[] = {
-        L"\\??\\C:\\Windows\\System32\\csrss.exe",
-        L"\\??\\C:\\Windows\\System32\\lsass.exe",
-        L"\\??\\C:\\Windows\\System32\\services.exe",
-        L"\\??\\C:\\Windows\\System32\\wininit.exe",
-        L"\\??\\C:\\Windows\\System32\\smss.exe",
-        L"\\??\\C:\\Windows\\System32\\winlogon.exe",
-        L"\\??\\C:\\Windows\\System32\\svchost.exe",
-    };
-
-    for (ULONG i = 0; i < ARRAYSIZE(kTrustedHardcodedPaths); ++i)
-    {
-        if (_wcsicmp(ImagePath, kTrustedHardcodedPaths[i]) == 0)
-            return TRUE;
-    }
-
-    return FALSE;
-}
-
-// HARD-CODED ONLY:
-// Checks if a process is trusted system/product process using only:
-//   - PID 0 / PID 4
-//   - exact hardcoded full-path matches
-//
-// No basename checks.
-// No PsGetProcessImageFileName trust.
-// No dynamic process rules.
-// No protected-PID trust.
-//
 BOOLEAN IsSystemProcess(PEPROCESS Process)
 {
     if (!Process)
         return FALSE;
 
     HANDLE pid = PsGetProcessId(Process);
-
-    if (pid == (HANDLE)4 || pid == (HANDLE)0)
-        return TRUE;
-
-    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
-        return FALSE;
-
-    PUNICODE_STRING imagePath = NULL;
-    NTSTATUS status = SeLocateProcessImageName(Process, &imagePath);
-
-    if (!NT_SUCCESS(status) || !imagePath || !imagePath->Buffer)
-    {
-        if (imagePath)
-            ExFreePool(imagePath);
-
-        return FALSE;
-    }
-
-    NormalizeDevicePathToDos(imagePath);
-
-    BOOLEAN result = IsHardcodedTrustedProcessPath(imagePath->Buffer);
-
-    ExFreePool(imagePath);
-    return result;
+    return (pid == (HANDLE)4 || pid == (HANDLE)0);
 }
 
 
@@ -503,79 +524,11 @@ BOOLEAN IsSystemProcess(PEPROCESS Process)
 //
 // IsProcessTrusted
 //
-// HARD-CODED ONLY trust decision for ProtectBoot and malware-style blocking.
-//
-// Trust sources:
-//   - PID 0 / PID 4
-//   - exact full path in IsHardcodedTrustedProcessPath()
-//
-// Explicitly removed:
-//   - basename-only trust
-//   - protected PID list trust
-//   - dynamic Process ruleset trust
-//   - wildcard trust
+// Kernel/system pseudo-processes are the only caller trust bypass.
 //
 BOOLEAN IsProcessTrusted(_In_ HANDLE ProcessId)
 {
-    if (ProcessId == (HANDLE)0 || ProcessId == (HANDLE)4)
-        return TRUE;
-
-    if (KeGetCurrentIrql() != PASSIVE_LEVEL)
-        return FALSE;
-
-    ULONG hash = ((ULONG)(ULONG_PTR)ProcessId) & (TRUST_CACHE_SIZE - 1);
-
-    if (g_TrustCacheInitialized)
-    {
-        ExAcquireFastMutex(&g_TrustCacheLock);
-
-        if (g_TrustCache[hash].ProcessId == ProcessId)
-        {
-            LARGE_INTEGER now;
-            KeQuerySystemTime(&now);
-
-            if ((now.QuadPart - g_TrustCache[hash].CacheTime.QuadPart) <
-                (TRUST_CACHE_TTL_SEC * 10000000LL))
-            {
-                BOOLEAN cachedResult = g_TrustCache[hash].IsTrusted;
-                ExReleaseFastMutex(&g_TrustCacheLock);
-                return cachedResult;
-            }
-        }
-
-        ExReleaseFastMutex(&g_TrustCacheLock);
-    }
-
-    PEPROCESS process = NULL;
-    NTSTATUS status = PsLookupProcessByProcessId(ProcessId, &process);
-    if (!NT_SUCCESS(status) || process == NULL)
-        return FALSE;
-
-    PUNICODE_STRING imagePath = NULL;
-    status = SeLocateProcessImageName(process, &imagePath);
-
-    BOOLEAN isTrusted = FALSE;
-
-    if (NT_SUCCESS(status) && imagePath && imagePath->Buffer)
-    {
-        NormalizeDevicePathToDos(imagePath);
-        isTrusted = IsHardcodedTrustedProcessPath(imagePath->Buffer);
-    }
-
-    if (g_TrustCacheInitialized)
-    {
-        ExAcquireFastMutex(&g_TrustCacheLock);
-        g_TrustCache[hash].ProcessId = ProcessId;
-        g_TrustCache[hash].IsTrusted = isTrusted;
-        KeQuerySystemTime(&g_TrustCache[hash].CacheTime);
-        ExReleaseFastMutex(&g_TrustCacheLock);
-    }
-
-    if (imagePath)
-        ExFreePool(imagePath);
-
-    ObDereferenceObject(process);
-    return isTrusted;
+    return (ProcessId == (HANDLE)0 || ProcessId == (HANDLE)4);
 }
 
 
@@ -727,7 +680,7 @@ VOID ProcessAlertWorker(PVOID Context)
     status = RtlStringCbPrintfW(
         messageBuffer,
         sizeof(messageBuffer),
-        L"{\"protected_file\":\"%s\",\"attacker_path\":\"%s\",\"attacker_pid\":%llu,\"attack_type\":\"%s\",\"target_pid\":%llu}",
+        L"{\"source\":\"simplepyas\",\"category\":\"process\",\"action\":\"blocked\",\"protected_file\":\"%ws\",\"attacker_path\":\"%ws\",\"attacker_pid\":%llu,\"attack_type\":\"%ws\",\"target_pid\":%llu}",
         escapedTarget,
         escapedAttacker,
         (unsigned long long)(ULONG_PTR)workItem->AttackerPid,
