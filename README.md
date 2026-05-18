@@ -143,6 +143,7 @@ This project does not aim to replace your primary daily antivirus solution.
 ### Known Limitations
 
 - Files larger than **2 GB** are skipped by the scanner and are not scanned. Do not treat a skipped file as clean.
+- Transparent TLS Proxy/Inspector may install a local **HydraDragon Firewall CA** certificate when certificate installation consent is enabled. The firewall GUI can add/remove it manually, and the uninstaller removes it on a best-effort basis.
 
 ---
 
@@ -279,7 +280,7 @@ For complete removal of kernel drivers and system services, please follow the **
 - **Don't Run in Safe Mode:** HydraDragonAntivirus is not compatible with Safe Mode, and running it there is strongly discouraged. To prevent malware from abusing Safe Mode, HydraDragonAntivirus includes a Safe Mode protection rule that detects attempts to enable Safe Mode boot options, modify related registry settings, or otherwise force the system to boot into Safe Mode.
 
  ### How an Attack is Possible (Threat Model)
- In a post-infection state, the malware already has **First Mover Advantage**. Because this project uses unsigned drivers and hardcoded paths (specifically in `PYAS_Protection` and `OwlyshieldRansomFilter`), an attacker can perform the following:
+ In a post-infection state, the malware already has **First Mover Advantage**. Because this project uses unsigned drivers and hardcoded kernel protection rules (for example in `OwlyshieldRansomFilter` and OpenEDR self-defense policy), an attacker can perform the following:
  
  1. **Directory Squatting**: Malware pre-creates `C:\Program Files\HydraDragonAntivirus` before you run the installer. It sets restrictive ACLs or drops "Poisoned" configuration files. When the driver starts, it blindly loads these malicious rules from the hardcoded path.
  2. **Dependency Hijacking**: Since Python and Node.js are installed into the AV's subdirectory, malware can drop a malicious `python312.dll` or `node.exe` into those folders. The AV will then unknowingly execute malicious code with Administrative privileges during its normal operation.
@@ -366,7 +367,6 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 
 - https://github.com/Cisco-Talos/clamav
 - https://github.com/develbranch/TinyAntivirus
-- https://github.com/87owo/PYAS
 - https://github.com/danisss9/Xvirus/releases/tag/XvirusSDK_5.1.1
 
 - I used these projects for Antivirus
@@ -379,11 +379,6 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - https://github.com/HydraDragonAntivirus/MBRFilter
 
 - I used this project for MBR Protection.
-
-- https://github.com/HydraDragonAntivirus/PYAS_Protection
-
-- I used these projects to protect the antivirus.
-
 
 - https://github.com/clamwin/python-clamav (Converted to C++)
 

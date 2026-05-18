@@ -105,7 +105,6 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "RULES_PATH"; ValueData: "{app}\hydradragon\Owlyshield\rules"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORTS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\config\report"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_PATH"; ValueData: "{app}\hydradragon\Owlyshield\realtime_learning"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "OPENEDR_TELEMETRY_PATH"; ValueData: "C:\ProgramData\edrsvc\output_events"; Flags: uninsdeletekey
 
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "{#OwlyshieldAppId}"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
@@ -195,7 +194,7 @@ const
     '  6. Schedule a deep-cleanup script for Safe Mode.'#13#10#13#10 +
     'IMPORTANT: Full removal of protected kernel drivers requires SAFE MODE.'#13#10 +
     'The following drivers CANNOT be deleted while Windows is running:'#13#10 +
-    '  - OwlyshieldRansomFilter, MBRFilter, SimplePYASProtection'#13#10 +
+    '  - OwlyshieldRansomFilter, MBRFilter'#13#10 +
     '  - RedDbg, HyperDbg, Sanctum, edrdrv (OpenEDR)'#13#10#13#10 +
     'After the standard uninstall completes, you MUST reboot into Safe Mode'#13#10 +
     'to allow the automated script to delete the protected .sys and .dll files.'#13#10#13#10 +
@@ -312,7 +311,6 @@ begin
   Lines[i] := ''; Inc(i);
   Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\OwlyshieldRansomFilter.sys" 2>nul'; Inc(i);
   Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\MBRFilter.sys" 2>nul'; Inc(i);
-  Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\SimplePYASProtection.sys" 2>nul'; Inc(i);
   Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\RedDbgDrv.sys" 2>nul'; Inc(i);
   Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\hyperhv.sys" 2>nul'; Inc(i);
   Lines[i] := 'del /f /q "%SystemRoot%\System32\drivers\sanctum.sys" 2>nul'; Inc(i);
@@ -331,7 +329,6 @@ begin
   Lines[i] := ''; Inc(i);
   Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\OwlyshieldRansomFilter" /f 2>nul'; Inc(i);
   Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\MBRFilter" /f 2>nul'; Inc(i);
-  Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\SimplePYASProtection" /f 2>nul'; Inc(i);
   Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\RedDbgDrv" /f 2>nul'; Inc(i);
   Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\hyperhv" /f 2>nul'; Inc(i);
   Lines[i] := 'reg delete "HKLM\SYSTEM\CurrentControlSet\Services\sanctum" /f 2>nul'; Inc(i);
@@ -411,7 +408,6 @@ begin
     
     StopAndDeleteService('OwlyshieldRansomFilter');
     StopAndDeleteService('MBRFilter');
-    StopAndDeleteService('SimplePYASProtection');
     StopAndDeleteService('RedDbgDrv');
     StopAndDeleteService('hyperhv');
     StopAndDeleteService('sanctum');
@@ -424,7 +420,6 @@ begin
 
     RemoveDriverInf('OwlyshieldRansomFilter.inf');
     RemoveDriverInf('MBRFilter.inf');
-    RemoveDriverInf('SimplePYASProtection.inf');
     RemoveDriverInf('RedDbgDrv.inf');
     RemoveDriverInf('hyperhv.inf');
 

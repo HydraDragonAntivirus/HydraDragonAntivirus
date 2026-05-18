@@ -10,11 +10,12 @@ Due to the deep integration of kernel-level drivers and security services, stand
    - **DISABLE Windows Test Signing mode** (`bcdedit /set testsigning off`).
    - **RE-ENABLE Windows Hypervisor, VBS, and HVCI stack**.
    - Remove driver registrations and INF store entries.
+   - Remove HydraDragon firewall rules, HydraDragon-owned Windows proxy settings, and the **HydraDragon Firewall CA** certificate from Windows/Firefox trust stores when present.
 4. **Accept the warning**: The uninstaller will notify you that a full cleanup requires a reboot into Safe Mode.
 
 ## Step 2: Safe Mode Reboot (CRITICAL)
 Kernel drivers (`.sys` files) and library DLLs are often locked by Windows and cannot be deleted while the OS is running normally. This includes:
-- **OwlyshieldRansomFilter**, **MBRFilter**, **SimplePYASProtection**
+- **OwlyshieldRansomFilter**, **MBRFilter**
 - **RedDbg**, **HyperDbg**, **Sanctum**, **edrdrv** (OpenEDR)
 
 1. Restart your computer.

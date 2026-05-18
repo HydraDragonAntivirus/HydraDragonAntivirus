@@ -12,7 +12,6 @@ Windows Registry Editor Version 5.00
 "UTILS_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\utils"
 "PROCESS_ACTIVITY_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\debug"
 "REALTIME_LEARNING_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\realtime_learning"
-"OPENEDR_TELEMETRY_PATH"="C:\\ProgramData\\edrsvc\\output_events"
 "CONFIG_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\config"
 "NOVELTY_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\novelty"
 "RULES_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\rules"

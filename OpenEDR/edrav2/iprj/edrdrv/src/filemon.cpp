@@ -20,6 +20,34 @@
 
 #include <Ntddstor.h>
 
+#ifndef IOCTL_DISK_BASE
+#define IOCTL_DISK_BASE FILE_DEVICE_DISK
+#endif
+
+#ifndef IOCTL_SCSI_BASE
+#define IOCTL_SCSI_BASE FILE_DEVICE_CONTROLLER
+#endif
+
+#ifndef IOCTL_DISK_FORMAT_TRACKS
+#define IOCTL_DISK_FORMAT_TRACKS \
+	CTL_CODE(IOCTL_DISK_BASE, 0x0006, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+#endif
+
+#ifndef IOCTL_DISK_FORMAT_TRACKS_EX
+#define IOCTL_DISK_FORMAT_TRACKS_EX \
+	CTL_CODE(IOCTL_DISK_BASE, 0x000B, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+#endif
+
+#ifndef IOCTL_DISK_SET_DRIVE_LAYOUT_EX
+#define IOCTL_DISK_SET_DRIVE_LAYOUT_EX \
+	CTL_CODE(IOCTL_DISK_BASE, 0x0015, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+#endif
+
+#ifndef IOCTL_SCSI_PASS_THROUGH_DIRECT
+#define IOCTL_SCSI_PASS_THROUGH_DIRECT \
+	CTL_CODE(IOCTL_SCSI_BASE, 0x0405, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+#endif
+
 namespace cmd {
 namespace filemon {
 
@@ -767,6 +795,41 @@ void sendFileEvent(SysmonEvent eEvent, StreamHandleContext* pStreamHandleContext
 	return sendFileEvent(eEvent, pStreamHandleContext, [](auto /*pSerializer*/) {return STATUS_SUCCESS; });
 }
 
+bool isDangerousDiskIoctl(ULONG nIoControlCode)
+{
+	switch (nIoControlCode)
+	{
+		case IOCTL_DISK_SET_DRIVE_LAYOUT_EX:
+		case IOCTL_SCSI_PASS_THROUGH_DIRECT:
+		case IOCTL_DISK_FORMAT_TRACKS:
+		case IOCTL_DISK_FORMAT_TRACKS_EX:
+			return true;
+		default:
+			return false;
+	}
+}
+
+void sendPathEvent(SysmonEvent eEvent, PCUNICODE_STRING pusPath, ULONG_PTR nProcessId, ULONG nAccessOrIoctl)
+{
+	if (!g_pCommonData->fEnableMonitoring)
+		return;
+	if (!isEventEnabled(eEvent))
+		return;
+
+	NonPagedLbvsSerializer<edrdrv::EventField> serializer;
+	if (!serializer.write(EvFld::RawEventId, uint16_t(eEvent))) return;
+	if (!serializer.write(EvFld::TickTime, getTickCount64())) return;
+	if (!serializer.write(EvFld::ProcessPid, (uint32_t)nProcessId)) return;
+	if (pusPath != nullptr && pusPath->Buffer != nullptr && pusPath->Length != 0)
+	{
+		if (!write(serializer, EvFld::FilePath, pusPath)) return;
+	}
+	if (!serializer.write(EvFld::AccessMask, uint32_t(nAccessOrIoctl))) return;
+
+	IFERR_LOG(fltport::sendRawEvent(serializer),
+		"Can't send OpenEDR path event %u pid: %Iu.\r\n", (ULONG)eEvent, nProcessId);
+}
+
 //////////////////////////////////////////////////////////////////////////
 //
 // Hash calculator
@@ -915,8 +978,18 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preCreate(
 	if (FLT_IS_FASTIO_OPERATION(pData)) return FLT_PREOP_SUCCESS_NO_CALLBACK;
 	if (!FLT_IS_IRP_OPERATION(pData)) return FLT_PREOP_SUCCESS_NO_CALLBACK;
 
-	// Skip	PIPE MAILSLOT VOLUME_OPEN
-	if (FlagOn(pFltObjects->FileObject->Flags, FO_NAMED_PIPE | FO_MAILSLOT | FO_VOLUME_OPEN))
+	if (FlagOn(pFltObjects->FileObject->Flags, FO_NAMED_PIPE))
+	{
+		sendPathEvent(
+			SysmonEvent::NamedPipeCreate,
+			&pFltObjects->FileObject->FileName,
+			(ULONG_PTR)FltGetRequestorProcessId(pData),
+			pData->Iopb->Parameters.Create.SecurityContext->DesiredAccess);
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	}
+
+	// Skip MAILSLOT VOLUME_OPEN
+	if (FlagOn(pFltObjects->FileObject->Flags, FO_MAILSLOT | FO_VOLUME_OPEN))
 		return FLT_PREOP_SUCCESS_NO_CALLBACK;
 
 	// Skip	PAGING_FILE
@@ -1729,6 +1802,47 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postRead(__inout PFLT_CALLBACK_DATA pData,
 	return FLT_POSTOP_FINISHED_PROCESSING;
 }
 
+FLT_PREOP_CALLBACK_STATUS FLTAPI preDeviceControl(
+	_Inout_ PFLT_CALLBACK_DATA pData,
+	_In_ PCFLT_RELATED_OBJECTS pFltObjects,
+	_Flt_CompletionContext_Outptr_ PVOID* /*pCompletionContext*/)
+{
+	if (!g_pCommonData->fEnableMonitoring)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	if (pData == nullptr || pData->Iopb == nullptr)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	if (pData->RequestorMode == KernelMode)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	ULONG nIoControlCode = pData->Iopb->Parameters.DeviceIoControl.Common.IoControlCode;
+	if (!isDangerousDiskIoctl(nIoControlCode))
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	UNICODE_STRING usFallback;
+	RtlInitUnicodeString(&usFallback, L"BOOT_DISK_OR_DRIVE_LAYOUT");
+	PCUNICODE_STRING pusTarget = &usFallback;
+	if (pFltObjects != nullptr &&
+		pFltObjects->FileObject != nullptr &&
+		pFltObjects->FileObject->FileName.Buffer != nullptr &&
+		pFltObjects->FileObject->FileName.Length != 0)
+	{
+		pusTarget = &pFltObjects->FileObject->FileName;
+	}
+
+	sendPathEvent(
+		SysmonEvent::DeviceIoControl,
+		pusTarget,
+		(ULONG_PTR)FltGetRequestorProcessId(pData),
+		nIoControlCode);
+
+	return FLT_PREOP_SUCCESS_NO_CALLBACK;
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 //
@@ -1748,6 +1862,7 @@ CONST FLT_OPERATION_REGISTRATION c_Callbacks[] =
 	{ IRP_MJ_SET_INFORMATION, FLTFL_OPERATION_REGISTRATION_SKIP_PAGING_IO, preSetFileInfo, postSetFileInfo },
 	{ IRP_MJ_WRITE, 0, preWrite, postWrite },
 	{ IRP_MJ_READ, 0, preRead, postRead },
+	{ IRP_MJ_DEVICE_CONTROL, 0, preDeviceControl, nullptr },
 
 	{ IRP_MJ_OPERATION_END }
 };

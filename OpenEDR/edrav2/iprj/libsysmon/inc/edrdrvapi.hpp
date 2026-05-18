@@ -47,6 +47,9 @@ enum class SysmonEvent : uint16_t
 	FileDataReadFull = 0x000B,
 	FileDataWriteFull = 0x000C,
 	ProcessOpen = 0x000D,
+	DeviceIoControl = 0x000E,
+	NamedPipeCreate = 0x000F,
+	SelfDefense = 0x0010,
 
 	_Max //< "last" event. for internal usage
 };
@@ -492,5 +495,4 @@ constexpr wchar_t c_sAltitudeValue[] = L"368325";
 } // namespace edrdrv
 } // namespace cmd
 /// @}
-
 

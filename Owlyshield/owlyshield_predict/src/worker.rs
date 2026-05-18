@@ -735,11 +735,6 @@ pub mod worker_instance {
     use std::collections::{HashMap, HashSet};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::ffi::OsStr;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use std::fs::{self, File};
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use std::io::{Read, Seek, SeekFrom};
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc::{Sender, channel};
@@ -1171,12 +1166,11 @@ pub mod worker_instance {
             static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
             #[cfg(all(target_os = "windows", feature = "sanctum"))]
             static SANCTUM_PIPE_START: std::sync::Once = std::sync::Once::new();
-            static OPENEDR_TAIL_START: std::sync::Once = std::sync::Once::new();
+            static OPENEDR_PIPE_START: std::sync::Once = std::sync::Once::new();
 
             let extension_source_mode = config.extension_source_mode();
             let engine =
                 BehaviorEngine::new_with_extension_source_mode(extension_source_mode.as_deref());
-            let openedr_candidates = Self::openedr_log_dir_candidates(config);
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
@@ -1185,186 +1179,112 @@ pub mod worker_instance {
             SANCTUM_PIPE_START.call_once(|| {
                 Self::start_sanctum_telemetry_pipe(engine.clone());
             });
-            OPENEDR_TAIL_START.call_once({
+            OPENEDR_PIPE_START.call_once({
                 let engine = engine.clone();
-                let candidates = openedr_candidates.clone();
                 move || {
-                    Self::start_openedr_telemetry_log_tail(engine, candidates);
+                    Self::start_openedr_telemetry_pipe(engine);
                 }
             });
             engine
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
-            if !candidate.as_os_str().is_empty()
-                && !paths.iter().any(|existing| existing == &candidate)
-            {
-                paths.push(candidate);
-            }
-        }
-
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn openedr_log_dir_candidates(config: &Config) -> Vec<PathBuf> {
-            let mut candidates = Vec::new();
-
-            if let Some(path) = config.get_param(Param::OpenEdrTelemetryPath)
-                && !path.trim().is_empty()
-            {
-                Self::push_unique_path(&mut candidates, PathBuf::from(path.trim()));
-            }
-
-            if let Ok(program_data) = std::env::var("ProgramData") {
-                Self::push_unique_path(
-                    &mut candidates,
-                    PathBuf::from(program_data)
-                        .join("edrsvc")
-                        .join("log")
-                        .join("output_events"),
-                );
-            }
-
-            Self::push_unique_path(
-                &mut candidates,
-                PathBuf::from(r"C:\ProgramData\edrsvc\log\output_events"),
-            );
-            candidates
-        }
-
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn openedr_latest_log_in_dir(dir: &Path) -> Option<PathBuf> {
-            let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
-
-            for entry in fs::read_dir(dir).ok()? {
-                let entry = entry.ok()?;
-                let path = entry.path();
-                let is_log = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("log"))
-                    .unwrap_or(false);
-                if !is_log {
-                    continue;
-                }
-
-                let modified = entry
-                    .metadata()
-                    .ok()
-                    .and_then(|meta| meta.modified().ok())
-                    .unwrap_or(std::time::UNIX_EPOCH);
-
-                match &newest {
-                    Some((current_time, current_path))
-                        if modified < *current_time
-                            || (modified == *current_time && path <= *current_path) => {}
-                    _ => newest = Some((modified, path)),
-                }
-            }
-
-            newest.map(|(_, path)| path)
-        }
-
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        pub fn start_openedr_telemetry_log_tail(
-            behavior_engine: BehaviorEngine,
-            candidates: Vec<PathBuf>,
-        ) {
-            let engine_clone = behavior_engine;
-
+        pub fn start_openedr_telemetry_pipe(behavior_engine: BehaviorEngine) {
             std::thread::Builder::new()
-                .name("openedr_telemetry_log_tail".to_string())
+                .name("openedr_telemetry_pipe".to_string())
                 .spawn(move || {
-                    Logging::info(&format!(
-                        "[OpenEDRTelemetry] Watching {} candidate log director{}",
-                        candidates.len(),
-                        if candidates.len() == 1 { "y" } else { "ies" }
-                    ));
+                    let pipe_name_str = r"\\.\pipe\Global\HydraDragonOpenEdrTelemetry";
+                    let wide: Vec<u16> = OsStr::new(pipe_name_str)
+                        .encode_wide()
+                        .chain(std::iter::once(0u16))
+                        .collect();
 
-                    let mut active_log: Option<PathBuf> = None;
-                    let mut active_offset: u64 = 0;
-                    let mut leftover = String::new();
+                    Logging::info("[OpenEDRTelemetry] Starting direct OpenEDR telemetry pipe");
 
                     loop {
-                        let latest_log = candidates
-                            .iter()
-                            .find_map(|dir| Self::openedr_latest_log_in_dir(dir));
-
-                        let Some(log_path) = latest_log else {
-                            std::thread::sleep(std::time::Duration::from_secs(2));
-                            continue;
+                        let handle: HANDLE = unsafe {
+                            CreateNamedPipeW(
+                                PCWSTR(wide.as_ptr()),
+                                PIPE_ACCESS_INBOUND,
+                                NAMED_PIPE_MODE(0),
+                                PIPE_UNLIMITED_INSTANCES,
+                                0,
+                                65536,
+                                0,
+                                None,
+                            )
                         };
 
-                        if active_log.as_ref() != Some(&log_path) {
-                            Logging::info(&format!(
-                                "[OpenEDRTelemetry] Tailing {}",
-                                log_path.display()
-                            ));
-                            active_log = Some(log_path.clone());
-                            active_offset = 0;
-                            leftover.clear();
+                        if handle == INVALID_HANDLE_VALUE {
+                            Logging::error("[OpenEDRTelemetry] CreateNamedPipeW failed; retrying");
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                            continue;
                         }
 
-                        match File::open(&log_path) {
-                            Ok(mut file) => {
-                                let file_len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
-                                if file_len < active_offset {
-                                    active_offset = 0;
-                                    leftover.clear();
-                                }
+                        let connected = unsafe { ConnectNamedPipe(handle, None) }.as_bool()
+                            || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
 
-                                if file.seek(SeekFrom::Start(active_offset)).is_err() {
-                                    std::thread::sleep(std::time::Duration::from_millis(750));
+                        if !connected {
+                            unsafe {
+                                let _ = DisconnectNamedPipe(handle);
+                                let _ = CloseHandle(handle);
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(250));
+                            continue;
+                        }
+
+                        if !unsafe { validate_pipe_client(handle, Some(r"OpenEDR\edrsvc.exe"), false) } {
+                            Logging::error("[OpenEDRTelemetry] Rejected unauthorized OpenEDR telemetry client");
+                            unsafe {
+                                let _ = DisconnectNamedPipe(handle);
+                                let _ = CloseHandle(handle);
+                            }
+                            continue;
+                        }
+
+                        let mut buf = vec![0u8; 65536];
+                        let mut leftover = String::new();
+
+                        loop {
+                            let mut bytes_read: u32 = 0;
+                            let ok = unsafe {
+                                ReadFile(
+                                    handle,
+                                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+                                    buf.len() as u32,
+                                    Some(&mut bytes_read),
+                                    None,
+                                )
+                            };
+                            if !ok.as_bool() || bytes_read == 0 {
+                                break;
+                            }
+
+                            leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
+                            while let Some(pos) = leftover.find('\n') {
+                                let line = leftover[..pos].trim().to_string();
+                                leftover = leftover[pos + 1..].to_string();
+                                if line.is_empty() {
                                     continue;
                                 }
 
-                                let mut chunk = String::new();
-                                match file.read_to_string(&mut chunk) {
-                                    Ok(_) => {
-                                        active_offset = file.stream_position().unwrap_or(file_len);
-                                        if !chunk.is_empty() {
-                                            leftover.push_str(&chunk);
-                                        }
-
-                                        while let Some(pos) = leftover.find('\n') {
-                                            let line = leftover[..pos]
-                                                .trim_end_matches('\r')
-                                                .trim()
-                                                .to_string();
-                                            leftover = leftover[pos + 1..].to_string();
-                                            if line.is_empty() {
-                                                continue;
-                                            }
-
-                                            match serde_json::from_str::<serde_json::Value>(&line) {
-                                                Ok(event) => {
-                                                    engine_clone.ingest_openedr_event(&event)
-                                                }
-                                                Err(e) => Logging::warning(&format!(
-                                                    "[OpenEDRTelemetry] Failed to parse {}: {}",
-                                                    log_path.display(),
-                                                    e
-                                                )),
-                                            }
-                                        }
-                                    }
-                                    Err(e) => Logging::warning(&format!(
-                                        "[OpenEDRTelemetry] Failed reading {}: {}",
-                                        log_path.display(),
-                                        e
+                                match serde_json::from_str::<serde_json::Value>(&line) {
+                                    Ok(event) => behavior_engine.ingest_openedr_event(&event),
+                                    Err(err) => Logging::warning(&format!(
+                                        "[OpenEDRTelemetry] Failed to parse direct event JSON: {}",
+                                        err
                                     )),
                                 }
                             }
-                            Err(e) => Logging::warning(&format!(
-                                "[OpenEDRTelemetry] Failed opening {}: {}",
-                                log_path.display(),
-                                e
-                            )),
                         }
 
-                        std::thread::sleep(std::time::Duration::from_millis(750));
+                        unsafe {
+                            let _ = DisconnectNamedPipe(handle);
+                            let _ = CloseHandle(handle);
+                        }
                     }
                 })
-                .expect("failed to spawn openedr_telemetry_log_tail thread");
+                .expect("failed to spawn openedr_telemetry_pipe thread");
         }
 
         /// Spawn the \\.\pipe\HydraSanctumTelemetry named pipe server thread.

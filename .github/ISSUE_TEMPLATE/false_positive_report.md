@@ -31,7 +31,6 @@ Check the logs in the following locations to confirm:
 - [ ] HydraDragonFirewall
 - [ ] OpenEDR
 - [ ] MBRFilter
-- [ ] SimplePYASProtection (Self-Defense Driver)
 - [ ] TinyAntivirus
 - [ ] DetectItEasy (Crypter Signatures)
 

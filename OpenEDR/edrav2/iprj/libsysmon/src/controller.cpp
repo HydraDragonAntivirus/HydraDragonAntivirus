@@ -13,11 +13,87 @@
 #include "controller.h"
 #include "../../libprocmon/inc/procmonevent.h"
 
+#include <mutex>
+
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "libsysmon"
 
 namespace cmd {
 namespace win {
+
+namespace {
+
+constexpr wchar_t c_sOwlyshieldOpenEdrPipe[] = LR"(\\.\pipe\Global\HydraDragonOpenEdrTelemetry)";
+
+const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventType)
+{
+	switch (rawEvent)
+	{
+		case edrdrv::SysmonEvent::DeviceIoControl:
+			return "LLE_DEVICE_IOCTL";
+		case edrdrv::SysmonEvent::NamedPipeCreate:
+			return "LLE_NAMED_PIPE_CREATE";
+		case edrdrv::SysmonEvent::SelfDefense:
+			return "LLE_SELF_DEFENSE";
+		default:
+			return getEventTypeString(eventType);
+	}
+}
+
+void sendOpenEdrTelemetryToOwlyshield(const Variant& vEvent)
+{
+	static std::mutex s_mtxPipeSend;
+
+	std::string sPayload;
+	CMD_TRY
+	{
+		sPayload = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+	}
+	CMD_PREPARE_CATCH
+	catch (error::Exception& e)
+	{
+		e.log(SL, "Failed to serialize OpenEDR telemetry for Owlyshield");
+		return;
+	}
+
+	if (sPayload.empty())
+		return;
+
+	sPayload.push_back('\n');
+
+	std::scoped_lock lock(s_mtxPipeSend);
+
+	if (!::WaitNamedPipeW(c_sOwlyshieldOpenEdrPipe, 10))
+		return;
+
+	HANDLE hPipe = ::CreateFileW(
+		c_sOwlyshieldOpenEdrPipe,
+		GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		nullptr,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		nullptr);
+	if (hPipe == INVALID_HANDLE_VALUE)
+		return;
+
+	DWORD nWritten = 0;
+	const BOOL fOk = ::WriteFile(
+		hPipe,
+		sPayload.data(),
+		static_cast<DWORD>(sPayload.size()),
+		&nWritten,
+		nullptr);
+	if (!fOk || nWritten != sPayload.size())
+	{
+		LOGLVL(Trace, "Failed to send OpenEDR telemetry to Owlyshield pipe");
+	}
+
+	::FlushFileBuffers(hPipe);
+	::CloseHandle(hPipe);
+}
+
+} // namespace
 
 //
 //
@@ -447,6 +523,9 @@ std::map<edrdrv::SysmonEvent, Event> mEventMap = {
 	{edrdrv::SysmonEvent::FileDataReadFull, Event::LLE_FILE_DATA_READ_FULL},
 	{edrdrv::SysmonEvent::FileDataWriteFull, Event::LLE_FILE_DATA_WRITE_FULL},
 	{edrdrv::SysmonEvent::ProcessOpen, Event::LLE_PROCESS_OPEN},
+	{edrdrv::SysmonEvent::DeviceIoControl, Event::LLE_DEVICE_RAW_WRITE_ACCESS},
+	{edrdrv::SysmonEvent::NamedPipeCreate, Event::LLE_DEVICE_LINK_CREATE},
+	{edrdrv::SysmonEvent::SelfDefense, Event::LLE_PROCESS_OPEN},
 };
 
 //
@@ -476,6 +555,9 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 		auto eEvent = mEventMap[nRawEventId];
 		vEvent.put("baseType", eEvent);
 		vEvent.put("rawEventId", createRaw(c_nClassId, (uint32_t)nRawEventId));
+		vEvent.put("type", getOpenEdrWireEventType(nRawEventId, eEvent));
+		vEvent.put("source", "openedr");
+		sendOpenEdrTelemetryToOwlyshield(vEvent);
 
 		if (m_eInjection == InjectionMode::Controller && eEvent == Event::LLE_PROCESS_CREATE)
 		{

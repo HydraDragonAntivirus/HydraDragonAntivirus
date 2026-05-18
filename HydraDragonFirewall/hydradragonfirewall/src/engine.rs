@@ -1,7 +1,7 @@
 use crate::file_magic::FileMagicChecker;
 use crate::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
 use crate::web_filter::WebFilter;
-use hydradragon_shared::{TlsInspectionMode, TlsProxyConfig, QUARANTINE_PATH};
+use hydradragon_shared::{QUARANTINE_PATH, TlsInspectionMode, TlsProxyConfig};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -1259,7 +1259,10 @@ impl TransparentNatTable {
     }
 
     pub fn insert(&self, client_src_port: u16, original_dst: (IpAddr, u16, IpAddr)) {
-        self.inner.write().unwrap().insert(client_src_port, original_dst);
+        self.inner
+            .write()
+            .unwrap()
+            .insert(client_src_port, original_dst);
     }
 
     pub fn get(&self, client_src_port: u16) -> Option<(IpAddr, u16, IpAddr)> {
@@ -1655,11 +1658,29 @@ impl FirewallEngine {
             let proxy_server = key
                 .get_value::<String, _>("ProxyServer")
                 .unwrap_or_default();
-            let addr_lc = addr.to_ascii_lowercase();
+            let mut candidates = vec![
+                addr.to_ascii_lowercase(),
+                Self::proxy_addr_string(&TlsProxyConfig::default()).to_ascii_lowercase(),
+                "127.0.0.1:8080".to_string(),
+                "localhost:8080".to_string(),
+                "127.0.0.1:8877".to_string(),
+                "localhost:8877".to_string(),
+            ];
+            if let Some((_, port)) = addr.rsplit_once(':') {
+                candidates.push(format!("127.0.0.1:{port}").to_ascii_lowercase());
+                candidates.push(format!("localhost:{port}").to_ascii_lowercase());
+            }
+            candidates.sort();
+            candidates.dedup();
+
             let server_lc = proxy_server.to_ascii_lowercase();
-            let owned = server_lc.contains(&format!("http={}", addr_lc))
-                || server_lc.contains(&format!("https={}", addr_lc))
-                || server_lc == addr_lc;
+            let owned = candidates.iter().any(|candidate| {
+                server_lc == *candidate
+                    || server_lc.contains(candidate)
+                    || server_lc.contains(&format!("http={candidate}"))
+                    || server_lc.contains(&format!("https={candidate}"))
+                    || server_lc.contains(&format!("socks={candidate}"))
+            });
 
             if owned {
                 Self::clear_windows_proxy()?;
@@ -1676,12 +1697,16 @@ impl FirewallEngine {
     fn wait_for_proxy_listener(addr: std::net::SocketAddr, timeout: Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         let test_addr = if addr.ip().is_unspecified() || addr.ip().is_loopback() {
-            std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)), addr.port())
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+                addr.port(),
+            )
         } else {
             addr
         };
         while std::time::Instant::now() < deadline {
-            if std::net::TcpStream::connect_timeout(&test_addr, Duration::from_millis(250)).is_ok() {
+            if std::net::TcpStream::connect_timeout(&test_addr, Duration::from_millis(250)).is_ok()
+            {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -1992,6 +2017,154 @@ impl FirewallEngine {
         }
     }
 
+    fn is_tls_proxy_intercept_candidate(
+        info: &PacketInfo,
+        outbound: bool,
+        tls_proxy: &TlsProxyConfig,
+    ) -> bool {
+        tls_proxy.mode == TlsInspectionMode::TlsProxy
+            && outbound
+            && matches!(info.protocol, Protocol::TCP)
+            && info.dst_port == 443
+            && info.process_id != std::process::id()
+            && !Self::is_loopback(info.dst_ip)
+            && !info.dst_ip.is_unspecified()
+            && !info.dst_ip.is_multicast()
+            && !Self::is_proxy_listener_flow(info, tls_proxy)
+    }
+
+    fn emit_tls_proxy_intercept_probe(
+        tx: &AppHandle,
+        am: &Arc<AppManager>,
+        dns_handler: &Arc<DnsHandler>,
+        info: &PacketInfo,
+        tls_proxy: &TlsProxyConfig,
+        show_blocked_only: bool,
+        no_alert_mode: bool,
+        windows_root_trust_ready: &Arc<AtomicBool>,
+        firefox_policy_ready: &Arc<AtomicBool>,
+        browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
+    ) {
+        if Self::proxy_bypass_matches_target(
+            tls_proxy,
+            info.hostname.as_deref(),
+            info.full_url.as_deref(),
+            None,
+        ) {
+            return;
+        }
+
+        let host_label = info
+            .hostname
+            .clone()
+            .or_else(|| dns_handler.resolve_ip(&info.dst_ip.to_string()))
+            .unwrap_or_else(|| info.dst_ip.to_string());
+        let full_url = info
+            .full_url
+            .clone()
+            .unwrap_or_else(|| format!("https://{}:{}/", host_label, info.dst_port));
+        let app_info = am.info_cache.get_info(info.process_id);
+
+        Self::maybe_emit_browser_mitm_warning(
+            tx,
+            am,
+            no_alert_mode,
+            tls_proxy,
+            &app_info.name,
+            &app_info.path,
+            info.process_id,
+            Some(&host_label),
+            Some(&full_url),
+            &host_label,
+            windows_root_trust_ready,
+            firefox_policy_ready,
+            browser_mitm_warning_cache,
+        );
+
+        if show_blocked_only {
+            return;
+        }
+
+        let cache_key = format!(
+            "proxy-http:{}:{}:{}:{}:{}",
+            info.process_id,
+            info.src_ip,
+            info.src_port,
+            host_label.to_ascii_lowercase(),
+            info.dst_port
+        );
+        {
+            let mut cache = browser_mitm_warning_cache.lock().unwrap();
+            if !cache.insert(cache_key) {
+                return;
+            }
+        }
+
+        let mut request_headers = HashMap::new();
+        request_headers.insert(
+            "x-hydradragon-event".to_string(),
+            "transparent_tls_intercept".to_string(),
+        );
+        request_headers.insert(
+            "x-hydradragon-original-destination".to_string(),
+            format!("{}:{}", info.dst_ip, info.dst_port),
+        );
+        request_headers.insert(
+            "x-hydradragon-source-port".to_string(),
+            info.src_port.to_string(),
+        );
+        request_headers.insert(
+            "x-hydradragon-proxy-listener".to_string(),
+            Self::proxy_addr_string(tls_proxy),
+        );
+
+        let now = Self::now_ts();
+        let _ = tx.emit(
+            "proxy_http",
+            crate::proxy::ProxyHttpEvent {
+                id: format!(
+                    "{}-tls-intercept-{}-{}",
+                    now, info.process_id, info.src_port
+                ),
+                timestamp: now,
+                method: "CONNECT".to_string(),
+                host: host_label.clone(),
+                port: info.dst_port,
+                path: "/".to_string(),
+                full_url,
+                status: 0,
+                request_headers,
+                response_headers: HashMap::new(),
+                user_agent: info.http_user_agent.clone(),
+                content_type: info.http_content_type.clone(),
+                referer: info.http_referer.clone(),
+                response_content_type: None,
+                response_content_length: None,
+                request_body: None,
+                request_body_truncated: false,
+                response_body: None,
+                response_body_truncated: false,
+            },
+        );
+
+        emit_log_event(
+            tx,
+            LogEntry {
+                id: format!("{}-proxy-intercept-{}", now, info.process_id),
+                timestamp: now,
+                level: LogLevel::Info,
+                message: format!(
+                    "Proxy Intercept: {} (pid={}) -> {}:{} via transparent TLS proxy {}",
+                    app_info.name,
+                    info.process_id,
+                    host_label,
+                    info.dst_port,
+                    Self::proxy_addr_string(tls_proxy)
+                ),
+            },
+        );
+    }
+
     fn start_embedded_proxy<R: Runtime>(&self, tls_proxy: &TlsProxyConfig, tx: &AppHandle<R>) {
         if tls_proxy.mode != TlsInspectionMode::TlsProxy || !tls_proxy.auto_start {
             return;
@@ -2188,12 +2361,13 @@ impl FirewallEngine {
     }
 
     fn stop_embedded_proxy(&self) {
-        let had_embedded_proxy = if let Some(tx) = self.tls_proxy_backend_child.lock().unwrap().take() {
-            let _ = tx.send(());
-            true
-        } else {
-            false
-        };
+        let had_embedded_proxy =
+            if let Some(tx) = self.tls_proxy_backend_child.lock().unwrap().take() {
+                let _ = tx.send(());
+                true
+            } else {
+                false
+            };
         self.browser_mitm_warning_cache.lock().unwrap().clear();
         if had_embedded_proxy {
             let addr = {
@@ -2320,7 +2494,9 @@ foreach ($store in $stores) {
                     script,
                 ])
                 .status()
-                .map_err(|error| format!("Failed to start PowerShell certificate cleanup: {error}"))?;
+                .map_err(|error| {
+                    format!("Failed to start PowerShell certificate cleanup: {error}")
+                })?;
 
             if status.success() {
                 Ok(())
@@ -2579,7 +2755,9 @@ foreach ($store in $stores) {
             .and_then(|alert| alert.decision_key.as_ref())
             .is_some();
 
-        if effective_decision == "allow_always" && missing_stable_path && !has_configured_decision_key
+        if effective_decision == "allow_always"
+            && missing_stable_path
+            && !has_configured_decision_key
         {
             effective_decision = "allow_once".to_string();
             persist_settings = false;
@@ -2708,7 +2886,8 @@ foreach ($store in $stores) {
             _ => {}
         }
 
-        if effective_decision == "allow_once" && missing_stable_path && !has_configured_decision_key {
+        if effective_decision == "allow_once" && missing_stable_path && !has_configured_decision_key
+        {
             emit_log_event(
                 tx,
                 LogEntry {
@@ -3451,8 +3630,7 @@ impl FirewallEngine {
                                     .strip_prefix("HIPS_TRUST:")
                                     .map(|rest| (rest, true))
                                     .or_else(|| {
-                                        line.strip_prefix("HIPS_VERDICT:")
-                                            .map(|rest| (rest, false))
+                                        line.strip_prefix("HIPS_VERDICT:").map(|rest| (rest, false))
                                     })
                                 {
                                     let parts = rest.split('|').collect::<Vec<_>>();
@@ -3475,13 +3653,13 @@ impl FirewallEngine {
 
                                     if pid != 0 {
                                         if verdict.is_cloud_trusted() {
+                                            am_hips.cloud_trusted_pids.write().unwrap().insert(pid);
+                                        } else {
                                             am_hips
                                                 .cloud_trusted_pids
                                                 .write()
                                                 .unwrap()
-                                                .insert(pid);
-                                        } else {
-                                            am_hips.cloud_trusted_pids.write().unwrap().remove(&pid);
+                                                .remove(&pid);
                                         }
                                         am_hips
                                             .openedr_verdicts
@@ -3948,116 +4126,136 @@ impl FirewallEngine {
                                     let mut recalc_checksums = decision.recalc_checksums;
                                     let mut loopback_flag = None;
 
-                                    let tls_proxy_cfg = settings_w.read().unwrap().tls_proxy.clone();
+                                    let tls_proxy_cfg =
+                                        settings_w.read().unwrap().tls_proxy.clone();
                                     if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy {
-                                         let mut is_tcp = false;
-                                         let mut src_port = 0;
-                                         let mut dst_port = 0;
-                                         let mut src_ip = None;
-                                         let mut dst_ip = None;
-                                         if let Some((ref p_info, _)) = pre_parsed {
-                                             is_tcp = matches!(p_info.protocol, crate::engine::Protocol::TCP);
-                                             src_port = p_info.src_port;
-                                             dst_port = p_info.dst_port;
-                                             src_ip = Some(p_info.src_ip);
-                                             dst_ip = Some(p_info.dst_ip);
-                                         }
+                                        let mut is_tcp = false;
+                                        let mut src_port = 0;
+                                        let mut dst_port = 0;
+                                        let mut src_ip = None;
+                                        let mut dst_ip = None;
+                                        if let Some((ref p_info, _)) = pre_parsed {
+                                            is_tcp = matches!(
+                                                p_info.protocol,
+                                                crate::engine::Protocol::TCP
+                                            );
+                                            src_port = p_info.src_port;
+                                            dst_port = p_info.dst_port;
+                                            src_ip = Some(p_info.src_ip);
+                                            dst_ip = Some(p_info.dst_ip);
+                                        }
 
-                                         if is_tcp {
-                                             let proxy_return_flow = src_ip.is_some_and(Self::is_loopback)
-                                                 && src_port == tls_proxy_cfg.listen_port;
+                                        if is_tcp {
+                                            let proxy_return_flow = src_ip
+                                                .is_some_and(Self::is_loopback)
+                                                && src_port == tls_proxy_cfg.listen_port;
 
-                                             if proxy_return_flow {
-                                                 if let Some((orig_ip, orig_port, orig_src)) = nat_table_w.get(dst_port) {
-                                                     let ok = match orig_ip {
-                                                         IpAddr::V4(v4) => nat_rewrite_src_ipv4(
-                                                             &mut packet_data,
-                                                             v4,
-                                                             orig_port,
-                                                         ),
-                                                         IpAddr::V6(v6) => {
-                                                             let ok_src = nat_rewrite_src_ipv6(
-                                                                 &mut packet_data,
-                                                                 v6,
-                                                                 orig_port,
-                                                             );
-                                                             let ok_dst = if let IpAddr::V6(orig_client_ip) = orig_src {
-                                                                 nat_rewrite_dst_ipv6(
-                                                                     &mut packet_data,
-                                                                     orig_client_ip,
-                                                                     dst_port,
-                                                                 )
-                                                             } else {
-                                                                 false
-                                                             };
-                                                             ok_src && ok_dst
-                                                         }
-                                                     };
-                                                     if ok {
-                                                         recalc_checksums = true;
-                                                         loopback_flag = Some(false);
-                                                         if tcp_is_fin_or_rst(&packet_data) {
-                                                             nat_table_w.remove(dst_port);
-                                                         }
-                                                     }
-                                                 }
-                                             } else if outbound && dst_port == 443 && pid != std::process::id() {
-                                                 if let (Some(orig_dst), Some(orig_src)) = (dst_ip, src_ip) {
-                                                     if !Self::is_loopback(orig_dst)
-                                                         && !orig_dst.is_unspecified()
-                                                         && !orig_dst.is_multicast()
-                                                     {
-                                                         nat_table_w.insert(src_port, (orig_dst, 443, orig_src));
-                                                         let ok = match orig_dst {
-                                                             IpAddr::V4(_v4) => nat_rewrite_dst_ipv4(
-                                                                 &mut packet_data,
-                                                                 Ipv4Addr::new(127, 0, 0, 1),
-                                                                 tls_proxy_cfg.listen_port,
-                                                             ),
-                                                             IpAddr::V6(_v6) => {
-                                                                 let ok_dst = nat_rewrite_dst_ipv6(
-                                                                     &mut packet_data,
-                                                                     std::net::Ipv6Addr::LOCALHOST,
-                                                                     tls_proxy_cfg.listen_port,
-                                                                 );
-                                                                 let ok_src = nat_rewrite_src_ipv6(
-                                                                     &mut packet_data,
-                                                                     std::net::Ipv6Addr::LOCALHOST,
-                                                                     src_port,
-                                                                 );
-                                                                 ok_dst && ok_src
-                                                             }
-                                                         };
-                                                         if ok {
-                                                             recalc_checksums = true;
-                                                             loopback_flag = Some(true);
-                                                             if tcp_is_fin_or_rst(&packet_data) {
-                                                                 nat_table_w.remove(src_port);
-                                                             }
-                                                         }
-                                                     }
-                                                 }
-                                             }
-                                         }
-                                     }
+                                            if proxy_return_flow {
+                                                if let Some((orig_ip, orig_port, orig_src)) =
+                                                    nat_table_w.get(dst_port)
+                                                {
+                                                    let ok = match orig_ip {
+                                                        IpAddr::V4(v4) => nat_rewrite_src_ipv4(
+                                                            &mut packet_data,
+                                                            v4,
+                                                            orig_port,
+                                                        ),
+                                                        IpAddr::V6(v6) => {
+                                                            let ok_src = nat_rewrite_src_ipv6(
+                                                                &mut packet_data,
+                                                                v6,
+                                                                orig_port,
+                                                            );
+                                                            let ok_dst =
+                                                                if let IpAddr::V6(orig_client_ip) =
+                                                                    orig_src
+                                                                {
+                                                                    nat_rewrite_dst_ipv6(
+                                                                        &mut packet_data,
+                                                                        orig_client_ip,
+                                                                        dst_port,
+                                                                    )
+                                                                } else {
+                                                                    false
+                                                                };
+                                                            ok_src && ok_dst
+                                                        }
+                                                    };
+                                                    if ok {
+                                                        recalc_checksums = true;
+                                                        loopback_flag = Some(false);
+                                                        if tcp_is_fin_or_rst(&packet_data) {
+                                                            nat_table_w.remove(dst_port);
+                                                        }
+                                                    }
+                                                }
+                                            } else if outbound
+                                                && dst_port == 443
+                                                && pid != std::process::id()
+                                            {
+                                                if let (Some(orig_dst), Some(orig_src)) =
+                                                    (dst_ip, src_ip)
+                                                {
+                                                    if !Self::is_loopback(orig_dst)
+                                                        && !orig_dst.is_unspecified()
+                                                        && !orig_dst.is_multicast()
+                                                    {
+                                                        nat_table_w.insert(
+                                                            src_port,
+                                                            (orig_dst, 443, orig_src),
+                                                        );
+                                                        let ok = match orig_dst {
+                                                            IpAddr::V4(_v4) => {
+                                                                nat_rewrite_dst_ipv4(
+                                                                    &mut packet_data,
+                                                                    Ipv4Addr::new(127, 0, 0, 1),
+                                                                    tls_proxy_cfg.listen_port,
+                                                                )
+                                                            }
+                                                            IpAddr::V6(_v6) => {
+                                                                let ok_dst = nat_rewrite_dst_ipv6(
+                                                                    &mut packet_data,
+                                                                    std::net::Ipv6Addr::LOCALHOST,
+                                                                    tls_proxy_cfg.listen_port,
+                                                                );
+                                                                let ok_src = nat_rewrite_src_ipv6(
+                                                                    &mut packet_data,
+                                                                    std::net::Ipv6Addr::LOCALHOST,
+                                                                    src_port,
+                                                                );
+                                                                ok_dst && ok_src
+                                                            }
+                                                        };
+                                                        if ok {
+                                                            recalc_checksums = true;
+                                                            loopback_flag = Some(true);
+                                                            if tcp_is_fin_or_rst(&packet_data) {
+                                                                nat_table_w.remove(src_port);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
 
-                                     // REINJECT IMMEDIATELY from the SAME thread
-                                     let mut reinject_address = packet.address.clone();
-                                     if let Some(val) = loopback_flag {
-                                         reinject_address.as_mut().set_loopback(val);
-                                     }
-                                     let mut reinject_packet = windivert::packet::WinDivertPacket {
-                                         address: reinject_address,
-                                         data: std::borrow::Cow::Owned(packet_data),
-                                     };
-                                     if recalc_checksums {
-                                         let _ = reinject_packet
-                                             .recalculate_checksums(Default::default());
-                                     }
-                                     if let Err(_e) = divert_w.send(&reinject_packet) {
-                                         // Log error selectively?
-                                     }
-                                 } else {
+                                    // REINJECT IMMEDIATELY from the SAME thread
+                                    let mut reinject_address = packet.address.clone();
+                                    if let Some(val) = loopback_flag {
+                                        reinject_address.as_mut().set_loopback(val);
+                                    }
+                                    let mut reinject_packet = windivert::packet::WinDivertPacket {
+                                        address: reinject_address,
+                                        data: std::borrow::Cow::Owned(packet_data),
+                                    };
+                                    if recalc_checksums {
+                                        let _ = reinject_packet
+                                            .recalculate_checksums(Default::default());
+                                    }
+                                    if let Err(_e) = divert_w.send(&reinject_packet) {
+                                        // Log error selectively?
+                                    }
+                                } else {
                                     // Packet is blocked - we just don't call divert.send()
                                     // WinDivert drops it automatically since we didn't send it.
                                 }
@@ -4601,6 +4799,21 @@ impl FirewallEngine {
 
         if should_forward {
             stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
+
+            if Self::is_tls_proxy_intercept_candidate(&info, outbound, &tls_proxy_cfg) {
+                Self::emit_tls_proxy_intercept_probe(
+                    tx,
+                    am,
+                    dns_handler,
+                    &info,
+                    &tls_proxy_cfg,
+                    show_blocked_only,
+                    no_alert_mode,
+                    windows_root_trust_ready,
+                    firefox_policy_ready,
+                    browser_mitm_warning_cache,
+                );
+            }
 
             // The embedded proxy makes outbound connections from the listen port.
             // Detect them by src_port so we can attribute them to the original app.

@@ -2497,7 +2497,7 @@
     record: true
 - rule_id: HD-SD-MED-0001
   name: '[MEDIUM] Self-defense tamper telemetry against security tooling'
-  description: Detects SimplePYAS/Owlyshield self-defense telemetry for file, registry, process, or disk tamper attempts against AV/EDR components.
+  description: Detects OpenEDR/Owlyshield self-defense telemetry for file, registry, process, pipe, or disk tamper attempts against AV/EDR components.
   enabled: true
   should_trust_comodo_cloud: false
   severity_score: 72
@@ -2517,17 +2517,19 @@
   named_conditions:
     security_tool_tamper_telemetry:
       self_defense_sources:
-      - simplepyas
+      - openedr
+      - owlyshield_minifilter
       self_defense_categories:
       - file
       - registry
       - process
+      - pipe
       - disk
       self_defense_actions:
       - blocked
       - telemetry
       self_defense_target_patterns:
-      - "(?i).*(hydradragon|owlyshield|sanctum|openedr|simplepyas|edrsvc|edrdrv|mbrfilter|fs_minifilter|windefend|defender|kaspersky|avast|avg|bitdefender|crowdstrike|sentinel|sophos|eset|malwarebytes).*"
+      - "(?i).*(hydradragon|owlyshield|sanctum|openedr|edrsvc|edrdrv|mbrfilter|fs_minifilter|windefend|defender|kaspersky|avast|avg|bitdefender|crowdstrike|sentinel|sophos|eset|malwarebytes).*"
       self_defense_min_count: 1
   detection_logic:
     condition: security_tool_tamper_telemetry
@@ -2541,7 +2543,7 @@
     record: true
 - rule_id: HD-SD-HIGH-0002
   name: '[HIGH] COM registry hijack self-defense telemetry'
-  description: Detects COM registration tampering telemetry from SimplePYAS/Owlyshield so COM hijack attempts can be reviewed by the behavior engine before enforcement.
+  description: Detects COM registration tampering telemetry from OpenEDR/Owlyshield so COM hijack attempts can be reviewed by the behavior engine before enforcement.
   enabled: true
   should_trust_comodo_cloud: false
   severity_score: 84
@@ -2562,7 +2564,8 @@
   named_conditions:
     com_registry_tamper_telemetry:
       self_defense_sources:
-      - simplepyas
+      - openedr
+      - owlyshield_minifilter
       self_defense_categories:
       - com
       self_defense_operations:
@@ -2572,6 +2575,91 @@
       self_defense_min_count: 1
   detection_logic:
     condition: com_registry_tamper_telemetry
+  response:
+    ask_user: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-SD-HIGH-0003
+  name: '[HIGH] Security named pipe tamper telemetry'
+  description: Detects OpenEDR named-pipe telemetry for discovery or tampering against HydraDragon, Owlyshield, Sanctum, or OpenEDR IPC endpoints.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 82
+  severity: 82
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-18'
+  tags:
+  - self-defense
+  - pipe
+  - telemetry
+  mitre_attack:
+  - T1055
+  - T1562.001
+  false_positives:
+  - Diagnostics or security product health checks can open product named pipes.
+  named_conditions:
+    security_named_pipe_telemetry:
+      self_defense_sources:
+      - openedr
+      self_defense_categories:
+      - pipe
+      self_defense_operations:
+      - PIPE_*
+      self_defense_attack_types:
+      - NAMED_PIPE_*
+      self_defense_target_patterns:
+      - "(?i).*(hydradragon|owlyshield|sanctum|openedr|hydranet|hydra).*"
+      self_defense_min_count: 1
+  detection_logic:
+    condition: security_named_pipe_telemetry
+  response:
+    ask_user: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-SD-CRIT-0004
+  name: '[CRITICAL] Dangerous disk IOCTL telemetry'
+  description: Detects OpenEDR kernel telemetry for raw disk layout, pass-through, or formatting IOCTLs used by wipers.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 96
+  severity: 96
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-18'
+  tags:
+  - self-defense
+  - ioctl
+  - disk
+  - wiper
+  mitre_attack:
+  - T1485
+  - T1561
+  false_positives:
+  - Disk management, backup, imaging, or recovery utilities can issue dangerous disk IOCTLs.
+  named_conditions:
+    disk_ioctl_wiper_telemetry:
+      self_defense_sources:
+      - openedr
+      self_defense_categories:
+      - disk
+      self_defense_operations:
+      - IOCTL_*
+      self_defense_attack_types:
+      - DISK_WIPER_ATTEMPT
+      self_defense_min_count: 1
+  detection_logic:
+    condition: disk_ioctl_wiper_telemetry
   response:
     ask_user: true
     deny_while_ask: false

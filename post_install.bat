@@ -84,23 +84,17 @@ call :install_driver_inf "MBRFilter" "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf"
 if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
-:: 7) Install SimplePYASProtection driver
-:: --------------------------------------------------------
-call :install_driver_inf "SimplePYASProtection" "%HYDRADRAGON_DIR%\SimplePYASProtection\SimplePYASProtection.inf" required
-if errorlevel 1 exit /b 1
-
-:: --------------------------------------------------------
-:: 8) Install RedDbg driver (AMD Hypervisor)
+:: 7) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 call :install_driver_inf "RedDbg" "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" optional
 
 :: --------------------------------------------------------
-:: 9) Install HyperDbg driver (Intel Hypervisor)
+:: 8) Install HyperDbg driver (Intel Hypervisor)
 :: --------------------------------------------------------
 call :install_driver_inf "HyperDbg" "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" optional
 
 :: --------------------------------------------------------
-:: 10) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: 9) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonLauncher\hydradragonlauncher.exe"
 set "HD_TASK_EXISTS=0"
@@ -140,7 +134,7 @@ if not "%RUN_EXIT%"=="0" (
 :after_hd_task
 
 :: --------------------------------------------------------
-:: 11) Install OpenEDR service
+:: 10) Install OpenEDR service
 :: --------------------------------------------------------
 set "EDR_EXE=C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"
 call :log [*] Checking for OpenEDR at "%EDR_EXE%"...
@@ -165,9 +159,9 @@ if not "%EDR_INSTALL_RES%"=="0" (
 call :log [*] Configuring OpenEDR kernel driver (edrdrv)...
 sc query edrdrv >nul 2>&1
 if not errorlevel 1 (
-    call :log [*] Forcing edrdrv to DEMAND start to prevent boot BSOD...
-    sc config edrdrv start= demand >nul 2>&1
-    call :log [+] edrdrv start type set to demand.
+    call :log [*] Setting edrdrv to AUTO start...
+    sc config edrdrv start= auto >nul 2>&1
+    call :log [+] edrdrv start type set to auto.
 ) else (
     call :log [!] edrdrv service not found, skipping config.
 )
@@ -175,7 +169,7 @@ if not errorlevel 1 (
 :after_openedr
 
 :: --------------------------------------------------------
-:: 12) Disable Code Integrity for OpenEDR DLL injection
+:: 11) Disable Code Integrity for OpenEDR DLL injection
 :: --------------------------------------------------------
 call :log [*] Configuring system for OpenEDR DLL injection...
 call :log [*] Disabling Code Integrity checks to allow edrpm DLL injection...
@@ -213,7 +207,7 @@ call :log [*] These settings allow edrpm32.dll and edrpm64.dll to be injected in
 call :log [*] To re-enable security later, run: OpenEDR\edrav2\iprj\edrpm\enable_ci_back.bat
 
 :: --------------------------------------------------------
-:: 13) Cleanup and Restart
+:: 12) Cleanup and Restart
 :: --------------------------------------------------------
 echo [+] All installation steps complete!
 echo [*] Restarting system in 10 seconds to activate security drivers...

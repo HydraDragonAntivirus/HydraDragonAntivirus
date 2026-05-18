@@ -1881,7 +1881,7 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub rootkit_description_contains: Vec<String>,
 
-    // Self-defense telemetry from SimplePYAS/Owlyshield kernel sensors. These
+    // Self-defense telemetry from OpenEDR/Owlyshield kernel sensors. These
     // conditions observe tamper attempts and leave blocking to rule response or
     // user decision.
     #[serde(default)]

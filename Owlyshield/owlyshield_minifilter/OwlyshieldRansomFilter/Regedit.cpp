@@ -1,5 +1,6 @@
 #include "Regedit.h"
 #include "DriverData.h"
+#include "KernelCommon.h"
 #include <ntstrsafe.h>
 
 // FIX (Bug #1): ZwOpenKey / ZwQueryValueKey must NEVER be called directly
@@ -229,6 +230,51 @@ static BOOLEAN RegIsBackupThread(VOID)
     }
     KeReleaseSpinLock(&g_BackupWorkLock, irql);
     return found;
+}
+
+static BOOLEAN IsRegistryPathProtected(PUNICODE_STRING RegPath)
+{
+    if (!RegPath || !RegPath->Buffer || RegPath->Length == 0)
+        return FALSE;
+
+    UNICODE_STRING pathUp;
+    if (!NT_SUCCESS(RtlUpcaseUnicodeString(&pathUp, RegPath, TRUE)))
+        return FALSE;
+
+    BOOLEAN protectedPath = FALSE;
+
+    if (wcsstr(pathUp.Buffer, L"\\SERVICES\\OWLYSHIELD_RANSOM") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\REDDBG") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\HYPERDBG") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\HYPERHV") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\SANCTUM_PPL_RUNNER") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\MBRFILTER") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\FS_MINIFILTER") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\SANCTUM") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\EDRDRV") ||
+        wcsstr(pathUp.Buffer, L"\\SERVICES\\EDRSVC") ||
+        wcsstr(pathUp.Buffer, L"\\SOFTWARE\\OWLYSHIELD") ||
+        wcsstr(pathUp.Buffer, L"\\SOFTWARE\\MICROSOFT\\WINDOWS NT\\CURRENTVERSION\\WINLOGON") ||
+        wcsstr(pathUp.Buffer, L"\\SOFTWARE\\CLASSES\\CLSID") ||
+        wcsstr(pathUp.Buffer, L"\\SOFTWARE\\CLASSES\\APPID"))
+    {
+        protectedPath = TRUE;
+    }
+
+    RtlFreeUnicodeString(&pathUp);
+    return protectedPath;
+}
+
+static BOOLEAN IsProcessRegistryTrusted(HANDLE ProcessId)
+{
+    ULONG pid = (ULONG)(ULONG_PTR)ProcessId;
+    if (pid == 0 || pid == 4)
+        return TRUE;
+
+    if (driverData && pid == driverData->getPID())
+        return TRUE;
+
+    return FALSE;
 }
 
 typedef struct _REGISTRY_HIVE_MAP_ENTRY {
@@ -533,6 +579,13 @@ VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UC
     // Set Code
     newEntry->data.IRP_OP = IRP_REGISTRY;
     newEntry->data.FileChange = RegOp;
+
+    // Check if the registry path is protected under self-defense/anti-tamper rules
+    if (IsRegistryPathProtected(RegPath)) {
+        newEntry->data.FileLocationInfo = FILE_PROTECTED;
+    } else {
+        newEntry->data.FileLocationInfo = FILE_NOT_PROTECTED;
+    }
 
     // Copy Path
     if (RegPath && RegPath->Buffer) {

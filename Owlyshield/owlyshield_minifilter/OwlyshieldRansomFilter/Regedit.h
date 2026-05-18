@@ -7,7 +7,6 @@
 
 // Paths to protect
 #define REG_PROTECT_SUBPATH L"\\SOFTWARE\\Owlyshield"
-#define REG_PROTECT_PYAS L"\\Services\\SimplePYASProtection"
 #define REG_PROTECT_OWLY L"\\Services\\owlyshield_ransom"
 #define REG_PROTECT_SANCTUM L"\\Services\\sanctum_ppl_runner"
 #define REG_PROTECT_MBRFILTER L"\\Services\\MBRFilter"

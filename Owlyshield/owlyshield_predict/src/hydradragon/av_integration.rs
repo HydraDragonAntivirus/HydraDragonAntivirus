@@ -44,7 +44,6 @@ use chrono::Utc;
 const PIPE_AV_TO_EDR: &str = r"\\.\pipe\Global\hydradragon_to_owlyshield";
 const PIPE_EDR_TO_AV: &str = r"\\.\pipe\Global\owlyshield_to_hydradragon";
 const PIPE_MBR_ALERT: &str = r"\\.\pipe\Global\mbr_filter_alerts";
-const PIPE_SELF_DEFENSE_ALERT: &str = r"\\.\pipe\Global\self_defense_alerts";
 
 const BUFFER_SIZE: u32 = 8192;
 const PIPE_READ_BUFFER_SIZE: u32 = 65536;
@@ -422,57 +421,6 @@ pub struct AVScanResponse {
     pub is_malicious: bool,
     pub virus_name: Option<String>,
     pub scan_timestamp: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct SelfDefenseAlert {
-    #[serde(default)]
-    protected_file: String,
-    #[serde(default)]
-    attacker_path: String,
-    #[serde(default, deserialize_with = "deserialize_u32_lossy")]
-    attacker_pid: u32,
-    #[serde(default)]
-    attack_type: String,
-    #[serde(default)]
-    operation: String,
-    #[serde(default, deserialize_with = "deserialize_u32_lossy")]
-    target_pid: u32,
-    #[serde(default)]
-    source: String,
-    #[serde(default)]
-    category: String,
-    #[serde(default)]
-    action: String,
-}
-
-fn deserialize_u32_lossy<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = serde_json::Value::deserialize(deserializer)?;
-
-    if let Some(num) = value.as_u64() {
-        return Ok(num.min(u32::MAX as u64) as u32);
-    }
-
-    let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
-        return Ok(0);
-    };
-
-    let parsed = if let Some(hex) = text
-        .strip_prefix("0x")
-        .or_else(|| text.strip_prefix("0X"))
-    {
-        u64::from_str_radix(hex, 16)
-    } else {
-        text.parse::<u64>()
-            .or_else(|_| u64::from_str_radix(text, 16))
-    };
-
-    parsed
-        .map(|num| num.min(u32::MAX as u64) as u32)
-        .map_err(serde::de::Error::custom)
 }
 
 unsafe fn validate_hydradragon_python_client(pipe_handle: HANDLE) -> bool {
@@ -1175,141 +1123,7 @@ fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
     }
 }
 
-fn spawn_self_defense_listener() -> thread::JoinHandle<()> {
-    thread::spawn(move || unsafe {
-        let pipe_name_c = match CString::new(PIPE_SELF_DEFENSE_ALERT) {
-            Ok(s) => s,
-            Err(e) => {
-                Logging::error(&format!("[SelfDefense] Invalid pipe name: {}", e));
-                return;
-            }
-        };
 
-        Logging::info(&format!(
-            "[SelfDefense] Listener started on {}",
-            PIPE_SELF_DEFENSE_ALERT
-        ));
-        loop {
-            let pipe_handle = match CreateNamedPipeA(
-                PCSTR(pipe_name_c.as_ptr() as *const u8),
-                PIPE_ACCESS_INBOUND,
-                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                PIPE_UNLIMITED_INSTANCES,
-                PIPE_READ_BUFFER_SIZE,
-                PIPE_READ_BUFFER_SIZE,
-                0,
-                None,
-            ) {
-                Ok(h) => h,
-                Err(e) => {
-                    Logging::error(&format!("[SelfDefense] CreateNamedPipeA failed: {:?}", e));
-                    thread::sleep(Duration::from_secs(1));
-                    continue;
-                }
-            };
-
-            if pipe_handle.is_invalid() {
-                Logging::error(&format!(
-                    "[SelfDefense] CreateNamedPipeA returned invalid handle: {:?}",
-                    GetLastError()
-                ));
-                thread::sleep(Duration::from_secs(1));
-                continue;
-            }
-
-            let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
-            let connect_err = GetLastError();
-            if connect_ok.as_bool() || connect_err == ERROR_PIPE_CONNECTED {
-                // Validation: Only allow PID 4 (Kernel/System)
-                if !validate_pipe_client(pipe_handle, None, true) {
-                    Logging::error("[SelfDefense] Rejected unauthorized client connection");
-                    let _ = DisconnectNamedPipe(pipe_handle);
-                    let _ = CloseHandle(pipe_handle);
-                    continue;
-                }
-                Logging::info("[SelfDefense] Authorized client (Kernel) connected");
-
-                let mut buffer = vec![0u8; PIPE_READ_BUFFER_SIZE as usize];
-                let mut bytes_read = 0u32;
-                let read_ok = ReadFile(
-                    pipe_handle,
-                    Some(buffer.as_mut_ptr().cast()),
-                    PIPE_READ_BUFFER_SIZE,
-                    Some(&mut bytes_read as *mut u32),
-                    None,
-                );
-
-                if read_ok.as_bool() && bytes_read > 0 {
-                    let raw_message = decode_utf16le_message(&buffer[..bytes_read as usize]);
-                    let parsed =
-                        serde_json::from_str::<SelfDefenseAlert>(&raw_message).or_else(|_| {
-                            let escaped = raw_message.replace('\\', "\\\\");
-                            serde_json::from_str::<SelfDefenseAlert>(&escaped)
-                        });
-
-                    match parsed {
-                        Ok(mut alert) => {
-                            alert.protected_file = normalize_nt_path(&alert.protected_file);
-                            alert.attacker_path = normalize_nt_path(&alert.attacker_path);
-                            if alert.source.trim().is_empty() {
-                                alert.source = "simplepyas".to_string();
-                            }
-                            if alert.action.trim().is_empty() {
-                                let marker = format!("{} {}", alert.attack_type, alert.operation)
-                                    .to_ascii_lowercase();
-                                alert.action = if marker.contains("blocked")
-                                    || marker.contains("denied")
-                                {
-                                    "blocked".to_string()
-                                } else {
-                                    "telemetry".to_string()
-                                };
-                            }
-                            Logging::warning(&format!(
-                                "[SELF-DEFENSE] source={} category={} action={} attack_type={} attacker_pid={} target_pid={} operation={} attacker_path={} protected={}",
-                                alert.source,
-                                alert.category,
-                                alert.action,
-                                alert.attack_type,
-                                alert.attacker_pid,
-                                alert.target_pid,
-                                alert.operation,
-                                alert.attacker_path,
-                                alert.protected_file
-                            ));
-
-                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            {
-                                crate::behavioral::behavior_engine::record_self_defense_telemetry(
-                                    serde_json::json!({
-                                        "source": alert.source,
-                                        "category": alert.category,
-                                        "action": alert.action,
-                                        "attack_type": alert.attack_type,
-                                        "operation": alert.operation,
-                                        "protected_file": alert.protected_file,
-                                        "attacker_path": alert.attacker_path,
-                                        "attacker_pid": alert.attacker_pid,
-                                        "target_pid": alert.target_pid,
-                                    }),
-                                );
-                            }
-                        }
-                        Err(e) => Logging::error(&format!(
-                            "[SelfDefense] Failed to parse alert JSON: {} | raw={}",
-                            e, raw_message
-                        )),
-                    }
-                }
-
-                let _ = DisconnectNamedPipe(pipe_handle);
-            }
-
-            let _ = CloseHandle(pipe_handle);
-            thread::sleep(Duration::from_millis(50));
-        }
-    })
-}
 
 /// Integration struct — keeps internal channel & listener thread
 pub struct AVIntegration<'a> {
@@ -1495,7 +1309,6 @@ impl<'a> AVIntegration<'a> {
         });
         let av_to_edr_listener_handle = spawn_av_to_edr_listener();
         let _mbr_listener_handle = spawn_mbr_alert_listener();
-        let _self_defense_listener_handle = spawn_self_defense_listener();
         let _manual_scan_listener_handle = spawn_manual_scan_listener(internal_scan_tx.clone());
 
         AVIntegration {

@@ -209,7 +209,7 @@ fn shared_firewall_sanctum_stats() -> FirewallSanctumStats {
         .clone()
 }
 
-/// Per-PID OpenEDR telemetry stats collected from OpenEDR's local JSON event logs.
+/// Per-PID OpenEDR telemetry stats collected from the direct edrsvc -> Owlyshield feed.
 type OpenEdrTelemetryStatsMap = Arc<std::sync::RwLock<HashMap<u32, OpenEdrTelemetryStats>>>;
 type OpenEdrNetPids = Arc<std::sync::RwLock<HashSet<u32>>>;
 type OpenEdrNetDetails = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, u16)>>>>;
@@ -370,7 +370,7 @@ impl SelfDefenseTelemetryEvent {
                     .unwrap_or_default()
                     .as_millis() as u64
             });
-        let source = Self::string_field(event, &["source"]).if_empty("simplepyas");
+        let source = Self::string_field(event, &["source"]).if_empty("openedr");
         let category = Self::string_field(event, &["category"])
             .if_empty(Self::classify_category(&attack_type, &operation, &protected_path));
         let action = Self::classify_action(event, &attack_type, &operation);
@@ -1935,7 +1935,7 @@ pub struct ProcessBehaviorState {
     pub observed_hypervisor_event_labels: HashSet<String>,
     pub recent_kernel_api_events: VecDeque<String>,
 
-    // Self-defense telemetry from SimplePYAS/Owlyshield kernel sensors.
+    // Self-defense telemetry from OpenEDR/Owlyshield kernel sensors.
     pub self_defense_events: VecDeque<SelfDefenseTelemetryEvent>,
     pub self_defense_event_count: u32,
     pub self_defense_category_counts: HashMap<String, usize>,
@@ -2600,7 +2600,7 @@ pub struct BehaviorEngine {
     pub openedr_net_details: OpenEdrNetDetails,
     /// Per-PID OpenEDR telemetry counters and aliases synced into rule state.
     pub openedr_stats: OpenEdrTelemetryStatsMap,
-    /// Per-PID self-defense telemetry emitted by SimplePYAS/Owlyshield sensors.
+    /// Per-PID self-defense telemetry emitted by OpenEDR/Owlyshield sensors.
     pub self_defense_telemetry: SelfDefenseTelemetryMap,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     #[cfg(all(target_os = "windows", feature = "firewall"))]
@@ -3402,20 +3402,75 @@ impl BehaviorEngine {
         let _ = self.resolve_firewall_hips_prompt(0, &dummy_state, &rule);
     }
 
-    /// Ingest a telemetry event emitted by OpenEDR's local JSON event logs.
+    /// Ingest a telemetry event emitted by OpenEDR's direct edrsvc feed.
     pub fn ingest_openedr_event(&self, event: &serde_json::Value) {
-        let event_type = event["type"].as_str().unwrap_or("").trim();
-        let pid = event["process"]["pid"].as_u64().unwrap_or(0) as u32;
+        fn str_at<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a str> {
+            let mut cur = value;
+            for part in path {
+                cur = cur.get(*part)?;
+            }
+            cur.as_str().map(str::trim).filter(|text| !text.is_empty())
+        }
+
+        fn u64_at(value: &serde_json::Value, path: &[&str]) -> Option<u64> {
+            let mut cur = value;
+            for part in path {
+                cur = cur.get(*part)?;
+            }
+            cur.as_u64().or_else(|| {
+                cur.as_str()
+                    .map(str::trim)
+                    .and_then(|text| text.parse::<u64>().ok())
+            })
+        }
+
+        let event_type = str_at(event, &["type"])
+            .or_else(|| str_at(event, &["event_type"]))
+            .or_else(|| str_at(event, &["baseType"]))
+            .unwrap_or("")
+            .trim();
+        let pid = u64_at(event, &["process", "pid"])
+            .or_else(|| u64_at(event, &["process.pid"]))
+            .or_else(|| u64_at(event, &["pid"]))
+            .unwrap_or(0)
+            .min(u32::MAX as u64) as u32;
         if pid == 0 || event_type.is_empty() {
             return;
         }
 
-        let target_pid = event["target"]["pid"].as_u64().unwrap_or(0) as u32;
-        let remote_ip = event["connection"]["remote"]["ip"]
-            .as_str()
-            .unwrap_or("")
-            .trim();
-        let remote_port = event["connection"]["remote"]["port"].as_u64().unwrap_or(0) as u16;
+        let target_pid = u64_at(event, &["target", "pid"])
+            .or_else(|| u64_at(event, &["target.pid"]))
+            .unwrap_or(0)
+            .min(u32::MAX as u64) as u32;
+        let remote_ip = str_at(event, &["connection", "remote", "ip"])
+            .or_else(|| str_at(event, &["connection.remote.ip"]))
+            .unwrap_or("");
+        let remote_port = u64_at(event, &["connection", "remote", "port"])
+            .or_else(|| u64_at(event, &["connection.remote.port"]))
+            .unwrap_or(0)
+            .min(u16::MAX as u64) as u16;
+        let exe_path = str_at(event, &["process", "path"])
+            .or_else(|| str_at(event, &["process", "imageFile", "rawPath"]))
+            .or_else(|| str_at(event, &["process.imageFile.rawPath"]))
+            .or_else(|| str_at(event, &["process_path"]))
+            .unwrap_or("Unknown");
+        let file_path = str_at(event, &["file", "path"])
+            .or_else(|| str_at(event, &["file", "rawPath"]))
+            .or_else(|| str_at(event, &["file.rawPath"]))
+            .or_else(|| str_at(event, &["path"]))
+            .unwrap_or("");
+        let registry_path = str_at(event, &["registry", "path"])
+            .or_else(|| str_at(event, &["registry", "rawPath"]))
+            .or_else(|| str_at(event, &["registry.rawPath"]))
+            .unwrap_or("");
+        let protected_path = if !registry_path.is_empty() {
+            registry_path
+        } else {
+            file_path
+        };
+        let access_or_ioctl = u64_at(event, &["accessMask"])
+            .or_else(|| u64_at(event, &["access_mask"]))
+            .unwrap_or(0);
 
         let mut aliases = vec![format!(
             "OpenEDR::{}",
@@ -3444,6 +3499,17 @@ impl BehaviorEngine {
             }
             "LLE_NETWORK_REQUEST_DATA" => {
                 aliases.push("OpenEDR::NetworkRequestData".to_string());
+            }
+            "LLE_DEVICE_IOCTL" => {
+                aliases.push("OpenEDR::DeviceIoControl".to_string());
+                aliases.push(format!("OpenEDR::IOCTL:0x{access_or_ioctl:08X}"));
+            }
+            "LLE_NAMED_PIPE_CREATE" => {
+                aliases.push("OpenEDR::NamedPipeCreate".to_string());
+                aliases.push("OpenEDR::NamedPipe".to_string());
+            }
+            "LLE_SELF_DEFENSE" => {
+                aliases.push("OpenEDR::SelfDefense".to_string());
             }
             _ => {}
         }
@@ -3485,6 +3551,122 @@ impl BehaviorEngine {
             }
         }
 
+        let protected_path_lc = protected_path.replace('/', "\\").to_ascii_lowercase();
+        let pipe_path = if event_type == "LLE_NAMED_PIPE_CREATE" {
+            file_path
+        } else {
+            ""
+        };
+        let pipe_lc = pipe_path.replace('/', "\\").to_ascii_lowercase();
+        let is_security_file = !protected_path_lc.is_empty()
+            && (protected_path_lc.contains("\\program files\\hydradragonantivirus\\")
+                || protected_path_lc.contains("\\system32\\tasks\\hydradragonantivirus")
+                || protected_path_lc.contains("\\system32\\drivers\\owlyshieldransomfilter.sys")
+                || protected_path_lc.contains("\\system32\\drivers\\reddbgdrv.sys")
+                || protected_path_lc.contains("\\system32\\drivers\\hyperhv.sys")
+                || protected_path_lc.contains("\\system32\\drivers\\mbrfilter.sys")
+                || protected_path_lc.contains("\\system32\\drivers\\fs_minifilter.sys")
+                || protected_path_lc.contains("\\system32\\drivers\\sanctum.sys")
+                || protected_path_lc.contains("\\system32\\drivers\\edrdrv.sys")
+                || protected_path_lc.contains("\\system32\\edrpm64.dll")
+                || protected_path_lc.contains("\\system32\\edrpm32.dll")
+                || protected_path_lc.contains("\\system32\\edrmm.dll"));
+        let is_security_registry = !protected_path_lc.is_empty()
+            && (protected_path_lc.contains("\\services\\owlyshield_ransom")
+                || protected_path_lc.contains("\\services\\reddbg")
+                || protected_path_lc.contains("\\services\\hyperdbg")
+                || protected_path_lc.contains("\\services\\hyperhv")
+                || protected_path_lc.contains("\\services\\sanctum_ppl_runner")
+                || protected_path_lc.contains("\\services\\mbrfilter")
+                || protected_path_lc.contains("\\services\\fs_minifilter")
+                || protected_path_lc.contains("\\services\\sanctum")
+                || protected_path_lc.contains("\\services\\edrdrv")
+                || protected_path_lc.contains("\\services\\edrsvc")
+                || protected_path_lc.contains("\\software\\owlyshield")
+                || protected_path_lc.contains("\\software\\microsoft\\windows nt\\currentversion\\winlogon"));
+        let is_com_registry = !protected_path_lc.is_empty()
+            && (protected_path_lc.contains("\\software\\classes\\clsid")
+                || protected_path_lc.contains("\\software\\classes\\appid")
+                || protected_path_lc.contains("\\classes\\clsid")
+                || protected_path_lc.contains("\\classes\\appid"));
+        let is_security_pipe = !pipe_lc.is_empty()
+            && (pipe_lc.contains("hydradragon")
+                || pipe_lc.contains("owlyshield")
+                || pipe_lc.contains("sanctum")
+                || pipe_lc.contains("openedr")
+                || pipe_lc.contains("hydranet")
+                || pipe_lc.contains("hydra"));
+        let is_disk_wiper_ioctl = event_type == "LLE_DEVICE_IOCTL";
+
+        if is_security_file
+            || is_security_registry
+            || is_com_registry
+            || is_security_pipe
+            || is_disk_wiper_ioctl
+            || event_type == "LLE_SELF_DEFENSE"
+        {
+            let (category, operation, attack_type, target) = if is_disk_wiper_ioctl {
+                (
+                    "disk",
+                    format!("IOCTL_0x{access_or_ioctl:08X}"),
+                    "DISK_WIPER_ATTEMPT".to_string(),
+                    if protected_path.is_empty() {
+                        "BOOT_DISK_OR_DRIVE_LAYOUT"
+                    } else {
+                        protected_path
+                    }
+                    .to_string(),
+                )
+            } else if is_security_pipe {
+                (
+                    "pipe",
+                    "PIPE_CREATE".to_string(),
+                    "NAMED_PIPE_TAMPER_OR_DISCOVERY".to_string(),
+                    pipe_path.to_string(),
+                )
+            } else if is_com_registry {
+                (
+                    "com",
+                    format!("COM_{}", event_type.trim_start_matches("LLE_REGISTRY_")),
+                    "COM_REGISTRY_TAMPERING".to_string(),
+                    protected_path.to_string(),
+                )
+            } else if is_security_registry {
+                (
+                    "registry",
+                    event_type.trim_start_matches("LLE_REGISTRY_").to_string(),
+                    "REGISTRY_TAMPERING".to_string(),
+                    protected_path.to_string(),
+                )
+            } else if event_type == "LLE_PROCESS_OPEN" || event_type == "LLE_SELF_DEFENSE" {
+                (
+                    "process",
+                    "PROCESS_OPEN".to_string(),
+                    "PROCESS_TAMPERING".to_string(),
+                    format!("pid:{}", target_pid),
+                )
+            } else {
+                (
+                    "file",
+                    event_type.trim_start_matches("LLE_FILE_").to_string(),
+                    "FILE_TAMPERING".to_string(),
+                    protected_path.to_string(),
+                )
+            };
+
+            record_self_defense_telemetry(serde_json::json!({
+                "source": "openedr",
+                "category": category,
+                "action": "telemetry",
+                "attack_type": attack_type,
+                "operation": operation,
+                "protected_file": target,
+                "attacker_path": exe_path,
+                "attacker_pid": pid,
+                "target_pid": target_pid,
+            }));
+        }
+
         let mut openedr_lock = self.openedr_stats.write().unwrap();
         let stats = openedr_lock
             .entry(pid)
@@ -3513,8 +3695,6 @@ impl BehaviorEngine {
         // Extract OpenEDR/Valkyrie cloud analysis.
         // Labels are retained only for display/logging. Decisions use numeric verdict/result codes only.
         if let Some(cloud) = event.get("cloud_analysis") {
-            let exe_path = event["process"]["path"].as_str().unwrap_or("Unknown");
-
             if let Some(static_label) = cloud.get("static_label").and_then(|v| v.as_str()) {
                 stats.cloud_static_label = Some(static_label.to_string());
             }
@@ -6031,6 +6211,107 @@ impl BehaviorEngine {
             }
 
             self.process_states.insert(gid, s);
+        }
+
+        // --- On-the-fly self-defense telemetry generation from standard EDR events ---
+        let lowercase_path = msg.filepathstr.to_lowercase().replace("\\", "/");
+
+        let is_protected_registry = if irp_op == IrpMajorOp::IrpRegistry {
+            // Check for service registry self-defense
+            lowercase_path.contains("/services/owlyshield_ransom")
+                || lowercase_path.contains("/services/reddbg")
+                || lowercase_path.contains("/services/hyperdbg")
+                || lowercase_path.contains("/services/hyperhv")
+                || lowercase_path.contains("/services/sanctum_ppl_runner")
+                || lowercase_path.contains("/services/mbrfilter")
+                || lowercase_path.contains("/services/fs_minifilter")
+                || lowercase_path.contains("/services/sanctum")
+                || lowercase_path.contains("/services/edrdrv")
+                || lowercase_path.contains("/services/edrsvc")
+                || lowercase_path.contains("/software/owlyshield")
+                || lowercase_path.contains("/software/microsoft/windows nt/currentversion/winlogon")
+                || lowercase_path.contains("/software/classes/clsid")
+                || lowercase_path.contains("/software/classes/appid")
+        } else {
+            false
+        };
+
+        let is_protected_file = match irp_op {
+            IrpMajorOp::IrpCreate | IrpMajorOp::IrpWrite | IrpMajorOp::IrpSetInfo => {
+                lowercase_path.contains("program files/hydradragonantivirus")
+                    || lowercase_path.contains("system32/sanctum.dll")
+                    || lowercase_path.contains("system32/tasks/hydradragonantivirus")
+                    || lowercase_path.contains("system32/drivers/owlyshieldransomfilter.sys")
+                    || lowercase_path.contains("system32/drivers/reddbgdrv.sys")
+                    || lowercase_path.contains("system32/drivers/hyperhv.sys")
+                    || lowercase_path.contains("system32/drivers/mbrfilter.sys")
+                    || lowercase_path.contains("system32/drivers/fs_minifilter.sys")
+                    || lowercase_path.contains("system32/drivers/sanctum.sys")
+                    || lowercase_path.contains("system32/drivers/edrdrv.sys")
+                    || lowercase_path.contains("system32/edrpm64.dll")
+                    || lowercase_path.contains("system32/edrpm32.dll")
+                    || lowercase_path.contains("system32/edrmm.dll")
+            }
+            _ => false,
+        };
+
+        if is_protected_registry || is_protected_file {
+            let category = if lowercase_path.contains("/software/classes/clsid") || lowercase_path.contains("/software/classes/appid") {
+                "com".to_string()
+            } else if is_protected_registry {
+                "registry".to_string()
+            } else {
+                "file".to_string()
+            };
+
+            let operation = if is_protected_registry {
+                match msg.file_change {
+                    _ if msg.file_change == FileChangeInfo::RegSetValue as u8 => "SET_VALUE".to_string(),
+                    _ if msg.file_change == FileChangeInfo::RegDeleteValue as u8 => "DELETE_VALUE".to_string(),
+                    _ if msg.file_change == FileChangeInfo::RegDeleteKey as u8 => "DELETE_KEY".to_string(),
+                    _ if msg.file_change == FileChangeInfo::RegCreateKey as u8 => "CREATE_KEY".to_string(),
+                    _ if msg.file_change == FileChangeInfo::RegRenameKey as u8 => "RENAME_KEY".to_string(),
+                    _ => "REGISTRY_OTHER".to_string(),
+                }
+            } else {
+                match irp_op {
+                    IrpMajorOp::IrpWrite => "WRITE".to_string(),
+                    IrpMajorOp::IrpSetInfo => "SET_INFO".to_string(),
+                    _ => "CREATE".to_string(),
+                }
+            };
+
+            let operation_str = if category == "com" {
+                format!("COM_{}", operation)
+            } else {
+                operation
+            };
+
+            let attack_type = if category == "com" {
+                "COM_HIJACK".to_string()
+            } else {
+                "TAMPER".to_string()
+            };
+
+            let action = "telemetry".to_string();
+
+            let self_defense_event = SelfDefenseTelemetryEvent {
+                timestamp_ms: msg.time.duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+                source: "openedr".to_string(),
+                category,
+                attack_type,
+                operation: operation_str,
+                protected_path: msg.filepathstr.clone(),
+                attacker_path: precord.exepath.to_string_lossy().to_string(),
+                attacker_pid: msg.pid,
+                target_pid: 0,
+                action,
+            };
+
+            if let Some(state) = self.process_states.get_mut(&gid) {
+                Self::record_self_defense_event_in_state(state, self_defense_event.clone());
+            }
+            self.apply_self_defense_named_conditions(gid, &self_defense_event);
         }
 
         self.drain_self_defense_telemetry_for_pid(msg.pid);

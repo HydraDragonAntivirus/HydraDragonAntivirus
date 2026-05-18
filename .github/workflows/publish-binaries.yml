@@ -96,33 +96,6 @@ jobs:
             MBRFilter/x64/Win8Release/MBRFilter/*.inf
             MBRFilter/x64/Win8Release/MBRFilter/*.cat
 
-  build-pyasprotection:
-    runs-on: windows-2022
-    steps:
-      - name: Enable Git long paths
-        run: git config --global core.longpaths true
-      - uses: actions/checkout@v6
-      - name: Set up MSVC Developer Command Prompt
-        uses: TheMrMilchmann/setup-msvc-dev@v4
-        with:
-          arch: x64
-      - name: Setup WDK
-        shell: pwsh
-        run: |
-          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
-          (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
-          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
-      - name: Build PYAS Protection
-        run: msbuild PYAS_Protection/SimplePYASProtection.sln /p:Configuration=Release /p:Platform=x64
-      - name: Upload
-        uses: actions/upload-artifact@v7
-        with:
-          name: bin-pyasprotection
-          path: |
-            PYAS_Protection/x64/Release/SimplePYASProtection/*.sys
-            PYAS_Protection/x64/Release/SimplePYASProtection/*.inf
-            PYAS_Protection/x64/Release/SimplePYASProtection/*.cat
-
   build-owlyshield-minifilter:
     runs-on: windows-2022
     steps:
@@ -421,7 +394,6 @@ jobs:
       - build-tinyantivirus
       - build-hydradragonav
       - build-mbrfilter
-      - build-pyasprotection
       - build-owlyshield-minifilter
       - build-reddbg
       - build-megadumper
@@ -459,7 +431,6 @@ jobs:
             "$distRoot/TinyAntivirus",
             "$distRoot/HydraDragonAV",
             "$distRoot/MBRFilter",
-            "$distRoot/SimplePYASProtection",
             "$distRoot/Owlyshield/OwlyshieldRansomFilter",
             "$distRoot/Owlyshield/Owlyshield Service",
             "$distRoot/Owlyshield/RedDbg",
@@ -534,12 +505,6 @@ jobs:
           $mbrSource = Get-ChildItem "bin-mbrfilter/" -Directory -Filter "MBRFilter" -Recurse | Select-Object -First 1
           if ($mbrSource) {
             Copy-Item -Path "$($mbrSource.FullName)/*" -Destination "$distRoot/MBRFilter/" -Recurse -Force
-          }
-
-          # --- SimplePYASProtection ---
-          $pyasSource = Get-ChildItem "bin-pyasprotection/" -Directory -Filter "SimplePYASProtection" -Recurse | Select-Object -First 1
-          if ($pyasSource) {
-            Copy-Item -Path "$($pyasSource.FullName)/*" -Destination "$distRoot/SimplePYASProtection/" -Recurse -Force
           }
 
           # --- Owlyshield ---
@@ -648,7 +613,6 @@ jobs:
             "bin-megadumper",
             "bin-owlyshield-minifilter",
             "bin-owlyshield-rust",
-            "bin-pyasprotection",
             "bin-reddbg",
             "bin-launcher",
             "bin-tinyantivirus",
@@ -671,7 +635,6 @@ jobs:
             TinyAntivirus/x64/Release
             HydraDragonAV/x64/Release
             MBRFilter/x64/Release
-            PYAS_Protection/x64/Release
             Owlyshield/owlyshield_minifilter/x64/Release
             Owlyshield/owlyshield_predict/target/release
             Owlyshield/tools/rust_win_toast/target/release
@@ -699,7 +662,6 @@ jobs:
             "bin-owlyshield-rust",
             "bin-owlyshield-tools",
             "bin-tensorflowlite",
-            "bin-pyasprotection",
             "bin-reddbg",
             "bin-launcher",
             "bin-tinyantivirus",
