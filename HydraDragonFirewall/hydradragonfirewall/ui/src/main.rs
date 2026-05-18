@@ -940,7 +940,6 @@ pub struct FirewallSettings {
     #[serde(default)]
     pub log_mode: bool,
     #[serde(default)]
-    #[serde(alias = "show_blocked_only")]
     pub show_blocked_logs_only: bool,
     #[serde(default)]
     pub show_blocked_graphics_only: bool,
