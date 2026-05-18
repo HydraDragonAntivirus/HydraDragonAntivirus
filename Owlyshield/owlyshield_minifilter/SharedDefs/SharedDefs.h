@@ -39,6 +39,54 @@ const WCHAR *const QuarantinePath = L"\\??\\C:\\ProgramData\\HydraDragonQuaranti
 #define MAX_FILE_NAME_LENGTH 520
 #endif
 
+static __forceinline SIZE_T OwlyBoundedWideLength(_In_reads_(MaxChars) PCWSTR Value, _In_ SIZE_T MaxChars)
+{
+    SIZE_T length = 0;
+
+    if (Value == NULL || MaxChars == 0)
+    {
+        return 0;
+    }
+
+    while (length < MaxChars && Value[length] != L'\0')
+    {
+        ++length;
+    }
+
+    return length;
+}
+
+static __forceinline BOOLEAN OwlyWideEqualsInsensitiveBounded(_In_reads_(LeftMaxChars) PCWSTR Left,
+                                                              _In_ SIZE_T LeftMaxChars,
+                                                              _In_reads_(RightMaxChars) PCWSTR Right,
+                                                              _In_ SIZE_T RightMaxChars)
+{
+    SIZE_T leftLen;
+    SIZE_T rightLen;
+
+    if (Left == NULL || Right == NULL || LeftMaxChars == 0 || RightMaxChars == 0)
+    {
+        return FALSE;
+    }
+
+    leftLen = OwlyBoundedWideLength(Left, LeftMaxChars);
+    rightLen = OwlyBoundedWideLength(Right, RightMaxChars);
+    if (leftLen != rightLen)
+    {
+        return FALSE;
+    }
+
+    for (SIZE_T i = 0; i < leftLen; ++i)
+    {
+        if (RtlDowncaseUnicodeChar(Left[i]) != RtlDowncaseUnicodeChar(Right[i]))
+        {
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+}
+
 // Global path normalization helper (shared by kernel components).
 // - lowercases
 // - '/' -> '\'

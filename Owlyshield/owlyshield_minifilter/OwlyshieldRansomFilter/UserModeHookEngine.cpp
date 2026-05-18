@@ -427,7 +427,8 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
 
     for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
     {
-        if (_wcsicmp(g_HookExcludeRules.Rules[i], normalizedLine) == 0)
+        if (OwlyWideEqualsInsensitiveBounded(g_HookExcludeRules.Rules[i], HOOK_RULE_MAX_LINE_CHARS,
+                                             normalizedLine, RTL_NUMBER_OF(normalizedLine)))
         {
             return STATUS_SUCCESS;
         }
@@ -823,7 +824,8 @@ static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA *A, _In_ const HOOK_
     RtlInitAnsiString(&aFunc, A->FunctionName);
     RtlInitAnsiString(&bFunc, B->FunctionName);
 
-    if (_wcsicmp(A->ModuleName, B->ModuleName) != 0)
+    if (!OwlyWideEqualsInsensitiveBounded(A->ModuleName, RTL_NUMBER_OF(A->ModuleName),
+                                          B->ModuleName, RTL_NUMBER_OF(B->ModuleName)))
         return FALSE;
     return RtlEqualString(&aFunc, &bFunc, TRUE);
 }
@@ -922,7 +924,10 @@ _Success_(return != FALSE) BOOLEAN
         }
         functionNameW[RTL_NUMBER_OF(functionNameW) - 1] = L'\0';
 
-        if (g_GlobalCustomHooks[i].ModuleName[0] != L'\0' && _wcsicmp(g_GlobalCustomHooks[i].ModuleName, L"*") != 0)
+        if (g_GlobalCustomHooks[i].ModuleName[0] != L'\0' &&
+            !OwlyWideEqualsInsensitiveBounded(g_GlobalCustomHooks[i].ModuleName,
+                                              RTL_NUMBER_OF(g_GlobalCustomHooks[i].ModuleName),
+                                              L"*", RTL_NUMBER_OF(L"*")))
         {
             (VOID)
                 RtlStringCchPrintfW(OutName, OutNameCch, L"%ws!%ws", g_GlobalCustomHooks[i].ModuleName, functionNameW);
@@ -1773,15 +1778,49 @@ VOID UserModeHookEngineCleanup(VOID)
 // Find module base address
 //
 
-PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out_opt_ PSIZE_T ModuleSize)
+static BOOLEAN InitBoundedUnicodeString(_Out_ PUNICODE_STRING Target,
+                                        _In_reads_(ModuleNameCch) PCWSTR ModuleName,
+                                        _In_ SIZE_T ModuleNameCch)
+{
+    SIZE_T moduleNameChars;
+
+    if (Target == NULL)
+    {
+        return FALSE;
+    }
+
+    Target->Buffer = NULL;
+    Target->Length = 0;
+    Target->MaximumLength = 0;
+
+    if (ModuleName == NULL || ModuleNameCch == 0)
+    {
+        return FALSE;
+    }
+
+    moduleNameChars = OwlyBoundedWideLength(ModuleName, ModuleNameCch);
+    if (moduleNameChars == 0 || moduleNameChars > (MAXUSHORT / sizeof(WCHAR)))
+    {
+        return FALSE;
+    }
+
+    Target->Buffer = (PWSTR)ModuleName;
+    Target->Length = (USHORT)(moduleNameChars * sizeof(WCHAR));
+    Target->MaximumLength = Target->Length;
+    return TRUE;
+}
+
+PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_reads_(ModuleNameCch) PCWSTR ModuleName,
+                            _In_ SIZE_T ModuleNameCch, _Out_opt_ PSIZE_T ModuleSize)
 {
     PVOID moduleBase = NULL;
     UNICODE_STRING targetModuleName;
 
-    RtlInitUnicodeString(&targetModuleName, ModuleName);
-
     if (ModuleSize != NULL)
         *ModuleSize = 0;
+
+    if (!InitBoundedUnicodeString(&targetModuleName, ModuleName, ModuleNameCch))
+        return NULL;
 
     __try
     {
@@ -1839,9 +1878,9 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
     return moduleBase;
 }
 
-static BOOLEAN IsMainExecutableHookModule(_In_opt_z_ PCWSTR ModuleName)
+static BOOLEAN IsMainExecutableHookModule(_In_reads_(ModuleNameCch) PCWSTR ModuleName, _In_ SIZE_T ModuleNameCch)
 {
-    return ModuleName != NULL && _wcsicmp(ModuleName, L"exe") == 0;
+    return OwlyWideEqualsInsensitiveBounded(ModuleName, ModuleNameCch, L"exe", RTL_NUMBER_OF(L"exe"));
 }
 
 static PVOID FindMainImageBaseAddress(_In_ PEPROCESS Process, _Out_opt_ PSIZE_T ModuleSize)
@@ -2138,7 +2177,8 @@ static PVOID FindExportedFunctionResolvedInternal(_In_ PEPROCESS Process, _In_ P
         return NULL;
     }
 
-    PVOID forwardedModuleBase = FindModuleBaseAddress(Process, forwardedModuleName, NULL);
+    PVOID forwardedModuleBase = FindModuleBaseAddress(Process, forwardedModuleName,
+                                                      RTL_NUMBER_OF(forwardedModuleName), NULL);
     if (forwardedModuleBase == NULL)
         return NULL;
 
@@ -2174,15 +2214,17 @@ PVOID FindExportedFunctionResolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBase
 // to obtain the PEB32 (not PsGetProcessPeb which returns PEB64), and casts
 // all inter-node pointers through ULONG (32-bit) rather than PVOID (64-bit).
 // -------------------------------------------------------------------------
-PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out_opt_ PSIZE_T ModuleSize)
+PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_reads_(ModuleNameCch) PCWSTR ModuleName,
+                              _In_ SIZE_T ModuleNameCch, _Out_opt_ PSIZE_T ModuleSize)
 {
     PVOID moduleBase = NULL;
     UNICODE_STRING targetModuleName;
 
-    RtlInitUnicodeString(&targetModuleName, ModuleName);
-
     if (ModuleSize != NULL)
         *ModuleSize = 0;
+
+    if (!InitBoundedUnicodeString(&targetModuleName, ModuleName, ModuleNameCch))
+        return NULL;
 
     if (fnPsGetProcessWow64Process == NULL)
         return NULL;
@@ -2457,7 +2499,8 @@ static PVOID FindExportedFunction32ResolvedInternal(_In_ PEPROCESS Process, _In_
         return NULL;
     }
 
-    PVOID forwardedModuleBase = FindModuleBaseAddress32(Process, forwardedModuleName, NULL);
+    PVOID forwardedModuleBase = FindModuleBaseAddress32(Process, forwardedModuleName,
+                                                        RTL_NUMBER_OF(forwardedModuleName), NULL);
     if (forwardedModuleBase == NULL)
         return NULL;
 
@@ -3455,13 +3498,14 @@ static BOOLEAN ShouldSkipHookFunctionForProcess(_In_ PEPROCESS Process, _In_ PCW
     return FALSE;
 }
 
-NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
+NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry,
+                          _In_reads_(ModuleNameCch) PCWSTR ModuleName, _In_ SIZE_T ModuleNameCch,
                           _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId)
 {
     SIZE_T modSize = 0;
-    PVOID modBase = IsMainExecutableHookModule(ModuleName)
+    PVOID modBase = IsMainExecutableHookModule(ModuleName, ModuleNameCch)
                         ? FindMainImageBaseAddress32(Process, &modSize)
-                        : FindModuleBaseAddress32(Process, ModuleName, &modSize);
+                        : FindModuleBaseAddress32(Process, ModuleName, ModuleNameCch, &modSize);
 
     if (ShouldSkipHookFunctionForProcess(Process, ModuleName, FunctionName, TRUE))
         return STATUS_NOT_SUPPORTED;
@@ -3881,13 +3925,14 @@ NTSTATUS UserModeHookDrainHookEventsForProcess(_In_ ULONG ProcessId,
 // treats STATUS_INVALID_HANDLE from NtQueryObject as normal sandbox probing, so
 // that single API is skipped only when Chromium-family modules are loaded.
 // The TEB re-entrancy sentinel protects the ring-write hook path.
-NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
+NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry,
+                        _In_reads_(ModuleNameCch) PCWSTR ModuleName, _In_ SIZE_T ModuleNameCch,
                         _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId)
 {
     SIZE_T modSize = 0;
-    PVOID modBase = IsMainExecutableHookModule(ModuleName)
+    PVOID modBase = IsMainExecutableHookModule(ModuleName, ModuleNameCch)
                         ? FindMainImageBaseAddress(Process, &modSize)
-                        : FindModuleBaseAddress(Process, ModuleName, &modSize);
+                        : FindModuleBaseAddress(Process, ModuleName, ModuleNameCch, &modSize);
 
     if (ShouldSkipHookFunctionForProcess(Process, ModuleName, FunctionName, FALSE))
         return STATUS_NOT_SUPPORTED;
@@ -4227,6 +4272,7 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
                             // WoW64: resolve from 32-bit LDR, install 5-byte E9 JMP,
                             // use 32-bit shellcode template.
                             hookStatus = ResolveAndHook32(process, hookEntry, currentHookConfig->ModuleName,
+                                                          RTL_NUMBER_OF(currentHookConfig->ModuleName),
                                                           currentHookConfig->FunctionName,
                                                           &hookEntry->CustomHooks[i], currentHookConfig->EventId);
                         }
@@ -4235,6 +4281,7 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
                             // Native 64-bit: resolve from 64-bit LDR, install 14-byte
                             // FF 25 JMP, use 64-bit shellcode template.
                             hookStatus = ResolveAndHook(process, hookEntry, currentHookConfig->ModuleName,
+                                                        RTL_NUMBER_OF(currentHookConfig->ModuleName),
                                                         currentHookConfig->FunctionName, &hookEntry->CustomHooks[i],
                                                         currentHookConfig->EventId);
                         }

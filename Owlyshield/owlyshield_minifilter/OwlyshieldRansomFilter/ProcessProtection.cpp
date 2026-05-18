@@ -190,7 +190,9 @@ static NTSTATUS AddProcessProtectionExcludeRuleNormalizedUnlocked(_In_reads_(Rul
 
     for (ULONG i = 0; i < g_ProcessProtectionExcludeRules.Count; ++i)
     {
-        if (_wcsicmp(g_ProcessProtectionExcludeRules.Rules[i], normalizedLine) == 0)
+        if (OwlyWideEqualsInsensitiveBounded(g_ProcessProtectionExcludeRules.Rules[i],
+                                             PROCESS_PROTECTION_RULE_MAX_LINE_CHARS,
+                                             normalizedLine, RTL_NUMBER_OF(normalizedLine)))
         {
             return STATUS_SUCCESS;
         }

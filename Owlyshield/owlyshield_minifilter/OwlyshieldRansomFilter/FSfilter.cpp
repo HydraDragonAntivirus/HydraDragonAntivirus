@@ -340,7 +340,8 @@ static NTSTATUS FSAddPyasWhitelistRuleNormalizedToSet(_Inout_ PPYAS_WHITELIST_RU
 
     for (ULONG i = 0; i < RuleSet->Count; ++i)
     {
-        if (_wcsicmp(RuleSet->Rules[i], normalizedLine) == 0)
+        if (OwlyWideEqualsInsensitiveBounded(RuleSet->Rules[i], PYAS_RULE_MAX_LINE_CHARS,
+                                             normalizedLine, RTL_NUMBER_OF(normalizedLine)))
         {
             return STATUS_SUCCESS;
         }
