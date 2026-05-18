@@ -1716,12 +1716,12 @@ pub fn App() -> impl IntoView {
                                 if l.len() > keep {
                                     let remove_count = l.len() - keep;
                                     l.drain(0..remove_count);
-                                }
                             }
                         });
                     }
                 }
             }
+        }
         }) as Box<dyn FnMut(JsValue)>);
         spawn_local(async move {
             let _ = listen("raw_packet", &raw_closure).await;
