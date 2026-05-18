@@ -647,6 +647,7 @@ pub enum LocalhostType {
     PrivateA,
     PrivateB,
     PrivateC,
+    Private,
     Any,
     #[default]
     All,
@@ -1063,6 +1064,13 @@ impl LocalhostType {
                     ipv4.octets()[0] == 172 && ipv4.octets()[1] >= 16 && ipv4.octets()[1] <= 31
                 }
                 LocalhostType::PrivateC => ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168,
+                LocalhostType::Private => {
+                    ipv4.octets()[0] == 10
+                        || (ipv4.octets()[0] == 172
+                            && ipv4.octets()[1] >= 16
+                            && ipv4.octets()[1] <= 31)
+                        || (ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168)
+                }
                 LocalhostType::Any => ipv4 == Ipv4Addr::new(0, 0, 0, 0),
                 LocalhostType::All => {
                     ipv4.octets()[0] == 127
@@ -1076,6 +1084,9 @@ impl LocalhostType {
             IpAddr::V6(ipv6) => match self {
                 LocalhostType::None => true,
                 LocalhostType::Loopback => ipv6.is_loopback(),
+                LocalhostType::Private => {
+                    ipv6.is_unique_local() || ipv6.is_unicast_link_local()
+                }
                 _ => {
                     ipv6.is_unique_local() || ipv6.is_unicast_link_local() || ipv6.is_unspecified()
                 }

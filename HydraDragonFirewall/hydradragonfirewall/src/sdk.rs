@@ -464,7 +464,6 @@ impl EntropyMatcher {
         false
     }
 }
-
 // ============================================================================
 // LOCALHOST DETECTION (Feature 26)
 // ============================================================================
@@ -476,6 +475,7 @@ pub enum LocalhostType {
     PrivateA, // 10.x.x.x
     PrivateB, // 172.16-31.x.x
     PrivateC, // 192.168.x.x
+    Private,  // Match any private subnets (A, B, C) except Loopback/Any
     Any,      // 0.0.0.0
     #[default]
     All, // Match any localhost/private type
@@ -493,6 +493,11 @@ impl LocalhostType {
                     ipv4.octets()[0] == 172 && ipv4.octets()[1] >= 16 && ipv4.octets()[1] <= 31
                 }
                 LocalhostType::PrivateC => ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168,
+                LocalhostType::Private => {
+                    LocalhostType::PrivateA.matches(ip)
+                        || LocalhostType::PrivateB.matches(ip)
+                        || LocalhostType::PrivateC.matches(ip)
+                }
                 LocalhostType::Any => ipv4 == Ipv4Addr::new(0, 0, 0, 0),
                 LocalhostType::All => {
                     LocalhostType::Loopback.matches(ip)
@@ -505,6 +510,9 @@ impl LocalhostType {
             IpAddr::V6(ipv6) => match self {
                 LocalhostType::None => true,
                 LocalhostType::Loopback => ipv6.is_loopback(),
+                LocalhostType::Private => {
+                    ipv6.is_unique_local() || ipv6.is_unicast_link_local()
+                }
                 LocalhostType::PrivateA | LocalhostType::PrivateB | LocalhostType::PrivateC => {
                     ipv6.is_unique_local() || ipv6.is_unicast_link_local()
                 }

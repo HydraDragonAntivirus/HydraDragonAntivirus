@@ -52,7 +52,7 @@ rules:
     enabled: true
     protocol: tcp
     action: ask
-    localhost_type: all
+    localhost_type: private
     dst_port:
       ports: [80, 443, 8080, 22, 3389]
 
