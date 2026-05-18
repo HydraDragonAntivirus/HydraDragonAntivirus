@@ -1710,17 +1710,18 @@ pub fn App() -> impl IntoView {
                         if add_to_logs {
                             set_logs.update(|l| {
                                 l.push(pkt_log);
-                            if current_settings.prune_old_logs {
-                                let keep = current_settings.max_visible_logs.max(1);
-                                if l.len() > keep {
-                                    let remove_count = l.len() - keep;
-                                    l.drain(0..remove_count);
-                            }
-                        });
+                                if current_settings.prune_old_logs {
+                                    let keep = current_settings.max_visible_logs.max(1);
+                                    if l.len() > keep {
+                                        let remove_count = l.len() - keep;
+                                        l.drain(0..remove_count);
+                                    }
+                                }
+                            });
+                        }
                     }
                 }
             }
-        }
         }) as Box<dyn FnMut(JsValue)>);
         spawn_local(async move {
             let _ = listen("raw_packet", &raw_closure).await;
