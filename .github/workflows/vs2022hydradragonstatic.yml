@@ -24,7 +24,7 @@ jobs:
     runs-on: windows-2022
     defaults:
       run:
-        working-directory: hydradragonstatic
+        working-directory: Owlyshield/hydradragonstatic
 
     steps:
     - name: Enable Git long paths
@@ -58,4 +58,4 @@ jobs:
       with:
         name: hydradragonstatic_release_binaries
         path: |
-          hydradragonstatic/target/release/hydradragonstatic.exe
+          Owlyshield/hydradragonstatic/target/release/hydradragonstatic.exe
