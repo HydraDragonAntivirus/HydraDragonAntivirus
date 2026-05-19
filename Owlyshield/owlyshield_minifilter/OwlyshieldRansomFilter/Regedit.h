@@ -10,7 +10,6 @@
 #define REG_PROTECT_OWLY L"\\Services\\owlyshield_ransom"
 #define REG_PROTECT_SANCTUM L"\\Services\\sanctum_ppl_runner"
 #define REG_PROTECT_MBRFILTER L"\\Services\\MBRFilter"
-#define REG_PROTECT_WINLOGON L"\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
 
 // Declarations
 NTSTATUS RegeditDriverEntry();
