@@ -79,10 +79,10 @@ Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\openedr.msi"; DestDir
 [Dirs]
 Name: "{commonappdata}\HydraDragonAntivirus\debug"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\utils"
-Name: "{commonappdata}\HydraDragonAntivirus\log"; Flags: uninsneveruninstall
-Name: "{commonappdata}\HydraDragonAntivirus\config"; Flags: uninsneveruninstall
-Name: "{commonappdata}\HydraDragonAntivirus\threats"; Flags: uninsneveruninstall
-Name: "{commonappdata}\HydraDragonAntivirus\realtime_learning"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\log"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\config"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\threats"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\realtime_learning"; Flags: uninsneveruninstall
 Name: "{commonpf64}\ClamAV"
 Name: "{commonpf64}\Npcap"
 Name: "{app}\hydradragon\suricata"

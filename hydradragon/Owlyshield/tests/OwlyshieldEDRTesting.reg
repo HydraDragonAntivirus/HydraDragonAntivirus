@@ -7,12 +7,12 @@ Windows Registry Editor Version 5.00
 "KILL_POLICY"="KILL_AND_QUARANTINE"
 "TELEMETRY"=dword:00000000
 "VERBOSE_LOGGING"="1"
-"REPORTS_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\threats"
-"LOG_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\log"
+"REPORTS_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\Owlyshield\\threats"
+"LOG_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\Owlyshield\\log"
 "UTILS_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\utils"
 "PROCESS_ACTIVITY_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\debug"
-"REALTIME_LEARNING_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\realtime_learning"
-"CONFIG_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\config"
+"REALTIME_LEARNING_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\Owlyshield\\realtime_learning"
+"CONFIG_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\Owlyshield\\config"
 "NOVELTY_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\novelty"
 "RULES_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\rules"
 
