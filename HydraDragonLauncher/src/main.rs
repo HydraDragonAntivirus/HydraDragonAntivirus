@@ -10,6 +10,7 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 const BASE_DIR: &str = r"C:\Program Files\HydraDragonAntivirus";
+const DATA_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus";
 
 struct Components {
     owlyshield: Option<Child>,
@@ -267,7 +268,7 @@ fn configure_python_command(cmd: &mut Command, root_dir: &Path, venv_dir: &Path)
 }
 
 fn python_engine_log_stdio() -> Result<(Stdio, Stdio)> {
-    let log_path = PathBuf::from(BASE_DIR)
+    let log_path = PathBuf::from(DATA_DIR)
         .join("hydradragon")
         .join("logs")
         .join("hydradragonlauncher-python.log");
