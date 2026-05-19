@@ -55,4 +55,5 @@ pub static IOC_LIST_LOCATION: &str = "Sanctum\\AppData\\ioc_list.txt";
 pub static IOC_URL: &str =
     "https://raw.githubusercontent.com/HydraDragonAntivirus/HydraDragonAntivirus/refs/heads/development-version/hydradragon/Sanctum/clean_files/ioc_list.txt";
 pub static LOG_PATH: &str = r"logs\sanctum.log";
+pub static SANCTUM_LOG_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus\Sanctum";
 pub static SANCTUM_DLL_RELATIVE_PATH: &str = "Sanctum\\sanctum.dll";

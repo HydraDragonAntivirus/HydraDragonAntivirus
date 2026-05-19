@@ -4,11 +4,7 @@ use std::{
     path::PathBuf,
 };
 
-use shared_no_std::constants::LOG_PATH;
-
-use crate::settings::get_setting_paths;
-
-use super::env::get_logged_in_username;
+use shared_no_std::constants::{LOG_PATH, SANCTUM_LOG_DIR};
 
 #[derive(Debug)]
 pub struct Log {
@@ -28,8 +24,7 @@ impl Log {
         //
         // check for log file
         //
-        let username = get_logged_in_username().unwrap();
-        let mut log_path = get_setting_paths(&username).0;
+        let mut log_path = PathBuf::from(SANCTUM_LOG_DIR);
         log_path.push(LOG_PATH);
         let log_dir = match log_path.parent() {
             Some(dir) => dir,
@@ -100,8 +95,7 @@ impl Log {
 
 /// Gets the fully qualified path to the log file for Sanctum
 pub fn get_log_file_path() -> PathBuf {
-    let username = get_logged_in_username().unwrap();
-    let mut sanctum_app_data_path = get_setting_paths(&username).0; // .0 will give us the folder
-    sanctum_app_data_path.push(LOG_PATH);
-    sanctum_app_data_path
+    let mut sanctum_log_path = PathBuf::from(SANCTUM_LOG_DIR);
+    sanctum_log_path.push(LOG_PATH);
+    sanctum_log_path
 }
