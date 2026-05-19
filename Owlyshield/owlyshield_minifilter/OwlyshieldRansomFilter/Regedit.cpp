@@ -278,9 +278,7 @@ static BOOLEAN IsRegistryPathProtected(PUNICODE_STRING RegPath)
         UnicodeContainsString(&pathUp, L"\\SERVICES\\SANCTUM") ||
         UnicodeContainsString(&pathUp, L"\\SERVICES\\EDRDRV") ||
         UnicodeContainsString(&pathUp, L"\\SERVICES\\EDRSVC") ||
-        UnicodeContainsString(&pathUp, L"\\SOFTWARE\\OWLYSHIELD") ||
-        UnicodeContainsString(&pathUp, L"\\SOFTWARE\\CLASSES\\CLSID") ||
-        UnicodeContainsString(&pathUp, L"\\SOFTWARE\\CLASSES\\APPID"))
+        UnicodeContainsString(&pathUp, L"\\SOFTWARE\\OWLYSHIELD"))
     {
         protectedPath = TRUE;
     }

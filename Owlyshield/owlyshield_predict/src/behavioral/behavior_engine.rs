@@ -3583,11 +3583,6 @@ impl BehaviorEngine {
                 || protected_path_lc.contains("\\services\\edrdrv")
                 || protected_path_lc.contains("\\services\\edrsvc")
                 || protected_path_lc.contains("\\software\\owlyshield"));
-        let is_com_registry = !protected_path_lc.is_empty()
-            && (protected_path_lc.contains("\\software\\classes\\clsid")
-                || protected_path_lc.contains("\\software\\classes\\appid")
-                || protected_path_lc.contains("\\classes\\clsid")
-                || protected_path_lc.contains("\\classes\\appid"));
         let is_security_pipe = !pipe_lc.is_empty()
             && (pipe_lc.contains("hydradragon")
                 || pipe_lc.contains("owlyshield")
@@ -3599,7 +3594,6 @@ impl BehaviorEngine {
 
         if is_security_file
             || is_security_registry
-            || is_com_registry
             || is_security_pipe
             || is_disk_wiper_ioctl
             || event_type == "LLE_SELF_DEFENSE"
@@ -3622,13 +3616,6 @@ impl BehaviorEngine {
                     "PIPE_CREATE".to_string(),
                     "NAMED_PIPE_TAMPER_OR_DISCOVERY".to_string(),
                     pipe_path.to_string(),
-                )
-            } else if is_com_registry {
-                (
-                    "com",
-                    format!("COM_{}", event_type.trim_start_matches("LLE_REGISTRY_")),
-                    "COM_REGISTRY_TAMPERING".to_string(),
-                    protected_path.to_string(),
                 )
             } else if is_security_registry {
                 (
