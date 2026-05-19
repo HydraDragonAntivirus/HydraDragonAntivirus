@@ -77,11 +77,12 @@ Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\setup.py"; DestDir: "
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\openedr.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
-Name: "{app}\hydradragon\Owlyshield\debug"
+Name: "{commonappdata}\HydraDragonAntivirus\debug"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\utils"
-Name: "{app}\hydradragon\Owlyshield\Owlyshield Service\log"; Flags: uninsneveruninstall
-Name: "{app}\hydradragon\Owlyshield\config"; Flags: uninsneveruninstall
-Name: "{app}\hydradragon\Owlyshield\config\report"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\log"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\config"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\threats"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\realtime_learning"; Flags: uninsneveruninstall
 Name: "{commonpf64}\ClamAV"
 Name: "{commonpf64}\Npcap"
 Name: "{app}\hydradragon\suricata"
@@ -97,14 +98,14 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeFile}\SupportedTypes
 
 ; Owlyshield Registry Settings
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NUM_VERSION"; ValueData: {#OwlyshieldVersion}; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{app}\hydradragon\Owlyshield\debug"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\debug"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "UTILS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\utils"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "CONFIG_PATH"; ValueData: "{app}\hydradragon\Owlyshield\config"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "CONFIG_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\config"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NOVELTY_PATH"; ValueData: "{app}\hydradragon\Owlyshield\novelty"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_PATH"; ValueData: "{app}\hydradragon\Owlyshield\Owlyshield Service\log"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\log"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "RULES_PATH"; ValueData: "{app}\hydradragon\Owlyshield\rules"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORTS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\config\report"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_PATH"; ValueData: "{app}\hydradragon\Owlyshield\realtime_learning"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORTS_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\threats"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\realtime_learning"; Flags: uninsdeletekey
 
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "{#OwlyshieldAppId}"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
