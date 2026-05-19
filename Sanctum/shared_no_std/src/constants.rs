@@ -53,7 +53,7 @@ impl Display for SanctumVersion<'_> {
 pub static SANC_SYS_FILE_LOCATION: &str = "Sanctum\\AppData\\sanctum.sys";
 pub static IOC_LIST_LOCATION: &str = "Sanctum\\AppData\\ioc_list.txt";
 pub static IOC_URL: &str =
-    "https://raw.githubusercontent.com/HydraDragonAntivirus/HydraDragonAntivirus/refs/heads/development-version/hydradragon/Sanctum/clean_files/ioc_list.txt";
+    "https://raw.githubusercontent.com/HydraDragonAntivirus/HydraDragonAntivirus/development-version/hydradragon/Sanctum/AppData/ioc_list.txt";
 pub static LOG_PATH: &str = r"logs\sanctum.log";
 pub static SANCTUM_LOG_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus\Sanctum";
 pub static SANCTUM_DLL_RELATIVE_PATH: &str = "Sanctum\\sanctum.dll";

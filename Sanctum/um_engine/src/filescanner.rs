@@ -11,7 +11,7 @@ use std::{
     fs::{self, File},
     io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
     thread,
     time::{Duration, Instant, UNIX_EPOCH},
 };
@@ -132,6 +132,53 @@ fn scan_path_against_hashes(
     }
 
     Ok(None)
+}
+
+struct WorkQueueState {
+    queue: Vec<PathBuf>,
+    closed: bool,
+}
+
+struct WorkQueue {
+    state: Mutex<WorkQueueState>,
+    condvar: Condvar,
+}
+
+impl WorkQueue {
+    fn new() -> Self {
+        WorkQueue {
+            state: Mutex::new(WorkQueueState {
+                queue: Vec::new(),
+                closed: false,
+            }),
+            condvar: Condvar::new(),
+        }
+    }
+
+    fn push(&self, path: PathBuf) {
+        let mut s = self.state.lock().unwrap();
+        s.queue.push(path);
+        self.condvar.notify_one();
+    }
+
+    fn close(&self) {
+        let mut s = self.state.lock().unwrap();
+        s.closed = true;
+        self.condvar.notify_all();
+    }
+
+    fn pop(&self) -> Option<PathBuf> {
+        let mut s = self.state.lock().unwrap();
+        loop {
+            if let Some(path) = s.queue.pop() {
+                return Some(path);
+            }
+            if s.closed {
+                return None;
+            }
+            s = self.condvar.wait(s).unwrap();
+        }
+    }
 }
 
 /// The FileScanner is the public interface into the module handling any static file scanning type capability.
@@ -348,7 +395,7 @@ impl FileScanner {
                 Err(e) => {
                     *stop_clock.lock().unwrap() = true;
 
-                    if e.kind() == io::ErrorKind::Uncategorized {
+                    if e.kind() == io::ErrorKind::Interrupted {
                         // results will be empty here
                         return Ok(FileScannerState::Cancelled);
                     }
@@ -361,13 +408,12 @@ impl FileScanner {
         // otherwise, we are a directory so start this off with a bounded worker pool.
         // One producer walks directories; multiple workers hash files in parallel.
         let worker_count = parallel_scan_worker_count();
-        let (file_tx, file_rx) = mpsc::sync_channel::<PathBuf>(PARALLEL_SCAN_QUEUE_BOUND);
-        let file_rx = Arc::new(Mutex::new(file_rx));
+        let queue = Arc::new(WorkQueue::new());
         let worker_errors = Arc::new(Mutex::new(Vec::<String>::new()));
 
         thread::scope(|scope| {
             for worker_id in 0..worker_count {
-                let file_rx = Arc::clone(&file_rx);
+                let queue = Arc::clone(&queue);
                 let files_scanned = Arc::clone(&files_scanned_for_scanner);
                 let scanning_info = Arc::clone(&self.scanning_info);
                 let state = Arc::clone(&self.state);
@@ -376,9 +422,13 @@ impl FileScanner {
                 let iocs = &self.iocs;
 
                 scope.spawn(move || loop {
-                    let path = match file_rx.lock().unwrap().recv() {
-                        Ok(path) => path,
-                        Err(_) => break,
+                    if state_is_cancelled(&state) {
+                        break;
+                    }
+
+                    let path = match queue.pop() {
+                        Some(path) => path,
+                        None => break,
                     };
 
                     if state_is_cancelled(&state) {
@@ -446,17 +496,11 @@ impl FileScanner {
                         continue;
                     }
 
-                    if let Err(e) = file_tx.send(path) {
-                        self.log.log(
-                            LogLevel::Warning,
-                            &format!("[-] File scan worker queue closed: {e}"),
-                        );
-                        break;
-                    }
+                    queue.push(path);
                 }
             }
 
-            drop(file_tx);
+            queue.close();
         });
 
         for error in worker_errors.lock().unwrap().iter() {
@@ -467,7 +511,7 @@ impl FileScanner {
         if state_is_cancelled(&self.state) {
             *stop_clock.lock().unwrap() = true;
             return Err(io::Error::new(
-                io::ErrorKind::Uncategorized,
+                io::ErrorKind::Interrupted,
                 "User cancelled scan.",
             ));
         }

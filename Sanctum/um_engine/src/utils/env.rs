@@ -54,8 +54,8 @@ pub fn resolve_process_path(pid: u32) -> Option<String> {
     None
 }
 
-/// Validates that the client connected to the named pipe originates from the expected process path.
-pub fn validate_pipe_client(connected_client: &NamedPipeServer, expected_path: &str) -> bool {
+/// Validates that the client connected to the named pipe originates from a process path starting with the expected prefix.
+pub fn validate_pipe_client(connected_client: &NamedPipeServer, expected_prefix: &str) -> bool {
     use std::os::windows::io::{AsHandle, AsRawHandle};
 
     let handle = connected_client.as_handle().as_raw_handle();
@@ -65,8 +65,10 @@ pub fn validate_pipe_client(connected_client: &NamedPipeServer, expected_path: &
         return false;
     }
 
-    if resolve_process_path(pid).map(|path| path.to_lowercase()) == Some(expected_path.to_lowercase()) {
-        return true;
+    if let Some(path) = resolve_process_path(pid) {
+        if path.to_lowercase().starts_with(&expected_prefix.to_lowercase()) {
+            return true;
+        }
     }
 
     false

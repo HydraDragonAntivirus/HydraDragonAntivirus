@@ -35,8 +35,8 @@ use tokio::{
 /// An interface for the usermode IPC server
 pub struct UmIpc {}
 
-// The path to the only authorized process that can talk to the Sanctum IPC server.
-const ALLOWED_CLIENT_PATH: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe";
+// The authorized directory prefix for processes communicating with the Sanctum IPC server.
+const ALLOWED_CLIENT_PREFIX: &str = r"C:\Program Files\HydraDragonAntivirus";
 
 impl UmIpc {
     #[allow(clippy::too_many_arguments)]
@@ -72,9 +72,9 @@ impl UmIpc {
             server.connect().await?;
 
             //
-            // VALIDATION: Ensure the client process is the authorized Owlyshield service.
+            // VALIDATION: Ensure the client process is authorized under the HydraDragonAntivirus directory.
             //
-            if !crate::utils::env::validate_pipe_client(&server, ALLOWED_CLIENT_PATH) {
+            if !crate::utils::env::validate_pipe_client(&server, ALLOWED_CLIENT_PREFIX) {
                 logger.log(
                     LogLevel::Warning,
                     "Unauthorized IPC connection attempt blocked. Client process path was not recognized.",
