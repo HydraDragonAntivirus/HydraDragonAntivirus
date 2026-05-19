@@ -383,7 +383,7 @@ pub fn run() {
                             let mut iomsg = IOMessage::from_driver_msg(&drivermsg);
 
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            if iomsg.irp_op == 12 {
+                            if (12..=20).contains(&iomsg.irp_op) {
                                 iomsg.normalize_hypervisor_event();
                             }
 
@@ -600,29 +600,42 @@ pub fn run() {
             // DIAGNOSTIC: Print opcode distribution every 10 seconds
             if last_diag.elapsed() >= std::time::Duration::from_secs(10) {
                 let mut summary = format!("[DIAG] {} total msgs in 10s. Opcodes: ", total_msgs);
-                let names = [
-                    "None",
-                    "Read",
-                    "Write",
-                    "SetInfo",
-                    "Create",
-                    "Cleanup",
-                    "Registry",
-                    "ProcCreate",
-                    "ProcTerm",
-                    "ProcTermAttempt",
-                    "ProcExit",
-                    "ProcHandleOpen",
+                let opcode_names: [&str; 30] = [
+                    "None",           // 0
+                    "Read",           // 1
+                    "Write",          // 2
+                    "SetInfo",        // 3
+                    "Create",         // 4
+                    "Cleanup",        // 5
+                    "Registry",       // 6
+                    "ProcCreate",     // 7
+                    "ProcTerm",       // 8
+                    "ProcTermAttempt",// 9
+                    "ProcExit",       // 10
+                    "ProcHandleOpen", // 11
+                    "Hypervisor",     // 12
+                    "KernRemoteThread",  // 13
+                    "KernWriteMem",      // 14
+                    "KernProtectMem",    // 15
+                    "KernCreateThread",  // 16
+                    "KernQueueApc",      // 17
+                    "KernCreateSection", // 18
+                    "KernMapSection",    // 19
+                    "UserModeHook",      // 20
+                    "RkSsdtHook",        // 21
+                    "RkHiddenProc",      // 22
+                    "RkHiddenDrv",       // 23
+                    "RkKernelHook",      // 24
+                    "RkTermProc",        // 25
+                    "RkFileMove",        // 26
+                    "RkGeneric",         // 27
+                    "NamedPipeCreate",   // 28
+                    "NamedPipeWrite",    // 29
                 ];
-                for i in 0..12 {
+                for i in 0..30 {
                     if opcode_counts[i] > 0 {
-                        summary.push_str(&format!("{}={} ", names[i], opcode_counts[i]));
+                        summary.push_str(&format!("{}={} ", opcode_names[i], opcode_counts[i]));
                     }
-                }
-                let hypervisor_total = opcode_counts[12];
-                let kernel_telemetry_total: u64 = opcode_counts.iter().skip(13).sum::<u64>();
-                if hypervisor_total > 0 {
-                    summary.push_str(&format!("Hypervisor={} ", hypervisor_total));
                 }
                 if saw_any_hypervisor_event_since_start {
                     summary.push_str(&format!(
@@ -630,11 +643,8 @@ pub fn run() {
                         total_hypervisor_events_since_start
                     ));
                 }
-                if kernel_telemetry_total > 0 {
-                    summary.push_str(&format!("KernelTelemetry={} ", kernel_telemetry_total));
-                }
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if hypervisor_total > 0 {
+                if opcode_counts[12] > 0 {
                     let mut top_raw: Vec<(u32, u64)> =
                         hyper_raw_counts.iter().map(|(k, v)| (*k, *v)).collect();
                     top_raw.sort_by(|a, b| b.1.cmp(&a.1));
