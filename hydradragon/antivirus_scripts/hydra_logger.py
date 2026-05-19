@@ -4,9 +4,9 @@
 import os
 import sys
 from logly import logger
-from .path_and_variables import script_dir
+from .path_and_variables import data_dir
 
-log_directory = os.path.join(script_dir, "log")
+log_directory = os.path.join(data_dir, "log")
 os.makedirs(log_directory, exist_ok=True)
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
