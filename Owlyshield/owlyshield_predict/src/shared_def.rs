@@ -196,6 +196,16 @@ pub fn kernel_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
         17 => Some("IRP_KERNEL_QUEUE_APC"),
         18 => Some("IRP_KERNEL_CREATE_SECTION"),
         19 => Some("IRP_KERNEL_MAP_SECTION"),
+        20 => Some("IRP_USER_MODE_HOOK_EVENT"),
+        21 => Some("IRP_ROOTKIT_SSDT_HOOK"),
+        22 => Some("IRP_ROOTKIT_HIDDEN_PROCESS"),
+        23 => Some("IRP_ROOTKIT_HIDDEN_DRIVER"),
+        24 => Some("IRP_ROOTKIT_KERNEL_HOOK"),
+        25 => Some("IRP_ROOTKIT_TERMINATE_PROCESS"),
+        26 => Some("IRP_ROOTKIT_FILE_MOVE"),
+        27 => Some("IRP_ROOTKIT_GENERIC"),
+        28 => Some("IRP_NAMED_PIPE_CREATE"),
+        29 => Some("IRP_NAMED_PIPE_WRITE"),
         _ => None,
     }
 }

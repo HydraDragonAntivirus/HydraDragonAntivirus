@@ -641,6 +641,8 @@ static PCWSTR KernelEventDefaultLabel(_In_ ULONG EventType)
 {
     switch (EventType)
     {
+    case IRP_USERMODE_HOOK_EVENT:
+        return L"IRP_USERMODE_HOOK_EVENT";
     case IRP_KERNEL_REMOTE_THREAD:
         return L"IRP_KERNEL_REMOTE_THREAD";
     case IRP_KERNEL_CREATE_THREAD:
