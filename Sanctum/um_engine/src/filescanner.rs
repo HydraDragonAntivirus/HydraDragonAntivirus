@@ -19,7 +19,6 @@ use std::{
 use crate::utils::log::{Log, LogLevel};
 
 
-const PARALLEL_SCAN_QUEUE_BOUND: usize = 4096;
 const MAX_PARALLEL_SCAN_WORKERS: usize = 8;
 const HASH_CACHE_LIMIT: usize = 16384;
 const MAX_HASH_SCAN_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
