@@ -696,7 +696,7 @@
         - 3221226037
         - 3221225506
       hook_error_api_patterns:
-        - pattern: '(?i)(^|!)(Nt|Zw)(Close|SetInformationObject|DuplicateObject)$'
+        - '(?i)(^|!)(Nt|Zw)(Close|SetInformationObject|DuplicateObject)$'
       hook_error_min_count: 1
       hook_error_exclude_benign: true
   detection_logic:

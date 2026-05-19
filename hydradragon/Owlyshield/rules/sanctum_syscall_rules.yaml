@@ -1695,7 +1695,7 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtSetInformationFile
+        name_pattern: [NtSetInformationFile]
         module_pattern: '*'
       - type: Api
         name_pattern: [NtCreateSection]
@@ -1804,7 +1804,7 @@
         name_pattern: [NtCreateFile]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtSetInformationFile
+        name_pattern: [NtSetInformationFile]
         module_pattern: '*'
       - type: Api
         name_pattern: [NtCreateSection]
@@ -2062,7 +2062,7 @@
         name_pattern: [NtLoadDriver]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtSetSystemInformation
+        name_pattern: [NtSetSystemInformation]
         module_pattern: '*'
       within_ms: 2000
       min_matches: 2
@@ -2112,10 +2112,10 @@
         name_pattern: [CreateFileW]
         module_pattern: '*'
       - type: Api
-        name_pattern: DeviceIoControl
+        name_pattern: [DeviceIoControl]
         module_pattern: '*'
       - type: Api
-        name_pattern: NtSetSystemInformation
+        name_pattern: [NtSetSystemInformation]
         module_pattern: '*'
       within_ms: 2000
       min_matches: 3
@@ -2267,7 +2267,7 @@
       require_same_source_pid: true
       conditions:
       - type: Api
-        name_pattern: NtSetInformationProcess
+        name_pattern: [NtSetInformationProcess]
         module_pattern: '*'
       - type: Api
         name_pattern: [OpenProcess]
