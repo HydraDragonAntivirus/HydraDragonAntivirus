@@ -735,6 +735,7 @@ pub mod worker_instance {
     use std::collections::{HashMap, HashSet};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::ffi::OsStr;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc::{Sender, channel};
