@@ -104,6 +104,11 @@ fn update_request_content_length_header(parts: &mut HttpRequestParts, new_body_l
     safe_rewrite_headers(&mut parts.headers, new_body_len);
 }
 
+/// Check if a HTTP status code should NOT have a body (1xx, 204, 304)
+fn is_bodiless_status(status: u16) -> bool {
+    (status >= 100 && status < 200) || status == 204 || status == 304
+}
+
 // ── Generic error response builders ────────────────────────────────────────────
 
 /// Build a 502 Bad Gateway response when upstream fails.
@@ -504,13 +509,23 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Apply request body override + ALWAYS rewrite headers ────────────────
     let mut req_parts = parts;
+
+    // Strip Accept-Encoding so the upstream server sends plain text. This allows
+    // our proxy to read/modify the body safely without breaking compression.
+    req_parts.headers.remove(http_mitm_proxy::hyper::header::ACCEPT_ENCODING);
+
     let req_body_obj = if let Some(new_body) = req_body_override {
         let new_bytes = Bytes::from(new_body.into_bytes());
         update_request_content_length_header(&mut req_parts, new_bytes.len());
         Full::new(new_bytes)
     } else {
-        // Use the FULL original body, not the truncated display version
-        update_request_content_length_header(&mut req_parts, raw_body.len());
+        // Use the FULL original body, not the truncated display version.
+        // Don't inject Content-Length: 0 for bodiless GET/HEAD requests, as it can cause 400 Bad Request.
+        if raw_body.len() > 0 || req_parts.method != http_mitm_proxy::hyper::Method::GET && req_parts.method != http_mitm_proxy::hyper::Method::HEAD {
+            update_request_content_length_header(&mut req_parts, raw_body.len());
+        } else {
+            req_parts.headers.remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
+        }
         Full::new(raw_body)
     };
     let req = http_mitm_proxy::hyper::Request::from_parts(req_parts, req_body_obj);
@@ -622,11 +637,22 @@ async fn handle_proxy_request<R: Runtime>(
     // ── Apply response body override + ALWAYS rewrite headers ────────────────
     let res_body_obj = if let Some(new_body) = resp_body_override {
         let new_bytes = Bytes::from(new_body.into_bytes());
-        update_content_length_header(&mut res_parts, new_bytes.len());
+        res_parts.headers.remove(http_mitm_proxy::hyper::header::CONTENT_ENCODING);
+        if !is_bodiless_status(status) {
+            update_content_length_header(&mut res_parts, new_bytes.len());
+        } else {
+            res_parts.headers.remove(http_mitm_proxy::hyper::header::CONTENT_LENGTH);
+            res_parts.headers.remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
+        }
         Full::new(new_bytes)
     } else {
         // Use the FULL original body, not the truncated display version
-        update_content_length_header(&mut res_parts, raw_res_body.len());
+        if !is_bodiless_status(status) {
+            update_content_length_header(&mut res_parts, raw_res_body.len());
+        } else {
+            res_parts.headers.remove(http_mitm_proxy::hyper::header::CONTENT_LENGTH);
+            res_parts.headers.remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
+        }
         Full::new(raw_res_body)
     };
 
