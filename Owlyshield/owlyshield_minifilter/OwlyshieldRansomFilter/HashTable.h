@@ -32,7 +32,7 @@ struct HashNode {
 //Our own Hashmap class - implemented as array of list entries
 class HashMap {
     //hash element array
-    PLIST_ENTRY arr[100];
+    LIST_ENTRY arr[100];
 
     ULONGLONG capacity;
     //current size
@@ -40,6 +40,9 @@ class HashMap {
     //dummy node
 
   public:
+    HashMap(const HashMap&) = delete;
+    HashMap& operator=(const HashMap&) = delete;
+
     HashMap() {
         //Initial capacity of hash array
         capacity = 100;
@@ -47,14 +50,11 @@ class HashMap {
 
         //Initialise all elements of array as NULL
         for (ULONGLONG i = 0; i < capacity; i++) {
-            arr[i] = new LIST_ENTRY;
-            InitializeListHead(arr[i]);
+            InitializeListHead(&arr[i]);
         }
     }
     ~HashMap() {
-        for (ULONGLONG i = 0; i < capacity; i++) {
-            delete (arr[i]);
-        }
+        clear(NULL);
     }
     // This implements hash function to find index
     // for a key
@@ -66,7 +66,7 @@ class HashMap {
     HANDLE insertNode(ULONGLONG key, HANDLE value) {
         ULONGLONG hashIndex = hashCode(key);
 
-        PLIST_ENTRY head = arr[hashIndex];
+        PLIST_ENTRY head = &arr[hashIndex];
         PLIST_ENTRY iterator = head->Flink;
         while (iterator != head) {  // update
             HashNode* pClass;
@@ -83,6 +83,9 @@ class HashMap {
         }
         // insert, no key found
         HashNode* temp = new HashNode(key, value);
+        if (temp == NULL) {
+            return NULL;
+        }
         InsertHeadList(head, &(temp->entry));
         size++;
         return value;
@@ -92,7 +95,7 @@ class HashMap {
     HANDLE deleteNode(ULONGLONG key) {
         ULONGLONG hashIndex = hashCode(key);
 
-        PLIST_ENTRY head = arr[hashIndex];
+        PLIST_ENTRY head = &arr[hashIndex];
         PLIST_ENTRY iterator = head->Flink;
         while (iterator != head) {
             HashNode* pClass;
@@ -117,7 +120,7 @@ class HashMap {
     //Function to search the value for a given key
     HANDLE get(ULONGLONG key) {
         ULONGLONG hashIndex = hashCode(key);
-        PLIST_ENTRY head = arr[hashIndex];
+        PLIST_ENTRY head = &arr[hashIndex];
         PLIST_ENTRY iterator = head->Flink;
         while (iterator != head) {
             HashNode* pClass;
@@ -149,7 +152,7 @@ class HashMap {
     // Takes a callback to free the HANDLE values
     void clear(void (*freeValue)(HANDLE)) {
         for (ULONGLONG i = 0; i < capacity; i++) {
-            PLIST_ENTRY head = arr[i];
+            PLIST_ENTRY head = &arr[i];
             PLIST_ENTRY iterator = head->Flink;
             while (iterator != head) {
                 HashNode* pNode = (HashNode*)CONTAINING_RECORD(iterator, HashNode, entry);

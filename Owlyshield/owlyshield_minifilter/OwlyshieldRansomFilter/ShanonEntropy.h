@@ -1,7 +1,6 @@
 #pragma once
 
 #include <fltKernel.h>
-#include <math.h>
 
 #include "KernelCommon.h"
 
