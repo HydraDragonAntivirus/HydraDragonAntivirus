@@ -131,7 +131,9 @@ impl Logging {
         use registry::{Hive, Security};
         if let Ok(regkey) = Hive::LocalMachine.open(r"SOFTWARE\Owlyshield", Security::Read) {
             if let Ok(val) = regkey.value("VERBOSE_LOGGING") {
-                let is_verbose = val.to_string() == "1" || val.to_string().to_lowercase() == "true";
+                let val_str = val.to_string();
+                let clean_str = val_str.trim_matches('\0').trim().to_lowercase();
+                let is_verbose = clean_str == "1" || clean_str == "true";
                 VERBOSE_LOGGING.store(is_verbose, Ordering::Relaxed);
             }
         }
