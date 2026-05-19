@@ -232,6 +232,31 @@ static BOOLEAN RegIsBackupThread(VOID)
     return found;
 }
 
+static BOOLEAN UnicodeContainsString(
+    _In_ PUNICODE_STRING SourceUp,
+    _In_ PCWSTR PatternUp
+)
+{
+    if (!SourceUp || !SourceUp->Buffer || SourceUp->Length == 0 || !PatternUp)
+        return FALSE;
+
+    ULONG srcChars = SourceUp->Length / sizeof(WCHAR);
+    ULONG patChars = (ULONG)wcslen(PatternUp);
+
+    if (patChars > 0 && patChars <= srcChars)
+    {
+        PWCHAR s = SourceUp->Buffer;
+        for (ULONG i = 0; i + patChars <= srcChars; ++i)
+        {
+            if (RtlEqualMemory(&s[i], PatternUp, patChars * sizeof(WCHAR)))
+            {
+                return TRUE;
+            }
+        }
+    }
+    return FALSE;
+}
+
 static BOOLEAN IsRegistryPathProtected(PUNICODE_STRING RegPath)
 {
     if (!RegPath || !RegPath->Buffer || RegPath->Length == 0)
@@ -243,38 +268,25 @@ static BOOLEAN IsRegistryPathProtected(PUNICODE_STRING RegPath)
 
     BOOLEAN protectedPath = FALSE;
 
-    if (wcsstr(pathUp.Buffer, L"\\SERVICES\\OWLYSHIELD_RANSOM") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\REDDBG") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\HYPERDBG") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\HYPERHV") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\SANCTUM_PPL_RUNNER") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\MBRFILTER") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\FS_MINIFILTER") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\SANCTUM") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\EDRDRV") ||
-        wcsstr(pathUp.Buffer, L"\\SERVICES\\EDRSVC") ||
-        wcsstr(pathUp.Buffer, L"\\SOFTWARE\\OWLYSHIELD") ||
-        wcsstr(pathUp.Buffer, L"\\SOFTWARE\\MICROSOFT\\WINDOWS NT\\CURRENTVERSION\\WINLOGON") ||
-        wcsstr(pathUp.Buffer, L"\\SOFTWARE\\CLASSES\\CLSID") ||
-        wcsstr(pathUp.Buffer, L"\\SOFTWARE\\CLASSES\\APPID"))
+    if (UnicodeContainsString(&pathUp, L"\\SERVICES\\OWLYSHIELD_RANSOM") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\REDDBG") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\HYPERDBG") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\HYPERHV") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\SANCTUM_PPL_RUNNER") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\MBRFILTER") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\FS_MINIFILTER") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\SANCTUM") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\EDRDRV") ||
+        UnicodeContainsString(&pathUp, L"\\SERVICES\\EDRSVC") ||
+        UnicodeContainsString(&pathUp, L"\\SOFTWARE\\OWLYSHIELD") ||
+        UnicodeContainsString(&pathUp, L"\\SOFTWARE\\CLASSES\\CLSID") ||
+        UnicodeContainsString(&pathUp, L"\\SOFTWARE\\CLASSES\\APPID"))
     {
         protectedPath = TRUE;
     }
 
     RtlFreeUnicodeString(&pathUp);
     return protectedPath;
-}
-
-static BOOLEAN IsProcessRegistryTrusted(HANDLE ProcessId)
-{
-    ULONG pid = (ULONG)(ULONG_PTR)ProcessId;
-    if (pid == 0 || pid == 4)
-        return TRUE;
-
-    if (driverData && pid == driverData->getPID())
-        return TRUE;
-
-    return FALSE;
 }
 
 typedef struct _REGISTRY_HIVE_MAP_ENTRY {

@@ -3582,8 +3582,7 @@ impl BehaviorEngine {
                 || protected_path_lc.contains("\\services\\sanctum")
                 || protected_path_lc.contains("\\services\\edrdrv")
                 || protected_path_lc.contains("\\services\\edrsvc")
-                || protected_path_lc.contains("\\software\\owlyshield")
-                || protected_path_lc.contains("\\software\\microsoft\\windows nt\\currentversion\\winlogon"));
+                || protected_path_lc.contains("\\software\\owlyshield"));
         let is_com_registry = !protected_path_lc.is_empty()
             && (protected_path_lc.contains("\\software\\classes\\clsid")
                 || protected_path_lc.contains("\\software\\classes\\appid")
