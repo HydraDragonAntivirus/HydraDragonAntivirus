@@ -159,6 +159,17 @@ fn apply_binary_validation(info: &mut FileTypeInfo, validation: BinaryFormatVali
             push_tag(info, "pe");
             push_tag(info, "broken");
             push_tag(info, "broken_executable");
+            match validation.pe_type.as_deref() {
+                Some("PE64") => {
+                    info.is_pe64 = true;
+                    push_tag(info, "pe64");
+                }
+                Some("PE32") => {
+                    info.is_pe32 = true;
+                    push_tag(info, "pe32");
+                }
+                _ => {}
+            }
         }
         FormatValidation::NotDetected => {}
     }
@@ -189,6 +200,17 @@ fn apply_binary_validation(info: &mut FileTypeInfo, validation: BinaryFormatVali
             push_tag(info, "elf");
             push_tag(info, "broken");
             push_tag(info, "broken_executable");
+            match validation.elf_type.as_deref() {
+                Some("ELF64") => {
+                    info.is_elf64 = true;
+                    push_tag(info, "elf64");
+                }
+                Some("ELF32") => {
+                    info.is_elf32 = true;
+                    push_tag(info, "elf32");
+                }
+                _ => {}
+            }
         }
         FormatValidation::NotDetected => {}
     }
@@ -470,9 +492,11 @@ fn mark_broken_executable_magic(data: &[u8], validation: &mut BinaryFormatValida
     if has_pe_magic(data) {
         validation.pe = FormatValidation::Broken;
         validation.broken_type = Some("PE".to_string());
+        validation.pe_type = pe_file_type(data);
     } else if has_elf_magic(data) {
         validation.elf = FormatValidation::Broken;
         validation.broken_type = Some("ELF".to_string());
+        validation.elf_type = elf_file_type(data);
     } else if has_macho_magic(data) {
         validation.macho = FormatValidation::Broken;
         validation.broken_type = Some("Mach-O".to_string());
