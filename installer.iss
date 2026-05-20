@@ -260,12 +260,57 @@ begin
     Result := '0';
 end;
 
+function IsJsonWhitespace(const Value: String): Boolean;
+begin
+  Result := (Value = ' ') or (Value = #9);
+end;
+
+function UpdateJsonBooleanValue(var Line: String; const Key: String; const Enabled: Boolean): Boolean;
+var
+  KeyPos, ValuePos, ValueLength: Integer;
+  DesiredValue: String;
+begin
+  Result := False;
+  KeyPos := Pos('"' + Key + '"', Line);
+  if KeyPos = 0 then
+    Exit;
+
+  ValuePos := KeyPos + Length(Key) + 2;
+  while (ValuePos <= Length(Line)) and IsJsonWhitespace(Copy(Line, ValuePos, 1)) do
+    ValuePos := ValuePos + 1;
+
+  if (ValuePos > Length(Line)) or (Copy(Line, ValuePos, 1) <> ':') then
+    Exit;
+
+  ValuePos := ValuePos + 1;
+  while (ValuePos <= Length(Line)) and IsJsonWhitespace(Copy(Line, ValuePos, 1)) do
+    ValuePos := ValuePos + 1;
+
+  if Copy(Line, ValuePos, 4) = 'true' then
+    ValueLength := 4
+  else if Copy(Line, ValuePos, 5) = 'false' then
+    ValueLength := 5
+  else
+    Exit;
+
+  if Enabled then
+    DesiredValue := 'true'
+  else
+    DesiredValue := 'false';
+
+  if Copy(Line, ValuePos, Length(DesiredValue)) = DesiredValue then
+    Exit;
+
+  Delete(Line, ValuePos, ValueLength);
+  Insert(DesiredValue, Line, ValuePos);
+  Result := True;
+end;
+
 procedure ApplyFirewallLoggingSettingFile(const SettingsPath: String);
 var
   Lines: TArrayOfString;
   i: Integer;
   Changed: Boolean;
-  CurrentValue, DesiredValue: String;
 begin
   if not LoadStringsFromFile(SettingsPath, Lines) then
   begin
@@ -273,21 +318,10 @@ begin
     Exit;
   end;
 
-  if IsVerboseLoggingModeSelected() then
-  begin
-    CurrentValue := '"save_all_logs": false';
-    DesiredValue := '"save_all_logs": true';
-  end
-  else
-  begin
-    CurrentValue := '"save_all_logs": true';
-    DesiredValue := '"save_all_logs": false';
-  end;
-
   Changed := False;
   for i := 0 to GetArrayLength(Lines) - 1 do
   begin
-    if StringChangeEx(Lines[i], CurrentValue, DesiredValue, True) > 0 then
+    if UpdateJsonBooleanValue(Lines[i], 'save_all_logs', IsVerboseLoggingModeSelected()) then
       Changed := True;
   end;
 

@@ -5,8 +5,8 @@ use wasm_bindgen_futures::spawn_local;
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
-    async fn invoke(cmd: &str, args: JsValue) -> JsValue;
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], catch)]
+    async fn invoke(cmd: &str, args: JsValue) -> Result<JsValue, JsValue>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -14,6 +14,11 @@ pub struct ComponentStatus {
     pub name: String,
     pub running: bool,
     pub gui_visible: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LauncherSettings {
+    pub owlyshield_verbose_logging: bool,
 }
 
 #[derive(Serialize)]
@@ -27,23 +32,55 @@ struct ToggleGuiArgs {
     show: bool,
 }
 
+#[derive(Serialize)]
+struct VerboseLoggingArgs {
+    enabled: bool,
+}
+
+fn js_error_to_string(error: JsValue) -> String {
+    error
+        .as_string()
+        .or_else(|| {
+            js_sys::JSON::stringify(&error)
+                .ok()
+                .and_then(|value| value.as_string())
+        })
+        .unwrap_or_else(|| "Failed to update Owlyshield verbose logging.".to_string())
+}
+
 #[component]
 fn App() -> impl IntoView {
     let (statuses, set_statuses) = create_signal(Vec::<ComponentStatus>::new());
+    let (settings, set_settings) = create_signal(LauncherSettings {
+        owlyshield_verbose_logging: false,
+    });
+    let (settings_error, set_settings_error) = create_signal(Option::<String>::None);
     let (is_dark, set_is_dark) = create_signal(true);
 
     // Fetch status helper
     let fetch_status = move || {
         spawn_local(async move {
-            let res = invoke("get_components_status", JsValue::NULL).await;
-            if let Ok(parsed) = serde_wasm_bindgen::from_value::<Vec<ComponentStatus>>(res) {
-                set_statuses.set(parsed);
+            if let Ok(res) = invoke("get_components_status", JsValue::NULL).await {
+                if let Ok(parsed) = serde_wasm_bindgen::from_value::<Vec<ComponentStatus>>(res) {
+                    set_statuses.set(parsed);
+                }
+            }
+        });
+    };
+
+    let fetch_settings = move || {
+        spawn_local(async move {
+            if let Ok(res) = invoke("get_launcher_settings", JsValue::NULL).await {
+                if let Ok(parsed) = serde_wasm_bindgen::from_value::<LauncherSettings>(res) {
+                    set_settings.set(parsed);
+                }
             }
         });
     };
 
     // Initial load
     fetch_status();
+    fetch_settings();
 
     // Set interval for periodic status updates (every 1.5 seconds)
     let fetch_clone = fetch_status.clone();
@@ -85,6 +122,20 @@ fn App() -> impl IntoView {
             })
             .unwrap();
             let _ = invoke("toggle_gui_visibility", args).await;
+            fetch_status();
+        });
+    };
+
+    let set_owlyshield_verbose = move |enabled: bool| {
+        set_settings_error.set(None);
+        set_settings.update(|current| current.owlyshield_verbose_logging = enabled);
+        spawn_local(async move {
+            let args = serde_wasm_bindgen::to_value(&VerboseLoggingArgs { enabled }).unwrap();
+            if let Err(error) = invoke("set_owlyshield_verbose_logging", args).await {
+                set_settings.update(|current| current.owlyshield_verbose_logging = !enabled);
+                set_settings_error.set(Some(js_error_to_string(error)));
+            }
+            fetch_settings();
             fetch_status();
         });
     };
@@ -144,6 +195,32 @@ fn App() -> impl IntoView {
                     <button class="btn btn-danger" on:click=stop_all style="border-color: rgba(255,62,62,0.2); color: var(--accent-red)">"Stop All"</button>
                 </div>
             </header>
+
+            <section class="settings-strip">
+                <div class="setting-meta">
+                    <span class="setting-title">"Owlyshield verbose logging"</span>
+                    <span class=move || {
+                        if settings.get().owlyshield_verbose_logging {
+                            "setting-state enabled"
+                        } else {
+                            "setting-state"
+                        }
+                    }>
+                        {move || if settings.get().owlyshield_verbose_logging { "Enabled" } else { "Disabled" }}
+                    </span>
+                    {move || settings_error.get().map(|message| view! {
+                        <span class="setting-error">{message}</span>
+                    })}
+                </div>
+                <label class="toggle-switch">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || settings.get().owlyshield_verbose_logging
+                        on:change=move |ev| set_owlyshield_verbose(event_target_checked(&ev))
+                    />
+                    <span class="toggle-track"></span>
+                </label>
+            </section>
 
             // Main Dashboard Grid
             <main class="dashboard-grid">

@@ -26,6 +26,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 const BASE_DIR: &str = r"C:\Program Files\HydraDragonAntivirus";
 const DATA_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus";
+const OWLYSHIELD_REG_KEY: &str = r"HKLM\Software\Owlyshield";
+const OWLYSHIELD_VERBOSE_LOGGING_VALUE: &str = "VERBOSE_LOGGING";
 
 pub struct Components {
     owlyshield: Option<Child>,
@@ -65,6 +67,11 @@ pub struct ComponentStatus {
     name: String,
     running: bool,
     gui_visible: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LauncherSettings {
+    owlyshield_verbose_logging: bool,
 }
 
 // --- Windows API Helper Functions ---
@@ -141,6 +148,71 @@ fn is_window_visible_by_title(title: &str) -> Option<bool> {
         };
 
         Some(IsWindowVisible(hwnd).as_bool())
+    }
+}
+
+fn read_owlyshield_verbose_logging() -> bool {
+    let output = Command::new("reg.exe")
+        .args([
+            "query",
+            OWLYSHIELD_REG_KEY,
+            "/v",
+            OWLYSHIELD_VERBOSE_LOGGING_VALUE,
+        ])
+        .output();
+
+    let Ok(output) = output else {
+        return false;
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .find(|line| line.contains(OWLYSHIELD_VERBOSE_LOGGING_VALUE))
+        .and_then(|line| line.split_whitespace().last())
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+}
+
+fn write_owlyshield_verbose_logging(enabled: bool) -> Result<()> {
+    let value = if enabled { "1" } else { "0" };
+    let output = Command::new("reg.exe")
+        .args([
+            "add",
+            OWLYSHIELD_REG_KEY,
+            "/v",
+            OWLYSHIELD_VERBOSE_LOGGING_VALUE,
+            "/t",
+            "REG_SZ",
+            "/d",
+            value,
+            "/f",
+        ])
+        .output()
+        .context("Failed to update Owlyshield verbose logging registry value")?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let output_text = format!("{stdout}{stderr}");
+        let output_lower = output_text.to_ascii_lowercase();
+
+        if output_lower.contains("access is denied") || output_lower.contains("access denied") {
+            anyhow::bail!(
+                "Access denied while updating Owlyshield verbose logging. Stop OpenEDR, then try enabling verbose logging again. reg.exe output: {}",
+                output_text.trim()
+            );
+        }
+
+        anyhow::bail!(
+            "reg.exe failed while updating Owlyshield verbose logging: {}",
+            output_text.trim()
+        );
     }
 }
 
@@ -328,6 +400,41 @@ async fn toggle_gui_visibility(component: String, show: bool) -> Result<(), Stri
     };
 
     set_window_visibility_by_title(title, show)
+}
+
+#[tauri::command]
+async fn get_launcher_settings() -> Result<LauncherSettings, String> {
+    Ok(LauncherSettings {
+        owlyshield_verbose_logging: read_owlyshield_verbose_logging(),
+    })
+}
+
+#[tauri::command]
+async fn set_owlyshield_verbose_logging(
+    enabled: bool,
+    state: tauri::State<'_, Arc<Mutex<Components>>>,
+) -> Result<(), String> {
+    write_owlyshield_verbose_logging(enabled).map_err(|e| e.to_string())?;
+
+    if is_process_running("owlyshield_ransom.exe") {
+        {
+            let mut comps = state.lock().await;
+            if let Some(mut child) = comps.owlyshield.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "owlyshield_ransom.exe"])
+                .output();
+        }
+
+        sleep(Duration::from_millis(500)).await;
+        let restarted = start_owlyshield().await.map_err(|e| e.to_string())?;
+        let mut comps = state.lock().await;
+        comps.owlyshield = restarted;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -525,6 +632,8 @@ fn main() -> Result<()> {
             start_component,
             stop_component,
             toggle_gui_visibility,
+            get_launcher_settings,
+            set_owlyshield_verbose_logging,
             start_all_components,
             stop_all_components,
             quit_launcher,

@@ -145,6 +145,101 @@ body {
     gap: 10px;
 }
 
+.settings-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 56px;
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--border-main);
+}
+
+.setting-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.setting-title {
+    font-family: 'Oxanium', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--t-primary);
+}
+
+.setting-state {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    color: var(--t-muted);
+    border: 1px solid var(--border-main);
+}
+
+.setting-state.enabled {
+    color: var(--accent-amber);
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.2);
+}
+
+.setting-error {
+    max-width: min(520px, 55vw);
+    color: var(--accent-red);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-flex;
+    width: 46px;
+    height: 26px;
+    cursor: pointer;
+}
+
+.toggle-switch input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.toggle-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.18);
+    border: 1px solid var(--border-main);
+    transition: all 0.2s ease;
+}
+
+.toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--t-secondary);
+    transition: all 0.2s ease;
+}
+
+.toggle-switch input:checked + .toggle-track {
+    background: rgba(245, 158, 11, 0.18);
+    border-color: rgba(245, 158, 11, 0.35);
+    box-shadow: 0 0 10px var(--glow-amber);
+}
+
+.toggle-switch input:checked + .toggle-track::after {
+    transform: translateX(20px);
+    background: var(--accent-amber);
+}
+
 /* Main Dashboard Grid */
 .dashboard-grid {
     flex: 1;
