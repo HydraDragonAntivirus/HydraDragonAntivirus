@@ -16,51 +16,34 @@ $ErrorActionPreference = "Stop"
 $driverPath = "target\$Profile\sanctum_package\sanctum.sys"
 $buildRsPath = "build.rs"
 
-Write-Host "[*] Building driver (initial pass) to generate binary..." -ForegroundColor Cyan
-cargo make $Profile
+$pfxFile = "sanctum.pfx"
+$pfxPassword = "password"
+$cerFile = "sanctum.cer"
 
-if (-not (Test-Path $driverPath)) {
-    Write-Error "Driver binary not found at $driverPath. Initial build failed."
+if (-not (Test-Path $pfxFile)) {
+    Write-Error "Certificate not found at $pfxFile. Run .\cert.ps1 first."
 }
 
-Write-Host "[*] Signing driver to generate certificate for hash extraction..." -ForegroundColor Cyan
-if (Test-Path "sign.bat") {
-    & .\sign.bat $Profile
-} else {
-    Write-Error "sign.bat not found in current directory."
-}
+Write-Host "[*] Exporting certificate from PFX to CER..." -ForegroundColor Cyan
+$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxFile, $pfxPassword)
+$bytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+[System.IO.File]::WriteAllBytes($cerFile, $bytes)
 
-Write-Host "[*] Extracting To-Be-Signed Hash..." -ForegroundColor Cyan
-# We use certutil -v -dump to get the "Content Hash (To-Be-Signed Hash)::"
-$certOutput = & certutil -v -dump $driverPath
-$hashMatch = $certOutput | Select-String -Pattern "Content Hash \(To-Be-Signed Hash\)::" -Context 0,8
-
-if (-not $hashMatch) {
-    # Fallback for different certutil versions/locales
-    Write-Host "[!] Could not find exact hash label, attempting broader search..." -ForegroundColor Yellow
-    $hashMatch = $certOutput | Select-String -Pattern "Content Hash" -Context 0,10
-}
+Write-Host "[*] Extracting Signature Hash from Certificate..." -ForegroundColor Cyan
+$certOutput = & certutil -dump $cerFile
+$hashMatch = $certOutput | Select-String -Pattern "Signature Hash: ([0-9a-fA-F]{64})"
 
 if ($hashMatch) {
-    $hashBytes = New-Object System.Collections.Generic.List[string]
-    foreach ($line in $hashMatch[0].Context.PostContext) {
-        # Extract hex bytes (ignoring ASCII column)
-        $byteArea = ($line -split "  ", 2)[0]
-        $byteMatches = [regex]::Matches($byteArea, '[0-9a-f]{2}') | Select-Object -First 32
-        foreach ($byteMatch in $byteMatches) {
-            if ($hashBytes.Count -lt 32) {
-                $hashBytes.Add($byteMatch.Value.ToUpperInvariant())
-            }
-        }
-        if ($hashBytes.Count -ge 32) { break }
-    }
-    
-    if ($hashBytes.Count -ne 32) {
-        Write-Error "Expected 32 SHA256 bytes, got $($hashBytes.Count)."
-    }
-    
-    $hash = -join $hashBytes
+    $hash = $hashMatch.Matches[0].Groups[1].Value.ToUpperInvariant()
     Write-Host "[+] Extracted Hash: $hash" -ForegroundColor Green
+    
+    # Save the hash to sanctum_elam_hash.txt (used by GitHub Actions)
+    $hash | Out-File -FilePath "sanctum_elam_hash.txt" -NoNewline -Encoding ascii
+
+    # Clean up temporary CER file
+    if (Test-Path $cerFile) {
+        Remove-Item $cerFile -Force
+    }
 
     Write-Host "[*] Updating $buildRsPath..." -ForegroundColor Cyan
     $content = Get-Content $buildRsPath -Raw
@@ -71,17 +54,24 @@ if ($hashMatch) {
         [System.IO.File]::WriteAllText((Resolve-Path $buildRsPath), $newContent, [System.Text.UTF8Encoding]::new($false))
         Write-Host "[+] build.rs updated successfully." -ForegroundColor Green
         
-        Write-Host "[*] Rebuilding driver with updated hash..." -ForegroundColor Cyan
-        cargo clean
+        Write-Host "[*] Building driver with updated hash..." -ForegroundColor Cyan
         cargo make $Profile
         
-        Write-Host "[*] Final signing..." -ForegroundColor Cyan
-        & .\sign.bat $Profile
+        Write-Host "[*] Signing driver..." -ForegroundColor Cyan
+        if (Test-Path "sign.bat") {
+            & .\sign.bat $Profile
+        } else {
+            Write-Error "sign.bat not found in current directory."
+        }
         
         Write-Host "[+++] SUCCESS: Driver is now synchronized with ELAM identity." -ForegroundColor Green
     } else {
         Write-Error "Could not find hash placeholder in build.rs"
     }
 } else {
-    Write-Error "Could not extract hash from driver certificate. Ensure signtool has run at least once."
+    if (Test-Path $cerFile) {
+        Remove-Item $cerFile -Force
+    }
+    Write-Error "Could not extract Signature Hash from certificate."
 }
+

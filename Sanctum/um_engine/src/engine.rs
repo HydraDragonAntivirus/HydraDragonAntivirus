@@ -154,7 +154,7 @@ fn get_ppl_svc_pid() -> Result<u32, ()> {
                             LogLevel::Error,
                             &format!("Error converting process name. {e}"),
                         );
-                        if !unsafe { Process32Next(snapshot, &mut process_entry) }.is_ok() {
+                        if unsafe { Process32Next(snapshot, &mut process_entry) }.is_err() {
                             break;
                         }
                         continue;
@@ -167,7 +167,7 @@ fn get_ppl_svc_pid() -> Result<u32, ()> {
             }
 
             // continue enumerating
-            if !unsafe { Process32Next(snapshot, &mut process_entry) }.is_ok() {
+            if unsafe { Process32Next(snapshot, &mut process_entry) }.is_err() {
                 break;
             }
         }
