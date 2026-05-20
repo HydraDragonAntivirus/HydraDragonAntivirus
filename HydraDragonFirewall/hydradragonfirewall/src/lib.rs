@@ -702,7 +702,8 @@ async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRu
                 && settings.tls_proxy.auto_start
             {
                 "Firewall Engine ACTIVE (Transparent TLS Proxy/Inspector managed)".to_string()
-            } else if settings.tls_proxy.mode == hydradragon_shared::TlsInspectionMode::MetadataOnly {
+            } else if settings.tls_proxy.mode == hydradragon_shared::TlsInspectionMode::MetadataOnly
+            {
                 "Firewall Engine ACTIVE (metadata-only TLS visibility)".to_string()
             } else {
                 "Firewall Engine ACTIVE (Transparent TLS Proxy/Inspector disabled)".to_string()
@@ -712,7 +713,8 @@ async fn get_engine_runtime_status<R: Runtime>(handle: AppHandle<R>) -> EngineRu
         };
 
         let settings = engine.settings.read().unwrap();
-        let mitm_enabled = settings.tls_proxy.mode == hydradragon_shared::TlsInspectionMode::TlsProxy
+        let mitm_enabled = settings.tls_proxy.mode
+            == hydradragon_shared::TlsInspectionMode::TlsProxy
             && settings.tls_proxy.auto_start;
         let mitm_bypass_count = settings.tls_proxy.bypass_hosts.len();
 
@@ -942,7 +944,6 @@ pub fn run() {
 
             // --- System Tray Setup ---
             // System tray icon is now managed by HydraDragonLauncher.
-
 
             let args: Vec<String> = std::env::args().collect();
             // CLI flags take priority; also check persisted settings for each mode.

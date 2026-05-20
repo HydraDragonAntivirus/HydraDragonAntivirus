@@ -216,8 +216,8 @@ pub async fn run_proxy<R: Runtime>(
         let s = settings.read().unwrap();
         std::time::Duration::from_millis(s.tls_proxy.handshake_timeout_ms)
     };
-    let proxy = MitmProxy::new(Some(ca), Some(Cache::new(512)))
-        .with_handshake_timeout(handshake_timeout);
+    let proxy =
+        MitmProxy::new(Some(ca), Some(Cache::new(512))).with_handshake_timeout(handshake_timeout);
 
     let client = DefaultClient::new();
     let app_handle_cloned = app_handle.clone();
@@ -369,12 +369,14 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Collect request body with timeout ───────────────────────────────────
     let (parts, body) = req.into_parts();
-    let raw_body: Bytes =
-        tokio::time::timeout(std::time::Duration::from_secs(request_timeout), body.collect())
-            .await
-            .map_err(|_| "Request body timeout".to_string())?
-            .map_err(|e| e.to_string())?
-            .to_bytes();
+    let raw_body: Bytes = tokio::time::timeout(
+        std::time::Duration::from_secs(request_timeout),
+        body.collect(),
+    )
+    .await
+    .map_err(|_| "Request body timeout".to_string())?
+    .map_err(|e| e.to_string())?
+    .to_bytes();
     let raw_request_body_len = raw_body.len();
 
     let body_truncated = raw_body.len() > max_body;
@@ -512,7 +514,9 @@ async fn handle_proxy_request<R: Runtime>(
 
     // Strip Accept-Encoding so the upstream server sends plain text. This allows
     // our proxy to read/modify the body safely without breaking compression.
-    req_parts.headers.remove(http_mitm_proxy::hyper::header::ACCEPT_ENCODING);
+    req_parts
+        .headers
+        .remove(http_mitm_proxy::hyper::header::ACCEPT_ENCODING);
 
     let req_body_obj = if let Some(new_body) = req_body_override {
         let new_bytes = Bytes::from(new_body.into_bytes());
@@ -521,10 +525,15 @@ async fn handle_proxy_request<R: Runtime>(
     } else {
         // Use the FULL original body, not the truncated display version.
         // Don't inject Content-Length: 0 for bodiless GET/HEAD requests, as it can cause 400 Bad Request.
-        if raw_body.len() > 0 || req_parts.method != http_mitm_proxy::hyper::Method::GET && req_parts.method != http_mitm_proxy::hyper::Method::HEAD {
+        if raw_body.len() > 0
+            || req_parts.method != http_mitm_proxy::hyper::Method::GET
+                && req_parts.method != http_mitm_proxy::hyper::Method::HEAD
+        {
             update_request_content_length_header(&mut req_parts, raw_body.len());
         } else {
-            req_parts.headers.remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
+            req_parts
+                .headers
+                .remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
         }
         Full::new(raw_body)
     };
@@ -637,12 +646,18 @@ async fn handle_proxy_request<R: Runtime>(
     // ── Apply response body override + ALWAYS rewrite headers ────────────────
     let res_body_obj = if let Some(new_body) = resp_body_override {
         let new_bytes = Bytes::from(new_body.into_bytes());
-        res_parts.headers.remove(http_mitm_proxy::hyper::header::CONTENT_ENCODING);
+        res_parts
+            .headers
+            .remove(http_mitm_proxy::hyper::header::CONTENT_ENCODING);
         if !is_bodiless_status(status) {
             update_content_length_header(&mut res_parts, new_bytes.len());
         } else {
-            res_parts.headers.remove(http_mitm_proxy::hyper::header::CONTENT_LENGTH);
-            res_parts.headers.remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
+            res_parts
+                .headers
+                .remove(http_mitm_proxy::hyper::header::CONTENT_LENGTH);
+            res_parts
+                .headers
+                .remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
         }
         Full::new(new_bytes)
     } else {
@@ -650,8 +665,12 @@ async fn handle_proxy_request<R: Runtime>(
         if !is_bodiless_status(status) {
             update_content_length_header(&mut res_parts, raw_res_body.len());
         } else {
-            res_parts.headers.remove(http_mitm_proxy::hyper::header::CONTENT_LENGTH);
-            res_parts.headers.remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
+            res_parts
+                .headers
+                .remove(http_mitm_proxy::hyper::header::CONTENT_LENGTH);
+            res_parts
+                .headers
+                .remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
         }
         Full::new(raw_res_body)
     };
