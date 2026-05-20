@@ -46,7 +46,9 @@ jobs:
         key: vs2022-hydradragonstatic
 
     - name: Format Rust sources
-      run: cargo fmt --all
+      run: |
+        rustup component add rustfmt
+        cargo fmt --all
 
     - name: Cargo check
       run: cargo check --verbose

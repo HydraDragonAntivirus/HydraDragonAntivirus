@@ -42,6 +42,7 @@ jobs:
       - name: Format Rust sources
         shell: pwsh
         run: |
+          rustup component add rustfmt
           cargo fmt --manifest-path Sanctum/Cargo.toml --all
           cargo fmt --manifest-path Sanctum/driver/Cargo.toml --all
 

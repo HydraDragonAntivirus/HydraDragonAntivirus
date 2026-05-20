@@ -30,7 +30,9 @@ jobs:
 
       - name: Format Rust sources
         working-directory: Owlyshield/tools/rust_win_toast
-        run: cargo fmt --all
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
 
       - name: Build Rust Win Toast
         working-directory: Owlyshield/tools/rust_win_toast

@@ -48,6 +48,7 @@ jobs:
       - name: Format Rust sources
         shell: pwsh
         run: |
+          rustup component add rustfmt
           cargo fmt --manifest-path HydraDragonLauncher/Cargo.toml --all
           cargo fmt --manifest-path HydraDragonLauncher/ui/Cargo.toml --all
 

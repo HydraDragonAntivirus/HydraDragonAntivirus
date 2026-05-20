@@ -47,6 +47,7 @@ jobs:
       - name: Format Rust sources
         shell: pwsh
         run: |
+          rustup component add rustfmt
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/moonfire-tflite/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/slc-paths/Cargo.toml --all

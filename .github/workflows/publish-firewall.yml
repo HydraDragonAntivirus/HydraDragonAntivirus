@@ -55,6 +55,7 @@ jobs:
       - name: Format Rust sources
         shell: pwsh
         run: |
+          rustup component add rustfmt
           cargo fmt --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml --all
           cargo fmt --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml --all
           cargo fmt --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml --all

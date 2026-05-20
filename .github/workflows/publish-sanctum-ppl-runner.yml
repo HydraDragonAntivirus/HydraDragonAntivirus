@@ -31,7 +31,9 @@ jobs:
         run: cargo update
       - name: Format Rust sources
         working-directory: Sanctum
-        run: cargo fmt --all
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
       - name: Setup Windows SDK
         shell: pwsh
         run: |

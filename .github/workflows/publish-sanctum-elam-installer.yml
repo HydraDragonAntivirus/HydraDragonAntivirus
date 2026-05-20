@@ -29,7 +29,9 @@ jobs:
         run: cargo update
       - name: Format Rust sources
         working-directory: Sanctum
-        run: cargo fmt --all
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
       - name: Build elam_installer
         working-directory: Sanctum
         run: cargo build --release -p elam_installer
