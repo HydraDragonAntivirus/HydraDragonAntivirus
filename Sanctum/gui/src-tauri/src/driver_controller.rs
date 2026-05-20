@@ -2,8 +2,6 @@ use crate::ipc::IpcClient;
 use serde_json::{to_value, Value};
 use shared_std::driver_manager::DriverState;
 
-
-
 /// Install the driver on the host machine
 #[tauri::command]
 pub async fn driver_install_driver() -> Result<String, ()> {

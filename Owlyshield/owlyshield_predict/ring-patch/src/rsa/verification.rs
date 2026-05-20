@@ -28,8 +28,11 @@ pub struct Key {
 
 impl Key {
     pub fn from_modulus_and_exponent(
-        n: untrusted::Input, e: untrusted::Input, n_min_bits: bits::BitLength,
-        n_max_bits: bits::BitLength, e_min_value: u64,
+        n: untrusted::Input,
+        e: untrusted::Input,
+        n_min_bits: bits::BitLength,
+        n_max_bits: bits::BitLength,
+        e_min_value: u64,
     ) -> Result<Self, error::KeyRejected> {
         // This is an incomplete implementation of NIST SP800-56Br1 Section
         // 6.4.2.2, "Partial Public-Key Validation for RSA." That spec defers
@@ -79,7 +82,10 @@ impl Key {
 
 impl signature::VerificationAlgorithm for Parameters {
     fn verify(
-        &self, public_key: untrusted::Input, msg: untrusted::Input, signature: untrusted::Input,
+        &self,
+        public_key: untrusted::Input,
+        msg: untrusted::Input,
+        signature: untrusted::Input,
     ) -> Result<(), error::Unspecified> {
         let (n, e) = parse_public_key(public_key)?;
         verify_rsa_(
@@ -201,7 +207,9 @@ rsa_params!(
 // verification was done during the implementation of
 // `signature::VerificationAlgorithm`, before `verify_rsa` was factored out).
 pub fn verify_rsa(
-    params: &Parameters, (n, e): (untrusted::Input, untrusted::Input), msg: untrusted::Input,
+    params: &Parameters,
+    (n, e): (untrusted::Input, untrusted::Input),
+    msg: untrusted::Input,
     signature: untrusted::Input,
 ) -> Result<(), error::Unspecified> {
     let _ = cpu::features();
@@ -209,7 +217,9 @@ pub fn verify_rsa(
 }
 
 pub(crate) fn verify_rsa_(
-    params: &Parameters, (n, e): (untrusted::Input, untrusted::Input), msg: untrusted::Input,
+    params: &Parameters,
+    (n, e): (untrusted::Input, untrusted::Input),
+    msg: untrusted::Input,
     signature: untrusted::Input,
 ) -> Result<(), error::Unspecified> {
     let max_bits = bits::BitLength::from_usize_bytes(PUBLIC_KEY_PUBLIC_MODULUS_MAX_LEN)?;

@@ -259,9 +259,9 @@ fn is_deep_scan_mode(scan_mode: &str) -> bool {
 }
 
 fn signature_status_is_suspicious(status: &Option<FileSignatureStatus>) -> bool {
-    status.as_ref().is_some_and(|s| {
-        s.invalid_signature || s.signature_status_issues || s.verification_failed
-    })
+    status
+        .as_ref()
+        .is_some_and(|s| s.invalid_signature || s.signature_status_issues || s.verification_failed)
 }
 
 fn metadata_is_suspicious(
@@ -755,7 +755,10 @@ fn apply_fast_driver_action(event: &AVThreatEvent) {
                 .name("tinyav_sality_disinfect".to_string())
                 .spawn(move || run_tinyav_scan(tinyav_console, file_path))
             {
-                Logging::error(&format!("[TinyAV] Failed to spawn sality disinfect worker: {}", e));
+                Logging::error(&format!(
+                    "[TinyAV] Failed to spawn sality disinfect worker: {}",
+                    e
+                ));
             }
         }
     }
@@ -1123,8 +1126,6 @@ fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
     }
 }
 
-
-
 /// Integration struct — keeps internal channel & listener thread
 pub struct AVIntegration<'a> {
     config: &'a Config, // <-- MODIFIED: Now a borrow
@@ -1195,7 +1196,9 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
             }
         };
 
-        Logging::info("[ManualScan] Listener started on \\\\.\\pipe\\Global\\owlyshield_manual_scan");
+        Logging::info(
+            "[ManualScan] Listener started on \\\\.\\pipe\\Global\\owlyshield_manual_scan",
+        );
         loop {
             let pipe_handle = match CreateNamedPipeA(
                 PCSTR(pipe_name_c.as_ptr() as *const u8),
@@ -1216,7 +1219,10 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
             };
 
             if pipe_handle.is_invalid() {
-                Logging::error(&format!("[ManualScan] CreateNamedPipeA returned invalid handle: {:?}", GetLastError()));
+                Logging::error(&format!(
+                    "[ManualScan] CreateNamedPipeA returned invalid handle: {:?}",
+                    GetLastError()
+                ));
                 thread::sleep(Duration::from_secs(1));
                 continue;
             }
@@ -1235,7 +1241,9 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                 );
 
                 if read_ok.as_bool() && bytes_read > 0 {
-                    let message = String::from_utf8_lossy(&buffer[..bytes_read as usize]).trim().to_string();
+                    let message = String::from_utf8_lossy(&buffer[..bytes_read as usize])
+                        .trim()
+                        .to_string();
                     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) {
                         if let Some(file_path) = value.get("file_path").and_then(|v| v.as_str()) {
                             let normalized_file_path = normalize_nt_path(file_path);
@@ -1246,7 +1254,11 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                                 let _ = CloseHandle(pipe_handle);
                                 continue;
                             }
-                            let scan_mode = value.get("scan_mode").and_then(|v| v.as_str()).unwrap_or("minimal").to_string();
+                            let scan_mode = value
+                                .get("scan_mode")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("minimal")
+                                .to_string();
                             let deep_scan = scan_mode == "deep";
                             let requested_timeout_ms = value
                                 .get("deep_scan_timeout_ms")
@@ -1267,7 +1279,7 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                                 .and_then(|v| v.as_str())
                                 .map(normalize_nt_path)
                                 .unwrap_or_else(|| normalized_file_path.clone());
-                            
+
                             let request = EDRScanRequest {
                                 event_type: "MANUAL_SCAN_REQUEST".to_string(),
                                 file_path: normalized_file_path,
@@ -1284,8 +1296,11 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                                 deep_scan_timeout_ms: Some(requested_timeout_ms),
                                 late_child_scan_grace_ms: Some(requested_grace_ms),
                             };
-                            
-                            Logging::info(&format!("[ManualScan] Queueing {} manual scan for: {}", request.scan_mode, request.file_path));
+
+                            Logging::info(&format!(
+                                "[ManualScan] Queueing {} manual scan for: {}",
+                                request.scan_mode, request.file_path
+                            ));
                             let _ = internal_scan_tx.send(request);
                         }
                     }
@@ -1535,8 +1550,13 @@ impl<'a> AVIntegration<'a> {
             return;
         }
 
-        let normalized_scan_mode = if is_deep_scan_mode(scan_mode) { "deep" } else { "minimal" };
-        let metadata = self.collect_scan_metadata(&file_path_string, file_path, normalized_scan_mode);
+        let normalized_scan_mode = if is_deep_scan_mode(scan_mode) {
+            "deep"
+        } else {
+            "minimal"
+        };
+        let metadata =
+            self.collect_scan_metadata(&file_path_string, file_path, normalized_scan_mode);
         if !metadata.should_queue_scan {
             return;
         }
@@ -1592,7 +1612,8 @@ impl<'a> AVIntegration<'a> {
         // with no supported HydraDragon type flags, do not queue deep scan.
         // Plain-text files never run DIE; they continue without this gate.
         if deep_mode && !should_skip_die_scan(scan_target) {
-            metadata.detectiteasy_scan_result = run_detectiteasy_metadata_scan(file_path, scan_target);
+            metadata.detectiteasy_scan_result =
+                run_detectiteasy_metadata_scan(file_path, scan_target);
             if metadata.detectiteasy_scan_result.is_none() {
                 Logging::debug(&format!(
                     "[DetectItEasy] Deep scan gate skipped because DIE metadata was unavailable: {}",
@@ -1621,7 +1642,8 @@ impl<'a> AVIntegration<'a> {
             }
         }
 
-        metadata.signature_status = self.get_or_compute_signature_status(file_identity.as_ref(), scan_target);
+        metadata.signature_status =
+            self.get_or_compute_signature_status(file_identity.as_ref(), scan_target);
 
         if let Some(rules) = &self.yara_rules {
             if let Ok(data) = std::fs::read(scan_target) {
@@ -1715,12 +1737,12 @@ impl<'a> AVIntegration<'a> {
             if self.signature_cache.len() >= SCAN_METADATA_CACHE_LIMIT {
                 self.signature_cache.clear();
             }
-            self.signature_cache.insert(cache_key.clone(), status.clone());
+            self.signature_cache
+                .insert(cache_key.clone(), status.clone());
         }
 
         Some(status)
     }
-
 }
 
 /// AV -> EDR client (one-shot): connect to AV->EDR pipe and write threat event

@@ -63,7 +63,18 @@ fn is_authenticode_binary_path(path: &Path) -> bool {
         .map(|ext| {
             matches!(
                 ext.to_ascii_lowercase().as_str(),
-                "exe" | "dll" | "sys" | "ocx" | "cpl" | "scr" | "drv" | "mui" | "msi" | "msp" | "msu" | "cat"
+                "exe"
+                    | "dll"
+                    | "sys"
+                    | "ocx"
+                    | "cpl"
+                    | "scr"
+                    | "drv"
+                    | "mui"
+                    | "msi"
+                    | "msp"
+                    | "msu"
+                    | "cat"
             )
         })
         .unwrap_or(false)
@@ -76,23 +87,32 @@ fn is_no_signature_for_non_authenticode_file(path: &Path, result: i32) -> bool {
     // unsigned; keep it as VerificationFailed to avoid false "image is unsigned".
     path.is_file()
         && !is_authenticode_binary_path(path)
-        && matches!(result, TRUST_E_PROVIDER_UNKNOWN | TRUST_E_SUBJECT_FORM_UNKNOWN)
+        && matches!(
+            result,
+            TRUST_E_PROVIDER_UNKNOWN | TRUST_E_SUBJECT_FORM_UNKNOWN
+        )
 }
 
 fn status_text_for(status: SignatureStatus, raw_hresult: u32) -> String {
     match status {
         SignatureStatus::Trusted => "Valid".to_string(),
         SignatureStatus::Unsigned => "No signature".to_string(),
-        SignatureStatus::SignedUntrusted => format!("Signed but untrusted (HRESULT=0x{raw_hresult:08X})"),
+        SignatureStatus::SignedUntrusted => {
+            format!("Signed but untrusted (HRESULT=0x{raw_hresult:08X})")
+        }
         SignatureStatus::Invalid => format!("Invalid signature (HRESULT=0x{raw_hresult:08X})"),
-        SignatureStatus::VerificationFailed => format!("Signature verification failed (HRESULT=0x{raw_hresult:08X})"),
+        SignatureStatus::VerificationFailed => {
+            format!("Signature verification failed (HRESULT=0x{raw_hresult:08X})")
+        }
     }
 }
 
 fn classify_wintrust_result(path: &Path, result: i32) -> SignatureStatus {
     if result == ERROR_SUCCESS.0 as i32 {
         SignatureStatus::Trusted
-    } else if result == TRUST_E_NOSIGNATURE || is_no_signature_for_non_authenticode_file(path, result) {
+    } else if result == TRUST_E_NOSIGNATURE
+        || is_no_signature_for_non_authenticode_file(path, result)
+    {
         SignatureStatus::Unsigned
     } else if matches!(result, TRUST_E_BAD_DIGEST | TRUST_E_CERT_SIGNATURE) {
         SignatureStatus::Invalid
@@ -162,7 +182,10 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         // embedded PKCS#7 signer data.
         if let Ok(name) = get_signer_name_from_file(&path_wide) {
             signer_name = Some(name);
-            if matches!(status, SignatureStatus::Unsigned | SignatureStatus::VerificationFailed) {
+            if matches!(
+                status,
+                SignatureStatus::Unsigned | SignatureStatus::VerificationFailed
+            ) {
                 status = SignatureStatus::SignedUntrusted;
             }
         }
@@ -178,7 +201,9 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
     );
     let signature_status_issues = matches!(
         status,
-        SignatureStatus::SignedUntrusted | SignatureStatus::Invalid | SignatureStatus::VerificationFailed
+        SignatureStatus::SignedUntrusted
+            | SignatureStatus::Invalid
+            | SignatureStatus::VerificationFailed
     );
     let status_text = status_text_for(status, raw_hresult);
 
@@ -272,14 +297,20 @@ mod tests {
                 let info = verify_signature(path);
                 if info.is_trusted {
                     found_signed = true;
-                    assert!(info.is_signed, "Trusted file should also be marked as signed");
+                    assert!(
+                        info.is_signed,
+                        "Trusted file should also be marked as signed"
+                    );
                     assert_eq!(info.status, SignatureStatus::Trusted);
                     assert!(!info.verification_failed);
                     break;
                 }
             }
         }
-        assert!(found_signed, "At least one system file should be verified as signed!");
+        assert!(
+            found_signed,
+            "At least one system file should be verified as signed!"
+        );
     }
 
     #[test]

@@ -179,8 +179,7 @@ fn create_event_source_key() -> windows::core::Result<()> {
         // Use EventCreate.exe which contains a generic "%1" message format string,
         // suitable for plain-text event messages written via ReportEventW.
         let value_name = to_wstring("EventMessageFile");
-        let event_create_path =
-            to_wstring("%SystemRoot%\\System32\\EventCreate.exe");
+        let event_create_path = to_wstring("%SystemRoot%\\System32\\EventCreate.exe");
 
         let exe_bytes: &[u8] = std::slice::from_raw_parts(
             event_create_path.as_ptr() as *const u8,
@@ -224,7 +223,9 @@ fn create_event_source_key() -> windows::core::Result<()> {
             // warn user device needs a reboot for the registry change to take proper effect
             MessageBoxA(
                 None,
-                s!("System needs a reboot for service installation to take effect. Please restart."),
+                s!(
+                    "System needs a reboot for service installation to take effect. Please restart."
+                ),
                 s!("Reboot required"),
                 MB_ICONWARNING,
             );

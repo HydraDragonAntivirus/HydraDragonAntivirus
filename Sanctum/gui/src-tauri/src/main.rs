@@ -28,7 +28,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tauri::async_runtime::spawn(global_inbound_ipc());
 
     let args: Vec<String> = std::env::args().collect();
-    let headless = args.iter().any(|arg| arg == "--headless" || arg == "--hidden");
+    let headless = args
+        .iter()
+        .any(|arg| arg == "--headless" || arg == "--hidden");
 
     tauri::Builder::default()
         .setup(move |app| {
@@ -67,4 +69,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

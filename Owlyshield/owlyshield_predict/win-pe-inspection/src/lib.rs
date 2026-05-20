@@ -119,7 +119,10 @@ pub fn inspect_win32u_syscalls(path: &Path) -> Result<Vec<NtSyscallEntry>, Box<d
     inspect_syscalls(path, &["NtUser", "NtGdi", "NtDComposition", "NtDxgk"])
 }
 
-pub fn inspect_syscalls(path: &Path, export_prefixes: &[&str]) -> Result<Vec<NtSyscallEntry>, Box<dyn Error>> {
+pub fn inspect_syscalls(
+    path: &Path,
+    export_prefixes: &[&str],
+) -> Result<Vec<NtSyscallEntry>, Box<dyn Error>> {
     let bin_data = fs::read(path)?;
     let obj_data = object::File::parse(&*bin_data)?;
     let arch = obj_data.architecture();
@@ -175,13 +178,17 @@ fn inspect_syscalls_aux<Pe: ImageNtHeaders>(
             continue;
         }
 
-        let code = match obj_pe.section_table().pe_data_at(&**bin_data, rva_u64 as u32) {
+        let code = match obj_pe
+            .section_table()
+            .pe_data_at(&**bin_data, rva_u64 as u32)
+        {
             Some(v) => v,
             None => continue,
         };
 
         if let Some(syscall_id) = extract_syscall_id(code) {
-            map.entry(syscall_id).or_insert_with(|| export_name.to_string());
+            map.entry(syscall_id)
+                .or_insert_with(|| export_name.to_string());
         }
     }
 

@@ -17,6 +17,7 @@ env:
 
 jobs:
   publish-tools:
+    if: (!startsWith(github.ref_name, 'auto-update-'))
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -26,6 +27,10 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Format Rust sources
+        working-directory: Owlyshield/tools/rust_win_toast
+        run: cargo fmt --all
 
       - name: Build Rust Win Toast
         working-directory: Owlyshield/tools/rust_win_toast
@@ -53,6 +58,7 @@ jobs:
             hydradragon/Owlyshield/utils
             hydradragon/Owlyshield/Owlyshield Service/tensorflowlite_c.dll
             Owlyshield/tools/rust_win_toast/Cargo.lock
+            Owlyshield/tools/rust_win_toast/src
 
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'

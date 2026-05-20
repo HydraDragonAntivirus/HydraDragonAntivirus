@@ -281,13 +281,15 @@ impl SelfDefenseTelemetryEvent {
             return num.min(u32::MAX as u64) as u32;
         }
 
-        let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+        let Some(text) = value
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
             return 0;
         };
 
-        let parsed = if let Some(hex) = text
-            .strip_prefix("0x")
-            .or_else(|| text.strip_prefix("0X"))
+        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
         {
             u64::from_str_radix(hex, 16)
         } else {
@@ -320,7 +322,10 @@ impl SelfDefenseTelemetryEvent {
             "registry".to_string()
         } else if haystack.contains("process") || haystack.contains("thread") {
             "process".to_string()
-        } else if haystack.contains("disk") || haystack.contains("mbr") || haystack.contains("ioctl") {
+        } else if haystack.contains("disk")
+            || haystack.contains("mbr")
+            || haystack.contains("ioctl")
+        {
             "disk".to_string()
         } else {
             "file".to_string()
@@ -371,8 +376,11 @@ impl SelfDefenseTelemetryEvent {
                     .as_millis() as u64
             });
         let source = Self::string_field(event, &["source"]).if_empty("openedr");
-        let category = Self::string_field(event, &["category"])
-            .if_empty(Self::classify_category(&attack_type, &operation, &protected_path));
+        let category = Self::string_field(event, &["category"]).if_empty(Self::classify_category(
+            &attack_type,
+            &operation,
+            &protected_path,
+        ));
         let action = Self::classify_action(event, &attack_type, &operation);
 
         Some(Self {
@@ -685,10 +693,10 @@ pub struct IrpOperationRecord {
     pub extension: String,
     pub entropy: f64,
     pub bytes_transferred: u64,
-    pub target_pid: u32,       // NEW: For operations targeting another process
-    pub function_name: String, // NEW: For generic API hooks - which function was called
-    pub pipe_name: String,     // NEW: For Named Pipe detect
-    pub pipe_payload: Vec<u8>, // NEW: For Named Pipe payload detect
+    pub target_pid: u32,         // NEW: For operations targeting another process
+    pub function_name: String,   // NEW: For generic API hooks - which function was called
+    pub pipe_name: String,       // NEW: For Named Pipe detect
+    pub pipe_payload: Vec<u8>,   // NEW: For Named Pipe payload detect
     pub raw_arguments: [u64; 4], // NEW: For API argument matching
 }
 
@@ -1667,7 +1675,10 @@ fn parse_extension_whitelist_source_mode(raw: &str) -> Option<ExtensionWhitelist
 }
 
 fn extension_whitelist_source_mode(configured_mode: Option<&str>) -> ExtensionWhitelistSourceMode {
-    if let Some(raw_mode) = configured_mode.map(str::trim).filter(|mode| !mode.is_empty()) {
+    if let Some(raw_mode) = configured_mode
+        .map(str::trim)
+        .filter(|mode| !mode.is_empty())
+    {
         if let Some(mode) = parse_extension_whitelist_source_mode(raw_mode) {
             Logging::info(&format!(
                 "[BehaviorEngine] ExtensionSource config param=EXTENSION_SOURCE_MODE value={} resolved_mode={}",
@@ -5725,7 +5736,9 @@ impl BehaviorEngine {
         let matches: Vec<&HookErrorRecord> = state
             .recent_hook_errors
             .iter()
-            .filter(|record| Self::hook_error_record_matches(cache, cond_group, record, state.is_acg_enabled))
+            .filter(|record| {
+                Self::hook_error_record_matches(cache, cond_group, record, state.is_acg_enabled)
+            })
             .collect();
 
         if matches.len() < required {
@@ -5997,7 +6010,11 @@ impl BehaviorEngine {
                 &cond_group.self_defense_attacker_patterns,
                 &[&event.attacker_path],
             )
-            && Self::pattern_list_matches_any(cache, &cond_group.self_defense_actions, &[&event.action])
+            && Self::pattern_list_matches_any(
+                cache,
+                &cond_group.self_defense_actions,
+                &[&event.action],
+            )
     }
 
     fn apply_self_defense_named_conditions(&mut self, gid: u64, event: &SelfDefenseTelemetryEvent) {
@@ -6045,7 +6062,13 @@ impl BehaviorEngine {
         if let Some(state) = self.process_states.get_mut(&gid) {
             for (rule_name, cond_name, required, match_key, debug) in matches {
                 Self::record_named_condition_match(
-                    state, &rule_name, &cond_name, match_key, event_time(event), required, debug,
+                    state,
+                    &rule_name,
+                    &cond_name,
+                    match_key,
+                    event_time(event),
+                    required,
+                    debug,
                 );
                 Logging::info(&format!(
                     "[BehaviorEngine] Self-defense telemetry matched condition '{}' for PID {}: category={} action={} attack_type={} target={}",
@@ -6242,7 +6265,9 @@ impl BehaviorEngine {
         };
 
         if is_protected_registry || is_protected_file {
-            let category = if lowercase_path.contains("/software/classes/clsid") || lowercase_path.contains("/software/classes/appid") {
+            let category = if lowercase_path.contains("/software/classes/clsid")
+                || lowercase_path.contains("/software/classes/appid")
+            {
                 "com".to_string()
             } else if is_protected_registry {
                 "registry".to_string()
@@ -6252,11 +6277,21 @@ impl BehaviorEngine {
 
             let operation = if is_protected_registry {
                 match msg.file_change {
-                    _ if msg.file_change == FileChangeInfo::RegSetValue as u8 => "SET_VALUE".to_string(),
-                    _ if msg.file_change == FileChangeInfo::RegDeleteValue as u8 => "DELETE_VALUE".to_string(),
-                    _ if msg.file_change == FileChangeInfo::RegDeleteKey as u8 => "DELETE_KEY".to_string(),
-                    _ if msg.file_change == FileChangeInfo::RegCreateKey as u8 => "CREATE_KEY".to_string(),
-                    _ if msg.file_change == FileChangeInfo::RegRenameKey as u8 => "RENAME_KEY".to_string(),
+                    _ if msg.file_change == FileChangeInfo::RegSetValue as u8 => {
+                        "SET_VALUE".to_string()
+                    }
+                    _ if msg.file_change == FileChangeInfo::RegDeleteValue as u8 => {
+                        "DELETE_VALUE".to_string()
+                    }
+                    _ if msg.file_change == FileChangeInfo::RegDeleteKey as u8 => {
+                        "DELETE_KEY".to_string()
+                    }
+                    _ if msg.file_change == FileChangeInfo::RegCreateKey as u8 => {
+                        "CREATE_KEY".to_string()
+                    }
+                    _ if msg.file_change == FileChangeInfo::RegRenameKey as u8 => {
+                        "RENAME_KEY".to_string()
+                    }
                     _ => "REGISTRY_OTHER".to_string(),
                 }
             } else {
@@ -6282,7 +6317,11 @@ impl BehaviorEngine {
             let action = "telemetry".to_string();
 
             let self_defense_event = SelfDefenseTelemetryEvent {
-                timestamp_ms: msg.time.duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+                timestamp_ms: msg
+                    .time
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
                 source: "openedr".to_string(),
                 category,
                 attack_type,
@@ -7830,7 +7869,9 @@ impl BehaviorEngine {
                     };
 
                     let network_ok = !cond_group.has_network_activity || network_activity_observed;
-                    let acg_ok = cond_group.is_acg_enabled.map_or(true, |expected| expected == state.is_acg_enabled);
+                    let acg_ok = cond_group
+                        .is_acg_enabled
+                        .map_or(true, |expected| expected == state.is_acg_enabled);
 
                     if created_process_ok
                         && recent_payload_ok
@@ -9252,9 +9293,10 @@ impl BehaviorEngine {
                         module_pattern,
                         &record.function_name,
                     )
-                    && (arguments.is_empty() || arguments.iter().all(|req_arg| {
-                        Self::api_argument_matches(req_arg, record)
-                    }))
+                    && (arguments.is_empty()
+                        || arguments
+                            .iter()
+                            .all(|req_arg| Self::api_argument_matches(req_arg, record)))
             })
             .map(|record| record.timestamp)
     }
@@ -9293,9 +9335,12 @@ impl BehaviorEngine {
                     } => {
                         let mut best_ts = None;
                         for name_pattern in functions {
-                            if let Some(ts) =
-                                self.latest_api_match_time(state, name_pattern, module_pattern, arguments)
-                            {
+                            if let Some(ts) = self.latest_api_match_time(
+                                state,
+                                name_pattern,
+                                module_pattern,
+                                arguments,
+                            ) {
                                 if best_ts.is_none() || ts > best_ts.unwrap() {
                                     best_ts = Some(ts);
                                 }
@@ -9425,14 +9470,13 @@ impl BehaviorEngine {
                                 }
                                 "rename" => {
                                     irp_op == IrpMajorOp::IrpSetInfo
-                                        && (rec.file_change == FileChangeInfo::ChangeRenameFile as u8
+                                        && (rec.file_change
+                                            == FileChangeInfo::ChangeRenameFile as u8
                                             || rec.file_change
                                                 == FileChangeInfo::ChangeExtensionChanged as u8)
                                 }
                                 "setinfo" => irp_op == IrpMajorOp::IrpSetInfo,
-                                "registry_read"
-                                | "registry_write"
-                                | "registry_delete"
+                                "registry_read" | "registry_write" | "registry_delete"
                                 | "registry_create" => irp_op == IrpMajorOp::IrpRegistry,
                                 "process_create" => irp_op == IrpMajorOp::IrpProcessCreate,
                                 "process_terminate" => irp_op == IrpMajorOp::IrpProcessTerminate,
@@ -9560,7 +9604,7 @@ impl BehaviorEngine {
                 for ghost in &state.sanctum_stats.ghost_telemetry {
                     let func_ok = functions.is_empty()
                         || functions.iter().any(|f| ghost.function.contains(f));
-                    
+
                     let addr_ok = caller_address_patterns.is_empty() || {
                         let addr_hex = format!("{:X}", ghost.caller_address);
                         caller_address_patterns.iter().any(|p| {
@@ -9573,7 +9617,7 @@ impl BehaviorEngine {
                             }
                         })
                     };
-                    
+
                     let hex_ok = hex_patterns.is_empty()
                         || hex_patterns.iter().any(|p| {
                             Self::matches_pattern_internal(&self.regex_cache, p, &ghost.hex_payload)
@@ -9593,9 +9637,10 @@ impl BehaviorEngine {
                 module_pattern,
             } => {
                 let check_api = |api: &IrpOperationRecord| {
-                    let func_match = functions.is_empty() || functions.iter().any(|f| {
-                        self.api_candidate_matches(f, module_pattern, &api.function_name)
-                    });
+                    let func_match = functions.is_empty()
+                        || functions.iter().any(|f| {
+                            self.api_candidate_matches(f, module_pattern, &api.function_name)
+                        });
                     if !func_match {
                         return false;
                     }
@@ -9604,15 +9649,12 @@ impl BehaviorEngine {
                         return true;
                     }
 
-                    arguments.iter().all(|req_arg| {
-                        Self::api_argument_matches(req_arg, api)
-                    })
+                    arguments
+                        .iter()
+                        .all(|req_arg| Self::api_argument_matches(req_arg, api))
                 };
 
-                state
-                    .irp_operations
-                    .iter()
-                    .any(|api| check_api(api))
+                state.irp_operations.iter().any(|api| check_api(api))
             }
             RuleCondition::CommandLineMatch {
                 patterns,
@@ -9762,7 +9804,7 @@ impl BehaviorEngine {
         }
         let observed_val = api.raw_arguments[idx];
         let req_val_str = req_arg.value.trim().to_lowercase();
-        
+
         if req_val_str.starts_with("0x") {
             if let Ok(req_val) = u64::from_str_radix(&req_val_str[2..], 16) {
                 return observed_val == req_val;
@@ -9770,14 +9812,14 @@ impl BehaviorEngine {
         } else if let Ok(req_val) = req_val_str.parse::<u64>() {
             return observed_val == req_val;
         }
-        
+
         false
     }
 
     fn api_argument_index(function: &str, arg_name: &str) -> Option<usize> {
         let f = function.to_lowercase();
         let a = arg_name.to_lowercase();
-        
+
         match f.as_str() {
             "ntwritevirtualmemory" | "ntreadvirtualmemory" => match a.as_str() {
                 "processhandle" => Some(0),

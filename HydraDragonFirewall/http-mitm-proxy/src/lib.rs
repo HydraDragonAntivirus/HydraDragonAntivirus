@@ -9,9 +9,7 @@ use hyper::{
 };
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use moka::sync::Cache;
-use std::{
-    borrow::Borrow, error::Error as StdError, future::Future, net::SocketAddr, sync::Arc,
-};
+use std::{borrow::Borrow, error::Error as StdError, future::Future, net::SocketAddr, sync::Arc};
 use tls::{CertifiedKeyDer, generate_cert};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_rustls::rustls;
@@ -234,7 +232,11 @@ where
         let server_config = match server_config {
             Ok(server_config) => Arc::new(server_config),
             Err(err) => {
-                tracing::error!("Failed to create transparent TLS config for {}: {}", host, err);
+                tracing::error!(
+                    "Failed to create transparent TLS config for {}: {}",
+                    host,
+                    err
+                );
                 return;
             }
         };
@@ -505,10 +507,7 @@ async fn peek_tls_sni(stream: &TcpStream, timeout: std::time::Duration) -> Optio
         }
     };
 
-    tokio::time::timeout(timeout, fut)
-        .await
-        .ok()
-        .flatten()
+    tokio::time::timeout(timeout, fut).await.ok().flatten()
 }
 
 fn parse_tls_sni(data: &[u8]) -> Option<String> {

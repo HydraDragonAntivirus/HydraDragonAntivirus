@@ -44,6 +44,16 @@ jobs:
         working-directory: Owlyshield/owlyshield_predict
         run: cargo update
 
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/moonfire-tflite/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/slc-paths/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/win-pe-inspection/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/ring-patch/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/vfs-kprobes/Cargo.toml --all
+
       - name: Build Predict Service
         working-directory: Owlyshield/owlyshield_predict
         run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum
@@ -66,6 +76,7 @@ jobs:
           paths: |
             hydradragon/Owlyshield/Owlyshield Service
             Owlyshield/owlyshield_predict/Cargo.lock
+            Owlyshield/owlyshield_predict
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8

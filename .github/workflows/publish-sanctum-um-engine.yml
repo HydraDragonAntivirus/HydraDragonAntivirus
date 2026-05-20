@@ -29,6 +29,9 @@ jobs:
       - name: Update Cargo.lock
         working-directory: Sanctum
         run: cargo update
+      - name: Format Rust sources
+        working-directory: Sanctum
+        run: cargo fmt --all
       - name: Build um_engine
         working-directory: Sanctum
         run: cargo build --release -p um_engine
@@ -51,6 +54,7 @@ jobs:
           paths: |
             hydradragon/Sanctum/um_engine.exe
             Sanctum/Cargo.lock
+            Sanctum
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8

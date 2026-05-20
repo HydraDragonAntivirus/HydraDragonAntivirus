@@ -35,7 +35,8 @@ impl Default for ScanOptions {
 
 pub fn scan_path(path: &Path, rules: &RuleSet, options: &ScanOptions) -> Result<ScanReport> {
     if let Some(max) = options.max_file_size {
-        let meta = std::fs::metadata(path).with_context(|| format!("metadata failed for {}", path.display()))?;
+        let meta = std::fs::metadata(path)
+            .with_context(|| format!("metadata failed for {}", path.display()))?;
         if meta.len() > max {
             anyhow::bail!("file too large: {} bytes > {} bytes", meta.len(), max);
         }
@@ -49,12 +50,20 @@ pub fn scan_path(path: &Path, rules: &RuleSet, options: &ScanOptions) -> Result<
     // so move them out and keep one owned copy for byte-pattern rules.
     let bytes = std::mem::take(&mut ctx.bytes);
     let mut report = report::build_report(ctx);
-    rules.evaluate_into(&mut report, &bytes, RuleEvalOptions {
-        profile_rules: options.profile_rules,
-        parallel_rules: options.parallel_rules,
-        stop_on_detection: options.stop_on_detection,
+    rules.evaluate_into(
+        &mut report,
+        &bytes,
+        RuleEvalOptions {
+            profile_rules: options.profile_rules,
+            parallel_rules: options.parallel_rules,
+            stop_on_detection: options.stop_on_detection,
+        },
+    );
+    report.findings.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.rule_id.cmp(&b.rule_id))
     });
-    report.findings.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.rule_id.cmp(&b.rule_id)));
     aggregate_verdict(&mut report);
     Ok(report)
 }

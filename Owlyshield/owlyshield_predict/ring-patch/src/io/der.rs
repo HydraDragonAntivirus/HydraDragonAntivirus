@@ -42,11 +42,14 @@ pub enum Tag {
 }
 
 impl From<Tag> for usize {
-    fn from(tag: Tag) -> Self { tag as usize }
+    fn from(tag: Tag) -> Self {
+        tag as usize
+    }
 }
 
 pub fn expect_tag_and_get_value<'a>(
-    input: &mut untrusted::Reader<'a>, tag: Tag,
+    input: &mut untrusted::Reader<'a>,
+    tag: Tag,
 ) -> Result<untrusted::Input<'a>, error::Unspecified> {
     let (actual_tag, inner) = read_tag_and_get_value(input)?;
     if usize::from(tag) != usize::from(actual_tag) {
@@ -74,7 +77,7 @@ pub fn read_tag_and_get_value<'a>(
                 return Err(error::Unspecified); // Not the canonical encoding.
             }
             usize::from(second_byte)
-        },
+        }
         0x82 => {
             let second_byte = usize::from(input.read_byte()?);
             let third_byte = usize::from(input.read_byte()?);
@@ -83,10 +86,10 @@ pub fn read_tag_and_get_value<'a>(
                 return Err(error::Unspecified); // Not the canonical encoding.
             }
             combined
-        },
+        }
         _ => {
             return Err(error::Unspecified); // We don't support longer lengths.
-        },
+        }
     };
 
     let inner = input.skip_and_get_input(length)?;
@@ -108,7 +111,10 @@ pub fn bit_string_with_no_unused_bits<'a>(
 // TODO: investigate taking decoder as a reference to reduce generated code
 // size.
 pub fn nested<'a, F, R, E: Copy>(
-    input: &mut untrusted::Reader<'a>, tag: Tag, error: E, decoder: F,
+    input: &mut untrusted::Reader<'a>,
+    tag: Tag,
+    error: E,
+    decoder: F,
 ) -> Result<R, E>
 where
     F: FnOnce(&mut untrusted::Reader<'a>) -> Result<R, E>,
@@ -118,7 +124,8 @@ where
 }
 
 fn nonnegative_integer<'a>(
-    input: &mut untrusted::Reader<'a>, min_value: u8,
+    input: &mut untrusted::Reader<'a>,
+    min_value: u8,
 ) -> Result<untrusted::Input<'a>, error::Unspecified> {
     // Verify that |input|, which has had any leading zero stripped off, is the
     // encoding of a value of at least |min_value|.

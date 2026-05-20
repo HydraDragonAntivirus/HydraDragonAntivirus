@@ -159,7 +159,7 @@ pub struct MLFeatures {
     pub sanctum_suspicious_hits_count: f32,
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_detected: f32,
-    
+
     // Catch-all bucket for automatically flattened numeric features
     #[serde(flatten)]
     pub dynamic_features: std::collections::HashMap<String, f32>,
@@ -192,8 +192,8 @@ pub struct RawBehaviorData {
     pub sanctum_injection_score: f32,
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub sanctum_suspicious_hits: Vec<String>,
-    
-    /// Dynamically captures the complete ApiTracker state. Any new tracking field 
+
+    /// Dynamically captures the complete ApiTracker state. Any new tracking field
     /// added to the engine will automatically appear in the ML datasets here.
     pub full_tracker_state: Option<serde_json::Value>,
 }
@@ -511,7 +511,7 @@ impl MLCollector {
                 .sanctum_operations
                 .suspicious_syscall_hits
                 .clone(),
-            
+
             // Dynamic ML feature dump (requires serde_json feature flag active)
             full_tracker_state: serde_json::to_value(api_tracker).ok(),
         }
@@ -1151,27 +1151,48 @@ impl MLCollector {
         let mut file = File::create(output_path)?;
 
         let mut all_keys: HashSet<String> = HashSet::new();
-        for sample in self.malicious_samples.iter().chain(self.benign_samples.iter()) {
+        for sample in self
+            .malicious_samples
+            .iter()
+            .chain(self.benign_samples.iter())
+        {
             if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(&sample.features) {
                 all_keys.extend(map.keys().cloned());
             }
         }
-        
+
         // Ensure deterministic column order
         let mut sorted_keys: Vec<String> = all_keys.into_iter().collect();
         sorted_keys.sort();
 
         // Write header dynamically
-        writeln!(file, "id,process_name,is_malicious,{}", sorted_keys.join(","))?;
+        writeln!(
+            file,
+            "id,process_name,is_malicious,{}",
+            sorted_keys.join(",")
+        )?;
 
         // Write all samples dynamically
-        for sample in self.malicious_samples.iter().chain(self.benign_samples.iter()) {
-            let mut row = format!("{},{},{}", sample.id, sample.process_name, sample.is_malicious as u8);
+        for sample in self
+            .malicious_samples
+            .iter()
+            .chain(self.benign_samples.iter())
+        {
+            let mut row = format!(
+                "{},{},{}",
+                sample.id, sample.process_name, sample.is_malicious as u8
+            );
             if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(&sample.features) {
                 for key in &sorted_keys {
                     let val = match map.get(key) {
                         Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0),
-                        Some(serde_json::Value::Bool(b)) => if *b { 1.0 } else { 0.0 },
+                        Some(serde_json::Value::Bool(b)) => {
+                            if *b {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
                         _ => 0.0,
                     };
                     row.push_str(&format!(",{}", val));
@@ -1467,7 +1488,7 @@ impl FeatureExtractor {
             } else {
                 0.0
             },
-            
+
             dynamic_features,
         }
     }

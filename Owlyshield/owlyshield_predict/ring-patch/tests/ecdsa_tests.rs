@@ -160,7 +160,7 @@ fn signature_ecdsa_verify_asn1_test() {
                 ("P-384", "SHA384") => &signature::ECDSA_P384_SHA384_ASN1,
                 _ => {
                     panic!("Unsupported curve+digest: {}+{}", curve_name, digest_name);
-                },
+                }
             };
 
             let actual_result = signature::verify(alg, public_key, msg, sig);
@@ -197,7 +197,7 @@ fn signature_ecdsa_verify_fixed_test() {
                 ("P-384", "SHA384") => &signature::ECDSA_P384_SHA384_FIXED,
                 _ => {
                     panic!("Unsupported curve+digest: {}+{}", curve_name, digest_name);
-                },
+                }
             };
 
             let actual_result = signature::verify(alg, public_key, msg, sig);

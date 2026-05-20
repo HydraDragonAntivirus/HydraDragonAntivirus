@@ -1,6 +1,6 @@
 use leptos::*;
-use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 #[wasm_bindgen]
@@ -48,9 +48,12 @@ fn App() -> impl IntoView {
     // Set interval for periodic status updates (every 1.5 seconds)
     let fetch_clone = fetch_status.clone();
     use std::time::Duration;
-    leptos::set_interval(move || {
-        fetch_clone();
-    }, Duration::from_millis(1500));
+    leptos::set_interval(
+        move || {
+            fetch_clone();
+        },
+        Duration::from_millis(1500),
+    );
 
     // Start component helper
     let start_comp = move |name: String| {
@@ -76,7 +79,11 @@ fn App() -> impl IntoView {
     let toggle_gui = move |component: String, show: bool| {
         let comp_clone = component.clone();
         spawn_local(async move {
-            let args = serde_wasm_bindgen::to_value(&ToggleGuiArgs { component: comp_clone, show }).unwrap();
+            let args = serde_wasm_bindgen::to_value(&ToggleGuiArgs {
+                component: comp_clone,
+                show,
+            })
+            .unwrap();
             let _ = invoke("toggle_gui_visibility", args).await;
             fetch_status();
         });
@@ -114,7 +121,7 @@ fn App() -> impl IntoView {
             "Python Engine" => "AI model & advanced heuristics execution server.",
             "OpenEDR" => "Endpoint Event Detection and telemetry collection agent.",
             "Sanctum" => "Kernel-mode PPL protection and system integrity monitor.",
-            _ => "HydraDragon security component."
+            _ => "HydraDragon security component.",
         }
     };
 
@@ -161,7 +168,7 @@ fn App() -> impl IntoView {
                                 </div>
                                 <div class="component-desc">{desc}</div>
                             </div>
-                            
+
                             <div class="card-actions">
                                 <div style="display: flex; gap: 8px;">
                                     {if is_running {
@@ -181,8 +188,8 @@ fn App() -> impl IntoView {
 
                                 {if comp.gui_visible.is_some() && is_running {
                                     view! {
-                                        <button 
-                                            class=format!("btn btn-gui-toggle {}", if is_gui_visible { "visible" } else { "" }) 
+                                        <button
+                                            class=format!("btn btn-gui-toggle {}", if is_gui_visible { "visible" } else { "" })
                                             on:click=move |_| toggle_gui(name_for_gui.clone(), !is_gui_visible)
                                         >
                                             {if is_gui_visible {

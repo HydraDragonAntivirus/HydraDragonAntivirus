@@ -29,6 +29,9 @@ jobs:
       - name: Update Cargo.lock
         working-directory: Sanctum
         run: cargo update
+      - name: Format Rust sources
+        working-directory: Sanctum
+        run: cargo fmt --all
       - name: Build injected_dll
         working-directory: Sanctum
         run: cargo build --release -p injected_dll
@@ -51,6 +54,7 @@ jobs:
           paths: |
             hydradragon/Sanctum/System32/sanctum.dll
             Sanctum/Cargo.lock
+            Sanctum
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8

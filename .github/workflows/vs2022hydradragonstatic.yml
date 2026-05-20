@@ -17,7 +17,8 @@ env:
   CARGO_TERM_COLOR: always
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
   win-build:
@@ -44,6 +45,9 @@ jobs:
       with:
         key: vs2022-hydradragonstatic
 
+    - name: Format Rust sources
+      run: cargo fmt --all
+
     - name: Cargo check
       run: cargo check --verbose
 
@@ -52,6 +56,28 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+
+    - name: Check for formatting changes
+      id: check_format_changes
+      if: github.event_name == 'push' && !startsWith(github.ref_name, 'auto-update-')
+      uses: ./.github/actions/check-publishable-changes
+      with:
+        paths: |
+          Owlyshield/hydradragonstatic/src
+
+    - name: Create formatting PR
+      if: github.event_name == 'push' && !startsWith(github.ref_name, 'auto-update-') && steps.check_format_changes.outputs.changed == 'true'
+      uses: peter-evans/create-pull-request@v8
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "style(hydradragonstatic): format Rust sources"
+        title: "Format HydraDragonStatic Rust sources"
+        add-paths: |
+          ${{ steps.check_format_changes.outputs.publishable_files }}
+        branch: "auto-update-hydradragonstatic-format"
+        base: ${{ github.ref_name }}
+        delete-branch: true
+        labels: automated-pr, rustfmt, hydradragonstatic
 
     - name: Upload build directory
       uses: actions/upload-artifact@v7

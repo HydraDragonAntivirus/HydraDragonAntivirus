@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   build-and-stage:
+    if: (!startsWith(github.ref_name, 'auto-update-'))
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -44,6 +45,12 @@ jobs:
           cargo update --manifest-path HydraDragonLauncher/Cargo.toml
           cargo update --manifest-path HydraDragonLauncher/ui/Cargo.toml
 
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path HydraDragonLauncher/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonLauncher/ui/Cargo.toml --all
+
       - name: Build UI
         working-directory: HydraDragonLauncher/ui
         run: trunk build --release -d ../dist
@@ -69,6 +76,9 @@ jobs:
           paths: |
             hydradragon/HydraDragonLauncher
             HydraDragonLauncher/target/release
+            HydraDragonLauncher/build.rs
+            HydraDragonLauncher/src
+            HydraDragonLauncher/ui/src
       
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'

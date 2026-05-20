@@ -6,21 +6,79 @@ use std::collections::HashSet;
 
 static SUSPICIOUS_IMPORTS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     [
-        "VirtualAlloc", "VirtualAllocEx", "VirtualProtect", "VirtualProtectEx", "WriteProcessMemory",
-        "ReadProcessMemory", "CreateRemoteThread", "NtCreateThreadEx", "RtlCreateUserThread",
-        "QueueUserAPC", "SetWindowsHookExA", "SetWindowsHookExW", "OpenProcess", "OpenThread",
-        "SuspendThread", "ResumeThread", "GetThreadContext", "SetThreadContext", "NtMapViewOfSection",
-        "MapViewOfFile", "CreateFileMappingA", "CreateFileMappingW", "LoadLibraryA", "LoadLibraryW",
-        "GetProcAddress", "LdrLoadDll", "NtQueryInformationProcess", "IsDebuggerPresent",
-        "CheckRemoteDebuggerPresent", "OutputDebugStringA", "OutputDebugStringW", "GetTickCount",
-        "QueryPerformanceCounter", "RegOpenKeyExA", "RegOpenKeyExW", "RegSetValueExA", "RegSetValueExW",
-        "RegCreateKeyExA", "RegCreateKeyExW", "RegDeleteValueA", "RegDeleteValueW", "WinExec",
-        "ShellExecuteA", "ShellExecuteW", "CreateProcessA", "CreateProcessW", "URLDownloadToFileA",
-        "URLDownloadToFileW", "InternetOpenA", "InternetOpenW", "InternetConnectA", "InternetConnectW",
-        "HttpOpenRequestA", "HttpOpenRequestW", "WSAStartup", "connect", "send", "recv",
-        "CryptAcquireContextA", "CryptAcquireContextW", "CryptEncrypt", "CryptDecrypt", "BCryptEncrypt",
-        "BCryptDecrypt", "AdjustTokenPrivileges", "OpenProcessToken", "LookupPrivilegeValueA", "LookupPrivilegeValueW",
-        "CreateServiceA", "CreateServiceW", "StartServiceA", "StartServiceW", "ControlService",
+        "VirtualAlloc",
+        "VirtualAllocEx",
+        "VirtualProtect",
+        "VirtualProtectEx",
+        "WriteProcessMemory",
+        "ReadProcessMemory",
+        "CreateRemoteThread",
+        "NtCreateThreadEx",
+        "RtlCreateUserThread",
+        "QueueUserAPC",
+        "SetWindowsHookExA",
+        "SetWindowsHookExW",
+        "OpenProcess",
+        "OpenThread",
+        "SuspendThread",
+        "ResumeThread",
+        "GetThreadContext",
+        "SetThreadContext",
+        "NtMapViewOfSection",
+        "MapViewOfFile",
+        "CreateFileMappingA",
+        "CreateFileMappingW",
+        "LoadLibraryA",
+        "LoadLibraryW",
+        "GetProcAddress",
+        "LdrLoadDll",
+        "NtQueryInformationProcess",
+        "IsDebuggerPresent",
+        "CheckRemoteDebuggerPresent",
+        "OutputDebugStringA",
+        "OutputDebugStringW",
+        "GetTickCount",
+        "QueryPerformanceCounter",
+        "RegOpenKeyExA",
+        "RegOpenKeyExW",
+        "RegSetValueExA",
+        "RegSetValueExW",
+        "RegCreateKeyExA",
+        "RegCreateKeyExW",
+        "RegDeleteValueA",
+        "RegDeleteValueW",
+        "WinExec",
+        "ShellExecuteA",
+        "ShellExecuteW",
+        "CreateProcessA",
+        "CreateProcessW",
+        "URLDownloadToFileA",
+        "URLDownloadToFileW",
+        "InternetOpenA",
+        "InternetOpenW",
+        "InternetConnectA",
+        "InternetConnectW",
+        "HttpOpenRequestA",
+        "HttpOpenRequestW",
+        "WSAStartup",
+        "connect",
+        "send",
+        "recv",
+        "CryptAcquireContextA",
+        "CryptAcquireContextW",
+        "CryptEncrypt",
+        "CryptDecrypt",
+        "BCryptEncrypt",
+        "BCryptDecrypt",
+        "AdjustTokenPrivileges",
+        "OpenProcessToken",
+        "LookupPrivilegeValueA",
+        "LookupPrivilegeValueW",
+        "CreateServiceA",
+        "CreateServiceW",
+        "StartServiceA",
+        "StartServiceW",
+        "ControlService",
     ]
     .into_iter()
     .collect()
@@ -69,8 +127,16 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
         } else {
             0.0
         };
-        if entropy >= 7.20 || name.starts_with("UPX") || name.starts_with(".packed") || name.is_empty() {
-            suspicious_sections.push(format!("{} entropy={:.3}", if name.is_empty() { "<empty>" } else { &name }, entropy));
+        if entropy >= 7.20
+            || name.starts_with("UPX")
+            || name.starts_with(".packed")
+            || name.is_empty()
+        {
+            suspicious_sections.push(format!(
+                "{} entropy={:.3}",
+                if name.is_empty() { "<empty>" } else { &name },
+                entropy
+            ));
         }
         sections.push(PeSectionInfo {
             name,

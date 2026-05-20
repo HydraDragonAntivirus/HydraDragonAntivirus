@@ -40,26 +40,41 @@ impl ScanView {
         let imports_lower = report
             .pe
             .as_ref()
-            .map(|pe| pe.imports.iter().map(|imp| imp.to_ascii_lowercase()).collect())
+            .map(|pe| {
+                pe.imports
+                    .iter()
+                    .map(|imp| imp.to_ascii_lowercase())
+                    .collect()
+            })
             .unwrap_or_default();
         let dlls_lower = report
             .pe
             .as_ref()
             .map(|pe| pe.dlls.iter().map(|dll| dll.to_ascii_lowercase()).collect())
             .unwrap_or_default();
-        Self { strings_lower, decoded_lower, imports_lower, dlls_lower }
+        Self {
+            strings_lower,
+            decoded_lower,
+            imports_lower,
+            dlls_lower,
+        }
     }
 }
 
-static REGEX_CACHE: Lazy<Mutex<HashMap<String, Arc<Regex>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-static BYTE_PATTERN_CACHE: Lazy<Mutex<HashMap<String, Arc<Vec<ByteToken>>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static REGEX_CACHE: Lazy<Mutex<HashMap<String, Arc<Regex>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static BYTE_PATTERN_CACHE: Lazy<Mutex<HashMap<String, Arc<Vec<ByteToken>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
     if let Some(found) = REGEX_CACHE.lock().ok()?.get(pattern).cloned() {
         return Some(found);
     }
     let compiled = Arc::new(Regex::new(pattern).ok()?);
-    REGEX_CACHE.lock().ok()?.insert(pattern.to_string(), compiled.clone());
+    REGEX_CACHE
+        .lock()
+        .ok()?
+        .insert(pattern.to_string(), compiled.clone());
     Some(compiled)
 }
 
@@ -68,7 +83,10 @@ fn cached_byte_pattern(pattern: &str) -> Option<Arc<Vec<ByteToken>>> {
         return Some(found);
     }
     let compiled = Arc::new(compile_byte_pattern(pattern)?);
-    BYTE_PATTERN_CACHE.lock().ok()?.insert(pattern.to_string(), compiled.clone());
+    BYTE_PATTERN_CACHE
+        .lock()
+        .ok()?
+        .insert(pattern.to_string(), compiled.clone());
     Some(compiled)
 }
 
@@ -113,7 +131,13 @@ impl RuleSet {
         }
     }
 
-    fn evaluate_sequential_into(&self, report: &mut ScanReport, view: &ScanView, bytes: &[u8], options: RuleEvalOptions) {
+    fn evaluate_sequential_into(
+        &self,
+        report: &mut ScanReport,
+        view: &ScanView,
+        bytes: &[u8],
+        options: RuleEvalOptions,
+    ) {
         for (index, rule) in self.rules.iter().enumerate() {
             let result = evaluate_one_rule(index, rule, report, view, bytes, options.profile_rules);
             let matched = result.finding.is_some();
@@ -124,7 +148,13 @@ impl RuleSet {
         }
     }
 
-    fn evaluate_parallel_into(&self, report: &mut ScanReport, view: &ScanView, bytes: &[u8], options: RuleEvalOptions) {
+    fn evaluate_parallel_into(
+        &self,
+        report: &mut ScanReport,
+        view: &ScanView,
+        bytes: &[u8],
+        options: RuleEvalOptions,
+    ) {
         if options.stop_on_detection {
             // Deterministic first-match mode: returns the earliest matching rule in rule-file order.
             // Rayon may evaluate some later rules speculatively, but only the first ordered hit is kept.
@@ -134,7 +164,14 @@ impl RuleSet {
                     .par_iter()
                     .enumerate()
                     .find_map_first(|(index, rule)| {
-                        let result = evaluate_one_rule(index, rule, report_ref, view, bytes, options.profile_rules);
+                        let result = evaluate_one_rule(
+                            index,
+                            rule,
+                            report_ref,
+                            view,
+                            bytes,
+                            options.profile_rules,
+                        );
                         result.finding.is_some().then_some(result)
                     })
             };
@@ -149,7 +186,9 @@ impl RuleSet {
             self.rules
                 .par_iter()
                 .enumerate()
-                .map(|(index, rule)| evaluate_one_rule(index, rule, report_ref, view, bytes, options.profile_rules))
+                .map(|(index, rule)| {
+                    evaluate_one_rule(index, rule, report_ref, view, bytes, options.profile_rules)
+                })
                 .collect()
         };
         results.sort_by_key(|result| result.index);
@@ -169,14 +208,27 @@ fn warm_rule_caches(rule: &Rule) {
             | RuleCondition::PathRegex { pattern } => {
                 let _ = cached_regex(pattern);
             }
-            RuleCondition::StringSet { values, nocase, regex: true, .. } => {
+            RuleCondition::StringSet {
+                values,
+                nocase,
+                regex: true,
+                ..
+            } => {
                 for value in values {
-                    let pattern = if *nocase { format!("(?i){}", value) } else { value.clone() };
+                    let pattern = if *nocase {
+                        format!("(?i){}", value)
+                    } else {
+                        value.clone()
+                    };
                     let _ = cached_regex(&pattern);
                 }
             }
             RuleCondition::RegistryPattern { pattern, nocase } => {
-                let pattern = if *nocase { format!("(?i){}", pattern) } else { pattern.clone() };
+                let pattern = if *nocase {
+                    format!("(?i){}", pattern)
+                } else {
+                    pattern.clone()
+                };
                 let _ = cached_regex(&pattern);
             }
             RuleCondition::BytePattern { pattern } => {
@@ -191,7 +243,11 @@ fn warm_rule_caches(rule: &Rule) {
                 for atom in atoms {
                     match atom.kind {
                         SignatureAtomKind::Regex => {
-                            let pattern = if atom.nocase { format!("(?i){}", atom.value) } else { atom.value.clone() };
+                            let pattern = if atom.nocase {
+                                format!("(?i){}", atom.value)
+                            } else {
+                                atom.value.clone()
+                            };
                             let _ = cached_regex(&pattern);
                         }
                         SignatureAtomKind::Bytes => {
@@ -213,7 +269,14 @@ struct RuleEvalResult {
     performance: Option<RulePerformance>,
 }
 
-fn evaluate_one_rule(index: usize, rule: &Rule, report: &ScanReport, view: &ScanView, bytes: &[u8], profile_rules: bool) -> RuleEvalResult {
+fn evaluate_one_rule(
+    index: usize,
+    rule: &Rule,
+    report: &ScanReport,
+    view: &ScanView,
+    bytes: &[u8],
+    profile_rules: bool,
+) -> RuleEvalResult {
     let start = profile_rules.then(Instant::now);
     let result = evaluate_rule(rule, report, view, bytes);
     let elapsed_micros = start
@@ -245,7 +308,11 @@ fn evaluate_one_rule(index: usize, rule: &Rule, report: &ScanReport, view: &Scan
         evidence,
     });
 
-    RuleEvalResult { index, finding, performance }
+    RuleEvalResult {
+        index,
+        finding,
+        performance,
+    }
 }
 
 fn push_rule_eval_result(report: &mut ScanReport, result: RuleEvalResult) {
@@ -256,7 +323,6 @@ fn push_rule_eval_result(report: &mut ScanReport, result: RuleEvalResult) {
         report.findings.push(finding);
     }
 }
-
 
 fn rule_signature_atom_count(rule: &Rule) -> usize {
     rule.conditions
@@ -274,7 +340,12 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
         .sum()
 }
 
-fn evaluate_rule(rule: &Rule, report: &ScanReport, view: &ScanView, bytes: &[u8]) -> Option<Vec<String>> {
+fn evaluate_rule(
+    rule: &Rule,
+    report: &ScanReport,
+    view: &ScanView,
+    bytes: &[u8],
+) -> Option<Vec<String>> {
     if rule.conditions.is_empty() {
         return None;
     }
@@ -320,9 +391,18 @@ fn evaluate_rule(rule: &Rule, report: &ScanReport, view: &ScanView, bytes: &[u8]
     }
 }
 
-fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView, bytes: &[u8]) -> Option<String> {
+fn evaluate_condition(
+    cond: &RuleCondition,
+    report: &ScanReport,
+    view: &ScanView,
+    bytes: &[u8],
+) -> Option<String> {
     match cond {
-        RuleCondition::StringContains { value, nocase, decoded } => {
+        RuleCondition::StringContains {
+            value,
+            nocase,
+            decoded,
+        } => {
             if *nocase {
                 let needle = value.to_ascii_lowercase();
                 for (hit, hay) in report.strings.iter().zip(&view.strings_lower) {
@@ -333,7 +413,10 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
                 if *decoded {
                     for (hit, hay) in report.decoded_strings.iter().zip(&view.decoded_lower) {
                         if hay.contains(&needle) {
-                            return Some(format!("decoded_string_contains `{}` via {}", value, hit.method));
+                            return Some(format!(
+                                "decoded_string_contains `{}` via {}",
+                                value, hit.method
+                            ));
                         }
                     }
                 }
@@ -346,7 +429,10 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
                 if *decoded {
                     for hit in &report.decoded_strings {
                         if hit.decoded.contains(value) {
-                            return Some(format!("decoded_string_contains `{}` via {}", value, hit.method));
+                            return Some(format!(
+                                "decoded_string_contains `{}` via {}",
+                                value, hit.method
+                            ));
                         }
                     }
                 }
@@ -359,26 +445,47 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
                 return Some(format!("string_regex `{}` at 0x{:x}", pattern, hit.offset));
             }
             if *decoded {
-                if let Some(hit) = report.decoded_strings.iter().find(|s| re.is_match(&s.decoded)) {
-                    return Some(format!("decoded_string_regex `{}` via {}", pattern, hit.method));
+                if let Some(hit) = report
+                    .decoded_strings
+                    .iter()
+                    .find(|s| re.is_match(&s.decoded))
+                {
+                    return Some(format!(
+                        "decoded_string_regex `{}` via {}",
+                        pattern, hit.method
+                    ));
                 }
             }
             None
         }
-        RuleCondition::StringSet { values, min, nocase, decoded, regex } => {
+        RuleCondition::StringSet {
+            values,
+            min,
+            nocase,
+            decoded,
+            regex,
+        } => {
             let needed = min.unwrap_or(1).max(1);
             let mut evidence = Vec::new();
             for value in values {
-                if let Some(ev) = match_string_value(report, view, value, *nocase, *decoded, *regex) {
+                if let Some(ev) = match_string_value(report, view, value, *nocase, *decoded, *regex)
+                {
                     evidence.push(ev);
                 }
                 if evidence.len() >= needed {
-                    return Some(format!("string_set matched {}/{}: {}", evidence.len(), needed, evidence.join("; ")));
+                    return Some(format!(
+                        "string_set matched {}/{}: {}",
+                        evidence.len(),
+                        needed,
+                        evidence.join("; ")
+                    ));
                 }
             }
             None
         }
-        RuleCondition::NativeSignature { atoms, expression } => evaluate_native_signature(report, view, bytes, atoms, expression),
+        RuleCondition::NativeSignature { atoms, expression } => {
+            evaluate_native_signature(report, view, bytes, atoms, expression)
+        }
         RuleCondition::ImportAny { names } => {
             let pe = report.pe.as_ref()?;
             names.iter().find_map(|name| {
@@ -407,11 +514,20 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
             let mut found = Vec::new();
             for name in names {
                 let needle = name.to_ascii_lowercase();
-                if let Some(idx) = view.imports_lower.iter().position(|imp| imp.ends_with(&needle)) {
+                if let Some(idx) = view
+                    .imports_lower
+                    .iter()
+                    .position(|imp| imp.ends_with(&needle))
+                {
                     found.push(pe.imports[idx].clone());
                 }
                 if found.len() >= needed {
-                    return Some(format!("import_set matched {}/{}: {}", found.len(), needed, found.join(", ")));
+                    return Some(format!(
+                        "import_set matched {}/{}: {}",
+                        found.len(),
+                        needed,
+                        found.join(", ")
+                    ));
                 }
             }
             None
@@ -444,17 +560,31 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
         }
         RuleCondition::SuspiciousImportCount { min } => {
             let pe = report.pe.as_ref()?;
-            (pe.suspicious_imports.len() >= *min).then(|| format!("suspicious_import_count={} >= {}", pe.suspicious_imports.len(), min))
+            (pe.suspicious_imports.len() >= *min).then(|| {
+                format!(
+                    "suspicious_import_count={} >= {}",
+                    pe.suspicious_imports.len(),
+                    min
+                )
+            })
         }
-        RuleCondition::FileEntropy { min } => (report.entropy >= *min).then(|| format!("file_entropy={:.3} >= {:.3}", report.entropy, min)),
-        RuleCondition::FileSizeGte { bytes } => (report.file_size >= *bytes).then(|| format!("file_size={} >= {}", report.file_size, bytes)),
-        RuleCondition::FileSizeLte { bytes } => (report.file_size <= *bytes).then(|| format!("file_size={} <= {}", report.file_size, bytes)),
+        RuleCondition::FileEntropy { min } => (report.entropy >= *min)
+            .then(|| format!("file_entropy={:.3} >= {:.3}", report.entropy, min)),
+        RuleCondition::FileSizeGte { bytes } => (report.file_size >= *bytes)
+            .then(|| format!("file_size={} >= {}", report.file_size, bytes)),
+        RuleCondition::FileSizeLte { bytes } => (report.file_size <= *bytes)
+            .then(|| format!("file_size={} <= {}", report.file_size, bytes)),
         RuleCondition::SectionEntropy { min } => {
             let pe = report.pe.as_ref()?;
             pe.sections
                 .iter()
                 .find(|section| section.entropy >= *min)
-                .map(|section| format!("section_entropy {}={:.3} >= {:.3}", section.name, section.entropy, min))
+                .map(|section| {
+                    format!(
+                        "section_entropy {}={:.3} >= {:.3}",
+                        section.name, section.entropy, min
+                    )
+                })
         }
         RuleCondition::SectionNameRegex { pattern } => {
             let pe = report.pe.as_ref()?;
@@ -466,14 +596,20 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
         }
         RuleCondition::PackedPe => {
             let pe = report.pe.as_ref()?;
-            pe.likely_packed.then(|| "packed_pe heuristic matched".to_string())
+            pe.likely_packed
+                .then(|| "packed_pe heuristic matched".to_string())
         }
         RuleCondition::EnvReference { min } => {
             let threshold = (*min).max(1);
-            (report.env_hits.len() >= threshold).then(|| format!("env_hits={} >= {}", report.env_hits.len(), threshold))
+            (report.env_hits.len() >= threshold)
+                .then(|| format!("env_hits={} >= {}", report.env_hits.len(), threshold))
         }
         RuleCondition::RegistryPattern { pattern, nocase } => {
-            let compiled_pattern = if *nocase { format!("(?i){}", pattern) } else { pattern.clone() };
+            let compiled_pattern = if *nocase {
+                format!("(?i){}", pattern)
+            } else {
+                pattern.clone()
+            };
             let compiled = cached_regex(&compiled_pattern)?;
             report
                 .registry_hits
@@ -482,28 +618,49 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
                 .map(|hit| format!("registry_pattern matched {}", hit.key_or_value))
         }
         RuleCondition::RegistryHitCount { min } => {
-            (report.registry_hits.len() >= *min).then(|| format!("registry_hit_count={} >= {}", report.registry_hits.len(), min))
+            (report.registry_hits.len() >= *min).then(|| {
+                format!(
+                    "registry_hit_count={} >= {}",
+                    report.registry_hits.len(),
+                    min
+                )
+            })
         }
         RuleCondition::PathRegex { pattern } => {
             let re = cached_regex(pattern)?;
             let path = report.path.to_string_lossy();
-            re.is_match(&path).then(|| format!("path_regex matched {}", path))
+            re.is_match(&path)
+                .then(|| format!("path_regex matched {}", path))
         }
-        RuleCondition::FileType { values } => {
-            values
-                .iter()
-                .find(|value| report.file_type.matches_type(value))
-                .map(|value| format!("file_type matched {} primary={} tags={}", value, report.file_type.primary, report.file_type.tags.join(",")))
-        }
-        RuleCondition::HashSha256 { value } => report.hashes.sha256.eq_ignore_ascii_case(value).then(|| "sha256 hash matched".to_string()),
-        RuleCondition::HashMd5 { value } => report.hashes.md5.eq_ignore_ascii_case(value).then(|| "md5 hash matched".to_string()),
+        RuleCondition::FileType { values } => values
+            .iter()
+            .find(|value| report.file_type.matches_type(value))
+            .map(|value| {
+                format!(
+                    "file_type matched {} primary={} tags={}",
+                    value,
+                    report.file_type.primary,
+                    report.file_type.tags.join(",")
+                )
+            }),
+        RuleCondition::HashSha256 { value } => report
+            .hashes
+            .sha256
+            .eq_ignore_ascii_case(value)
+            .then(|| "sha256 hash matched".to_string()),
+        RuleCondition::HashMd5 { value } => report
+            .hashes
+            .md5
+            .eq_ignore_ascii_case(value)
+            .then(|| "md5 hash matched".to_string()),
         RuleCondition::FeatureGte { name, value } => {
             let current = report.features.get(name)?.as_f64()?;
             (current >= *value).then(|| format!("feature {}={} >= {}", name, current, value))
         }
         RuleCondition::BytePattern { pattern } => {
             let compiled = cached_byte_pattern(pattern)?;
-            find_byte_pattern(bytes, compiled.as_slice()).map(|offset| format!("byte_pattern `{}` at 0x{:x}", pattern, offset))
+            find_byte_pattern(bytes, compiled.as_slice())
+                .map(|offset| format!("byte_pattern `{}` at 0x{:x}", pattern, offset))
         }
         RuleCondition::ByteSet { patterns, min } => {
             let needed = min.unwrap_or(1).max(1);
@@ -515,7 +672,12 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
                     }
                 }
                 if evidence.len() >= needed {
-                    return Some(format!("byte_set matched {}/{}: {}", evidence.len(), needed, evidence.join("; ")));
+                    return Some(format!(
+                        "byte_set matched {}/{}: {}",
+                        evidence.len(),
+                        needed,
+                        evidence.join("; ")
+                    ));
                 }
             }
             None
@@ -523,15 +685,30 @@ fn evaluate_condition(cond: &RuleCondition, report: &ScanReport, view: &ScanView
     }
 }
 
-fn match_string_value(report: &ScanReport, view: &ScanView, value: &str, nocase: bool, decoded: bool, regex: bool) -> Option<String> {
+fn match_string_value(
+    report: &ScanReport,
+    view: &ScanView,
+    value: &str,
+    nocase: bool,
+    decoded: bool,
+    regex: bool,
+) -> Option<String> {
     if regex {
-        let pattern = if nocase { format!("(?i){}", value) } else { value.to_string() };
+        let pattern = if nocase {
+            format!("(?i){}", value)
+        } else {
+            value.to_string()
+        };
         let re = cached_regex(&pattern)?;
         if let Some(hit) = report.strings.iter().find(|s| re.is_match(&s.value)) {
             return Some(format!("regex `{}` at 0x{:x}", value, hit.offset));
         }
         if decoded {
-            if let Some(hit) = report.decoded_strings.iter().find(|s| re.is_match(&s.decoded)) {
+            if let Some(hit) = report
+                .decoded_strings
+                .iter()
+                .find(|s| re.is_match(&s.decoded))
+            {
                 return Some(format!("decoded regex `{}` via {}", value, hit.method));
             }
         }
@@ -576,10 +753,19 @@ struct AtomMatch {
     offsets: Vec<usize>,
 }
 
-fn evaluate_native_signature(report: &ScanReport, view: &ScanView, bytes: &[u8], atoms: &[SignatureAtom], expression: &str) -> Option<String> {
+fn evaluate_native_signature(
+    report: &ScanReport,
+    view: &ScanView,
+    bytes: &[u8],
+    atoms: &[SignatureAtom],
+    expression: &str,
+) -> Option<String> {
     let mut atom_hits = HashMap::new();
     for atom in atoms {
-        atom_hits.insert(atom.id.clone(), match_signature_atom(report, view, bytes, atom));
+        atom_hits.insert(
+            atom.id.clone(),
+            match_signature_atom(report, view, bytes, atom),
+        );
     }
 
     let matched = evaluate_signature_expression(expression, &atom_hits, report, bytes, atoms);
@@ -588,11 +774,18 @@ fn evaluate_native_signature(report: &ScanReport, view: &ScanView, bytes: &[u8],
     }
 
     let mut evidence = Vec::new();
-    evidence.push(format!("native_signature expression matched: {}", truncate_for_evidence(expression, 220)));
+    evidence.push(format!(
+        "native_signature expression matched: {}",
+        truncate_for_evidence(expression, 220)
+    ));
     for atom in atoms {
         if let Some(hit) = atom_hits.get(&atom.id) {
             if hit.matched {
-                let first = hit.evidence.first().cloned().unwrap_or_else(|| format!("${} matched", atom.id));
+                let first = hit
+                    .evidence
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| format!("${} matched", atom.id));
                 evidence.push(first);
             }
         }
@@ -603,7 +796,12 @@ fn evaluate_native_signature(report: &ScanReport, view: &ScanView, bytes: &[u8],
     Some(evidence.join("; "))
 }
 
-fn match_signature_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
+fn match_signature_atom(
+    report: &ScanReport,
+    view: &ScanView,
+    bytes: &[u8],
+    atom: &SignatureAtom,
+) -> AtomMatch {
     match atom.kind {
         SignatureAtomKind::Text => match_text_atom(report, view, bytes, atom),
         SignatureAtomKind::Regex => match_regex_atom(report, atom),
@@ -611,7 +809,12 @@ fn match_signature_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom
     }
 }
 
-fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
+fn match_text_atom(
+    report: &ScanReport,
+    view: &ScanView,
+    bytes: &[u8],
+    atom: &SignatureAtom,
+) -> AtomMatch {
     // Fast normal extracted-string path. This covers ASCII and UTF-16LE strings
     // because the scanner normalizes UTF-16LE into StringHit values.
     let mut out = AtomMatch::default();
@@ -621,7 +824,12 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
             if let Some(pos) = find_literal(hay, &needle, atom.fullword) {
                 out.matched = true;
                 out.offsets.push(hit.offset + pos);
-                out.evidence.push(format!("${} text `{}` at 0x{:x}", atom.id, truncate_for_evidence(&atom.value, 80), hit.offset + pos));
+                out.evidence.push(format!(
+                    "${} text `{}` at 0x{:x}",
+                    atom.id,
+                    truncate_for_evidence(&atom.value, 80),
+                    hit.offset + pos
+                ));
                 return out;
             }
         }
@@ -629,7 +837,12 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
             for (hit, hay) in report.decoded_strings.iter().zip(&view.decoded_lower) {
                 if find_literal(hay, &needle, atom.fullword).is_some() {
                     out.matched = true;
-                    out.evidence.push(format!("${} decoded text `{}` via {}", atom.id, truncate_for_evidence(&atom.value, 80), hit.method));
+                    out.evidence.push(format!(
+                        "${} decoded text `{}` via {}",
+                        atom.id,
+                        truncate_for_evidence(&atom.value, 80),
+                        hit.method
+                    ));
                     return out;
                 }
             }
@@ -639,7 +852,12 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
             if let Some(pos) = find_literal(&hit.value, &atom.value, atom.fullword) {
                 out.matched = true;
                 out.offsets.push(hit.offset + pos);
-                out.evidence.push(format!("${} text `{}` at 0x{:x}", atom.id, truncate_for_evidence(&atom.value, 80), hit.offset + pos));
+                out.evidence.push(format!(
+                    "${} text `{}` at 0x{:x}",
+                    atom.id,
+                    truncate_for_evidence(&atom.value, 80),
+                    hit.offset + pos
+                ));
                 return out;
             }
         }
@@ -647,7 +865,12 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
             for hit in &report.decoded_strings {
                 if find_literal(&hit.decoded, &atom.value, atom.fullword).is_some() {
                     out.matched = true;
-                    out.evidence.push(format!("${} decoded text `{}` via {}", atom.id, truncate_for_evidence(&atom.value, 80), hit.method));
+                    out.evidence.push(format!(
+                        "${} decoded text `{}` via {}",
+                        atom.id,
+                        truncate_for_evidence(&atom.value, 80),
+                        hit.method
+                    ));
                     return out;
                 }
             }
@@ -661,7 +884,13 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
         if let Some(offset) = find_text_bytes(bytes, &needle, atom.nocase, atom.fullword) {
             out.matched = true;
             out.offsets.push(offset);
-            out.evidence.push(format!("${} {} text `{}` at 0x{:x}", atom.id, label, truncate_for_evidence(&atom.value, 80), offset));
+            out.evidence.push(format!(
+                "${} {} text `{}` at 0x{:x}",
+                atom.id,
+                label,
+                truncate_for_evidence(&atom.value, 80),
+                offset
+            ));
             return out;
         }
     }
@@ -674,7 +903,14 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
                 if let Some(offset) = find_bytes(bytes, &encoded, atom.fullword) {
                     out.matched = true;
                     out.offsets.push(offset);
-                    out.evidence.push(format!("${} xor(0x{:02x}) {} text `{}` at 0x{:x}", atom.id, key, label, truncate_for_evidence(&atom.value, 80), offset));
+                    out.evidence.push(format!(
+                        "${} xor(0x{:02x}) {} text `{}` at 0x{:x}",
+                        atom.id,
+                        key,
+                        label,
+                        truncate_for_evidence(&atom.value, 80),
+                        offset
+                    ));
                     return out;
                 }
             }
@@ -686,7 +922,12 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
         if let Some(offset) = find_text_bytes(bytes, encoded.as_bytes(), atom.nocase, false) {
             out.matched = true;
             out.offsets.push(offset);
-            out.evidence.push(format!("${} base64 `{}` at 0x{:x}", atom.id, truncate_for_evidence(&atom.value, 80), offset));
+            out.evidence.push(format!(
+                "${} base64 `{}` at 0x{:x}",
+                atom.id,
+                truncate_for_evidence(&atom.value, 80),
+                offset
+            ));
             return out;
         }
     }
@@ -697,7 +938,12 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
         if let Some(offset) = find_text_bytes(bytes, encoded.as_bytes(), atom.nocase, false) {
             out.matched = true;
             out.offsets.push(offset);
-            out.evidence.push(format!("${} base64wide `{}` at 0x{:x}", atom.id, truncate_for_evidence(&atom.value, 80), offset));
+            out.evidence.push(format!(
+                "${} base64wide `{}` at 0x{:x}",
+                atom.id,
+                truncate_for_evidence(&atom.value, 80),
+                offset
+            ));
             return out;
         }
     }
@@ -707,13 +953,24 @@ fn match_text_atom(report: &ScanReport, view: &ScanView, bytes: &[u8], atom: &Si
 
 fn match_regex_atom(report: &ScanReport, atom: &SignatureAtom) -> AtomMatch {
     let mut out = AtomMatch::default();
-    let pattern = if atom.nocase { format!("(?i){}", atom.value) } else { atom.value.clone() };
-    let Some(re) = cached_regex(&pattern) else { return out };
+    let pattern = if atom.nocase {
+        format!("(?i){}", atom.value)
+    } else {
+        atom.value.clone()
+    };
+    let Some(re) = cached_regex(&pattern) else {
+        return out;
+    };
     for hit in &report.strings {
         if re.is_match(&hit.value) {
             out.matched = true;
             out.offsets.push(hit.offset);
-            out.evidence.push(format!("${} regex `{}` at 0x{:x}", atom.id, truncate_for_evidence(&atom.value, 80), hit.offset));
+            out.evidence.push(format!(
+                "${} regex `{}` at 0x{:x}",
+                atom.id,
+                truncate_for_evidence(&atom.value, 80),
+                hit.offset
+            ));
             return out;
         }
     }
@@ -721,7 +978,12 @@ fn match_regex_atom(report: &ScanReport, atom: &SignatureAtom) -> AtomMatch {
         for hit in &report.decoded_strings {
             if re.is_match(&hit.decoded) {
                 out.matched = true;
-                out.evidence.push(format!("${} decoded regex `{}` via {}", atom.id, truncate_for_evidence(&atom.value, 80), hit.method));
+                out.evidence.push(format!(
+                    "${} decoded regex `{}` via {}",
+                    atom.id,
+                    truncate_for_evidence(&atom.value, 80),
+                    hit.method
+                ));
                 return out;
             }
         }
@@ -735,7 +997,12 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
         if let Some(offset) = find_byte_pattern(bytes, pattern.as_slice()) {
             out.matched = true;
             out.offsets.push(offset);
-            out.evidence.push(format!("${} bytes `{}` at 0x{:x}", atom.id, truncate_for_evidence(&atom.value, 80), offset));
+            out.evidence.push(format!(
+                "${} bytes `{}` at 0x{:x}",
+                atom.id,
+                truncate_for_evidence(&atom.value, 80),
+                offset
+            ));
             return out;
         }
 
@@ -744,12 +1011,21 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
             for key in lo..=hi {
                 let xored: Vec<ByteToken> = pattern
                     .iter()
-                    .map(|token| ByteToken { value: token.value ^ key, mask: token.mask })
+                    .map(|token| ByteToken {
+                        value: token.value ^ key,
+                        mask: token.mask,
+                    })
                     .collect();
                 if let Some(offset) = find_byte_pattern(bytes, &xored) {
                     out.matched = true;
                     out.offsets.push(offset);
-                    out.evidence.push(format!("${} xor(0x{:02x}) bytes `{}` at 0x{:x}", atom.id, key, truncate_for_evidence(&atom.value, 80), offset));
+                    out.evidence.push(format!(
+                        "${} xor(0x{:02x}) bytes `{}` at 0x{:x}",
+                        atom.id,
+                        key,
+                        truncate_for_evidence(&atom.value, 80),
+                        offset
+                    ));
                     return out;
                 }
             }
@@ -787,7 +1063,11 @@ fn utf16le_bytes(text: &str) -> Vec<u8> {
 fn xor_key_range(atom: &SignatureAtom) -> (u8, u8) {
     let lo = atom.xor_min.unwrap_or(1);
     let hi = atom.xor_max.unwrap_or(255);
-    if lo <= hi { (lo, hi) } else { (hi, lo) }
+    if lo <= hi {
+        (lo, hi)
+    } else {
+        (hi, lo)
+    }
 }
 
 fn find_text_bytes(hay: &[u8], needle: &[u8], nocase: bool, fullword: bool) -> Option<usize> {
@@ -803,7 +1083,9 @@ fn find_bytes(hay: &[u8], needle: &[u8], fullword: bool) -> Option<usize> {
         return None;
     }
     for i in 0..=hay.len() - needle.len() {
-        if &hay[i..i + needle.len()] == needle && (!fullword || byte_word_boundary_at(hay, i, needle.len())) {
+        if &hay[i..i + needle.len()] == needle
+            && (!fullword || byte_word_boundary_at(hay, i, needle.len()))
+        {
             return Some(i);
         }
     }
@@ -828,7 +1110,6 @@ fn find_bytes_nocase_ascii(hay: &[u8], needle: &[u8], fullword: bool) -> Option<
     None
 }
 
-
 fn byte_word_boundary_at(hay: &[u8], start: usize, len: usize) -> bool {
     let before = start.checked_sub(1).and_then(|i| hay.get(i)).copied();
     let after = hay.get(start + len).copied();
@@ -836,7 +1117,8 @@ fn byte_word_boundary_at(hay: &[u8], start: usize, len: usize) -> bool {
 }
 
 fn is_word_byte(b: Option<u8>) -> bool {
-    b.map(|ch| ch.is_ascii_alphanumeric() || ch == b'_').unwrap_or(false)
+    b.map(|ch| ch.is_ascii_alphanumeric() || ch == b'_')
+        .unwrap_or(false)
 }
 
 fn find_literal(hay: &str, needle: &str, fullword: bool) -> Option<usize> {
@@ -860,7 +1142,8 @@ fn find_literal(hay: &str, needle: &str, fullword: bool) -> Option<usize> {
 }
 
 fn is_word_char(c: Option<char>) -> bool {
-    c.map(|ch| ch.is_ascii_alphanumeric() || ch == '_').unwrap_or(false)
+    c.map(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        .unwrap_or(false)
 }
 
 fn evaluate_signature_expression(
@@ -884,8 +1167,13 @@ fn evaluate_signature_expression(
     BoolParser::new(&expr).parse_expression()
 }
 
-fn replace_group_of(expr: &str, atom_hits: &HashMap<String, AtomMatch>, atoms: &[SignatureAtom]) -> String {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\b(any|all|\d+)\s+of\s*\(\s*([^\)]*\$[^\)]*)\s*\)").unwrap());
+fn replace_group_of(
+    expr: &str,
+    atom_hits: &HashMap<String, AtomMatch>,
+    atoms: &[SignatureAtom],
+) -> String {
+    static RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?i)\b(any|all|\d+)\s+of\s*\(\s*([^\)]*\$[^\)]*)\s*\)").unwrap());
     let mut out = expr.to_string();
     loop {
         let Some(caps) = RE.captures(&out) else { break };
@@ -898,38 +1186,64 @@ fn replace_group_of(expr: &str, atom_hits: &HashMap<String, AtomMatch>, atoms: &
     out
 }
 
-fn replace_them_of(expr: &str, atom_hits: &HashMap<String, AtomMatch>, atoms: &[SignatureAtom]) -> String {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\b(any|all|\d+)\s+of\s+them\b").unwrap());
+fn replace_them_of(
+    expr: &str,
+    atom_hits: &HashMap<String, AtomMatch>,
+    atoms: &[SignatureAtom],
+) -> String {
+    static RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?i)\b(any|all|\d+)\s+of\s+them\b").unwrap());
     let mut out = expr.to_string();
     loop {
         let Some(caps) = RE.captures(&out) else { break };
         let m = caps.get(0).unwrap();
         let quant = caps.get(1).unwrap().as_str();
-        let value = eval_of_atoms(quant, atoms.iter().map(|a| a.id.as_str()).collect(), atom_hits);
+        let value = eval_of_atoms(
+            quant,
+            atoms.iter().map(|a| a.id.as_str()).collect(),
+            atom_hits,
+        );
         out.replace_range(m.start()..m.end(), bool_lit(value));
     }
     out
 }
 
 fn replace_atom_locations(expr: &str, atom_hits: &HashMap<String, AtomMatch>) -> String {
-    static AT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\$([A-Za-z0-9_]+)\s+at\s+(0x[0-9a-fA-F]+|\d+)").unwrap());
-    static IN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\$([A-Za-z0-9_]+)\s+in\s*\(\s*(0x[0-9a-fA-F]+|\d+)\s*\.\.\s*(0x[0-9a-fA-F]+|\d+)\s*\)").unwrap());
+    static AT_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"\$([A-Za-z0-9_]+)\s+at\s+(0x[0-9a-fA-F]+|\d+)").unwrap());
+    static IN_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"\$([A-Za-z0-9_]+)\s+in\s*\(\s*(0x[0-9a-fA-F]+|\d+)\s*\.\.\s*(0x[0-9a-fA-F]+|\d+)\s*\)").unwrap()
+    });
     let mut out = expr.to_string();
     loop {
-        let Some(caps) = IN_RE.captures(&out) else { break };
+        let Some(caps) = IN_RE.captures(&out) else {
+            break;
+        };
         let m = caps.get(0).unwrap();
         let id = caps.get(1).unwrap().as_str();
         let start = parse_int(caps.get(2).unwrap().as_str()).unwrap_or(0);
         let end = parse_int(caps.get(3).unwrap().as_str()).unwrap_or(0);
-        let value = atom_hits.get(id).map(|hit| hit.offsets.iter().any(|off| (*off as u64) >= start && (*off as u64) <= end)).unwrap_or(false);
+        let value = atom_hits
+            .get(id)
+            .map(|hit| {
+                hit.offsets
+                    .iter()
+                    .any(|off| (*off as u64) >= start && (*off as u64) <= end)
+            })
+            .unwrap_or(false);
         out.replace_range(m.start()..m.end(), bool_lit(value));
     }
     loop {
-        let Some(caps) = AT_RE.captures(&out) else { break };
+        let Some(caps) = AT_RE.captures(&out) else {
+            break;
+        };
         let m = caps.get(0).unwrap();
         let id = caps.get(1).unwrap().as_str();
         let expected = parse_int(caps.get(2).unwrap().as_str()).unwrap_or(0) as usize;
-        let value = atom_hits.get(id).map(|hit| hit.offsets.contains(&expected)).unwrap_or(false);
+        let value = atom_hits
+            .get(id)
+            .map(|hit| hit.offsets.contains(&expected))
+            .unwrap_or(false);
         out.replace_range(m.start()..m.end(), bool_lit(value));
     }
     out
@@ -949,14 +1263,20 @@ fn replace_plain_atoms(expr: &str, atom_hits: &HashMap<String, AtomMatch>) -> St
 }
 
 fn replace_filesize(expr: &str, file_size: u64) -> String {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\bfilesize\s*(<=|>=|==|!=|<|>)\s*(\d+)\s*(KB|MB|GB)?").unwrap());
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)\bfilesize\s*(<=|>=|==|!=|<|>)\s*(\d+)\s*(KB|MB|GB)?").unwrap()
+    });
     let mut out = expr.to_string();
     loop {
         let Some(caps) = RE.captures(&out) else { break };
         let m = caps.get(0).unwrap();
         let op = caps.get(1).unwrap().as_str();
         let mut n = caps.get(2).unwrap().as_str().parse::<u64>().unwrap_or(0);
-        match caps.get(3).map(|x| x.as_str().to_ascii_uppercase()).as_deref() {
+        match caps
+            .get(3)
+            .map(|x| x.as_str().to_ascii_uppercase())
+            .as_deref()
+        {
             Some("KB") => n *= 1024,
             Some("MB") => n *= 1024 * 1024,
             Some("GB") => n *= 1024 * 1024 * 1024,
@@ -969,28 +1289,44 @@ fn replace_filesize(expr: &str, file_size: u64) -> String {
 }
 
 fn replace_magic_uints(expr: &str, bytes: &[u8]) -> String {
-    static U16_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)uint16\s*\(\s*(0x[0-9a-fA-F]+|\d+)\s*\)\s*==\s*(0x[0-9a-fA-F]+|\d+)").unwrap());
-    static U32_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)uint32\s*\(\s*(0x[0-9a-fA-F]+|\d+)\s*\)\s*==\s*(0x[0-9a-fA-F]+|\d+)").unwrap());
-    static PE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)uint32\s*\(\s*uint32\s*\(\s*0x3c\s*\)\s*\)\s*==\s*0x4550").unwrap());
+    static U16_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)uint16\s*\(\s*(0x[0-9a-fA-F]+|\d+)\s*\)\s*==\s*(0x[0-9a-fA-F]+|\d+)")
+            .unwrap()
+    });
+    static U32_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)uint32\s*\(\s*(0x[0-9a-fA-F]+|\d+)\s*\)\s*==\s*(0x[0-9a-fA-F]+|\d+)")
+            .unwrap()
+    });
+    static PE_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)uint32\s*\(\s*uint32\s*\(\s*0x3c\s*\)\s*\)\s*==\s*0x4550").unwrap()
+    });
     let mut out = expr.to_string();
     loop {
         let Some(m) = PE_RE.find(&out) else { break };
         out.replace_range(m.start()..m.end(), bool_lit(is_pe_magic(bytes)));
     }
     loop {
-        let Some(caps) = U16_RE.captures(&out) else { break };
+        let Some(caps) = U16_RE.captures(&out) else {
+            break;
+        };
         let m = caps.get(0).unwrap();
         let off = parse_int(caps.get(1).unwrap().as_str()).unwrap_or(0) as usize;
         let expected = parse_int(caps.get(2).unwrap().as_str()).unwrap_or(0) as u16;
-        let value = read_u16_le(bytes, off).map(|v| v == expected).unwrap_or(false);
+        let value = read_u16_le(bytes, off)
+            .map(|v| v == expected)
+            .unwrap_or(false);
         out.replace_range(m.start()..m.end(), bool_lit(value));
     }
     loop {
-        let Some(caps) = U32_RE.captures(&out) else { break };
+        let Some(caps) = U32_RE.captures(&out) else {
+            break;
+        };
         let m = caps.get(0).unwrap();
         let off = parse_int(caps.get(1).unwrap().as_str()).unwrap_or(0) as usize;
         let expected = parse_int(caps.get(2).unwrap().as_str()).unwrap_or(0) as u32;
-        let value = read_u32_le(bytes, off).map(|v| v == expected).unwrap_or(false);
+        let value = read_u32_le(bytes, off)
+            .map(|v| v == expected)
+            .unwrap_or(false);
         out.replace_range(m.start()..m.end(), bool_lit(value));
     }
     out
@@ -1001,10 +1337,16 @@ fn replace_file_type_words(expr: &str, report: &ScanReport, bytes: &[u8]) -> Str
     for (word, value) in [
         ("Macho", report.file_type.is_macho || is_macho_magic(bytes)),
         ("MachO", report.file_type.is_macho || is_macho_magic(bytes)),
-        ("PE", report.file_type.is_pe || report.pe.is_some() || is_pe_magic(bytes)),
+        (
+            "PE",
+            report.file_type.is_pe || report.pe.is_some() || is_pe_magic(bytes),
+        ),
         ("PE32", report.file_type.is_pe32),
         ("PE64", report.file_type.is_pe64),
-        ("ELF", report.file_type.is_elf || bytes.starts_with(b"\x7fELF")),
+        (
+            "ELF",
+            report.file_type.is_elf || bytes.starts_with(b"\x7fELF"),
+        ),
         ("ELF32", report.file_type.is_elf32),
         ("ELF64", report.file_type.is_elf64),
         ("APK", report.file_type.is_apk),
@@ -1025,12 +1367,22 @@ fn replace_file_type_words(expr: &str, report: &ScanReport, bytes: &[u8]) -> Str
     out
 }
 
-fn eval_of_spec(quant: &str, spec: &str, atom_hits: &HashMap<String, AtomMatch>, atoms: &[SignatureAtom]) -> bool {
+fn eval_of_spec(
+    quant: &str,
+    spec: &str,
+    atom_hits: &HashMap<String, AtomMatch>,
+    atoms: &[SignatureAtom],
+) -> bool {
     let mut ids = Vec::new();
     for part in spec.split(',').map(|p| p.trim()).filter(|p| !p.is_empty()) {
         let part = part.trim_start_matches('$').trim();
         if let Some(prefix) = part.strip_suffix('*') {
-            ids.extend(atoms.iter().filter(|atom| atom.id.starts_with(prefix)).map(|atom| atom.id.as_str()));
+            ids.extend(
+                atoms
+                    .iter()
+                    .filter(|atom| atom.id.starts_with(prefix))
+                    .map(|atom| atom.id.as_str()),
+            );
         } else {
             ids.push(part);
         }
@@ -1042,7 +1394,10 @@ fn eval_of_atoms(quant: &str, ids: Vec<&str>, atom_hits: &HashMap<String, AtomMa
     if ids.is_empty() {
         return false;
     }
-    let matched = ids.iter().filter(|id| atom_hits.get(**id).map(|hit| hit.matched).unwrap_or(false)).count();
+    let matched = ids
+        .iter()
+        .filter(|id| atom_hits.get(**id).map(|hit| hit.matched).unwrap_or(false))
+        .count();
     match quant.to_ascii_lowercase().as_str() {
         "any" => matched >= 1,
         "all" => matched == ids.len(),
@@ -1051,7 +1406,11 @@ fn eval_of_atoms(quant: &str, ids: Vec<&str>, atom_hits: &HashMap<String, AtomMa
 }
 
 fn bool_lit(value: bool) -> &'static str {
-    if value { " true " } else { " false " }
+    if value {
+        " true "
+    } else {
+        " false "
+    }
 }
 
 fn compare_u64(lhs: u64, op: &str, rhs: u64) -> bool {
@@ -1089,12 +1448,19 @@ fn is_pe_magic(bytes: &[u8]) -> bool {
     if !bytes.starts_with(b"MZ") {
         return false;
     }
-    let Some(e_lfanew) = read_u32_le(bytes, 0x3c).map(|v| v as usize) else { return false };
-    bytes.get(e_lfanew..e_lfanew + 4).map(|s| s == b"PE\0\0").unwrap_or(false)
+    let Some(e_lfanew) = read_u32_le(bytes, 0x3c).map(|v| v as usize) else {
+        return false;
+    };
+    bytes
+        .get(e_lfanew..e_lfanew + 4)
+        .map(|s| s == b"PE\0\0")
+        .unwrap_or(false)
 }
 
 fn is_macho_magic(bytes: &[u8]) -> bool {
-    let Some(magic) = bytes.get(0..4) else { return false };
+    let Some(magic) = bytes.get(0..4) else {
+        return false;
+    };
     magic == [0xfe, 0xed, 0xfa, 0xce].as_slice()
         || magic == [0xce, 0xfa, 0xed, 0xfe].as_slice()
         || magic == [0xfe, 0xed, 0xfa, 0xcf].as_slice()
@@ -1103,9 +1469,16 @@ fn is_macho_magic(bytes: &[u8]) -> bool {
 
 fn is_dotnet_like(report: &ScanReport) -> bool {
     let Some(pe) = &report.pe else { return false };
-    pe.imports.iter().any(|i| i.eq_ignore_ascii_case("mscoree.dll!_CorExeMain") || i.to_ascii_lowercase().contains("_corexemain"))
-        || pe.dlls.iter().any(|dll| dll.eq_ignore_ascii_case("mscoree.dll"))
-        || report.strings.iter().any(|s| s.value.contains("BSJB") || s.value.contains("#~") || s.value.contains("mscoree.dll"))
+    pe.imports.iter().any(|i| {
+        i.eq_ignore_ascii_case("mscoree.dll!_CorExeMain")
+            || i.to_ascii_lowercase().contains("_corexemain")
+    }) || pe
+        .dlls
+        .iter()
+        .any(|dll| dll.eq_ignore_ascii_case("mscoree.dll"))
+        || report.strings.iter().any(|s| {
+            s.value.contains("BSJB") || s.value.contains("#~") || s.value.contains("mscoree.dll")
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1126,7 +1499,10 @@ struct BoolParser {
 
 impl BoolParser {
     fn new(input: &str) -> Self {
-        Self { tokens: lex_bool(input), pos: 0 }
+        Self {
+            tokens: lex_bool(input),
+            pos: 0,
+        }
     }
 
     fn parse_expression(&mut self) -> bool {
@@ -1249,10 +1625,21 @@ fn compile_byte_pattern(pattern: &str) -> Option<Vec<ByteToken>> {
 }
 
 fn normalize_hex_tokens(pattern: &str) -> Vec<String> {
-    let text = pattern.trim().trim_start_matches('{').trim_end_matches('}').trim();
-    if !text.chars().any(|c| c.is_whitespace() || c == '(' || c == '[') {
+    let text = pattern
+        .trim()
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .trim();
+    if !text
+        .chars()
+        .any(|c| c.is_whitespace() || c == '(' || c == '[')
+    {
         let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-        return compact.as_bytes().chunks(2).map(|chunk| String::from_utf8_lossy(chunk).to_string()).collect();
+        return compact
+            .as_bytes()
+            .chunks(2)
+            .map(|chunk| String::from_utf8_lossy(chunk).to_string())
+            .collect();
     }
 
     let mut out = Vec::new();
@@ -1281,7 +1668,12 @@ fn normalize_hex_tokens(pattern: &str) -> Vec<String> {
                     i += 1;
                 }
                 i += 1;
-                let count = spec.split('-').next().and_then(|n| n.trim().parse::<usize>().ok()).unwrap_or(0).min(64);
+                let count = spec
+                    .split('-')
+                    .next()
+                    .and_then(|n| n.trim().parse::<usize>().ok())
+                    .unwrap_or(0)
+                    .min(64);
                 for _ in 0..count {
                     out.push("??".to_string());
                 }
@@ -1289,7 +1681,10 @@ fn normalize_hex_tokens(pattern: &str) -> Vec<String> {
             '|' => i += 1,
             _ => {
                 let mut tok = String::new();
-                while i < chars.len() && !chars[i].is_whitespace() && !matches!(chars[i], '(' | ')' | '[' | ']' | '|') {
+                while i < chars.len()
+                    && !chars[i].is_whitespace()
+                    && !matches!(chars[i], '(' | ')' | '[' | ']' | '|')
+                {
                     tok.push(chars[i]);
                     i += 1;
                 }
@@ -1325,7 +1720,9 @@ fn find_byte_pattern(bytes: &[u8], pattern: &[ByteToken]) -> Option<usize> {
         while pos < bytes.len() {
             if bytes[pos] == anchor.value {
                 let start = pos.saturating_sub(anchor_index);
-                if start + pattern.len() <= bytes.len() && byte_window_matches(&bytes[start..start + pattern.len()], pattern) {
+                if start + pattern.len() <= bytes.len()
+                    && byte_window_matches(&bytes[start..start + pattern.len()], pattern)
+                {
                     return Some(start);
                 }
             }
@@ -1358,13 +1755,31 @@ fn truncate_for_evidence(text: &str, max: usize) -> String {
 }
 
 pub fn aggregate_verdict(report: &mut ScanReport) {
-    report.score = report.findings.iter().map(|f| f.score).sum::<u32>().min(100);
-    report.confidence = report.findings.iter().map(|f| f.confidence).max().unwrap_or(0);
+    report.score = report
+        .findings
+        .iter()
+        .map(|f| f.score)
+        .sum::<u32>()
+        .min(100);
+    report.confidence = report
+        .findings
+        .iter()
+        .map(|f| f.confidence)
+        .max()
+        .unwrap_or(0);
 
     // Important: intentionally signature-like. One matched rule with verdict=malware is enough.
-    report.verdict = if report.findings.iter().any(|f| f.verdict == Verdict::Malware) {
+    report.verdict = if report
+        .findings
+        .iter()
+        .any(|f| f.verdict == Verdict::Malware)
+    {
         Verdict::Malware
-    } else if report.findings.iter().any(|f| f.verdict == Verdict::Suspicious) {
+    } else if report
+        .findings
+        .iter()
+        .any(|f| f.verdict == Verdict::Suspicious)
+    {
         Verdict::Suspicious
     } else {
         Verdict::Clean
@@ -1372,7 +1787,10 @@ pub fn aggregate_verdict(report: &mut ScanReport) {
 
     let mut families = Vec::new();
     for family in report.findings.iter().filter_map(|f| f.family.as_ref()) {
-        if !families.iter().any(|existing: &String| existing.eq_ignore_ascii_case(family)) {
+        if !families
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(family))
+        {
             families.push(family.clone());
         }
     }
