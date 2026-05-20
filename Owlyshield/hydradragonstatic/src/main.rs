@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser, ValueEnum};
 use colored::Colorize;
+use hydradragonstatic::scanner::filetype;
 use hydradragonstatic::{
     models::{Finding, Severity, Verdict},
     rules::{RuleSet, YamlRulesFile},
-    scan_path,
-    ScanOptions,
+    scan_path, ScanOptions,
 };
-use hydradragonstatic::scanner::filetype;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::{prelude::*, ThreadPoolBuilder};
 use regex::Regex;
@@ -83,14 +82,23 @@ impl FpRemoveSelector {
         if severities.is_empty() && verdicts.is_empty() {
             anyhow::bail!("--fp-remove-levels is required when --fp-remove is used");
         }
-        Ok(Self { severities, verdicts })
+        Ok(Self {
+            severities,
+            verdicts,
+        })
     }
 
     fn all() -> Self {
         Self {
-            severities: [Severity::Info, Severity::Low, Severity::Medium, Severity::High, Severity::Critical]
-                .into_iter()
-                .collect(),
+            severities: [
+                Severity::Info,
+                Severity::Low,
+                Severity::Medium,
+                Severity::High,
+                Severity::Critical,
+            ]
+            .into_iter()
+            .collect(),
             verdicts: [Verdict::Clean, Verdict::Suspicious, Verdict::Malware]
                 .into_iter()
                 .collect(),
@@ -108,12 +116,20 @@ impl FpRemoveSelector {
     fn describe(&self) -> String {
         let mut parts = Vec::new();
         if !self.severities.is_empty() {
-            let mut values: Vec<_> = self.severities.iter().map(|s| format!("{:?}", s).to_ascii_lowercase()).collect();
+            let mut values: Vec<_> = self
+                .severities
+                .iter()
+                .map(|s| format!("{:?}", s).to_ascii_lowercase())
+                .collect();
             values.sort();
             parts.push(format!("severity={}", values.join(",")));
         }
         if !self.verdicts.is_empty() {
-            let mut values: Vec<_> = self.verdicts.iter().map(|v| v.label().to_ascii_lowercase()).collect();
+            let mut values: Vec<_> = self
+                .verdicts
+                .iter()
+                .map(|v| v.label().to_ascii_lowercase())
+                .collect();
             values.sort();
             parts.push(format!("verdict={}", values.join(",")));
         }
@@ -123,7 +139,10 @@ impl FpRemoveSelector {
 
 #[derive(Debug, Parser)]
 #[command(name = "hydradragonstatic")]
-#[command(version, about = "HydraDragonStatic deterministic static scanner with external Yamdle rules")]
+#[command(
+    version,
+    about = "HydraDragonStatic deterministic static scanner with external Yamdle rules"
+)]
 struct Cli {
     /// File(s) or directory root(s) to scan. Multiple roots are supported.
     #[arg(value_name = "PATH", required = true, num_args = 1..)]
@@ -225,7 +244,6 @@ struct Cli {
     #[arg(long)]
     stop_scan_on_detection: bool,
 
-
     /// Profile every rule and report slow rule evaluations. Alias: --slow-rules.
     #[arg(long, alias = "slow-rules")]
     profile_rules: bool,
@@ -298,7 +316,9 @@ fn main() -> Result<()> {
     let rule_files = collect_rule_files_from_sources(&cli.rules)?;
     let rules = load_external_rules_from_files(&rule_files)?;
     if rules.rules().is_empty() {
-        anyhow::bail!("no rules were loaded; pass at least one non-empty Yamdle/YAML rule file with --rules");
+        anyhow::bail!(
+            "no rules were loaded; pass at least one non-empty Yamdle/YAML rule file with --rules"
+        );
     }
 
     let scan_roots = collect_scan_roots(&cli.paths, &cli.scan_paths, &cli.path_lists)?;
@@ -324,16 +344,22 @@ fn main() -> Result<()> {
     } else {
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(
-            ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar}] {pos}/{len} {msg}")
-                .unwrap()
-                .progress_chars("=>-"),
+            ProgressStyle::with_template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar}] {pos}/{len} {msg}",
+            )
+            .unwrap()
+            .progress_chars("=>-"),
         );
         pb
     };
 
     let profiling_enabled = cli.profile_rules || cli.remove_slow_rules;
     let options = ScanOptions {
-        max_file_size: if cli.max_mib == 0 { None } else { Some(cli.max_mib * 1024 * 1024) },
+        max_file_size: if cli.max_mib == 0 {
+            None
+        } else {
+            Some(cli.max_mib * 1024 * 1024)
+        },
         profile_rules: profiling_enabled,
         parallel_rules: cli.parallel_rules,
         stop_on_detection: cli.stop_on_detection,
@@ -385,7 +411,11 @@ fn main() -> Result<()> {
         OutputFormat::Pretty => {
             print_pretty(&reports);
             if profiling_enabled {
-                print_slow_rule_summary(&reports, cli.slow_rule_threshold_ms.saturating_mul(1_000), cli.slow_rule_top);
+                print_slow_rule_summary(
+                    &reports,
+                    cli.slow_rule_threshold_ms.saturating_mul(1_000),
+                    cli.slow_rule_top,
+                );
             }
         }
         OutputFormat::Json => {
@@ -479,7 +509,10 @@ fn collect_rule_files(path: &Path) -> Result<Vec<PathBuf>> {
     }
 
     let mut files = Vec::new();
-    for entry in WalkDir::new(path).into_iter().filter_map(|entry| entry.ok()) {
+    for entry in WalkDir::new(path)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -497,7 +530,11 @@ fn collect_rule_files(path: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-fn collect_scan_roots(positional: &[PathBuf], extra: &[PathBuf], path_lists: &[PathBuf]) -> Result<Vec<PathBuf>> {
+fn collect_scan_roots(
+    positional: &[PathBuf],
+    extra: &[PathBuf],
+    path_lists: &[PathBuf],
+) -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
     roots.extend(positional.iter().cloned());
     roots.extend(extra.iter().cloned());
@@ -592,8 +629,13 @@ fn collect_files_from_roots(
 
 fn path_allowed(path: &Path, include_patterns: &[Regex], exclude_patterns: &[Regex]) -> bool {
     let text = normalize_path_for_match(path);
-    let included = include_patterns.is_empty() || include_patterns.iter().any(|pattern| pattern.is_match(&text));
-    let excluded = exclude_patterns.iter().any(|pattern| pattern.is_match(&text));
+    let included = include_patterns.is_empty()
+        || include_patterns
+            .iter()
+            .any(|pattern| pattern.is_match(&text));
+    let excluded = exclude_patterns
+        .iter()
+        .any(|pattern| pattern.is_match(&text));
     included && !excluded
 }
 
@@ -616,7 +658,11 @@ fn normalize_type_filters(values: &[String]) -> Result<HashSet<String>> {
     Ok(out)
 }
 
-fn file_type_allowed(path: &Path, include_types: &HashSet<String>, exclude_types: &HashSet<String>) -> Result<bool> {
+fn file_type_allowed(
+    path: &Path,
+    include_types: &HashSet<String>,
+    exclude_types: &HashSet<String>,
+) -> Result<bool> {
     if include_types.is_empty() && exclude_types.is_empty() {
         return Ok(true);
     }
@@ -668,14 +714,20 @@ fn glob_to_regex(pattern: &str) -> String {
     regex
 }
 
-fn filter_reports(reports: &[hydradragonstatic::models::ScanReport], include_clean: bool) -> Vec<&hydradragonstatic::models::ScanReport> {
+fn filter_reports(
+    reports: &[hydradragonstatic::models::ScanReport],
+    include_clean: bool,
+) -> Vec<&hydradragonstatic::models::ScanReport> {
     reports
         .iter()
         .filter(|report| include_clean || !report.findings.is_empty())
         .collect()
 }
 
-fn collect_fp_rule_ids(reports: &[hydradragonstatic::models::ScanReport], selector: &FpRemoveSelector) -> HashSet<String> {
+fn collect_fp_rule_ids(
+    reports: &[hydradragonstatic::models::ScanReport],
+    selector: &FpRemoveSelector,
+) -> HashSet<String> {
     let mut ids = HashSet::new();
     for report in reports {
         for finding in &report.findings {
@@ -696,12 +748,19 @@ fn apply_fp_removal(
 ) -> Result<()> {
     println!(
         "{} false-positive removal selector: {}",
-        if dry_run { "[FP-DRY-RUN]".yellow().bold() } else { "[FP-REMOVE]".red().bold() },
+        if dry_run {
+            "[FP-DRY-RUN]".yellow().bold()
+        } else {
+            "[FP-REMOVE]".red().bold()
+        },
         selector.describe()
     );
 
     if matched_rule_ids.is_empty() {
-        println!("{} no matching rules selected for removal", "[FP]".green().bold());
+        println!(
+            "{} no matching rules selected for removal",
+            "[FP]".green().bold()
+        );
         return Ok(());
     }
 
@@ -728,7 +787,11 @@ fn apply_fp_removal(
         removed_here.sort();
         println!(
             "{} {} rule(s) from {}: {}",
-            if dry_run { "would remove".yellow() } else { "removed".red() },
+            if dry_run {
+                "would remove".yellow()
+            } else {
+                "removed".red()
+            },
             removed_count,
             file.display(),
             removed_here.join(", ")
@@ -740,9 +803,8 @@ fn apply_fp_removal(
 
         if backup {
             let backup_path = backup_path_for(file);
-            std::fs::copy(file, &backup_path).with_context(|| {
-                format!("failed to create backup {}", backup_path.display())
-            })?;
+            std::fs::copy(file, &backup_path)
+                .with_context(|| format!("failed to create backup {}", backup_path.display()))?;
             println!("  backup={}", backup_path.display());
         }
 
@@ -753,11 +815,22 @@ fn apply_fp_removal(
     }
 
     if total_removed == 0 {
-        println!("{} selected detections did not map to writable external rule files", "[FP]".yellow().bold());
+        println!(
+            "{} selected detections did not map to writable external rule files",
+            "[FP]".yellow().bold()
+        );
     } else if dry_run {
-        println!("{} {} rule(s) would be removed", "[FP-DRY-RUN]".yellow().bold(), total_removed);
+        println!(
+            "{} {} rule(s) would be removed",
+            "[FP-DRY-RUN]".yellow().bold(),
+            total_removed
+        );
     } else {
-        println!("{} {} rule(s) removed from Yamdle/YAML rule files", "[FP-REMOVE]".green().bold(), total_removed);
+        println!(
+            "{} {} rule(s) removed from Yamdle/YAML rule files",
+            "[FP-REMOVE]".green().bold(),
+            total_removed
+        );
     }
     Ok(())
 }
@@ -770,7 +843,10 @@ fn remove_rules_from_files(
     label: &str,
 ) -> Result<()> {
     if rule_ids.is_empty() {
-        println!("{} no rule ids selected", format!("[{}]", label).yellow().bold());
+        println!(
+            "{} no rule ids selected",
+            format!("[{}]", label).yellow().bold()
+        );
         return Ok(());
     }
 
@@ -798,7 +874,11 @@ fn remove_rules_from_files(
         removed_here.sort();
         println!(
             "{} {} rule(s) from {}: {}",
-            if dry_run { "would remove".yellow() } else { "removed".red() },
+            if dry_run {
+                "would remove".yellow()
+            } else {
+                "removed".red()
+            },
             removed_count,
             file.display(),
             removed_here.join(", ")
@@ -810,9 +890,8 @@ fn remove_rules_from_files(
 
         if backup {
             let backup_path = backup_path_for(file);
-            std::fs::copy(file, &backup_path).with_context(|| {
-                format!("failed to create backup {}", backup_path.display())
-            })?;
+            std::fs::copy(file, &backup_path)
+                .with_context(|| format!("failed to create backup {}", backup_path.display()))?;
             println!("  backup={}", backup_path.display());
         }
 
@@ -824,11 +903,22 @@ fn remove_rules_from_files(
 
     let tag = format!("[{}]", label);
     if total_removed == 0 {
-        println!("{} selected rule ids did not map to writable external rule files", tag.yellow().bold());
+        println!(
+            "{} selected rule ids did not map to writable external rule files",
+            tag.yellow().bold()
+        );
     } else if dry_run {
-        println!("{} {} rule(s) would be removed", tag.yellow().bold(), total_removed);
+        println!(
+            "{} {} rule(s) would be removed",
+            tag.yellow().bold(),
+            total_removed
+        );
     } else {
-        println!("{} {} rule(s) removed from Yamdle/YAML rule files", tag.green().bold(), total_removed);
+        println!(
+            "{} {} rule(s) removed from Yamdle/YAML rule files",
+            tag.green().bold(),
+            total_removed
+        );
     }
     Ok(())
 }
@@ -855,23 +945,28 @@ struct SlowRuleAggregate {
     signature_atom_count: usize,
 }
 
-fn aggregate_rule_performance(reports: &[hydradragonstatic::models::ScanReport]) -> HashMap<String, SlowRuleAggregate> {
+fn aggregate_rule_performance(
+    reports: &[hydradragonstatic::models::ScanReport],
+) -> HashMap<String, SlowRuleAggregate> {
     let mut aggregates: HashMap<String, SlowRuleAggregate> = HashMap::new();
 
     for report in reports {
         for perf in &report.rule_performance {
-            let entry = aggregates.entry(perf.rule_id.clone()).or_insert_with(|| SlowRuleAggregate {
-                title: perf.title.clone(),
-                severity: perf.severity,
-                verdict: perf.verdict,
-                evaluations: 0,
-                matches: 0,
-                total_micros: 0,
-                max_micros: 0,
-                max_path: String::new(),
-                condition_count: perf.condition_count,
-                signature_atom_count: perf.signature_atom_count,
-            });
+            let entry =
+                aggregates
+                    .entry(perf.rule_id.clone())
+                    .or_insert_with(|| SlowRuleAggregate {
+                        title: perf.title.clone(),
+                        severity: perf.severity,
+                        verdict: perf.verdict,
+                        evaluations: 0,
+                        matches: 0,
+                        total_micros: 0,
+                        max_micros: 0,
+                        max_path: String::new(),
+                        condition_count: perf.condition_count,
+                        signature_atom_count: perf.signature_atom_count,
+                    });
             entry.evaluations += 1;
             entry.total_micros += perf.elapsed_micros as u128;
             if perf.matched {
@@ -887,11 +982,18 @@ fn aggregate_rule_performance(reports: &[hydradragonstatic::models::ScanReport])
     aggregates
 }
 
-fn print_slow_rule_summary(reports: &[hydradragonstatic::models::ScanReport], threshold_micros: u64, top: usize) {
+fn print_slow_rule_summary(
+    reports: &[hydradragonstatic::models::ScanReport],
+    threshold_micros: u64,
+    top: usize,
+) {
     let aggregates = aggregate_rule_performance(reports);
 
     if aggregates.is_empty() {
-        println!("{} rule profiling was enabled, but no rule performance data was collected", "[SLOW-RULES]".yellow().bold());
+        println!(
+            "{} rule profiling was enabled, but no rule performance data was collected",
+            "[SLOW-RULES]".yellow().bold()
+        );
         return;
     }
 
@@ -940,10 +1042,7 @@ fn print_slow_rule_summary(reports: &[hydradragonstatic::models::ScanReport], th
         );
         println!(
             "      title={} conditions={} atoms={} slowest_file={}",
-            stat.title,
-            stat.condition_count,
-            stat.signature_atom_count,
-            stat.max_path
+            stat.title, stat.condition_count, stat.signature_atom_count, stat.max_path
         );
     }
 }
@@ -959,7 +1058,10 @@ fn apply_slow_rule_removal(
 ) -> Result<()> {
     let aggregates = aggregate_rule_performance(reports);
     if aggregates.is_empty() {
-        println!("{} no profiling data found; slow-rule removal requires profiling", "[SLOW-REMOVE]".yellow().bold());
+        println!(
+            "{} no profiling data found; slow-rule removal requires profiling",
+            "[SLOW-REMOVE]".yellow().bold()
+        );
         return Ok(());
     }
 
@@ -981,14 +1083,21 @@ fn apply_slow_rule_removal(
 
     println!(
         "{} threshold={:.3}ms metric={:?} selector={}",
-        if dry_run { "[SLOW-REMOVE-DRY-RUN]".yellow().bold() } else { "[SLOW-REMOVE]".red().bold() },
+        if dry_run {
+            "[SLOW-REMOVE-DRY-RUN]".yellow().bold()
+        } else {
+            "[SLOW-REMOVE]".red().bold()
+        },
         threshold_micros as f64 / 1000.0,
         metric,
         selector.describe()
     );
 
     if selected.is_empty() {
-        println!("{} no rules selected for removal", "[SLOW-REMOVE]".green().bold());
+        println!(
+            "{} no rules selected for removal",
+            "[SLOW-REMOVE]".green().bold()
+        );
         return Ok(());
     }
 
@@ -1010,7 +1119,10 @@ fn apply_slow_rule_removal(
         println!("  ... {} more selected slow rule(s)", selected.len() - 50);
     }
 
-    let ids: HashSet<String> = selected.into_iter().map(|(rule_id, _, _)| rule_id).collect();
+    let ids: HashSet<String> = selected
+        .into_iter()
+        .map(|(rule_id, _, _)| rule_id)
+        .collect();
     remove_rules_from_files(rule_files, &ids, dry_run, backup, "SLOW-REMOVE")
 }
 
@@ -1035,17 +1147,40 @@ fn print_pretty(reports: &[hydradragonstatic::models::ScanReport]) {
             Verdict::Clean => "[CLEAN]".green().bold(),
         };
         println!("{} {}", badge, report.path.display());
-        println!("  verdict={} confidence={} score={} entropy={:.3} sha256={}", report.verdict.label(), report.confidence, report.score, report.entropy, report.hashes.sha256);
-        println!("  type={} tags={}", report.file_type.primary, report.file_type.tags.join(","));
+        println!(
+            "  verdict={} confidence={} score={} entropy={:.3} sha256={}",
+            report.verdict.label(),
+            report.confidence,
+            report.score,
+            report.entropy,
+            report.hashes.sha256
+        );
+        println!(
+            "  type={} tags={}",
+            report.file_type.primary,
+            report.file_type.tags.join(",")
+        );
         if !report.malware_families.is_empty() {
             println!("  families={}", report.malware_families.join(", "));
         }
         if let Some(pe) = &report.pe {
-            println!("  pe: arch={} imports={} suspicious_imports={}", pe.arch, pe.imports.len(), pe.suspicious_imports.len());
+            println!(
+                "  pe: arch={} imports={} suspicious_imports={}",
+                pe.arch,
+                pe.imports.len(),
+                pe.suspicious_imports.len()
+            );
         }
         for finding in &report.findings {
             let sev = format!("{:?}", finding.severity).to_uppercase();
-            println!("  - {} {} verdict={} confidence={} (+{})", sev.yellow().bold(), finding.title, finding.verdict.label(), finding.confidence, finding.score);
+            println!(
+                "  - {} {} verdict={} confidence={} (+{})",
+                sev.yellow().bold(),
+                finding.title,
+                finding.verdict.label(),
+                finding.confidence,
+                finding.score
+            );
             println!("      rule_id={}", finding.rule_id);
             for ev in finding.evidence.iter().take(8) {
                 println!("      {}", ev);

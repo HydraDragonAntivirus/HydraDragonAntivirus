@@ -178,7 +178,9 @@ impl core::fmt::Debug for SigningKey {
 
 impl AsRef<[u8]> for Signature {
     #[inline]
-    fn as_ref(&self) -> &[u8] { self.0.as_ref() }
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
 }
 
 impl SigningKey {
@@ -187,7 +189,8 @@ impl SigningKey {
     ///
     /// The key will be `recommended_key_len(digest_alg)` bytes long.
     pub fn generate(
-        digest_alg: &'static digest::Algorithm, rng: &dyn rand::SecureRandom,
+        digest_alg: &'static digest::Algorithm,
+        rng: &dyn rand::SecureRandom,
     ) -> Result<SigningKey, error::Unspecified> {
         // XXX: There should probably be a `digest::MAX_CHAINING_LEN`, but for
         // now `digest::MAX_OUTPUT_LEN` is good enough.
@@ -206,7 +209,9 @@ impl SigningKey {
     /// `recommended_key_len(digest_alg)`. This serialized value can be
     /// deserialized with `SigningKey::new()`.
     pub fn generate_serializable(
-        digest_alg: &'static digest::Algorithm, rng: &dyn rand::SecureRandom, key_bytes: &mut [u8],
+        digest_alg: &'static digest::Algorithm,
+        rng: &dyn rand::SecureRandom,
+        key_bytes: &mut [u8],
     ) -> Result<SigningKey, error::Unspecified> {
         if key_bytes.len() != recommended_key_len(digest_alg) {
             return Err(error::Unspecified);
@@ -310,7 +315,9 @@ impl SigningContext {
 
     /// Updates the HMAC with all the data in `data`. `update` may be called
     /// zero or more times until `finish` is called.
-    pub fn update(&mut self, data: &[u8]) { self.inner.update(data); }
+    pub fn update(&mut self, data: &[u8]) {
+        self.inner.update(data);
+    }
 
     /// Finalizes the HMAC calculation and returns the HMAC value. `sign`
     /// consumes the context so it cannot be (mis-)used after `sign` has been
@@ -370,7 +377,9 @@ impl VerificationKey {
 
     /// The digest algorithm for the key.
     #[inline]
-    pub fn digest_algorithm(&self) -> &'static digest::Algorithm { self.wrapped.digest_algorithm() }
+    pub fn digest_algorithm(&self) -> &'static digest::Algorithm {
+        self.wrapped.digest_algorithm()
+    }
 }
 
 /// Calculates the HMAC of `data` using the key `key`, and verifies whether the
@@ -379,7 +388,9 @@ impl VerificationKey {
 /// The verification will be done in constant time to prevent timing attacks.
 #[inline(always)]
 pub fn verify(
-    key: &VerificationKey, data: &[u8], signature: &[u8],
+    key: &VerificationKey,
+    data: &[u8],
+    signature: &[u8],
 ) -> Result<(), error::Unspecified> {
     verify_with_own_key(&key.wrapped, data, signature)
 }
@@ -392,7 +403,9 @@ pub fn verify(
 ///
 /// The verification will be done in constant time to prevent timing attacks.
 pub fn verify_with_own_key(
-    key: &SigningKey, data: &[u8], signature: &[u8],
+    key: &SigningKey,
+    data: &[u8],
+    signature: &[u8],
 ) -> Result<(), error::Unspecified> {
     constant_time::verify_slices_are_equal(sign(key, data).as_ref(), signature)
 }
@@ -415,7 +428,9 @@ pub fn verify_with_own_key(
 /// [RFC 5246, Appendix C]:
 ///     https://tools.ietf.org/html/rfc5246#appendix-C
 #[inline]
-pub fn recommended_key_len(digest_alg: &'static digest::Algorithm) -> usize { digest_alg.chaining_len }
+pub fn recommended_key_len(digest_alg: &'static digest::Algorithm) -> usize {
+    digest_alg.chaining_len
+}
 
 #[cfg(test)]
 mod tests {

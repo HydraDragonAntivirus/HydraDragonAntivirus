@@ -31,7 +31,12 @@ struct BinaryFormatValidation {
 }
 
 pub fn classify_path(path: &Path) -> Result<FileTypeInfo> {
-    let data = std::fs::read(path).with_context(|| format!("failed to read {} for file type classification", path.display()))?;
+    let data = std::fs::read(path).with_context(|| {
+        format!(
+            "failed to read {} for file type classification",
+            path.display()
+        )
+    })?;
     Ok(classify_bytes(path, &data))
 }
 
@@ -64,11 +69,59 @@ pub fn normalize_file_type_alias(value: &str) -> String {
 
 pub fn known_file_type_aliases() -> &'static [&'static str] {
     &[
-        "pe", "pe32", "pe64", "exe", "dll", "sys", "elf", "elf32", "elf64", "macho", "mach_o",
-        "apk", "android", "zip", "archive", "asar", "7z", "rar", "gzip", "gz", "tar", "jar", "java", "dex",
-        "java_class", "class", "text", "plain", "plain_text", "txt", "script", "powershell", "ps1", "batch", "bat", "cmd", "javascript",
-        "js", "vbs", "python", "py", "shell", "pdf", "office", "openxml", "ole", "compound", "microsoft_compound",
-        "binary", "unknown", "broken", "broken_executable", "broken_apk",
+        "pe",
+        "pe32",
+        "pe64",
+        "exe",
+        "dll",
+        "sys",
+        "elf",
+        "elf32",
+        "elf64",
+        "macho",
+        "mach_o",
+        "apk",
+        "android",
+        "zip",
+        "archive",
+        "asar",
+        "7z",
+        "rar",
+        "gzip",
+        "gz",
+        "tar",
+        "jar",
+        "java",
+        "dex",
+        "java_class",
+        "class",
+        "text",
+        "plain",
+        "plain_text",
+        "txt",
+        "script",
+        "powershell",
+        "ps1",
+        "batch",
+        "bat",
+        "cmd",
+        "javascript",
+        "js",
+        "vbs",
+        "python",
+        "py",
+        "shell",
+        "pdf",
+        "office",
+        "openxml",
+        "ole",
+        "compound",
+        "microsoft_compound",
+        "binary",
+        "unknown",
+        "broken",
+        "broken_executable",
+        "broken_apk",
     ]
 }
 
@@ -223,7 +276,12 @@ fn apply_archive_markers(info: &mut FileTypeInfo, data: &[u8]) {
         push_tag(info, "archive");
     }
 
-    if data.len() > 262 && data.get(257..262).map(|value| value == b"ustar").unwrap_or(false) {
+    if data.len() > 262
+        && data
+            .get(257..262)
+            .map(|value| value == b"ustar")
+            .unwrap_or(false)
+    {
         info.is_tar = true;
         info.is_archive = true;
         set_primary_if_unknown(info, "tar");
@@ -433,7 +491,11 @@ fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
 
     let cursor = Cursor::new(data);
     let Ok(mut archive) = ZipArchive::new(cursor) else {
-        return if has_apk_marker { FormatValidation::Broken } else { FormatValidation::NotDetected };
+        return if has_apk_marker {
+            FormatValidation::Broken
+        } else {
+            FormatValidation::NotDetected
+        };
     };
 
     let mut has_android_manifest = false;
@@ -485,7 +547,11 @@ fn inspect_zip_entries(data: &[u8], info: &mut FileTypeInfo) {
         if lower == "classes.dex" || (lower.starts_with("classes") && lower.ends_with(".dex")) {
             has_dex = true;
         }
-        if lower == "[content_types].xml" || lower.starts_with("word/") || lower.starts_with("xl/") || lower.starts_with("ppt/") {
+        if lower == "[content_types].xml"
+            || lower.starts_with("word/")
+            || lower.starts_with("xl/")
+            || lower.starts_with("ppt/")
+        {
             has_office_content_types = true;
         }
     }
@@ -522,7 +588,9 @@ pub fn is_plain_text_bytes(data: &[u8]) -> bool {
 
     let control_count = sample
         .iter()
-        .filter(|&&b| b < 32 && b != b'\n' && b != b'\r' && b != b'\t' && b != b'\x0c' && b != b'\x08')
+        .filter(|&&b| {
+            b < 32 && b != b'\n' && b != b'\r' && b != b'\t' && b != b'\x0c' && b != b'\x08'
+        })
         .count();
     let control_ratio = control_count as f64 / sample_len as f64;
     if control_ratio > 0.05 {
@@ -558,7 +626,11 @@ fn elf_file_type(data: &[u8]) -> Option<String> {
 }
 
 fn set_primary_if_unknown(info: &mut FileTypeInfo, primary: &str) {
-    if info.primary == "unknown" || info.primary == "text" || info.primary == "zip" || info.primary == "archive" {
+    if info.primary == "unknown"
+        || info.primary == "text"
+        || info.primary == "zip"
+        || info.primary == "archive"
+    {
         info.primary = primary.to_string();
     }
 }
@@ -597,19 +669,28 @@ fn looks_like_zip(data: &[u8]) -> bool {
 }
 
 fn read_u16_le(data: &[u8], offset: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(data.get(offset..offset + 2)?.try_into().ok()?))
+    Some(u16::from_le_bytes(
+        data.get(offset..offset + 2)?.try_into().ok()?,
+    ))
 }
 
 fn read_u32_le(data: &[u8], offset: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(data.get(offset..offset + 4)?.try_into().ok()?))
+    Some(u32::from_le_bytes(
+        data.get(offset..offset + 4)?.try_into().ok()?,
+    ))
 }
 
 fn read_u32_be(data: &[u8], offset: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(data.get(offset..offset + 4)?.try_into().ok()?))
+    Some(u32::from_be_bytes(
+        data.get(offset..offset + 4)?.try_into().ok()?,
+    ))
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    !needle.is_empty() && haystack.windows(needle.len()).any(|window| window == needle)
+    !needle.is_empty()
+        && haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
 }
 
 #[cfg(test)]

@@ -218,29 +218,30 @@ pub fn nt_protect_virtual_memory(
 
     let monitor_from = base_of_ntdll + 372; // account for some weird thing
     let end_of_ntdll: usize = monitor_from + size_of_text_sec;
-    if target_end >= monitor_from && target_end <= end_of_ntdll
+    if target_end >= monitor_from
+        && target_end <= end_of_ntdll
         && (new_access_protect & PAGE_EXECUTE_READWRITE.0 == PAGE_EXECUTE_READWRITE.0
             || new_access_protect & PAGE_WRITECOPY.0 == PAGE_WRITECOPY.0
             || new_access_protect & PAGE_WRITECOMBINE.0 == PAGE_WRITECOMBINE.0
             || new_access_protect & PAGE_READWRITE.0 == PAGE_READWRITE.0
             || new_access_protect & PAGE_EXECUTE_WRITECOPY.0 == PAGE_EXECUTE_WRITECOPY.0)
     {
-            // At this point, we have a few options:
-            // 1 - Suspend threads until the EDR tells us what to do
-            // 2 - Return an error consistent with what we would get from the syscall, maybe access denied, indicating that
-            //      the syscall failed (by returning we do not make the syscall)
-            // 3 - Exit the process
-            // In all cases - the EDR engine should be notified of the event. For demo purposes, this will not be immediately
-            // implemented.
-            // In this case - we will simply terminate the process.
-            // todo - handle more gracefully in the future.
-            println!(
-                "[sanctum] [!] NTDLL tampering detected, attempting to alter memory protections on NTDLL. Base address: {:p}, new protect: {:b}. No bytes: {}",
-                target_base as *const c_void,
-                new_access_protect,
-                unsafe { *no_bytes_to_protect }
-            );
-            std::process::exit(0x12345678);
+        // At this point, we have a few options:
+        // 1 - Suspend threads until the EDR tells us what to do
+        // 2 - Return an error consistent with what we would get from the syscall, maybe access denied, indicating that
+        //      the syscall failed (by returning we do not make the syscall)
+        // 3 - Exit the process
+        // In all cases - the EDR engine should be notified of the event. For demo purposes, this will not be immediately
+        // implemented.
+        // In this case - we will simply terminate the process.
+        // todo - handle more gracefully in the future.
+        println!(
+            "[sanctum] [!] NTDLL tampering detected, attempting to alter memory protections on NTDLL. Base address: {:p}, new protect: {:b}. No bytes: {}",
+            target_base as *const c_void,
+            new_access_protect,
+            unsafe { *no_bytes_to_protect }
+        );
+        std::process::exit(0x12345678);
     }
 
     // proceed with the syscall

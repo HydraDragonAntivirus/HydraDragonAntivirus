@@ -124,7 +124,9 @@ fn spawn_owlyshield_ransom_process() {
             None,
             &mut attribute_size_list,
         )
-    }.is_err() {
+    }
+    .is_err()
+    {
         event_log(
             "Error initialising thread attribute list",
             EVENTLOG_ERROR_TYPE,
@@ -220,7 +222,9 @@ fn spawn_firewall_process() {
             None,
             &mut attribute_size_list,
         )
-    }.is_err() {
+    }
+    .is_err()
+    {
         event_log(
             "Error initialising thread attribute list for firewall",
             EVENTLOG_ERROR_TYPE,

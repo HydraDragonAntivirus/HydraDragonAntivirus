@@ -8,24 +8,53 @@ static REG_KEY_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 static REG_API_NAMES: &[&str] = &[
-    "RegOpenKeyExA", "RegOpenKeyExW", "RegQueryValueExA", "RegQueryValueExW", "RegSetValueExA", "RegSetValueExW",
-    "RegCreateKeyExA", "RegCreateKeyExW", "RegDeleteKeyA", "RegDeleteKeyW", "RegDeleteValueA", "RegDeleteValueW",
-    "NtOpenKey", "NtSetValueKey", "NtCreateKey", "NtDeleteKey", "NtDeleteValueKey", "NtEnumerateKey",
+    "RegOpenKeyExA",
+    "RegOpenKeyExW",
+    "RegQueryValueExA",
+    "RegQueryValueExW",
+    "RegSetValueExA",
+    "RegSetValueExW",
+    "RegCreateKeyExA",
+    "RegCreateKeyExW",
+    "RegDeleteKeyA",
+    "RegDeleteKeyW",
+    "RegDeleteValueA",
+    "RegDeleteValueW",
+    "NtOpenKey",
+    "NtSetValueKey",
+    "NtCreateKey",
+    "NtDeleteKey",
+    "NtDeleteValueKey",
+    "NtEnumerateKey",
 ];
 
-pub fn scan_registry_indicators(strings: &[StringHit], decoded: &[DecodedString], pe: Option<&PeInfo>) -> Vec<RegistryHit> {
+pub fn scan_registry_indicators(
+    strings: &[StringHit],
+    decoded: &[DecodedString],
+    pe: Option<&PeInfo>,
+) -> Vec<RegistryHit> {
     let mut hits = Vec::new();
     let mut seen = HashSet::new();
 
     for s in strings {
         if REG_KEY_RE.is_match(&s.value) {
-            push(&mut hits, &mut seen, &s.value, "registry key/value persistence or reconnaissance pattern");
+            push(
+                &mut hits,
+                &mut seen,
+                &s.value,
+                "registry key/value persistence or reconnaissance pattern",
+            );
         }
     }
 
     for s in decoded {
         if REG_KEY_RE.is_match(&s.decoded) {
-            push(&mut hits, &mut seen, &s.decoded, "decoded registry key/value persistence or reconnaissance pattern");
+            push(
+                &mut hits,
+                &mut seen,
+                &s.decoded,
+                "decoded registry key/value persistence or reconnaissance pattern",
+            );
         }
     }
 
@@ -44,6 +73,9 @@ fn push(hits: &mut Vec<RegistryHit>, seen: &mut HashSet<String>, key_or_value: &
     let value = crate::utils::text::truncate_middle(key_or_value, 256);
     let key = format!("{}:{}", value, reason);
     if seen.insert(key) {
-        hits.push(RegistryHit { key_or_value: value, reason: reason.to_string() });
+        hits.push(RegistryHit {
+            key_or_value: value,
+            reason: reason.to_string(),
+        });
     }
 }

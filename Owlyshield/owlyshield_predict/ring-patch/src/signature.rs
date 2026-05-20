@@ -346,7 +346,9 @@ impl Signature {
 }
 
 impl AsRef<[u8]> for Signature {
-    fn as_ref(&self) -> &[u8] { &self.value[..self.len] }
+    fn as_ref(&self) -> &[u8] {
+        &self.value[..self.len]
+    }
 }
 
 /// Key pairs for signing messages (private key and public key).
@@ -370,7 +372,10 @@ pub trait VerificationAlgorithm: core::fmt::Debug + Sync + sealed::Sealed {
     /// Verify the signature `signature` of message `msg` with the public key
     /// `public_key`.
     fn verify(
-        &self, public_key: untrusted::Input, msg: untrusted::Input, signature: untrusted::Input,
+        &self,
+        public_key: untrusted::Input,
+        msg: untrusted::Input,
+        signature: untrusted::Input,
     ) -> Result<(), error::Unspecified>;
 }
 
@@ -398,7 +403,9 @@ pub trait VerificationAlgorithm: core::fmt::Debug + Sync + sealed::Sealed {
 /// # fn main() { }
 /// ```
 pub fn verify(
-    alg: &VerificationAlgorithm, public_key: untrusted::Input, msg: untrusted::Input,
+    alg: &VerificationAlgorithm,
+    public_key: untrusted::Input,
+    msg: untrusted::Input,
     signature: untrusted::Input,
 ) -> Result<(), error::Unspecified> {
     let _ = cpu::features();

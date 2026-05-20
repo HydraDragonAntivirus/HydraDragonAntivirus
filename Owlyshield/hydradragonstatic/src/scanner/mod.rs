@@ -32,7 +32,10 @@ pub struct ScannerConfig {
 
 impl Default for ScannerConfig {
     fn default() -> Self {
-        Self { min_string_len: 5, decode_obfuscated_strings: true }
+        Self {
+            min_string_len: 5,
+            decode_obfuscated_strings: true,
+        }
     }
 }
 
@@ -44,7 +47,8 @@ impl HydraScanner {
     }
 
     pub fn scan_with_config(path: &Path, config: &ScannerConfig) -> Result<ScanContext> {
-        let bytes = std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+        let bytes =
+            std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
         let file_size = bytes.len() as u64;
         let entropy = byte_entropy(&bytes);
         let hashes = hashes(&bytes);
@@ -57,7 +61,8 @@ impl HydraScanner {
         let pe = pe::scan_pe(&bytes);
         let file_type = filetype::classify_bytes(path, &bytes);
         let env_hits = env::scan_environment(&strings, &decoded_strings);
-        let registry_hits = registry::scan_registry_indicators(&strings, &decoded_strings, pe.as_ref());
+        let registry_hits =
+            registry::scan_registry_indicators(&strings, &decoded_strings, pe.as_ref());
         Ok(ScanContext {
             path: path.to_path_buf(),
             bytes,

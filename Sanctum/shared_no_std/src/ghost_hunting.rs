@@ -43,7 +43,12 @@ pub struct Syscall {
 }
 
 impl Syscall {
-    pub fn from_kernel(process_initiating_pid: u32, data: NtFunction, caller_address: u64, hex_payload: [u8; 16]) -> Self {
+    pub fn from_kernel(
+        process_initiating_pid: u32,
+        data: NtFunction,
+        caller_address: u64,
+        hex_payload: [u8; 16],
+    ) -> Self {
         Self {
             pid: process_initiating_pid,
             source: SyscallEventSource::EventSourceKernel,
@@ -53,7 +58,12 @@ impl Syscall {
         }
     }
 
-    pub fn from_sanctum_dll(process_initiating_pid: u32, data: NtFunction, caller_address: u64, hex_payload: [u8; 16]) -> Self {
+    pub fn from_sanctum_dll(
+        process_initiating_pid: u32,
+        data: NtFunction,
+        caller_address: u64,
+        hex_payload: [u8; 16],
+    ) -> Self {
         Self {
             pid: process_initiating_pid,
             source: SyscallEventSource::EventSourceSyscallHook,

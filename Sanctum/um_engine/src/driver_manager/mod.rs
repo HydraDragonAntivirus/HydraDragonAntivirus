@@ -1,5 +1,5 @@
-pub mod manager;
 pub mod ioctl;
+pub mod manager;
 pub mod service;
 
 // to prevent requiring double driver_manager::driver_manager in imports

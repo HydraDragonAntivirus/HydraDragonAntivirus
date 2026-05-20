@@ -30,7 +30,7 @@ pub fn protected_process_reason(_pid: u32, _fallback_path: Option<&Path>) -> Opt
 
 #[cfg(target_os = "windows")]
 fn is_process_marked_critical(pid: u32) -> bool {
-    use windows::Win32::Foundation::{CloseHandle, BOOL};
+    use windows::Win32::Foundation::{BOOL, CloseHandle};
     use windows::Win32::System::Threading::{
         IsProcessCritical, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
@@ -120,8 +120,8 @@ pub fn resolve_process_path(pid: u32) -> Option<PathBuf> {
     {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Threading::{
-            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-            PROCESS_QUERY_LIMITED_INFORMATION,
+            OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+            QueryFullProcessImageNameW,
         };
 
         unsafe {

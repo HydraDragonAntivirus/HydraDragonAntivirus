@@ -46,7 +46,8 @@ impl OpeningKey {
     /// `key_bytes` must be exactly `algorithm.key_len` bytes long.
     #[inline]
     pub fn new(
-        algorithm: &'static Algorithm, key_bytes: &[u8],
+        algorithm: &'static Algorithm,
+        key_bytes: &[u8],
     ) -> Result<OpeningKey, error::Unspecified> {
         Ok(OpeningKey {
             key: Key::new(algorithm, key_bytes)?,
@@ -55,7 +56,9 @@ impl OpeningKey {
 
     /// The key's AEAD algorithm.
     #[inline(always)]
-    pub fn algorithm(&self) -> &'static Algorithm { self.key.algorithm() }
+    pub fn algorithm(&self) -> &'static Algorithm {
+        self.key.algorithm()
+    }
 }
 
 /// Authenticates and decrypts (“opens”) data in place.
@@ -103,7 +106,10 @@ impl OpeningKey {
 /// does not allow us to have two slices, one mutable and one immutable, that
 /// reference overlapping memory.)
 pub fn open_in_place<'a>(
-    key: &OpeningKey, nonce: Nonce, aad: Aad, in_prefix_len: usize,
+    key: &OpeningKey,
+    nonce: Nonce,
+    aad: Aad,
+    in_prefix_len: usize,
     ciphertext_and_tag_modified_in_place: &'a mut [u8],
 ) -> Result<&'a mut [u8], error::Unspecified> {
     let ciphertext_and_tag_len = ciphertext_and_tag_modified_in_place
@@ -149,7 +155,8 @@ impl SealingKey {
     /// Constructs a new sealing key from `key_bytes`.
     #[inline]
     pub fn new(
-        algorithm: &'static Algorithm, key_bytes: &[u8],
+        algorithm: &'static Algorithm,
+        key_bytes: &[u8],
     ) -> Result<SealingKey, error::Unspecified> {
         Ok(SealingKey {
             key: Key::new(algorithm, key_bytes)?,
@@ -158,7 +165,9 @@ impl SealingKey {
 
     /// The key's AEAD algorithm.
     #[inline(always)]
-    pub fn algorithm(&self) -> &'static Algorithm { self.key.algorithm() }
+    pub fn algorithm(&self) -> &'static Algorithm {
+        self.key.algorithm()
+    }
 }
 
 /// Encrypts and signs (“seals”) data in place.
@@ -179,7 +188,11 @@ impl SealingKey {
 ///
 /// `aad` is the additional authenticated data, if any.
 pub fn seal_in_place(
-    key: &SealingKey, nonce: Nonce, aad: Aad, in_out: &mut [u8], out_suffix_capacity: usize,
+    key: &SealingKey,
+    nonce: Nonce,
+    aad: Aad,
+    in_out: &mut [u8],
+    out_suffix_capacity: usize,
 ) -> Result<usize, error::Unspecified> {
     if out_suffix_capacity < key.key.algorithm.tag_len() {
         return Err(error::Unspecified);
@@ -207,12 +220,16 @@ pub struct Aad<'a>(&'a [u8]);
 impl<'a> Aad<'a> {
     /// Construct the `Aad` by borrowing a contiguous sequence of bytes.
     #[inline]
-    pub fn from(aad: &'a [u8]) -> Self { Aad(aad) }
+    pub fn from(aad: &'a [u8]) -> Self {
+        Aad(aad)
+    }
 }
 
 impl Aad<'static> {
     /// Construct an empty `Aad`.
-    pub fn empty() -> Self { Self::from(&[]) }
+    pub fn empty() -> Self {
+        Self::from(&[])
+    }
 }
 
 /// `OpeningKey` and `SealingKey` are type-safety wrappers around `Key`, which
@@ -243,7 +260,9 @@ impl Key {
 
     /// The key's AEAD algorithm.
     #[inline(always)]
-    fn algorithm(&self) -> &'static Algorithm { self.algorithm }
+    fn algorithm(&self) -> &'static Algorithm {
+        self.algorithm
+    }
 }
 
 /// An AEAD Algorithm.
@@ -284,17 +303,23 @@ const fn max_input_len(block_len: usize, overhead_blocks_per_nonce: usize) -> u6
 impl Algorithm {
     /// The length of the key.
     #[inline(always)]
-    pub fn key_len(&self) -> usize { self.key_len }
+    pub fn key_len(&self) -> usize {
+        self.key_len
+    }
 
     /// The length of a tag.
     ///
     /// See also `MAX_TAG_LEN`.
     #[inline(always)]
-    pub fn tag_len(&self) -> usize { TAG_LEN }
+    pub fn tag_len(&self) -> usize {
+        TAG_LEN
+    }
 
     /// The length of the nonces.
     #[inline(always)]
-    pub fn nonce_len(&self) -> usize { NONCE_LEN }
+    pub fn nonce_len(&self) -> usize {
+        NONCE_LEN
+    }
 }
 
 derive_debug_via_id!(Algorithm);
@@ -307,7 +332,9 @@ enum AlgorithmID {
 }
 
 impl PartialEq for Algorithm {
-    fn eq(&self, other: &Self) -> bool { self.id == other.id }
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 impl Eq for Algorithm {}

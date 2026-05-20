@@ -101,13 +101,13 @@
 /// This module manages clusters generated from filepath lists.
 pub mod clustering {
     use kodama::{linkage, Method};
+    use serde::{Deserialize, Serialize};
     use std::cmp;
     use std::collections::HashSet;
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
     use std::path::Path;
-    use serde::{Serialize, Deserialize};
 
     #[derive(Serialize, Deserialize, Debug)]
     pub struct Cluster {

@@ -344,9 +344,7 @@ pub async fn handle_ipc(
             lock.ioctl_ping_driver()
         })
         .unwrap(),
-        "driver_collect_knl_dbg_msg" => {
-            to_value(core.get_cached_driver_messages().await).unwrap()
-        }
+        "driver_collect_knl_dbg_msg" => to_value(core.get_cached_driver_messages().await).unwrap(),
 
         //
         // Unhandled requests

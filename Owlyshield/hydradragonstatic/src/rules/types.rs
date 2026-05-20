@@ -44,9 +44,15 @@ pub struct Rule {
     pub conditions: Vec<RuleCondition>,
 }
 
-fn default_score() -> u32 { 10 }
-fn default_verdict() -> Verdict { Verdict::Suspicious }
-fn default_confidence() -> u8 { 60 }
+fn default_score() -> u32 {
+    10
+}
+fn default_verdict() -> Verdict {
+    Verdict::Suspicious
+}
+fn default_confidence() -> u8 {
+    60
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -105,16 +111,30 @@ pub struct SignatureAtom {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuleCondition {
-    StringContains { value: String, #[serde(default)] nocase: bool, #[serde(default)] decoded: bool },
-    StringRegex { pattern: String, #[serde(default)] decoded: bool },
+    StringContains {
+        value: String,
+        #[serde(default)]
+        nocase: bool,
+        #[serde(default)]
+        decoded: bool,
+    },
+    StringRegex {
+        pattern: String,
+        #[serde(default)]
+        decoded: bool,
+    },
 
     /// `2 of ($strings*)` style string groups.
     StringSet {
         values: Vec<String>,
-        #[serde(default)] min: Option<usize>,
-        #[serde(default)] nocase: bool,
-        #[serde(default)] decoded: bool,
-        #[serde(default)] regex: bool,
+        #[serde(default)]
+        min: Option<usize>,
+        #[serde(default)]
+        nocase: bool,
+        #[serde(default)]
+        decoded: bool,
+        #[serde(default)]
+        regex: bool,
     },
 
     /// HydraDragonStatic native signature format. It holds deterministic
@@ -125,37 +145,89 @@ pub enum RuleCondition {
         expression: String,
     },
 
-    ImportAny { names: Vec<String> },
-    ImportAll { names: Vec<String> },
-    ImportSet { names: Vec<String>, #[serde(default)] min: Option<usize> },
-    ImportRegex { pattern: String },
-    DllAny { names: Vec<String> },
-    DllRegex { pattern: String },
-    SuspiciousImportCount { min: usize },
+    ImportAny {
+        names: Vec<String>,
+    },
+    ImportAll {
+        names: Vec<String>,
+    },
+    ImportSet {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
+    ImportRegex {
+        pattern: String,
+    },
+    DllAny {
+        names: Vec<String>,
+    },
+    DllRegex {
+        pattern: String,
+    },
+    SuspiciousImportCount {
+        min: usize,
+    },
 
-    FileEntropy { min: f64 },
-    FileSizeGte { bytes: u64 },
-    FileSizeLte { bytes: u64 },
-    SectionEntropy { min: f64 },
-    SectionNameRegex { pattern: String },
+    FileEntropy {
+        min: f64,
+    },
+    FileSizeGte {
+        bytes: u64,
+    },
+    FileSizeLte {
+        bytes: u64,
+    },
+    SectionEntropy {
+        min: f64,
+    },
+    SectionNameRegex {
+        pattern: String,
+    },
     PackedPe,
 
-    EnvReference { #[serde(default)] min: usize },
-    RegistryPattern { pattern: String, #[serde(default)] nocase: bool },
-    RegistryHitCount { min: usize },
-    PathRegex { pattern: String },
+    EnvReference {
+        #[serde(default)]
+        min: usize,
+    },
+    RegistryPattern {
+        pattern: String,
+        #[serde(default)]
+        nocase: bool,
+    },
+    RegistryHitCount {
+        min: usize,
+    },
+    PathRegex {
+        pattern: String,
+    },
 
     /// Match file type tags produced by the native DetectItEasy-style classifier.
     /// Example values: pe, pe64, elf, macho, apk, zip, jar, text, script, powershell, office, broken_executable.
-    FileType { values: Vec<String> },
+    FileType {
+        values: Vec<String>,
+    },
 
-    HashSha256 { value: String },
-    HashMd5 { value: String },
-    FeatureGte { name: String, value: f64 },
+    HashSha256 {
+        value: String,
+    },
+    HashMd5 {
+        value: String,
+    },
+    FeatureGte {
+        name: String,
+        value: f64,
+    },
 
     /// Hex byte pattern. Supports `{ 4D 5A ?? 90 E8 }` and nibble wildcards like `4?`.
-    BytePattern { pattern: String },
+    BytePattern {
+        pattern: String,
+    },
 
     /// Byte pattern group.
-    ByteSet { patterns: Vec<String>, #[serde(default)] min: Option<usize> },
+    ByteSet {
+        patterns: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
+    },
 }

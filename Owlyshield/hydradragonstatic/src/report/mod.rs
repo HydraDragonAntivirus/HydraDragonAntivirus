@@ -7,7 +7,10 @@ use std::collections::BTreeMap;
 pub fn build_report(ctx: ScanContext) -> ScanReport {
     let mut features = BTreeMap::new();
     features.insert("string_count".into(), json!(ctx.strings.len()));
-    features.insert("decoded_string_count".into(), json!(ctx.decoded_strings.len()));
+    features.insert(
+        "decoded_string_count".into(),
+        json!(ctx.decoded_strings.len()),
+    );
     features.insert("env_hit_count".into(), json!(ctx.env_hits.len()));
     features.insert("registry_hit_count".into(), json!(ctx.registry_hits.len()));
     features.insert("file_entropy_bits_per_byte".into(), json!(ctx.entropy));
@@ -22,10 +25,16 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
     features.insert("is_zip".into(), json!(ctx.file_type.is_zip));
     features.insert("is_archive".into(), json!(ctx.file_type.is_archive));
     features.insert("is_script".into(), json!(ctx.file_type.is_script));
-    features.insert("is_broken_executable".into(), json!(ctx.file_type.is_broken_executable));
+    features.insert(
+        "is_broken_executable".into(),
+        json!(ctx.file_type.is_broken_executable),
+    );
     if let Some(pe) = &ctx.pe {
         features.insert("pe_import_count".into(), json!(pe.imports.len()));
-        features.insert("pe_suspicious_import_count".into(), json!(pe.suspicious_imports.len()));
+        features.insert(
+            "pe_suspicious_import_count".into(),
+            json!(pe.suspicious_imports.len()),
+        );
         features.insert("pe_likely_packed".into(), json!(pe.likely_packed));
     }
 

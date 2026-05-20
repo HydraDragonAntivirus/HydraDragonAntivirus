@@ -1234,8 +1234,12 @@ pub mod worker_instance {
                             continue;
                         }
 
-                        if !unsafe { validate_pipe_client(handle, Some(r"OpenEDR\edrsvc.exe"), false) } {
-                            Logging::error("[OpenEDRTelemetry] Rejected unauthorized OpenEDR telemetry client");
+                        if !unsafe {
+                            validate_pipe_client(handle, Some(r"OpenEDR\edrsvc.exe"), false)
+                        } {
+                            Logging::error(
+                                "[OpenEDRTelemetry] Rejected unauthorized OpenEDR telemetry client",
+                            );
                             unsafe {
                                 let _ = DisconnectNamedPipe(handle);
                                 let _ = CloseHandle(handle);
@@ -1261,7 +1265,8 @@ pub mod worker_instance {
                                 break;
                             }
 
-                            leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
+                            leftover
+                                .push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
                             while let Some(pos) = leftover.find('\n') {
                                 let line = leftover[..pos].trim().to_string();
                                 leftover = leftover[pos + 1..].to_string();

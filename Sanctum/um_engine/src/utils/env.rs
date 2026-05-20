@@ -2,7 +2,7 @@ use tokio::net::windows::named_pipe::NamedPipeServer;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::{Win32::System::WindowsProgramming::GetUserNameW, core::PWSTR};
 

@@ -601,19 +601,19 @@ pub fn run() {
             if last_diag.elapsed() >= std::time::Duration::from_secs(10) {
                 let mut summary = format!("[DIAG] {} total msgs in 10s. Opcodes: ", total_msgs);
                 let opcode_names: [&str; 30] = [
-                    "None",           // 0
-                    "Read",           // 1
-                    "Write",          // 2
-                    "SetInfo",        // 3
-                    "Create",         // 4
-                    "Cleanup",        // 5
-                    "Registry",       // 6
-                    "ProcCreate",     // 7
-                    "ProcTerm",       // 8
-                    "ProcTermAttempt",// 9
-                    "ProcExit",       // 10
-                    "ProcHandleOpen", // 11
-                    "Hypervisor",     // 12
+                    "None",              // 0
+                    "Read",              // 1
+                    "Write",             // 2
+                    "SetInfo",           // 3
+                    "Create",            // 4
+                    "Cleanup",           // 5
+                    "Registry",          // 6
+                    "ProcCreate",        // 7
+                    "ProcTerm",          // 8
+                    "ProcTermAttempt",   // 9
+                    "ProcExit",          // 10
+                    "ProcHandleOpen",    // 11
+                    "Hypervisor",        // 12
                     "KernRemoteThread",  // 13
                     "KernWriteMem",      // 14
                     "KernProtectMem",    // 15
