@@ -1,1 +1,18 @@
 Use thist list: https://github.com/Kiinitix/Malware-Detection-using-Machine-learning
+216.180.246.0/24 add this highly reported ip https://www.abuseipdb.com/check-block/216.180.246.0/24
+Deepfield Genome
+87.250.224.0/19	Yandex
+147.185.132.0/22	Palo Alto Networks
+167.94.138.0/24	Censys
+162.142.125.0/24	Censys
+104.16.0.0/13	Cloudflare Reverse Proxy
+76.76.21.0/24	Vercel / “No originating traffic”
+216.150.1.0/24	Vercel / “No originating traffic”
+216.198.79.0/24	Vercel / “No originating traffic”
+66.249.64.0/19	Google non-cloud IPs
+64.233.160.0/19	Google non-cloud IPs
+142.250.0.0/15	Google non-cloud IPs
+172.217.0.0/16	Google non-cloud IPs
+192.178.0.0/15	Google non-cloud IPs
+209.85.128.0/17	Google non-cloud IPs
+216.239.32.0/19 Google non-cloud IPs
