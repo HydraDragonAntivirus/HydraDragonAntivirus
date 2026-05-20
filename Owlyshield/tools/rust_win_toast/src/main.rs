@@ -1,10 +1,5 @@
 use std::{
-    cmp::Ordering,
-    env,
-    path::Path,
-    process::Command,
-    thread,
-    time::Duration as SleepDuration,
+    cmp::Ordering, env, path::Path, process::Command, thread, time::Duration as SleepDuration,
 };
 
 use winrt_notification::{Duration, IconCrop, Sound, Toast};
@@ -82,9 +77,7 @@ fn maybe_open_report_async(path: &str) {
 
     #[cfg(target_os = "windows")]
     {
-        let _ = Command::new("cmd")
-            .args(["/C", "start", "", path])
-            .spawn();
+        let _ = Command::new("cmd").args(["/C", "start", "", path]).spawn();
     }
 
     #[cfg(not(target_os = "windows"))]
