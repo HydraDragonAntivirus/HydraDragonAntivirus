@@ -11,17 +11,152 @@ use std::sync::{Arc, RwLock};
 // This prevents stack overflow during initialization
 // Hardcoded regexes removed in favor of SDK signatures
 
+#[derive(Clone, Debug, Default)]
+struct CidrIndex {
+    v4: Vec<(u32, u32)>,
+    v6: Vec<(u128, u128)>,
+}
+
+impl CidrIndex {
+    fn add(&mut self, cidr: &str) -> bool {
+        match Self::parse_interval(cidr) {
+            Some(CidrInterval::V4(start, end)) => {
+                self.v4.push((start, end));
+                true
+            }
+            Some(CidrInterval::V6(start, end)) => {
+                self.v6.push((start, end));
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn normalize(&mut self) {
+        Self::merge_intervals_u32(&mut self.v4);
+        Self::merge_intervals_u128(&mut self.v6);
+    }
+
+    fn contains(&self, ip: IpAddr) -> bool {
+        match ip {
+            IpAddr::V4(ipv4) => Self::contains_value(&self.v4, u32::from(ipv4)),
+            IpAddr::V6(ipv6) => Self::contains_value(&self.v6, u128::from(ipv6)),
+        }
+    }
+
+    fn parse_interval(cidr: &str) -> Option<CidrInterval> {
+        let cidr = cidr.trim();
+        if let Some((network, prefix)) = cidr.split_once('/') {
+            let prefix_len = prefix.parse::<u32>().ok()?;
+
+            if let Ok(ipv4) = network.parse::<Ipv4Addr>() {
+                if prefix_len > 32 {
+                    return None;
+                }
+                let mask = if prefix_len == 0 {
+                    0
+                } else {
+                    !0u32 << (32 - prefix_len)
+                };
+                let start = u32::from(ipv4) & mask;
+                let end = start | !mask;
+                return Some(CidrInterval::V4(start, end));
+            }
+
+            if let Ok(ipv6) = network.parse::<Ipv6Addr>() {
+                if prefix_len > 128 {
+                    return None;
+                }
+                let mask = if prefix_len == 0 {
+                    0
+                } else {
+                    !0u128 << (128 - prefix_len)
+                };
+                let start = u128::from(ipv6) & mask;
+                let end = start | !mask;
+                return Some(CidrInterval::V6(start, end));
+            }
+
+            return None;
+        }
+
+        match cidr.parse::<IpAddr>().ok()? {
+            IpAddr::V4(ipv4) => {
+                let value = u32::from(ipv4);
+                Some(CidrInterval::V4(value, value))
+            }
+            IpAddr::V6(ipv6) => {
+                let value = u128::from(ipv6);
+                Some(CidrInterval::V6(value, value))
+            }
+        }
+    }
+
+    fn merge_intervals_u32(intervals: &mut Vec<(u32, u32)>) {
+        intervals.sort_unstable();
+        let mut merged: Vec<(u32, u32)> = Vec::with_capacity(intervals.len());
+
+        for &(start, end) in intervals.iter() {
+            let Some(last) = merged.last_mut() else {
+                merged.push((start, end));
+                continue;
+            };
+
+            if start > last.1.saturating_add(1) {
+                merged.push((start, end));
+            } else if end > last.1 {
+                last.1 = end;
+            }
+        }
+
+        *intervals = merged;
+    }
+
+    fn merge_intervals_u128(intervals: &mut Vec<(u128, u128)>) {
+        intervals.sort_unstable();
+        let mut merged: Vec<(u128, u128)> = Vec::with_capacity(intervals.len());
+
+        for &(start, end) in intervals.iter() {
+            let Some(last) = merged.last_mut() else {
+                merged.push((start, end));
+                continue;
+            };
+
+            if start > last.1.saturating_add(1) {
+                merged.push((start, end));
+            } else if end > last.1 {
+                last.1 = end;
+            }
+        }
+
+        *intervals = merged;
+    }
+
+    fn contains_value<T>(intervals: &[(T, T)], value: T) -> bool
+    where
+        T: Copy + Ord,
+    {
+        let index = intervals.partition_point(|&(start, _)| start <= value);
+        index > 0 && intervals[index - 1].1 >= value
+    }
+}
+
+enum CidrInterval {
+    V4(u32, u32),
+    V6(u128, u128),
+}
+
 #[derive(Clone)]
 pub struct WebFilter {
     ipv4_blocklist: Arc<RwLock<HashSet<Ipv4Addr>>>,
     ipv6_blocklist: Arc<RwLock<HashSet<Ipv6Addr>>>,
-    cidr_blocklist: Arc<RwLock<Vec<String>>>,
+    cidr_blocklist: Arc<RwLock<CidrIndex>>,
     domain_blocklist: Arc<RwLock<HashSet<String>>>,
 
     // Whitelists to override blocklists
     ipv4_whitelist: Arc<RwLock<HashSet<Ipv4Addr>>>,
     ipv6_whitelist: Arc<RwLock<HashSet<Ipv6Addr>>>,
-    cidr_whitelist: Arc<RwLock<Vec<String>>>,
+    cidr_whitelist: Arc<RwLock<CidrIndex>>,
     domain_whitelist: Arc<RwLock<HashSet<String>>>,
     popular_domain_whitelist: Arc<RwLock<HashSet<String>>>,
 
@@ -45,12 +180,12 @@ impl WebFilter {
         Self {
             ipv4_blocklist: Arc::new(RwLock::new(HashSet::new())),
             ipv6_blocklist: Arc::new(RwLock::new(HashSet::new())),
-            cidr_blocklist: Arc::new(RwLock::new(Vec::new())),
+            cidr_blocklist: Arc::new(RwLock::new(CidrIndex::default())),
             domain_blocklist: Arc::new(RwLock::new(HashSet::new())),
 
             ipv4_whitelist: Arc::new(RwLock::new(HashSet::new())),
             ipv6_whitelist: Arc::new(RwLock::new(HashSet::new())),
-            cidr_whitelist: Arc::new(RwLock::new(Vec::new())),
+            cidr_whitelist: Arc::new(RwLock::new(CidrIndex::default())),
             domain_whitelist: Arc::new(RwLock::new(
                 [
                     "discord.com".to_string(),
@@ -252,48 +387,6 @@ impl WebFilter {
             return prefix_len <= 128 && !is_ipv4_file;
         }
         false
-    }
-
-    fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
-        let Some((network, prefix)) = cidr.split_once('/') else {
-            return cidr
-                .parse::<IpAddr>()
-                .is_ok_and(|target_ip| ip == target_ip);
-        };
-        let Ok(prefix_len) = prefix.parse::<u32>() else {
-            return false;
-        };
-
-        match ip {
-            IpAddr::V4(v4) => {
-                let Ok(net) = network.parse::<Ipv4Addr>() else {
-                    return false;
-                };
-                if prefix_len > 32 {
-                    return false;
-                }
-                let mask = if prefix_len == 0 {
-                    0
-                } else {
-                    !0u32 << (32 - prefix_len)
-                };
-                (u32::from(v4) & mask) == (u32::from(net) & mask)
-            }
-            IpAddr::V6(v6) => {
-                let Ok(net) = network.parse::<Ipv6Addr>() else {
-                    return false;
-                };
-                if prefix_len > 128 {
-                    return false;
-                }
-                let mask = if prefix_len == 0 {
-                    0
-                } else {
-                    !0u128 << (128 - prefix_len)
-                };
-                (u128::from(v6) & mask) == (u128::from(net) & mask)
-            }
-        }
     }
 
     pub fn load_references(&self, path: &str) -> std::io::Result<usize> {
@@ -681,7 +774,11 @@ impl WebFilter {
                 self.ipv6_whitelist.write().unwrap().extend(ips_v6);
             }
             if !cidr_ranges.is_empty() {
-                self.cidr_whitelist.write().unwrap().extend(cidr_ranges);
+                let mut cidr_whitelist = self.cidr_whitelist.write().unwrap();
+                for cidr in cidr_ranges {
+                    cidr_whitelist.add(&cidr);
+                }
+                cidr_whitelist.normalize();
             }
             if !domains.is_empty() {
                 self.domain_whitelist.write().unwrap().extend(domains);
@@ -700,7 +797,11 @@ impl WebFilter {
                 self.ipv6_blocklist.write().unwrap().extend(ips_v6);
             }
             if !cidr_ranges.is_empty() {
-                self.cidr_blocklist.write().unwrap().extend(cidr_ranges);
+                let mut cidr_blocklist = self.cidr_blocklist.write().unwrap();
+                for cidr in cidr_ranges {
+                    cidr_blocklist.add(&cidr);
+                }
+                cidr_blocklist.normalize();
             }
             if !domains.is_empty() {
                 self.domain_blocklist.write().unwrap().extend(domains);
@@ -711,13 +812,7 @@ impl WebFilter {
     }
 
     pub fn is_blocked_ip(&self, ip: IpAddr) -> bool {
-        if self
-            .cidr_whitelist
-            .read()
-            .unwrap()
-            .iter()
-            .any(|cidr| Self::ip_in_cidr(ip, cidr))
-        {
+        if self.cidr_whitelist.read().unwrap().contains(ip) {
             return false;
         }
 
@@ -738,13 +833,7 @@ impl WebFilter {
             }
         };
 
-        exact_blocked
-            || self
-                .cidr_blocklist
-                .read()
-                .unwrap()
-                .iter()
-                .any(|cidr| Self::ip_in_cidr(ip, cidr))
+        exact_blocked || self.cidr_blocklist.read().unwrap().contains(ip)
     }
 }
 

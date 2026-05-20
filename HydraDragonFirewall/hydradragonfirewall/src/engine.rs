@@ -34,6 +34,150 @@ lazy_static! {
 }
 // Imports updated below
 
+#[derive(Clone, Debug, Default)]
+struct CidrIndex {
+    v4: Vec<(u32, u32)>,
+    v6: Vec<(u128, u128)>,
+}
+
+impl CidrIndex {
+    fn from_cidrs(cidrs: &[String]) -> Self {
+        let mut index = Self::default();
+        for cidr in cidrs {
+            index.add(cidr);
+        }
+        index.normalize();
+        index
+    }
+
+    fn add(&mut self, cidr: &str) -> bool {
+        match Self::parse_interval(cidr) {
+            Some(CidrInterval::V4(start, end)) => {
+                self.v4.push((start, end));
+                true
+            }
+            Some(CidrInterval::V6(start, end)) => {
+                self.v6.push((start, end));
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn normalize(&mut self) {
+        Self::merge_intervals_u32(&mut self.v4);
+        Self::merge_intervals_u128(&mut self.v6);
+    }
+
+    fn contains(&self, ip: IpAddr) -> bool {
+        match ip {
+            IpAddr::V4(ipv4) => Self::contains_value(&self.v4, u32::from(ipv4)),
+            IpAddr::V6(ipv6) => Self::contains_value(&self.v6, u128::from(ipv6)),
+        }
+    }
+
+    fn parse_interval(cidr: &str) -> Option<CidrInterval> {
+        let cidr = cidr.trim();
+        if let Some((network, prefix)) = cidr.split_once('/') {
+            let prefix_len = prefix.parse::<u32>().ok()?;
+
+            if let Ok(ipv4) = network.parse::<Ipv4Addr>() {
+                if prefix_len > 32 {
+                    return None;
+                }
+                let mask = if prefix_len == 0 {
+                    0
+                } else {
+                    !0u32 << (32 - prefix_len)
+                };
+                let start = u32::from(ipv4) & mask;
+                let end = start | !mask;
+                return Some(CidrInterval::V4(start, end));
+            }
+
+            if let Ok(ipv6) = network.parse::<Ipv6Addr>() {
+                if prefix_len > 128 {
+                    return None;
+                }
+                let mask = if prefix_len == 0 {
+                    0
+                } else {
+                    !0u128 << (128 - prefix_len)
+                };
+                let start = u128::from(ipv6) & mask;
+                let end = start | !mask;
+                return Some(CidrInterval::V6(start, end));
+            }
+
+            return None;
+        }
+
+        match cidr.parse::<IpAddr>().ok()? {
+            IpAddr::V4(ipv4) => {
+                let value = u32::from(ipv4);
+                Some(CidrInterval::V4(value, value))
+            }
+            IpAddr::V6(ipv6) => {
+                let value = u128::from(ipv6);
+                Some(CidrInterval::V6(value, value))
+            }
+        }
+    }
+
+    fn merge_intervals_u32(intervals: &mut Vec<(u32, u32)>) {
+        intervals.sort_unstable();
+        let mut merged: Vec<(u32, u32)> = Vec::with_capacity(intervals.len());
+
+        for &(start, end) in intervals.iter() {
+            let Some(last) = merged.last_mut() else {
+                merged.push((start, end));
+                continue;
+            };
+
+            if start > last.1.saturating_add(1) {
+                merged.push((start, end));
+            } else if end > last.1 {
+                last.1 = end;
+            }
+        }
+
+        *intervals = merged;
+    }
+
+    fn merge_intervals_u128(intervals: &mut Vec<(u128, u128)>) {
+        intervals.sort_unstable();
+        let mut merged: Vec<(u128, u128)> = Vec::with_capacity(intervals.len());
+
+        for &(start, end) in intervals.iter() {
+            let Some(last) = merged.last_mut() else {
+                merged.push((start, end));
+                continue;
+            };
+
+            if start > last.1.saturating_add(1) {
+                merged.push((start, end));
+            } else if end > last.1 {
+                last.1 = end;
+            }
+        }
+
+        *intervals = merged;
+    }
+
+    fn contains_value<T>(intervals: &[(T, T)], value: T) -> bool
+    where
+        T: Copy + Ord,
+    {
+        let index = intervals.partition_point(|&(start, _)| start <= value);
+        index > 0 && intervals[index - 1].1 >= value
+    }
+}
+
+enum CidrInterval {
+    V4(u32, u32),
+    V6(u128, u128),
+}
+
 fn normalize_kernel_block_path_candidate(value: &str) -> Option<String> {
     let trimmed = value.trim().trim_matches('"');
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown") {
@@ -1470,6 +1614,7 @@ pub struct FirewallEngine {
     pub windows_root_trust_ready: Arc<AtomicBool>,
     pub firefox_policy_ready: Arc<AtomicBool>,
     pub browser_mitm_warning_cache: Arc<Mutex<HashSet<String>>>,
+    network_whitelist_index: Arc<RwLock<CidrIndex>>,
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
     pub divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::NetworkLayer>>>>,
     pub hydranet_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>,
@@ -1506,6 +1651,9 @@ impl FirewallEngine {
         // Default allow rules are now handled in Default impl or loaded from disk.
         // We do NOT hardcode them here to allow user to override/remove them.
 
+        let network_whitelist_index = Arc::new(RwLock::new(CidrIndex::from_cidrs(
+            &settings_data.network_whitelist,
+        )));
         let app_decisions = settings_data.app_decisions.clone();
         let app_manager = Arc::new(AppManager::new(app_decisions));
         let rules = Arc::new(RwLock::new(settings_data.rules.clone()));
@@ -1533,6 +1681,7 @@ impl FirewallEngine {
             windows_root_trust_ready,
             firefox_policy_ready,
             browser_mitm_warning_cache,
+            network_whitelist_index,
             divert_handle,
             hydranet_tx,
             nat_table,
@@ -1549,6 +1698,8 @@ impl FirewallEngine {
     }
 
     pub fn apply_settings(&self, new_settings: FirewallSettings) {
+        let new_network_whitelist_index = CidrIndex::from_cidrs(&new_settings.network_whitelist);
+
         // Sync App Decisions
         {
             let mut decisions = self.app_manager.decisions.write().unwrap();
@@ -1565,6 +1716,11 @@ impl FirewallEngine {
         {
             let mut settings = self.settings.write().unwrap();
             *settings = new_settings;
+        }
+
+        {
+            let mut network_whitelist_index = self.network_whitelist_index.write().unwrap();
+            *network_whitelist_index = new_network_whitelist_index;
         }
     }
 
@@ -3853,6 +4009,7 @@ impl FirewallEngine {
             let windows_root_trust_ready_w = Arc::clone(&self.windows_root_trust_ready);
             let firefox_policy_ready_w = Arc::clone(&self.firefox_policy_ready);
             let browser_mitm_warning_cache_w = Arc::clone(&self.browser_mitm_warning_cache);
+            let network_whitelist_index_w = Arc::clone(&self.network_whitelist_index);
             let tx_log = app_handle.clone();
             let divert_w = divert.clone();
             let net_ev_tx = net_event_tx.clone();
@@ -3975,6 +4132,7 @@ impl FirewallEngine {
                                     &windows_root_trust_ready_w,
                                     &firefox_policy_ready_w,
                                     &browser_mitm_warning_cache_w,
+                                    &network_whitelist_index_w,
                                 );
 
                                 // ── NET EVENT + BLOCK_EXE → BEHAVIOR ENGINE ─────────
@@ -4321,6 +4479,7 @@ impl FirewallEngine {
         windows_root_trust_ready: &Arc<AtomicBool>,
         firefox_policy_ready: &Arc<AtomicBool>,
         browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
+        network_whitelist_index: &Arc<RwLock<CidrIndex>>,
     ) -> PacketDecision {
         let (mut info, mut payload_offset) = match pre_parsed {
             Some(p) => (p.0.clone(), p.1),
@@ -4373,17 +4532,17 @@ impl FirewallEngine {
 
         // --- NEW: Global Network Whitelist ---
         {
-            let s = settings.read().unwrap();
-            for cidr in &s.network_whitelist {
-                if ip_in_cidr(info.src_ip, cidr) || ip_in_cidr(info.dst_ip, cidr) {
-                    return PacketDecision {
-                        packet_data: data.to_vec(),
-                        address_data: address_data.to_vec(),
-                        should_forward: true,
-                        recalc_checksums: false,
-                        _reason: format!("Whitelisted network: {}", cidr),
-                    };
-                }
+            let network_whitelist_index_guard = network_whitelist_index.read().unwrap();
+            if network_whitelist_index_guard.contains(info.src_ip)
+                || network_whitelist_index_guard.contains(info.dst_ip)
+            {
+                return PacketDecision {
+                    packet_data: data.to_vec(),
+                    address_data: address_data.to_vec(),
+                    should_forward: true,
+                    recalc_checksums: false,
+                    _reason: "Whitelisted network".to_string(),
+                };
             }
         }
 
@@ -5719,6 +5878,8 @@ impl FirewallEngine {
             settings.network_whitelist.extend(networks);
             settings.network_whitelist.sort();
             settings.network_whitelist.dedup();
+            let mut network_whitelist_index = self.network_whitelist_index.write().unwrap();
+            *network_whitelist_index = CidrIndex::from_cidrs(&settings.network_whitelist);
         }
     }
 
