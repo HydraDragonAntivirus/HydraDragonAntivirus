@@ -36,6 +36,7 @@ ChangesAssociations=yes
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
 DisableReadyMemo=yes
+UsePreviousTasks=no
 LicenseFile=C:\Users\semae\OneDrive\Belgeler\HydraDragonAntivirus\LICENSE
 InfoBeforeFile=C:\Users\semae\OneDrive\Belgeler\HydraDragonAntivirus\README.md
 OutputDir=C:\output
@@ -111,7 +112,7 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "KILL_POLICY"; ValueData: "KILL_AND_QUARANTINE"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELEMETRY"; ValueData: "0"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "VERBOSE_LOGGING"; ValueData: "0"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "VERBOSE_LOGGING"; ValueData: "{code:GetVerboseLoggingRegistryValue}"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; ValueType: string; ValueName: "OwlyshieldPostInstall"; ValueData: """{app}\post_install.bat"""
 
 Root: HKLM; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueType: string; ValueName: "DisplayName"; ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
@@ -120,6 +121,9 @@ Root: HKLM; Subkey: "Software\Classes\AppUserModelId\{#OwlyshieldAppId}"; ValueT
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
+
+[Tasks]
+Name: "verbose_logging_mode"; Description: "Verbose logging mode"; GroupDescription: "Optional logging settings:"; Flags: unchecked
 
 [Run]
 ; 7-Zip (silent)
@@ -184,6 +188,7 @@ Filename: "{pf}\Npcap\Uninstall.exe"; Parameters: "/S"; Flags: runhidden waitunt
 
 const
   RunOnceKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce';
+  VerboseLoggingModeTask = 'verbose_logging_mode';
   UninstallMsg =
     'HYDRADRAGON ANTIVIRUS - FULL UNINSTALLATION'#13#10#13#10 +
     'The uninstaller will perform the following actions:'#13#10 +
@@ -240,6 +245,65 @@ var
   ResultCode: Integer;
 begin
   Exec(Cmd, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function IsVerboseLoggingModeSelected(): Boolean;
+begin
+  Result := IsTaskSelected(VerboseLoggingModeTask);
+end;
+
+function GetVerboseLoggingRegistryValue(Param: String): String;
+begin
+  if IsVerboseLoggingModeSelected() then
+    Result := '1'
+  else
+    Result := '0';
+end;
+
+procedure ApplyFirewallLoggingSettingFile(const SettingsPath: String);
+var
+  Lines: TArrayOfString;
+  i: Integer;
+  Changed: Boolean;
+  CurrentValue, DesiredValue: String;
+begin
+  if not LoadStringsFromFile(SettingsPath, Lines) then
+  begin
+    Log('HydraDragon firewall settings file was not found: ' + SettingsPath);
+    Exit;
+  end;
+
+  if IsVerboseLoggingModeSelected() then
+  begin
+    CurrentValue := '"save_all_logs": false';
+    DesiredValue := '"save_all_logs": true';
+  end
+  else
+  begin
+    CurrentValue := '"save_all_logs": true';
+    DesiredValue := '"save_all_logs": false';
+  end;
+
+  Changed := False;
+  for i := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    if StringChangeEx(Lines[i], CurrentValue, DesiredValue, True) > 0 then
+      Changed := True;
+  end;
+
+  if Changed then
+  begin
+    SaveStringsToFile(SettingsPath, Lines, False);
+    Log('HydraDragon firewall save_all_logs updated by installer.');
+  end
+  else
+    Log('HydraDragon firewall save_all_logs already matches installer selection.');
+end;
+
+procedure ApplyFirewallLoggingSettings(const AppDir: String);
+begin
+  ApplyFirewallLoggingSettingFile(AppDir + '\hydradragon\HydraDragonFirewall\settings\settings.json');
+  ApplyFirewallLoggingSettingFile(AppDir + '\hydradragon\HydraDragonFirewall\json\settings.json');
 end;
 
 procedure StopAndDeleteService(const SvcName: String);
@@ -376,6 +440,12 @@ begin
 
   SaveStringToFile(ScriptPath, Script, False);
   RegWriteStringValue(HKLM, RunOnceKey, 'HydraDragonCleanup', '"' + ScriptPath + '"');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    ApplyFirewallLoggingSettings(ExpandConstant('{app}'));
 end;
 
 function InitializeUninstall(): Boolean;
