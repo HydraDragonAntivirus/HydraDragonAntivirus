@@ -1,7 +1,6 @@
 /// Shared types and constants for HydraDragon Firewall
 /// This lightweight crate contains only serializable types with no platform-specific dependencies,
 /// making it suitable for both native and WASM targets.
-
 use serde::{Deserialize, Serialize};
 
 /// Quarantine directory path (shared constant)
