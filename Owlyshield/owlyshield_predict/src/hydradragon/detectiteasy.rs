@@ -303,26 +303,19 @@ impl DetectItEasyScanner {
         let dotnet_type = self.is_dotnet(die_output);
         let format_validation = inspect_binary_formats(file_path);
 
-        let detected_pe = self.is_pe_file(die_output) || format_validation.pe == FormatValidation::Valid;
-        let detected_elf = self.is_elf_file(die_output) || format_validation.elf == FormatValidation::Valid;
-        let detected_macho = self.is_macho_file(die_output) || format_validation.macho == FormatValidation::Valid;
-        let detected_apk = self.is_apk_file(die_output) || format_validation.apk == FormatValidation::Valid;
+        let detected_pe =
+            self.is_pe_file(die_output) || format_validation.pe == FormatValidation::Valid;
+        let detected_elf =
+            self.is_elf_file(die_output) || format_validation.elf == FormatValidation::Valid;
+        let detected_macho =
+            self.is_macho_file(die_output) || format_validation.macho == FormatValidation::Valid;
+        let detected_apk =
+            self.is_apk_file(die_output) || format_validation.apk == FormatValidation::Valid;
 
-        let pe_result = file_type_result(
-            detected_pe,
-            format_validation.pe,
-            "Broken Executable",
-        );
-        let elf_result = file_type_result(
-            detected_elf,
-            format_validation.elf,
-            "Broken Executable",
-        );
-        let macho_result = file_type_result(
-            detected_macho,
-            format_validation.macho,
-            "Broken Executable",
-        );
+        let pe_result = file_type_result(detected_pe, format_validation.pe, "Broken Executable");
+        let elf_result = file_type_result(detected_elf, format_validation.elf, "Broken Executable");
+        let macho_result =
+            file_type_result(detected_macho, format_validation.macho, "Broken Executable");
         let apk_result = file_type_result(detected_apk, format_validation.apk, "Broken APK");
         let broken_executable_type = [
             ("PE", format_validation.pe, pe_result.as_deref()),
@@ -505,7 +498,9 @@ impl DetectItEasyScanner {
     }
 
     pub fn is_archive(&self, die_output: &str) -> bool {
-        die_output.lines().any(|line| line.trim_start().starts_with("Archive:"))
+        die_output
+            .lines()
+            .any(|line| line.trim_start().starts_with("Archive:"))
     }
 
     pub fn is_asar(&self, die_output: &str) -> bool {
@@ -853,10 +848,14 @@ fn mark_broken_executable_magic(data: &[u8], validation: &mut BinaryFormatValida
         validation.file_type.get_or_insert_with(|| "PE".to_string());
     } else if has_elf_magic(data) {
         validation.elf = FormatValidation::Broken;
-        validation.file_type.get_or_insert_with(|| "ELF".to_string());
+        validation
+            .file_type
+            .get_or_insert_with(|| "ELF".to_string());
     } else if has_macho_magic(data) {
         validation.macho = FormatValidation::Broken;
-        validation.file_type.get_or_insert_with(|| "Mach-O".to_string());
+        validation
+            .file_type
+            .get_or_insert_with(|| "Mach-O".to_string());
     }
 }
 
@@ -890,9 +889,7 @@ fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
         let name = file.name();
         if name == "AndroidManifest.xml" {
             has_android_manifest = true;
-        } else if name == "classes.dex"
-            || (name.starts_with("classes") && name.ends_with(".dex"))
-        {
+        } else if name == "classes.dex" || (name.starts_with("classes") && name.ends_with(".dex")) {
             has_dex = true;
         }
     }
@@ -971,15 +968,21 @@ fn looks_like_zip(data: &[u8]) -> bool {
 }
 
 fn read_u16_le(data: &[u8], offset: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(data.get(offset..offset + 2)?.try_into().ok()?))
+    Some(u16::from_le_bytes(
+        data.get(offset..offset + 2)?.try_into().ok()?,
+    ))
 }
 
 fn read_u32_le(data: &[u8], offset: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(data.get(offset..offset + 4)?.try_into().ok()?))
+    Some(u32::from_le_bytes(
+        data.get(offset..offset + 4)?.try_into().ok()?,
+    ))
 }
 
 fn read_u32_be(data: &[u8], offset: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(data.get(offset..offset + 4)?.try_into().ok()?))
+    Some(u32::from_be_bytes(
+        data.get(offset..offset + 4)?.try_into().ok()?,
+    ))
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

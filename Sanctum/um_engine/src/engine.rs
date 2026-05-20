@@ -36,7 +36,6 @@ pub struct Engine;
 impl Engine {
     /// Start the engine
     pub async fn start() -> Result<(), Box<dyn std::error::Error>> {
-
         //
         // Start by instantiating the elements we will be using in the engine.
         // Once created; clone them as Arcs to share across the threads

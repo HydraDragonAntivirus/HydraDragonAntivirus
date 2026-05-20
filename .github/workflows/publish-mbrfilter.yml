@@ -2,7 +2,7 @@ name: Publish MBRFilter
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'MBRFilter/**'
       - '.github/workflows/publish-mbrfilter.yml'

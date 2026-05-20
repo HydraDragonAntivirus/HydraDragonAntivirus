@@ -31,7 +31,9 @@ impl<'a> Positive<'a> {
     /// Returns the value, ordered from significant byte to least significant
     /// byte, without any leading zeros. The result is guaranteed to be
     /// non-empty.
-    pub fn big_endian_without_leading_zero(&self) -> untrusted::Input<'a> { self.0 }
+    pub fn big_endian_without_leading_zero(&self) -> untrusted::Input<'a> {
+        self.0
+    }
 
     /// Returns the first byte.
     ///

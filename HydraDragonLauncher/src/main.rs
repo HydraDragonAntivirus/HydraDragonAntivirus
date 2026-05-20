@@ -15,14 +15,14 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 // Windows API imports
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
 };
-use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, IsWindowVisible, ShowWindow, SW_HIDE, SW_SHOW,
 };
-use windows::core::PCWSTR;
 
 const BASE_DIR: &str = r"C:\Program Files\HydraDragonAntivirus";
 const DATA_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus";
@@ -83,7 +83,11 @@ fn is_process_running(exe_name: &str) -> bool {
         if Process32First(snapshot, &mut entry).is_ok() {
             loop {
                 let file_name = {
-                    let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+                    let len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(entry.szExeFile.len());
                     let bytes: Vec<u8> = entry.szExeFile[..len].iter().map(|&c| c as u8).collect();
                     String::from_utf8_lossy(&bytes).into_owned()
                 };
@@ -111,7 +115,12 @@ fn set_window_visibility_by_title(title: &str, show: bool) -> Result<(), String>
         let hwnd_res = FindWindowW(None, PCWSTR(title_wide.as_ptr()));
         let hwnd = match hwnd_res {
             Ok(h) if !h.0.is_null() => h,
-            _ => return Err(format!("Window '{}' not found. Is the component running?", title)),
+            _ => {
+                return Err(format!(
+                    "Window '{}' not found. Is the component running?",
+                    title
+                ))
+            }
         };
 
         let cmd = if show { SW_SHOW } else { SW_HIDE };
@@ -153,7 +162,11 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
     statuses.push(ComponentStatus {
         name: "Firewall".to_string(),
         running: fw_running,
-        gui_visible: if fw_running { Some(is_window_visible_by_title("HydraDragon Firewall").unwrap_or(false)) } else { None },
+        gui_visible: if fw_running {
+            Some(is_window_visible_by_title("HydraDragon Firewall").unwrap_or(false))
+        } else {
+            None
+        },
     });
 
     // AV Engine
@@ -182,14 +195,21 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
     statuses.push(ComponentStatus {
         name: "Sanctum".to_string(),
         running: sanctum_running,
-        gui_visible: if sanctum_running { Some(is_window_visible_by_title("Sanctum").unwrap_or(false)) } else { None },
+        gui_visible: if sanctum_running {
+            Some(is_window_visible_by_title("Sanctum").unwrap_or(false))
+        } else {
+            None
+        },
     });
 
     Ok(statuses)
 }
 
 #[tauri::command]
-async fn start_component(name: String, state: tauri::State<'_, Arc<Mutex<Components>>>) -> Result<(), String> {
+async fn start_component(
+    name: String,
+    state: tauri::State<'_, Arc<Mutex<Components>>>,
+) -> Result<(), String> {
     let mut comps = state.lock().await;
     match name.as_str() {
         "Owlyshield" => {
@@ -236,7 +256,10 @@ async fn start_component(name: String, state: tauri::State<'_, Arc<Mutex<Compone
 }
 
 #[tauri::command]
-async fn stop_component(name: String, state: tauri::State<'_, Arc<Mutex<Components>>>) -> Result<(), String> {
+async fn stop_component(
+    name: String,
+    state: tauri::State<'_, Arc<Mutex<Components>>>,
+) -> Result<(), String> {
     let mut comps = state.lock().await;
     match name.as_str() {
         "Owlyshield" => {
@@ -244,36 +267,52 @@ async fn stop_component(name: String, state: tauri::State<'_, Arc<Mutex<Componen
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill").args(["/F", "/IM", "owlyshield_ransom.exe"]).output();
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "owlyshield_ransom.exe"])
+                .output();
         }
         "Firewall" => {
             if let Some(mut child) = comps.firewall.take() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill").args(["/F", "/IM", "hydradragonfirewall.exe"]).output();
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "hydradragonfirewall.exe"])
+                .output();
         }
         "AV Engine" => {
             if let Some(mut child) = comps.av_engine.take() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill").args(["/F", "/IM", "HydraDragonAV.exe"]).output();
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "HydraDragonAV.exe"])
+                .output();
         }
         "Python Engine" => {
             if let Some(mut child) = comps.python_engine.take() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill").args(["/F", "/IM", "python.exe"]).output();
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "python.exe"])
+                .output();
         }
         "OpenEDR" => {
-            let _ = Command::new("taskkill").args(["/F", "/IM", "edrsvc.exe"]).output();
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "edrsvc.exe"])
+                .output();
         }
         "Sanctum" => {
-            let _ = Command::new("sc").args(["stop", "sanctum_ppl_runner"]).output();
-            let _ = Command::new("taskkill").args(["/F", "/IM", "um_engine.exe"]).output();
-            let _ = Command::new("taskkill").args(["/F", "/IM", "app.exe"]).output();
+            let _ = Command::new("sc")
+                .args(["stop", "sanctum_ppl_runner"])
+                .output();
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "um_engine.exe"])
+                .output();
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "app.exe"])
+                .output();
         }
         _ => return Err(format!("Unknown component: {}", name)),
     }
@@ -292,29 +331,54 @@ async fn toggle_gui_visibility(component: String, show: bool) -> Result<(), Stri
 }
 
 #[tauri::command]
-async fn start_all_components(state: tauri::State<'_, Arc<Mutex<Components>>>) -> Result<(), String> {
-    start_components(state.inner().clone()).await.map_err(|e| e.to_string())
+async fn start_all_components(
+    state: tauri::State<'_, Arc<Mutex<Components>>>,
+) -> Result<(), String> {
+    start_components(state.inner().clone())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn stop_all_components(state: tauri::State<'_, Arc<Mutex<Components>>>) -> Result<(), String> {
+async fn stop_all_components(
+    state: tauri::State<'_, Arc<Mutex<Components>>>,
+) -> Result<(), String> {
     let mut comps = state.lock().await;
     comps.kill_all();
-    let _ = Command::new("taskkill").args(["/F", "/IM", "edrsvc.exe"]).output();
-    let _ = Command::new("sc").args(["stop", "sanctum_ppl_runner"]).output();
-    let _ = Command::new("taskkill").args(["/F", "/IM", "um_engine.exe"]).output();
-    let _ = Command::new("taskkill").args(["/F", "/IM", "app.exe"]).output();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "edrsvc.exe"])
+        .output();
+    let _ = Command::new("sc")
+        .args(["stop", "sanctum_ppl_runner"])
+        .output();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "um_engine.exe"])
+        .output();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "app.exe"])
+        .output();
     Ok(())
 }
 
 #[tauri::command]
-async fn quit_launcher(app: tauri::AppHandle, state: tauri::State<'_, Arc<Mutex<Components>>>) -> Result<(), String> {
+async fn quit_launcher(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<Components>>>,
+) -> Result<(), String> {
     let mut comps = state.lock().await;
     comps.kill_all();
-    let _ = Command::new("taskkill").args(["/F", "/IM", "edrsvc.exe"]).output();
-    let _ = Command::new("sc").args(["stop", "sanctum_ppl_runner"]).output();
-    let _ = Command::new("taskkill").args(["/F", "/IM", "um_engine.exe"]).output();
-    let _ = Command::new("taskkill").args(["/F", "/IM", "app.exe"]).output();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "edrsvc.exe"])
+        .output();
+    let _ = Command::new("sc")
+        .args(["stop", "sanctum_ppl_runner"])
+        .output();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "um_engine.exe"])
+        .output();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "app.exe"])
+        .output();
     app.exit(0);
     Ok(())
 }
@@ -335,7 +399,9 @@ fn main() -> Result<()> {
     let components_clone = components.clone();
 
     let args: Vec<String> = std::env::args().collect();
-    let headless = args.iter().any(|arg| arg == "--headless" || arg == "--hidden");
+    let headless = args
+        .iter()
+        .any(|arg| arg == "--headless" || arg == "--hidden");
 
     tauri::Builder::default()
         .manage(components.clone())
@@ -349,18 +415,30 @@ fn main() -> Result<()> {
             });
 
             // Set up system tray icon
-            let show_i = tauri::menu::MenuItem::with_id(app, "show", "Show Controller", true, None::<&str>).unwrap();
-            let hide_i = tauri::menu::MenuItem::with_id(app, "hide", "Hide Controller", true, None::<&str>).unwrap();
-            let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "Exit & Stop All Services", true, None::<&str>).unwrap();
+            let show_i =
+                tauri::menu::MenuItem::with_id(app, "show", "Show Controller", true, None::<&str>)
+                    .unwrap();
+            let hide_i =
+                tauri::menu::MenuItem::with_id(app, "hide", "Hide Controller", true, None::<&str>)
+                    .unwrap();
+            let quit_i = tauri::menu::MenuItem::with_id(
+                app,
+                "quit",
+                "Exit & Stop All Services",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
             let menu = tauri::menu::Menu::with_items(
-                app, 
+                app,
                 &[
-                    &show_i, 
-                    &hide_i, 
-                    &tauri::menu::PredefinedMenuItem::separator(app).unwrap(), 
-                    &quit_i
-                ]
-            ).unwrap();
+                    &show_i,
+                    &hide_i,
+                    &tauri::menu::PredefinedMenuItem::separator(app).unwrap(),
+                    &quit_i,
+                ],
+            )
+            .unwrap();
 
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .menu(&menu)
@@ -384,10 +462,18 @@ fn main() -> Result<()> {
                         tauri::async_runtime::spawn(async move {
                             let mut comps = state_clone.lock().await;
                             comps.kill_all();
-                            let _ = Command::new("taskkill").args(["/F", "/IM", "edrsvc.exe"]).output();
-                            let _ = Command::new("sc").args(["stop", "sanctum_ppl_runner"]).output();
-                            let _ = Command::new("taskkill").args(["/F", "/IM", "um_engine.exe"]).output();
-                            let _ = Command::new("taskkill").args(["/F", "/IM", "app.exe"]).output();
+                            let _ = Command::new("taskkill")
+                                .args(["/F", "/IM", "edrsvc.exe"])
+                                .output();
+                            let _ = Command::new("sc")
+                                .args(["stop", "sanctum_ppl_runner"])
+                                .output();
+                            let _ = Command::new("taskkill")
+                                .args(["/F", "/IM", "um_engine.exe"])
+                                .output();
+                            let _ = Command::new("taskkill")
+                                .args(["/F", "/IM", "app.exe"])
+                                .output();
                             app_clone.exit(0);
                         });
                     }

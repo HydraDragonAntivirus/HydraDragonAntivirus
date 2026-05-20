@@ -137,7 +137,10 @@ use core::num::NonZeroU32;
 /// `derive` panics if `out.len()` is larger than (2**32 - 1) * the digest
 /// algorithm's output length, per the PBKDF2 specification.
 pub fn derive(
-    digest_alg: &'static digest::Algorithm, iterations: NonZeroU32, salt: &[u8], secret: &[u8],
+    digest_alg: &'static digest::Algorithm,
+    iterations: NonZeroU32,
+    salt: &[u8],
+    secret: &[u8],
     out: &mut [u8],
 ) {
     let output_len = digest_alg.output_len;
@@ -161,7 +164,11 @@ pub fn derive(
 }
 
 fn derive_block(
-    secret: &hmac::SigningKey, iterations: NonZeroU32, salt: &[u8], idx: u32, out: &mut [u8],
+    secret: &hmac::SigningKey,
+    iterations: NonZeroU32,
+    salt: &[u8],
+    idx: u32,
+    out: &mut [u8],
 ) {
     let mut ctx = hmac::SigningContext::with_key(secret);
     ctx.update(salt);
@@ -205,7 +212,10 @@ fn derive_block(
 /// `verify` panics if `out.len()` is larger than (2**32 - 1) * the digest
 /// algorithm's output length, per the PBKDF2 specification.
 pub fn verify(
-    digest_alg: &'static digest::Algorithm, iterations: NonZeroU32, salt: &[u8], secret: &[u8],
+    digest_alg: &'static digest::Algorithm,
+    iterations: NonZeroU32,
+    salt: &[u8],
+    secret: &[u8],
     previously_derived: &[u8],
 ) -> Result<(), error::Unspecified> {
     if previously_derived.is_empty() {

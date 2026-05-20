@@ -51,7 +51,9 @@ impl<'a> KeyPair {
     /// https://tools.ietf.org/html/draft-ietf-curdle-pkix-04.
     ///
     /// [RFC 5958 Section 2]: https://tools.ietf.org/html/rfc5958#section-2
-    pub fn generate_pkcs8(rng: &dyn rand::SecureRandom) -> Result<pkcs8::Document, error::Unspecified> {
+    pub fn generate_pkcs8(
+        rng: &dyn rand::SecureRandom,
+    ) -> Result<pkcs8::Document, error::Unspecified> {
         let mut seed = [0u8; SEED_LEN];
         rng.fill(&mut seed)?;
         let key_pair = Self::from_seed_(&seed);
@@ -109,7 +111,8 @@ impl<'a> KeyPair {
     /// public key). This also detects any corruption of the public or private
     /// key.
     pub fn from_seed_and_public_key(
-        seed: untrusted::Input, public_key: untrusted::Input,
+        seed: untrusted::Input,
+        public_key: untrusted::Input,
     ) -> Result<Self, error::KeyRejected> {
         let pair = Self::from_seed_unchecked(seed)?;
 
@@ -201,20 +204,25 @@ impl<'a> KeyPair {
 impl signature::KeyPair for KeyPair {
     type PublicKey = PublicKey;
 
-    fn public_key(&self) -> &Self::PublicKey { &self.public_key }
+    fn public_key(&self) -> &Self::PublicKey {
+        &self.public_key
+    }
 }
 
 #[derive(Clone, Copy)]
 pub struct PublicKey([u8; PUBLIC_KEY_LEN]);
 
 impl AsRef<[u8]> for PublicKey {
-    fn as_ref(&self) -> &[u8] { self.0.as_ref() }
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
 }
 
 derive_debug_self_as_ref_hex_bytes!(PublicKey);
 
 fn unwrap_pkcs8(
-    version: pkcs8::Version, input: untrusted::Input,
+    version: pkcs8::Version,
+    input: untrusted::Input,
 ) -> Result<(untrusted::Input, Option<untrusted::Input>), error::KeyRejected> {
     let (private_key, public_key) = pkcs8::unwrap_key(&PKCS8_TEMPLATE, version, input)?;
     let private_key = private_key

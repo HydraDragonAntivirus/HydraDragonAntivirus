@@ -37,17 +37,23 @@ macro_rules! impl_endian {
 
         impl From<$base> for $endian<$base> {
             #[inline]
-            fn from(value: $base) -> Self { $endian($base::$to_endian(value)) }
+            fn from(value: $base) -> Self {
+                $endian($base::$to_endian(value))
+            }
         }
 
         impl From<Wrapping<$base>> for $endian<$base> {
             #[inline]
-            fn from(Wrapping(value): Wrapping<$base>) -> Self { $endian($base::$to_endian(value)) }
+            fn from(Wrapping(value): Wrapping<$base>) -> Self {
+                $endian($base::$to_endian(value))
+            }
         }
 
         impl From<$endian<$base>> for $base {
             #[inline]
-            fn from($endian(value): $endian<$base>) -> Self { $base::$from_endian(value) }
+            fn from($endian(value): $endian<$base>) -> Self {
+                $base::$from_endian(value)
+            }
         }
 
         impl AsRef<[u8; core::mem::size_of::<Self>()]> for $endian<$base> {

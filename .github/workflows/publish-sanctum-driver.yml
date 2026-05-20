@@ -2,7 +2,7 @@ name: Publish Sanctum Driver
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'Sanctum/driver/**'
       - 'Sanctum/shared_no_std/**'
@@ -38,6 +38,13 @@ jobs:
       - name: Update Cargo.lock
         working-directory: Sanctum/driver
         run: cargo update
+
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          rustup component add rustfmt
+          cargo fmt --manifest-path Sanctum/Cargo.toml --all
+          cargo fmt --manifest-path Sanctum/driver/Cargo.toml --all
 
       - name: Install Cargo Make
         uses: taiki-e/install-action@v2
@@ -120,6 +127,7 @@ jobs:
             hydradragon/Sanctum/AppData/sanctum.sys
             Sanctum/driver/Cargo.lock
             Sanctum/driver/build.rs
+            Sanctum
 
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'

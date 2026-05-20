@@ -61,14 +61,21 @@ fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
         shared_no_std::ghost_hunting::NtFunction::None => return, // skip empty
     };
 
-    let hex_str = syscall.hex_payload.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let hex_str = syscall
+        .hex_payload
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
 
     let line = format!(
         "{{\"pid\":{},\"source\":\"{}\",\"function\":\"{}\",\"address\":{},\"hex\":\"{}\",\"args\":{}}}\n",
         syscall.pid, source_str, function_name, syscall.caller_address, hex_str, args_json
     );
 
-    if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
+    if let Ok(mut pipe) = std::fs::OpenOptions::new()
+        .write(true)
+        .open(OWLYSHIELD_SANCTUM_PIPE)
+    {
         let _ = pipe.write_all(line.as_bytes());
     }
 }
@@ -82,7 +89,10 @@ fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBy
         attempt.pid, attempt.function_name, attempt.offending_address
     );
 
-    if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
+    if let Ok(mut pipe) = std::fs::OpenOptions::new()
+        .write(true)
+        .open(OWLYSHIELD_SANCTUM_PIPE)
+    {
         let _ = pipe.write_all(line.as_bytes());
     }
 }
@@ -96,14 +106,17 @@ fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt)
         hunt.pid, hunt.syscall_name, hunt.address, hunt.hex_payload
     );
 
-    if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(OWLYSHIELD_SANCTUM_PIPE) {
+    if let Ok(mut pipe) = std::fs::OpenOptions::new()
+        .write(true)
+        .open(OWLYSHIELD_SANCTUM_PIPE)
+    {
         let _ = pipe.write_all(line.as_bytes());
     }
 }
 
 fn source_name(source: shared_no_std::ghost_hunting::SyscallEventSource) -> &'static str {
     match source {
-        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceKernel      => "kernel",
+        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceKernel => "kernel",
         shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook => "syscall_hook",
     }
 }

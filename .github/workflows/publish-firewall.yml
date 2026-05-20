@@ -2,7 +2,7 @@ name: Publish Firewall
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'HydraDragonFirewall/hydradragon-shared/**'
       - 'HydraDragonFirewall/hydradragonfirewall/**'
@@ -51,6 +51,15 @@ jobs:
           cargo update --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml
           cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml
           cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml
+
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          rustup component add rustfmt
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml --all
           
       - name: Build UI
         working-directory: HydraDragonFirewall/hydradragonfirewall/ui
@@ -79,6 +88,12 @@ jobs:
             HydraDragonFirewall/http-mitm-proxy/Cargo.lock
             HydraDragonFirewall/hydradragonfirewall/Cargo.lock
             HydraDragonFirewall/hydradragonfirewall/ui/Cargo.lock
+            HydraDragonFirewall/hydradragon-shared/src
+            HydraDragonFirewall/http-mitm-proxy/examples
+            HydraDragonFirewall/http-mitm-proxy/src
+            HydraDragonFirewall/http-mitm-proxy/tests
+            HydraDragonFirewall/hydradragonfirewall/src
+            HydraDragonFirewall/hydradragonfirewall/ui/src
       
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'

@@ -376,7 +376,11 @@ impl Config {
     }
 
     pub fn deep_scan_timeout_ms(&self, default_value: u64) -> u64 {
-        self.u64_setting(Param::DeepScanTimeoutMs, "deep_scan_timeout_ms", default_value)
+        self.u64_setting(
+            Param::DeepScanTimeoutMs,
+            "deep_scan_timeout_ms",
+            default_value,
+        )
     }
 
     pub fn late_child_scan_grace_ms(&self, default_value: u64) -> u64 {

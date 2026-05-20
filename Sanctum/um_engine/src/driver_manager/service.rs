@@ -73,7 +73,8 @@ impl SanctumDriverManager {
 
                     match le {
                         ERROR_DUPLICATE_SERVICE_NAME => {
-                            let msg = "Unable to create service, duplicate service name found.".to_string();
+                            let msg = "Unable to create service, duplicate service name found."
+                                .to_string();
                             self.update_state_msg(msg);
                             return;
                         }
@@ -104,7 +105,8 @@ impl SanctumDriverManager {
         //
 
         if !handle.is_invalid()
-            && let Err(e) = unsafe { CloseServiceHandle(handle) } {
+            && let Err(e) = unsafe { CloseServiceHandle(handle) }
+        {
             self.log.log(
                 LogLevel::Error,
                 &format!("[-] Unable to close handle after installing service. Error: {e}"),

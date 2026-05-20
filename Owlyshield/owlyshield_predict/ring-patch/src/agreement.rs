@@ -88,7 +88,9 @@ derive_debug_via_field!(Algorithm, curve);
 
 impl Eq for Algorithm {}
 impl PartialEq for Algorithm {
-    fn eq(&self, other: &Algorithm) -> bool { self.curve.id == other.curve.id }
+    fn eq(&self, other: &Algorithm) -> bool {
+        self.curve.id == other.curve.id
+    }
 }
 
 /// An ephemeral private key for use (only) with `agree_ephemeral`. The
@@ -102,7 +104,8 @@ pub struct EphemeralPrivateKey {
 impl<'a> EphemeralPrivateKey {
     /// Generate a new ephemeral private key for the given algorithm.
     pub fn generate(
-        alg: &'static Algorithm, rng: &dyn rand::SecureRandom,
+        alg: &'static Algorithm,
+        rng: &dyn rand::SecureRandom,
     ) -> Result<Self, error::Unspecified> {
         let cpu_features = cpu::features();
 
@@ -126,7 +129,9 @@ impl<'a> EphemeralPrivateKey {
     }
 
     #[cfg(test)]
-    pub fn bytes(&'a self) -> &'a [u8] { self.private_key.bytes_less_safe() }
+    pub fn bytes(&'a self) -> &'a [u8] {
+        self.private_key.bytes_less_safe()
+    }
 }
 
 /// A public key for key agreement.
@@ -134,7 +139,9 @@ impl<'a> EphemeralPrivateKey {
 pub struct PublicKey(ec::PublicKey);
 
 impl AsRef<[u8]> for PublicKey {
-    fn as_ref(&self) -> &[u8] { self.0.as_ref() }
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
 }
 
 derive_debug_self_as_ref_hex_bytes!(PublicKey);
@@ -163,8 +170,11 @@ derive_debug_self_as_ref_hex_bytes!(PublicKey);
 /// key material from the key agreement operation and then returns what `kdf`
 /// returns.
 pub fn agree_ephemeral<F, R, E>(
-    my_private_key: EphemeralPrivateKey, peer_public_key_alg: &Algorithm,
-    peer_public_key: untrusted::Input, error_value: E, kdf: F,
+    my_private_key: EphemeralPrivateKey,
+    peer_public_key_alg: &Algorithm,
+    peer_public_key: untrusted::Input,
+    error_value: E,
+    kdf: F,
 ) -> Result<R, E>
 where
     F: FnOnce(&[u8]) -> Result<R, E>,

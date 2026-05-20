@@ -2,7 +2,7 @@ name: Publish TinyAntivirus
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'TinyAntivirus/**'
       - '.github/workflows/publish-tinyantivirus.yml'

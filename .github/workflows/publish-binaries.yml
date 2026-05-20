@@ -419,6 +419,30 @@ jobs:
         with:
           arch: x64
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          rustup component add rustfmt
+          cargo fmt --manifest-path HydraDragonLauncher/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonLauncher/ui/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/hydradragonstatic/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/moonfire-tflite/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/slc-paths/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/win-pe-inspection/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/ring-patch/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/owlyshield_predict/vfs-kprobes/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/tools/rust_win_toast/Cargo.toml --all
+          cargo fmt --manifest-path Sanctum/Cargo.toml --all
+          cargo fmt --manifest-path Sanctum/driver/Cargo.toml --all
+
       - name: Organize Binaries
         id: organize
         shell: pwsh
@@ -647,6 +671,19 @@ jobs:
             Sanctum/Cargo.lock
             Sanctum/driver/Cargo.lock
             Sanctum/driver/build.rs
+            HydraDragonLauncher/build.rs
+            HydraDragonLauncher/src
+            HydraDragonLauncher/ui/src
+            Owlyshield/hydradragonstatic/src
+            HydraDragonFirewall/hydradragon-shared/src
+            HydraDragonFirewall/http-mitm-proxy/examples
+            HydraDragonFirewall/http-mitm-proxy/src
+            HydraDragonFirewall/http-mitm-proxy/tests
+            HydraDragonFirewall/hydradragonfirewall/src
+            HydraDragonFirewall/hydradragonfirewall/ui/src
+            Owlyshield/owlyshield_predict
+            Owlyshield/tools/rust_win_toast/src
+            Sanctum
 
       - name: Clean up artifact branches
         if: always()

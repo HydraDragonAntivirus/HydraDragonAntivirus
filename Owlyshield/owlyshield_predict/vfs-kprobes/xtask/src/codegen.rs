@@ -14,4 +14,3 @@ pub fn generate() -> Result<(), anyhow::Error> {
     write!(out, "{bindings}")?;
     Ok(())
 }
-

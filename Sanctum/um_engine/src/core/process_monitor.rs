@@ -7,9 +7,7 @@ use windows::{
         System::{
             Diagnostics::Debug::WriteProcessMemory,
             LibraryLoader::{GetModuleHandleA, GetProcAddress},
-            Memory::{
-                MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx,
-            },
+            Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx},
             Threading::{
                 CreateRemoteThread, OpenProcess, PROCESS_CREATE_THREAD,
                 PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_WRITE,
@@ -18,7 +16,6 @@ use windows::{
     },
     core::s,
 };
-
 
 /// Inject the EDR's DLL into a given process by PID. This should be done for processes running on start, and for
 /// processes which are newly created.
@@ -93,8 +90,13 @@ pub fn inject_edr_dll(pid: u64) -> Result<(), ProcessErrors> {
     }
 
     // correctly cast the address of LoadLibraryA
-    let load_library_fn_address: Option<unsafe extern "system" fn(*mut c_void) -> u32> =
-        Some(unsafe { std::mem::transmute::<*const (), unsafe extern "system" fn(*mut std::ffi::c_void) -> u32>(load_library_fn_address) });
+    let load_library_fn_address: Option<unsafe extern "system" fn(*mut c_void) -> u32> = Some(
+        unsafe {
+            std::mem::transmute::<*const (), unsafe extern "system" fn(*mut std::ffi::c_void) -> u32>(
+                load_library_fn_address,
+            )
+        },
+    );
 
     // Create thread in process
     let mut thread: u32 = 0;

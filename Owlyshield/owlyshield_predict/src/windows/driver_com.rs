@@ -743,7 +743,11 @@ impl CKernelEventInfo {
             // DLL Load Detection
             is_dll_load: self.is_dll_load != 0,
             loaded_dll_path: if self.is_dll_load != 0 && self.loaded_dll_path[0] != 0 {
-                let len = self.loaded_dll_path.iter().position(|&c| c == 0).unwrap_or(520);
+                let len = self
+                    .loaded_dll_path
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(520);
                 String::from_utf16_lossy(&self.loaded_dll_path[..len])
             } else {
                 String::new()
@@ -754,7 +758,11 @@ impl CKernelEventInfo {
             // AMSI Detection
             is_amsi_event: self.is_amsi_event != 0,
             amsi_content_sample: if self.is_amsi_event != 0 && self.amsi_content_sample[0] != 0 {
-                let len = self.amsi_content_sample.iter().position(|&c| c == 0).unwrap_or(256);
+                let len = self
+                    .amsi_content_sample
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(256);
                 String::from_utf16_lossy(&self.amsi_content_sample[..len])
             } else {
                 String::new()

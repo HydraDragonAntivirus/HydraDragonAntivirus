@@ -2,7 +2,7 @@ name: Publish Sanctum PPL Runner
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'Sanctum/sanctum_ppl_runner/**'
       - 'Sanctum/shared_std/**'
@@ -29,6 +29,11 @@ jobs:
       - name: Update Cargo.lock
         working-directory: Sanctum
         run: cargo update
+      - name: Format Rust sources
+        working-directory: Sanctum
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
       - name: Setup Windows SDK
         shell: pwsh
         run: |
@@ -78,6 +83,7 @@ jobs:
           paths: |
             hydradragon/Sanctum/AppData/sanctum_ppl_runner.exe
             Sanctum/Cargo.lock
+            Sanctum
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8

@@ -2,7 +2,7 @@ name: Publish Launcher
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'HydraDragonLauncher/**'
       - '.github/workflows/publish-launcher.yml'
@@ -50,6 +50,13 @@ jobs:
         cargo generate-lockfile --manifest-path HydraDragonLauncher/Cargo.toml
         cargo update --manifest-path HydraDragonLauncher/Cargo.toml
         cargo update --manifest-path HydraDragonLauncher/ui/Cargo.toml
+
+    - name: Format Rust sources
+      shell: pwsh
+      run: |
+        rustup component add rustfmt
+        cargo fmt --manifest-path HydraDragonLauncher/Cargo.toml --all
+        cargo fmt --manifest-path HydraDragonLauncher/ui/Cargo.toml --all
     
     - name: Build UI
       working-directory: HydraDragonLauncher/ui
@@ -77,6 +84,9 @@ jobs:
         paths: |
           hydradragon/HydraDragonLauncher
           HydraDragonLauncher/Cargo.lock
+          HydraDragonLauncher/build.rs
+          HydraDragonLauncher/src
+          HydraDragonLauncher/ui/src
     
     - name: Create PR
       if: steps.check_changes.outputs.changed == 'true'

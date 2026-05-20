@@ -317,10 +317,18 @@ struct Target {
 }
 
 impl Target {
-    pub fn arch(&self) -> &str { &self.arch }
-    pub fn os(&self) -> &str { &self.os }
-    pub fn env(&self) -> &str { &self.env }
-    pub fn is_debug(&self) -> bool { self.is_debug }
+    pub fn arch(&self) -> &str {
+        &self.arch
+    }
+    pub fn os(&self) -> &str {
+        &self.os
+    }
+    pub fn env(&self) -> &str {
+        &self.env
+    }
+    pub fn is_debug(&self) -> bool {
+        self.is_debug
+    }
 }
 
 fn build_c_code(target: &Target, pregenerated: PathBuf, out_dir: &Path) {
@@ -449,8 +457,13 @@ fn build_c_code(target: &Target, pregenerated: PathBuf, out_dir: &Path) {
 }
 
 fn build_library(
-    target: &Target, out_dir: &Path, lib_name: &str, srcs: &[PathBuf], additional_srcs: &[PathBuf],
-    warnings_are_errors: bool, includes_modified: SystemTime,
+    target: &Target,
+    out_dir: &Path,
+    lib_name: &str,
+    srcs: &[PathBuf],
+    additional_srcs: &[PathBuf],
+    warnings_are_errors: bool,
+    includes_modified: SystemTime,
 ) {
     // Compile all the (dirty) source files into object files.
     #[allow(box_pointers)] // XXX
@@ -478,10 +491,10 @@ fn build_library(
             "macos" => {
                 let _ = c.flag("-fPIC");
                 let _ = c.flag("-Wl,-dead_strip");
-            },
+            }
             _ => {
                 let _ = c.flag("-Wl,--gc-sections");
-            },
+            }
         }
         for o in objs {
             let _ = c.object(o);
@@ -504,7 +517,10 @@ fn build_library(
 }
 
 fn compile(
-    p: &Path, target: &Target, warnings_are_errors: bool, out_dir: &Path,
+    p: &Path,
+    target: &Target,
+    warnings_are_errors: bool,
+    out_dir: &Path,
     includes_modified: SystemTime,
 ) -> String {
     let ext = p.extension().unwrap().to_str().unwrap();
@@ -533,15 +549,20 @@ fn obj_path(out_dir: &Path, src: &Path, obj_ext: &str) -> PathBuf {
 }
 
 fn cc(
-    file: &Path, ext: &str, target: &Target, warnings_are_errors: bool, out_dir: &Path,
+    file: &Path,
+    ext: &str,
+    target: &Target,
+    warnings_are_errors: bool,
+    out_dir: &Path,
 ) -> Command {
     let mut c = cc::Build::new();
     let _ = c.include("include");
     match ext {
-        "c" =>
+        "c" => {
             for f in c_flags(target) {
                 let _ = c.flag(f);
-            },
+            }
+        }
         "S" => (),
         e => panic!("Unsupported file extension: {:?}", e),
     };
@@ -556,11 +577,11 @@ fn cc(
         // ``-gfull`` is required for Darwin's |-dead_strip|.
         ("macos", _) => {
             let _ = c.flag("-gfull");
-        },
+        }
         (_, "msvc") => (),
         _ => {
             let _ = c.flag("-g3");
-        },
+        }
     };
     if !target.is_debug() {
         let _ = c.define("NDEBUG", None);
@@ -656,7 +677,10 @@ fn sources_for_arch(arch: &str) -> Vec<PathBuf> {
 }
 
 fn perlasm_src_dsts(
-    out_dir: &Path, arch: &str, os: Option<&str>, perlasm_format: &str,
+    out_dir: &Path,
+    arch: &str,
+    os: Option<&str>,
+    perlasm_format: &str,
 ) -> Vec<(PathBuf, PathBuf)> {
     let srcs = sources_for_arch(arch);
     let mut src_dsts = srcs
@@ -693,7 +717,9 @@ fn asm_srcs(perlasm_src_dsts: Vec<(PathBuf, PathBuf)>) -> Vec<PathBuf> {
         .collect::<Vec<_>>()
 }
 
-fn is_perlasm(path: &PathBuf) -> bool { path.extension().unwrap().to_str().unwrap() == "pl" }
+fn is_perlasm(path: &PathBuf) -> bool {
+    path.extension().unwrap().to_str().unwrap() == "pl"
+}
 
 fn asm_path(out_dir: &Path, src: &Path, os: Option<&str>, perlasm_format: &str) -> PathBuf {
     let src_stem = src.file_stem().expect("source file without basename");
@@ -705,7 +731,9 @@ fn asm_path(out_dir: &Path, src: &Path, os: Option<&str>, perlasm_format: &str) 
 }
 
 fn perlasm(
-    src_dst: &[(PathBuf, PathBuf)], arch: &str, perlasm_format: &str,
+    src_dst: &[(PathBuf, PathBuf)],
+    arch: &str,
+    perlasm_format: &str,
     includes_modified: Option<SystemTime>,
 ) {
     for (src, dst) in src_dst {
@@ -754,7 +782,9 @@ fn file_modified(path: &Path) -> SystemTime {
         .expect("nah")
 }
 
-fn get_command(var: &str, default: &str) -> String { std::env::var(var).unwrap_or(default.into()) }
+fn get_command(var: &str, default: &str) -> String {
+    std::env::var(var).unwrap_or(default.into())
+}
 
 fn check_all_files_tracked() {
     for path in &["crypto", "include", "third_party/fiat"] {
@@ -767,8 +797,9 @@ fn is_tracked(file: &DirEntry) {
     let cmp = |f| p == PathBuf::from(f);
     let tracked = match p.extension().and_then(|p| p.to_str()) {
         Some("h") | Some("inl") => RING_INCLUDES.iter().any(cmp),
-        Some("c") | Some("S") | Some("asm") =>
-            RING_SRCS.iter().any(|(_, f)| cmp(f)) || RING_TEST_SRCS.iter().any(cmp),
+        Some("c") | Some("S") | Some("asm") => {
+            RING_SRCS.iter().any(|(_, f)| cmp(f)) || RING_TEST_SRCS.iter().any(cmp)
+        }
         Some("pl") => RING_SRCS.iter().any(|(_, f)| cmp(f)) || RING_PERL_INCLUDES.iter().any(cmp),
         _ => true,
     };

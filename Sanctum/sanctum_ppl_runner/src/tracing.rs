@@ -19,8 +19,8 @@ use windows::{
                 EVENT_RECORD, EVENT_TRACE_LOGFILEW, EVENT_TRACE_PROPERTIES,
                 EVENT_TRACE_REAL_TIME_MODE, EnableTraceEx2, OpenTraceW,
                 PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME,
-                PROPERTY_DATA_DESCRIPTOR, ProcessTrace, StartTraceW, StopTraceW,
-                TRACE_EVENT_INFO, TRACE_LEVEL_VERBOSE, TdhGetEventInformation, TdhGetProperty,
+                PROPERTY_DATA_DESCRIPTOR, ProcessTrace, StartTraceW, StopTraceW, TRACE_EVENT_INFO,
+                TRACE_LEVEL_VERBOSE, TdhGetEventInformation, TdhGetProperty,
             },
             EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE},
             ProcessStatus::GetProcessImageFileNameW,
@@ -702,9 +702,10 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
         );
     }
 
-
     if event_header.ProviderId == HTTP_SERVICE_GUID {
-        if descriptor_id == 1 && let Some(url) = unsafe { extract_string_property(record, "Url") } {
+        if descriptor_id == 1
+            && let Some(url) = unsafe { extract_string_property(record, "Url") }
+        {
             let method = unsafe { extract_string_property(record, "Method") }
                 .unwrap_or_else(|| "GET".to_string());
 
@@ -726,12 +727,10 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
         send_etw_info_ipc(Syscall {
             pid,
             source: shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook,
-            data: NtFunction::NetworkActivity(NetworkActivityData::WinINet(
-                WinINetActivity {
-                    url,
-                    server: "Unknown".to_string(),
-                },
-            )),
+            data: NtFunction::NetworkActivity(NetworkActivityData::WinINet(WinINetActivity {
+                url,
+                server: "Unknown".to_string(),
+            })),
             caller_address: 0,
             hex_payload: [0; 16],
         });

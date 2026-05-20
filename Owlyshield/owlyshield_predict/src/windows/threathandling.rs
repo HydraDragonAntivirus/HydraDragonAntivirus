@@ -508,8 +508,7 @@ impl ThreatHandler for WindowsThreatHandler {
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         // 3. Prepare quarantine path
-        let quarantine_dir =
-            std::path::Path::new(crate::shared_def::QUARANTINE_PATH);
+        let quarantine_dir = std::path::Path::new(crate::shared_def::QUARANTINE_PATH);
         if let Err(e) = std::fs::create_dir_all(quarantine_dir) {
             Logging::error(&format!(
                 "[ThreatHandler] Failed to create quarantine directory {}: {}",

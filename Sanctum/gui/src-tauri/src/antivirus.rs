@@ -63,7 +63,8 @@ fn send_manual_scan_to_owlyshield(
         "scan_origin_path": file_path,
         "deep_scan_timeout_ms": timeout_ms,
         "late_child_scan_grace_ms": late_child_scan_grace_ms
-    }).to_string();
+    })
+    .to_string();
 
     let pipe_name = r"\\.\pipe\Global\owlyshield_manual_scan";
     let mut options = std::fs::OpenOptions::new();
@@ -105,12 +106,10 @@ pub async fn scanner_start_folder_scan(
     app_handle: tauri::AppHandle,
 ) -> Result<String, ()> {
     let mode = scanMode.unwrap_or_else(|| "minimal".to_string());
-    let settings = IpcClient::send_ipc::<SanctumSettings, Option<Value>>(
-        "settings_load_page_state",
-        None,
-    )
-    .await
-    .unwrap_or_default();
+    let settings =
+        IpcClient::send_ipc::<SanctumSettings, Option<Value>>("settings_load_page_state", None)
+            .await
+            .unwrap_or_default();
     let timeout_ms = if mode.eq_ignore_ascii_case("deep") {
         settings.deep_scan_timeout_ms
     } else {
@@ -195,12 +194,10 @@ pub async fn scanner_start_folder_scan(
 #[tauri::command]
 pub async fn scanner_start_quick_scan(app_handle: tauri::AppHandle) -> Result<String, ()> {
     tokio::spawn(async move {
-        let settings = IpcClient::send_ipc::<SanctumSettings, Option<Value>>(
-            "settings_load_page_state",
-            None,
-        )
-        .await
-        .unwrap_or_default();
+        let settings =
+            IpcClient::send_ipc::<SanctumSettings, Option<Value>>("settings_load_page_state", None)
+                .await
+                .unwrap_or_default();
         let paths = IpcClient::send_ipc::<Vec<PathBuf>, Option<Value>>(
             "settings_get_common_scan_areas",
             None,

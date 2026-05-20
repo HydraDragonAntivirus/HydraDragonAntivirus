@@ -43,7 +43,6 @@ pub struct Hashes {
     pub md5: String,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileTypeInfo {
     pub primary: String,
@@ -132,7 +131,11 @@ impl FileTypeInfo {
         if normalize_file_type_name(&self.primary) == needle {
             return true;
         }
-        if self.tags.iter().any(|tag| normalize_file_type_name(tag) == needle) {
+        if self
+            .tags
+            .iter()
+            .any(|tag| normalize_file_type_name(tag) == needle)
+        {
             return true;
         }
         match needle.as_str() {
@@ -248,7 +251,6 @@ pub struct Finding {
     pub family: Option<String>,
     pub evidence: Vec<String>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RulePerformance {

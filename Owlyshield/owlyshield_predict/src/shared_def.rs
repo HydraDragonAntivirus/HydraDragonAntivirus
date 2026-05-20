@@ -360,7 +360,7 @@ pub struct KernelEventInfo {
     pub is_dll_load: bool,
     pub loaded_dll_path: String,
     pub is_api_based_load: bool, // true if loaded via API (LoadLibrary), false if direct load
-    
+
     // ACG Detection - Dynamic Code Policy at kernel level
     pub is_acg_enabled: bool,
 

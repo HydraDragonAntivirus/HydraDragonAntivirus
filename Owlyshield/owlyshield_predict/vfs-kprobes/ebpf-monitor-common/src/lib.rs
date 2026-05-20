@@ -1,8 +1,8 @@
 #![no_std]
 
 //use cty::*;
+use bytemuck::{cast_slice, Pod, Zeroable};
 use core::mem::{size_of, transmute};
-use bytemuck::{Pod, Zeroable, cast_slice};
 
 pub const PATH_SEGMENT_LEN: usize = 32; //32;
 pub const PATH_LIST_LEN: usize = 11;
@@ -21,13 +21,12 @@ pub enum Access {
     Rename(usize),
 }
 
-
-type Buf = [u8; 32];//PATH_SEGMENT_LEN];
+type Buf = [u8; 32]; //PATH_SEGMENT_LEN];
 
 //#[derive(Debug, Default)]
 //#[repr(packed)]
 pub struct FilePath {
-//  pub order: u8,
+    //  pub order: u8,
     pub ns: u64,
     pub level: usize,
     pub buf: Buf,
@@ -64,7 +63,6 @@ impl FileAccess {
         *array
     }
 }
-
 
 // To have [i8;16] for comm instead of [u8;16] in FileAccess
 

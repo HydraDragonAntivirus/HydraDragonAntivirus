@@ -40,9 +40,9 @@ use crate::shared_def::{
     FileChangeInfo, FileId, IOMessage, IrpMajorOp,
 };
 
+use crate::extensions::ExtensionsCount;
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use crate::hydradragon::av_integration::AVIntegration;
-use crate::extensions::ExtensionsCount;
 use crate::novelty::DirectoriesContent;
 
 fn normalize_extension_token(extension: &str) -> String {

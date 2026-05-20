@@ -18,7 +18,6 @@ use std::{
 
 use crate::utils::log::{Log, LogLevel};
 
-
 const MAX_PARALLEL_SCAN_WORKERS: usize = 8;
 const HASH_CACHE_LIMIT: usize = 16384;
 const MAX_HASH_SCAN_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
@@ -34,7 +33,6 @@ fn parallel_scan_worker_count() -> usize {
 fn state_is_cancelled(state: &Arc<Mutex<FileScannerState>>) -> bool {
     *state.lock().unwrap() == FileScannerState::Cancelled
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FileIdentity {
@@ -227,8 +225,17 @@ impl FileScanner {
         // ingest latest IOC hash list
         //
         let mut bts: BTreeSet<String> = BTreeSet::new();
-        let ioc_location = format!("{}\\{}", shared_no_std::constants::HYDRADRAGON_DIR, IOC_LIST_LOCATION);
-        let ioc_dir = std::path::Path::new(&ioc_location).parent().unwrap().to_str().unwrap().to_string();
+        let ioc_location = format!(
+            "{}\\{}",
+            shared_no_std::constants::HYDRADRAGON_DIR,
+            IOC_LIST_LOCATION
+        );
+        let ioc_dir = std::path::Path::new(&ioc_location)
+            .parent()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
 
         let file = match File::open(&ioc_location) {
             Ok(f) => f,
@@ -240,14 +247,16 @@ impl FileScanner {
                 if e.kind() == io::ErrorKind::NotFound {
                     // Ensure directory exists
                     if let Err(err) = fs::create_dir_all(&ioc_dir) {
-                        panic!("[-] Could not create directory for IOCs: {}. Error: {}", ioc_dir, err);
+                        panic!(
+                            "[-] Could not create directory for IOCs: {}. Error: {}",
+                            ioc_dir, err
+                        );
                     }
 
                     let file_data = reqwest::get(IOC_URL).await.unwrap().text().await.unwrap();
-                    let mut f = File::create(&ioc_location).unwrap_or_else(|_| panic!(
-                        "[-] Could not create file for IOCs. Loc: {}",
-                        ioc_location
-                    ));
+                    let mut f = File::create(&ioc_location).unwrap_or_else(|_| {
+                        panic!("[-] Could not create file for IOCs. Loc: {}", ioc_location)
+                    });
                     f.write_all(file_data.as_bytes())
                         .expect("[-] Could not write data for IOCs");
 
@@ -310,7 +319,13 @@ impl FileScanner {
         target: &PathBuf,
         files_scanned: &Arc<Mutex<u32>>,
     ) -> Result<Option<(String, PathBuf)>, std::io::Error> {
-        scan_path_against_hashes(&self.iocs, &self.state, target, files_scanned, &self.hash_cache)
+        scan_path_against_hashes(
+            &self.iocs,
+            &self.state,
+            target,
+            files_scanned,
+            &self.hash_cache,
+        )
     }
 
     /// Public API entry point, scans from a root folder including all children, this can be used on a small
@@ -420,35 +435,43 @@ impl FileScanner {
                 let hash_cache = Arc::clone(&self.hash_cache);
                 let iocs = &self.iocs;
 
-                scope.spawn(move || loop {
-                    if state_is_cancelled(&state) {
-                        break;
-                    }
-
-                    let path = match queue.pop() {
-                        Some(path) => path,
-                        None => break,
-                    };
-
-                    if state_is_cancelled(&state) {
-                        break;
-                    }
-
-                    match scan_path_against_hashes(iocs, &state, &path, &files_scanned, &hash_cache) {
-                        Ok(Some((hash, file))) => {
-                            let mut lock = scanning_info.lock().unwrap();
-                            lock.scan_results.push(MatchedIOC { hash, file });
+                scope.spawn(move || {
+                    loop {
+                        if state_is_cancelled(&state) {
+                            break;
                         }
-                        Ok(None) => {}
-                        Err(e) => {
-                            let mut errors = worker_errors.lock().unwrap();
-                            if errors.len() < 64 {
-                                errors.push(format!(
-                                    "worker {} failed to scan {}: {}",
-                                    worker_id,
-                                    path.display(),
-                                    e
-                                ));
+
+                        let path = match queue.pop() {
+                            Some(path) => path,
+                            None => break,
+                        };
+
+                        if state_is_cancelled(&state) {
+                            break;
+                        }
+
+                        match scan_path_against_hashes(
+                            iocs,
+                            &state,
+                            &path,
+                            &files_scanned,
+                            &hash_cache,
+                        ) {
+                            Ok(Some((hash, file))) => {
+                                let mut lock = scanning_info.lock().unwrap();
+                                lock.scan_results.push(MatchedIOC { hash, file });
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                let mut errors = worker_errors.lock().unwrap();
+                                if errors.len() < 64 {
+                                    errors.push(format!(
+                                        "worker {} failed to scan {}: {}",
+                                        worker_id,
+                                        path.display(),
+                                        e
+                                    ));
+                                }
                             }
                         }
                     }

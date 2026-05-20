@@ -2,7 +2,7 @@ name: Publish Sanctum ELAM Installer
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'Sanctum/elam_installer/**'
       - 'Sanctum/Cargo.toml'
@@ -27,6 +27,11 @@ jobs:
       - name: Update Cargo.lock
         working-directory: Sanctum
         run: cargo update
+      - name: Format Rust sources
+        working-directory: Sanctum
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all
       - name: Build elam_installer
         working-directory: Sanctum
         run: cargo build --release -p elam_installer
@@ -49,6 +54,7 @@ jobs:
           paths: |
             hydradragon/Sanctum/elam_installer.exe
             Sanctum/Cargo.lock
+            Sanctum
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
