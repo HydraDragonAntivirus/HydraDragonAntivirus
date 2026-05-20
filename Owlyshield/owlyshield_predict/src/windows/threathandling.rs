@@ -69,7 +69,37 @@ impl WindowsThreatHandler {
         }
     }
 
-    fn kill_pid_direct(pid: u32) -> Result<(), String> {
+    fn get_child_pids_recursive(parent_pid: u32) -> Vec<u32> {
+        use sysinfo::{ProcessesToUpdate, System};
+        let mut sys = System::new_all();
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+
+        let mut child_pids = Vec::new();
+        let mut queue = vec![parent_pid];
+        let mut index = 0;
+
+        while index < queue.len() {
+            let current_parent = queue[index];
+            index += 1;
+
+            let current_parent_str = current_parent.to_string();
+            for (pid, process) in sys.processes() {
+                if let Some(ppid) = process.parent() {
+                    if ppid.to_string() == current_parent_str {
+                        if let Ok(cpid) = pid.to_string().parse::<u32>() {
+                            if !queue.contains(&cpid) {
+                                queue.push(cpid);
+                                child_pids.push(cpid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        child_pids
+    }
+
+    fn kill_pid_direct(&self, pid: u32) -> Result<(), String> {
         if let Some(reason) = protected_process_reason(pid, None) {
             return Err(format!(
                 "Refusing to terminate protected PID {}: {}",
@@ -77,20 +107,101 @@ impl WindowsThreatHandler {
             ));
         }
 
-        unsafe {
-            let process = OpenProcess(PROCESS_TERMINATE, BOOL(0), pid)
-                .map_err(|e| format!("OpenProcess({pid}) failed: {e}"))?;
+        // Enumerate child processes recursively first, so they are terminated as well.
+        let child_pids = Self::get_child_pids_recursive(pid);
+        for cpid in &child_pids {
+            if let Some(reason) = protected_process_reason(*cpid, None) {
+                Logging::warning(&format!(
+                    "[ThreatHandler] Refusing to terminate protected child PID {}: {}",
+                    cpid, reason
+                ));
+                continue;
+            }
+            // Terminate child process using the driver first, then user-mode fallback
+            let synthetic_gid = *cpid as u64 | Self::PID_FALLBACK_GID_MASK;
+            let mut terminated = false;
+            match self.driver.try_kill(synthetic_gid) {
+                Ok(hres) => {
+                    if hres.is_ok() {
+                        Logging::info(&format!(
+                            "[ThreatHandler] Successfully terminated child process PID {} (GID: {}) via driver",
+                            cpid, synthetic_gid
+                        ));
+                        terminated = true;
+                    }
+                }
+                Err(e) => {
+                    Logging::warning(&format!(
+                        "[ThreatHandler] Failed to communicate with driver for child PID {}. Error: {}",
+                        cpid, e
+                    ));
+                }
+            }
 
-            let terminate_result = if TerminateProcess(process, 1).as_bool() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "TerminateProcess({pid}) failed: GetLastError={}",
-                    GetLastError().0
-                ))
-            };
-            let _ = CloseHandle(process);
-            terminate_result
+            if !terminated {
+                // User-mode fallback for child process
+                unsafe {
+                    if let Ok(process) = OpenProcess(PROCESS_TERMINATE, BOOL(0), *cpid) {
+                        let _ = TerminateProcess(process, 1);
+                        let _ = CloseHandle(process);
+                        Logging::info(&format!(
+                            "[ThreatHandler] Terminated child process PID {} via user-mode TerminateProcess fallback",
+                            cpid
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Now terminate the main process
+        let synthetic_gid = pid as u64 | Self::PID_FALLBACK_GID_MASK;
+        let mut main_terminated = false;
+        match self.driver.try_kill(synthetic_gid) {
+            Ok(hres) => {
+                if hres.is_ok() {
+                    Logging::info(&format!(
+                        "[ThreatHandler] Successfully terminated target process PID {} (GID: {}) via driver",
+                        pid, synthetic_gid
+                    ));
+                    main_terminated = true;
+                } else {
+                    Logging::warning(&format!(
+                        "[ThreatHandler] Driver returned HRESULT 0x{:08X} when terminating PID {}",
+                        hres.0 as u32, pid
+                    ));
+                }
+            }
+            Err(e) => {
+                Logging::warning(&format!(
+                    "[ThreatHandler] Failed to communicate with driver for PID {}. Error: {}",
+                    pid, e
+                ));
+            }
+        }
+
+        if main_terminated {
+            Ok(())
+        } else {
+            // User-mode fallback for main process
+            unsafe {
+                let process = OpenProcess(PROCESS_TERMINATE, BOOL(0), pid)
+                    .map_err(|e| format!("OpenProcess({pid}) failed: {e}"))?;
+
+                let terminate_result = if TerminateProcess(process, 1).as_bool() {
+                    Logging::info(&format!(
+                        "[ThreatHandler] Terminated target process PID {} via user-mode TerminateProcess fallback",
+                        pid
+                    ));
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "TerminateProcess({pid}) failed: GetLastError={}",
+                        GetLastError().0
+                    ))
+                };
+                let _ = CloseHandle(process);
+                terminate_result
+            }
         }
     }
 
@@ -254,7 +365,7 @@ impl ThreatHandler for WindowsThreatHandler {
 
     fn kill(&self, gid: u64) {
         if let Some(pid) = Self::synthetic_pid_from_gid(gid) {
-            match Self::kill_pid_direct(pid) {
+            match self.kill_pid_direct(pid) {
                 Ok(_) => {
                     Logging::info(&format!(
                         "[ThreatHandler] Successfully killed synthetic PID fallback target: PID {} (GID: {})",
@@ -309,7 +420,7 @@ impl ThreatHandler for WindowsThreatHandler {
                 return;
             }
 
-            match Self::kill_pid_direct(pid) {
+            match self.kill_pid_direct(pid) {
                 Ok(_) => Logging::info(&format!(
                     "[ThreatHandler] Successfully killed synthetic PID fallback target for removal: PID {} (GID: {})",
                     pid, gid
@@ -359,7 +470,7 @@ impl ThreatHandler for WindowsThreatHandler {
                 return;
             }
 
-            match Self::kill_pid_direct(pid) {
+            match self.kill_pid_direct(pid) {
                 Ok(_) => Logging::info(&format!(
                     "[ThreatHandler] Successfully killed synthetic PID fallback target for quarantine: PID {} (GID: {})",
                     pid, gid

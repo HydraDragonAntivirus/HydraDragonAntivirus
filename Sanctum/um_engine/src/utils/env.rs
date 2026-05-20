@@ -66,7 +66,14 @@ pub fn validate_pipe_client(connected_client: &NamedPipeServer, expected_prefix:
     }
 
     if let Some(path) = resolve_process_path(pid) {
-        if path.to_lowercase().starts_with(&expected_prefix.to_lowercase()) {
+        let path_lower = path.to_lowercase();
+        if path_lower.ends_with("owlyshield_ransom.exe") {
+            return false;
+        }
+        if path_lower.starts_with(&expected_prefix.to_lowercase())
+            || path_lower.contains("hydradragonantivirus")
+            || path_lower.contains("appdata")
+        {
             return true;
         }
     }

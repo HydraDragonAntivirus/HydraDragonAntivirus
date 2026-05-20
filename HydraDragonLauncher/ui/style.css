@@ -1,0 +1,372 @@
+/* style.css - HydraDragon Launcher Controller Cyber-Noir Design System (Firewall Aligned) */
+
+@import url('https://fonts.googleapis.com/css2?family=Oxanium:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+:root {
+    /* ── Core Palette (Dark - Default) ─────────────────────── */
+    --bg-void: #030408;
+    --bg-app: #08090f;
+    --bg-surface: rgba(14, 16, 26, 0.75);
+    
+    --t-primary: #f8fafc;
+    --t-secondary: #cbd5e1;
+    --t-muted: #94a3b8;
+    --t-dim: #475569;
+    
+    --accent-red: #ff3e3e;
+    --accent-blue: #3b82f6;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    
+    --glow-red: rgba(255, 62, 62, 0.3);
+    --glow-blue: rgba(59, 130, 246, 0.2);
+    --glow-green: rgba(16, 185, 129, 0.25);
+    --glow-amber: rgba(245, 158, 11, 0.2);
+    
+    --border-main: rgba(255, 255, 255, 0.08);
+    --border-lo: rgba(255, 255, 255, 0.03);
+    
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+}
+
+.light-theme {
+    /* ── Core Palette (Light) ─────────────────────────────── */
+    --bg-void: #f1f5f9;
+    --bg-app: #f8fafc;
+    --bg-surface: rgba(255, 255, 255, 0.85);
+    
+    --t-primary: #0f172a;
+    --t-secondary: #1e293b;
+    --t-muted: #475569;
+    --t-dim: #64748b;
+    
+    --accent-red: #e11d48;
+    --accent-blue: #2563eb;
+    --accent-green: #059669;
+    --accent-amber: #d97706;
+    
+    --glow-red: rgba(225, 29, 72, 0.2);
+    --glow-blue: rgba(37, 99, 235, 0.15);
+    --glow-green: rgba(5, 150, 105, 0.2);
+    --glow-amber: rgba(217, 119, 6, 0.15);
+    
+    --border-main: rgba(0, 0, 0, 0.12);
+    --border-lo: rgba(0, 0, 0, 0.08);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+body {
+    background: var(--bg-void);
+    color: var(--t-primary);
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    transition: background 0.3s ease;
+    
+    /* Animated Cyber Grid (Same as Firewall) */
+    background-image:
+        radial-gradient(ellipse 1100px 800px at -5% -5%, var(--glow-red) 0%, transparent 65%),
+        radial-gradient(ellipse 900px 700px at 105% 108%, var(--glow-blue) 0%, transparent 65%),
+        linear-gradient(rgba(0, 207, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 207, 255, 0.02) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 30px 30px, 30px 30px;
+    background-position: 0 0, 0 0, 0 0, 0 0;
+}
+
+/* App Layout Container */
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+    background: var(--bg-app);
+    transition: background 0.3s ease;
+}
+
+/* Header */
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    background: var(--bg-surface);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border-main);
+    z-index: 10;
+}
+
+.brand-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-logo {
+    width: 24px;
+    height: 24px;
+    color: var(--accent-red);
+    filter: drop-shadow(0 0 6px var(--glow-red));
+}
+
+.brand-title {
+    font-family: 'Oxanium', sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--t-primary);
+}
+
+.brand-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 62, 62, 0.1);
+    color: var(--accent-red);
+    border: 1px solid rgba(255, 62, 62, 0.2);
+    letter-spacing: 1px;
+}
+
+.header-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Main Dashboard Grid */
+.dashboard-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    padding: 24px;
+    overflow-y: auto;
+}
+
+/* Card Styling */
+.component-card {
+    background: var(--bg-surface);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-main);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.component-card:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.light-theme .component-card:hover {
+    border-color: rgba(0, 0, 0, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+.component-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    background-color: var(--t-dim);
+    transition: background-color 0.3s ease;
+}
+
+.component-card.running::before {
+    background-color: var(--accent-green);
+    box-shadow: 0 0 10px var(--glow-green);
+}
+
+.component-card.stopped::before {
+    background-color: var(--accent-red);
+    box-shadow: 0 0 10px var(--glow-red);
+}
+
+/* Component Header */
+.component-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.component-name {
+    font-family: 'Oxanium', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--t-primary);
+}
+
+.component-desc {
+    font-size: 13px;
+    color: var(--t-secondary);
+    margin-bottom: 16px;
+    height: 38px;
+    overflow: hidden;
+}
+
+/* Status Indicator */
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+}
+
+.status-pill.running {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--accent-green);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.status-pill.stopped {
+    background: rgba(255, 62, 62, 0.1);
+    color: var(--accent-red);
+    border: 1px solid rgba(255, 62, 62, 0.2);
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: currentColor;
+}
+
+.status-dot.pulse {
+    animation: pulse 1.5s infinite alternate;
+}
+
+@keyframes pulse {
+    0% { transform: scale(0.85); opacity: 0.5; }
+    100% { transform: scale(1.2); opacity: 1; }
+}
+
+/* Actions inside Card */
+.card-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-lo);
+}
+
+/* Buttons */
+.btn {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-main);
+    background: var(--bg-surface);
+    color: var(--t-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn:hover {
+    border-color: var(--t-secondary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.light-theme .btn:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.btn-primary {
+    background-color: var(--accent-red);
+    color: white;
+    border-color: var(--accent-red);
+    box-shadow: 0 0 10px var(--glow-red);
+}
+
+.btn-primary:hover {
+    background-color: #ff5252;
+    border-color: #ff5252;
+}
+
+.btn-danger {
+    background-color: rgba(255, 62, 62, 0.1);
+    color: var(--accent-red);
+    border-color: rgba(255, 62, 62, 0.2);
+}
+
+.btn-danger:hover {
+    background-color: var(--accent-red);
+    color: white;
+    border-color: var(--accent-red);
+    box-shadow: 0 0 10px var(--glow-red);
+}
+
+.btn-gui-toggle {
+    background-color: var(--border-lo);
+    color: var(--t-secondary);
+    border-color: var(--border-main);
+    padding: 6px 12px;
+}
+
+.btn-gui-toggle.visible {
+    background-color: rgba(59, 130, 246, 0.1);
+    color: var(--accent-blue);
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+.btn-gui-toggle:hover {
+    color: var(--t-primary);
+    border-color: var(--t-secondary);
+}
+
+/* Footer & Global Control */
+.app-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    background: var(--bg-surface);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid var(--border-main);
+}
+
+.global-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--t-secondary);
+}
+
+.footer-controls {
+    display: flex;
+    gap: 12px;
+}

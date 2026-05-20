@@ -24,6 +24,29 @@ jobs:
       
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc, wasm32-unknown-unknown
+          
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Install Trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - name: Update Launcher lockfile
+        shell: pwsh
+        run: |
+          cargo generate-lockfile --manifest-path HydraDragonLauncher/Cargo.toml
+          cargo update --manifest-path HydraDragonLauncher/Cargo.toml
+          cargo update --manifest-path HydraDragonLauncher/ui/Cargo.toml
+
+      - name: Build UI
+        working-directory: HydraDragonLauncher/ui
+        run: trunk build --release -d ../dist
       
       - name: Build Launcher
         working-directory: HydraDragonLauncher

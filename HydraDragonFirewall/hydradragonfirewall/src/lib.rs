@@ -941,46 +941,8 @@ pub fn run() {
             println!("DEBUG: Entering setup closure...");
 
             // --- System Tray Setup ---
-            let quiet_i =
-                tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>).unwrap();
-            let show_i =
-                tauri::menu::MenuItem::with_id(app, "show", "Show Firewall", true, None::<&str>)
-                    .unwrap();
-            let menu = tauri::menu::Menu::with_items(app, &[&show_i, &quiet_i]).unwrap();
+            // System tray icon is now managed by HydraDragonLauncher.
 
-            let _tray = tauri::tray::TrayIconBuilder::new()
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => {
-                        if let Some(engine) = app.try_state::<Arc<FirewallEngine>>() {
-                            engine.stop();
-                        }
-                        app.exit(0);
-                    }
-                    "show" => {
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click {
-                        button: tauri::tray::MouseButton::Left,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
-                    }
-                })
-                .icon(app.default_window_icon().unwrap().clone())
-                .build(app)?;
 
             let args: Vec<String> = std::env::args().collect();
             // CLI flags take priority; also check persisted settings for each mode.
@@ -1085,7 +1047,7 @@ pub fn run() {
                                     .unwrap()
                                     .as_millis() as u64,
                                 level: crate::engine::LogLevel::Info,
-                                message: "Firewall window hidden. Still running in system tray."
+                                message: "Firewall window hidden. Still running in background."
                                     .to_string(),
                             },
                         );

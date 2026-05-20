@@ -95,7 +95,7 @@ impl UmIpc {
             let drv_mgr_clone = Arc::clone(&driver_manager);
 
             tokio::spawn(async move {
-                let mut buffer = vec![0; 1024];
+                let mut buffer = vec![0; 65536];
                 let logger = Log::new();
 
                 // read the request

@@ -66,13 +66,12 @@ impl IpcClient {
         let message_data = to_vec(&message)?;
         client.write_all(&message_data).await?;
 
-        // read the response
-        let mut buffer = vec![0u8; 1024];
-        let bytes_read = client.read(&mut buffer).await?;
-        let received_data = &buffer[..bytes_read];
+        // read the response until EOF (when the server closes the pipe)
+        let mut received_data = Vec::new();
+        client.read_to_end(&mut received_data).await?;
 
         // Deserialize the received JSON data into a Message struct
-        let response_message: T = serde_json::from_slice(received_data)?;
+        let response_message: T = serde_json::from_slice(&received_data)?;
 
         Ok(response_message)
     }

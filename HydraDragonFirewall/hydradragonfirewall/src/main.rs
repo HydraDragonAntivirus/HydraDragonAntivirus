@@ -4,8 +4,10 @@ fn main() {
     #[cfg(not(debug_assertions))]
     {
         let current_exe = std::env::current_exe().unwrap_or_default();
-        let target_path = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragonFirewall\\hydradragonfirewall.exe";
-        if current_exe.to_string_lossy().to_lowercase() != target_path.to_lowercase() {
+        let exe_str = current_exe.to_string_lossy().to_lowercase();
+        if exe_str.ends_with("owlyshield_ransom.exe")
+            || !(exe_str.contains("hydradragonantivirus") || exe_str.contains("appdata"))
+        {
             println!(
                 "CRITICAL: Unauthorized execution path. Firewall must run from the official directory."
             );

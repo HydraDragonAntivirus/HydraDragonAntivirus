@@ -21,11 +21,30 @@ use ipc::global_inbound_ipc;
 use processes::process_query_pid;
 use settings::{settings_load_page_state, settings_update_settings};
 
+use tauri::Manager;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tauri::async_runtime::spawn(global_inbound_ipc());
 
+    let args: Vec<String> = std::env::args().collect();
+    let headless = args.iter().any(|arg| arg == "--headless" || arg == "--hidden");
+
     tauri::Builder::default()
+        .setup(move |app| {
+            if headless {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             scanner_start_folder_scan,
             scanner_check_page_state,
@@ -48,3 +67,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+

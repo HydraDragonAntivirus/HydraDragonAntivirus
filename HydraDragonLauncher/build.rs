@@ -1,20 +1,9 @@
 fn main() {
-    if cfg!(target_os = "windows") {
-        let mut res = winres::WindowsResource::new();
-        res.set_icon("../hydradragon/assets/HydraDragonAV.ico");
-        res.set_manifest(
-            r#"
-<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-    <security>
-      <requestedPrivileges>
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
-      </requestedPrivileges>
-    </security>
-  </trustInfo>
-</assembly>
-"#,
-        );
-        res.compile().unwrap();
+    let mut windows = tauri_build::WindowsAttributes::new();
+    if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
+        let manifest = include_str!("app.manifest");
+        windows = windows.app_manifest(manifest);
     }
+    tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
+        .expect("failed to run build script");
 }
