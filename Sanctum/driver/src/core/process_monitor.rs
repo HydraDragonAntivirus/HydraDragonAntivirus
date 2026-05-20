@@ -291,9 +291,11 @@ pub fn respond_to_gh_timer_expiry(pid: u32, timer: &GhostHuntingTimer) {
     let ptr = crate::DRIVER_MESSAGES.load(Ordering::SeqCst);
     if !ptr.is_null() {
         let messages = unsafe { &mut *ptr };
-        
+
         // Convert [u8; 16] to hex String for IPC
-        let hex_str = timer.hex_payload.iter()
+        let hex_str = timer
+            .hex_payload
+            .iter()
             .map(|b| format!("{:02x}", b))
             .collect::<String>();
 

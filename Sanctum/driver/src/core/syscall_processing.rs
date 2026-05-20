@@ -113,7 +113,7 @@ impl KernelSyscallIntercept {
         // Capture hex payload around the caller RIP
         let rip = ktrap_frame.Rip;
         let mut hex_payload = [0u8; 16];
-        
+
         // Safe-ish copy: only try to read if we are in the correct context
         // In a real EDR we would use MmCopyVirtualMemory with the current process.
         // For this POC, we are in the thread context of the caller.
@@ -148,7 +148,11 @@ impl KernelSyscallIntercept {
         syscall_data.1
     }
 
-    fn nt_create_thread_ex(ktrap_frame: KTRAP_FRAME, caller_address: u64, hex_payload: [u8; 16]) -> (Option<Syscall>, AllowSyscall) {
+    fn nt_create_thread_ex(
+        ktrap_frame: KTRAP_FRAME,
+        caller_address: u64,
+        hex_payload: [u8; 16],
+    ) -> (Option<Syscall>, AllowSyscall) {
         let current_pid = unsafe { PsGetCurrentProcessId() } as u32;
         let dest_pid = handle_to_pid(ktrap_frame.R9 as *mut c_void);
 
@@ -242,7 +246,11 @@ impl KernelSyscallIntercept {
         }
     }
 
-    fn nt_write_vm(ktrap_frame: KTRAP_FRAME, caller_address: u64, hex_payload: [u8; 16]) -> (Option<Syscall>, AllowSyscall) {
+    fn nt_write_vm(
+        ktrap_frame: KTRAP_FRAME,
+        caller_address: u64,
+        hex_payload: [u8; 16],
+    ) -> (Option<Syscall>, AllowSyscall) {
         let current_pid = unsafe { PsGetCurrentProcessId() } as u32;
         let dest_pid = handle_to_pid(ktrap_frame.Rcx as *mut c_void);
 
@@ -265,7 +273,11 @@ impl KernelSyscallIntercept {
         (Some(data), AllowSyscall::Yes)
     }
 
-    fn nt_open_process(ktrap_frame: KTRAP_FRAME, caller_address: u64, hex_payload: [u8; 16]) -> (Option<Syscall>, AllowSyscall) {
+    fn nt_open_process(
+        ktrap_frame: KTRAP_FRAME,
+        caller_address: u64,
+        hex_payload: [u8; 16],
+    ) -> (Option<Syscall>, AllowSyscall) {
         let client_id: CLIENT_ID = unsafe { *(ktrap_frame.R9 as *const CLIENT_ID) };
 
         let remote_pid = client_id.UniqueProcess as u32;
@@ -292,7 +304,11 @@ impl KernelSyscallIntercept {
         )
     }
 
-    fn nt_allocate_vm(ktrap_frame: KTRAP_FRAME, caller_address: u64, hex_payload: [u8; 16]) -> (Option<Syscall>, AllowSyscall) {
+    fn nt_allocate_vm(
+        ktrap_frame: KTRAP_FRAME,
+        caller_address: u64,
+        hex_payload: [u8; 16],
+    ) -> (Option<Syscall>, AllowSyscall) {
         let proc_handle = ktrap_frame.Rcx as HANDLE;
 
         let current_pid = unsafe { PsGetCurrentProcessId() } as u32;

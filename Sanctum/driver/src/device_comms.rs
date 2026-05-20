@@ -191,7 +191,8 @@ impl DriverMessagesWithMutex {
         lock.process_terminations
             .append(&mut q.process_terminations);
         lock.handles.append(&mut q.handles);
-        lock.amsi_bypass_attempts.append(&mut q.amsi_bypass_attempts);
+        lock.amsi_bypass_attempts
+            .append(&mut q.amsi_bypass_attempts);
         lock.ghost_hunts.append(&mut q.ghost_hunts);
 
         // IMPORTANT NOTE: As well as adding a new field to the below (compile time checked) you ALSO must

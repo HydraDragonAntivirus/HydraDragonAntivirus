@@ -19,8 +19,8 @@ use wdk_sys::{
     },
 };
 
-use crate::utils::{AllThreadsIterator, get_module_base_and_sz, scan_module_for_byte_pattern};
 use crate::DRIVER_MESSAGES;
+use crate::utils::{AllThreadsIterator, get_module_base_and_sz, scan_module_for_byte_pattern};
 use core::sync::atomic::Ordering;
 use shared_no_std::driver_ipc::AmsiBypassAttempt;
 use wdk_sys::ntddk::PsGetProcessId;
