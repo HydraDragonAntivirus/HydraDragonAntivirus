@@ -15,11 +15,13 @@ use std::sync::{Arc, RwLock};
 pub struct WebFilter {
     ipv4_blocklist: Arc<RwLock<HashSet<Ipv4Addr>>>,
     ipv6_blocklist: Arc<RwLock<HashSet<Ipv6Addr>>>,
+    cidr_blocklist: Arc<RwLock<Vec<String>>>,
     domain_blocklist: Arc<RwLock<HashSet<String>>>,
 
     // Whitelists to override blocklists
     ipv4_whitelist: Arc<RwLock<HashSet<Ipv4Addr>>>,
     ipv6_whitelist: Arc<RwLock<HashSet<Ipv6Addr>>>,
+    cidr_whitelist: Arc<RwLock<Vec<String>>>,
     domain_whitelist: Arc<RwLock<HashSet<String>>>,
     popular_domain_whitelist: Arc<RwLock<HashSet<String>>>,
 
@@ -43,10 +45,12 @@ impl WebFilter {
         Self {
             ipv4_blocklist: Arc::new(RwLock::new(HashSet::new())),
             ipv6_blocklist: Arc::new(RwLock::new(HashSet::new())),
+            cidr_blocklist: Arc::new(RwLock::new(Vec::new())),
             domain_blocklist: Arc::new(RwLock::new(HashSet::new())),
 
             ipv4_whitelist: Arc::new(RwLock::new(HashSet::new())),
             ipv6_whitelist: Arc::new(RwLock::new(HashSet::new())),
+            cidr_whitelist: Arc::new(RwLock::new(Vec::new())),
             domain_whitelist: Arc::new(RwLock::new(
                 [
                     "discord.com".to_string(),
@@ -224,6 +228,72 @@ impl WebFilter {
 
         // Exact match
         text == pattern_lower
+    }
+
+    fn is_header_value(value: &str) -> bool {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "entry" | "ip" | "address" | "domain" | "subdomain" | "url" | "host"
+        )
+    }
+
+    fn cidr_family_matches(cidr: &str, is_ipv4_file: bool, is_ipv6_file: bool) -> bool {
+        let Some((network, prefix)) = cidr.split_once('/') else {
+            return false;
+        };
+        let Ok(prefix_len) = prefix.parse::<u32>() else {
+            return false;
+        };
+
+        if let Ok(_) = network.parse::<Ipv4Addr>() {
+            return prefix_len <= 32 && !is_ipv6_file;
+        }
+        if let Ok(_) = network.parse::<Ipv6Addr>() {
+            return prefix_len <= 128 && !is_ipv4_file;
+        }
+        false
+    }
+
+    fn ip_in_cidr(ip: IpAddr, cidr: &str) -> bool {
+        let Some((network, prefix)) = cidr.split_once('/') else {
+            return cidr
+                .parse::<IpAddr>()
+                .is_ok_and(|target_ip| ip == target_ip);
+        };
+        let Ok(prefix_len) = prefix.parse::<u32>() else {
+            return false;
+        };
+
+        match ip {
+            IpAddr::V4(v4) => {
+                let Ok(net) = network.parse::<Ipv4Addr>() else {
+                    return false;
+                };
+                if prefix_len > 32 {
+                    return false;
+                }
+                let mask = if prefix_len == 0 {
+                    0
+                } else {
+                    !0u32 << (32 - prefix_len)
+                };
+                (u32::from(v4) & mask) == (u32::from(net) & mask)
+            }
+            IpAddr::V6(v6) => {
+                let Ok(net) = network.parse::<Ipv6Addr>() else {
+                    return false;
+                };
+                if prefix_len > 128 {
+                    return false;
+                }
+                let mask = if prefix_len == 0 {
+                    0
+                } else {
+                    !0u128 << (128 - prefix_len)
+                };
+                (u128::from(v6) & mask) == (u128::from(net) & mask)
+            }
+        }
     }
 
     pub fn load_references(&self, path: &str) -> std::io::Result<usize> {
@@ -443,6 +513,21 @@ impl WebFilter {
             }
         }
 
+        for filename in [
+            "CIDRWhiteListIPv4.csv",
+            "CIDRWhiteListIPv6.csv",
+            "CIDRBlackListIPv4.csv",
+            "CIDRBlackListIPv6.csv",
+        ] {
+            let path = Path::new(base_path).join(filename);
+            if path.exists() {
+                if let Ok(c) = self.load_csv(&path) {
+                    count += c;
+                    println!("Loaded {} CIDR entries from {}.", c, filename);
+                }
+            }
+        }
+
         // 4. Load Optimized CSVs
         // glob pattern requires forward slashes even on Windows to avoid escaping issues
         let base_path_slash = base_path.replace("\\", "/");
@@ -487,15 +572,22 @@ impl WebFilter {
             .to_string_lossy()
             .to_string();
 
-        let is_ipv4 = filename.contains("IPv4");
-        let is_ipv6 = filename.contains("IPv6");
-        let is_domain = filename.contains("Domain") || filename.contains("SubDomain");
-        let is_popularity_subdomain_whitelist = filename.contains("SubDomainsPopularityWhiteList");
-        let is_popularity_domain_whitelist =
-            filename.contains("DomainsPopularityWhiteList") && !is_popularity_subdomain_whitelist;
+        let filename_lower = filename.to_ascii_lowercase();
+        let is_ipv4 = filename_lower.contains("ipv4") || filename_lower.contains("cidr4");
+        let is_ipv6 = filename_lower.contains("ipv6") || filename_lower.contains("cidr6");
+        let is_cidr_file = filename_lower.contains("cidrwhitelist")
+            || filename_lower.contains("cidrblacklist")
+            || filename_lower.starts_with("allow_cidr")
+            || filename_lower.starts_with("block_cidr");
+        let is_domain = filename_lower.contains("domain") || filename_lower.contains("subdomain");
+        let is_popularity_subdomain_whitelist =
+            filename_lower.contains("subdomainspopularitywhitelist");
+        let is_popularity_domain_whitelist = filename_lower.contains("domainspopularitywhitelist")
+            && !is_popularity_subdomain_whitelist;
         // Temporary vectors to hold data before locking
         let mut ips_v4 = Vec::new();
         let mut ips_v6 = Vec::new();
+        let mut cidr_ranges = Vec::new();
         let mut domains = Vec::new();
         let mut popular_domains = Vec::new();
 
@@ -532,39 +624,53 @@ impl WebFilter {
             // Column 1 = Reference ID
             if let Some(addr_str) = record.get(0) {
                 let addr_str = addr_str.trim();
-                if addr_str.is_empty() {
+                if addr_str.is_empty() || Self::is_header_value(addr_str) {
+                    continue;
+                }
+
+                if is_cidr_file || addr_str.contains('/') {
+                    if Self::cidr_family_matches(addr_str, is_ipv4, is_ipv6) {
+                        cidr_ranges.push(addr_str.to_string());
+                        count += 1;
+                    }
                     continue;
                 }
 
                 if is_ipv4 {
                     if let Ok(ip) = addr_str.parse::<Ipv4Addr>() {
                         ips_v4.push(ip);
+                        count += 1;
                     }
                 } else if is_ipv6 {
                     if let Ok(ip) = addr_str.parse::<Ipv6Addr>() {
                         ips_v6.push(ip);
+                        count += 1;
                     }
                 } else {
                     // Assume domain if not specifically IP file, or auto-detect?
                     // Relying on filename heuristic for now as it's cleaner.
                     if is_domain {
                         domains.push(addr_str.to_lowercase());
+                        count += 1;
                     } else {
                         // Fallback auto-detect
                         if let Ok(ip) = addr_str.parse::<Ipv4Addr>() {
                             ips_v4.push(ip);
+                            count += 1;
                         } else if let Ok(ip) = addr_str.parse::<Ipv6Addr>() {
                             ips_v6.push(ip);
+                            count += 1;
                         } else {
                             domains.push(addr_str.to_lowercase());
+                            count += 1;
                         }
                     }
                 }
-                count += 1;
             }
         }
 
-        let is_whitelist = filename.contains("WhiteList") || filename.contains("AllowList");
+        let is_whitelist =
+            filename_lower.contains("whitelist") || filename_lower.contains("allowlist");
 
         // Insert everything into appropriate lists
         if is_whitelist {
@@ -573,6 +679,9 @@ impl WebFilter {
             }
             if !ips_v6.is_empty() {
                 self.ipv6_whitelist.write().unwrap().extend(ips_v6);
+            }
+            if !cidr_ranges.is_empty() {
+                self.cidr_whitelist.write().unwrap().extend(cidr_ranges);
             }
             if !domains.is_empty() {
                 self.domain_whitelist.write().unwrap().extend(domains);
@@ -590,6 +699,9 @@ impl WebFilter {
             if !ips_v6.is_empty() {
                 self.ipv6_blocklist.write().unwrap().extend(ips_v6);
             }
+            if !cidr_ranges.is_empty() {
+                self.cidr_blocklist.write().unwrap().extend(cidr_ranges);
+            }
             if !domains.is_empty() {
                 self.domain_blocklist.write().unwrap().extend(domains);
             }
@@ -599,7 +711,17 @@ impl WebFilter {
     }
 
     pub fn is_blocked_ip(&self, ip: IpAddr) -> bool {
-        match ip {
+        if self
+            .cidr_whitelist
+            .read()
+            .unwrap()
+            .iter()
+            .any(|cidr| Self::ip_in_cidr(ip, cidr))
+        {
+            return false;
+        }
+
+        let exact_blocked = match ip {
             IpAddr::V4(ipv4) => {
                 // Check whitelist first
                 if self.ipv4_whitelist.read().unwrap().contains(&ipv4) {
@@ -614,7 +736,15 @@ impl WebFilter {
                 }
                 self.ipv6_blocklist.read().unwrap().contains(&ipv6)
             }
-        }
+        };
+
+        exact_blocked
+            || self
+                .cidr_blocklist
+                .read()
+                .unwrap()
+                .iter()
+                .any(|cidr| Self::ip_in_cidr(ip, cidr))
     }
 }
 
@@ -767,6 +897,50 @@ mod tests {
         let _ = fs::remove_file(&popularity_domain_path);
         let _ = fs::remove_file(&popularity_subdomain_path);
         let _ = fs::remove_file(&malware_path);
+        let _ = fs::remove_dir(&tmp_base);
+    }
+
+    #[test]
+    fn test_cidr_csvs_are_loaded_as_network_rules() {
+        let filter = WebFilter::new();
+
+        let tmp_base = std::env::temp_dir().join(format!(
+            "hdf_wf_cidr_test_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        fs::create_dir_all(&tmp_base).unwrap();
+
+        let whitelist_path = tmp_base.join("CIDRWhiteListIPv4.csv");
+        let blacklist_path = tmp_base.join("CIDRBlackListIPv4.csv");
+
+        fs::write(&whitelist_path, b"entry,reference\n10.0.0.0/8,trusted\n").unwrap();
+        fs::write(
+            &blacklist_path,
+            b"entry,reference\n10.1.2.0/24,bad\n203.0.113.0/24,bad\n",
+        )
+        .unwrap();
+
+        let _ = filter
+            .load_csv(&whitelist_path)
+            .expect("Failed to load CIDR whitelist");
+        let _ = filter
+            .load_csv(&blacklist_path)
+            .expect("Failed to load CIDR blacklist");
+
+        assert!(
+            !filter.is_blocked_ip("10.1.2.3".parse().unwrap()),
+            "CIDR whitelist must override overlapping CIDR blacklist"
+        );
+        assert!(
+            filter.is_blocked_ip("203.0.113.7".parse().unwrap()),
+            "CIDR blacklist must block IPs inside the network"
+        );
+
+        let _ = fs::remove_file(&whitelist_path);
+        let _ = fs::remove_file(&blacklist_path);
         let _ = fs::remove_dir(&tmp_base);
     }
 }

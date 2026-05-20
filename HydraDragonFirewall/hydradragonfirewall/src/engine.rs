@@ -5662,9 +5662,9 @@ impl FirewallEngine {
 
         let mut networks = Vec::new();
 
-        // --- Highest Priority: CIDR Whitelists (from ALLOW_CIDR4/6.csv) ---
+        // --- Highest Priority: CIDR Whitelists (from CIDRWhiteListIPv4/IPv6.csv) ---
         // These are checked first in packet decisions via ip_in_cidr.
-        let cidr_ipv4_path = PathBuf::from(&website_path).join("ALLOW_CIDR4.csv");
+        let cidr_ipv4_path = PathBuf::from(&website_path).join("CIDRWhiteListIPv4.csv");
         if cidr_ipv4_path.exists() {
             if let Ok(content) = fs::read_to_string(&cidr_ipv4_path) {
                 for line in content.lines().skip(1) {
@@ -5676,7 +5676,7 @@ impl FirewallEngine {
             }
         }
 
-        let cidr_ipv6_path = PathBuf::from(&website_path).join("ALLOW_CIDR6.csv");
+        let cidr_ipv6_path = PathBuf::from(&website_path).join("CIDRWhiteListIPv6.csv");
         if cidr_ipv6_path.exists() {
             if let Ok(content) = fs::read_to_string(&cidr_ipv6_path) {
                 for line in content.lines().skip(1) {

@@ -5,11 +5,12 @@
 Reference optimizer / registry builder
 
 - Scans ONLY .csv files in a directory (default: current dir)
-- Skips ALLOW*.csv files
-- Does NOT skip WhiteList*/whitelist CSV files
+- Skips generated CIDR whitelist/blocklist CSV files
+- Does NOT skip non-CIDR WhiteList*/whitelist CSV files
 - Skips:
     - generated optimizer outputs: *.optimized.csv
     - ALLOW*.csv
+    - CIDRWhiteList*.csv / CIDRBlackList*.csv
     - huge ranking/source lists that are not reference rule files:
       top-1m.csv, builtwith-top1m-20250121.csv, tranco_PL9GJ.csv
 - Extracts reference strings, assigns integer IDs (0,1,2,...)
@@ -29,14 +30,21 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # Exact CSV names that should NOT be optimized.
-# IMPORTANT: WhiteList*/whitelist CSV files are intentionally NOT listed here.
-# ALLOW*.csv is skipped by prefix rule below.
+# IMPORTANT: non-CIDR WhiteList*/whitelist CSV files are intentionally NOT listed here.
+# ALLOW*.csv and generated CIDR CSV files are skipped by prefix rules below.
 SKIP_NAMES = {
     "top-1m.csv",
     "builtwith-top1m-20250121.csv",
     "tranco_pl9gj.csv",
     "tranco_pl9gj_old.csv",
 }
+
+CIDR_SKIP_PREFIXES = (
+    "allow_cidr",
+    "block_cidr",
+    "cidrwhitelist",
+    "cidrblacklist",
+)
 
 
 # -----------------------
@@ -60,9 +68,9 @@ def should_process_file(path: Path) -> bool:
     if name.startswith("allow"):
         return False
 
-    # Skip CIDR whitelist files — they store raw CIDR notation (e.g. 1.2.3.0/24)
-    # and have no reference column, so reference optimization must not touch them.
-    if name.startswith("cidrwhitelist"):
+    # Skip CIDR whitelist/blocklist files; they store raw CIDR notation (e.g. 1.2.3.0/24)
+    # and reference optimization must not touch them.
+    if name.startswith(CIDR_SKIP_PREFIXES):
         return False
 
     # Skip known huge ranking/source lists, not whitelist/rule files.
@@ -261,7 +269,7 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path, progress_every: i
         print("No CSV files to process after skip rules.", flush=True)
         return
 
-    print(f"Processing {len(files)} CSV file(s). WhiteList/whitelist and benign CSV files are included; ALLOW*.csv files are skipped.", flush=True)
+    print(f"Processing {len(files)} CSV file(s). WhiteList/whitelist and benign CSV files are included; generated CIDR CSV files are skipped.", flush=True)
 
     # First pass: collect references and register.
     print("Scanning references...", flush=True)
@@ -320,7 +328,7 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path, progress_every: i
 # CLI
 # -----------------------
 def main():
-    parser = argparse.ArgumentParser(description="Reference optimizer - CSV only; skips ALLOW*.csv; keeps whitelist CSVs")
+    parser = argparse.ArgumentParser(description="Reference optimizer - CSV only; skips generated CIDR CSVs; keeps non-CIDR whitelist CSVs")
     parser.add_argument("--dir", "-d", type=str, default=".", help="Directory with CSV rule files")
     parser.add_argument("--out", "-o", type=str, default="ref_out", help="Output directory for references + optimized files")
     parser.add_argument(

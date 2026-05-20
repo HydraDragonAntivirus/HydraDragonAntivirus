@@ -1,4 +1,11 @@
 entry,reference
+2400:cb00::/32,cloudflare.com
+2606:4700::/32,cloudflare.com
+2803:f800::/32,cloudflare.com
+2405:b500::/32,cloudflare.com
+2405:8100::/32,cloudflare.com
+2a06:98c0::/29,cloudflare.com
+2c0f:f248::/32,cloudflare.com
 2c0f:08c0:0002:100a:beef:0000:0000:0001,Unknown
 2c0f:08c0:0002:100a:0000:0000:0000:0002,Unknown
 2c0f:08c0:0000:1000:cafe:0000:0000:0000,Unknown
