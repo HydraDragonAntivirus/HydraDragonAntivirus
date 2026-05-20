@@ -5662,7 +5662,33 @@ impl FirewallEngine {
 
         let mut networks = Vec::new();
 
-        // Load IPv4 Whitelist
+        // --- Highest Priority: CIDR Whitelists (from ALLOW_CIDR4/6.csv) ---
+        // These are checked first in packet decisions via ip_in_cidr.
+        let cidr_ipv4_path = PathBuf::from(&website_path).join("ALLOW_CIDR4.csv");
+        if cidr_ipv4_path.exists() {
+            if let Ok(content) = fs::read_to_string(&cidr_ipv4_path) {
+                for line in content.lines().skip(1) {
+                    let entry = line.split(',').next().unwrap_or("").trim();
+                    if !entry.is_empty() && entry.contains('/') {
+                        networks.push(entry.to_string());
+                    }
+                }
+            }
+        }
+
+        let cidr_ipv6_path = PathBuf::from(&website_path).join("ALLOW_CIDR6.csv");
+        if cidr_ipv6_path.exists() {
+            if let Ok(content) = fs::read_to_string(&cidr_ipv6_path) {
+                for line in content.lines().skip(1) {
+                    let entry = line.split(',').next().unwrap_or("").trim();
+                    if !entry.is_empty() && entry.contains('/') {
+                        networks.push(entry.to_string());
+                    }
+                }
+            }
+        }
+
+        // Load IPv4 Whitelist (plain single IPs)
         let ipv4_path = PathBuf::from(&website_path).join("WhiteListIPv4.csv");
         if ipv4_path.exists() {
             if let Ok(content) = fs::read_to_string(&ipv4_path) {
@@ -5675,7 +5701,7 @@ impl FirewallEngine {
             }
         }
 
-        // Load IPv6 Whitelist
+        // Load IPv6 Whitelist (plain single IPs)
         let ipv6_path = PathBuf::from(&website_path).join("WhiteListIPv6.csv");
         if ipv6_path.exists() {
             if let Ok(content) = fs::read_to_string(&ipv6_path) {

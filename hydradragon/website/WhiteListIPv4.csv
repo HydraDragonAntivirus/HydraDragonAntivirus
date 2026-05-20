@@ -6984,7 +6984,6 @@ entry,reference
 198.44.198.93,github.com/T145/black-mirror(WhiteList)
 198.44.132.135,github.com/T145/black-mirror(WhiteList)
 198.44.14.213,github.com/T145/black-mirror(WhiteList)
-198.41.128.0/17,CloudFlare Reverse Proxy
 198.38.92.185,github.com/T145/black-mirror(WhiteList)
 198.38.92.19,github.com/T145/black-mirror(WhiteList)
 198.37.117.68,github.com/T145/black-mirror(WhiteList)
@@ -7082,7 +7081,6 @@ entry,reference
 197.242.158.48,github.com/T145/black-mirror(WhiteList)
 197.242.146.86,github.com/T145/black-mirror(WhiteList)
 197.235.15.47,github.com/T145/black-mirror(WhiteList)
-197.234.240.0/22,CloudFlare Reverse Proxy
 197.234.207.83,github.com/T145/black-mirror(WhiteList)
 197.234.207.33,github.com/T145/black-mirror(WhiteList)
 197.234.206.249,github.com/T145/black-mirror(WhiteList)
@@ -11112,7 +11110,6 @@ entry,reference
 190.94.212.132,github.com/T145/black-mirror(WhiteList)
 190.94.212.10,github.com/T145/black-mirror(WhiteList)
 190.94.169.69,github.com/T145/black-mirror(WhiteList)
-190.93.240.0/20,CloudFlare Reverse Proxy
 190.93.211.246,github.com/T145/black-mirror(WhiteList)
 190.93.211.227,github.com/T145/black-mirror(WhiteList)
 190.93.209.48,github.com/T145/black-mirror(WhiteList)
@@ -12080,7 +12077,6 @@ entry,reference
 188.114.144.157,github.com/T145/black-mirror(WhiteList)
 188.114.124.56,github.com/T145/black-mirror(WhiteList)
 188.114.124.40,github.com/T145/black-mirror(WhiteList)
-188.114.96.0/20,CloudFlare Reverse Proxy
 188.113.182.211,github.com/T145/black-mirror(WhiteList)
 188.113.161.76,github.com/T145/black-mirror(WhiteList)
 188.113.133.228,github.com/T145/black-mirror(WhiteList)
@@ -19444,7 +19440,6 @@ entry,reference
 173.246.51.165,github.com/T145/black-mirror(WhiteList)
 173.246.38.28,github.com/T145/black-mirror(WhiteList)
 173.245.158.178,github.com/T145/black-mirror(WhiteList)
-173.245.48.0/20,CloudFlare Reverse Proxy
 173.244.51.54,github.com/T145/black-mirror(WhiteList)
 173.243.92.34,github.com/T145/black-mirror(WhiteList)
 173.242.199.108,github.com/T145/black-mirror(WhiteList)
@@ -20396,7 +20391,6 @@ entry,reference
 172.64.36.6,github.com/T145/black-mirror(WhiteList)
 172.64.36.1,github.com/T145/black-mirror(WhiteList)
 172.64.36.0,github.com/T145/black-mirror(WhiteList)
-172.64.0.0/13,CloudFlare Reverse Proxy
 172.12.112.137,github.com/T145/black-mirror(WhiteList)
 172.5.27.211,Unknown
 172.3.101.161,github.com/T145/black-mirror(WhiteList)
@@ -21920,7 +21914,6 @@ entry,reference
 162.159.27.162,github.com/T145/black-mirror(WhiteList)
 162.159.27.90,github.com/T145/black-mirror(WhiteList)
 162.159.24.69,github.com/T145/black-mirror(WhiteList)
-162.158.0.0/15,CloudFlare Reverse Proxy
 162.157.210.69,github.com/T145/black-mirror(WhiteList)
 162.156.213.92,github.com/T145/black-mirror(WhiteList)
 162.155.248.54,github.com/T145/black-mirror(WhiteList)
@@ -24903,7 +24896,6 @@ entry,reference
 141.105.130.119,github.com/T145/black-mirror(WhiteList)
 141.105.130.78,Unknown
 141.101.231.210,github.com/T145/black-mirror(WhiteList)
-141.101.64.0/18,CloudFlare Reverse Proxy
 141.98.233.146,github.com/T145/black-mirror(WhiteList)
 141.98.232.15,github.com/T145/black-mirror(WhiteList)
 141.98.153.205,github.com/T145/black-mirror(WhiteList)
@@ -26083,7 +26075,6 @@ entry,reference
 131.1.136.124,github.com/T145/black-mirror(WhiteList)
 131.1.134.174,github.com/T145/black-mirror(WhiteList)
 131.0.172.68,github.com/T145/black-mirror(WhiteList)
-131.0.72.0/22,CloudFlare Reverse Proxy
 131.0.64.32,github.com/T145/black-mirror(WhiteList)
 130.255.151.219,github.com/T145/black-mirror(WhiteList)
 130.255.145.195,github.com/T145/black-mirror(WhiteList)
@@ -29954,7 +29945,6 @@ entry,reference
 108.166.219.157,github.com/T145/black-mirror(WhiteList)
 108.166.183.242,github.com/T145/black-mirror(WhiteList)
 108.166.181.39,github.com/T145/black-mirror(WhiteList)
-108.162.192.0/18,CloudFlare Reverse Proxy
 108.161.133.137,github.com/T145/black-mirror(WhiteList)
 108.160.70.155,github.com/T145/black-mirror(WhiteList)
 108.74.222.36,github.com/T145/black-mirror(WhiteList)
@@ -30464,8 +30454,6 @@ entry,reference
 104.36.87.135,Unknown
 104.36.6.126,github.com/T145/black-mirror(WhiteList)
 104.33.233.47,github.com/T145/black-mirror(WhiteList)
-104.24.0.0/14,CloudFlare Reverse Proxy
-104.16.0.0/13,CloudFlare Reverse Proxy
 104.6.226.89,Unknown
 104.3.165.248,github.com/T145/black-mirror(WhiteList)
 104.2.145.249,github.com/T145/black-mirror(WhiteList)
@@ -33571,7 +33559,6 @@ entry,reference
 103.31.226.56,github.com/T145/black-mirror(WhiteList)
 103.31.109.193,github.com/T145/black-mirror(WhiteList)
 103.31.38.50,github.com/T145/black-mirror(WhiteList)
-103.31.4.0/22,CloudFlare Reverse Proxy
 103.30.246.201,github.com/T145/black-mirror(WhiteList)
 103.30.244.205,github.com/T145/black-mirror(WhiteList)
 103.30.244.189,github.com/T145/black-mirror(WhiteList)
@@ -33614,13 +33601,11 @@ entry,reference
 103.23.150.89,github.com/T145/black-mirror(WhiteList)
 103.23.150.88,github.com/T145/black-mirror(WhiteList)
 103.23.20.86,github.com/T145/black-mirror(WhiteList)
-103.22.200.0/22,CloudFlare Reverse Proxy
 103.22.98.50,github.com/T145/black-mirror(WhiteList)
 103.22.98.37,github.com/T145/black-mirror(WhiteList)
 103.22.98.25,github.com/T145/black-mirror(WhiteList)
 103.22.98.19,github.com/T145/black-mirror(WhiteList)
 103.22.98.0,github.com/T145/black-mirror(WhiteList)
-103.21.244.0/22,CloudFlare Reverse Proxy
 103.21.194.19,github.com/T145/black-mirror(WhiteList)
 103.21.120.86,github.com/T145/black-mirror(WhiteList)
 103.21.120.85,github.com/T145/black-mirror(WhiteList)

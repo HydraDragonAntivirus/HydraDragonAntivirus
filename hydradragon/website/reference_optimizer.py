@@ -60,6 +60,11 @@ def should_process_file(path: Path) -> bool:
     if name.startswith("allow"):
         return False
 
+    # Skip CIDR whitelist files — they store raw CIDR notation (e.g. 1.2.3.0/24)
+    # and have no reference column, so reference optimization must not touch them.
+    if name.startswith("cidrwhitelist"):
+        return False
+
     # Skip known huge ranking/source lists, not whitelist/rule files.
     if name in SKIP_NAMES:
         return False
