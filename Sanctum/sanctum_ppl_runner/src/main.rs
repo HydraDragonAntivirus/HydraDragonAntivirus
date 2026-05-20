@@ -337,10 +337,9 @@ fn is_started_from_expected_path() -> bool {
     };
 
     let path_str = normalize_windows_path(&current_exe);
-    if path_str.ends_with("owlyshield_ransom.exe") {
-        return false;
-    }
-    path_str.contains("hydradragonantivirus") || path_str.contains("appdata")
+    let expected = normalize_windows_path(Path::new(EXPECTED_RUNNER_PATH));
+
+    path_str == expected
 }
 
 fn normalize_windows_path(path: impl AsRef<Path>) -> String {
