@@ -510,9 +510,7 @@ impl LocalhostType {
             IpAddr::V6(ipv6) => match self {
                 LocalhostType::None => true,
                 LocalhostType::Loopback => ipv6.is_loopback(),
-                LocalhostType::Private => {
-                    ipv6.is_unique_local() || ipv6.is_unicast_link_local()
-                }
+                LocalhostType::Private => ipv6.is_unique_local() || ipv6.is_unicast_link_local(),
                 LocalhostType::PrivateA | LocalhostType::PrivateB | LocalhostType::PrivateC => {
                     ipv6.is_unique_local() || ipv6.is_unicast_link_local()
                 }

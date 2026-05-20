@@ -424,7 +424,11 @@ fn openedr_verdict_badge(verdict: Option<&str>) -> Option<(String, String, Strin
         _ => ("rgba(148, 163, 184, 0.18)", "#cbd5e1"),
     };
 
-    Some((display.to_string(), colors.0.to_string(), colors.1.to_string()))
+    Some((
+        display.to_string(),
+        colors.0.to_string(),
+        colors.1.to_string(),
+    ))
 }
 
 fn is_owlyshield_log_entry(log: &LogEntry) -> bool {
@@ -1398,8 +1402,7 @@ pub fn App() -> impl IntoView {
     let (mitm_enabled, set_mitm_enabled) = create_signal(false);
     let (windows_root_trust_ready, set_windows_root_trust_ready) = create_signal(false);
     let (firefox_policy_ready, set_firefox_policy_ready) = create_signal(false);
-    let (certificate_action_status, set_certificate_action_status) =
-        create_signal(String::new());
+    let (certificate_action_status, set_certificate_action_status) = create_signal(String::new());
     let (proxy_action_status, set_proxy_action_status) = create_signal(String::new());
     let (mitm_bypass_count, set_mitm_bypass_count) = create_signal(0usize);
     let (settings_loaded, set_settings_loaded) = create_signal(false);
@@ -1689,14 +1692,15 @@ pub fn App() -> impl IntoView {
                     if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
                         let current_settings = settings.get_untracked();
                         let is_blocked = pkt.action.eq_ignore_ascii_case("block");
-                        
-                        let add_to_graphics = !(current_settings.show_blocked_graphics_only && !is_blocked);
+
+                        let add_to_graphics =
+                            !(current_settings.show_blocked_graphics_only && !is_blocked);
                         let add_to_logs = !(current_settings.show_blocked_logs_only && !is_blocked);
-                        
+
                         if !add_to_graphics && !add_to_logs {
                             return;
                         }
-                        
+
                         let pkt_log = build_raw_packet_log_entry(&pkt);
                         if add_to_graphics {
                             set_raw_packet_count.update(|count| *count += 1);
