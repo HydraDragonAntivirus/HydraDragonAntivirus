@@ -2,7 +2,7 @@ name: Publish Sanctum UM Engine
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'Sanctum/um_engine/**'
       - 'Sanctum/shared_std/**'

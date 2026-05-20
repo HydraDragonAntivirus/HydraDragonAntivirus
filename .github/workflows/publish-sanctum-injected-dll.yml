@@ -2,7 +2,7 @@ name: Publish Sanctum Injected DLL
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'Sanctum/injected_dll/**'
       - 'Sanctum/shared_std/**'

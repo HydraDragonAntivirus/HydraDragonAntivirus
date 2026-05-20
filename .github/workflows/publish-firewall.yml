@@ -2,7 +2,7 @@ name: Publish Firewall
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'HydraDragonFirewall/hydradragon-shared/**'
       - 'HydraDragonFirewall/hydradragonfirewall/**'

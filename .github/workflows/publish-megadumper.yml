@@ -2,7 +2,7 @@ name: Publish MegaDumper
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'MegaDumper/**'
       - '.github/workflows/publish-megadumper.yml'

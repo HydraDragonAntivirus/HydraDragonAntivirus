@@ -2,7 +2,7 @@ name: Publish Sanctum PPL Runner
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'Sanctum/sanctum_ppl_runner/**'
       - 'Sanctum/shared_std/**'

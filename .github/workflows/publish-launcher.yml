@@ -2,7 +2,7 @@ name: Publish Launcher
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'HydraDragonLauncher/**'
       - '.github/workflows/publish-launcher.yml'

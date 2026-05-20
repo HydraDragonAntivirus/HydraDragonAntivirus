@@ -2,7 +2,7 @@ name: Publish Sanctum Driver
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'Sanctum/driver/**'
       - 'Sanctum/shared_no_std/**'

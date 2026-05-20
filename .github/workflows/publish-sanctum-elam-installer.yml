@@ -2,7 +2,7 @@ name: Publish Sanctum ELAM Installer
 
 on:
   push:
-    branches: ["**"]
+    branches: [development-version]
     paths:
       - 'Sanctum/elam_installer/**'
       - 'Sanctum/Cargo.toml'
