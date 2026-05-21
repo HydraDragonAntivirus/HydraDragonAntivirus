@@ -57,5 +57,9 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         confidence: 0,
         malware_families: Vec::new(),
         rule_performance: Vec::new(),
+        result_code: ctx.result_code,
+        statistics: ctx.statistics,
+        archive_members: Vec::new(),
+        threat_name: None,
     }
 }

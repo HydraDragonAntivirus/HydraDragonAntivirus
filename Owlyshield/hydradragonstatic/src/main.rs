@@ -365,6 +365,8 @@ fn main() -> Result<()> {
         stop_on_detection: cli.stop_on_detection,
         min_string_len: cli.min_string_len,
         decode_obfuscated_strings: !cli.no_decode,
+        core_options: hydradragonstatic::models::CoreInitOptions::default(),
+        unpack_config: hydradragonstatic::models::UnpackConfig::default(),
     };
 
     let use_sequential_files = cli.no_parallel_files || cli.stop_scan_on_detection;

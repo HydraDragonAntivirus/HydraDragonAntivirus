@@ -21,6 +21,123 @@ pub enum Verdict {
     Malware,
 }
 
+/// SDK-inspired scan result codes matching professional AV engine patterns
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScanResultCode {
+    /// File does not contain malicious code
+    Ok = 0,
+    /// Detected suspicious code (heuristic analysis)
+    Heuristic = 1,
+    /// Malicious code is detected (infected file)
+    Malicious = 2,
+    /// General error of the scan engine
+    GeneralError = -1,
+    /// Error opening/reading the file
+    OpenError = -5,
+    /// File too large for scanning
+    FileTooLarge = -6,
+    /// Unsupported file format
+    UnsupportedFormat = -7,
+}
+
+impl ScanResultCode {
+    pub fn is_clean(self) -> bool {
+        matches!(self, Self::Ok)
+    }
+
+    pub fn is_infected(self) -> bool {
+        matches!(self, Self::Heuristic | Self::Malicious)
+    }
+
+    pub fn is_error(self) -> bool {
+        (self as i32) < 0
+    }
+
+    pub fn from_verdict(verdict: Verdict) -> Self {
+        match verdict {
+            Verdict::Clean => Self::Ok,
+            Verdict::Suspicious => Self::Heuristic,
+            Verdict::Malware => Self::Malicious,
+        }
+    }
+}
+
+/// SDK-inspired unpacking/archive extraction configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnpackConfig {
+    /// Maximum size of archive being unpacked (bytes)
+    pub max_archive_size: u64,
+    /// Maximum depth of container extraction
+    pub max_archive_depth: u32,
+    /// Enable ZIP/archive unpacking
+    pub enable_archives: bool,
+    /// Enable installer unpacking (NSIS, InnoSetup, etc.)
+    pub enable_installers: bool,
+    /// Enable container format unpacking (ISO, VHD, etc.)
+    pub enable_containers: bool,
+    /// Stop checking archive on first detected threat
+    pub break_on_threat: bool,
+}
+
+impl Default for UnpackConfig {
+    fn default() -> Self {
+        Self {
+            max_archive_size: 100 * 1024 * 1024, // 100 MB
+            max_archive_depth: 5,
+            enable_archives: true,
+            enable_installers: false,
+            enable_containers: false,
+            break_on_threat: true,
+        }
+    }
+}
+
+/// SDK-inspired core initialization options
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoreInitOptions {
+    /// Stop checking archive on detected threats
+    pub break_archive_scan: bool,
+    /// Run core in debug mode with verbose logging
+    pub debug_mode: bool,
+    /// Load reduced signature base for faster initialization
+    pub load_simple: bool,
+    /// Enable heuristic analysis
+    pub enable_heuristics: bool,
+    /// Enable behavioral detection
+    pub enable_behavioral: bool,
+}
+
+impl Default for CoreInitOptions {
+    fn default() -> Self {
+        Self {
+            break_archive_scan: true,
+            debug_mode: false,
+            load_simple: false,
+            enable_heuristics: true,
+            enable_behavioral: true,
+        }
+    }
+}
+
+/// SDK-inspired scan statistics and metadata
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ScanStatistics {
+    /// Number of objects scanned (including archive members)
+    pub files_scanned: u32,
+    /// Number of infected objects discovered
+    pub infections_found: u32,
+    /// Number of suspicious objects discovered
+    pub suspicious_found: u32,
+    /// Is this file a container/archive
+    pub is_container: bool,
+    /// Number of archive members extracted
+    pub archive_members: u32,
+    /// Scan duration in milliseconds
+    pub scan_duration_ms: u64,
+    /// Signature database records used
+    pub signature_records_used: u32,
+}
+
 impl Default for Verdict {
     fn default() -> Self {
         Self::Clean
@@ -264,6 +381,34 @@ pub struct RulePerformance {
     pub elapsed_micros: u64,
 }
 
+/// SDK-inspired archive member scan result for nested file scanning
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchiveMemberResult {
+    /// Display name of extracted file
+    pub name: String,
+    /// Full virtual path within archive hierarchy
+    pub path: String,
+    /// Scan result code
+    pub result_code: ScanResultCode,
+    /// Detected threat name if infected
+    pub threat_name: Option<String>,
+    /// Member file size
+    pub size: u64,
+    /// Nested depth level
+    pub depth: u32,
+}
+
+/// SDK-inspired memory scan context for in-memory buffer scanning
+#[derive(Debug, Clone)]
+pub struct MemoryScanContext {
+    /// Memory buffer to scan
+    pub buffer: Vec<u8>,
+    /// Optional identifier for this memory region
+    pub identifier: String,
+    /// Base address hint (for forensics/debugging)
+    pub base_address: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanReport {
     pub path: PathBuf,
@@ -285,4 +430,26 @@ pub struct ScanReport {
     pub malware_families: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_performance: Vec<RulePerformance>,
+    
+    /// SDK-inspired scan result code
+    #[serde(default)]
+    pub result_code: ScanResultCode,
+    
+    /// SDK-inspired scan statistics
+    #[serde(default)]
+    pub statistics: ScanStatistics,
+    
+    /// SDK-inspired archive member results for nested scanning
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub archive_members: Vec<ArchiveMemberResult>,
+    
+    /// Detected threat name in SDK format (family.variant or signature name)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threat_name: Option<String>,
+}
+
+impl Default for ScanResultCode {
+    fn default() -> Self {
+        Self::Ok
+    }
 }

@@ -717,6 +717,11 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
             .any(|window| window == needle)
 }
 
+/// SDK-inspired helper: classify bytes without path context (for memory scanning)
+pub fn classify_bytes_only(data: &[u8]) -> FileTypeInfo {
+    classify_bytes(Path::new("memory"), data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

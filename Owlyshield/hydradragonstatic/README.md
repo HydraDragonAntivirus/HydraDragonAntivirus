@@ -2,6 +2,8 @@
 
 HydraDragonStatic is a standalone Rust static analysis scanner for Windows PE files, extracted strings, decoded/obfuscated strings, registry indicators, environment references, entropy, and deterministic external Yamdle/YAML antivirus signatures.
 
+**SDK-Inspired Architecture**: This scanner incorporates professional antivirus engine design patterns inspired by enterprise AV SDK architectures, including structured scan result codes, memory scanning capabilities, archive unpacking configuration, core initialization options, and comprehensive scan statistics tracking.
+
 ## No built-in rules
 
 This build intentionally ships with **no built-in production signatures** and the binary does **not** embed any rule pack.
@@ -496,3 +498,109 @@ conditions:
 ```
 
 No built-in rules are loaded; file-type rules only run when supplied through `--rules`.
+
+## SDK-Inspired Professional Features
+
+HydraDragonStatic incorporates enterprise antivirus engine design patterns inspired by professional AV SDK architectures:
+
+### Scan Result Codes
+
+Professional AV-style result codes matching industry standards:
+
+- `Ok (0)`: File does not contain malicious code
+- `Heuristic (1)`: Detected suspicious code (heuristic analysis)
+- `Malicious (2)`: Malicious code is detected (infected file)
+- `GeneralError (-1)`: General error of the scan engine
+- `OpenError (-5)`: Error opening/reading the file
+- `FileTooLarge (-6)`: File too large for scanning
+- `UnsupportedFormat (-7)`: Unsupported file format
+
+Result codes are included in JSON output as `result_code` field.
+
+### Memory Scanning API
+
+Scan in-memory buffers without writing to disk:
+
+```rust
+use hydradragonstatic::{models::MemoryScanContext, scan_memory, ScanOptions};
+
+let ctx = MemoryScanContext {
+    buffer: suspicious_bytes,
+    identifier: "process_memory_region".to_string(),
+    base_address: Some(0x400000),
+};
+
+let report = scan_memory(&ctx, &rules, &options)?;
+```
+
+### Archive Unpacking Configuration
+
+Control archive extraction behavior:
+
+```rust
+use hydradragonstatic::models::UnpackConfig;
+
+let unpack_config = UnpackConfig {
+    max_archive_size: 100 * 1024 * 1024,  // 100 MB
+    max_archive_depth: 5,
+    enable_archives: true,
+    enable_installers: false,
+    enable_containers: false,
+    break_on_threat: true,
+};
+```
+
+### Core Initialization Options
+
+Professional engine initialization controls:
+
+```rust
+use hydradragonstatic::models::CoreInitOptions;
+
+let core_options = CoreInitOptions {
+    break_archive_scan: true,
+    debug_mode: false,
+    load_simple: false,
+    enable_heuristics: true,
+    enable_behavioral: true,
+};
+```
+
+### Scan Statistics
+
+Comprehensive scan metadata tracking:
+
+- `files_scanned`: Number of objects scanned (including archive members)
+- `infections_found`: Number of infected objects discovered
+- `suspicious_found`: Number of suspicious objects discovered
+- `is_container`: Is this file a container/archive
+- `archive_members`: Number of archive members extracted
+- `scan_duration_ms`: Scan duration in milliseconds
+- `signature_records_used`: Signature database records used
+
+Statistics are included in JSON output as `statistics` field.
+
+### Threat Name Detection
+
+SDK-style threat naming from matched signatures:
+
+```json
+{
+  "threat_name": "Trojan.Generic.Malware",
+  "result_code": 2,
+  "verdict": "malware"
+}
+```
+
+### Architecture Inspiration
+
+These features are inspired by professional antivirus SDK design patterns, providing:
+
+- **Structured result codes** for programmatic integration
+- **Memory scanning** for runtime analysis without disk I/O
+- **Archive handling** with configurable depth and size limits
+- **Core options** for flexible engine initialization
+- **Comprehensive statistics** for performance monitoring and reporting
+- **Threat naming** following industry-standard malware family conventions
+
+The implementation maintains HydraDragonStatic's deterministic, signature-based philosophy while adding enterprise-grade API patterns for professional deployment scenarios.
