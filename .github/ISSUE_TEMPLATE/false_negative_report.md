@@ -24,7 +24,6 @@ Check the logs in the following locations to confirm whether it was quietly bloc
 
 **Which component should have blocked it?**
 - [ ] HydraDragonAV (C++ Engine with ClamAV and YARA rules)
-- [ ] Zillya AVEngine SDK
 - [ ] Xvirus SDK
 - [ ] Owlyshield Ransomware Filter
 - [ ] Sanctum
