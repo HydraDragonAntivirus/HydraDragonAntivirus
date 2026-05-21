@@ -5820,58 +5820,49 @@ impl FirewallEngine {
         };
 
         let mut networks = Vec::new();
+        let mut load_network_csv = |path: PathBuf| {
+            if !path.exists() {
+                return;
+            }
+
+            if let Ok(content) = fs::read_to_string(path) {
+                for line in content.lines() {
+                    let entry = line.split(',').next().unwrap_or("").trim();
+                    let entry_lower = entry.to_ascii_lowercase();
+                    if entry.is_empty()
+                        || matches!(
+                            entry_lower.as_str(),
+                            "entry" | "ip" | "ipv4" | "ipv6" | "address"
+                        )
+                    {
+                        continue;
+                    }
+
+                    if entry.contains('.') || entry.contains(':') || entry.contains('/') {
+                        networks.push(entry.to_string());
+                    }
+                }
+            }
+        };
 
         // --- Highest Priority: CIDR Whitelists (from CIDRWhiteListIPv4/IPv6.csv) ---
-        // These are checked first in packet decisions via ip_in_cidr.
-        let cidr_ipv4_path = PathBuf::from(&website_path).join("CIDRWhiteListIPv4.csv");
-        if cidr_ipv4_path.exists() {
-            if let Ok(content) = fs::read_to_string(&cidr_ipv4_path) {
-                for line in content.lines().skip(1) {
-                    let entry = line.split(',').next().unwrap_or("").trim();
-                    if !entry.is_empty() && entry.contains('/') {
-                        networks.push(entry.to_string());
-                    }
-                }
-            }
-        }
-
-        let cidr_ipv6_path = PathBuf::from(&website_path).join("CIDRWhiteListIPv6.csv");
-        if cidr_ipv6_path.exists() {
-            if let Ok(content) = fs::read_to_string(&cidr_ipv6_path) {
-                for line in content.lines().skip(1) {
-                    let entry = line.split(',').next().unwrap_or("").trim();
-                    if !entry.is_empty() && entry.contains('/') {
-                        networks.push(entry.to_string());
-                    }
-                }
-            }
+        // These are checked first in packet decisions through the merged CIDR index.
+        // Reference-optimized variants are headerless, so header rows are filtered by value
+        // instead of always skipping the first line.
+        for filename in [
+            "CIDRWhiteListIPv4.csv",
+            "CIDRWhiteListIPv6.csv",
+            "CIDRWhiteListIPv4.optimized.csv",
+            "CIDRWhiteListIPv6.optimized.csv",
+        ] {
+            load_network_csv(PathBuf::from(&website_path).join(filename));
         }
 
         // Load IPv4 Whitelist (plain single IPs)
-        let ipv4_path = PathBuf::from(&website_path).join("WhiteListIPv4.csv");
-        if ipv4_path.exists() {
-            if let Ok(content) = fs::read_to_string(&ipv4_path) {
-                for line in content.lines().skip(1) {
-                    let entry = line.split(',').next().unwrap_or("").trim();
-                    if !entry.is_empty() && (entry.contains('.') || entry.contains('/')) {
-                        networks.push(entry.to_string());
-                    }
-                }
-            }
-        }
+        load_network_csv(PathBuf::from(&website_path).join("WhiteListIPv4.csv"));
 
         // Load IPv6 Whitelist (plain single IPs)
-        let ipv6_path = PathBuf::from(&website_path).join("WhiteListIPv6.csv");
-        if ipv6_path.exists() {
-            if let Ok(content) = fs::read_to_string(&ipv6_path) {
-                for line in content.lines().skip(1) {
-                    let entry = line.split(',').next().unwrap_or("").trim();
-                    if !entry.is_empty() && (entry.contains(':') || entry.contains('/')) {
-                        networks.push(entry.to_string());
-                    }
-                }
-            }
-        }
+        load_network_csv(PathBuf::from(&website_path).join("WhiteListIPv6.csv"));
 
         if !networks.is_empty() {
             let mut settings = self.settings.write().unwrap();
