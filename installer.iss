@@ -129,11 +129,11 @@ Name: "verbose_logging_mode"; Description: "Verbose logging mode"; GroupDescript
 ; 7-Zip (silent)
 Filename: "{tmp}\7z2601-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
 
-; .NET Runtime 9.0.14 (silent, no restart)
-Filename: "{tmp}\windowsdesktop-runtime-9.0.14-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
+; .NET Runtime 9.0.16 (silent, no restart)
+Filename: "{tmp}\windowsdesktop-runtime-9.0.16-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
-; .NET Desktop Runtime 8.0.25 (silent, no restart)
-Filename: "{tmp}\windowsdesktop-runtime-8.0.25-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
+; .NET Desktop Runtime 8.0.27 (silent, no restart)
+Filename: "{tmp}\windowsdesktop-runtime-8.0.27-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Visual C++ Redistributable 2022 (silent, auto-install)
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
