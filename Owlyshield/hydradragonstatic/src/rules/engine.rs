@@ -27,16 +27,34 @@ struct ScanView {
 
 impl ScanView {
     fn new(report: &ScanReport) -> Self {
-        let strings_lower = report
-            .strings
-            .iter()
-            .map(|hit| hit.value.to_ascii_lowercase())
-            .collect();
-        let decoded_lower = report
+        // Aggressive limits for blazing fast performance
+        let string_limit = report.strings.len().min(2000);
+        let decoded_limit = report.decoded_strings.len().min(500);
+        
+        // Use parallel processing for large string sets
+        let strings_lower: Vec<String> = if report.strings.len() > 1000 {
+            report
+                .strings
+                .par_iter()
+                .take(string_limit)
+                .map(|hit| hit.value.to_ascii_lowercase())
+                .collect()
+        } else {
+            report
+                .strings
+                .iter()
+                .take(string_limit)
+                .map(|hit| hit.value.to_ascii_lowercase())
+                .collect()
+        };
+        
+        let decoded_lower: Vec<String> = report
             .decoded_strings
             .iter()
+            .take(decoded_limit)
             .map(|hit| hit.decoded.to_ascii_lowercase())
             .collect();
+        
         let imports_lower = report
             .pe
             .as_ref()
@@ -47,11 +65,13 @@ impl ScanView {
                     .collect()
             })
             .unwrap_or_default();
+        
         let dlls_lower = report
             .pe
             .as_ref()
             .map(|pe| pe.dlls.iter().map(|dll| dll.to_ascii_lowercase()).collect())
             .unwrap_or_default();
+        
         Self {
             strings_lower,
             decoded_lower,
