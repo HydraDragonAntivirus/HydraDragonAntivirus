@@ -50,6 +50,7 @@ pub fn scan_path(path: &Path, rules: &RuleSet, options: &ScanOptions) -> Result<
     let scanner_config = ScannerConfig {
         min_string_len: options.min_string_len,
         decode_obfuscated_strings: options.decode_obfuscated_strings,
+        decode_config: scanner::strings::DecodeConfig::default(),
         core_options: options.core_options.clone(),
         unpack_config: options.unpack_config.clone(),
     };
@@ -111,6 +112,7 @@ pub fn scan_memory(
     let scanner_config = ScannerConfig {
         min_string_len: options.min_string_len,
         decode_obfuscated_strings: options.decode_obfuscated_strings,
+        decode_config: scanner::strings::DecodeConfig::default(),
         core_options: options.core_options.clone(),
         unpack_config: options.unpack_config.clone(),
     };
