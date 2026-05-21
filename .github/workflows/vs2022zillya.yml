@@ -5,11 +5,13 @@ on:
     branches: ["**"]
     paths:
       - 'ZillyaAVEngineSDK/**'
+      - 'hydradragon/Zillya/**'
       - '.github/workflows/vs2022zillya.yml'
   pull_request:
     branches: ["**"]
     paths:
       - 'ZillyaAVEngineSDK/**'
+      - 'hydradragon/Zillya/**'
       - '.github/workflows/vs2022zillya.yml'
   workflow_dispatch:
 
@@ -43,6 +45,44 @@ jobs:
       shell: pwsh
       working-directory: ZillyaAVEngineSDK
       run: powershell -ExecutionPolicy Bypass -File .\build\vs2022\Build-VS2022.ps1 -Configuration ${{ matrix.BUILD_CONFIGURATION }} -Platform ${{ matrix.PLATFORM }}
+
+    - name: Test Zillya Engine Detection
+      if: matrix.BUILD_CONFIGURATION == 'Release'
+      shell: pwsh
+      working-directory: ${{ env.BUILD_BIN_DIR }}/Release
+      run: |
+        Write-Host "Testing Zillya AVEngine detection capabilities..."
+        if (Test-Path ".\ConsoleApplication.exe") {
+          # Test with a known clean file
+          .\ConsoleApplication.exe "$env:SystemRoot\System32\notepad.exe"
+        } else {
+          Write-Warning "ConsoleApplication.exe not found, skipping detection test"
+        }
+
+    - name: Create Issue on Detection
+      if: matrix.BUILD_CONFIGURATION == 'Release' && failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const detectionLog = 'Detection found during Zillya engine test';
+          
+          await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `[Zillya Detection] Automated detection report from workflow`,
+            body: `## Zillya AVEngine Detection Report
+            
+            **Workflow Run:** ${{ github.run_id }}
+            **Branch:** ${{ github.ref }}
+            **Commit:** ${{ github.sha }}
+            
+            The Zillya AVEngine detected a potential threat during automated testing.
+            
+            Please review the workflow logs for details.
+            `,
+            labels: ['zillya-detection', 'automated', 'needs-review']
+          });
 
     - name: Upload release build outputs
       if: matrix.BUILD_CONFIGURATION == 'Release'

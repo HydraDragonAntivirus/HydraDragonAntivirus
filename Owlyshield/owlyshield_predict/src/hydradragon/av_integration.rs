@@ -16,13 +16,13 @@ use windows::core::PCSTR;
 
 use windows::Win32::Foundation::{BOOL, CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, FlushFileBuffers,
-    OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, ReadFile, WriteFile,
+    CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+    FlushFileBuffers, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, ReadFile, WriteFile,
 };
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeA, DisconnectNamedPipe, PIPE_READMODE_BYTE,
     PIPE_READMODE_MESSAGE, PIPE_TYPE_BYTE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
-    WaitNamedPipeA,
+    SetNamedPipeHandleState, WaitNamedPipeA,
 };
 #[cfg(windows)]
 use windows::Win32::System::Threading::{HIGH_PRIORITY_CLASS, SetPriorityClass};
@@ -44,9 +44,16 @@ use chrono::Utc;
 const PIPE_AV_TO_EDR: &str = r"\\.\pipe\Global\hydradragon_to_owlyshield";
 const PIPE_EDR_TO_AV: &str = r"\\.\pipe\Global\owlyshield_to_hydradragon";
 const PIPE_MBR_ALERT: &str = r"\\.\pipe\Global\mbr_filter_alerts";
+const HYDRADRAGON_AV_PIPE: &str = r"\\.\pipe\HydraDragonAV";
+const ZILLYA_RPC_PIPE: &str = r"\\.\pipe\ZSDK-{F671A1CA-7BA6-4e57-9E98-0D2AE0985A42}";
 
 const BUFFER_SIZE: u32 = 8192;
 const PIPE_READ_BUFFER_SIZE: u32 = 65536;
+const FAST_SERVICE_PIPE_TIMEOUT_MS: u32 = 750;
+const ZILLYA_MAX_PATH_WCHARS: usize = 260;
+const ZILLYA_MAX_VIRUS_NAME_WCHARS: usize = 64;
+const ZILLYA_RPC_RESPONSE_SIZE: usize =
+    (ZILLYA_MAX_PATH_WCHARS + ZILLYA_MAX_VIRUS_NAME_WCHARS) * 2 + 16;
 #[allow(dead_code)] // Silencing warning, this is used by the (currently) unused send_threat_to_edr
 const CONNECT_TIMEOUT_MS: u32 = 900_000; // 900s - adjust as needed
 const TINYAV_SCAN_DEBOUNCE: Duration = Duration::from_secs(10);
@@ -147,6 +154,18 @@ pub struct FileSignatureStatus {
     pub invalid_signature: bool,
 }
 
+/// Fast Rust-side result from service-backed engines used by minimal mode.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RustServiceScanResult {
+    pub engine: String,
+    pub malicious: bool,
+    pub virus_name: String,
+    #[serde(default)]
+    pub is_vmprotect: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
 /// EDR -> AV request
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EDRScanRequest {
@@ -181,6 +200,10 @@ pub struct EDRScanRequest {
     pub deep_scan_timeout_ms: Option<u64>,
     #[serde(default)]
     pub late_child_scan_grace_ms: Option<u64>,
+    /// Rust already queried fast service engines for minimal mode. Python consumes
+    /// these results directly instead of opening the heavy engines itself.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rust_service_scan_results: Vec<RustServiceScanResult>,
 }
 
 fn default_scan_mode() -> String {
@@ -270,6 +293,436 @@ fn metadata_is_suspicious(
     is_vmprotect: bool,
 ) -> bool {
     is_vmprotect || !yara_x_matches.is_empty() || signature_status_is_suspicious(signature_status)
+}
+
+#[derive(Debug, Deserialize)]
+struct HydraDragonAvPipeResponse {
+    status: Option<String>,
+    malicious: Option<bool>,
+    clamav: Option<String>,
+    yara: Option<Vec<String>>,
+    xvirus: Option<HydraDragonAvXvirusResponse>,
+    is_vmprotect: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HydraDragonAvXvirusResponse {
+    detection: Option<String>,
+}
+
+#[derive(Debug)]
+struct ZillyaRpcResponse {
+    virus_name: String,
+    scan_status: i32,
+    virus_count: u32,
+}
+
+fn clean_service_result(engine: &str) -> RustServiceScanResult {
+    RustServiceScanResult {
+        engine: engine.to_string(),
+        malicious: false,
+        virus_name: "Clean".to_string(),
+        is_vmprotect: false,
+        error: None,
+    }
+}
+
+fn service_error_result(engine: &str, error: impl Into<String>) -> RustServiceScanResult {
+    RustServiceScanResult {
+        engine: engine.to_string(),
+        malicious: false,
+        virus_name: "Error".to_string(),
+        is_vmprotect: false,
+        error: Some(error.into()),
+    }
+}
+
+fn open_duplex_pipe(
+    pipe_name: &str,
+    timeout_ms: u32,
+    message_read_mode: bool,
+) -> Result<HANDLE, String> {
+    let pipe_name_c =
+        CString::new(pipe_name).map_err(|e| format!("invalid pipe name {pipe_name}: {e}"))?;
+    let pcstr = PCSTR(pipe_name_c.as_ptr() as *const u8);
+
+    let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, timeout_ms) };
+    if !wait_ok.as_bool() {
+        return Err(format!(
+            "pipe not ready within {timeout_ms} ms (GetLastError={:?})",
+            unsafe { GetLastError() }
+        ));
+    }
+
+    let pipe_handle = unsafe {
+        CreateFileA(
+            pcstr,
+            FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0,
+            FILE_SHARE_NONE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            HANDLE::default(),
+        )
+    }
+    .map_err(|e| {
+        format!(
+            "CreateFileA failed for {pipe_name}: {:?} (GetLastError={:?})",
+            e,
+            unsafe { GetLastError() }
+        )
+    })?;
+
+    if pipe_handle.is_invalid() {
+        return Err(format!(
+            "CreateFileA returned invalid handle for {pipe_name} (GetLastError={:?})",
+            unsafe { GetLastError() }
+        ));
+    }
+
+    if message_read_mode {
+        let mode = PIPE_READMODE_MESSAGE;
+        let ok =
+            unsafe { SetNamedPipeHandleState(pipe_handle, Some(&mode as *const _), None, None) };
+        if !ok.as_bool() {
+            let error = format!(
+                "SetNamedPipeHandleState failed for {pipe_name} (GetLastError={:?})",
+                unsafe { GetLastError() }
+            );
+            let _ = unsafe { CloseHandle(pipe_handle) };
+            return Err(error);
+        }
+    }
+
+    Ok(pipe_handle)
+}
+
+fn write_pipe_bytes(pipe_handle: HANDLE, bytes: &[u8], context: &str) -> Result<(), String> {
+    let mut bytes_written = 0u32;
+    let ok = unsafe {
+        WriteFile(
+            pipe_handle,
+            Some(bytes),
+            Some(&mut bytes_written as *mut u32),
+            None,
+        )
+    };
+
+    if !ok.as_bool() || bytes_written != bytes.len() as u32 {
+        return Err(format!(
+            "{context}: WriteFile wrote {bytes_written}/{} bytes (GetLastError={:?})",
+            bytes.len(),
+            unsafe { GetLastError() }
+        ));
+    }
+
+    Ok(())
+}
+
+fn read_pipe_bytes(pipe_handle: HANDLE, len: usize, context: &str) -> Result<Vec<u8>, String> {
+    let mut buffer = vec![0u8; len];
+    let mut bytes_read = 0u32;
+    let ok = unsafe {
+        ReadFile(
+            pipe_handle,
+            Some(buffer.as_mut_ptr().cast()),
+            len as u32,
+            Some(&mut bytes_read as *mut u32),
+            None,
+        )
+    };
+
+    if !ok.as_bool() || bytes_read != len as u32 {
+        return Err(format!(
+            "{context}: ReadFile read {bytes_read}/{len} bytes (GetLastError={:?})",
+            unsafe { GetLastError() }
+        ));
+    }
+
+    Ok(buffer)
+}
+
+fn read_pipe_message(pipe_handle: HANDLE, max_len: u32, context: &str) -> Result<Vec<u8>, String> {
+    let mut buffer = vec![0u8; max_len as usize];
+    let mut bytes_read = 0u32;
+    let ok = unsafe {
+        ReadFile(
+            pipe_handle,
+            Some(buffer.as_mut_ptr().cast()),
+            max_len,
+            Some(&mut bytes_read as *mut u32),
+            None,
+        )
+    };
+
+    if !ok.as_bool() || bytes_read == 0 {
+        return Err(format!(
+            "{context}: ReadFile failed or returned no data (GetLastError={:?})",
+            unsafe { GetLastError() }
+        ));
+    }
+
+    buffer.truncate(bytes_read as usize);
+    Ok(buffer)
+}
+
+fn utf16_fixed_to_string(bytes: &[u8], wchar_count: usize) -> String {
+    let mut code_units = Vec::with_capacity(wchar_count);
+    for chunk in bytes.chunks_exact(2).take(wchar_count) {
+        let value = u16::from_le_bytes([chunk[0], chunk[1]]);
+        if value == 0 {
+            break;
+        }
+        code_units.push(value);
+    }
+    String::from_utf16_lossy(&code_units)
+}
+
+fn zillya_request_payload(file_path: &str) -> Result<Vec<u8>, String> {
+    let path_wide: Vec<u16> = file_path.encode_utf16().collect();
+    if path_wide.len() >= ZILLYA_MAX_PATH_WCHARS {
+        return Err(format!(
+            "path exceeds Zillya MAX_PATH RPC limit: {} UTF-16 code units",
+            path_wide.len()
+        ));
+    }
+
+    let mut payload = Vec::with_capacity(4 + ZILLYA_MAX_PATH_WCHARS * 2);
+    payload.extend_from_slice(&0u32.to_le_bytes());
+    for index in 0..ZILLYA_MAX_PATH_WCHARS {
+        let value = path_wide.get(index).copied().unwrap_or(0);
+        payload.extend_from_slice(&value.to_le_bytes());
+    }
+    Ok(payload)
+}
+
+fn parse_zillya_response(bytes: &[u8]) -> Result<ZillyaRpcResponse, String> {
+    if bytes.len() < ZILLYA_RPC_RESPONSE_SIZE {
+        return Err(format!(
+            "short Zillya response: {} bytes, expected {}",
+            bytes.len(),
+            ZILLYA_RPC_RESPONSE_SIZE
+        ));
+    }
+
+    let virus_offset = ZILLYA_MAX_PATH_WCHARS * 2;
+    let scalar_offset = virus_offset + ZILLYA_MAX_VIRUS_NAME_WCHARS * 2;
+    let virus_name = utf16_fixed_to_string(
+        &bytes[virus_offset..scalar_offset],
+        ZILLYA_MAX_VIRUS_NAME_WCHARS,
+    );
+    let scan_status = i32::from_le_bytes([
+        bytes[scalar_offset],
+        bytes[scalar_offset + 1],
+        bytes[scalar_offset + 2],
+        bytes[scalar_offset + 3],
+    ]);
+    let virus_count = u32::from_le_bytes([
+        bytes[scalar_offset + 8],
+        bytes[scalar_offset + 9],
+        bytes[scalar_offset + 10],
+        bytes[scalar_offset + 11],
+    ]);
+
+    Ok(ZillyaRpcResponse {
+        virus_name,
+        scan_status,
+        virus_count,
+    })
+}
+
+fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
+    let pipe_handle =
+        match open_duplex_pipe(HYDRADRAGON_AV_PIPE, FAST_SERVICE_PIPE_TIMEOUT_MS, true) {
+            Ok(handle) => handle,
+            Err(e) => return service_error_result("HydraDragonAV", e),
+        };
+
+    let scan_result = (|| -> Result<RustServiceScanResult, String> {
+        let request = serde_json::json!({ "path": file_path }).to_string();
+        write_pipe_bytes(pipe_handle, request.as_bytes(), "HydraDragonAV request")?;
+        let response_bytes =
+            read_pipe_message(pipe_handle, PIPE_READ_BUFFER_SIZE, "HydraDragonAV response")?;
+        let response_text = String::from_utf8_lossy(&response_bytes).to_string();
+        let response: HydraDragonAvPipeResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                format!("invalid HydraDragonAV response JSON: {e}; raw={response_text}")
+            })?;
+
+        if response.status.as_deref() != Some("success") {
+            return Err(format!(
+                "HydraDragonAV returned non-success status: {:?}",
+                response.status
+            ));
+        }
+
+        if response.malicious.unwrap_or(false) {
+            if let Some(virus_name) = response.clamav.filter(|v| !v.trim().is_empty()) {
+                return Ok(RustServiceScanResult {
+                    engine: "HydraDragonAV/ClamAV".to_string(),
+                    malicious: true,
+                    virus_name,
+                    is_vmprotect: response.is_vmprotect.unwrap_or(false),
+                    error: None,
+                });
+            }
+
+            if let Some(virus_name) = response
+                .yara
+                .and_then(|matches| matches.into_iter().find(|v| !v.trim().is_empty()))
+            {
+                return Ok(RustServiceScanResult {
+                    engine: "HydraDragonAV/LegacyYARA".to_string(),
+                    malicious: true,
+                    virus_name,
+                    is_vmprotect: response.is_vmprotect.unwrap_or(false),
+                    error: None,
+                });
+            }
+
+            if let Some(virus_name) = response
+                .xvirus
+                .and_then(|x| x.detection)
+                .filter(|v| !v.trim().is_empty())
+            {
+                return Ok(RustServiceScanResult {
+                    engine: "HydraDragonAV/Xvirus".to_string(),
+                    malicious: true,
+                    virus_name,
+                    is_vmprotect: response.is_vmprotect.unwrap_or(false),
+                    error: None,
+                });
+            }
+
+            return Ok(RustServiceScanResult {
+                engine: "HydraDragonAV".to_string(),
+                malicious: true,
+                virus_name: "HydraDragonAV.Detection".to_string(),
+                is_vmprotect: response.is_vmprotect.unwrap_or(false),
+                error: None,
+            });
+        }
+
+        let mut clean = clean_service_result("HydraDragonAV");
+        clean.is_vmprotect = response.is_vmprotect.unwrap_or(false);
+        Ok(clean)
+    })();
+
+    let _ = unsafe { CloseHandle(pipe_handle) };
+    scan_result.unwrap_or_else(|e| service_error_result("HydraDragonAV", e))
+}
+
+fn scan_zillya_service(file_path: &str) -> RustServiceScanResult {
+    let pipe_handle = match open_duplex_pipe(ZILLYA_RPC_PIPE, FAST_SERVICE_PIPE_TIMEOUT_MS, true) {
+        Ok(handle) => handle,
+        Err(e) => return service_error_result("Zillya", e),
+    };
+
+    let scan_result = (|| -> Result<RustServiceScanResult, String> {
+        let payload = zillya_request_payload(file_path)?;
+        write_pipe_bytes(pipe_handle, &payload, "Zillya request")?;
+
+        let mut selected_detection: Option<String> = None;
+        let mut completed = false;
+        for _ in 0..4096 {
+            let status_bytes = read_pipe_bytes(pipe_handle, 4, "Zillya response status")?;
+            let status = i32::from_le_bytes([
+                status_bytes[0],
+                status_bytes[1],
+                status_bytes[2],
+                status_bytes[3],
+            ]);
+            let response_bytes = read_pipe_bytes(
+                pipe_handle,
+                ZILLYA_RPC_RESPONSE_SIZE,
+                "Zillya response body",
+            )?;
+            let response = parse_zillya_response(&response_bytes)?;
+
+            if response.virus_count > 0 || matches!(response.scan_status, 1 | 2) {
+                let name = if response.virus_name.trim().is_empty() {
+                    if response.scan_status == 1 {
+                        "Zillya.Heuristic".to_string()
+                    } else {
+                        "Zillya.Malware".to_string()
+                    }
+                } else {
+                    response.virus_name
+                };
+                selected_detection.get_or_insert(name);
+            }
+
+            match status {
+                0 => {
+                    completed = true;
+                    break;
+                }
+                1 => continue,
+                -1 => return Err("Zillya RPC returned error status".to_string()),
+                other => {
+                    return Err(format!("Zillya RPC returned unexpected status {other}"));
+                }
+            }
+        }
+        if !completed {
+            return Err("Zillya RPC response limit reached before completion".to_string());
+        }
+
+        if let Some(virus_name) = selected_detection {
+            Ok(RustServiceScanResult {
+                engine: "Zillya".to_string(),
+                malicious: true,
+                virus_name,
+                is_vmprotect: false,
+                error: None,
+            })
+        } else {
+            Ok(clean_service_result("Zillya"))
+        }
+    })();
+
+    let _ = unsafe { CloseHandle(pipe_handle) };
+    scan_result.unwrap_or_else(|e| service_error_result("Zillya", e))
+}
+
+fn collect_minimal_service_scan_results(file_path: &str) -> Vec<RustServiceScanResult> {
+    let scan_path = file_path.to_string();
+    let mut results = Vec::with_capacity(2);
+
+    thread::scope(|scope| {
+        let hydra_path = scan_path.as_str();
+        let zillya_path = scan_path.as_str();
+        let hydra = scope.spawn(move || scan_hydradragon_av_service(hydra_path));
+        let zillya = scope.spawn(move || scan_zillya_service(zillya_path));
+
+        match hydra.join() {
+            Ok(result) => results.push(result),
+            Err(_) => results.push(service_error_result(
+                "HydraDragonAV",
+                "scan thread panicked",
+            )),
+        }
+        match zillya.join() {
+            Ok(result) => results.push(result),
+            Err(_) => results.push(service_error_result("Zillya", "scan thread panicked")),
+        }
+    });
+
+    for result in &results {
+        if result.malicious {
+            Logging::info(&format!(
+                "[RustServiceScan] {} detected {} in {}",
+                result.engine, result.virus_name, file_path
+            ));
+        } else if let Some(error) = &result.error {
+            Logging::debug(&format!(
+                "[RustServiceScan] {} unavailable for {}: {}",
+                result.engine, file_path, error
+            ));
+        }
+    }
+
+    results
 }
 
 fn should_skip_die_scan(scan_target: &Path) -> bool {
@@ -1279,6 +1732,11 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                                 .and_then(|v| v.as_str())
                                 .map(normalize_nt_path)
                                 .unwrap_or_else(|| normalized_file_path.clone());
+                            let rust_service_scan_results = if deep_scan {
+                                Vec::new()
+                            } else {
+                                collect_minimal_service_scan_results(&normalized_file_path)
+                            };
 
                             let request = EDRScanRequest {
                                 event_type: "MANUAL_SCAN_REQUEST".to_string(),
@@ -1295,6 +1753,7 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                                 scan_origin_path: Some(scan_origin_path),
                                 deep_scan_timeout_ms: Some(requested_timeout_ms),
                                 late_child_scan_grace_ms: Some(requested_grace_ms),
+                                rust_service_scan_results,
                             };
 
                             Logging::info(&format!(
@@ -1457,6 +1916,7 @@ impl<'a> AVIntegration<'a> {
         if !metadata.should_queue_scan {
             return;
         }
+        let rust_service_scan_results = collect_minimal_service_scan_results(&file_path);
 
         let request = EDRScanRequest {
             event_type: "NEW_IO_EVENT".to_string(),
@@ -1476,6 +1936,7 @@ impl<'a> AVIntegration<'a> {
                 self.config
                     .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
             ),
+            rust_service_scan_results,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -1524,6 +1985,7 @@ impl<'a> AVIntegration<'a> {
                 self.config
                     .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
             ),
+            rust_service_scan_results: Vec::new(),
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -1560,6 +2022,11 @@ impl<'a> AVIntegration<'a> {
         if !metadata.should_queue_scan {
             return;
         }
+        let rust_service_scan_results = if normalized_scan_mode == "minimal" {
+            collect_minimal_service_scan_results(&file_path_string)
+        } else {
+            Vec::new()
+        };
 
         let request = EDRScanRequest {
             event_type: "MANUAL_SCAN_REQUEST".to_string(),
@@ -1579,6 +2046,7 @@ impl<'a> AVIntegration<'a> {
                 self.config
                     .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
             ),
+            rust_service_scan_results,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {

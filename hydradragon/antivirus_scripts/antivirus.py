@@ -1690,6 +1690,67 @@ def scan_with_hydradragon_engine(file_path):
         return False, "Error", "", False
 
 
+def _service_result_rank(result: dict) -> tuple[int, int]:
+    engine = str(result.get("engine") or "")
+    virus_name = str(result.get("virus_name") or "").strip()
+    virus_lower = virus_name.lower()
+    generic_names = {"", "clean", "unknown", "error", "hydradragonav.detection", "zillya.malware", "zillya.heuristic"}
+    signature_quality = 0 if virus_lower in generic_names else 1
+
+    engine_lower = engine.lower()
+    if "clamav" in engine_lower or "zillya" in engine_lower:
+        engine_quality = 3
+    elif "legacyyara" in engine_lower or "xvirus" in engine_lower:
+        engine_quality = 2
+    elif "hydradragonav" in engine_lower:
+        engine_quality = 1
+    else:
+        engine_quality = 0
+
+    return signature_quality, engine_quality
+
+
+def _select_rust_service_scan_result(service_scan_results):
+    """
+    Pick the strongest Rust-side service detection for minimal mode.
+    Returns None when Rust did not provide a usable service result, so Python can
+    fall back to the legacy HydraDragonAV pipe path.
+    """
+    if not isinstance(service_scan_results, list):
+        return None
+
+    usable_results = []
+    malicious_results = []
+    is_vmprotect = False
+
+    for result in service_scan_results:
+        if not isinstance(result, dict):
+            continue
+
+        engine = str(result.get("engine") or "RustService")
+        error = result.get("error")
+        if error:
+            logger.debug(f"Rust service scan unavailable ({engine}): {error}")
+            continue
+
+        usable_results.append(result)
+        is_vmprotect = is_vmprotect or bool(result.get("is_vmprotect", False))
+
+        if bool(result.get("malicious", False)):
+            malicious_results.append(result)
+
+    if malicious_results:
+        selected = max(malicious_results, key=_service_result_rank)
+        virus_name = str(selected.get("virus_name") or "Malware").strip() or "Malware"
+        engine = str(selected.get("engine") or "RustService").strip() or "RustService"
+        return True, virus_name, engine, bool(selected.get("is_vmprotect", False))
+
+    if usable_results:
+        return False, "Clean", "", is_vmprotect
+
+    return None
+
+
 async def vmprotect_unpack(file_path: str) -> tuple[str | None, bool]:
     try:
         packed_data = await asyncio.to_thread(Path(file_path).read_bytes)
@@ -7733,6 +7794,7 @@ async def scan_and_warn(
     owlyshield_signature_status=None,
     deep_scan=True,
     owlyshield_yara_x_matches=None,
+    owlyshield_service_scan_results=None,
 ):
     """
     Scans a file for potential issues with comprehensive threading for performance.
@@ -7953,9 +8015,14 @@ async def scan_and_warn(
 
         if not deep_scan:
             logger.info(f"Running minimal EDR antivirus scan for {norm_path}")
-            is_malicious, virus_name, engine_detected, is_vmprotect = await asyncio.to_thread(scan_with_hydradragon_engine, norm_path)
+            rust_service_result = _select_rust_service_scan_result(owlyshield_service_scan_results)
+            if rust_service_result is not None:
+                is_malicious, virus_name, engine_detected, is_vmprotect = rust_service_result
+                logger.info(f"Using Rust service scan results for minimal scan: {norm_path}")
+            else:
+                is_malicious, virus_name, engine_detected, is_vmprotect = await asyncio.to_thread(scan_with_hydradragon_engine, norm_path)
             if is_vmprotect:
-                logger.warning(f"VMProtect detected by HydraDragonAV in minimal scan: {norm_path}")
+                logger.warning(f"VMProtect detected by {engine_detected or 'RustService'} in minimal scan: {norm_path}")
             if is_malicious:
                 if signature_check and signature_check.get("is_valid"):
                     virus_name = f"{virus_name}.SIG"
@@ -9189,6 +9256,7 @@ async def _handle_edr_scan_request(request_obj: dict) -> None:
                 owlyshield_signature_status=request_obj.get("signature_status"),
                 deep_scan=deep_scan,
                 owlyshield_yara_x_matches=yara_x_matches,
+                owlyshield_service_scan_results=request_obj.get("rust_service_scan_results") or request_obj.get("service_scan_results"),
             ),
             timeout=total_timeout_seconds,
         )

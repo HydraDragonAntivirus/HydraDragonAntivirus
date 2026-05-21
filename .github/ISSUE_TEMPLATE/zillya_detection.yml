@@ -1,0 +1,121 @@
+name: 🛡️ Zillya Engine Detection Report
+description: Report a file detection result from the Zillya AVEngine
+title: "[Zillya Detection]: "
+labels: ["zillya-engine", "detection", "antivirus"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Zillya AVEngine Detection Report
+        
+        Thank you for reporting a detection from the Zillya AVEngine SDK. Please provide as much detail as possible to help us analyze the detection.
+
+  - type: input
+    id: file-hash
+    attributes:
+      label: File Hash (SHA256)
+      description: The SHA256 hash of the detected file
+      placeholder: "e.g., a1b2c3d4e5f6..."
+    validations:
+      required: true
+
+  - type: input
+    id: file-name
+    attributes:
+      label: File Name
+      description: The name of the detected file
+      placeholder: "e.g., suspicious.exe"
+    validations:
+      required: true
+
+  - type: textarea
+    id: detection-name
+    attributes:
+      label: Zillya Detection Name
+      description: The malware/threat name reported by Zillya engine
+      placeholder: "e.g., Trojan.Win32.Generic, Virus.MSIL.Agent, etc."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: detection-type
+    attributes:
+      label: Detection Type
+      description: What type of threat was detected?
+      options:
+        - Virus
+        - Trojan
+        - Worm
+        - Backdoor
+        - Rootkit
+        - Ransomware
+        - Adware
+        - Spyware
+        - PUP (Potentially Unwanted Program)
+        - Packed/Obfuscated
+        - Suspicious
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: false-positive
+    attributes:
+      label: Is this a False Positive?
+      description: Do you believe this detection is incorrect?
+      options:
+        - "No - This is legitimate malware"
+        - "Yes - This is a false positive"
+        - "Unsure - Need analysis"
+    validations:
+      required: true
+
+  - type: textarea
+    id: file-source
+    attributes:
+      label: File Source
+      description: Where did this file come from?
+      placeholder: "e.g., Downloaded from URL, Email attachment, USB drive, etc."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: |
+        Any additional information about the detection:
+        - File size
+        - File type/format
+        - Behavior observed
+        - Other AV detections
+        - VirusTotal results
+      placeholder: "Provide any additional relevant information..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: zillya-output
+    attributes:
+      label: Zillya Engine Output
+      description: Full output from the Zillya scanner (if available)
+      placeholder: |
+        Paste the complete Zillya detection output here...
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Submission Guidelines
+      description: Please confirm the following
+      options:
+        - label: I have verified the file hash is correct
+          required: true
+        - label: I understand this information will be used for malware analysis
+          required: true
+        - label: If this is a false positive, I can provide the legitimate file for analysis
+          required: false

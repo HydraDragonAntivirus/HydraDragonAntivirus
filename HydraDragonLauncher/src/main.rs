@@ -33,6 +33,7 @@ pub struct Components {
     owlyshield: Option<Child>,
     firewall: Option<Child>,
     av_engine: Option<Child>,
+    zillya_engine: Option<Child>,
     python_engine: Option<Child>,
 }
 
@@ -42,6 +43,7 @@ impl Components {
             owlyshield: None,
             firewall: None,
             av_engine: None,
+            zillya_engine: None,
             python_engine: None,
         }
     }
@@ -51,6 +53,7 @@ impl Components {
             ("Owlyshield", &mut self.owlyshield),
             ("Firewall", &mut self.firewall),
             ("AV Engine", &mut self.av_engine),
+            ("Zillya Engine", &mut self.zillya_engine),
             ("Python Engine", &mut self.python_engine),
         ] {
             if let Some(mut proc) = child.take() {
@@ -248,6 +251,13 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
         gui_visible: None,
     });
 
+    // Zillya Engine
+    statuses.push(ComponentStatus {
+        name: "Zillya Engine".to_string(),
+        running: is_process_running("AVEngineService.exe"),
+        gui_visible: None,
+    });
+
     // Python Engine
     statuses.push(ComponentStatus {
         name: "Python Engine".to_string(),
@@ -308,6 +318,14 @@ async fn start_component(
                 }
             }
         }
+        "Zillya Engine" => {
+            if comps.zillya_engine.is_none() && !is_process_running("AVEngineService.exe") {
+                match start_zillya_engine().await {
+                    Ok(child) => comps.zillya_engine = child,
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
+        }
         "Python Engine" => {
             if comps.python_engine.is_none() && !is_process_running("python.exe") {
                 match start_python_engine().await {
@@ -359,6 +377,16 @@ async fn stop_component(
             }
             let _ = Command::new("taskkill")
                 .args(["/F", "/IM", "HydraDragonAV.exe"])
+                .output();
+        }
+        "Zillya Engine" => {
+            if let Some(mut child) = comps.zillya_engine.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            let _ = Command::new("sc").args(["stop", "ZillyaAVEngine"]).output();
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "AVEngineService.exe"])
                 .output();
         }
         "Python Engine" => {
@@ -452,6 +480,10 @@ async fn stop_all_components(
 ) -> Result<(), String> {
     let mut comps = state.lock().await;
     comps.kill_all();
+    let _ = Command::new("sc").args(["stop", "ZillyaAVEngine"]).output();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "AVEngineService.exe"])
+        .output();
     let _ = Command::new("taskkill")
         .args(["/F", "/IM", "edrsvc.exe"])
         .output();
@@ -474,6 +506,10 @@ async fn quit_launcher(
 ) -> Result<(), String> {
     let mut comps = state.lock().await;
     comps.kill_all();
+    let _ = Command::new("sc").args(["stop", "ZillyaAVEngine"]).output();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "AVEngineService.exe"])
+        .output();
     let _ = Command::new("taskkill")
         .args(["/F", "/IM", "edrsvc.exe"])
         .output();
@@ -569,6 +605,10 @@ fn main() -> Result<()> {
                         tauri::async_runtime::spawn(async move {
                             let mut comps = state_clone.lock().await;
                             comps.kill_all();
+                            let _ = Command::new("sc").args(["stop", "ZillyaAVEngine"]).output();
+                            let _ = Command::new("taskkill")
+                                .args(["/F", "/IM", "AVEngineService.exe"])
+                                .output();
                             let _ = Command::new("taskkill")
                                 .args(["/F", "/IM", "edrsvc.exe"])
                                 .output();
@@ -652,6 +692,7 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
         firewall_result,
         openedr_result,
         av_result,
+        zillya_result,
         python_result,
         sanctum_result,
     ) = tokio::join!(
@@ -659,6 +700,7 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
         start_firewall(),
         start_openedr(),
         start_av_engine(),
+        start_zillya_engine(),
         start_python_engine(),
         start_sanctum_sequence()
     );
@@ -672,6 +714,9 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
     }
     if let Ok(child) = av_result {
         comps.av_engine = child;
+    }
+    if let Ok(child) = zillya_result {
+        comps.zillya_engine = child;
     }
     if let Ok(child) = python_result {
         comps.python_engine = child;
@@ -734,6 +779,53 @@ async fn start_av_engine() -> Result<Option<Child>> {
         .join("HydraDragonAV.exe");
 
     match start_process(&av_path, None) {
+        Ok(child) => Ok(Some(child)),
+        Err(_) => Ok(None),
+    }
+}
+
+fn zillya_engine_candidates() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from(BASE_DIR)
+            .join("hydradragon")
+            .join("Zillya")
+            .join("AVEngineService.exe"),
+        PathBuf::from(BASE_DIR)
+            .join("ZillyaAVEngineSDK")
+            .join("bin")
+            .join("AVEngineService.exe"),
+    ]
+}
+
+async fn start_zillya_engine() -> Result<Option<Child>> {
+    info!("Starting Zillya AVEngine Service...");
+
+    let Some(zillya_path) = zillya_engine_candidates()
+        .into_iter()
+        .find(|path| path.exists())
+    else {
+        warn!("Zillya AVEngineService.exe not found in bundled runtime paths");
+        return Ok(None);
+    };
+
+    let _ = Command::new(&zillya_path)
+        .arg("-i")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    let _ = Command::new("sc")
+        .args(["start", "ZillyaAVEngine"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    sleep(Duration::from_millis(750)).await;
+
+    if is_process_running("AVEngineService.exe") {
+        info!("Zillya AVEngine Service is running via SCM");
+        return Ok(None);
+    }
+
+    match start_process(&zillya_path, None) {
         Ok(child) => Ok(Some(child)),
         Err(_) => Ok(None),
     }
