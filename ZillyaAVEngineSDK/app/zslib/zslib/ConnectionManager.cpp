@@ -41,7 +41,7 @@ DWORD ConnectionManager::DeleteClient(DWORD hScan)
 	return ZSDK_REQUEST_OK;
 }
 
-DWORD ConnectionManager::StartScan(LPWSTR szPath)
+DWORD ConnectionManager::StartScan(LPCWSTR szPath)
 {
 	DWORD hScan;
 	zRPCRequest request;

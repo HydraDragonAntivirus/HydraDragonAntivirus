@@ -3,34 +3,34 @@ using namespace Zillya;
 #include <string>
 
 #define DLLEXPORT	extern "C" __declspec(dllexport)
-#define CALLBACK	__stdcall
+#define SDKCALL	__stdcall
 
 RpcClient			client;
 struct RpcResponse	response;
 
-DLLEXPORT bool CALLBACK Init();
-DLLEXPORT bool CALLBACK	Free();
-DLLEXPORT INT  CALLBACK	SendRequest(const wchar_t *);
-DLLEXPORT INT  CALLBACK	GetNextAnswer(struct RpcResponseManaged *);
+DLLEXPORT bool SDKCALL Init();
+DLLEXPORT bool SDKCALL	Free();
+DLLEXPORT INT  SDKCALL	SendRequest(const wchar_t *);
+DLLEXPORT INT  SDKCALL	GetNextAnswer(struct RpcResponseManaged *);
 
-BOOL WINAPI DllMain(HMODULE, INT)
+BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID)
 {
 	return TRUE;
 }
 
-DLLEXPORT bool CALLBACK Init()
+DLLEXPORT bool SDKCALL Init()
 {
 	if(client.Connect() == false) {	return false; }
 	memset(&response, 0, sizeof(struct RpcResponse));
 	return true;
 }
 
-DLLEXPORT bool CALLBACK Free()
+DLLEXPORT bool SDKCALL Free()
 {
 	return client.Close();
 }
 
-DLLEXPORT INT CALLBACK SendRequest(const wchar_t *scan_path)
+DLLEXPORT INT SDKCALL SendRequest(const wchar_t *scan_path)
 {
 	struct RpcRequest request;
 	memset(&request, 0, sizeof(struct RpcRequest));
@@ -39,7 +39,7 @@ DLLEXPORT INT CALLBACK SendRequest(const wchar_t *scan_path)
 	return (INT)client.SendRequest(request, response);
 }
 
-DLLEXPORT INT CALLBACK GetNextAnswer(struct RpcResponseManaged *m_response)
+DLLEXPORT INT SDKCALL GetNextAnswer(struct RpcResponseManaged *m_response)
 {
 	INT return_value = (INT)client.GetNextAnswer(response);
 

@@ -19,7 +19,7 @@ public:
 	PipeRPCClient* getClient(DWORD hScan);
 	DWORD DeleteClient(DWORD hScan);
 
-	DWORD StartScan(LPWSTR szPath);
+	DWORD StartScan(LPCWSTR szPath);
 	DWORD GetScanData(DWORD hScan, zRPCAnswer &answer);
 };
 

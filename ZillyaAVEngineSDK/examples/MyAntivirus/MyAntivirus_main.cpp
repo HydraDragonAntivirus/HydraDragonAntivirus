@@ -1,7 +1,7 @@
 #include "zsdk_def.h"
 #include "stdio.h"
 
-void wmain(int argc, wchar_t* argv[])
+int wmain(int argc, wchar_t* argv[])
 {
 	DWORD hScan = 0;
 	DWORD res;
@@ -9,7 +9,7 @@ void wmain(int argc, wchar_t* argv[])
 	wchar_t szFileName[MAX_PATH];
 
 	if(argc < 2)
-		return ;
+		return 0;
 
 	wcscpy_s(szFileName, MAX_PATH, argv[1]);
 
@@ -34,4 +34,6 @@ void wmain(int argc, wchar_t* argv[])
 		}
 	}
 	system("pause");
+
+	return 0;
 }

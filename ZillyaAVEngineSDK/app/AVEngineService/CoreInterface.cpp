@@ -23,9 +23,9 @@ bool CoreInterface::Init()
 		return false;
 	}
 
-	if(pTemp = wcsrchr(szCorePath, '\\')) 
+	if((pTemp = wcsrchr(szCorePath, '\\')) != NULL)
 	{
-		wcscpy(pTemp, L"\\aveng");
+		wcscpy_s(pTemp, (szCorePath + ARRAYSIZE(szCorePath)) - pTemp, L"\\aveng");
 	}
 
 	SetCurrentDirectory(szCorePath);

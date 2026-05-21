@@ -16,7 +16,7 @@ ServiceDefault* ServiceDefault::getInstance()
 	return &inst;
 }
 
-DWORD ServiceDefault::Install(LPWSTR szServiceName, LPWSTR szServiceDisplayName, LPCWSTR szBinaryPath)
+DWORD ServiceDefault::Install(LPCWSTR szServiceName, LPCWSTR szServiceDisplayName, LPCWSTR szBinaryPath)
 {
 	SC_HANDLE schSCManager, schService;
 
@@ -44,7 +44,7 @@ DWORD ServiceDefault::Install(LPWSTR szServiceName, LPWSTR szServiceDisplayName,
 	return 0;
 }
 
-DWORD ServiceDefault::Uninstall(LPWSTR szServiceName)
+DWORD ServiceDefault::Uninstall(LPCWSTR szServiceName)
 {
 	SC_HANDLE schSCManager, hService;
 
@@ -76,7 +76,7 @@ DWORD ServiceDefault::Uninstall(LPWSTR szServiceName)
 	return 0;
 }
 
-void ServiceDefault::Run(LPWSTR szServiceName)
+void ServiceDefault::Run(LPCWSTR szServiceName)
 {
 	SERVICE_TABLE_ENTRY DispatchTable[2];
 		
@@ -173,7 +173,7 @@ void ErrorMessage(const char *func)
 		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
 		error_message, 0, 0);
 
-	if(dwErr == 0)
+	if(dwErr != 0)
 	{
 		std::cout << func << " error: " << error_message << ", code = " << dwCode << std::endl;
 	}

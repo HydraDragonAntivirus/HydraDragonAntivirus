@@ -4,6 +4,7 @@
 #pragma once
 #include "ThreadPool.h"
 #include <list>
+#include <string>
 
 namespace Zillya
 {

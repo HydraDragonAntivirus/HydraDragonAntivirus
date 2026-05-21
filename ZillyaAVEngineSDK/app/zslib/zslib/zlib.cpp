@@ -1,6 +1,6 @@
 #include "ConnectionManager.h"
 
-DWORD StartScan(LPWSTR szPath)
+DWORD StartScan(LPCWSTR szPath)
 {
 	return g_ConnectionManager.StartScan(szPath);
 }

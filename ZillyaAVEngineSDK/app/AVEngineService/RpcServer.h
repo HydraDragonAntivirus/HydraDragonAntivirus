@@ -23,8 +23,8 @@ namespace Zillya
 		
 		void Start();
 	protected:
-		bool RpcServer::ReadRequest(HANDLE, struct RpcRequest &, DWORD &);
-		bool RpcServer::WriteResponse(HANDLE, struct RpcResponse, DWORD);
+		bool ReadRequest(HANDLE, struct RpcRequest &, DWORD &);
+		bool WriteResponse(HANDLE, struct RpcResponse, DWORD);
 	private:
 		void Listen(Thread *);
 		bool Connect(HANDLE);

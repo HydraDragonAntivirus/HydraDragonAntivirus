@@ -1,6 +1,6 @@
 #include "PipeRPCServer.h"
 
-const LPWSTR lpszPipeName = L"\\\\.\\pipe\\ZSDK-{F671A1CA-7BA6-4e57-9E98-0D2AE0985A42}"; 
+static constexpr LPCWSTR lpszPipeName = L"\\\\.\\pipe\\ZSDK-{F671A1CA-7BA6-4e57-9E98-0D2AE0985A42}";
 
 PipeRPCServer::PipeRPCServer(void)
 {

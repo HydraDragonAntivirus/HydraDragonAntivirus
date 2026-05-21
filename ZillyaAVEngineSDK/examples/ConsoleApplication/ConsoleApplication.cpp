@@ -79,9 +79,9 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
-	if(wpTemp = wcsrchr(wszContent, '\\')) 
+	if((wpTemp = wcsrchr(wszContent, '\\')) != NULL)
 	{
-		wcscpy(wpTemp, L"\\aveng");
+		wcscpy_s(wpTemp, (wszContent + ARRAYSIZE(wszContent)) - wpTemp, L"\\aveng");
 	}
 
 	//Changes the current directory for the current process.
@@ -129,7 +129,12 @@ int main(int argc, char* argv[])
 	
 
 	//Load CoreMain.DLL
-	hinstLib = LoadLibrary(NAME_DLL);
+	std::wstring coreDllPath = wszContent;
+	if(coreDllPath[coreDllPath.size() - 1] != L'\\') {
+		coreDllPath += L"\\";
+	}
+	coreDllPath += NAME_DLL;
+	hinstLib = LoadLibrary(coreDllPath.c_str());
 
 	//Check that is load a dll.
 	if( !hinstLib )

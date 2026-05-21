@@ -21,9 +21,9 @@ public:
 
 	static ServiceDefault* getInstance();
 
-	DWORD Install(LPWSTR szServiceName, LPWSTR szServiceDisplayName, LPCWSTR szBinaryPath);
-	DWORD Uninstall(LPWSTR szServiceName);
-	void Run(LPWSTR szServiceName);
+	DWORD Install(LPCWSTR szServiceName, LPCWSTR szServiceDisplayName, LPCWSTR szBinaryPath);
+	DWORD Uninstall(LPCWSTR szServiceName);
+	void Run(LPCWSTR szServiceName);
 
 private:
 	static void WINAPI ServiceMain(DWORD dwArgc, LPTSTR *lpszArgv);

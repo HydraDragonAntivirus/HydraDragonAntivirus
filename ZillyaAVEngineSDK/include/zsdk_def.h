@@ -53,7 +53,7 @@ typedef struct zRPCAnswer {
  *	@param szPath path that will be scanned
  *	@return new scan thread handle
  **/
-DWORD StartScan(LPWSTR szPath);
+DWORD StartScan(LPCWSTR szPath);
 
 /**
  *	Get the next file scan result
