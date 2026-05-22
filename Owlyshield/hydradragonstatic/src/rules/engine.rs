@@ -822,11 +822,32 @@ fn match_signature_atom(
     bytes: &[u8],
     atom: &SignatureAtom,
 ) -> AtomMatch {
-    match atom.kind {
+    // Timeout detection: track start time for slow operation detection
+    let start = Instant::now();
+    const ATOM_TIMEOUT_MS: u128 = 5000; // 5 second timeout per atom
+    
+    let result = match atom.kind {
         SignatureAtomKind::Text => match_text_atom(report, view, bytes, atom),
         SignatureAtomKind::Regex => match_regex_atom(report, atom),
         SignatureAtomKind::Bytes => match_byte_atom(bytes, atom),
+    };
+    
+    let elapsed = start.elapsed().as_millis();
+    if elapsed > ATOM_TIMEOUT_MS {
+        log::warn!(
+            "Slow atom detected: ${} took {}ms (file_size={} type={})",
+            atom.id,
+            elapsed,
+            bytes.len(),
+            match atom.kind {
+                SignatureAtomKind::Text => "text",
+                SignatureAtomKind::Regex => "regex",
+                SignatureAtomKind::Bytes => "bytes",
+            }
+        );
     }
+    
+    result
 }
 
 fn match_text_atom(
@@ -916,8 +937,26 @@ fn match_text_atom(
     }
 
     if atom.xor {
+        let xor_start = Instant::now();
+        const XOR_TIMEOUT_MS: u128 = 3000; // 3 second timeout for XOR brute-force
+        
         let (lo, hi) = xor_key_range(atom);
+        let mut keys_checked = 0;
+        
         for key in lo..=hi {
+            // Check timeout every 8 keys to avoid excessive time checks
+            if keys_checked % 8 == 0 && xor_start.elapsed().as_millis() > XOR_TIMEOUT_MS {
+                log::warn!(
+                    "XOR scan timeout: ${} checked {}/{} keys in {}ms (file_size={})",
+                    atom.id,
+                    keys_checked,
+                    (hi - lo + 1),
+                    xor_start.elapsed().as_millis(),
+                    bytes.len()
+                );
+                break;
+            }
+            
             for (label, plain) in text_atom_plain_xor_variants(atom) {
                 let encoded: Vec<u8> = plain.iter().map(|b| b ^ key).collect();
                 if let Some(offset) = find_bytes(bytes, &encoded, atom.fullword) {
@@ -934,6 +973,7 @@ fn match_text_atom(
                     return out;
                 }
             }
+            keys_checked += 1;
         }
     }
 
@@ -1082,7 +1122,9 @@ fn utf16le_bytes(text: &str) -> Vec<u8> {
 
 fn xor_key_range(atom: &SignatureAtom) -> (u8, u8) {
     let lo = atom.xor_min.unwrap_or(1);
-    let hi = atom.xor_max.unwrap_or(255);
+    // Limit default XOR range to prevent performance issues
+    // Full 1-255 range on large files causes extreme slowdown
+    let hi = atom.xor_max.unwrap_or(32);
     if lo <= hi {
         (lo, hi)
     } else {
