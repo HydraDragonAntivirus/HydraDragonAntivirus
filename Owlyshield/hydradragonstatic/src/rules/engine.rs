@@ -1,7 +1,9 @@
 use super::types::*;
 use crate::models::{Finding, RulePerformance, ScanReport, Verdict};
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
+use memchr::memmem;
 use once_cell::sync::Lazy;
 use rayon::prelude::*;
 use regex::Regex;
@@ -27,34 +29,36 @@ struct ScanView {
 
 impl ScanView {
     fn new(report: &ScanReport) -> Self {
-        // Aggressive limits for blazing fast performance
-        let string_limit = report.strings.len().min(2000);
-        let decoded_limit = report.decoded_strings.len().min(500);
-        
-        // Use parallel processing for large string sets
+        // Keep a complete lowercase view so case-insensitive matching stays fast
+        // without dropping late strings from large files.
         let strings_lower: Vec<String> = if report.strings.len() > 1000 {
             report
                 .strings
                 .par_iter()
-                .take(string_limit)
                 .map(|hit| hit.value.to_ascii_lowercase())
                 .collect()
         } else {
             report
                 .strings
                 .iter()
-                .take(string_limit)
                 .map(|hit| hit.value.to_ascii_lowercase())
                 .collect()
         };
-        
-        let decoded_lower: Vec<String> = report
-            .decoded_strings
-            .iter()
-            .take(decoded_limit)
-            .map(|hit| hit.decoded.to_ascii_lowercase())
-            .collect();
-        
+
+        let decoded_lower: Vec<String> = if report.decoded_strings.len() > 1000 {
+            report
+                .decoded_strings
+                .par_iter()
+                .map(|hit| hit.decoded.to_ascii_lowercase())
+                .collect()
+        } else {
+            report
+                .decoded_strings
+                .iter()
+                .map(|hit| hit.decoded.to_ascii_lowercase())
+                .collect()
+        };
+
         let imports_lower = report
             .pe
             .as_ref()
@@ -65,13 +69,13 @@ impl ScanView {
                     .collect()
             })
             .unwrap_or_default();
-        
+
         let dlls_lower = report
             .pe
             .as_ref()
             .map(|pe| pe.dlls.iter().map(|dll| dll.to_ascii_lowercase()).collect())
             .unwrap_or_default();
-        
+
         Self {
             strings_lower,
             decoded_lower,
@@ -83,7 +87,9 @@ impl ScanView {
 
 static REGEX_CACHE: Lazy<Mutex<HashMap<String, Arc<Regex>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-static BYTE_PATTERN_CACHE: Lazy<Mutex<HashMap<String, Arc<Vec<ByteToken>>>>> =
+static BYTE_PATTERN_CACHE: Lazy<Mutex<HashMap<String, Arc<CompiledBytePattern>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static STRING_SET_CACHE: Lazy<Mutex<HashMap<String, Arc<AhoCorasick>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
@@ -98,7 +104,7 @@ fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
     Some(compiled)
 }
 
-fn cached_byte_pattern(pattern: &str) -> Option<Arc<Vec<ByteToken>>> {
+fn cached_byte_pattern(pattern: &str) -> Option<Arc<CompiledBytePattern>> {
     if let Some(found) = BYTE_PATTERN_CACHE.lock().ok()?.get(pattern).cloned() {
         return Some(found);
     }
@@ -108,6 +114,36 @@ fn cached_byte_pattern(pattern: &str) -> Option<Arc<Vec<ByteToken>>> {
         .ok()?
         .insert(pattern.to_string(), compiled.clone());
     Some(compiled)
+}
+
+fn cached_literal_set(values: &[String], nocase: bool) -> Option<Arc<AhoCorasick>> {
+    if values.is_empty() {
+        return None;
+    }
+    let key = literal_set_cache_key(values, nocase);
+    if let Some(found) = STRING_SET_CACHE.lock().ok()?.get(&key).cloned() {
+        return Some(found);
+    }
+    let patterns: Vec<String> = if nocase {
+        values
+            .iter()
+            .map(|value| value.to_ascii_lowercase())
+            .collect()
+    } else {
+        values.to_vec()
+    };
+    let compiled = Arc::new(AhoCorasickBuilder::new().build(patterns).ok()?);
+    STRING_SET_CACHE.lock().ok()?.insert(key, compiled.clone());
+    Some(compiled)
+}
+
+fn literal_set_cache_key(values: &[String], nocase: bool) -> String {
+    let mut key = if nocase { "i:" } else { "s:" }.to_string();
+    for value in values {
+        key.push_str(value);
+        key.push('\u{1f}');
+    }
+    key
 }
 
 #[derive(Debug, Clone, Default)]
@@ -242,6 +278,14 @@ fn warm_rule_caches(rule: &Rule) {
                     };
                     let _ = cached_regex(&pattern);
                 }
+            }
+            RuleCondition::StringSet {
+                values,
+                nocase,
+                regex: false,
+                ..
+            } => {
+                let _ = cached_literal_set(values, *nocase);
             }
             RuleCondition::RegistryPattern { pattern, nocase } => {
                 let pattern = if *nocase {
@@ -486,6 +530,9 @@ fn evaluate_condition(
             regex,
         } => {
             let needed = min.unwrap_or(1).max(1);
+            if !regex {
+                return match_string_set_literals(report, view, values, needed, *nocase, *decoded);
+            }
             let mut evidence = Vec::new();
             for value in values {
                 if let Some(ev) = match_string_value(report, view, value, *nocase, *decoded, *regex)
@@ -679,7 +726,7 @@ fn evaluate_condition(
         }
         RuleCondition::BytePattern { pattern } => {
             let compiled = cached_byte_pattern(pattern)?;
-            find_byte_pattern(bytes, compiled.as_slice())
+            find_byte_pattern(bytes, compiled.as_ref())
                 .map(|offset| format!("byte_pattern `{}` at 0x{:x}", pattern, offset))
         }
         RuleCondition::ByteSet { patterns, min } => {
@@ -687,7 +734,7 @@ fn evaluate_condition(
             let mut evidence = Vec::new();
             for pattern in patterns {
                 if let Some(compiled) = cached_byte_pattern(pattern) {
-                    if let Some(offset) = find_byte_pattern(bytes, compiled.as_slice()) {
+                    if let Some(offset) = find_byte_pattern(bytes, compiled.as_ref()) {
                         evidence.push(format!("`{}` at 0x{:x}", pattern, offset));
                     }
                 }
@@ -703,6 +750,85 @@ fn evaluate_condition(
             None
         }
     }
+}
+
+fn match_string_set_literals(
+    report: &ScanReport,
+    view: &ScanView,
+    values: &[String],
+    needed: usize,
+    nocase: bool,
+    decoded: bool,
+) -> Option<String> {
+    let ac = cached_literal_set(values, nocase)?;
+    let mut seen = vec![false; values.len()];
+    let mut evidence = Vec::with_capacity(needed.min(values.len()));
+
+    for (idx, hit) in report.strings.iter().enumerate() {
+        let hay = if nocase {
+            view.strings_lower.get(idx)?.as_str()
+        } else {
+            hit.value.as_str()
+        };
+        for mat in ac.find_overlapping_iter(hay) {
+            let pattern_id = mat.pattern().as_usize();
+            if pattern_id >= seen.len() || seen[pattern_id] {
+                continue;
+            }
+            seen[pattern_id] = true;
+            evidence.push(format!(
+                "literal `{}` at 0x{:x}",
+                values
+                    .get(pattern_id)
+                    .map(String::as_str)
+                    .unwrap_or("<pattern>"),
+                hit.offset + mat.start()
+            ));
+            if evidence.len() >= needed {
+                return Some(format!(
+                    "string_set matched {}/{}: {}",
+                    evidence.len(),
+                    needed,
+                    evidence.join("; ")
+                ));
+            }
+        }
+    }
+
+    if decoded {
+        for (idx, hit) in report.decoded_strings.iter().enumerate() {
+            let hay = if nocase {
+                view.decoded_lower.get(idx)?.as_str()
+            } else {
+                hit.decoded.as_str()
+            };
+            for mat in ac.find_overlapping_iter(hay) {
+                let pattern_id = mat.pattern().as_usize();
+                if pattern_id >= seen.len() || seen[pattern_id] {
+                    continue;
+                }
+                seen[pattern_id] = true;
+                evidence.push(format!(
+                    "decoded literal `{}` via {}",
+                    values
+                        .get(pattern_id)
+                        .map(String::as_str)
+                        .unwrap_or("<pattern>"),
+                    hit.method
+                ));
+                if evidence.len() >= needed {
+                    return Some(format!(
+                        "string_set matched {}/{}: {}",
+                        evidence.len(),
+                        needed,
+                        evidence.join("; ")
+                    ));
+                }
+            }
+        }
+    }
+
+    None
 }
 
 fn match_string_value(
@@ -780,6 +906,10 @@ fn evaluate_native_signature(
     atoms: &[SignatureAtom],
     expression: &str,
 ) -> Option<String> {
+    if let Some(result) = evaluate_simple_native_signature(report, view, bytes, atoms, expression) {
+        return result;
+    }
+
     let mut atom_hits = HashMap::new();
     for atom in atoms {
         atom_hits.insert(
@@ -816,6 +946,93 @@ fn evaluate_native_signature(
     Some(evidence.join("; "))
 }
 
+fn evaluate_simple_native_signature(
+    report: &ScanReport,
+    view: &ScanView,
+    bytes: &[u8],
+    atoms: &[SignatureAtom],
+    expression: &str,
+) -> Option<Option<String>> {
+    let expr = expression.trim();
+    static THEM_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?i)^(any|all|\d+)\s+of\s+them$").unwrap());
+    static GROUP_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?i)^(any|all|\d+)\s+of\s*\(\s*([^\)]*\$[^\)]*)\s*\)$").unwrap());
+
+    let (quant, selected): (&str, Vec<&SignatureAtom>) = if let Some(caps) = THEM_RE.captures(expr)
+    {
+        (caps.get(1).unwrap().as_str(), atoms.iter().collect())
+    } else if let Some(caps) = GROUP_RE.captures(expr) {
+        let spec = caps.get(2).unwrap().as_str();
+        (
+            caps.get(1).unwrap().as_str(),
+            select_signature_atoms(spec, atoms),
+        )
+    } else {
+        return None;
+    };
+
+    if selected.is_empty() {
+        return Some(None);
+    }
+
+    let needed = match quant.to_ascii_lowercase().as_str() {
+        "any" => 1,
+        "all" => selected.len(),
+        value => value.parse::<usize>().unwrap_or(1).max(1),
+    };
+    if needed > selected.len() {
+        return Some(None);
+    }
+
+    let mut hits: Vec<(&SignatureAtom, AtomMatch)> = Vec::with_capacity(needed);
+    for (idx, atom) in selected.iter().enumerate() {
+        let hit = match_signature_atom(report, view, bytes, atom);
+        if hit.matched {
+            hits.push((*atom, hit));
+            if hits.len() >= needed {
+                return Some(Some(native_signature_evidence(expression, &hits)));
+            }
+        }
+        let remaining = selected.len().saturating_sub(idx + 1);
+        if hits.len() + remaining < needed {
+            return Some(None);
+        }
+    }
+
+    Some(None)
+}
+
+fn select_signature_atoms<'a>(spec: &str, atoms: &'a [SignatureAtom]) -> Vec<&'a SignatureAtom> {
+    let mut selected = Vec::new();
+    for part in spec.split(',').map(|p| p.trim()).filter(|p| !p.is_empty()) {
+        let part = part.trim_start_matches('$').trim();
+        if let Some(prefix) = part.strip_suffix('*') {
+            selected.extend(atoms.iter().filter(|atom| atom.id.starts_with(prefix)));
+        } else if let Some(atom) = atoms.iter().find(|atom| atom.id == part) {
+            selected.push(atom);
+        }
+    }
+    selected
+}
+
+fn native_signature_evidence(expression: &str, hits: &[(&SignatureAtom, AtomMatch)]) -> String {
+    let mut evidence = Vec::with_capacity(hits.len().min(9) + 1);
+    evidence.push(format!(
+        "native_signature expression matched: {}",
+        truncate_for_evidence(expression, 220)
+    ));
+    for (atom, hit) in hits.iter().take(9) {
+        let first = hit
+            .evidence
+            .first()
+            .cloned()
+            .unwrap_or_else(|| format!("${} matched", atom.id));
+        evidence.push(first);
+    }
+    evidence.join("; ")
+}
+
 fn match_signature_atom(
     report: &ScanReport,
     view: &ScanView,
@@ -825,13 +1042,13 @@ fn match_signature_atom(
     // Timeout detection: track start time for slow operation detection
     let start = Instant::now();
     const ATOM_TIMEOUT_MS: u128 = 5000; // 5 second timeout per atom
-    
+
     let result = match atom.kind {
         SignatureAtomKind::Text => match_text_atom(report, view, bytes, atom),
         SignatureAtomKind::Regex => match_regex_atom(report, atom),
         SignatureAtomKind::Bytes => match_byte_atom(bytes, atom),
     };
-    
+
     let elapsed = start.elapsed().as_millis();
     if elapsed > ATOM_TIMEOUT_MS {
         log::warn!(
@@ -846,7 +1063,7 @@ fn match_signature_atom(
             }
         );
     }
-    
+
     result
 }
 
@@ -939,10 +1156,10 @@ fn match_text_atom(
     if atom.xor {
         let xor_start = Instant::now();
         const XOR_TIMEOUT_MS: u128 = 3000; // 3 second timeout for XOR brute-force
-        
+
         let (lo, hi) = xor_key_range(atom);
         let mut keys_checked = 0;
-        
+
         for key in lo..=hi {
             // Check timeout every 8 keys to avoid excessive time checks
             if keys_checked % 8 == 0 && xor_start.elapsed().as_millis() > XOR_TIMEOUT_MS {
@@ -956,7 +1173,7 @@ fn match_text_atom(
                 );
                 break;
             }
-            
+
             for (label, plain) in text_atom_plain_xor_variants(atom) {
                 let encoded: Vec<u8> = plain.iter().map(|b| b ^ key).collect();
                 if let Some(offset) = find_bytes(bytes, &encoded, atom.fullword) {
@@ -1054,7 +1271,7 @@ fn match_regex_atom(report: &ScanReport, atom: &SignatureAtom) -> AtomMatch {
 fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
     let mut out = AtomMatch::default();
     if let Some(pattern) = cached_byte_pattern(&atom.value) {
-        if let Some(offset) = find_byte_pattern(bytes, pattern.as_slice()) {
+        if let Some(offset) = find_byte_pattern(bytes, pattern.as_ref()) {
             out.matched = true;
             out.offsets.push(offset);
             out.evidence.push(format!(
@@ -1070,12 +1287,14 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
             let (lo, hi) = xor_key_range(atom);
             for key in lo..=hi {
                 let xored: Vec<ByteToken> = pattern
+                    .tokens
                     .iter()
                     .map(|token| ByteToken {
                         value: token.value ^ key,
                         mask: token.mask,
                     })
                     .collect();
+                let xored = CompiledBytePattern::from_tokens(xored);
                 if let Some(offset) = find_byte_pattern(bytes, &xored) {
                     out.matched = true;
                     out.offsets.push(offset);
@@ -1144,12 +1363,18 @@ fn find_bytes(hay: &[u8], needle: &[u8], fullword: bool) -> Option<usize> {
     if needle.is_empty() || needle.len() > hay.len() {
         return None;
     }
-    for i in 0..=hay.len() - needle.len() {
-        if &hay[i..i + needle.len()] == needle
-            && (!fullword || byte_word_boundary_at(hay, i, needle.len()))
-        {
-            return Some(i);
+    if !fullword {
+        return memmem::find(hay, needle);
+    }
+
+    let mut search_from = 0usize;
+    while search_from < hay.len() {
+        let rel = memmem::find(&hay[search_from..], needle)?;
+        let pos = search_from + rel;
+        if byte_word_boundary_at(hay, pos, needle.len()) {
+            return Some(pos);
         }
+        search_from = pos + 1;
     }
     None
 }
@@ -1159,13 +1384,16 @@ fn find_bytes_nocase_ascii(hay: &[u8], needle: &[u8], fullword: bool) -> Option<
         return None;
     }
     let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
+    let first = needle_lower[0];
     for i in 0..=hay.len() - needle_lower.len() {
-        if hay[i..i + needle_lower.len()]
+        if hay[i].to_ascii_lowercase() != first {
+            continue;
+        }
+        let matched = hay[i..i + needle_lower.len()]
             .iter()
-            .map(|b| b.to_ascii_lowercase())
-            .eq(needle_lower.iter().copied())
-            && (!fullword || byte_word_boundary_at(hay, i, needle_lower.len()))
-        {
+            .zip(needle_lower.iter())
+            .all(|(byte, needle)| byte.to_ascii_lowercase() == *needle);
+        if matched && (!fullword || byte_word_boundary_at(hay, i, needle_lower.len())) {
             return Some(i);
         }
     }
@@ -1663,7 +1891,58 @@ struct ByteToken {
     mask: u8,
 }
 
-fn compile_byte_pattern(pattern: &str) -> Option<Vec<ByteToken>> {
+#[derive(Debug, Clone)]
+struct CompiledBytePattern {
+    tokens: Vec<ByteToken>,
+    exact: Option<Vec<u8>>,
+    anchor: Option<(usize, Vec<u8>)>,
+}
+
+impl CompiledBytePattern {
+    fn from_tokens(tokens: Vec<ByteToken>) -> Self {
+        let exact = tokens
+            .iter()
+            .all(|token| token.mask == 0xff)
+            .then(|| tokens.iter().map(|token| token.value).collect());
+
+        let mut best_start = 0usize;
+        let mut best_len = 0usize;
+        let mut idx = 0usize;
+        while idx < tokens.len() {
+            if tokens[idx].mask != 0xff {
+                idx += 1;
+                continue;
+            }
+            let start = idx;
+            while idx < tokens.len() && tokens[idx].mask == 0xff {
+                idx += 1;
+            }
+            let len = idx - start;
+            if len > best_len {
+                best_start = start;
+                best_len = len;
+            }
+        }
+
+        let anchor = (best_len > 0).then(|| {
+            (
+                best_start,
+                tokens[best_start..best_start + best_len]
+                    .iter()
+                    .map(|token| token.value)
+                    .collect(),
+            )
+        });
+
+        Self {
+            tokens,
+            exact,
+            anchor,
+        }
+    }
+}
+
+fn compile_byte_pattern(pattern: &str) -> Option<CompiledBytePattern> {
     let tokens = normalize_hex_tokens(pattern);
     let mut out = Vec::new();
     for token in tokens {
@@ -1683,7 +1962,7 @@ fn compile_byte_pattern(pattern: &str) -> Option<Vec<ByteToken>> {
         });
     }
 
-    (!out.is_empty()).then_some(out)
+    (!out.is_empty()).then(|| CompiledBytePattern::from_tokens(out))
 }
 
 fn normalize_hex_tokens(pattern: &str) -> Vec<String> {
@@ -1766,36 +2045,38 @@ fn hex_nibble(c: char) -> Option<(u8, u8)> {
     c.to_digit(16).map(|v| (v as u8, 0x0f))
 }
 
-fn find_byte_pattern(bytes: &[u8], pattern: &[ByteToken]) -> Option<usize> {
-    if pattern.is_empty() || pattern.len() > bytes.len() {
+fn find_byte_pattern(bytes: &[u8], pattern: &CompiledBytePattern) -> Option<usize> {
+    let tokens = pattern.tokens.as_slice();
+    if tokens.is_empty() || tokens.len() > bytes.len() {
         return None;
     }
 
-    // Fast path: use the first exact byte as an anchor instead of checking every window.
-    // Wildcard-only patterns fall back to the generic matcher.
-    if let Some((anchor_index, anchor)) = pattern
-        .iter()
-        .enumerate()
-        .find(|(_, token)| token.mask == 0xff)
-    {
-        let mut pos = anchor_index;
-        while pos < bytes.len() {
-            if bytes[pos] == anchor.value {
-                let start = pos.saturating_sub(anchor_index);
-                if start + pattern.len() <= bytes.len()
-                    && byte_window_matches(&bytes[start..start + pattern.len()], pattern)
+    if let Some(exact) = &pattern.exact {
+        return memmem::find(bytes, exact);
+    }
+
+    // YARA-X-like atom path: search the longest exact run first, then verify
+    // the full wildcard/nibble pattern only at candidate offsets.
+    if let Some((anchor_index, anchor)) = &pattern.anchor {
+        let mut search_from = 0usize;
+        while search_from < bytes.len() {
+            let rel = memmem::find(&bytes[search_from..], anchor)?;
+            let anchor_pos = search_from + rel;
+            if let Some(start) = anchor_pos.checked_sub(*anchor_index) {
+                if start + tokens.len() <= bytes.len()
+                    && byte_window_matches(&bytes[start..start + tokens.len()], tokens)
                 {
                     return Some(start);
                 }
             }
-            pos += 1;
+            search_from = anchor_pos + 1;
         }
         return None;
     }
 
     bytes
-        .windows(pattern.len())
-        .position(|window| byte_window_matches(window, pattern))
+        .windows(tokens.len())
+        .position(|window| byte_window_matches(window, tokens))
 }
 
 #[inline]

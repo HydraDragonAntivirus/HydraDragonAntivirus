@@ -37,6 +37,8 @@ HydraDragonStatic is deterministic and signature-engine style:
 - Registry persistence and reconnaissance indicators
 - Environment/sandbox/anti-analysis string indicators
 - Deterministic external Yamdle/YAML signature rules
+- SDK-style core wrapper, memory scan, registry-buffer scan, result codes, and scan statistics
+- In-memory ZIP/JAR/APK member scanning with depth/size limits
 - Recursive multi-root and alternate sub-path scanning
 - Path-list input for bulk target lists
 - Include/exclude glob filters for controlled recursive scans
@@ -429,6 +431,17 @@ This build removes several hot-path costs from the scanner:
 - The raw file buffer is moved into the rule engine without cloning the whole file.
 - XOR decoded-string extraction reuses one buffer across keys instead of allocating 255 buffers per candidate string.
 
+## Optimization pass in 0.1.6
+
+This build adds a more YARA-X-like atom-first matching path:
+
+- Case-insensitive string matching now keeps a complete lowercase view instead of truncating large string tables.
+- Literal `string_set` conditions use a cached Aho-Corasick automaton, so large Yamdle groups scan strings once instead of once per literal.
+- Hex byte patterns are compiled into exact-byte runs; the matcher searches the longest stable anchor first and verifies wildcard/nibble masks only at candidate offsets.
+- Exact byte strings use optimized memmem search.
+- Simple native signatures such as `any of them`, `all of them`, `N of them`, and `any/all/N of ($prefix*)` short-circuit atom evaluation instead of scanning every atom.
+- Archive scanning stays in memory and honors member size, depth, and break-on-threat limits.
+
 Fast raw-signature scan example:
 
 ```bash
@@ -511,11 +524,14 @@ Professional AV-style result codes matching industry standards:
 - `Heuristic (1)`: Detected suspicious code (heuristic analysis)
 - `Malicious (2)`: Malicious code is detected (infected file)
 - `GeneralError (-1)`: General error of the scan engine
+- `WrongHandle (-2)`: Incorrect scan/core handle range
+- `UnknownHandle (-3)`: Scan/core handle is not initialized
+- `PathTooLong (-4)`: Supplied file path is too long
 - `OpenError (-5)`: Error opening/reading the file
 - `FileTooLarge (-6)`: File too large for scanning
 - `UnsupportedFormat (-7)`: Unsupported file format
 
-Result codes are included in JSON output as `result_code` field.
+Result codes are included in JSON output as numeric `result_code` values.
 
 ### Memory Scanning API
 
@@ -533,9 +549,23 @@ let ctx = MemoryScanContext {
 let report = scan_memory(&ctx, &rules, &options)?;
 ```
 
+Registry key/value buffers can be scanned without touching the live registry:
+
+```rust
+use hydradragonstatic::{models::RegistryScanContext, scan_registry_key};
+
+let ctx = RegistryScanContext {
+    key: r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run".to_string(),
+    value_name: Some("Updater".to_string()),
+    value_data: Some(b"powershell -enc ...".to_vec()),
+};
+
+let report = scan_registry_key(&ctx, &rules, &options)?;
+```
+
 ### Archive Unpacking Configuration
 
-Control archive extraction behavior:
+Control in-memory ZIP/JAR/APK member scanning behavior:
 
 ```rust
 use hydradragonstatic::models::UnpackConfig;
@@ -548,6 +578,14 @@ let unpack_config = UnpackConfig {
     enable_containers: false,
     break_on_threat: true,
 };
+```
+
+CLI controls:
+
+```bash
+hydradragonstatic sample.zip --rules rules/ --max-archive-mib 100 --max-archive-depth 5
+hydradragonstatic sample.zip --rules rules/ --no-archive-scan
+hydradragonstatic sample.zip --rules rules/ --no-break-archive-scan
 ```
 
 ### Core Initialization Options
@@ -564,6 +602,16 @@ let core_options = CoreInitOptions {
     enable_heuristics: true,
     enable_behavioral: true,
 };
+```
+
+For embedded integrations, initialize a reusable core wrapper:
+
+```rust
+use hydradragonstatic::{EngineCore, ScanOptions};
+
+let core = EngineCore::init(rules, ScanOptions::default());
+let core_data = core.core_data();
+let report = core.scan_path(sample_path)?;
 ```
 
 ### Scan Statistics

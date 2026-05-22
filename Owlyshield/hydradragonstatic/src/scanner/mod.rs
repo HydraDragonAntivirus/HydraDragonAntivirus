@@ -10,8 +10,10 @@ use crate::models::{
 };
 use crate::utils::{entropy::byte_entropy, hash::hashes};
 use anyhow::{Context, Result};
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use zip::ZipArchive;
 
 use strings::{DecodeConfig, ExtractConfig};
 
@@ -62,15 +64,10 @@ impl HydraScanner {
 
     pub fn scan_with_config(path: &Path, config: &ScannerConfig) -> Result<ScanContext> {
         let start_time = Instant::now();
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
+        let bytes =
+            std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
 
-        let ctx = Self::build_scan_context(
-            bytes,
-            path.to_path_buf(),
-            config,
-            start_time,
-        )?;
+        let ctx = Self::build_scan_context(bytes, path.to_path_buf(), config, start_time)?;
         Ok(ctx)
     }
 
@@ -80,6 +77,14 @@ impl HydraScanner {
         // Clone only once; all downstream work borrows from this copy.
         let bytes = ctx.buffer.clone();
         Self::build_scan_context(bytes, path, config, start_time)
+    }
+
+    pub fn scan_bytes(
+        bytes: Vec<u8>,
+        path: PathBuf,
+        config: &ScannerConfig,
+    ) -> Result<ScanContext> {
+        Self::build_scan_context(bytes, path, config, Instant::now())
     }
 
     pub fn enumerate_archive_members(
@@ -102,10 +107,42 @@ impl HydraScanner {
             return Ok(Vec::new());
         }
 
-        Ok(Vec::new())
+        let mut archive = ZipArchive::new(Cursor::new(bytes.as_slice()))
+            .with_context(|| format!("failed to open archive {}", path.display()))?;
+        let mut out = Vec::with_capacity(archive.len());
+        for index in 0..archive.len() {
+            let mut member = archive
+                .by_index(index)
+                .with_context(|| format!("failed to read archive member #{index}"))?;
+            if member.is_dir() {
+                continue;
+            }
+
+            let name = member.name().to_string();
+            let size = member.size();
+            let mut scratch = Vec::new();
+            let result_code = if size > config.max_archive_size {
+                ScanResultCode::FileTooLarge
+            } else if member.read_to_end(&mut scratch).is_ok() {
+                ScanResultCode::Ok
+            } else {
+                ScanResultCode::OpenError
+            };
+
+            out.push(ArchiveMemberResult {
+                name: name.clone(),
+                path: format!("{}!{}", path.display(), name),
+                result_code,
+                threat_name: None,
+                size,
+                depth: 1,
+            });
+        }
+
+        Ok(out)
     }
 
-    // ── Shared core logic ─────────────────────────────────────────────────────
+    // Shared core logic.
 
     fn build_scan_context(
         bytes: Vec<u8>,
@@ -129,7 +166,7 @@ impl HydraScanner {
         };
 
         let pe = pe::scan_pe(&bytes);
-        let file_type = if path.starts_with("memory://") {
+        let file_type = if is_virtual_scan_path(&path) {
             filetype::classify_bytes_only(&bytes)
         } else {
             filetype::classify_bytes(&path, &bytes)
@@ -167,4 +204,11 @@ impl HydraScanner {
             result_code: ScanResultCode::Ok,
         })
     }
+}
+
+fn is_virtual_scan_path(path: &Path) -> bool {
+    let text = path.to_string_lossy();
+    text.starts_with("memory://")
+        || text.starts_with("registry://")
+        || text.starts_with("archive://")
 }

@@ -11,10 +11,13 @@ HydraDragonStatic now includes enterprise-grade features inspired by professiona
 The architecture patterns are inspired by professional antivirus engine SDKs that provide:
 - Structured scan result codes for programmatic integration
 - Memory scanning capabilities for runtime analysis
+- Registry key/value buffer scanning for deterministic integration tests and telemetry pipelines
 - Archive unpacking configuration with depth and size controls
 - Core initialization options for flexible engine behavior
+- Reusable core wrapper with initialized core metadata
 - Comprehensive scan statistics for monitoring and reporting
 - Industry-standard threat naming conventions
+- Cached atom/anchor matching for high-throughput static signature evaluation
 
 ## New Features
 
@@ -28,6 +31,9 @@ pub enum ScanResultCode {
     Heuristic = 1,       // Detected suspicious code (heuristic analysis)
     Malicious = 2,       // Malicious code is detected (infected file)
     GeneralError = -1,   // General error of the scan engine
+    WrongHandle = -2,    // Incorrect scan/core handle range
+    UnknownHandle = -3,  // Scan/core handle is not initialized
+    PathTooLong = -4,    // Supplied file path is too long
     OpenError = -5,      // Error opening/reading the file
     FileTooLarge = -6,   // File too large for scanning
     UnsupportedFormat = -7, // Unsupported file format
@@ -36,7 +42,7 @@ pub enum ScanResultCode {
 
 **Usage:**
 - Result codes are automatically set based on scan verdict
-- Included in JSON output as `result_code` field
+- Included in JSON output as numeric `result_code` field
 - Helper methods: `is_clean()`, `is_infected()`, `is_error()`
 
 ### 2. Memory Scanning API
@@ -61,9 +67,25 @@ let report = scan_memory(&ctx, &rules, &options)?;
 - Extracted payload analysis
 - Forensic memory dumps
 
-### 3. Archive Unpacking Configuration (`UnpackConfig`)
+### 3. Registry Buffer Scanning API
 
-Control archive extraction behavior:
+Scan caller-supplied registry key/value content without reading the live registry:
+
+```rust
+use hydradragonstatic::{models::RegistryScanContext, scan_registry_key};
+
+let ctx = RegistryScanContext {
+    key: r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run".to_string(),
+    value_name: Some("Updater".to_string()),
+    value_data: Some(b"powershell -enc ...".to_vec()),
+};
+
+let report = scan_registry_key(&ctx, &rules, &options)?;
+```
+
+### 4. Archive Unpacking Configuration (`UnpackConfig`)
+
+Control in-memory ZIP/JAR/APK member scanning behavior:
 
 ```rust
 pub struct UnpackConfig {
@@ -84,7 +106,15 @@ pub struct UnpackConfig {
 - `enable_containers`: false
 - `break_on_threat`: true
 
-### 4. Core Initialization Options (`CoreInitOptions`)
+CLI controls:
+
+```bash
+hydradragonstatic sample.zip --rules rules/ --max-archive-mib 100 --max-archive-depth 5
+hydradragonstatic sample.zip --rules rules/ --no-archive-scan
+hydradragonstatic sample.zip --rules rules/ --no-break-archive-scan
+```
+
+### 5. Core Initialization Options (`CoreInitOptions`)
 
 Professional engine initialization controls:
 
@@ -105,7 +135,21 @@ pub struct CoreInitOptions {
 - `enable_heuristics`: true
 - `enable_behavioral`: true
 
-### 5. Scan Statistics (`ScanStatistics`)
+### 6. Reusable Core Wrapper (`EngineCore`)
+
+Initialize once and reuse rules/options across file, memory, and registry scans:
+
+```rust
+use hydradragonstatic::{EngineCore, ScanOptions};
+
+let core = EngineCore::init(rules, ScanOptions::default());
+let core_data = core.core_data();
+let report = core.scan_path(sample_path)?;
+```
+
+`core_data.signature_records` reports how many external signatures were loaded.
+
+### 7. Scan Statistics (`ScanStatistics`)
 
 Comprehensive scan metadata tracking:
 
@@ -127,7 +171,7 @@ pub struct ScanStatistics {
 - Infection/suspicious counts updated from findings
 - Statistics included in JSON output
 
-### 6. Archive Member Results (`ArchiveMemberResult`)
+### 8. Archive Member Results (`ArchiveMemberResult`)
 
 Track nested file scanning results:
 
@@ -142,7 +186,7 @@ pub struct ArchiveMemberResult {
 }
 ```
 
-### 7. Threat Name Detection
+### 9. Threat Name Detection
 
 SDK-style threat naming from matched signatures:
 
@@ -208,6 +252,20 @@ if report.result_code.is_infected() {
 }
 ```
 
+### Registry Buffer Scanning
+
+```rust
+use hydradragonstatic::{scan_registry_key, models::RegistryScanContext};
+
+let ctx = RegistryScanContext {
+    key: r"HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System".to_string(),
+    value_name: Some("DisableTaskMgr".to_string()),
+    value_data: Some(b"1".to_vec()),
+};
+
+let report = scan_registry_key(&ctx, &rules, &options)?;
+```
+
 ## JSON Output Schema
 
 The SDK features add the following fields to JSON output:
@@ -225,7 +283,7 @@ The SDK features add the following fields to JSON output:
     "is_container": false,
     "archive_members": 0,
     "scan_duration_ms": 45,
-    "signature_records_used": 0
+    "signature_records_used": 421
   },
   "archive_members": [],
   "findings": [...]
@@ -255,13 +313,15 @@ These SDK-inspired features maintain HydraDragonStatic's core principles:
 - Memory scanning avoids disk I/O overhead
 - Archive configuration allows performance tuning
 - Result code generation is zero-cost abstraction
+- Literal set matching uses cached Aho-Corasick automatons
+- Byte signatures search exact anchors first and verify wildcard masks only at candidate offsets
+- Simple native signature expressions short-circuit atom evaluation
 
 ## Future Enhancements
 
 Potential future SDK-inspired additions:
 
 - Callback system for archive member scanning progress
-- Registry key scanning API (similar to memory scanning)
 - Batch scanning with connection pooling
 - Signature database versioning and update tracking
 - Multi-threaded archive extraction

@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::hash::Hash;
 use std::path::PathBuf;
@@ -21,8 +21,8 @@ pub enum Verdict {
     Malware,
 }
 
-/// SDK-inspired scan result codes matching professional AV engine patterns
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// SDK-style scan result codes for programmatic integration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanResultCode {
     /// File does not contain malicious code
     Ok = 0,
@@ -32,6 +32,12 @@ pub enum ScanResultCode {
     Malicious = 2,
     /// General error of the scan engine
     GeneralError = -1,
+    /// Incorrect scan/core handle range
+    WrongHandle = -2,
+    /// Scan/core handle is not initialized
+    UnknownHandle = -3,
+    /// Supplied file path is too long
+    PathTooLong = -4,
     /// Error opening/reading the file
     OpenError = -5,
     /// File too large for scanning
@@ -41,6 +47,26 @@ pub enum ScanResultCode {
 }
 
 impl ScanResultCode {
+    pub fn as_i32(self) -> i32 {
+        self as i32
+    }
+
+    pub fn from_i32(value: i32) -> Option<Self> {
+        match value {
+            0 => Some(Self::Ok),
+            1 => Some(Self::Heuristic),
+            2 => Some(Self::Malicious),
+            -1 => Some(Self::GeneralError),
+            -2 => Some(Self::WrongHandle),
+            -3 => Some(Self::UnknownHandle),
+            -4 => Some(Self::PathTooLong),
+            -5 => Some(Self::OpenError),
+            -6 => Some(Self::FileTooLarge),
+            -7 => Some(Self::UnsupportedFormat),
+            _ => None,
+        }
+    }
+
     pub fn is_clean(self) -> bool {
         matches!(self, Self::Ok)
     }
@@ -62,7 +88,26 @@ impl ScanResultCode {
     }
 }
 
-/// SDK-inspired unpacking/archive extraction configuration
+impl Serialize for ScanResultCode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_i32(self.as_i32())
+    }
+}
+
+impl<'de> Deserialize<'de> for ScanResultCode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = i32::deserialize(deserializer)?;
+        Ok(Self::from_i32(value).unwrap_or(Self::GeneralError))
+    }
+}
+
+/// SDK-style unpacking/archive extraction configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnpackConfig {
     /// Maximum size of archive being unpacked (bytes)
@@ -92,7 +137,7 @@ impl Default for UnpackConfig {
     }
 }
 
-/// SDK-inspired core initialization options
+/// SDK-style core initialization options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoreInitOptions {
     /// Stop checking archive on detected threats
@@ -119,7 +164,27 @@ impl Default for CoreInitOptions {
     }
 }
 
-/// SDK-inspired scan statistics and metadata
+/// Metadata returned by an initialized static scan core.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoreData {
+    pub engine_version: String,
+    pub signature_records: u32,
+    pub initialized: bool,
+    pub options: CoreInitOptions,
+}
+
+impl Default for CoreData {
+    fn default() -> Self {
+        Self {
+            engine_version: env!("CARGO_PKG_VERSION").to_string(),
+            signature_records: 0,
+            initialized: false,
+            options: CoreInitOptions::default(),
+        }
+    }
+}
+
+/// SDK-style scan statistics and metadata.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScanStatistics {
     /// Number of objects scanned (including archive members)
@@ -381,7 +446,7 @@ pub struct RulePerformance {
     pub elapsed_micros: u64,
 }
 
-/// SDK-inspired archive member scan result for nested file scanning
+/// SDK-style archive member scan result for nested file scanning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchiveMemberResult {
     /// Display name of extracted file
@@ -398,7 +463,7 @@ pub struct ArchiveMemberResult {
     pub depth: u32,
 }
 
-/// SDK-inspired memory scan context for in-memory buffer scanning
+/// SDK-style memory scan context for in-memory buffer scanning.
 #[derive(Debug, Clone)]
 pub struct MemoryScanContext {
     /// Memory buffer to scan
@@ -407,6 +472,15 @@ pub struct MemoryScanContext {
     pub identifier: String,
     /// Base address hint (for forensics/debugging)
     pub base_address: Option<u64>,
+}
+
+/// SDK-style registry scan context. The caller supplies key/value text; this
+/// scanner treats it as a deterministic buffer and never reads the live registry.
+#[derive(Debug, Clone)]
+pub struct RegistryScanContext {
+    pub key: String,
+    pub value_name: Option<String>,
+    pub value_data: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -431,15 +505,15 @@ pub struct ScanReport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_performance: Vec<RulePerformance>,
 
-    /// SDK-inspired scan result code
+    /// SDK-style scan result code.
     #[serde(default)]
     pub result_code: ScanResultCode,
 
-    /// SDK-inspired scan statistics
+    /// SDK-style scan statistics.
     #[serde(default)]
     pub statistics: ScanStatistics,
 
-    /// SDK-inspired archive member results for nested scanning
+    /// SDK-style archive member results for nested scanning.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub archive_members: Vec<ArchiveMemberResult>,
 

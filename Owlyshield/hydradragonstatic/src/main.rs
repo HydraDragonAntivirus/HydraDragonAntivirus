@@ -3,7 +3,7 @@ use clap::{ArgAction, Parser, ValueEnum};
 use colored::Colorize;
 use hydradragonstatic::scanner::filetype;
 use hydradragonstatic::{
-    models::{Finding, Severity, Verdict},
+    models::{CoreInitOptions, Finding, Severity, UnpackConfig, Verdict},
     rules::{RuleSet, YamlRulesFile},
     scan_path, ScanOptions,
 };
@@ -217,6 +217,22 @@ struct Cli {
     #[arg(long)]
     no_decode: bool,
 
+    /// Disable in-memory ZIP/JAR/APK member scanning.
+    #[arg(long)]
+    no_archive_scan: bool,
+
+    /// Maximum archive/member size to unpack in MiB.
+    #[arg(long, default_value_t = 100)]
+    max_archive_mib: u64,
+
+    /// Maximum nested archive depth.
+    #[arg(long, default_value_t = 5)]
+    max_archive_depth: u32,
+
+    /// Continue scanning archive members after a member threat is found.
+    #[arg(long)]
+    no_break_archive_scan: bool,
+
     /// Include files with no detections in JSON/JSONL output.
     #[arg(long)]
     include_clean: bool,
@@ -354,6 +370,17 @@ fn main() -> Result<()> {
     };
 
     let profiling_enabled = cli.profile_rules || cli.remove_slow_rules;
+    let unpack_config = UnpackConfig {
+        max_archive_size: cli.max_archive_mib.saturating_mul(1024 * 1024),
+        max_archive_depth: cli.max_archive_depth,
+        enable_archives: !cli.no_archive_scan,
+        break_on_threat: !cli.no_break_archive_scan,
+        ..UnpackConfig::default()
+    };
+    let core_options = CoreInitOptions {
+        break_archive_scan: !cli.no_break_archive_scan,
+        ..CoreInitOptions::default()
+    };
     let options = ScanOptions {
         max_file_size: if cli.max_mib == 0 {
             None
@@ -365,8 +392,8 @@ fn main() -> Result<()> {
         stop_on_detection: cli.stop_on_detection,
         min_string_len: cli.min_string_len,
         decode_obfuscated_strings: !cli.no_decode,
-        core_options: hydradragonstatic::models::CoreInitOptions::default(),
-        unpack_config: hydradragonstatic::models::UnpackConfig::default(),
+        core_options,
+        unpack_config,
     };
 
     let use_sequential_files = cli.no_parallel_files || cli.stop_scan_on_detection;
@@ -1150,18 +1177,29 @@ fn print_pretty(reports: &[hydradragonstatic::models::ScanReport]) {
         };
         println!("{} {}", badge, report.path.display());
         println!(
-            "  verdict={} confidence={} score={} entropy={:.3} sha256={}",
+            "  verdict={} result_code={} confidence={} score={} entropy={:.3} sha256={}",
             report.verdict.label(),
+            report.result_code.as_i32(),
             report.confidence,
             report.score,
             report.entropy,
             report.hashes.sha256
         );
         println!(
+            "  stats: files={} archive_members={} duration_ms={} signatures={}",
+            report.statistics.files_scanned,
+            report.statistics.archive_members,
+            report.statistics.scan_duration_ms,
+            report.statistics.signature_records_used
+        );
+        println!(
             "  type={} tags={}",
             report.file_type.primary,
             report.file_type.tags.join(",")
         );
+        if let Some(threat_name) = &report.threat_name {
+            println!("  threat={}", threat_name);
+        }
         if !report.malware_families.is_empty() {
             println!("  families={}", report.malware_families.join(", "));
         }
@@ -1186,6 +1224,26 @@ fn print_pretty(reports: &[hydradragonstatic::models::ScanReport]) {
             println!("      rule_id={}", finding.rule_id);
             for ev in finding.evidence.iter().take(8) {
                 println!("      {}", ev);
+            }
+        }
+        if !report.archive_members.is_empty() {
+            let detected_members: Vec<_> = report
+                .archive_members
+                .iter()
+                .filter(|member| member.result_code.is_infected())
+                .take(8)
+                .collect();
+            if !detected_members.is_empty() {
+                println!("  archive detections:");
+                for member in detected_members {
+                    println!(
+                        "      result_code={} depth={} path={} threat={}",
+                        member.result_code.as_i32(),
+                        member.depth,
+                        member.path,
+                        member.threat_name.as_deref().unwrap_or("-")
+                    );
+                }
             }
         }
         println!();
