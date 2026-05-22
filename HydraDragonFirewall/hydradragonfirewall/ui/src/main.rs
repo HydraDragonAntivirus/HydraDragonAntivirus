@@ -1162,6 +1162,7 @@ pub fn App() -> impl IntoView {
     let (_validation_result, set_validation_result) =
         create_signal(String::from("Ready to validate."));
     let (show_owlyshield_editor, set_show_owlyshield_editor) = create_signal(false);
+    let (show_owlyshield_static_editor, set_show_owlyshield_static_editor) = create_signal(false);
     let (owlyshield_rules_content, set_owlyshield_rules_content) = create_signal(String::new());
     let (owlyshield_rules_directory, set_owlyshield_rules_directory) = create_signal(String::new());
     let (owlyshield_rule_files, set_owlyshield_rule_files) =
@@ -1169,6 +1170,18 @@ pub fn App() -> impl IntoView {
     let (selected_owlyshield_rule_path, set_selected_owlyshield_rule_path) =
         create_signal(Option::<String>::None);
     let (owlyshield_rules_status, set_owlyshield_rules_status) = create_signal(String::new());
+    let (owlyshield_static_rules_content, set_owlyshield_static_rules_content) =
+        create_signal(String::new());
+    let (owlyshield_static_rules_directory, set_owlyshield_static_rules_directory) =
+        create_signal(String::new());
+    let (owlyshield_static_rule_files, set_owlyshield_static_rule_files) =
+        create_signal(Vec::<OwlyshieldRuleFileEntry>::new());
+    let (selected_owlyshield_static_rule_path, set_selected_owlyshield_static_rule_path) =
+        create_signal(Option::<String>::None);
+    let (owlyshield_static_rules_status, set_owlyshield_static_rules_status) =
+        create_signal(String::new());
+    let (owlyshield_static_rules_mode, set_owlyshield_static_rules_mode) =
+        create_signal("malware".to_string());
     let (owlyshield_report_content, set_owlyshield_report_content) = create_signal(String::new());
     let (owlyshield_reports_directory, set_owlyshield_reports_directory) =
         create_signal(String::new());
@@ -1253,6 +1266,82 @@ pub fn App() -> impl IntoView {
                 }
                 _ => {
                     set_owlyshield_rules_status.set("Owlyshield rule file saved.".to_string());
+                }
+            }
+        });
+    };
+
+    let fetch_owlyshield_static_rules = move || {
+        spawn_local(async move {
+            let mode_val = invoke("get_owlyshield_static_rules_mode", JsValue::NULL).await;
+            if let Ok(mode) = serde_wasm_bindgen::from_value::<String>(mode_val) {
+                set_owlyshield_static_rules_mode.set(mode);
+            }
+
+            let val = invoke("list_owlyshield_static_rules_files", JsValue::NULL).await;
+            match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
+                Ok(view) => {
+                    let fallback_selected = view.files.first().map(|file| file.path.clone());
+                    let selected_path = view.selected_path.clone().or(fallback_selected);
+                    set_owlyshield_static_rules_directory.set(view.directory);
+                    set_owlyshield_static_rule_files.set(view.files);
+                    set_selected_owlyshield_static_rule_path.set(selected_path.clone());
+                    if let Some(path) = selected_path {
+                        let args = js_sys::Object::new();
+                        js_sys::Reflect::set(&args, &"path".into(), &path.into()).unwrap();
+                        let raw = invoke("get_owlyshield_static_rules_raw", args.into()).await;
+                        match serde_wasm_bindgen::from_value::<String>(raw) {
+                            Ok(content) => {
+                                set_owlyshield_static_rules_content.set(content);
+                                set_owlyshield_static_rules_status.set(String::new());
+                            }
+                            Err(_) => {
+                                set_owlyshield_static_rules_content.set(String::new());
+                                set_owlyshield_static_rules_status.set(
+                                    "Failed to load the selected static signature file."
+                                        .to_string(),
+                                );
+                            }
+                        }
+                    } else {
+                        set_owlyshield_static_rules_content.set(String::new());
+                        set_owlyshield_static_rules_status.set(
+                            "No YAML static signature files were found in the static_rules directory."
+                                .to_string(),
+                        );
+                    }
+                }
+                Err(_) => {
+                    set_owlyshield_static_rule_files.set(Vec::new());
+                    set_selected_owlyshield_static_rule_path.set(None);
+                    set_owlyshield_static_rules_content.set(String::new());
+                    set_owlyshield_static_rules_status
+                        .set("Failed to enumerate the Owlyshield static_rules directory.".to_string());
+                }
+            }
+        });
+    };
+
+    let save_owlyshield_static_rules = move || {
+        let content = owlyshield_static_rules_content.get();
+        let selected_path = selected_owlyshield_static_rule_path.get();
+        spawn_local(async move {
+            let args = js_sys::Object::new();
+            js_sys::Reflect::set(&args, &"content".into(), &content.into()).unwrap();
+            if let Some(ref path) = selected_path {
+                js_sys::Reflect::set(&args, &"path".into(), &path.clone().into()).unwrap();
+            }
+            match invoke("save_owlyshield_static_rules_raw", args.into())
+                .await
+                .as_string()
+            {
+                Some(error_message) if !error_message.is_empty() => {
+                    set_owlyshield_static_rules_status
+                        .set(format!("Save returned: {}", error_message));
+                }
+                _ => {
+                    set_owlyshield_static_rules_status
+                        .set("HydraDragonStatic signature file saved.".to_string());
                 }
             }
         });
@@ -1464,6 +1553,7 @@ pub fn App() -> impl IntoView {
             fetch_rules_raw();
             fetch_body_changers();
             fetch_saved_logs();
+            fetch_owlyshield_static_rules();
             spawn_local(async move {
                 let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
                 match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
@@ -2627,21 +2717,21 @@ pub fn App() -> impl IntoView {
                                     // ── Tab Bar ──────────────────────────────────────────────
                                     <div style="display: flex; border-bottom: 1px solid #333; margin-bottom: 12px">
                                         <button
-                                            class={move || if !show_editor.get() && !show_bc_form.get() && !show_owlyshield_editor.get() { "nav-item active" } else { "nav-item" }}
+                                            class={move || if !show_editor.get() && !show_bc_form.get() && !show_owlyshield_editor.get() && !show_owlyshield_static_editor.get() { "nav-item active" } else { "nav-item" }}
                                             style="padding: 8px 18px; border-radius: 4px 4px 0 0"
-                                            on:click=move |_| { set_show_editor.set(false); set_show_bc_form.set(false); set_show_owlyshield_editor.set(false); }>
+                                            on:click=move |_| { set_show_editor.set(false); set_show_bc_form.set(false); set_show_owlyshield_editor.set(false); set_show_owlyshield_static_editor.set(false); }>
                                             "Rules Wiki"
                                         </button>
                                         <button
                                             class={move || if show_editor.get() { "nav-item active" } else { "nav-item" }}
                                             style="padding: 8px 18px; border-radius: 4px 4px 0 0"
-                                            on:click=move |_| { set_show_editor.set(true); set_show_bc_form.set(false); set_show_owlyshield_editor.set(false); fetch_rules_raw(); }>
+                                            on:click=move |_| { set_show_editor.set(true); set_show_bc_form.set(false); set_show_owlyshield_editor.set(false); set_show_owlyshield_static_editor.set(false); fetch_rules_raw(); }>
                                             "Edit YAML"
                                         </button>
                                         <button
                                             class={move || if show_bc_form.get() { "nav-item active" } else { "nav-item" }}
                                             style="padding: 8px 18px; border-radius: 4px 4px 0 0"
-                                            on:click=move |_| { set_show_bc_form.set(true); set_show_editor.set(false); set_show_owlyshield_editor.set(false); fetch_body_changers(); }>
+                                            on:click=move |_| { set_show_bc_form.set(true); set_show_editor.set(false); set_show_owlyshield_editor.set(false); set_show_owlyshield_static_editor.set(false); fetch_body_changers(); }>
                                             "Body Changer"
                                         </button>
                                         <button
@@ -2651,6 +2741,7 @@ pub fn App() -> impl IntoView {
                                                 set_show_owlyshield_editor.set(true);
                                                 set_show_editor.set(false);
                                                 set_show_bc_form.set(false);
+                                                set_show_owlyshield_static_editor.set(false);
                                                 spawn_local(async move {
                                                     let val = invoke("list_owlyshield_rules_files", JsValue::NULL).await;
                                                     match serde_wasm_bindgen::from_value::<OwlyshieldRulesDirectoryView>(val) {
@@ -2690,6 +2781,18 @@ pub fn App() -> impl IntoView {
                                             }>
                                             "Owlyshield Rules"
                                         </button>
+                                        <button
+                                            class={move || if show_owlyshield_static_editor.get() { "nav-item active" } else { "nav-item" }}
+                                            style="padding: 8px 18px; border-radius: 4px 4px 0 0"
+                                            on:click=move |_| {
+                                                set_show_owlyshield_static_editor.set(true);
+                                                set_show_owlyshield_editor.set(false);
+                                                set_show_editor.set(false);
+                                                set_show_bc_form.set(false);
+                                                fetch_owlyshield_static_rules();
+                                            }>
+                                            "Static Signatures"
+                                        </button>
                                         // save/validate buttons for YAML tabs
                                         {move || if show_editor.get() {
                                             view! {
@@ -2702,6 +2805,12 @@ pub fn App() -> impl IntoView {
                                             view! {
                                                 <div style="margin-left: auto; display: flex; gap: 10px; align-items: center">
                                                     <button class="btn-primary" on:click=move |_| save_owlyshield_rules()> "Save" </button>
+                                                </div>
+                                            }.into_view()
+                                        } else if show_owlyshield_static_editor.get() {
+                                            view! {
+                                                <div style="margin-left: auto; display: flex; gap: 10px; align-items: center">
+                                                    <button class="btn-primary" on:click=move |_| save_owlyshield_static_rules()> "Save" </button>
                                                 </div>
                                             }.into_view()
                                         } else { view!{}.into_view() }}
@@ -2820,6 +2929,103 @@ pub fn App() -> impl IntoView {
                                                 <textarea class="glass-card" style="flex: 1; width: 100%; box-sizing: border-box; padding: 20px; font-family: monospace; resize: none"
                                                     prop:value=move || owlyshield_rules_content.get()
                                                     on:input=move |ev| set_owlyshield_rules_content.set(event_target_value(&ev)) />
+                                            </div>
+                                        }.into_view()
+                                    } else if show_owlyshield_static_editor.get() {
+                                        view! {
+                                            <div style="display: flex; flex-direction: column; height: 100%; gap: 8px">
+                                                <div class="glass-card" style="padding: 12px 16px; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px">
+                                                    <div>
+                                                        "Editing HydraDragonStatic signatures from "
+                                                        <code style="color: var(--accent-blue)">"hydradragon\\Owlyshield\\static_rules"</code>
+                                                    </div>
+                                                    <div style="display: flex; gap: 12px; align-items: end; flex-wrap: wrap">
+                                                        <div class="input-group" style="margin: 0; min-width: 220px">
+                                                            <label style="margin-bottom: 6px">"Detection mode"</label>
+                                                            <select
+                                                                prop:value=move || owlyshield_static_rules_mode.get()
+                                                                on:change=move |ev| {
+                                                                    let mode = event_target_value(&ev);
+                                                                    set_owlyshield_static_rules_mode.set(mode.clone());
+                                                                    spawn_local(async move {
+                                                                        let args = js_sys::Object::new();
+                                                                        js_sys::Reflect::set(&args, &"mode".into(), &mode.into()).unwrap();
+                                                                        match invoke("save_owlyshield_static_rules_mode", args.into()).await.as_string() {
+                                                                            Some(error_message) if !error_message.is_empty() => {
+                                                                                set_owlyshield_static_rules_status.set(format!("Mode save returned: {}", error_message));
+                                                                            }
+                                                                            _ => {
+                                                                                set_owlyshield_static_rules_status.set("HydraDragonStatic detection mode saved.".to_string());
+                                                                            }
+                                                                        }
+                                                                    });
+                                                                }
+                                                            >
+                                                                <option value="malware">"Malware only"</option>
+                                                                <option value="suspicious">"Suspicious + malware"</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div style="display: flex; gap: 12px; align-items: end; flex-wrap: wrap">
+                                                        <div class="input-group" style="margin: 0; min-width: 280px; flex: 1">
+                                                            <label style="margin-bottom: 6px">"Signature file"</label>
+                                                            <select
+                                                                prop:value=move || selected_owlyshield_static_rule_path.get().unwrap_or_default()
+                                                                prop:disabled=move || owlyshield_static_rule_files.get().is_empty()
+                                                                on:change=move |ev| {
+                                                                    let selected = event_target_value(&ev);
+                                                                    set_selected_owlyshield_static_rule_path.set(Some(selected.clone()));
+                                                                    spawn_local(async move {
+                                                                        let args = js_sys::Object::new();
+                                                                        js_sys::Reflect::set(&args, &"path".into(), &selected.into()).unwrap();
+                                                                        let raw = invoke("get_owlyshield_static_rules_raw", args.into()).await;
+                                                                        match serde_wasm_bindgen::from_value::<String>(raw) {
+                                                                            Ok(content) => {
+                                                                                set_owlyshield_static_rules_content.set(content);
+                                                                                set_owlyshield_static_rules_status.set(String::new());
+                                                                            }
+                                                                            Err(_) => {
+                                                                                set_owlyshield_static_rules_content.set(String::new());
+                                                                                set_owlyshield_static_rules_status.set("Failed to load the selected static signature file.".to_string());
+                                                                            }
+                                                                        }
+                                                                    });
+                                                                }
+                                                            >
+                                                                <For
+                                                                    each={move || owlyshield_static_rule_files.get()}
+                                                                    key={|file| file.path.clone()}
+                                                                    children={move |file| view! {
+                                                                        <option value={file.path.clone()}>{file.name.clone()}</option>
+                                                                    }}
+                                                                />
+                                                            </select>
+                                                        </div>
+                                                        <button class="btn-secondary" on:click=move |_| fetch_owlyshield_static_rules()>
+                                                            "Refresh Files"
+                                                        </button>
+                                                    </div>
+                                                    <div>
+                                                        <strong>"Directory: "</strong>
+                                                        <code style="color: var(--accent-blue)">{move || owlyshield_static_rules_directory.get()}</code>
+                                                    </div>
+                                                    <div>
+                                                        <strong>"Selected file: "</strong>
+                                                        <code style="color: var(--accent-blue)">
+                                                            {move || selected_owlyshield_static_rule_path.get().unwrap_or_else(|| "No file selected".to_string())}
+                                                        </code>
+                                                    </div>
+                                                    {move || if !owlyshield_static_rules_status.get().is_empty() {
+                                                        view! {
+                                                            <div style="color: var(--accent-orange)">{owlyshield_static_rules_status.get()}</div>
+                                                        }.into_view()
+                                                    } else {
+                                                        view! {}.into_view()
+                                                    }}
+                                                </div>
+                                                <textarea class="glass-card" style="flex: 1; width: 100%; box-sizing: border-box; padding: 20px; font-family: monospace; resize: none"
+                                                    prop:value=move || owlyshield_static_rules_content.get()
+                                                    on:input=move |ev| set_owlyshield_static_rules_content.set(event_target_value(&ev)) />
                                             </div>
                                         }.into_view()
                                     } else if show_bc_form.get() {

@@ -1,0 +1,264 @@
+name: hydradragon-windows-registry-sabotage-native-yamdle
+version: 1
+rules:
+  - id: HDS_REG_DEFENDER_DISABLE_TAMPER
+    title: Windows Defender disabling or tamper-protection registry command
+    description: Detects static reg.exe command templates that disable Defender, realtime scanning, TamperProtection, or Defender notifications.
+    severity: Critical
+    verdict: malware
+    confidence: 94
+    score: 55
+    tags: [windows, registry, defender, tamper, reg_add, static_signature]
+    logic: any
+    conditions:
+      - type: native_signature
+        expression: "any of them"
+        atoms:
+          - id: disable_antispyware
+            kind: regex
+            value: 'reg(\.exe)?\s+add.*Windows Defender.*DisableAntiSpyware.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_win_defender
+            kind: regex
+            value: 'reg(\.exe)?\s+add.*Windows Defender.*DisableWinDefender.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_scan_realtime
+            kind: regex
+            value: 'reg(\.exe)?\s+add.*Windows Defender.*DisableScanOnRealTimeEnable.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_realtime_monitoring
+            kind: regex
+            value: 'Windows Defender\\Real Time Protection.*DisableRealTimeMonitoring'
+            nocase: true
+          - id: tamper_protection_zero
+            kind: regex
+            value: 'Windows Defender\\Features.*TamperProtection.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+          - id: security_health_disabled
+            kind: regex
+            value: 'SecurityHealthService.*\bStart\b.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+          - id: defender_notification_suppressed
+            kind: regex
+            value: 'Windows Defender\\UX Configuration.*Notification_Suppress.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: antivirus_override_enabled
+            kind: regex
+            value: 'Security Center.*AntiVirusOverride.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+
+  - id: HDS_REG_THIRD_PARTY_AV_SELF_PROTECTION_DISABLE
+    title: Third-party AV self-protection disable registry values
+    description: Detects registry tampering against common AV products such as Avast, AVG, Bitdefender, McAfee, ESET, Kaspersky, Malwarebytes, Norton, and Avira.
+    severity: Critical
+    verdict: malware
+    confidence: 92
+    score: 50
+    tags: [windows, registry, av_bypass, tamper, static_signature]
+    logic: any
+    conditions:
+      - type: native_signature
+        expression: "any of them"
+        atoms:
+          - id: avast_self_protect
+            kind: regex
+            value: 'AVAST Software\\Avast.*aswidsagenta.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+          - id: avg_disable_av
+            kind: regex
+            value: 'SOFTWARE\\AVG.*DisableAv.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: bitdefender_block_user
+            kind: regex
+            value: 'SOFTWARE\\Bitdefender.*BlockUserModeAccess.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: mcafee_disable_self_protection
+            kind: regex
+            value: 'SOFTWARE\\McAfee.*bDisableSelfProtection.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: eset_protect_disabled
+            kind: regex
+            value: 'ESET\\ESET Security.*ProtectEnabled.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+          - id: kaspersky_disabled
+            kind: regex
+            value: 'SOFTWARE\\KasperskyLab.*Enable.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+          - id: malwarebytes_disabled
+            kind: regex
+            value: 'SOFTWARE\\Malwarebytes.*MalwareProtectionEnabled.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+          - id: norton_disabled
+            kind: regex
+            value: 'SOFTWARE\\Norton.*Enable.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+          - id: avira_disabled
+            kind: regex
+            value: 'SOFTWARE\\Avira.*ProductEnabled.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+
+  - id: HDS_REG_IFEO_DEBUGGER_TASKKILL_SABOTAGE
+    title: IFEO Debugger taskkill sabotage of system tools or boot components
+    description: Detects Image File Execution Options Debugger hijacks that point protected/admin/system tools to taskkill or systray payloads.
+    severity: Critical
+    verdict: malware
+    confidence: 96
+    score: 70
+    tags: [windows, registry, ifeo, debugger_hijack, sabotage, taskkill]
+    logic: all
+    conditions:
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - 'Image File Execution Options'
+          - 'IFEO'
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - 'Debugger'
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - 'taskkill /f /im'
+          - 'taskkill.exe'
+          - 'systray.exe'
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - 'regedit.exe'
+          - 'taskmgr.exe'
+          - 'msconfig.exe'
+          - 'explorer.exe'
+          - 'winlogon.exe'
+          - 'winload.exe'
+          - 'svchost.exe'
+          - 'rundll32.exe'
+          - 'mmc.exe'
+          - 'control.exe'
+          - 'powershell_ise.exe'
+          - 'osk.exe'
+          - 'utilman.exe'
+          - 'TabTip.exe'
+          - 'sethc.exe'
+          - 'ntoskrnl.exe'
+          - 'hal.dll'
+          - 'tcpip.sys'
+          - 'disk.sys'
+          - 'volmgr.sys'
+          - 'classpnp.sys'
+
+  - id: HDS_REG_POLICY_LOCKDOWN_AND_ADMIN_TOOL_DISABLE
+    title: Windows policy lockdown of admin tools and recovery controls
+    description: Detects registry values commonly used by destructive scripts to disable Task Manager, CMD, Registry Tools, MMC, Event Viewer, SafeBoot, RunAs, USB storage, or recovery functions.
+    severity: High
+    verdict: malware
+    confidence: 90
+    score: 45
+    tags: [windows, registry, policy, lockdown, sabotage]
+    logic: any
+    conditions:
+      - type: native_signature
+        expression: "any of them"
+        atoms:
+          - id: disable_taskmgr
+            kind: regex
+            value: 'Policies\\System.*DisableTaskMgr.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_cmd
+            kind: regex
+            value: 'Policies\\System.*DisableCMD.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_regtools
+            kind: regex
+            value: 'Policies\\System.*DisableRegistryTools.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_msconfig
+            kind: regex
+            value: 'Policies\\System.*DisableMSCONFIG.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_mmc
+            kind: regex
+            value: 'Policies\\System.*DisableMMC.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_event_viewer
+            kind: regex
+            value: 'Policies\\System.*DisableEventViewer.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_performance_monitor
+            kind: regex
+            value: 'DisablePerformanceMonitor.*(/d|\s-d)\s+[\"'']?1'
+            nocase: true
+          - id: disable_safeboot_option
+            kind: regex
+            value: 'SafeBoot\\(Minimal|Network).*OptionValue.*(/d|\s-d)\s+[\"'']?4'
+            nocase: true
+          - id: disable_usb_storage
+            kind: regex
+            value: 'Services\\USBSTOR.*\bStart\b.*(/d|\s-d)\s+[\"'']?4'
+            nocase: true
+          - id: crashdump_disabled
+            kind: regex
+            value: 'CrashControl.*CrashDumpEnabled.*(/d|\s-d)\s+[\"'']?0'
+            nocase: true
+
+  - id: HDS_REG_PERSISTENCE_RUN_KEYS_SCRIPT_PATH
+    title: Registry Run/RunServices/RunOnceEx persistence command template
+    description: Detects registry persistence under Run, RunServices, and RunOnceEx with suspicious self-reference or system driver path values.
+    severity: High
+    verdict: malware
+    confidence: 88
+    score: 45
+    tags: [windows, registry, persistence, run_key]
+    logic: all
+    conditions:
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - '\Microsoft\Windows\CurrentVersion\Run'
+          - '\Microsoft\Windows\CurrentVersion\RunServices'
+          - '\Microsoft\Windows\CurrentVersion\RunOnceEx'
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - '%systemroot%\system32\drivers\%0'
+          - '%windir%\%0'
+          - 'PWNAGE'
+          - 'rundll32_'
+
+  - id: HDS_REG_DESTRUCTIVE_EXTENSION_AND_SHELL_ASSOC_TAMPER
+    title: Destructive file association or shell UX registry tamper
+    description: Detects destructive changes such as deleting .lnk association, Unknown default icon, shell icon overrides, or disabling Explorer UI controls.
+    severity: High
+    verdict: suspicious
+    confidence: 82
+    score: 30
+    tags: [windows, registry, destructive, shell, explorer]
+    logic: any
+    conditions:
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - 'HKEY_CLASSES_ROOT\.lnk'
+          - 'HKEY_CLASSES_ROOT\Unknown\DefaultIcon'
+          - 'Explorer\Shell Icons'
+          - 'NoViewContextMenu'
+          - 'NoFolderOptions'
+          - 'NoDesktop'
+          - 'NoClose'
+          - 'NoRunAs'
+          - 'NoRecycleFiles'
+          - 'NoUserNameInStartMenu'

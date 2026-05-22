@@ -15,6 +15,8 @@ Windows Registry Editor Version 5.00
 "CONFIG_PATH"="C:\\ProgramData\\HydraDragonAntivirus\\Owlyshield\\config"
 "NOVELTY_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\novelty"
 "RULES_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\rules"
+"STATIC_RULES_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\static_rules"
+"STATIC_RULES_MODE"="malware"
 
 [HKEY_CURRENT_USER\Software\Classes\AppUserModelId\8C19967B-1D27-4E6A-85CD-5059912C2788]
 "DisplayName"="HydraDragon Antivirus"

@@ -1,0 +1,14 @@
+name: HydraDragonStatic User Rules
+version: "1"
+rules:
+  - id: HYDRA-STATIC-USER-PLACEHOLDER
+    title: User static signature placeholder
+    description: Safe placeholder rule; replace it from the Firewall Static Signatures editor.
+    severity: Info
+    verdict: clean
+    confidence: 0
+    score: 0
+    logic: all
+    conditions:
+      - type: path_regex
+        pattern: "a^"

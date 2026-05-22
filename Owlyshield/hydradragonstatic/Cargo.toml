@@ -10,19 +10,24 @@ authors = ["HydraDragon"]
 [[bin]]
 name = "hydradragonstatic"
 path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+cli = ["dep:clap", "dep:colored", "dep:env_logger", "dep:indicatif"]
 
 [dependencies]
 anyhow = "1.0.102"
 aho-corasick = "1.1.4"
 base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
-clap = { version = "4.6.1", features = ["derive"] }
-colored = "3.1.1"
+clap = { version = "4.6.1", features = ["derive"], optional = true }
+colored = { version = "3.1.1", optional = true }
 digest = "0.11.2"
-env_logger = "0.11.10"
+env_logger = { version = "0.11.10", optional = true }
 goblin = "0.10.5"
 hex = "0.4.3"
-indicatif = "0.18.4"
+indicatif = { version = "0.18.4", optional = true }
 log = "0.4.29"
 md-5 = "0.11.0"
 memchr = "2.7.6"

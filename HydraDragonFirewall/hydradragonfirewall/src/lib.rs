@@ -193,6 +193,110 @@ fn get_owlyshield_rules_dir() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
+fn static_rules_dir_from_rules_dir(rules_dir: &std::path::Path) -> std::path::PathBuf {
+    rules_dir
+        .parent()
+        .map(|parent| parent.join("static_rules"))
+        .unwrap_or_else(|| std::path::PathBuf::from("static_rules"))
+}
+
+fn normalize_static_rules_mode(mode: &str) -> String {
+    if mode.trim().eq_ignore_ascii_case("suspicious") {
+        "suspicious".to_string()
+    } else {
+        "malware".to_string()
+    }
+}
+
+fn local_owlyshield_static_rules_dir() -> Option<std::path::PathBuf> {
+    let cwd_candidate = std::path::PathBuf::from("hydradragon")
+        .join("Owlyshield")
+        .join("static_rules");
+    if cwd_candidate.exists() {
+        return Some(cwd_candidate);
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        for ancestor in exe_path.ancestors() {
+            let repo_candidate = ancestor
+                .join("hydradragon")
+                .join("Owlyshield")
+                .join("static_rules");
+            if repo_candidate.exists() {
+                return Some(repo_candidate);
+            }
+
+            if ancestor.file_name().and_then(|name| name.to_str()) == Some("Owlyshield") {
+                return Some(ancestor.join("static_rules"));
+            }
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
+async fn get_owlyshield_static_rules_mode() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        if let Some(mode) = hklm
+            .open_subkey(r"SOFTWARE\Owlyshield")
+            .ok()
+            .and_then(|key| key.get_value::<String, _>("STATIC_RULES_MODE").ok())
+        {
+            return normalize_static_rules_mode(&mode);
+        }
+    }
+
+    "malware".to_string()
+}
+
+#[tauri::command]
+async fn save_owlyshield_static_rules_mode(mode: String) -> Result<(), String> {
+    let normalized = normalize_static_rules_mode(&mode);
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let (key, _) = hklm
+            .create_subkey(r"SOFTWARE\Owlyshield")
+            .map_err(|e| e.to_string())?;
+        key.set_value("STATIC_RULES_MODE", &normalized)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn get_owlyshield_static_rules_dir() -> Option<std::path::PathBuf> {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    if let Some(path) = hklm
+        .open_subkey(r"SOFTWARE\Owlyshield")
+        .ok()
+        .and_then(|key| key.get_value::<String, _>("STATIC_RULES_PATH").ok())
+        .filter(|value| !value.trim().is_empty())
+        .map(std::path::PathBuf::from)
+    {
+        return Some(path);
+    }
+
+    get_owlyshield_rules_dir()
+        .map(|rules_dir| static_rules_dir_from_rules_dir(&rules_dir))
+        .or_else(local_owlyshield_static_rules_dir)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_owlyshield_static_rules_dir() -> Option<std::path::PathBuf> {
+    local_owlyshield_static_rules_dir().or_else(|| Some(std::path::PathBuf::from("static_rules")))
+}
+
 #[cfg(target_os = "windows")]
 fn get_owlyshield_reports_dir() -> Option<std::path::PathBuf> {
     use winreg::RegKey;
@@ -403,6 +507,73 @@ async fn list_owlyshield_rules_files() -> OwlyshieldRulesDirectoryView {
     }
 }
 
+fn validate_static_rules_yaml(content: &str) -> Result<(), String> {
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(content).map_err(|e| format!("Invalid static rules YAML: {e}"))?;
+    let mapping = value
+        .as_mapping()
+        .ok_or_else(|| "Static rules YAML must be a mapping with a rules list.".to_string())?;
+    let rules_key = serde_yaml::Value::String("rules".to_string());
+    let rules = mapping
+        .get(&rules_key)
+        .ok_or_else(|| "Static rules YAML must contain a top-level rules list.".to_string())?;
+    if !rules.is_sequence() {
+        return Err("Static rules YAML field 'rules' must be a list.".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_owlyshield_static_rules_files() -> OwlyshieldRulesDirectoryView {
+    let dir = get_owlyshield_static_rules_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("static_rules"));
+
+    let selected_path =
+        resolve_rules_file_from_registry_dir(&dir).map(|path| path.to_string_lossy().to_string());
+
+    let files = if dir.is_dir() {
+        list_owlyshield_rule_files(&dir)
+            .into_iter()
+            .map(|path| {
+                let path_string = path.to_string_lossy().to_string();
+                OwlyshieldRulesFileEntry {
+                    name: path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("static_rules")
+                        .to_string(),
+                    selected: selected_path.as_deref() == Some(path_string.as_str()),
+                    path: path_string,
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let mut files = files;
+    if files.is_empty() {
+        let local_path = dir.join("user_static_rules.yaml");
+        files.push(OwlyshieldRulesFileEntry {
+            name: "user_static_rules.yaml".to_string(),
+            path: local_path.to_string_lossy().to_string(),
+            selected: true,
+        });
+    }
+
+    OwlyshieldRulesDirectoryView {
+        directory: dir.to_string_lossy().to_string(),
+        selected_path: selected_path.or_else(|| {
+            Some(
+                dir.join("user_static_rules.yaml")
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        }),
+        files,
+    }
+}
+
 #[tauri::command]
 async fn list_owlyshield_report_files() -> OwlyshieldReportsDirectoryView {
     let dir = {
@@ -485,6 +656,29 @@ async fn get_owlyshield_rules_raw(path: Option<String>) -> String {
 
     let local_path = dir.join("owlyshield_rules.yaml");
     std::fs::read_to_string(local_path).unwrap_or_default()
+}
+
+#[tauri::command]
+async fn get_owlyshield_static_rules_raw(path: Option<String>) -> String {
+    if let Some(p) = path {
+        if let Ok(content) = std::fs::read_to_string(p) {
+            return content;
+        }
+    }
+
+    let dir = get_owlyshield_static_rules_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("static_rules"));
+
+    if let Some(path) = resolve_rules_file_from_registry_dir(&dir) {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            return content;
+        }
+    }
+
+    let local_path = dir.join("user_static_rules.yaml");
+    std::fs::read_to_string(local_path).unwrap_or_else(|_| {
+        "name: HydraDragonStatic User Rules\nversion: \"1\"\nrules: []\n".to_string()
+    })
 }
 
 #[tauri::command]
@@ -594,6 +788,29 @@ async fn save_owlyshield_rules_raw(content: String, path: Option<String>) -> Res
 
     let _ = std::fs::create_dir_all(&dir);
     let local_path = dir.join("owlyshield_rules.yaml");
+    std::fs::write(local_path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_owlyshield_static_rules_raw(
+    content: String,
+    path: Option<String>,
+) -> Result<(), String> {
+    validate_static_rules_yaml(&content)?;
+
+    if let Some(p) = path {
+        let target = std::path::PathBuf::from(p);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        return std::fs::write(target, content).map_err(|e| e.to_string());
+    }
+
+    let dir = get_owlyshield_static_rules_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("static_rules"));
+
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let local_path = dir.join("user_static_rules.yaml");
     std::fs::write(local_path, content).map_err(|e| e.to_string())
 }
 
@@ -931,6 +1148,22 @@ pub fn run() {
                     .unwrap_or_else(|| std::path::PathBuf::from("rules"));
                 let _ = key.set_value("RULES_PATH", &default_dir.to_string_lossy().to_string());
             }
+            if key.get_value::<String, _>("STATIC_RULES_PATH").is_err() {
+                let static_dir = key
+                    .get_value::<String, _>("RULES_PATH")
+                    .ok()
+                    .map(std::path::PathBuf::from)
+                    .map(|rules_dir| static_rules_dir_from_rules_dir(&rules_dir))
+                    .or_else(local_owlyshield_static_rules_dir)
+                    .unwrap_or_else(|| std::path::PathBuf::from("static_rules"));
+                let _ = key.set_value(
+                    "STATIC_RULES_PATH",
+                    &static_dir.to_string_lossy().to_string(),
+                );
+            }
+            if key.get_value::<String, _>("STATIC_RULES_MODE").is_err() {
+                let _ = key.set_value("STATIC_RULES_MODE", &"malware".to_string());
+            }
         }
     }
 
@@ -1084,11 +1317,16 @@ pub fn run() {
             get_body_changers,
             save_body_changers,
             list_owlyshield_rules_files,
+            list_owlyshield_static_rules_files,
+            get_owlyshield_static_rules_mode,
+            save_owlyshield_static_rules_mode,
             list_owlyshield_report_files,
             list_firewall_quarantine_files,
             get_owlyshield_rules_raw,
+            get_owlyshield_static_rules_raw,
             get_owlyshield_report_raw,
             save_owlyshield_rules_raw,
+            save_owlyshield_static_rules_raw,
             get_readme_content,
         ])
         .run(tauri::generate_context!())

@@ -24,6 +24,8 @@ pub enum Param {
     MqttServer,
     NoveltyPath,
     RulesPath,
+    StaticRulesPath,
+    StaticRulesMode,
     ReportDir,
     SdkPath,
     LogPath,
@@ -60,6 +62,8 @@ impl Param {
             Param::MqttServer => "MQTT_SERVER",
             Param::NoveltyPath => "NOVELTY_PATH",
             Param::RulesPath => "RULES_PATH",
+            Param::StaticRulesPath => "STATIC_RULES_PATH",
+            Param::StaticRulesMode => "STATIC_RULES_MODE",
             Param::ReportDir => "REPORTS_PATH",
             Param::SdkPath => "SDK_PATH",
             Param::LogPath => "LOG_PATH", // Path to log output directory
@@ -87,6 +91,8 @@ impl Param {
             Param::MqttServer => "mqtt_server",
             Param::NoveltyPath => "novelty_path",
             Param::RulesPath => "rules_path",
+            Param::StaticRulesPath => "static_rules_path",
+            Param::StaticRulesMode => "static_rules_mode",
             Param::ReportDir => "report_dir",
             Param::SdkPath => "sdk_path",
             Param::LogPath => "log_path", // Path to log output directory
@@ -129,6 +135,8 @@ impl Param {
         }
 
         params.push(Param::RulesPath);
+        params.push(Param::StaticRulesPath);
+        params.push(Param::StaticRulesMode);
         params.push(Param::ReportDir);
 
         let mut ret = Vec::new();
@@ -153,6 +161,8 @@ impl Param {
             "MQTT_SERVER" => Param::MqttServer,
             "NOVELTY_PATH" => Param::NoveltyPath,
             "RULES_PATH" => Param::RulesPath,
+            "STATIC_RULES_PATH" => Param::StaticRulesPath,
+            "STATIC_RULES_MODE" => Param::StaticRulesMode,
             "REPORTS_PATH" => Param::ReportDir,
             "SDK_PATH" => Param::SdkPath,
             "LOG_PATH" => Param::LogPath, // Path to log output directory
@@ -180,6 +190,8 @@ impl Param {
             "mqtt_server" => Param::MqttServer,
             "novelty_path" => Param::NoveltyPath,
             "rules_path" => Param::RulesPath,
+            "static_rules_path" => Param::StaticRulesPath,
+            "static_rules_mode" => Param::StaticRulesMode,
             "report_dir" => Param::ReportDir,
             "sdk_path" => Param::SdkPath,
             "log_path" => Param::LogPath, // Path to log output directory

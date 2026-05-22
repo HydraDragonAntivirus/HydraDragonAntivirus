@@ -28,7 +28,7 @@ use windows::Win32::System::Pipes::{
 use windows::Win32::System::Threading::{HIGH_PRIORITY_CLASS, SetPriorityClass};
 
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
-use crate::config::Config;
+use crate::config::{Config, Param};
 use crate::driver_com::Driver;
 use crate::logging::Logging;
 use crate::process::ProcessRecord;
@@ -38,6 +38,9 @@ use crate::threat_handler::ThreatHandler;
 use crate::utils::validate_pipe_client;
 use crate::worker::predictor::PredictorMalware;
 use chrono::Utc;
+use hydradragonstatic::models::{ScanReport, Verdict};
+use hydradragonstatic::rules::RuleSet;
+use hydradragonstatic::{EngineCore, ScanOptions};
 
 // --- Pipe names (single source of truth) ---
 #[allow(dead_code)] // Silencing warning, this pipe may be used by the external AV client
@@ -73,8 +76,37 @@ const DIE_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_millis(750);
 const DEEP_SCAN_TIMEOUT_MS: u64 = 180_000;
 const MINIMAL_SCAN_TIMEOUT_MS: u64 = 30_000;
 const LATE_CHILD_SCAN_GRACE_MS: u64 = 30_000;
+const HYDRADRAGON_STATIC_RULES_DIR_NAME: &str = "static_rules";
+const HYDRADRAGON_STATIC_RULE_RELOAD_INTERVAL: Duration = Duration::from_secs(5);
 
 static ACTIVE_DIE_METADATA_SCANS: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StaticDetectionMode {
+    Malware,
+    Suspicious,
+}
+
+impl StaticDetectionMode {
+    fn from_config(raw: Option<&str>) -> Self {
+        match raw
+            .unwrap_or("malware")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "suspicious" => StaticDetectionMode::Suspicious,
+            _ => StaticDetectionMode::Malware,
+        }
+    }
+
+    fn includes(self, verdict: Verdict) -> bool {
+        match self {
+            StaticDetectionMode::Malware => verdict == Verdict::Malware,
+            StaticDetectionMode::Suspicious => verdict != Verdict::Clean,
+        }
+    }
+}
 
 /// Action to take when a threat is detected
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
@@ -260,6 +292,7 @@ fn log_skip_large_file(context: &str, path: &Path) {
 struct ScanMetadata {
     signature_status: Option<FileSignatureStatus>,
     yara_x_matches: Vec<String>,
+    hydradragon_static_matches: Vec<String>,
     is_vmprotect: bool,
     detectiteasy_scan_result: Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
     should_queue_scan: bool,
@@ -270,6 +303,7 @@ impl ScanMetadata {
         ScanMetadata {
             signature_status: None,
             yara_x_matches: Vec::new(),
+            hydradragon_static_matches: Vec::new(),
             is_vmprotect: false,
             detectiteasy_scan_result: None,
             should_queue_scan: true,
@@ -1590,6 +1624,11 @@ pub struct AVIntegration<'a> {
     tinyav_missing_logged: bool,
     yara_rules: Option<yara_x::Rules>,
     excluded_yara_rules: std::collections::HashSet<String>,
+    hydradragon_static_rules_dir: PathBuf,
+    hydradragon_static_rules_marker: Option<u128>,
+    hydradragon_static_last_reload: Instant,
+    hydradragon_static_detection_mode: StaticDetectionMode,
+    hydradragon_static_engine: Option<EngineCore>,
     _scan_request_handle: thread::JoinHandle<()>,
     _av_to_edr_listener_handle: thread::JoinHandle<()>,
 }
@@ -1637,6 +1676,267 @@ fn load_yara_x_rules() -> Option<yara_x::Rules> {
     }
 
     if added { Some(compiler.build()) } else { None }
+}
+
+fn default_program_files_static_rules_dir() -> Option<PathBuf> {
+    std::env::var("ProgramFiles").ok().map(|program_files| {
+        PathBuf::from(program_files)
+            .join("HydraDragonAntivirus")
+            .join("hydradragon")
+            .join("Owlyshield")
+            .join(HYDRADRAGON_STATIC_RULES_DIR_NAME)
+    })
+}
+
+fn resolve_hydradragon_static_rules_dir(config: &Config) -> PathBuf {
+    if let Some(path) = config
+        .get_param(Param::StaticRulesPath)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        return PathBuf::from(path);
+    }
+
+    if let Some(path) = config
+        .get_param(Param::RulesPath)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        let rules_path = PathBuf::from(path);
+        if let Some(parent) = rules_path.parent() {
+            return parent.join(HYDRADRAGON_STATIC_RULES_DIR_NAME);
+        }
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        for ancestor in exe_path.ancestors() {
+            if ancestor.file_name().and_then(|name| name.to_str()) == Some("Owlyshield") {
+                return ancestor.join(HYDRADRAGON_STATIC_RULES_DIR_NAME);
+            }
+        }
+    }
+
+    default_program_files_static_rules_dir()
+        .unwrap_or_else(|| PathBuf::from(HYDRADRAGON_STATIC_RULES_DIR_NAME))
+}
+
+#[cfg(target_os = "windows")]
+fn read_static_rules_mode_from_registry() -> Option<String> {
+    use registry::{Hive, Security};
+    Hive::LocalMachine
+        .open(r"SOFTWARE\Owlyshield", Security::Read)
+        .ok()
+        .and_then(|key| key.value("STATIC_RULES_MODE").ok())
+        .map(|value| value.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_static_rules_mode_from_registry() -> Option<String> {
+    None
+}
+
+fn resolve_hydradragon_static_detection_mode(config: &Config) -> StaticDetectionMode {
+    let registry_mode = read_static_rules_mode_from_registry();
+    StaticDetectionMode::from_config(
+        registry_mode
+            .as_deref()
+            .or_else(|| config.get_param(Param::StaticRulesMode)),
+    )
+}
+
+fn collect_hydradragon_static_rule_files(dir: &Path) -> Vec<PathBuf> {
+    if dir.is_file() {
+        return vec![dir.to_path_buf()];
+    }
+
+    if !dir.is_dir() {
+        return Vec::new();
+    }
+
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some("yaml" | "yml")
+                )
+        })
+        .collect();
+
+    files.sort_by(|a, b| {
+        let rank = |path: &Path| match path.file_name().and_then(|name| name.to_str()) {
+            Some("engine_static_rules.yaml") => 0,
+            Some("engine_static_rules.yml") => 1,
+            Some("user_static_rules.yaml") => 2,
+            Some("user_static_rules.yml") => 3,
+            _ => 10,
+        };
+
+        rank(a)
+            .cmp(&rank(b))
+            .then_with(|| a.file_name().cmp(&b.file_name()))
+    });
+
+    files
+}
+
+fn hydradragon_static_rules_marker(dir: &Path, files: &[PathBuf]) -> Option<u128> {
+    if !dir.exists() {
+        return None;
+    }
+
+    let mut marker = files.len() as u128;
+    for path in files {
+        let metadata = match std::fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        marker = marker
+            .wrapping_mul(16_777_619)
+            .wrapping_add(modified)
+            .wrapping_add(metadata.len() as u128);
+    }
+
+    Some(marker)
+}
+
+fn load_hydradragon_static_engine(dir: &Path) -> (Option<EngineCore>, Option<u128>) {
+    let files = collect_hydradragon_static_rule_files(dir);
+    let marker = hydradragon_static_rules_marker(dir, &files);
+    if files.is_empty() {
+        Logging::debug(&format!(
+            "[HydraDragonStatic] No static rule files found in {}",
+            dir.display()
+        ));
+        return (None, marker);
+    }
+
+    let mut rules = RuleSet::empty();
+    let mut loaded_files = 0usize;
+    for path in &files {
+        match RuleSet::from_yaml_file(path) {
+            Ok(file_rules) => {
+                loaded_files += 1;
+                rules.extend(file_rules);
+            }
+            Err(error) => {
+                Logging::error(&format!(
+                    "[HydraDragonStatic] Failed to load static rule file {}: {error:#}",
+                    path.display()
+                ));
+            }
+        }
+    }
+
+    if rules.rules().is_empty() {
+        Logging::warning(&format!(
+            "[HydraDragonStatic] Static rules directory loaded but no signatures are active: {}",
+            dir.display()
+        ));
+        return (None, marker);
+    }
+
+    let mut options = ScanOptions::default();
+    options.parallel_rules = true;
+    options.stop_on_detection = false;
+    options.core_options.load_simple = true;
+    options.core_options.break_archive_scan = true;
+    options.unpack_config.break_on_threat = true;
+
+    let signature_records = rules.rules().len();
+    let engine = EngineCore::init(rules, options);
+    Logging::info(&format!(
+        "[HydraDragonStatic] Loaded {signature_records} static signature(s) from {loaded_files} file(s) in {}",
+        dir.display()
+    ));
+
+    (Some(engine), marker)
+}
+
+fn hydradragon_static_match_names(
+    report: &ScanReport,
+    detection_mode: StaticDetectionMode,
+) -> Vec<String> {
+    if !detection_mode.includes(report.verdict) {
+        return Vec::new();
+    }
+
+    let mut names = Vec::new();
+    for finding in report
+        .findings
+        .iter()
+        .filter(|finding| detection_mode.includes(finding.verdict))
+    {
+        let name = finding
+            .family
+            .clone()
+            .unwrap_or_else(|| finding.rule_id.clone());
+        if !names.iter().any(|existing| existing == &name) {
+            names.push(name);
+        }
+        if names.len() >= 8 {
+            break;
+        }
+    }
+
+    if names.is_empty() {
+        if let Some(threat_name) = &report.threat_name {
+            names.push(threat_name.clone());
+        } else {
+            names.push("HydraDragonStatic.Heuristic".to_string());
+        }
+    }
+
+    names
+}
+
+fn scan_with_hydradragon_static(
+    engine: &EngineCore,
+    path: &Path,
+    detection_mode: StaticDetectionMode,
+) -> Vec<String> {
+    match engine.scan_path(path) {
+        Ok(report) => hydradragon_static_match_names(&report, detection_mode),
+        Err(error) => {
+            Logging::debug(&format!(
+                "[HydraDragonStatic] Scan skipped for {}: {error:#}",
+                path.display()
+            ));
+            Vec::new()
+        }
+    }
+}
+
+fn hydradragon_static_service_result(matches: &[String]) -> Option<RustServiceScanResult> {
+    let virus_name = matches
+        .iter()
+        .find(|name| !name.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| "HydraDragonStatic.Malware".to_string());
+
+    (!matches.is_empty()).then(|| RustServiceScanResult {
+        engine: "HydraDragonStatic".to_string(),
+        malicious: true,
+        virus_name,
+        is_vmprotect: false,
+        error: None,
+    })
+}
+
+fn append_hydradragon_static_result(results: &mut Vec<RustServiceScanResult>, matches: &[String]) {
+    if let Some(result) = hydradragon_static_service_result(matches) {
+        results.insert(0, result);
+    }
 }
 
 fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> thread::JoinHandle<()> {
@@ -1784,6 +2084,10 @@ impl<'a> AVIntegration<'a> {
         let av_to_edr_listener_handle = spawn_av_to_edr_listener();
         let _mbr_listener_handle = spawn_mbr_alert_listener();
         let _manual_scan_listener_handle = spawn_manual_scan_listener(internal_scan_tx.clone());
+        let hydradragon_static_rules_dir = resolve_hydradragon_static_rules_dir(config);
+        let hydradragon_static_detection_mode = resolve_hydradragon_static_detection_mode(config);
+        let (hydradragon_static_engine, hydradragon_static_rules_marker) =
+            load_hydradragon_static_engine(&hydradragon_static_rules_dir);
 
         AVIntegration {
             config, // <-- MODIFIED: Assigns the borrow
@@ -1795,9 +2099,38 @@ impl<'a> AVIntegration<'a> {
             tinyav_missing_logged: false,
             yara_rules: load_yara_x_rules(),
             excluded_yara_rules: load_excluded_rules(),
+            hydradragon_static_rules_dir,
+            hydradragon_static_rules_marker,
+            hydradragon_static_last_reload: Instant::now(),
+            hydradragon_static_detection_mode,
+            hydradragon_static_engine,
             _scan_request_handle: scan_request_handle,
             _av_to_edr_listener_handle: av_to_edr_listener_handle,
         }
+    }
+
+    fn reload_hydradragon_static_rules_if_changed(&mut self) {
+        if self.hydradragon_static_last_reload.elapsed() < HYDRADRAGON_STATIC_RULE_RELOAD_INTERVAL {
+            return;
+        }
+
+        self.hydradragon_static_last_reload = Instant::now();
+        let detection_mode = resolve_hydradragon_static_detection_mode(self.config);
+        if detection_mode != self.hydradragon_static_detection_mode {
+            self.hydradragon_static_detection_mode = detection_mode;
+            self.scan_metadata_cache.clear();
+        }
+
+        let files = collect_hydradragon_static_rule_files(&self.hydradragon_static_rules_dir);
+        let marker = hydradragon_static_rules_marker(&self.hydradragon_static_rules_dir, &files);
+        if marker == self.hydradragon_static_rules_marker {
+            return;
+        }
+
+        let (engine, marker) = load_hydradragon_static_engine(&self.hydradragon_static_rules_dir);
+        self.hydradragon_static_engine = engine;
+        self.hydradragon_static_rules_marker = marker;
+        self.scan_metadata_cache.clear();
     }
 
     /// Process a single threat event according to its configured action
@@ -1916,7 +2249,11 @@ impl<'a> AVIntegration<'a> {
         if !metadata.should_queue_scan {
             return;
         }
-        let rust_service_scan_results = collect_minimal_service_scan_results(&file_path);
+        let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path);
+        append_hydradragon_static_result(
+            &mut rust_service_scan_results,
+            &metadata.hydradragon_static_matches,
+        );
 
         let request = EDRScanRequest {
             event_type: "NEW_IO_EVENT".to_string(),
@@ -1967,6 +2304,14 @@ impl<'a> AVIntegration<'a> {
             return;
         }
 
+        let static_detected = !metadata.hydradragon_static_matches.is_empty();
+        let effective_scan_mode = if static_detected { "minimal" } else { "deep" };
+        let mut rust_service_scan_results = Vec::new();
+        append_hydradragon_static_result(
+            &mut rust_service_scan_results,
+            &metadata.hydradragon_static_matches,
+        );
+
         let request = EDRScanRequest {
             event_type: "SANCTUM_DEEP_SCAN_REQUEST".to_string(),
             file_path: file_path_string.clone(),
@@ -1976,16 +2321,16 @@ impl<'a> AVIntegration<'a> {
             signature_status: metadata.signature_status,
             yara_x_matches: Some(metadata.yara_x_matches),
             is_vmprotect: metadata.is_vmprotect,
-            deep_scan: true,
-            scan_mode: "deep".to_string(),
+            deep_scan: !static_detected,
+            scan_mode: effective_scan_mode.to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,
             scan_origin_path: Some(file_path_string.clone()),
-            deep_scan_timeout_ms: timeout_for_scan_mode(self.config, "deep"),
+            deep_scan_timeout_ms: timeout_for_scan_mode(self.config, effective_scan_mode),
             late_child_scan_grace_ms: Some(
                 self.config
                     .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
             ),
-            rust_service_scan_results: Vec::new(),
+            rust_service_scan_results,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
@@ -2022,11 +2367,21 @@ impl<'a> AVIntegration<'a> {
         if !metadata.should_queue_scan {
             return;
         }
-        let rust_service_scan_results = if normalized_scan_mode == "minimal" {
+        let static_detected = !metadata.hydradragon_static_matches.is_empty();
+        let effective_scan_mode = if static_detected {
+            "minimal"
+        } else {
+            normalized_scan_mode
+        };
+        let mut rust_service_scan_results = if effective_scan_mode == "minimal" {
             collect_minimal_service_scan_results(&file_path_string)
         } else {
             Vec::new()
         };
+        append_hydradragon_static_result(
+            &mut rust_service_scan_results,
+            &metadata.hydradragon_static_matches,
+        );
 
         let request = EDRScanRequest {
             event_type: "MANUAL_SCAN_REQUEST".to_string(),
@@ -2037,11 +2392,11 @@ impl<'a> AVIntegration<'a> {
             signature_status: metadata.signature_status,
             yara_x_matches: Some(metadata.yara_x_matches),
             is_vmprotect: metadata.is_vmprotect,
-            deep_scan: normalized_scan_mode == "deep",
-            scan_mode: normalized_scan_mode.to_string(),
+            deep_scan: effective_scan_mode == "deep",
+            scan_mode: effective_scan_mode.to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,
             scan_origin_path: Some(file_path_string.clone()),
-            deep_scan_timeout_ms: timeout_for_scan_mode(self.config, normalized_scan_mode),
+            deep_scan_timeout_ms: timeout_for_scan_mode(self.config, effective_scan_mode),
             late_child_scan_grace_ms: Some(
                 self.config
                     .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
@@ -2060,6 +2415,8 @@ impl<'a> AVIntegration<'a> {
         scan_target: &Path,
         scan_mode: &str,
     ) -> ScanMetadata {
+        self.reload_hydradragon_static_rules_if_changed();
+
         let file_identity = file_identity_for_path(file_path, scan_target);
         if let Some(identity) = file_identity.as_ref() {
             if let Some(cached) = self.scan_metadata_cache.get(identity) {
@@ -2072,6 +2429,14 @@ impl<'a> AVIntegration<'a> {
         }
 
         let mut metadata = ScanMetadata::new();
+        if let Some(engine) = &self.hydradragon_static_engine {
+            metadata.hydradragon_static_matches = scan_with_hydradragon_static(
+                engine,
+                scan_target,
+                self.hydradragon_static_detection_mode,
+            );
+        }
+
         let deep_mode = is_deep_scan_mode(scan_mode);
 
         // Deep mode uses DIE as an early metadata/type gate. Python deep scan is
@@ -2079,7 +2444,10 @@ impl<'a> AVIntegration<'a> {
         // DIE says the file is fully unknown, or it is a parsed binary/archive
         // with no supported HydraDragon type flags, do not queue deep scan.
         // Plain-text files never run DIE; they continue without this gate.
-        if deep_mode && !should_skip_die_scan(scan_target) {
+        if deep_mode
+            && metadata.hydradragon_static_matches.is_empty()
+            && !should_skip_die_scan(scan_target)
+        {
             metadata.detectiteasy_scan_result =
                 run_detectiteasy_metadata_scan(file_path, scan_target);
             if metadata.detectiteasy_scan_result.is_none() {

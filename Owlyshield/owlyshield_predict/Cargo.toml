@@ -12,6 +12,7 @@ path = "src/lib.rs"
 moonfire-tflite = { path = "moonfire-tflite" }
 slc-paths = { path = "slc-paths" }
 win-pe-inspection = { path = "win-pe-inspection" }
+hydradragonstatic = { path = "../hydradragonstatic", default-features = false }
 wchar = "0.11.0"
 registry = "1.2.0"
 strum = "0.24.1"
