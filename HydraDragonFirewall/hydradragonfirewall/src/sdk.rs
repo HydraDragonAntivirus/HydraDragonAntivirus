@@ -1330,7 +1330,7 @@ impl SdkRegistry {
         _context: &PacketContext,
     ) -> Option<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
-        
+
         for rule in &self.rules {
             if rule.matches(packet, payload) {
                 // Track private rule matches for debugging
@@ -1338,9 +1338,10 @@ impl SdkRegistry {
                     matched_private_rules.push(rule.name.clone());
                     continue;
                 }
-                
-                let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
-                
+
+                let (detected_domain, detected_subdomain, used_psl) =
+                    Self::extract_domain_info(packet, rule);
+
                 return Some(RuleMatchResult {
                     rule_name: rule.name.clone(),
                     action: rule.action.clone(),
@@ -1367,21 +1368,22 @@ impl SdkRegistry {
         _context: &PacketContext,
     ) -> Vec<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
-        
+
         // First pass: collect private rule matches
         for rule in &self.rules {
             if rule.matches(packet, payload) && rule.private {
                 matched_private_rules.push(rule.name.clone());
             }
         }
-        
+
         // Second pass: collect public rule matches
         self.rules
             .iter()
             .filter_map(|rule| {
                 if rule.matches(packet, payload) && !rule.private {
-                    let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
-                    
+                    let (detected_domain, detected_subdomain, used_psl) =
+                        Self::extract_domain_info(packet, rule);
+
                     Some(RuleMatchResult {
                         rule_name: rule.name.clone(),
                         action: rule.action.clone(),
@@ -1411,7 +1413,7 @@ impl SdkRegistry {
         defer_heavy_rules: bool,
     ) -> Option<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
-        
+
         self.rules
             .iter()
             .filter(|rule| !defer_heavy_rules || !rule.requires_deferred_inspection())
@@ -1421,9 +1423,10 @@ impl SdkRegistry {
                         matched_private_rules.push(rule.name.clone());
                         return None;
                     }
-                    
-                    let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
-                    
+
+                    let (detected_domain, detected_subdomain, used_psl) =
+                        Self::extract_domain_info(packet, rule);
+
                     Some(RuleMatchResult {
                         rule_name: rule.name.clone(),
                         action: rule.action.clone(),
@@ -1445,32 +1448,35 @@ impl SdkRegistry {
 
     /// Extract domain and subdomain information from packet if domain matching was used
     /// Returns: (domain, subdomain, used_public_suffix_list)
-    fn extract_domain_info(packet: &PacketInfo, rule: &SdkRule) -> (Option<String>, Option<String>, bool) {
+    fn extract_domain_info(
+        packet: &PacketInfo,
+        rule: &SdkRule,
+    ) -> (Option<String>, Option<String>, bool) {
         // Check if rule has domain matcher
         if rule.domain.is_none() {
             return (None, None, false);
         }
-        
+
         let hostname = match &packet.hostname {
             Some(h) => h,
             None => return (None, None, false),
         };
-        
+
         // Simple subdomain detection without public_suffixes.txt
         // This is basic but works for most cases
         // TODO: Add public_suffixes.txt support for accurate complex TLD handling
         let parts: Vec<&str> = hostname.split('.').collect();
-        
+
         if parts.len() <= 2 {
             // example.com - no subdomain
             return (Some(hostname.clone()), None, false);
         }
-        
+
         // For now, assume last 2 parts are domain (works for .com, .net, .org, etc.)
         // For complex TLDs like .co.uk, this would need public_suffixes.txt
         let domain = parts[parts.len() - 2..].join(".");
         let subdomain = parts[..parts.len() - 2].join(".");
-        
+
         // used_public_suffix_list = false because we're using simple parsing
         (Some(domain), Some(subdomain), false)
     }
