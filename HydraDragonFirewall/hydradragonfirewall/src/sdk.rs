@@ -1336,10 +1336,16 @@ impl SdkRegistry {
                 // Track private rule matches for debugging
                 if rule.private {
                     matched_private_rules.push(rule.name.clone());
+                    tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
                     continue;
                 }
                 
                 let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
+                
+                // Log private rules that were evaluated before this match
+                if !matched_private_rules.is_empty() {
+                    tracing::debug!("Rule '{}' matched after evaluating private rules: {:?}", rule.name, matched_private_rules);
+                }
                 
                 return Some(RuleMatchResult {
                     rule_name: rule.name.clone(),
