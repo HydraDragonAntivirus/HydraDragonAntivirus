@@ -583,7 +583,7 @@ fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
 
 fn collect_minimal_service_scan_results(file_path: &str) -> Vec<RustServiceScanResult> {
     let result = scan_hydradragon_av_service(file_path);
-    
+
     if result.malicious {
         Logging::info(&format!(
             "[RustServiceScan] {} detected {} in {}",
