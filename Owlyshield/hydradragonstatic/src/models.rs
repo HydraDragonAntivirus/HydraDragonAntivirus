@@ -430,19 +430,19 @@ pub struct ScanReport {
     pub malware_families: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_performance: Vec<RulePerformance>,
-    
+
     /// SDK-inspired scan result code
     #[serde(default)]
     pub result_code: ScanResultCode,
-    
+
     /// SDK-inspired scan statistics
     #[serde(default)]
     pub statistics: ScanStatistics,
-    
+
     /// SDK-inspired archive member results for nested scanning
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub archive_members: Vec<ArchiveMemberResult>,
-    
+
     /// Detected threat name in SDK format (family.variant or signature name)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threat_name: Option<String>,
