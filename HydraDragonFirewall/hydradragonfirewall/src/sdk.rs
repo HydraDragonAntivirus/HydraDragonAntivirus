@@ -1332,9 +1332,11 @@ impl SdkRegistry {
         if rule.depends_on.is_empty() {
             return true; // No dependencies
         }
-        
+
         // All dependencies must be in the matched_private_rules list
-        rule.depends_on.iter().all(|dep| matched_private_rules.contains(dep))
+        rule.depends_on
+            .iter()
+            .all(|dep| matched_private_rules.contains(dep))
     }
 
     /// Evaluate all rules against packet, return first matching rule
@@ -1346,7 +1348,7 @@ impl SdkRegistry {
         _context: &PacketContext,
     ) -> Option<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
-        
+
         for rule in &self.rules {
             if rule.matches(packet, payload) {
                 // Track private rule matches for debugging
@@ -1355,23 +1357,30 @@ impl SdkRegistry {
                     tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
                     continue;
                 }
-                
+
                 // Check if dependencies are satisfied (YARA-style)
                 if !Self::dependencies_satisfied(rule, &matched_private_rules) {
                     tracing::debug!(
                         "Rule '{}' matched but dependencies not satisfied. Required: {:?}, Matched: {:?}",
-                        rule.name, rule.depends_on, matched_private_rules
+                        rule.name,
+                        rule.depends_on,
+                        matched_private_rules
                     );
                     continue;
                 }
-                
-                let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
-                
+
+                let (detected_domain, detected_subdomain, used_psl) =
+                    Self::extract_domain_info(packet, rule);
+
                 // Log private rules that were evaluated before this match
                 if !matched_private_rules.is_empty() {
-                    tracing::debug!("Rule '{}' matched after evaluating private rules: {:?}", rule.name, matched_private_rules);
+                    tracing::debug!(
+                        "Rule '{}' matched after evaluating private rules: {:?}",
+                        rule.name,
+                        matched_private_rules
+                    );
                 }
-                
+
                 return Some(RuleMatchResult {
                     rule_name: rule.name.clone(),
                     action: rule.action.clone(),
@@ -1398,7 +1407,7 @@ impl SdkRegistry {
         _context: &PacketContext,
     ) -> Vec<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
-        
+
         // First pass: collect private rule matches
         for rule in &self.rules {
             if rule.matches(packet, payload) && rule.private {
@@ -1406,12 +1415,16 @@ impl SdkRegistry {
                 tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
             }
         }
-        
+
         // Log if any private rules matched before collecting public matches
         if !matched_private_rules.is_empty() {
-            tracing::debug!("Evaluated {} private rule(s) before public rules: {:?}", matched_private_rules.len(), matched_private_rules);
+            tracing::debug!(
+                "Evaluated {} private rule(s) before public rules: {:?}",
+                matched_private_rules.len(),
+                matched_private_rules
+            );
         }
-        
+
         // Second pass: collect public rule matches
         self.rules
             .iter()
@@ -1459,7 +1472,7 @@ impl SdkRegistry {
         defer_heavy_rules: bool,
     ) -> Option<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
-        
+
         self.rules
             .iter()
             .filter(|rule| !defer_heavy_rules || !rule.requires_deferred_inspection())
@@ -1508,32 +1521,35 @@ impl SdkRegistry {
 
     /// Extract domain and subdomain information from packet if domain matching was used
     /// Returns: (domain, subdomain, used_public_suffix_list)
-    fn extract_domain_info(packet: &PacketInfo, rule: &SdkRule) -> (Option<String>, Option<String>, bool) {
+    fn extract_domain_info(
+        packet: &PacketInfo,
+        rule: &SdkRule,
+    ) -> (Option<String>, Option<String>, bool) {
         // Check if rule has domain matcher
         if rule.domain.is_none() {
             return (None, None, false);
         }
-        
+
         let hostname = match &packet.hostname {
             Some(h) => h,
             None => return (None, None, false),
         };
-        
+
         // Simple subdomain detection without public_suffixes.txt
         // This is basic but works for most cases
         // TODO: Add public_suffixes.txt support for accurate complex TLD handling
         let parts: Vec<&str> = hostname.split('.').collect();
-        
+
         if parts.len() <= 2 {
             // example.com - no subdomain
             return (Some(hostname.clone()), None, false);
         }
-        
+
         // For now, assume last 2 parts are domain (works for .com, .net, .org, etc.)
         // For complex TLDs like .co.uk, this would need public_suffixes.txt
         let domain = parts[parts.len() - 2..].join(".");
         let subdomain = parts[..parts.len() - 2].join(".");
-        
+
         // used_public_suffix_list = false because we're using simple parsing
         (Some(domain), Some(subdomain), false)
     }
@@ -1553,7 +1569,7 @@ impl SdkRegistry {
     fn sanitize_rules(mut rules: Vec<SdkRule>) -> Vec<SdkRule> {
         // Validate dependencies before sanitizing
         Self::validate_dependencies(&rules);
-        
+
         for rule in &mut rules {
             let is_named_entropy_prompt = rule
                 .name
@@ -1571,22 +1587,25 @@ impl SdkRegistry {
 
         rules
     }
-    
+
     /// Validate rule dependencies to prevent circular dependencies
     fn validate_dependencies(rules: &[SdkRule]) {
         use std::collections::{HashMap, HashSet};
-        
+
         // Build a map of rule names to their dependencies
         let mut dep_map: HashMap<&str, Vec<&str>> = HashMap::new();
         let mut all_rule_names: HashSet<&str> = HashSet::new();
-        
+
         for rule in rules {
             all_rule_names.insert(&rule.name);
             if !rule.depends_on.is_empty() {
-                dep_map.insert(&rule.name, rule.depends_on.iter().map(|s| s.as_str()).collect());
+                dep_map.insert(
+                    &rule.name,
+                    rule.depends_on.iter().map(|s| s.as_str()).collect(),
+                );
             }
         }
-        
+
         // Check for missing dependencies
         for (rule_name, deps) in &dep_map {
             for dep in deps {
@@ -1598,12 +1617,12 @@ impl SdkRegistry {
                 }
             }
         }
-        
+
         // Check for circular dependencies using DFS
         for rule_name in dep_map.keys() {
             let mut visited = HashSet::new();
             let mut stack = HashSet::new();
-            
+
             if Self::has_circular_dependency(rule_name, &dep_map, &mut visited, &mut stack) {
                 eprintln!(
                     "[SDK] Error: Circular dependency detected involving rule '{}'",
@@ -1613,7 +1632,7 @@ impl SdkRegistry {
             }
         }
     }
-    
+
     /// Detect circular dependencies using depth-first search
     fn has_circular_dependency<'a>(
         rule_name: &'a str,
@@ -1625,16 +1644,16 @@ impl SdkRegistry {
         if stack.contains(rule_name) {
             return true;
         }
-        
+
         // If already fully explored, no cycle from this node
         if visited.contains(rule_name) {
             return false;
         }
-        
+
         // Mark as being explored
         visited.insert(rule_name);
         stack.insert(rule_name);
-        
+
         // Check all dependencies
         if let Some(deps) = dep_map.get(rule_name) {
             for dep in deps {
@@ -1643,7 +1662,7 @@ impl SdkRegistry {
                 }
             }
         }
-        
+
         // Remove from current path
         stack.remove(rule_name);
         false
