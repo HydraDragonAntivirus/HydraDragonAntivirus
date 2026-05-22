@@ -1,0 +1,96 @@
+rules:
+  # PRIVATE RULE - Evaluated but doesn't generate alerts on its own
+  - name: private_suspicious_memory_operations
+    is_private: true
+    description: "Private rule to detect suspicious memory operations (used by other rules)"
+    level: medium
+    status: stable
+    named_conditions:
+      memory_write:
+        apis:
+          - "NtWriteVirtualMemory"
+          - "NtMapViewOfSection"
+        api_threshold: 1
+      memory_protect:
+        apis:
+          - "NtProtectVirtualMemory"
+        api_threshold: 1
+    detection:
+      condition:
+        all_of:
+          - memory_write
+          - memory_protect
+    response:
+      status_access_denied: false
+      terminate_process: false
+      notify_user: false
+
+  # PRIVATE RULE - Detects thread creation
+  - name: private_thread_creation
+    is_private: true
+    description: "Private rule to detect thread creation (used by other rules)"
+    level: low
+    status: stable
+    named_conditions:
+      thread_apis:
+        apis:
+          - "NtCreateThreadEx"
+          - "RtlCreateUserThread"
+        api_threshold: 1
+    detection:
+      condition:
+        named:
+          condition: thread_apis
+    response:
+      status_access_denied: false
+      terminate_process: false
+      notify_user: false
+
+  # PUBLIC RULE - Uses private rules and WILL generate alerts
+  - name: process_injection_detection
+    is_private: false
+    description: "Detects process injection by combining memory operations and thread creation"
+    level: high
+    status: stable
+    # This rule references the private rules above
+    # The private rules are evaluated, and if they match, this public rule can use them
+    detection:
+      condition:
+        and:
+          - named:
+              condition: private_suspicious_memory_operations
+          - named:
+              condition: private_thread_creation
+    response:
+      status_access_denied: true
+      terminate_process: true
+      quarantine: true
+      notify_user: true
+
+  # ANOTHER PUBLIC RULE - Also uses private rules
+  - name: advanced_injection_with_file_drop
+    is_private: false
+    description: "Detects injection combined with file dropping"
+    level: critical
+    status: stable
+    named_conditions:
+      file_drop:
+        file_paths:
+          - "*.exe"
+          - "*.dll"
+        file_operations:
+          - "write"
+          - "create"
+    detection:
+      condition:
+        and:
+          - named:
+              condition: private_suspicious_memory_operations
+          - named:
+              condition: file_drop
+    response:
+      status_access_denied: true
+      terminate_process: true
+      kill_and_remove: true
+      quarantine: true
+      notify_user: true

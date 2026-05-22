@@ -165,9 +165,75 @@ impl RuleSet {
     }
 
     pub fn from_yaml_file(path: &Path) -> Result<Self> {
-        let yaml = std::fs::read_to_string(path)
+        Self::from_yaml_file_recursive(path, 0)
+    }
+
+    fn from_yaml_file_recursive(path: &Path, depth: u32) -> Result<Self> {
+        if depth > 20 {
+            anyhow::bail!(
+                "Max recursion depth (20) reached! Possible circular include: {}",
+                path.display()
+            );
+        }
+
+        let content = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read rule file {}", path.display()))?;
-        Self::from_yaml_str(&yaml)
+
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut combined_rules = Self::empty();
+
+        // First, handle !include directives
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("!include ") {
+                let include_part = if trimmed.starts_with("- ") {
+                    trimmed.strip_prefix("- ").unwrap_or(trimmed).trim()
+                } else {
+                    trimmed
+                };
+
+                if let Some(include_path_str) = include_part.strip_prefix("!include ") {
+                    let include_path_str = include_path_str.trim();
+                    let include_path = parent.join(include_path_str);
+
+                    if include_path.exists() {
+                        match Self::from_yaml_file_recursive(&include_path, depth + 1) {
+                            Ok(sub_rules) => {
+                                combined_rules.extend(sub_rules);
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[HydraDragonStatic] Warning: Failed to load include {}: {}",
+                                    include_path.display(),
+                                    e
+                                );
+                            }
+                        }
+                    } else {
+                        eprintln!(
+                            "[HydraDragonStatic] Warning: Include path does not exist: {}",
+                            include_path.display()
+                        );
+                    }
+                }
+            }
+        }
+
+        // Now parse the content as YAML, skipping !include lines
+        let filtered_content: String = content
+            .lines()
+            .filter(|line| {
+                !line.trim().starts_with("!include") && !line.trim().starts_with("- !include")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !filtered_content.trim().is_empty() {
+            let current_rules = Self::from_yaml_str(&filtered_content)?;
+            combined_rules.extend(current_rules);
+        }
+
+        Ok(combined_rules)
     }
 
     pub fn extend(&mut self, other: RuleSet) {
@@ -177,6 +243,7 @@ impl RuleSet {
     pub fn rules(&self) -> &[Rule] {
         &self.rules
     }
+
 
     pub fn evaluate_into(&self, report: &mut ScanReport, bytes: &[u8], options: RuleEvalOptions) {
         let view = ScanView::new(report);
@@ -359,18 +426,23 @@ fn evaluate_one_rule(
         elapsed_micros,
     });
 
-    let finding = result.map(|evidence| Finding {
-        rule_id: rule.id.clone(),
-        title: rule.title.clone(),
-        description: rule.description.clone(),
-        severity: rule.severity,
-        verdict: rule.verdict,
-        confidence: rule.confidence.min(100),
-        score: rule.score,
-        tags: rule.tags.clone(),
-        family: rule.family.clone(),
-        evidence,
-    });
+    // Private rules don't generate findings (YARA-style behavior)
+    let finding = if rule.private {
+        None
+    } else {
+        result.map(|evidence| Finding {
+            rule_id: rule.id.clone(),
+            title: rule.title.clone(),
+            description: rule.description.clone(),
+            severity: rule.severity,
+            verdict: rule.verdict,
+            confidence: rule.confidence.min(100),
+            score: rule.score,
+            tags: rule.tags.clone(),
+            family: rule.family.clone(),
+            evidence,
+        })
+    };
 
     RuleEvalResult {
         index,

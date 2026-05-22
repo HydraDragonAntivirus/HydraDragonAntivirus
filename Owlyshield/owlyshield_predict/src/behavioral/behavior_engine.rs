@@ -596,6 +596,17 @@ pub struct FirewallDetection {
     pub hostname: String,
     /// Full reason string from the firewall (e.g. "SDK Rule [MalwareDomain]: ...")
     pub reason: String,
+    /// Whether this detection came from a private rule match (YARA-style)
+    /// Private rules are evaluated but don't generate alerts on their own
+    pub is_private_rule_match: bool,
+    /// Detected subdomain from the packet (if any)
+    pub detected_subdomain: Option<String>,
+    /// Detected domain from the packet (if any)
+    pub detected_domain: Option<String>,
+    /// Whether subdomain detection used public_suffixes.txt (true) or simple parsing (false)
+    pub used_public_suffix_list: bool,
+    /// List of private rule names that matched during evaluation
+    pub matched_private_rules: Vec<String>,
 }
 
 #[cfg(all(target_os = "windows", feature = "firewall"))]
@@ -2862,6 +2873,11 @@ impl BehaviorEngine {
                                         dst_port,
                                         hostname: hostname.clone(),
                                         reason: reason.clone(),
+                                        is_private_rule_match: false,
+                                        detected_subdomain: None,
+                                        detected_domain: None,
+                                        used_public_suffix_list: false,
+                                        matched_private_rules: Vec::new(),
                                     };
                                     if detection.is_pending_user_decision() {
                                         Logging::info(&format!(
@@ -2964,6 +2980,13 @@ impl BehaviorEngine {
                                         for rule in rules_clone.iter() {
                                             if rule.matches_packet(&regex_cache, &pkt, &[]) {
                                                 matched_any = true;
+                                                
+                                                // Private rules don't generate detections (YARA-style behavior)
+                                                // They are evaluated and can be used by other rules, but don't produce alerts
+                                                if rule.is_private {
+                                                    continue;
+                                                }
+
                                                 Logging::alert(&format!(
                                                     "[BEHAVIOR RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
                                                     pid, rule.name, pkt.src_ip, pkt.dst_ip
@@ -2983,11 +3006,38 @@ impl BehaviorEngine {
                                                         format!("Rule [{}] matched", rule.name)
                                                     };
 
+                                                    // Extract domain information from packet hostname
+                                                    let (detected_domain, detected_subdomain) = if let Some(ref hostname) = pkt.hostname {
+                                                        let parts: Vec<&str> = hostname.split('.').collect();
+                                                        if parts.len() >= 2 {
+                                                            let domain = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+                                                            let subdomain = if parts.len() > 2 {
+                                                                Some(hostname.clone())
+                                                            } else {
+                                                                None
+                                                            };
+                                                            (Some(domain), subdomain)
+                                                        } else {
+                                                            (None, None)
+                                                        }
+                                                    } else {
+                                                        (None, None)
+                                                    };
+
                                                     blocked.insert(pkt.image_path.clone(), FirewallDetection {
                                                         dst_ip: pkt.dst_ip.to_string(),
                                                         dst_port: pkt.dst_port,
                                                         hostname: pkt.hostname.clone().unwrap_or_default(),
                                                         reason,
+                                                        is_private_rule_match: rule.is_private,
+                                                        detected_subdomain,
+                                                        detected_domain,
+                                                        used_public_suffix_list: false,
+                                                        matched_private_rules: if rule.is_private {
+                                                            vec![rule.name.clone()]
+                                                        } else {
+                                                            Vec::new()
+                                                        },
                                                     });
                                                 }
 
@@ -3050,6 +3100,11 @@ impl BehaviorEngine {
                                             dst_port: 0,
                                             hostname: String::new(),
                                             reason: format!("File Verdict: {} (SHA256: {})", verdict_label, sha256),
+                                            is_private_rule_match: false,
+                                            detected_subdomain: None,
+                                            detected_domain: None,
+                                            used_public_suffix_list: false,
+                                            matched_private_rules: Vec::new(),
                                         };
                                         blocked_exes.write().unwrap().insert(file_path_key, detection);
                                         Logging::warning(&format!(
@@ -9159,6 +9214,12 @@ impl BehaviorEngine {
                             prompted_quarantine = true;
                         }
                     }
+                }
+
+                // Private rules don't generate detections (YARA-style behavior)
+                // They are evaluated and can be used by other rules, but don't produce alerts
+                if rule.is_private {
+                    continue;
                 }
 
                 Logging::warning(&format!(

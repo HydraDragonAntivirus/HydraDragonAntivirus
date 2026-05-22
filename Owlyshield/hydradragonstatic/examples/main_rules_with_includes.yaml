@@ -1,0 +1,16 @@
+# Combined rules file with both private and open rules
+# Private rules will NOT trigger unless --enable-private-rules is used
+
+- !include private_rules.yaml
+- !include open_rules.yaml
+
+rules:
+  - id: COMBINED-001
+    title: "Combined Rule Example"
+    description: "A rule that combines detection logic"
+    severity: high
+    verdict: malware
+    private: false
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe and pe.imports(\"kernel32.dll\", \"CreateRemoteThread\")"

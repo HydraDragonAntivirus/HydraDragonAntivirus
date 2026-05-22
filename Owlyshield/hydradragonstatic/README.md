@@ -96,6 +96,102 @@ JSONL output:
 cargo run --release -- ./samples --recursive --rules rules/ --output jsonl
 ```
 
+## Rule Organization with !include and Private Rules
+
+HydraDragonStatic supports the `!include` directive for organizing rules across multiple files, and the `private: true` field for controlling which rules trigger detection (YARA-style).
+
+### Private Rules (YARA-style)
+
+Rules can be marked as `private: true` to prevent them from triggering detections unless explicitly enabled with `--enable-private-rules`. This works exactly like YARA's private rules.
+
+```yaml
+rules:
+  - id: PRIVATE-001
+    title: "Private Rule - Advanced Detection"
+    severity: high
+    verdict: malware
+    private: true  # This rule won't trigger unless --enable-private-rules is used
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe"
+  
+  - id: OPEN-001
+    title: "Open Rule - Public Detection"
+    severity: medium
+    verdict: suspicious
+    private: false  # or omit (default is false)
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe"
+```
+
+**Usage:**
+
+```bash
+# Default: private rules are skipped
+cargo run --release -- sample.exe --rules rules.yaml
+
+# Enable private rules
+cargo run --release -- sample.exe --rules rules.yaml --enable-private-rules
+```
+
+### File Inclusion with !include
+
+HydraDragonStatic supports the `!include` directive for organizing rules across multiple files, similar to the behavior engine.
+
+#### Basic Usage
+
+In your main rule file, use `!include` to reference other rule files:
+
+```yaml
+# main_rules.yaml
+- !include private_rules.yaml
+- !include open_rules.yaml
+
+rules:
+  - id: MAIN-001
+    title: Direct rule in main file
+    verdict: suspicious
+    # ... rest of rule definition
+```
+
+### Features
+
+- **Relative paths**: Include paths are resolved relative to the directory containing the file with the `!include` directive
+- **Recursive includes**: Included files can themselves include other files (up to 20 levels deep)
+- **Circular protection**: Automatic detection and prevention of circular includes
+- **Error handling**: Missing or invalid includes generate warnings but don't stop the scan
+- **Mixed content**: Combine `!include` directives with direct rule definitions in the same file
+
+### Example Structure
+
+```
+rules/
+├── main.yaml              # Main entry point
+├── private_rules.yaml     # Rules with private: true
+├── open_rules.yaml        # Rules with private: false
+└── categories/
+    ├── ransomware.yaml
+    └── trojans.yaml
+```
+
+**main.yaml:**
+```yaml
+- !include private_rules.yaml
+- !include open_rules.yaml
+- !include categories/ransomware.yaml
+- !include categories/trojans.yaml
+```
+
+### Loading Rules with Includes
+
+```bash
+# All includes are processed automatically
+cargo run --release -- sample.exe --rules main_rules.yaml
+```
+
+See [`examples/INCLUDE_FEATURE_README.md`](examples/INCLUDE_FEATURE_README.md) for detailed documentation and examples.
+
 ## Rule format
 
 ```yaml

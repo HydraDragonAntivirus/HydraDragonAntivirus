@@ -752,6 +752,9 @@ pub struct SdkRule {
     pub description: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    // Private rule flag (YARA-style): evaluated but doesn't generate alerts
+    #[serde(default)]
+    pub private: bool,
     // Features 5-11: Protocol
     #[serde(default)]
     pub protocol: RuleProtocol,
@@ -1230,6 +1233,21 @@ pub struct RuleMatchResult {
     pub change_data: Option<String>,
     pub change_request_body: Option<String>,
     pub change_response_body: Option<String>,
+    /// Indicates if this match came from a private rule (for logging/debugging)
+    #[serde(default)]
+    pub is_private_rule_match: bool,
+    /// Detected subdomain if domain matching was used
+    #[serde(default)]
+    pub detected_subdomain: Option<String>,
+    /// Detected base domain if domain matching was used
+    #[serde(default)]
+    pub detected_domain: Option<String>,
+    /// Indicates if subdomain detection used public_suffixes.txt (true) or simple parsing (false)
+    #[serde(default)]
+    pub used_public_suffix_list: bool,
+    /// List of private rules that matched (for debugging complex rule chains)
+    #[serde(default)]
+    pub matched_private_rules: Vec<String>,
 }
 
 // ============================================================================
@@ -1311,8 +1329,18 @@ impl SdkRegistry {
         _settings: &FirewallSettings,
         _context: &PacketContext,
     ) -> Option<RuleMatchResult> {
+        let mut matched_private_rules = Vec::new();
+        
         for rule in &self.rules {
             if rule.matches(packet, payload) {
+                // Track private rule matches for debugging
+                if rule.private {
+                    matched_private_rules.push(rule.name.clone());
+                    continue;
+                }
+                
+                let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
+                
                 return Some(RuleMatchResult {
                     rule_name: rule.name.clone(),
                     action: rule.action.clone(),
@@ -1320,6 +1348,11 @@ impl SdkRegistry {
                     change_data: rule.change_data.clone(),
                     change_request_body: rule.change_request_body.clone(),
                     change_response_body: rule.change_response_body.clone(),
+                    is_private_rule_match: false,
+                    detected_subdomain,
+                    detected_domain,
+                    used_public_suffix_list: used_psl,
+                    matched_private_rules,
                 });
             }
         }
@@ -1333,16 +1366,38 @@ impl SdkRegistry {
         _settings: &FirewallSettings,
         _context: &PacketContext,
     ) -> Vec<RuleMatchResult> {
+        let mut matched_private_rules = Vec::new();
+        
+        // First pass: collect private rule matches
+        for rule in &self.rules {
+            if rule.matches(packet, payload) && rule.private {
+                matched_private_rules.push(rule.name.clone());
+            }
+        }
+        
+        // Second pass: collect public rule matches
         self.rules
             .iter()
-            .filter(|rule| rule.matches(packet, payload))
-            .map(|rule| RuleMatchResult {
-                rule_name: rule.name.clone(),
-                action: rule.action.clone(),
-                description: rule.description.clone(),
-                change_data: rule.change_data.clone(),
-                change_request_body: rule.change_request_body.clone(),
-                change_response_body: rule.change_response_body.clone(),
+            .filter_map(|rule| {
+                if rule.matches(packet, payload) && !rule.private {
+                    let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
+                    
+                    Some(RuleMatchResult {
+                        rule_name: rule.name.clone(),
+                        action: rule.action.clone(),
+                        description: rule.description.clone(),
+                        change_data: rule.change_data.clone(),
+                        change_request_body: rule.change_request_body.clone(),
+                        change_response_body: rule.change_response_body.clone(),
+                        is_private_rule_match: false,
+                        detected_subdomain,
+                        detected_domain,
+                        used_public_suffix_list: used_psl,
+                        matched_private_rules: matched_private_rules.clone(),
+                    })
+                } else {
+                    None
+                }
             })
             .collect()
     }
@@ -1355,18 +1410,69 @@ impl SdkRegistry {
         payload: &[u8],
         defer_heavy_rules: bool,
     ) -> Option<RuleMatchResult> {
+        let mut matched_private_rules = Vec::new();
+        
         self.rules
             .iter()
             .filter(|rule| !defer_heavy_rules || !rule.requires_deferred_inspection())
-            .find(|rule| rule.matches(packet, payload))
-            .map(|rule| RuleMatchResult {
-                rule_name: rule.name.clone(),
-                action: rule.action.clone(),
-                description: rule.description.clone(),
-                change_data: rule.change_data.clone(),
-                change_request_body: rule.change_request_body.clone(),
-                change_response_body: rule.change_response_body.clone(),
+            .find_map(|rule| {
+                if rule.matches(packet, payload) {
+                    if rule.private {
+                        matched_private_rules.push(rule.name.clone());
+                        return None;
+                    }
+                    
+                    let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
+                    
+                    Some(RuleMatchResult {
+                        rule_name: rule.name.clone(),
+                        action: rule.action.clone(),
+                        description: rule.description.clone(),
+                        change_data: rule.change_data.clone(),
+                        change_request_body: rule.change_request_body.clone(),
+                        change_response_body: rule.change_response_body.clone(),
+                        is_private_rule_match: false,
+                        detected_subdomain,
+                        detected_domain,
+                        used_public_suffix_list: used_psl,
+                        matched_private_rules: matched_private_rules.clone(),
+                    })
+                } else {
+                    None
+                }
             })
+    }
+
+    /// Extract domain and subdomain information from packet if domain matching was used
+    /// Returns: (domain, subdomain, used_public_suffix_list)
+    fn extract_domain_info(packet: &PacketInfo, rule: &SdkRule) -> (Option<String>, Option<String>, bool) {
+        // Check if rule has domain matcher
+        if rule.domain.is_none() {
+            return (None, None, false);
+        }
+        
+        let hostname = match &packet.hostname {
+            Some(h) => h,
+            None => return (None, None, false),
+        };
+        
+        // Simple subdomain detection without public_suffixes.txt
+        // This is basic but works for most cases
+        // TODO: Add public_suffixes.txt support for accurate complex TLD handling
+        let parts: Vec<&str> = hostname.split('.').collect();
+        
+        if parts.len() <= 2 {
+            // example.com - no subdomain
+            return (Some(hostname.clone()), None, false);
+        }
+        
+        // For now, assume last 2 parts are domain (works for .com, .net, .org, etc.)
+        // For complex TLDs like .co.uk, this would need public_suffixes.txt
+        let domain = parts[parts.len() - 2..].join(".");
+        let subdomain = parts[..parts.len() - 2].join(".");
+        
+        // used_public_suffix_list = false because we're using simple parsing
+        (Some(domain), Some(subdomain), false)
     }
 
     pub fn needs_entropy(&self) -> bool {

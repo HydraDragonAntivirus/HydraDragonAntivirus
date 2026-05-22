@@ -1,0 +1,20 @@
+rules:
+  - id: PRIVATE-001
+    title: "Private Rule - Suspicious Import Pattern"
+    description: "Detects suspicious imports in private rule set"
+    severity: high
+    verdict: malware
+    private: true
+    signature:
+      - kind: "native"
+        expression: "pe.imports(\"kernel32.dll\", \"VirtualAlloc\") and pe.imports(\"kernel32.dll\", \"WriteProcessMemory\")"
+  
+  - id: PRIVATE-002
+    title: "Private Rule - Advanced Evasion"
+    description: "Private detection for advanced evasion techniques"
+    severity: critical
+    verdict: malware
+    private: true
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe and filesize < 200KB"

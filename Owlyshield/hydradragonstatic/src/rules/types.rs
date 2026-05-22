@@ -33,6 +33,11 @@ pub struct Rule {
     #[serde(default)]
     pub tags: Vec<String>,
 
+    /// Private rule flag (YARA-style). When true, this rule is evaluated but doesn't generate findings.
+    /// Private rules can be used by other rules for detection logic but won't trigger alerts themselves.
+    #[serde(default)]
+    pub private: bool,
+
     /// any       => 1 condition is enough
     /// all       => all conditions must match
     /// threshold => N conditions, configured by threshold

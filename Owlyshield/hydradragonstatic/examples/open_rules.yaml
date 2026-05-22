@@ -1,0 +1,19 @@
+rules:
+  - id: OPEN-001
+    title: "Open Rule - Basic Malware Pattern"
+    description: "Detects basic malware patterns in open rule set"
+    severity: medium
+    verdict: suspicious
+    private: false
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe and filesize < 100KB"
+  
+  - id: OPEN-002
+    title: "Open Rule - Suspicious Strings"
+    description: "Public detection for common malware strings"
+    severity: low
+    verdict: suspicious
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe"
