@@ -1288,9 +1288,9 @@ dependencies = [
 
 [[package]]
 name = "intaglio"
-version = "1.13.3"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e062125b1cb1523e2032c12f3a5bac6947ccd1f8c0a8aae96f63609fe0e34ee"
+checksum = "c37f733ee758fb92c8e280b9f2712e3469321447c41f72e60222d37e01fc1b38"
 
 [[package]]
 name = "itertools"
