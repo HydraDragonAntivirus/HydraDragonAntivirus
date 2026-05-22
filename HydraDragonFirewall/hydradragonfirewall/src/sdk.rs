@@ -827,6 +827,10 @@ pub struct SdkRule {
     // JSON matching
     #[serde(default)]
     pub json_match: Option<JsonMatcher>,
+    /// YARA-style rule dependencies: list of private rule names that must match
+    /// before this rule can trigger. Example: depends_on: ["private_rule1", "private_rule2"]
+    #[serde(default)]
+    pub depends_on: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -1321,6 +1325,16 @@ impl SdkRegistry {
         self.changers.push(changer);
     }
 
+    /// Check if all dependencies (depends_on) are satisfied for a rule
+    fn dependencies_satisfied(rule: &SdkRule, matched_private_rules: &[String]) -> bool {
+        if rule.depends_on.is_empty() {
+            return true; // No dependencies
+        }
+        
+        // All dependencies must be in the matched_private_rules list
+        rule.depends_on.iter().all(|dep| matched_private_rules.contains(dep))
+    }
+
     /// Evaluate all rules against packet, return first matching rule
     pub fn evaluate(
         &self,
@@ -1337,6 +1351,15 @@ impl SdkRegistry {
                 if rule.private {
                     matched_private_rules.push(rule.name.clone());
                     tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
+                    continue;
+                }
+                
+                // Check if dependencies are satisfied (YARA-style)
+                if !Self::dependencies_satisfied(rule, &matched_private_rules) {
+                    tracing::debug!(
+                        "Rule '{}' matched but dependencies not satisfied. Required: {:?}, Matched: {:?}",
+                        rule.name, rule.depends_on, matched_private_rules
+                    );
                     continue;
                 }
                 
@@ -1378,7 +1401,13 @@ impl SdkRegistry {
         for rule in &self.rules {
             if rule.matches(packet, payload) && rule.private {
                 matched_private_rules.push(rule.name.clone());
+                tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
             }
+        }
+        
+        // Log if any private rules matched before collecting public matches
+        if !matched_private_rules.is_empty() {
+            tracing::debug!("Evaluated {} private rule(s) before public rules: {:?}", matched_private_rules.len(), matched_private_rules);
         }
         
         // Second pass: collect public rule matches
@@ -1386,7 +1415,18 @@ impl SdkRegistry {
             .iter()
             .filter_map(|rule| {
                 if rule.matches(packet, payload) && !rule.private {
+                    // Check if dependencies are satisfied (YARA-style)
+                    if !Self::dependencies_satisfied(rule, &matched_private_rules) {
+                        tracing::debug!(
+                            "Rule '{}' matched but dependencies not satisfied. Required: {:?}, Matched: {:?}",
+                            rule.name, rule.depends_on, matched_private_rules
+                        );
+                        return None;
+                    }
+                    
                     let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
+                    
+                    tracing::debug!("Public rule '{}' matched (generating alert)", rule.name);
                     
                     Some(RuleMatchResult {
                         rule_name: rule.name.clone(),
@@ -1425,10 +1465,25 @@ impl SdkRegistry {
                 if rule.matches(packet, payload) {
                     if rule.private {
                         matched_private_rules.push(rule.name.clone());
+                        tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
+                        return None;
+                    }
+                    
+                    // Check if dependencies are satisfied (YARA-style)
+                    if !Self::dependencies_satisfied(rule, &matched_private_rules) {
+                        tracing::debug!(
+                            "Rule '{}' matched but dependencies not satisfied. Required: {:?}, Matched: {:?}",
+                            rule.name, rule.depends_on, matched_private_rules
+                        );
                         return None;
                     }
                     
                     let (detected_domain, detected_subdomain, used_psl) = Self::extract_domain_info(packet, rule);
+                    
+                    // Log private rules that were evaluated before this match
+                    if !matched_private_rules.is_empty() {
+                        tracing::debug!("First match rule '{}' found after evaluating private rules: {:?}", rule.name, matched_private_rules);
+                    }
                     
                     Some(RuleMatchResult {
                         rule_name: rule.name.clone(),
@@ -1494,6 +1549,9 @@ impl SdkRegistry {
     }
 
     fn sanitize_rules(mut rules: Vec<SdkRule>) -> Vec<SdkRule> {
+        // Validate dependencies before sanitizing
+        Self::validate_dependencies(&rules);
+        
         for rule in &mut rules {
             let is_named_entropy_prompt = rule
                 .name
@@ -1510,6 +1568,83 @@ impl SdkRegistry {
         }
 
         rules
+    }
+    
+    /// Validate rule dependencies to prevent circular dependencies
+    fn validate_dependencies(rules: &[SdkRule]) {
+        use std::collections::{HashMap, HashSet};
+        
+        // Build a map of rule names to their dependencies
+        let mut dep_map: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut all_rule_names: HashSet<&str> = HashSet::new();
+        
+        for rule in rules {
+            all_rule_names.insert(&rule.name);
+            if !rule.depends_on.is_empty() {
+                dep_map.insert(&rule.name, rule.depends_on.iter().map(|s| s.as_str()).collect());
+            }
+        }
+        
+        // Check for missing dependencies
+        for (rule_name, deps) in &dep_map {
+            for dep in deps {
+                if !all_rule_names.contains(dep) {
+                    eprintln!(
+                        "[SDK] Warning: Rule '{}' depends on '{}' which does not exist",
+                        rule_name, dep
+                    );
+                }
+            }
+        }
+        
+        // Check for circular dependencies using DFS
+        for rule_name in dep_map.keys() {
+            let mut visited = HashSet::new();
+            let mut stack = HashSet::new();
+            
+            if Self::has_circular_dependency(rule_name, &dep_map, &mut visited, &mut stack) {
+                eprintln!(
+                    "[SDK] Error: Circular dependency detected involving rule '{}'",
+                    rule_name
+                );
+                eprintln!("[SDK] Dependency chain: {:?}", stack);
+            }
+        }
+    }
+    
+    /// Detect circular dependencies using depth-first search
+    fn has_circular_dependency<'a>(
+        rule_name: &'a str,
+        dep_map: &HashMap<&'a str, Vec<&'a str>>,
+        visited: &mut HashSet<&'a str>,
+        stack: &mut HashSet<&'a str>,
+    ) -> bool {
+        // If already in the current path, we found a cycle
+        if stack.contains(rule_name) {
+            return true;
+        }
+        
+        // If already fully explored, no cycle from this node
+        if visited.contains(rule_name) {
+            return false;
+        }
+        
+        // Mark as being explored
+        visited.insert(rule_name);
+        stack.insert(rule_name);
+        
+        // Check all dependencies
+        if let Some(deps) = dep_map.get(rule_name) {
+            for dep in deps {
+                if Self::has_circular_dependency(dep, dep_map, visited, stack) {
+                    return true;
+                }
+            }
+        }
+        
+        // Remove from current path
+        stack.remove(rule_name);
+        false
     }
 
     pub fn list_rules(&self) -> Vec<&SdkRule> {
