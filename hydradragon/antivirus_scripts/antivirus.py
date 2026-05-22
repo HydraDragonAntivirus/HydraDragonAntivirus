@@ -1690,26 +1690,6 @@ def scan_with_hydradragon_engine(file_path):
         return False, "Error", "", False
 
 
-def _service_result_rank(result: dict) -> tuple[int, int]:
-    engine = str(result.get("engine") or "")
-    virus_name = str(result.get("virus_name") or "").strip()
-    virus_lower = virus_name.lower()
-    generic_names = {"", "clean", "unknown", "error", "hydradragonav.detection", "zillya.malware", "zillya.heuristic"}
-    signature_quality = 0 if virus_lower in generic_names else 1
-
-    engine_lower = engine.lower()
-    if "clamav" in engine_lower or "zillya" in engine_lower:
-        engine_quality = 3
-    elif "legacyyara" in engine_lower or "xvirus" in engine_lower:
-        engine_quality = 2
-    elif "hydradragonav" in engine_lower:
-        engine_quality = 1
-    else:
-        engine_quality = 0
-
-    return signature_quality, engine_quality
-
-
 def _select_rust_service_scan_result(service_scan_results):
     """
     Pick the strongest Rust-side service detection for minimal mode.
@@ -1740,10 +1720,16 @@ def _select_rust_service_scan_result(service_scan_results):
             malicious_results.append(result)
 
     if malicious_results:
-        selected = max(malicious_results, key=_service_result_rank)
-        virus_name = str(selected.get("virus_name") or "Malware").strip() or "Malware"
-        engine = str(selected.get("engine") or "RustService").strip() or "RustService"
-        return True, virus_name, engine, bool(selected.get("is_vmprotect", False))
+        virus_names = []
+        engines = []
+        for result in malicious_results:
+            virus_name = str(result.get("virus_name") or "Malware").strip() or "Malware"
+            engine = str(result.get("engine") or "RustService").strip() or "RustService"
+            virus_names.append(virus_name)
+            engines.append(engine)
+        combined_virus_name = " | ".join(virus_names)
+        combined_engine = " | ".join(engines)
+        return True, combined_virus_name, combined_engine, is_vmprotect
 
     if usable_results:
         return False, "Clean", "", is_vmprotect
