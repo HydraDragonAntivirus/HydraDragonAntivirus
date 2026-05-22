@@ -949,7 +949,7 @@ async fn start_sanctum_sequence() -> Result<()> {
     Ok(())
 }
 
-fn start_process(path: &PathBuf, args: Option<&[&str]>) -> Result<Child> {
+fn start_process(path: &Path, args: Option<&[&str]>) -> Result<Child> {
     if !path.exists() {
         warn!("Executable not found: {}", path.display());
         anyhow::bail!("File not found");
