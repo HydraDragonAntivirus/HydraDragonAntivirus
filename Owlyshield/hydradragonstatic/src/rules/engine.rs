@@ -244,7 +244,6 @@ impl RuleSet {
         &self.rules
     }
 
-
     pub fn evaluate_into(&self, report: &mut ScanReport, bytes: &[u8], options: RuleEvalOptions) {
         let view = ScanView::new(report);
         if options.parallel_rules {
