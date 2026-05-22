@@ -552,7 +552,7 @@ This document describes the output directories used by the HydraDragon analysis 
 
 For changes to this README or to add new extractor directories, update this file and check it into your repo so everyone can see the mapping.
 
-## Inspired SDK by
+## Inspired by SDK
 
 - http://download.zillya.com/ZillyaAVEngineSDK.zip
 - http://www.av-sdk.com/
