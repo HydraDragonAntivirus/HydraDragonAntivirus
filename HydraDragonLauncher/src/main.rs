@@ -2,7 +2,10 @@
 
 use anyhow::{Context, Result};
 use std::env;
+use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
@@ -28,6 +31,23 @@ const BASE_DIR: &str = r"C:\Program Files\HydraDragonAntivirus";
 const DATA_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus";
 const OWLYSHIELD_REG_KEY: &str = r"HKLM\Software\Owlyshield";
 const OWLYSHIELD_VERBOSE_LOGGING_VALUE: &str = "VERBOSE_LOGGING";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn hidden_command(program: impl AsRef<OsStr>) -> Command {
+    let mut command = Command::new(program);
+    configure_hidden_command(&mut command);
+    command
+}
+
+fn configure_hidden_command(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    command
+}
 
 pub struct Components {
     owlyshield: Option<Child>,
@@ -154,7 +174,7 @@ fn is_window_visible_by_title(title: &str) -> Option<bool> {
 }
 
 fn read_owlyshield_verbose_logging() -> bool {
-    let output = Command::new("reg.exe")
+    let output = hidden_command("reg.exe")
         .args([
             "query",
             OWLYSHIELD_REG_KEY,
@@ -181,7 +201,7 @@ fn read_owlyshield_verbose_logging() -> bool {
 
 fn write_owlyshield_verbose_logging(enabled: bool) -> Result<()> {
     let value = if enabled { "1" } else { "0" };
-    let output = Command::new("reg.exe")
+    let output = hidden_command("reg.exe")
         .args([
             "add",
             OWLYSHIELD_REG_KEY,
@@ -341,7 +361,7 @@ async fn stop_component(
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/F", "/IM", "owlyshield_ransom.exe"])
                 .output();
         }
@@ -350,7 +370,7 @@ async fn stop_component(
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/F", "/IM", "hydradragonfirewall.exe"])
                 .output();
         }
@@ -359,7 +379,7 @@ async fn stop_component(
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/F", "/IM", "HydraDragonAV.exe"])
                 .output();
         }
@@ -368,23 +388,23 @@ async fn stop_component(
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/F", "/IM", "python.exe"])
                 .output();
         }
         "OpenEDR" => {
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/F", "/IM", "edrsvc.exe"])
                 .output();
         }
         "Sanctum" => {
-            let _ = Command::new("sc")
+            let _ = hidden_command("sc")
                 .args(["stop", "sanctum_ppl_runner"])
                 .output();
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/F", "/IM", "um_engine.exe"])
                 .output();
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/F", "/IM", "app.exe"])
                 .output();
         }
@@ -425,7 +445,7 @@ async fn set_owlyshield_verbose_logging(
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/F", "/IM", "owlyshield_ransom.exe"])
                 .output();
         }
@@ -454,16 +474,16 @@ async fn stop_all_components(
 ) -> Result<(), String> {
     let mut comps = state.lock().await;
     comps.kill_all();
-    let _ = Command::new("taskkill")
+    let _ = hidden_command("taskkill")
         .args(["/F", "/IM", "edrsvc.exe"])
         .output();
-    let _ = Command::new("sc")
+    let _ = hidden_command("sc")
         .args(["stop", "sanctum_ppl_runner"])
         .output();
-    let _ = Command::new("taskkill")
+    let _ = hidden_command("taskkill")
         .args(["/F", "/IM", "um_engine.exe"])
         .output();
-    let _ = Command::new("taskkill")
+    let _ = hidden_command("taskkill")
         .args(["/F", "/IM", "app.exe"])
         .output();
     Ok(())
@@ -476,16 +496,16 @@ async fn quit_launcher(
 ) -> Result<(), String> {
     let mut comps = state.lock().await;
     comps.kill_all();
-    let _ = Command::new("taskkill")
+    let _ = hidden_command("taskkill")
         .args(["/F", "/IM", "edrsvc.exe"])
         .output();
-    let _ = Command::new("sc")
+    let _ = hidden_command("sc")
         .args(["stop", "sanctum_ppl_runner"])
         .output();
-    let _ = Command::new("taskkill")
+    let _ = hidden_command("taskkill")
         .args(["/F", "/IM", "um_engine.exe"])
         .output();
-    let _ = Command::new("taskkill")
+    let _ = hidden_command("taskkill")
         .args(["/F", "/IM", "app.exe"])
         .output();
     app.exit(0);
@@ -571,16 +591,16 @@ fn main() -> Result<()> {
                         tauri::async_runtime::spawn(async move {
                             let mut comps = state_clone.lock().await;
                             comps.kill_all();
-                            let _ = Command::new("taskkill")
+                            let _ = hidden_command("taskkill")
                                 .args(["/F", "/IM", "edrsvc.exe"])
                                 .output();
-                            let _ = Command::new("sc")
+                            let _ = hidden_command("sc")
                                 .args(["stop", "sanctum_ppl_runner"])
                                 .output();
-                            let _ = Command::new("taskkill")
+                            let _ = hidden_command("taskkill")
                                 .args(["/F", "/IM", "um_engine.exe"])
                                 .output();
-                            let _ = Command::new("taskkill")
+                            let _ = hidden_command("taskkill")
                                 .args(["/F", "/IM", "app.exe"])
                                 .output();
                             app_clone.exit(0);
@@ -719,7 +739,7 @@ async fn start_openedr() -> Result<()> {
     info!("Starting OpenEDR...");
     let openedr_path = PathBuf::from(BASE_DIR).join("OpenEDR").join("edrsvc.exe");
     if openedr_path.exists() {
-        let _ = Command::new(&openedr_path)
+        let _ = hidden_command(openedr_path.as_os_str())
             .arg("start")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -761,7 +781,7 @@ async fn start_python_engine() -> Result<Option<Child>> {
     }
 
     if venv_python.exists() {
-        let mut cmd = Command::new(&venv_python);
+        let mut cmd = hidden_command(venv_python.as_os_str());
         cmd.args(["-m", "poetry", "run", "hydradragon"])
             .current_dir(&root_dir);
         configure_python_command(&mut cmd, &root_dir, &venv_dir)?;
@@ -775,7 +795,7 @@ async fn start_python_engine() -> Result<Option<Child>> {
     }
 
     if poetry_exe.exists() {
-        let mut cmd = Command::new(&poetry_exe);
+        let mut cmd = hidden_command(poetry_exe.as_os_str());
         cmd.args(["run", "hydradragon"]).current_dir(&root_dir);
         configure_python_command(&mut cmd, &root_dir, &venv_dir)?;
         if let Some(child) = spawn_python_candidate(cmd, "venv poetry.exe run hydradragon").await? {
@@ -790,7 +810,7 @@ async fn start_python_engine() -> Result<Option<Child>> {
             "call \"{}\" && poetry run hydradragon",
             activate_bat.display()
         );
-        let mut cmd = Command::new("cmd.exe");
+        let mut cmd = hidden_command("cmd.exe");
         cmd.args(["/d", "/s", "/c", &cmd_args])
             .current_dir(&root_dir);
         configure_python_command(&mut cmd, &root_dir, &venv_dir)?;
@@ -806,6 +826,8 @@ async fn start_python_engine() -> Result<Option<Child>> {
 }
 
 fn configure_python_command(cmd: &mut Command, root_dir: &Path, venv_dir: &Path) -> Result<()> {
+    configure_hidden_command(cmd);
+
     let scripts_dir = venv_dir.join("Scripts");
     let current_path = env::var_os("PATH").unwrap_or_default();
     let mut path_value = scripts_dir.as_os_str().to_os_string();
@@ -885,7 +907,7 @@ async fn start_sanctum_sequence() -> Result<()> {
     let elam_path = sanctum_dir.join("elam_installer.exe");
     if elam_path.exists() {
         info!("  → Running ELAM installer...");
-        let _ = Command::new(&elam_path)
+        let _ = hidden_command(elam_path.as_os_str())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
@@ -894,7 +916,7 @@ async fn start_sanctum_sequence() -> Result<()> {
 
     // 2. Start Sanctum PPL Runner service
     info!("  → Starting sanctum_ppl_runner service...");
-    let _ = Command::new("sc")
+    let _ = hidden_command("sc")
         .args(["start", "sanctum_ppl_runner"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -905,7 +927,7 @@ async fn start_sanctum_sequence() -> Result<()> {
     let um_path = sanctum_dir.join("um_engine.exe");
     if um_path.exists() {
         info!("  → Starting Sanctum UM Engine...");
-        let _ = Command::new(&um_path)
+        let _ = hidden_command(um_path.as_os_str())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
@@ -916,7 +938,7 @@ async fn start_sanctum_sequence() -> Result<()> {
     let app_path = sanctum_dir.join("app.exe");
     if app_path.exists() {
         info!("  → Starting Sanctum GUI...");
-        let _ = Command::new(&app_path)
+        let _ = hidden_command(app_path.as_os_str())
             .arg("--hidden")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -933,7 +955,7 @@ fn start_process(path: &PathBuf, args: Option<&[&str]>) -> Result<Child> {
         anyhow::bail!("File not found");
     }
 
-    let mut cmd = Command::new(path);
+    let mut cmd = hidden_command(path.as_os_str());
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
 
     if let Some(args) = args {
