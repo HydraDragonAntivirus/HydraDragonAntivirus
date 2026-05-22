@@ -30,7 +30,7 @@ impl ScanView {
         // Aggressive limits for blazing fast performance
         let string_limit = report.strings.len().min(2000);
         let decoded_limit = report.decoded_strings.len().min(500);
-        
+
         // Use parallel processing for large string sets
         let strings_lower: Vec<String> = if report.strings.len() > 1000 {
             report
@@ -47,14 +47,14 @@ impl ScanView {
                 .map(|hit| hit.value.to_ascii_lowercase())
                 .collect()
         };
-        
+
         let decoded_lower: Vec<String> = report
             .decoded_strings
             .iter()
             .take(decoded_limit)
             .map(|hit| hit.decoded.to_ascii_lowercase())
             .collect();
-        
+
         let imports_lower = report
             .pe
             .as_ref()
@@ -65,13 +65,13 @@ impl ScanView {
                     .collect()
             })
             .unwrap_or_default();
-        
+
         let dlls_lower = report
             .pe
             .as_ref()
             .map(|pe| pe.dlls.iter().map(|dll| dll.to_ascii_lowercase()).collect())
             .unwrap_or_default();
-        
+
         Self {
             strings_lower,
             decoded_lower,
@@ -825,13 +825,13 @@ fn match_signature_atom(
     // Timeout detection: track start time for slow operation detection
     let start = Instant::now();
     const ATOM_TIMEOUT_MS: u128 = 5000; // 5 second timeout per atom
-    
+
     let result = match atom.kind {
         SignatureAtomKind::Text => match_text_atom(report, view, bytes, atom),
         SignatureAtomKind::Regex => match_regex_atom(report, atom),
         SignatureAtomKind::Bytes => match_byte_atom(bytes, atom),
     };
-    
+
     let elapsed = start.elapsed().as_millis();
     if elapsed > ATOM_TIMEOUT_MS {
         log::warn!(
@@ -846,7 +846,7 @@ fn match_signature_atom(
             }
         );
     }
-    
+
     result
 }
 
@@ -939,10 +939,10 @@ fn match_text_atom(
     if atom.xor {
         let xor_start = Instant::now();
         const XOR_TIMEOUT_MS: u128 = 3000; // 3 second timeout for XOR brute-force
-        
+
         let (lo, hi) = xor_key_range(atom);
         let mut keys_checked = 0;
-        
+
         for key in lo..=hi {
             // Check timeout every 8 keys to avoid excessive time checks
             if keys_checked % 8 == 0 && xor_start.elapsed().as_millis() > XOR_TIMEOUT_MS {
@@ -956,7 +956,7 @@ fn match_text_atom(
                 );
                 break;
             }
-            
+
             for (label, plain) in text_atom_plain_xor_variants(atom) {
                 let encoded: Vec<u8> = plain.iter().map(|b| b ^ key).collect();
                 if let Some(offset) = find_bytes(bytes, &encoded, atom.fullword) {

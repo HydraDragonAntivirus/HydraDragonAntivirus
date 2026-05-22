@@ -4,21 +4,13 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashSet;
 
-static URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)https?://|ftp://|wss?://").unwrap()
-});
+static URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)https?://|ftp://|wss?://").unwrap());
 static POWERSHELL_HINT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?i)(powershell|pwsh|frombase64string|-enc|-encodedcommand|iex|invoke-expression)",
-    )
-    .unwrap()
+    Regex::new(r"(?i)(powershell|pwsh|frombase64string|-enc|-encodedcommand|iex|invoke-expression)")
+        .unwrap()
 });
-static B64_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[A-Za-z0-9+/]{12,}={0,2}$").unwrap()
-});
-static HEX_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(?:0x)?[0-9a-fA-F]{10,}$").unwrap()
-});
+static B64_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z0-9+/]{12,}={0,2}$").unwrap());
+static HEX_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(?:0x)?[0-9a-fA-F]{10,}$").unwrap());
 
 pub struct ExtractConfig {
     pub min_len: usize,
@@ -95,11 +87,11 @@ pub fn classify_strings(strings: &[StringHit], cfg: &DecodeConfig) -> Vec<Decode
         }
 
         let has_http = cfg.http_keywords.iter().any(|kw| raw.contains(kw.as_str()));
-        let has_cmd  = cfg.cmd_keywords.iter().any(|kw| raw.contains(kw.as_str()));
-        let has_exe  = cfg.exe_keywords.iter().any(|kw| raw.contains(kw.as_str()));
-        let has_reg  = cfg.reg_keywords.iter().any(|kw| raw.contains(kw.as_str()));
-        let has_url  = URL_RE.is_match(raw);
-        let has_ps   = POWERSHELL_HINT_RE.is_match(raw);
+        let has_cmd = cfg.cmd_keywords.iter().any(|kw| raw.contains(kw.as_str()));
+        let has_exe = cfg.exe_keywords.iter().any(|kw| raw.contains(kw.as_str()));
+        let has_reg = cfg.reg_keywords.iter().any(|kw| raw.contains(kw.as_str()));
+        let has_url = URL_RE.is_match(raw);
+        let has_ps = POWERSHELL_HINT_RE.is_match(raw);
 
         // Detect encoding type purely by shape of the raw string.
         let (b64_min, b64_max) = cfg.b64_len_range;
@@ -123,7 +115,7 @@ pub fn classify_strings(strings: &[StringHit], cfg: &DecodeConfig) -> Vec<Decode
 
         // Only keep it if it looks encoded OR contains suspicious plaintext.
         let is_suspicious = has_http || has_cmd || has_exe || has_reg || has_url || has_ps;
-        let is_encoded    = encoding.is_some();
+        let is_encoded = encoding.is_some();
 
         if !is_suspicious && !is_encoded {
             if raw.len() < cfg.suspicious_short_threshold {
@@ -188,8 +180,7 @@ fn extract_utf16le(bytes: &[u8], min_len: usize, out: &mut Vec<StringHit>) {
         while i + 1 < bytes.len() {
             let lo = bytes[i];
             let hi = bytes[i + 1];
-            if hi == 0
-                && (lo == b'\t' || lo == b'\n' || lo == b'\r' || (0x20..=0x7e).contains(&lo))
+            if hi == 0 && (lo == b'\t' || lo == b'\n' || lo == b'\r' || (0x20..=0x7e).contains(&lo))
             {
                 words.push(lo as u16);
                 i += 2;
@@ -241,7 +232,8 @@ fn flag(
 
 #[inline(always)]
 fn is_base64_alphabet(b: &[u8]) -> bool {
-    b.iter().all(|&c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'=')
+    b.iter()
+        .all(|&c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'=')
 }
 
 #[inline(always)]

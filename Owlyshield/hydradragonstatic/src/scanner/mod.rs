@@ -62,15 +62,10 @@ impl HydraScanner {
 
     pub fn scan_with_config(path: &Path, config: &ScannerConfig) -> Result<ScanContext> {
         let start_time = Instant::now();
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
+        let bytes =
+            std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
 
-        let ctx = Self::build_scan_context(
-            bytes,
-            path.to_path_buf(),
-            config,
-            start_time,
-        )?;
+        let ctx = Self::build_scan_context(bytes, path.to_path_buf(), config, start_time)?;
         Ok(ctx)
     }
 
