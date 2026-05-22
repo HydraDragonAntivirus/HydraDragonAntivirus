@@ -645,12 +645,15 @@ impl FirewallDetection {
                 self.dst_ip, self.dst_port, self.hostname, self.reason
             )
         };
-        
+
         // Include private rule match information for debugging
         if !self.matched_private_rules.is_empty() {
-            details.push_str(&format!(" [Private rules matched: {}]", self.matched_private_rules.join(", ")));
+            details.push_str(&format!(
+                " [Private rules matched: {}]",
+                self.matched_private_rules.join(", ")
+            ));
         }
-        
+
         // Include domain extraction information for debugging
         if let Some(ref domain) = self.detected_domain {
             details.push_str(&format!(" [Domain: {}]", domain));
@@ -660,7 +663,7 @@ impl FirewallDetection {
                 details.push_str(&format!(" [Subdomain: {}]", subdomain));
             }
         }
-        
+
         details
     }
 }
