@@ -73,10 +73,10 @@ pub fn scan_path(path: &Path, rules: &RuleSet, options: &ScanOptions) -> Result<
             .then_with(|| a.rule_id.cmp(&b.rule_id))
     });
     aggregate_verdict(&mut report);
-    
+
     // Update SDK-inspired result code based on verdict
     report.result_code = ScanResultCode::from_verdict(report.verdict);
-    
+
     // Update statistics based on findings
     report.statistics.infections_found = report
         .findings
@@ -88,7 +88,7 @@ pub fn scan_path(path: &Path, rules: &RuleSet, options: &ScanOptions) -> Result<
         .iter()
         .filter(|f| f.verdict == models::Verdict::Suspicious)
         .count() as u32;
-    
+
     // Generate SDK-style threat name from top finding
     if let Some(top_finding) = report.findings.first() {
         report.threat_name = Some(
@@ -98,7 +98,7 @@ pub fn scan_path(path: &Path, rules: &RuleSet, options: &ScanOptions) -> Result<
                 .unwrap_or_else(|| top_finding.rule_id.clone()),
         );
     }
-    
+
     Ok(report)
 }
 
@@ -133,7 +133,7 @@ pub fn scan_memory(
     });
     aggregate_verdict(&mut report);
     report.result_code = ScanResultCode::from_verdict(report.verdict);
-    
+
     if let Some(top_finding) = report.findings.first() {
         report.threat_name = Some(
             top_finding
@@ -142,6 +142,6 @@ pub fn scan_memory(
                 .unwrap_or_else(|| top_finding.rule_id.clone()),
         );
     }
-    
+
     Ok(report)
 }
