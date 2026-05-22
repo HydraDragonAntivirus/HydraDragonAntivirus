@@ -8,11 +8,13 @@ use crate::engine::{FirewallSettings, PacketInfo, Protocol};
 use base64::Engine;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing;
 
 // ============================================================================
 // ENCODING SUPPORT (Features 1-4)

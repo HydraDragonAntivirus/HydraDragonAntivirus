@@ -637,27 +637,33 @@ impl FirewallDetection {
 
     /// Build a human-readable match_details string for reports.
     pub fn match_details(&self) -> String {
-        let mut details = if self.hostname.is_empty() {
-            format!("{}:{} — {}", self.dst_ip, self.dst_port, self.reason)
+        use std::fmt::Write;
+        
+        let mut details = String::with_capacity(256); // Pre-allocate reasonable capacity
+        
+        // Build base details without intermediate allocations
+        if self.hostname.is_empty() {
+            let _ = write!(details, "{}:{} — {}", self.dst_ip, self.dst_port, self.reason);
         } else {
-            format!(
+            let _ = write!(
+                details,
                 "{}:{} ({}) — {}",
                 self.dst_ip, self.dst_port, self.hostname, self.reason
-            )
-        };
+            );
+        }
         
         // Include private rule match information for debugging
         if !self.matched_private_rules.is_empty() {
-            details.push_str(&format!(" [Private rules matched: {}]", self.matched_private_rules.join(", ")));
+            let _ = write!(details, " [Private rules matched: {}]", self.matched_private_rules.join(", "));
         }
         
         // Include domain extraction information for debugging
         if let Some(ref domain) = self.detected_domain {
-            details.push_str(&format!(" [Domain: {}]", domain));
+            let _ = write!(details, " [Domain: {}]", domain);
         }
         if let Some(ref subdomain) = self.detected_subdomain {
             if self.detected_subdomain != self.detected_domain {
-                details.push_str(&format!(" [Subdomain: {}]", subdomain));
+                let _ = write!(details, " [Subdomain: {}]", subdomain);
             }
         }
         
