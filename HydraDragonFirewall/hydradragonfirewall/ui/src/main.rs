@@ -1315,8 +1315,9 @@ pub fn App() -> impl IntoView {
                     set_owlyshield_static_rule_files.set(Vec::new());
                     set_selected_owlyshield_static_rule_path.set(None);
                     set_owlyshield_static_rules_content.set(String::new());
-                    set_owlyshield_static_rules_status
-                        .set("Failed to enumerate the Owlyshield static_rules directory.".to_string());
+                    set_owlyshield_static_rules_status.set(
+                        "Failed to enumerate the Owlyshield static_rules directory.".to_string(),
+                    );
                 }
             }
         });
