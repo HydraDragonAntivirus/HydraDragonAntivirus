@@ -826,6 +826,20 @@ async fn get_app_decisions(
 }
 
 #[tauri::command]
+async fn set_process_decision(
+    name: String,
+    path: String,
+    decision: String,
+    handle: AppHandle,
+) -> Result<String, String> {
+    if let Some(engine) = wait_for_engine(&handle).await {
+        engine.set_process_decision(name, path, decision, &handle)
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
 async fn remove_app_decision(name_lower: String, handle: AppHandle) -> Result<(), String> {
     if let Some(engine) = wait_for_engine(&handle).await {
         engine.remove_app_decision(name_lower);
@@ -1301,6 +1315,7 @@ pub fn run() {
             save_rules_content,
             validate_rules_content,
             get_app_decisions,
+            set_process_decision,
             remove_app_decision,
             clear_app_decisions,
             get_active_alert,

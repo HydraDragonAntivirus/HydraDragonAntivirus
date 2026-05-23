@@ -18,13 +18,18 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 // Windows API imports
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::CloseHandle;
+use windows::core::{BOOL, PCWSTR, PWSTR};
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
 };
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, TerminateProcess, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, IsWindowVisible, ShowWindow, SW_HIDE, SW_SHOW,
+    EnumWindows, FindWindowW, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SW_HIDE,
+    SW_RESTORE,
 };
 
 const BASE_DIR: &str = r"C:\Program Files\HydraDragonAntivirus";
@@ -47,6 +52,263 @@ fn configure_hidden_command(command: &mut Command) -> &mut Command {
     }
 
     command
+}
+
+fn owlyshield_exe_path() -> PathBuf {
+    PathBuf::from(BASE_DIR)
+        .join("hydradragon")
+        .join("Owlyshield")
+        .join("Owlyshield Service")
+        .join("owlyshield_ransom.exe")
+}
+
+fn firewall_exe_path() -> PathBuf {
+    PathBuf::from(BASE_DIR)
+        .join("hydradragon")
+        .join("HydraDragonFirewall")
+        .join("hydradragonfirewall.exe")
+}
+
+fn av_engine_exe_path() -> PathBuf {
+    PathBuf::from(BASE_DIR)
+        .join("hydradragon")
+        .join("HydraDragonAV")
+        .join("HydraDragonAV.exe")
+}
+
+fn venv_scripts_dir() -> PathBuf {
+    PathBuf::from(BASE_DIR).join("venv").join("Scripts")
+}
+
+fn python_engine_exe_paths() -> [PathBuf; 2] {
+    let scripts_dir = venv_scripts_dir();
+    [
+        scripts_dir.join("python.exe"),
+        scripts_dir.join("poetry.exe"),
+    ]
+}
+
+fn openedr_exe_path() -> PathBuf {
+    PathBuf::from(BASE_DIR).join("OpenEDR").join("edrsvc.exe")
+}
+
+fn sanctum_dir() -> PathBuf {
+    PathBuf::from(BASE_DIR).join("hydradragon").join("Sanctum")
+}
+
+fn sanctum_um_engine_path() -> PathBuf {
+    sanctum_dir().join("um_engine.exe")
+}
+
+fn sanctum_app_path() -> PathBuf {
+    sanctum_dir().join("app.exe")
+}
+
+fn sanctum_ppl_runner_path() -> PathBuf {
+    sanctum_dir().join("AppData").join("sanctum_ppl_runner.exe")
+}
+
+fn normalize_path_for_compare(path: impl AsRef<Path>) -> String {
+    path.as_ref()
+        .to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase()
+}
+
+#[cfg(windows)]
+fn process_image_path(pid: u32) -> Option<String> {
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buffer = vec![0u16; 32768];
+        let mut size = buffer.len() as u32;
+        let image_result = QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            PWSTR(buffer.as_mut_ptr()),
+            &mut size,
+        );
+        let _ = CloseHandle(process);
+
+        if image_result.is_ok() {
+            Some(String::from_utf16_lossy(&buffer[..size as usize]))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(windows)]
+fn is_process_running_by_exact_path(path: &Path) -> bool {
+    let target = normalize_path_for_compare(path);
+    if target.is_empty() {
+        return false;
+    }
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        let Ok(snapshot) = snapshot else {
+            return false;
+        };
+
+        let current_pid = std::process::id();
+        let mut entry = PROCESSENTRY32 {
+            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+            ..Default::default()
+        };
+
+        if Process32First(snapshot, &mut entry).is_ok() {
+            loop {
+                let pid = entry.th32ProcessID;
+                if pid != 0
+                    && pid != current_pid
+                    && process_image_path(pid)
+                        .as_deref()
+                        .is_some_and(|image_path| {
+                            normalize_path_for_compare(Path::new(image_path)) == target
+                        })
+                {
+                    let _ = CloseHandle(snapshot);
+                    return true;
+                }
+
+                if Process32Next(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+        false
+    }
+}
+
+#[cfg(not(windows))]
+fn is_process_running_by_exact_path(_path: &Path) -> bool {
+    false
+}
+
+fn is_process_running_by_any_exact_path(paths: &[PathBuf]) -> bool {
+    paths
+        .iter()
+        .any(|path| is_process_running_by_exact_path(path))
+}
+
+#[cfg(windows)]
+fn terminate_processes_by_exact_path(path: &Path) -> usize {
+    let target = normalize_path_for_compare(path);
+    if target.is_empty() {
+        return 0;
+    }
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        let Ok(snapshot) = snapshot else {
+            return 0;
+        };
+
+        let mut terminated = 0usize;
+        let current_pid = std::process::id();
+        let mut entry = PROCESSENTRY32 {
+            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+            ..Default::default()
+        };
+
+        if Process32First(snapshot, &mut entry).is_ok() {
+            loop {
+                let pid = entry.th32ProcessID;
+                if pid != 0 && pid != current_pid {
+                    let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE;
+                    if let Ok(process) = OpenProcess(access, false, pid) {
+                        let mut buffer = vec![0u16; 32768];
+                        let mut size = buffer.len() as u32;
+                        let image_result = QueryFullProcessImageNameW(
+                            process,
+                            PROCESS_NAME_WIN32,
+                            PWSTR(buffer.as_mut_ptr()),
+                            &mut size,
+                        );
+
+                        if image_result.is_ok() {
+                            let image_path = String::from_utf16_lossy(&buffer[..size as usize]);
+                            if normalize_path_for_compare(Path::new(&image_path)) == target
+                                && TerminateProcess(process, 1).is_ok()
+                            {
+                                terminated += 1;
+                            }
+                        }
+
+                        let _ = CloseHandle(process);
+                    }
+                }
+
+                if Process32Next(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+        terminated
+    }
+}
+
+#[cfg(not(windows))]
+fn terminate_processes_by_exact_path(_path: &Path) -> usize {
+    0
+}
+
+fn terminate_processes_by_exact_paths(paths: &[PathBuf]) {
+    for path in paths {
+        let count = terminate_processes_by_exact_path(path);
+        if count > 0 {
+            info!("Terminated {} process(es) at {}", count, path.display());
+        }
+    }
+}
+
+fn terminate_sanctum_processes() {
+    terminate_processes_by_exact_paths(&[
+        sanctum_ppl_runner_path(),
+        sanctum_um_engine_path(),
+        sanctum_app_path(),
+    ]);
+}
+
+fn stop_sanctum_ppl_runner_service() {
+    let _ = hidden_command("sc")
+        .args(["stop", "sanctum_ppl_runner"])
+        .output();
+}
+
+fn stop_openedr_service() {
+    let openedr_path = openedr_exe_path();
+    if openedr_path.exists() {
+        let _ = hidden_command(openedr_path.as_os_str())
+            .arg("stop")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
+    }
+}
+
+fn stop_openedr() {
+    stop_openedr_service();
+    terminate_processes_by_exact_path(&openedr_exe_path());
+}
+
+fn terminate_launcher_started_processes() {
+    let mut paths = vec![
+        owlyshield_exe_path(),
+        firewall_exe_path(),
+        openedr_exe_path(),
+        av_engine_exe_path(),
+        sanctum_ppl_runner_path(),
+        sanctum_um_engine_path(),
+        sanctum_app_path(),
+    ];
+    paths.extend(python_engine_exe_paths());
+    terminate_processes_by_exact_paths(&paths);
 }
 
 pub struct Components {
@@ -96,46 +358,6 @@ pub struct LauncherSettings {
 
 // --- Windows API Helper Functions ---
 
-fn is_process_running(exe_name: &str) -> bool {
-    unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snapshot.is_err() {
-            return false;
-        }
-        let snapshot = snapshot.unwrap();
-
-        let mut entry = PROCESSENTRY32 {
-            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
-            ..Default::default()
-        };
-
-        if Process32First(snapshot, &mut entry).is_ok() {
-            loop {
-                let file_name = {
-                    let len = entry
-                        .szExeFile
-                        .iter()
-                        .position(|&c| c == 0)
-                        .unwrap_or(entry.szExeFile.len());
-                    let bytes: Vec<u8> = entry.szExeFile[..len].iter().map(|&c| c as u8).collect();
-                    String::from_utf8_lossy(&bytes).into_owned()
-                };
-
-                if file_name.eq_ignore_ascii_case(exe_name) {
-                    let _ = CloseHandle(snapshot);
-                    return true;
-                }
-
-                if Process32Next(snapshot, &mut entry).is_err() {
-                    break;
-                }
-            }
-        }
-        let _ = CloseHandle(snapshot);
-    }
-    false
-}
-
 fn set_window_visibility_by_title(title: &str, show: bool) -> Result<(), String> {
     unsafe {
         let mut title_wide: Vec<u16> = title.encode_utf16().collect();
@@ -152,10 +374,88 @@ fn set_window_visibility_by_title(title: &str, show: bool) -> Result<(), String>
             }
         };
 
-        let cmd = if show { SW_SHOW } else { SW_HIDE };
+        let cmd = if show { SW_RESTORE } else { SW_HIDE };
         let _ = ShowWindow(hwnd, cmd);
         Ok(())
     }
+}
+
+#[cfg(windows)]
+struct ProcessWindowAction {
+    target_path: String,
+    show: Option<bool>,
+    matched: usize,
+    visible: bool,
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn enum_process_windows(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    let action = &mut *(lparam.0 as *mut ProcessWindowAction);
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(hwnd, Some(&mut pid));
+
+    if pid != 0
+        && process_image_path(pid)
+            .as_deref()
+            .is_some_and(|image_path| {
+                normalize_path_for_compare(Path::new(image_path)) == action.target_path
+            })
+    {
+        action.matched += 1;
+
+        if let Some(show) = action.show {
+            let cmd = if show { SW_RESTORE } else { SW_HIDE };
+            let _ = ShowWindow(hwnd, cmd);
+        }
+
+        if IsWindowVisible(hwnd).as_bool() {
+            action.visible = true;
+        }
+    }
+
+    BOOL(1)
+}
+
+#[cfg(windows)]
+fn visit_process_windows(path: &Path, show: Option<bool>) -> ProcessWindowAction {
+    let mut action = ProcessWindowAction {
+        target_path: normalize_path_for_compare(path),
+        show,
+        matched: 0,
+        visible: false,
+    };
+
+    if !action.target_path.is_empty() {
+        unsafe {
+            let _ = EnumWindows(
+                Some(enum_process_windows),
+                LPARAM(&mut action as *mut ProcessWindowAction as isize),
+            );
+        }
+    }
+
+    action
+}
+
+#[cfg(windows)]
+fn set_window_visibility_by_process_path(path: &Path, show: bool) -> usize {
+    visit_process_windows(path, Some(show)).matched
+}
+
+#[cfg(not(windows))]
+fn set_window_visibility_by_process_path(_path: &Path, _show: bool) -> usize {
+    0
+}
+
+#[cfg(windows)]
+fn is_window_visible_by_process_path(path: &Path) -> Option<bool> {
+    let action = visit_process_windows(path, None);
+    (action.matched > 0).then_some(action.visible)
+}
+
+#[cfg(not(windows))]
+fn is_window_visible_by_process_path(_path: &Path) -> Option<bool> {
+    None
 }
 
 fn is_window_visible_by_title(title: &str) -> Option<bool> {
@@ -170,6 +470,17 @@ fn is_window_visible_by_title(title: &str) -> Option<bool> {
         };
 
         Some(IsWindowVisible(hwnd).as_bool())
+    }
+}
+
+fn gui_window_visible(title: &str, path: &Path) -> Option<bool> {
+    match (
+        is_window_visible_by_title(title),
+        is_window_visible_by_process_path(path),
+    ) {
+        (Some(true), _) | (_, Some(true)) => Some(true),
+        (Some(false), _) | (_, Some(false)) => Some(false),
+        _ => None,
     }
 }
 
@@ -245,52 +556,63 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
     let mut statuses = Vec::new();
 
     // Owlyshield
+    let owlyshield_path = owlyshield_exe_path();
     statuses.push(ComponentStatus {
         name: "Owlyshield".to_string(),
-        running: is_process_running("owlyshield_ransom.exe"),
+        running: is_process_running_by_exact_path(&owlyshield_path),
         gui_visible: None,
     });
 
     // Firewall
-    let fw_running = is_process_running("hydradragonfirewall.exe");
+    let firewall_path = firewall_exe_path();
+    let fw_running = is_process_running_by_exact_path(&firewall_path);
     statuses.push(ComponentStatus {
         name: "Firewall".to_string(),
         running: fw_running,
         gui_visible: if fw_running {
-            Some(is_window_visible_by_title("HydraDragon Firewall").unwrap_or(false))
+            Some(gui_window_visible("HydraDragon Firewall", &firewall_path).unwrap_or(false))
         } else {
             None
         },
     });
 
     // AV Engine
+    let av_engine_path = av_engine_exe_path();
     statuses.push(ComponentStatus {
         name: "AV Engine".to_string(),
-        running: is_process_running("HydraDragonAV.exe"),
+        running: is_process_running_by_exact_path(&av_engine_path),
         gui_visible: None,
     });
 
     // Python Engine
+    let python_engine_paths = python_engine_exe_paths();
     statuses.push(ComponentStatus {
         name: "Python Engine".to_string(),
-        running: is_process_running("python.exe"),
+        running: is_process_running_by_any_exact_path(&python_engine_paths),
         gui_visible: None,
     });
 
     // OpenEDR
+    let openedr_path = openedr_exe_path();
     statuses.push(ComponentStatus {
         name: "OpenEDR".to_string(),
-        running: is_process_running("edrsvc.exe"),
+        running: is_process_running_by_exact_path(&openedr_path),
         gui_visible: None,
     });
 
     // Sanctum
-    let sanctum_running = is_process_running("um_engine.exe");
+    let sanctum_paths = [
+        sanctum_ppl_runner_path(),
+        sanctum_um_engine_path(),
+        sanctum_app_path(),
+    ];
+    let sanctum_app = sanctum_app_path();
+    let sanctum_running = is_process_running_by_any_exact_path(&sanctum_paths);
     statuses.push(ComponentStatus {
         name: "Sanctum".to_string(),
         running: sanctum_running,
         gui_visible: if sanctum_running {
-            Some(is_window_visible_by_title("Sanctum").unwrap_or(false))
+            Some(gui_window_visible("Sanctum", &sanctum_app).unwrap_or(false))
         } else {
             None
         },
@@ -307,7 +629,9 @@ async fn start_component(
     let mut comps = state.lock().await;
     match name.as_str() {
         "Owlyshield" => {
-            if comps.owlyshield.is_none() && !is_process_running("owlyshield_ransom.exe") {
+            if comps.owlyshield.is_none()
+                && !is_process_running_by_exact_path(&owlyshield_exe_path())
+            {
                 match start_owlyshield().await {
                     Ok(child) => comps.owlyshield = child,
                     Err(e) => return Err(e.to_string()),
@@ -315,7 +639,7 @@ async fn start_component(
             }
         }
         "Firewall" => {
-            if comps.firewall.is_none() && !is_process_running("hydradragonfirewall.exe") {
+            if comps.firewall.is_none() && !is_process_running_by_exact_path(&firewall_exe_path()) {
                 match start_firewall().await {
                     Ok(child) => comps.firewall = child,
                     Err(e) => return Err(e.to_string()),
@@ -323,7 +647,8 @@ async fn start_component(
             }
         }
         "AV Engine" => {
-            if comps.av_engine.is_none() && !is_process_running("HydraDragonAV.exe") {
+            if comps.av_engine.is_none() && !is_process_running_by_exact_path(&av_engine_exe_path())
+            {
                 match start_av_engine().await {
                     Ok(child) => comps.av_engine = child,
                     Err(e) => return Err(e.to_string()),
@@ -331,7 +656,9 @@ async fn start_component(
             }
         }
         "Python Engine" => {
-            if comps.python_engine.is_none() && !is_process_running("python.exe") {
+            if comps.python_engine.is_none()
+                && !is_process_running_by_any_exact_path(&python_engine_exe_paths())
+            {
                 match start_python_engine().await {
                     Ok(child) => comps.python_engine = child,
                     Err(e) => return Err(e.to_string()),
@@ -361,52 +688,35 @@ async fn stop_component(
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/IM", "owlyshield_ransom.exe"])
-                .output();
+            terminate_processes_by_exact_path(&owlyshield_exe_path());
         }
         "Firewall" => {
             if let Some(mut child) = comps.firewall.take() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/IM", "hydradragonfirewall.exe"])
-                .output();
+            terminate_processes_by_exact_path(&firewall_exe_path());
         }
         "AV Engine" => {
             if let Some(mut child) = comps.av_engine.take() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/IM", "HydraDragonAV.exe"])
-                .output();
+            terminate_processes_by_exact_path(&av_engine_exe_path());
         }
         "Python Engine" => {
             if let Some(mut child) = comps.python_engine.take() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/IM", "python.exe"])
-                .output();
+            terminate_processes_by_exact_paths(&python_engine_exe_paths());
         }
         "OpenEDR" => {
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/IM", "edrsvc.exe"])
-                .output();
+            stop_openedr();
         }
         "Sanctum" => {
-            let _ = hidden_command("sc")
-                .args(["stop", "sanctum_ppl_runner"])
-                .output();
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/IM", "um_engine.exe"])
-                .output();
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/IM", "app.exe"])
-                .output();
+            stop_sanctum_ppl_runner_service();
+            terminate_sanctum_processes();
         }
         _ => return Err(format!("Unknown component: {}", name)),
     }
@@ -414,14 +724,41 @@ async fn stop_component(
 }
 
 #[tauri::command]
-async fn toggle_gui_visibility(component: String, show: bool) -> Result<(), String> {
-    let title = match component.as_str() {
-        "Firewall" => "HydraDragon Firewall",
-        "Sanctum" => "Sanctum",
+async fn toggle_gui_visibility(
+    component: String,
+    show: bool,
+    state: tauri::State<'_, Arc<Mutex<Components>>>,
+) -> Result<(), String> {
+    let (title, process_path) = match component.as_str() {
+        "Firewall" => ("HydraDragon Firewall", firewall_exe_path()),
+        "Sanctum" => ("Sanctum", sanctum_app_path()),
         _ => return Err(format!("Component {} does not have a GUI", component)),
     };
 
-    set_window_visibility_by_title(title, show)
+    if set_window_visibility_by_title(title, show).is_ok()
+        || set_window_visibility_by_process_path(&process_path, show) > 0
+    {
+        return Ok(());
+    }
+
+    if show && component == "Firewall" && !is_process_running_by_exact_path(&process_path) {
+        let mut comps = state.lock().await;
+        comps.firewall = start_firewall_visible().await.map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    if show && component == "Sanctum" && !is_process_running_by_exact_path(&process_path) {
+        start_sanctum_gui_visible()
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    Err(format!(
+        "Window '{}' not found for {}. The process may be running without a GUI window.",
+        title,
+        process_path.display()
+    ))
 }
 
 #[tauri::command]
@@ -438,16 +775,14 @@ async fn set_owlyshield_verbose_logging(
 ) -> Result<(), String> {
     write_owlyshield_verbose_logging(enabled).map_err(|e| e.to_string())?;
 
-    if is_process_running("owlyshield_ransom.exe") {
+    if is_process_running_by_exact_path(&owlyshield_exe_path()) {
         {
             let mut comps = state.lock().await;
             if let Some(mut child) = comps.owlyshield.take() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/IM", "owlyshield_ransom.exe"])
-                .output();
+            terminate_processes_by_exact_path(&owlyshield_exe_path());
         }
 
         sleep(Duration::from_millis(500)).await;
@@ -474,18 +809,9 @@ async fn stop_all_components(
 ) -> Result<(), String> {
     let mut comps = state.lock().await;
     comps.kill_all();
-    let _ = hidden_command("taskkill")
-        .args(["/F", "/IM", "edrsvc.exe"])
-        .output();
-    let _ = hidden_command("sc")
-        .args(["stop", "sanctum_ppl_runner"])
-        .output();
-    let _ = hidden_command("taskkill")
-        .args(["/F", "/IM", "um_engine.exe"])
-        .output();
-    let _ = hidden_command("taskkill")
-        .args(["/F", "/IM", "app.exe"])
-        .output();
+    stop_openedr_service();
+    stop_sanctum_ppl_runner_service();
+    terminate_launcher_started_processes();
     Ok(())
 }
 
@@ -496,18 +822,9 @@ async fn quit_launcher(
 ) -> Result<(), String> {
     let mut comps = state.lock().await;
     comps.kill_all();
-    let _ = hidden_command("taskkill")
-        .args(["/F", "/IM", "edrsvc.exe"])
-        .output();
-    let _ = hidden_command("sc")
-        .args(["stop", "sanctum_ppl_runner"])
-        .output();
-    let _ = hidden_command("taskkill")
-        .args(["/F", "/IM", "um_engine.exe"])
-        .output();
-    let _ = hidden_command("taskkill")
-        .args(["/F", "/IM", "app.exe"])
-        .output();
+    stop_openedr_service();
+    stop_sanctum_ppl_runner_service();
+    terminate_launcher_started_processes();
     app.exit(0);
     Ok(())
 }
@@ -591,18 +908,9 @@ fn main() -> Result<()> {
                         tauri::async_runtime::spawn(async move {
                             let mut comps = state_clone.lock().await;
                             comps.kill_all();
-                            let _ = hidden_command("taskkill")
-                                .args(["/F", "/IM", "edrsvc.exe"])
-                                .output();
-                            let _ = hidden_command("sc")
-                                .args(["stop", "sanctum_ppl_runner"])
-                                .output();
-                            let _ = hidden_command("taskkill")
-                                .args(["/F", "/IM", "um_engine.exe"])
-                                .output();
-                            let _ = hidden_command("taskkill")
-                                .args(["/F", "/IM", "app.exe"])
-                                .output();
+                            stop_openedr_service();
+                            stop_sanctum_ppl_runner_service();
+                            terminate_launcher_started_processes();
                             app_clone.exit(0);
                         });
                     }
@@ -709,11 +1017,7 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
 
 async fn start_owlyshield() -> Result<Option<Child>> {
     info!("Starting Owlyshield Service...");
-    let owlyshield_path = PathBuf::from(BASE_DIR)
-        .join("hydradragon")
-        .join("Owlyshield")
-        .join("Owlyshield Service")
-        .join("owlyshield_ransom.exe");
+    let owlyshield_path = owlyshield_exe_path();
 
     match start_process(&owlyshield_path, None) {
         Ok(child) => Ok(Some(child)),
@@ -723,10 +1027,7 @@ async fn start_owlyshield() -> Result<Option<Child>> {
 
 async fn start_firewall() -> Result<Option<Child>> {
     info!("Starting HydraDragon Firewall...");
-    let firewall_path = PathBuf::from(BASE_DIR)
-        .join("hydradragon")
-        .join("HydraDragonFirewall")
-        .join("hydradragonfirewall.exe");
+    let firewall_path = firewall_exe_path();
 
     // Pass --headless so that the Firewall starts hidden/headless in background by default
     match start_process(&firewall_path, Some(&["--headless"])) {
@@ -735,9 +1036,16 @@ async fn start_firewall() -> Result<Option<Child>> {
     }
 }
 
+async fn start_firewall_visible() -> Result<Option<Child>> {
+    info!("Starting HydraDragon Firewall GUI...");
+    let firewall_path = firewall_exe_path();
+
+    start_process(&firewall_path, None).map(Some)
+}
+
 async fn start_openedr() -> Result<()> {
     info!("Starting OpenEDR...");
-    let openedr_path = PathBuf::from(BASE_DIR).join("OpenEDR").join("edrsvc.exe");
+    let openedr_path = openedr_exe_path();
     if openedr_path.exists() {
         let _ = hidden_command(openedr_path.as_os_str())
             .arg("start")
@@ -750,10 +1058,7 @@ async fn start_openedr() -> Result<()> {
 
 async fn start_av_engine() -> Result<Option<Child>> {
     info!("Starting HydraDragon AV Engine...");
-    let av_path = PathBuf::from(BASE_DIR)
-        .join("hydradragon")
-        .join("HydraDragonAV")
-        .join("HydraDragonAV.exe");
+    let av_path = av_engine_exe_path();
 
     match start_process(&av_path, None) {
         Ok(child) => Ok(Some(child)),
@@ -765,7 +1070,7 @@ async fn start_python_engine() -> Result<Option<Child>> {
     info!("Starting HydraDragon Python Engine...");
     let root_dir = PathBuf::from(BASE_DIR);
     let venv_dir = root_dir.join("venv");
-    let venv_scripts = venv_dir.join("Scripts");
+    let venv_scripts = venv_scripts_dir();
     let venv_python = venv_scripts.join("python.exe");
     let poetry_exe = venv_scripts.join("poetry.exe");
     let activate_bat = venv_scripts.join("activate.bat");
@@ -901,7 +1206,7 @@ async fn spawn_python_candidate(mut cmd: Command, label: &str) -> Result<Option<
 }
 
 async fn start_sanctum_sequence() -> Result<()> {
-    let sanctum_dir = PathBuf::from(BASE_DIR).join("hydradragon").join("Sanctum");
+    let sanctum_dir = sanctum_dir();
 
     // 1. ELAM Installer
     let elam_path = sanctum_dir.join("elam_installer.exe");
@@ -924,7 +1229,7 @@ async fn start_sanctum_sequence() -> Result<()> {
     sleep(Duration::from_millis(1500)).await;
 
     // 3. UM Engine
-    let um_path = sanctum_dir.join("um_engine.exe");
+    let um_path = sanctum_um_engine_path();
     if um_path.exists() {
         info!("  → Starting Sanctum UM Engine...");
         let _ = hidden_command(um_path.as_os_str())
@@ -935,7 +1240,7 @@ async fn start_sanctum_sequence() -> Result<()> {
     }
 
     // 4. GUI App (Pass --hidden flag so it boots minimized in tray/headless)
-    let app_path = sanctum_dir.join("app.exe");
+    let app_path = sanctum_app_path();
     if app_path.exists() {
         info!("  → Starting Sanctum GUI...");
         let _ = hidden_command(app_path.as_os_str())
@@ -946,6 +1251,24 @@ async fn start_sanctum_sequence() -> Result<()> {
         sleep(Duration::from_secs(1)).await;
     }
 
+    Ok(())
+}
+
+async fn start_sanctum_gui_visible() -> Result<()> {
+    let app_path = sanctum_app_path();
+    if !app_path.exists() {
+        warn!("Sanctum GUI not found: {}", app_path.display());
+        anyhow::bail!("Sanctum GUI not found");
+    }
+
+    info!("Starting Sanctum GUI visibly...");
+    let mut cmd = hidden_command(app_path.as_os_str());
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    if let Some(dir) = app_path.parent() {
+        cmd.current_dir(dir);
+    }
+    cmd.spawn().context("Failed to start Sanctum GUI")?;
+    sleep(Duration::from_millis(750)).await;
     Ok(())
 }
 

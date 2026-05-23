@@ -827,6 +827,13 @@ struct ResolveArgs {
     decision: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ProcessDecisionArgs {
+    name: String,
+    path: String,
+    decision: String,
+}
+
 #[derive(Copy, Clone, PartialEq)]
 enum AppView {
     Dashboard,
@@ -1078,6 +1085,7 @@ pub fn App() -> impl IntoView {
     let (selected_process_pid, set_selected_process_pid) = create_signal(Option::<u32>::None);
     let (process_filter, set_process_filter) = create_signal("all".to_string());
     let (process_search, set_process_search) = create_signal(String::new());
+    let (process_action_status, set_process_action_status) = create_signal(String::new());
     let (is_dark, set_is_dark) = create_signal(true);
 
     let (sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
@@ -1392,6 +1400,32 @@ pub fn App() -> impl IntoView {
             {
                 set_process_inventory.set(processes);
             }
+        });
+    };
+
+    let allow_process_action = move |name: String, path: String| {
+        let label = if path.trim().is_empty() || path.eq_ignore_ascii_case("unknown") {
+            name.clone()
+        } else {
+            path.clone()
+        };
+        set_process_action_status.set(format!("Allowing {label}..."));
+
+        spawn_local(async move {
+            let args = serde_wasm_bindgen::to_value(&ProcessDecisionArgs {
+                name,
+                path,
+                decision: "allow_always".to_string(),
+            })
+            .unwrap();
+
+            let value = invoke("set_process_decision", args).await;
+            let identifier =
+                serde_wasm_bindgen::from_value::<String>(value).unwrap_or_else(|_| label.clone());
+            set_process_action_status.set(format!("Allowed {identifier}"));
+            fetch_app_decisions();
+            fetch_settings();
+            fetch_process_inventory();
         });
     };
 
@@ -2246,6 +2280,14 @@ pub fn App() -> impl IntoView {
                                     Some(row) => {
                                         let decision_text = decision_badge_label(row.decision.as_deref())
                                             .unwrap_or_else(|| "UNDECIDED".to_string());
+                                        let process_is_allowed = row.decision.as_deref() == Some("allow");
+                                        let allow_button_label = if process_is_allowed {
+                                            "Allowed"
+                                        } else {
+                                            "Allow Process"
+                                        };
+                                        let allow_process_name = row.name.clone();
+                                        let allow_process_path = row.path.clone();
                                         let openedr_verdict_text = row
                                             .openedr_verdict
                                             .clone()
@@ -2303,6 +2345,28 @@ pub fn App() -> impl IntoView {
                                                     <div class="process-detail-subheading">
                                                         {format!("PID {} - Parent {} - {}", row.pid, row.parent_pid, row.kind)}
                                                     </div>
+                                                </div>
+                                                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                                    <button
+                                                        class="btn-primary"
+                                                        style="padding: 7px 14px; font-size: 11px"
+                                                        prop:disabled=process_is_allowed
+                                                        on:click=move |_| allow_process_action(allow_process_name.clone(), allow_process_path.clone())
+                                                    >
+                                                        {allow_button_label}
+                                                    </button>
+                                                    {move || {
+                                                        let status = process_action_status.get();
+                                                        if status.trim().is_empty() {
+                                                            view! {}.into_view()
+                                                        } else {
+                                                            view! {
+                                                                <span style="font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere;">
+                                                                    {status}
+                                                                </span>
+                                                            }.into_view()
+                                                        }
+                                                    }}
                                                 </div>
                                                 <div class="process-detail-grid">
                                                     <div class="process-detail-card">

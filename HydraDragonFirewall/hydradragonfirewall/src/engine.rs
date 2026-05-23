@@ -3088,6 +3088,56 @@ foreach ($store in $stores) {
         self.save_settings();
     }
 
+    pub fn set_process_decision(
+        &self,
+        name: String,
+        path: String,
+        decision: String,
+        tx: &AppHandle,
+    ) -> Result<String, String> {
+        let identifier = normalize_kernel_block_path_candidate(&path)
+            .or_else(|| {
+                let trimmed = name.trim();
+                (!is_unresolved_identity(trimmed)).then(|| trimmed.to_string())
+            })
+            .ok_or_else(|| "Process identity is unavailable.".to_string())?;
+
+        let app_decision = match decision.as_str() {
+            "allow" | "allow_always" => AppDecision::Allow,
+            "allow_once" => AppDecision::AllowOnce,
+            "block" => AppDecision::Block,
+            "pending" => AppDecision::Pending,
+            other => return Err(format!("Unsupported process decision: {other}")),
+        };
+
+        self.app_manager
+            .resolve_decision(&identifier, app_decision.clone());
+        self.save_settings();
+
+        let now = Self::now_ts();
+        let action_label = match app_decision {
+            AppDecision::Allow => "Allowed",
+            AppDecision::AllowOnce => "Allowed Once",
+            AppDecision::Block => "Blocked",
+            AppDecision::Pending => "Set Pending",
+        };
+        emit_log_event(
+            tx,
+            LogEntry {
+                id: format!("{}-process-decision", now),
+                timestamp: now,
+                level: if app_decision == AppDecision::Block {
+                    LogLevel::Warning
+                } else {
+                    LogLevel::Success
+                },
+                message: format!("{action_label}: Process decision for {identifier}"),
+            },
+        );
+
+        Ok(identifier)
+    }
+
     pub fn clear_app_decisions(&self) {
         self.app_manager.clear_decisions();
         self.settings.write().unwrap().app_decisions.clear();
