@@ -19,38 +19,6 @@
 // YARA Headers
 #include <yara.h>
 
-// Xvirus SDK Headers
-#pragma once
-#ifndef _XVNENG_H
-#define _XVNENG_H
-
-#define LoadFnKey "load"
-#define UnloadFnKey "unload"
-#define ScanFnKey "scan"
-#define VersionFnKey "version"
-
-struct ActionResult {
-  bool sucess;
-  wchar_t *result;
-  wchar_t *error;
-};
-
-struct ScanResult {
-  bool sucess;
-  wchar_t *error;
-  bool isMalware;
-  wchar_t *name;
-  double malwareScore;
-  wchar_t *path;
-};
-
-typedef ActionResult (*LoadFn)(bool force);
-typedef ActionResult (*UnloadFn)();
-typedef ScanResult (*ScanFn)(const wchar_t *filepath);
-typedef wchar_t *(*VersionFn)();
-
-#endif // _XVNENG_H
-
 namespace fs = std::filesystem;
 
 // Paths
@@ -60,17 +28,10 @@ namespace fs = std::filesystem;
 #define CLAMAV_DB ENGINES_DIR L"database"
 #define FRESHCLAM_EXE ENGINES_DIR L"freshclam.exe"
 #define YARA_RULES_FOLDER L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\yara\\"
-#define XVIRUS_SDK_DLL L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Xvirus\\XvirusSDK.dll"
 
 // Scanner Global
 static std::unique_ptr<clamav::Scanner> g_clamavScanner;
 static YR_RULES *g_yaraRules = nullptr;
-static HINSTANCE g_xvirusHandle = nullptr;
-static LoadFn g_xvirusLoad = nullptr;
-static UnloadFn g_xvirusUnload = nullptr;
-static ScanFn g_xvirusScan = nullptr;
-static VersionFn g_xvirusVersion = nullptr;
-static bool g_xvirusReady = false;
 constexpr auto CLAMAV_UPDATE_INTERVAL = std::chrono::hours(2);
 constexpr auto CLAMAV_DEFINITION_MAX_AGE = std::chrono::hours(12);
 constexpr DWORD FRESHCLAM_TIMEOUT_MS = 1500u * 1000u;
@@ -315,64 +276,6 @@ bool LoadYaraRules() {
   return true;
 }
 
-// Xvirus SDK Initialization
-bool InitializeXvirusSDK() {
-  std::cout << "[Xvirus] Loading Xvirus SDK..." << std::endl;
-  
-  std::error_code ec;
-  if (!fs::exists(XVIRUS_SDK_DLL, ec)) {
-    std::cerr << "[Xvirus] XvirusSDK.dll not found at: "
-              << fs::path(XVIRUS_SDK_DLL).string() << std::endl;
-    return false;
-  }
-
-  g_xvirusHandle = LoadLibraryW(XVIRUS_SDK_DLL);
-  if (!g_xvirusHandle) {
-    std::cerr << "[Xvirus] Failed to load XvirusSDK.dll. Error: "
-              << GetLastError() << std::endl;
-    return false;
-  }
-
-  // Resolve function pointers
-  g_xvirusVersion = (VersionFn)GetProcAddress(g_xvirusHandle, VersionFnKey);
-  g_xvirusLoad = (LoadFn)GetProcAddress(g_xvirusHandle, LoadFnKey);
-  g_xvirusUnload = (UnloadFn)GetProcAddress(g_xvirusHandle, UnloadFnKey);
-  g_xvirusScan = (ScanFn)GetProcAddress(g_xvirusHandle, ScanFnKey);
-
-  if (!g_xvirusVersion || !g_xvirusLoad || !g_xvirusUnload || !g_xvirusScan) {
-    std::cerr << "[Xvirus] Failed to resolve SDK functions." << std::endl;
-    FreeLibrary(g_xvirusHandle);
-    g_xvirusHandle = nullptr;
-    return false;
-  }
-
-  // Print SDK version
-  std::wcout << L"[Xvirus] SDK Version: " << g_xvirusVersion() << std::endl;
-
-  // Load the engine (databases + AI model)
-  ActionResult loadResult = g_xvirusLoad(false);
-  if (!loadResult.sucess) {
-    std::wcerr << L"[Xvirus] Engine load failed: " << loadResult.error << std::endl;
-    FreeLibrary(g_xvirusHandle);
-    g_xvirusHandle = nullptr;
-    return false;
-  }
-  
-  std::wcout << L"[Xvirus] " << loadResult.result << std::endl;
-  g_xvirusReady = true;
-  return true;
-}
-
-void ShutdownXvirusSDK() {
-  if (g_xvirusHandle && g_xvirusUnload) {
-    std::cout << "[Xvirus] Unloading engine..." << std::endl;
-    g_xvirusUnload();
-    FreeLibrary(g_xvirusHandle);
-    g_xvirusHandle = nullptr;
-    g_xvirusReady = false;
-  }
-}
-
 void ProcessRequest(const std::string &request, std::string &response) {
   // Basic JSON extraction for {"path": "..."}
   std::string filePathStr;
@@ -464,27 +367,6 @@ void ProcessRequest(const std::string &request, std::string &response) {
     }
   }
 
-  // Xvirus Scan
-  if (g_xvirusReady && g_xvirusScan && fs::exists(wFilePath)) {
-    ScanResult xvirusResult = g_xvirusScan(wFilePath.c_str());
-    if (xvirusResult.sucess) {
-      if (xvirusResult.isMalware) {
-        // Convert wchar_t* to std::string
-        int len = WideCharToMultiByte(CP_UTF8, 0, xvirusResult.name, -1, NULL, 0, NULL, NULL);
-        if (len > 0) {
-          std::vector<char> buf(len);
-          WideCharToMultiByte(CP_UTF8, 0, xvirusResult.name, -1, buf.data(), len, NULL, NULL);
-          xvirusDetectionName = buf.data();
-        }
-        xvirusMalwareScore = xvirusResult.malwareScore;
-        isMalicious = true;
-      }
-    } else {
-      // Log scan error but don't fail the entire scan
-      std::wcerr << L"[Xvirus] Scan error: " << xvirusResult.error << std::endl;
-    }
-  }
-
   // Build JSON Response
   std::stringstream ss;
   ss << "{\"status\":\"success\", \"malicious\":"
@@ -495,9 +377,7 @@ void ProcessRequest(const std::string &request, std::string &response) {
     ss << "\"" << yaraMatches[i] << "\""
        << (i == yaraMatches.size() - 1 ? "" : ",");
   }
-  ss << "], \"clamav\":\"" << clamavVirusName << "\""
-     << ", \"xvirus\":{\"detection\":\"" << xvirusDetectionName << "\""
-     << ", \"score\":" << xvirusMalwareScore << "}}";
+  ss << "], \"clamav\":\"" << clamavVirusName << "\"}";
   response = ss.str();
 }
 
@@ -521,11 +401,6 @@ int main() {
   UpdateClamAvDefinitionsIfNeeded();
   g_clamavScanner = clamav::Scanner::CreateAsync(CLAMAV_DLL, CLAMAV_DB);
   StartClamAvDefinitionUpdateThread();
-
-  // Initialize Xvirus SDK
-  if (!InitializeXvirusSDK()) {
-    std::cerr << "[Xvirus] Warning: Failed to initialize Xvirus SDK. Continuing without it." << std::endl;
-  }
 
   // We don't block main here; if a scan comes in before ready, ScanFile will
   // handle it or wait
@@ -570,9 +445,6 @@ int main() {
   if (g_yaraRules)
     yr_rules_destroy(g_yaraRules);
   yr_finalize();
-
-  // Cleanup Xvirus SDK
-  ShutdownXvirusSDK();
 
   return 0;
 }

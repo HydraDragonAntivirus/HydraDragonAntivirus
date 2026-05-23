@@ -368,7 +368,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 
 - https://github.com/Cisco-Talos/clamav
 - https://github.com/develbranch/TinyAntivirus
-- https://github.com/danisss9/Xvirus/releases/tag/XvirusSDK_5.1.1
+- https://github.com/danisss9/Xvirus (malvendor.db)
 
 - I used these projects for Antivirus
 
