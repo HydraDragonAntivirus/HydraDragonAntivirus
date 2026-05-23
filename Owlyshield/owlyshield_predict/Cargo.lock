@@ -1186,6 +1186,7 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror 2.0.18",
  "walkdir",
+ "windows 0.58.0",
  "yaml_serde",
  "zip",
 ]
