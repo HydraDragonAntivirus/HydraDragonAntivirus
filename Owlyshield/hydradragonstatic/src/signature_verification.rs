@@ -3,21 +3,22 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
 #[cfg(target_os = "windows")]
+use windows::core::{PCWSTR, PWSTR};
+#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::ERROR_SUCCESS;
 #[cfg(target_os = "windows")]
 use windows::Win32::Security::Cryptography::{
-    CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-    CERT_QUERY_FORMAT_FLAG_BINARY, CERT_QUERY_OBJECT_FILE, CertCloseStore,
-    CertEnumCertificatesInStore, CertFreeCertificateContext, CertGetNameStringW, CryptMsgClose,
-    CryptQueryObject, HCERTSTORE,
+    CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext, CertGetNameStringW,
+    CryptMsgClose, CryptQueryObject, CERT_NAME_SIMPLE_DISPLAY_TYPE,
+    CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_FORMAT_FLAG_BINARY,
+    CERT_QUERY_OBJECT_FILE, HCERTSTORE,
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::Security::WinTrust::{
-    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_UICONTEXT, WINTRUST_FILE_INFO,
-    WTD_CHOICE_FILE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE, WinVerifyTrust,
+    WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_UICONTEXT,
+    WINTRUST_FILE_INFO, WTD_CHOICE_FILE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY,
+    WTD_UI_NONE,
 };
-#[cfg(target_os = "windows")]
-use windows::core::{PCWSTR, PWSTR};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SignatureStatus {
