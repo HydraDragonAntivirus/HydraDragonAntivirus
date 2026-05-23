@@ -4346,7 +4346,8 @@ impl FirewallEngine {
                                         settings_w.read().unwrap().tls_proxy.clone();
                                     // CRITICAL FIX: Only redirect to proxy if it's actually enabled AND auto-started
                                     if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
-                                        && tls_proxy_cfg.auto_start {
+                                        && tls_proxy_cfg.auto_start
+                                    {
                                         let mut is_tcp = false;
                                         let mut src_port = 0;
                                         let mut dst_port = 0;
