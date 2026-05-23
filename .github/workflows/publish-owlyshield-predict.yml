@@ -6,6 +6,7 @@ on:
     paths:
       - "Owlyshield/owlyshield_predict/**"
       - "!Owlyshield/owlyshield_predict/**/*.dll"
+      - "Owlyshield/hydradragonstatic/**"
       - ".github/workflows/publish-owlyshield-predict.yml"
   workflow_dispatch:
 
