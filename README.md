@@ -193,7 +193,7 @@ https://github.com/adrianyy/kernelhook/issues/1
 
 ### Quarantine Directory
 
-C:\ProgramData\HydraDragonAntivirus\Quarantine
+C:\ProgramData\HydraDragonQuarantine
 
 ---
 
