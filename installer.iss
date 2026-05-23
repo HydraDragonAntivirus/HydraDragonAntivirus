@@ -30,7 +30,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={commonpf64}\{#MyAppName}
+DefaultDirName={commonappdata}\{#MyAppName}
 DisableDirPage=yes
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
@@ -78,12 +78,12 @@ Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\setup.py"; DestDir: "
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\openedr.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
-Name: "{commonappdata}\HydraDragonAntivirus\debug"; Flags: uninsneveruninstall
+Name: "{app}\debug"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\utils"
-Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\log"; Flags: uninsneveruninstall
-Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\config"; Flags: uninsneveruninstall
-Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\threats"; Flags: uninsneveruninstall
-Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\realtime_learning"; Flags: uninsneveruninstall
+Name: "{app}\Owlyshield\log"; Flags: uninsneveruninstall
+Name: "{app}\Owlyshield\config"; Flags: uninsneveruninstall
+Name: "{app}\Owlyshield\threats"; Flags: uninsneveruninstall
+Name: "{app}\Owlyshield\realtime_learning"; Flags: uninsneveruninstall
 Name: "{commonpf64}\ClamAV"
 Name: "{commonpf64}\Npcap"
 Name: "{app}\hydradragon\suricata"
@@ -99,14 +99,14 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeFile}\SupportedTypes
 
 ; Owlyshield Registry Settings
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NUM_VERSION"; ValueData: {#OwlyshieldVersion}; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\debug"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{app}\debug"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "UTILS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\utils"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "CONFIG_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\config"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "CONFIG_PATH"; ValueData: "{app}\config"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NOVELTY_PATH"; ValueData: "{app}\hydradragon\Owlyshield\novelty"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\Owlyshield\log"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_PATH"; ValueData: "{app}\Owlyshield\log"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "RULES_PATH"; ValueData: "{app}\hydradragon\Owlyshield\rules"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORTS_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\threats"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\realtime_learning"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORTS_PATH"; ValueData: "{app}\Owlyshield\threats"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_PATH"; ValueData: "{app}\Owlyshield\realtime_learning"; Flags: uninsdeletekey
 
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "{#OwlyshieldAppId}"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey

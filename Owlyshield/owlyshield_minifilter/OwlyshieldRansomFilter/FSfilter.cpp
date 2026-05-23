@@ -449,7 +449,6 @@ static NTSTATUS InitializeOwlyshieldRules(VOID)
 
     // HydraDragonAntivirus-specific examples
     (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Program Files\\HydraDragonAntivirus", 38);
-    (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\ProgramData\\edrsvc", 22);
     (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
     (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrpm64.dll", 29);
     (VOID) FSAddPyasWhitelistRuleNormalizedToSet(&g_PyasWhitelistRules, L"C:\\Windows\\System32\\edrpm32.dll", 29);
