@@ -76,69 +76,70 @@ pub enum DriverComMessageType {
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-major-function-codes).
+#[repr(u8)]
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum IrpMajorOp {
     /// Nothing happened
-    IrpNone,
+    IrpNone = 0,
     /// On read, any time following the successful completion of a create request.
-    IrpRead,
+    IrpRead = 1,
     /// On write, any time following the successful completion of a create request.
-    IrpWrite,
+    IrpWrite = 2,
     /// Set Metadata about a file or file handle. In that case, [shared_def::FileChangeInfo] indicates
     /// the nature of the modification.
-    IrpSetInfo,
+    IrpSetInfo = 3,
     /// Open a handle to a file object or device object.
-    IrpCreate,
+    IrpCreate = 4,
     /// File object handle has been closed
-    _IrpCleanUp, //not used (yet)
+    _IrpCleanUp = 5, //not used (yet)
     /// Registry operation
-    IrpRegistry,
+    IrpRegistry = 6,
 
     // Process-related operations
     /// Process creation
-    IrpProcessCreate,
+    IrpProcessCreate = 7,
     /// Process termination (normal exit)
-    IrpProcessTerminate,
+    IrpProcessTerminate = 8,
     /// External process attempting to terminate another (attacker -> target)
-    IrpProcessTerminateAttempt,
+    IrpProcessTerminateAttempt = 9,
     /// Process exit/cleanup detected
-    IrpProcessExit,
+    IrpProcessExit = 10,
     /// Process handle opened for access (OB callback)
-    IrpProcessHandleOpen,
+    IrpProcessHandleOpen = 11,
     /// Single normalized opcode for real VMM/HyperDbg-origin activity only.
     /// Kernel process-protection signals stay in the dedicated IrpKernel* variants below.
-    IrpHypervisorEvent,
+    IrpHypervisorEvent = 12,
+    /// Kernel process-protection signal: remote thread creation
+    IrpKernelRemoteThread = 13,
+    /// Kernel process-protection signal: write memory
+    IrpKernelWriteMemory = 14,
+    /// Kernel process-protection signal: change memory protection
+    IrpKernelProtectMemory = 15,
+    /// Kernel process-protection signal: create thread
+    IrpKernelCreateThread = 16,
+    /// Kernel process-protection signal: queue APC
+    IrpKernelQueueApc = 17,
+    /// Kernel process-protection signal: create section
+    IrpKernelCreateSection = 18,
+    /// Kernel process-protection signal: map section
+    IrpKernelMapSection = 19,
     /// User-mode API hook callback from UserModeHookEngine shellcode.
     /// With the handle-free ring transport, the driver drains the ring and
     /// emits this same opcode into the normal IOMessage pipeline.
-    IrpUserModeHookEvent,
-    /// Kernel process-protection signal: remote thread creation
-    IrpKernelRemoteThread,
-    /// Kernel process-protection signal: write memory
-    IrpKernelWriteMemory,
-    /// Kernel process-protection signal: change memory protection
-    IrpKernelProtectMemory,
-    /// Kernel process-protection signal: create thread
-    IrpKernelCreateThread,
-    /// Kernel process-protection signal: queue APC
-    IrpKernelQueueApc,
-    /// Kernel process-protection signal: create section
-    IrpKernelCreateSection,
-    /// Kernel process-protection signal: map section
-    IrpKernelMapSection,
+    IrpUserModeHookEvent = 20,
 
     // Rootkit-related operations
-    IrpRootkitSsdtHook,
-    IrpRootkitHiddenProcess,
-    IrpRootkitHiddenDriver,
-    IrpRootkitKernelHook,
-    IrpRootkitTerminateProcess,
-    IrpRootkitFileMove,
-    IrpRootkitGeneric,
+    IrpRootkitSsdtHook = 21,
+    IrpRootkitHiddenProcess = 22,
+    IrpRootkitHiddenDriver = 23,
+    IrpRootkitKernelHook = 24,
+    IrpRootkitTerminateProcess = 25,
+    IrpRootkitFileMove = 26,
+    IrpRootkitGeneric = 27,
 
     // Named Pipe Operations (Kernel + Usermode)
-    IrpNamedPipeCreate,
-    IrpNamedPipeWrite,
+    IrpNamedPipeCreate = 28,
+    IrpNamedPipeWrite = 29,
 }
 
 impl IrpMajorOp {
@@ -157,7 +158,6 @@ impl IrpMajorOp {
             10 => IrpMajorOp::IrpProcessExit,
             11 => IrpMajorOp::IrpProcessHandleOpen,
             12 => IrpMajorOp::IrpHypervisorEvent,
-            20 => IrpMajorOp::IrpUserModeHookEvent,
             13 => IrpMajorOp::IrpKernelRemoteThread,
             14 => IrpMajorOp::IrpKernelWriteMemory,
             15 => IrpMajorOp::IrpKernelProtectMemory,
@@ -165,6 +165,7 @@ impl IrpMajorOp {
             17 => IrpMajorOp::IrpKernelQueueApc,
             18 => IrpMajorOp::IrpKernelCreateSection,
             19 => IrpMajorOp::IrpKernelMapSection,
+            20 => IrpMajorOp::IrpUserModeHookEvent,
 
             21 => IrpMajorOp::IrpRootkitSsdtHook,
             22 => IrpMajorOp::IrpRootkitHiddenProcess,
@@ -177,6 +178,34 @@ impl IrpMajorOp {
             29 => IrpMajorOp::IrpNamedPipeWrite,
 
             _ => IrpMajorOp::IrpNone,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IrpMajorOp;
+
+    #[test]
+    fn irp_major_op_discriminants_match_kernel_opcodes() {
+        let expected = [
+            (IrpMajorOp::IrpProcessCreate, 7),
+            (IrpMajorOp::IrpHypervisorEvent, 12),
+            (IrpMajorOp::IrpKernelRemoteThread, 13),
+            (IrpMajorOp::IrpKernelWriteMemory, 14),
+            (IrpMajorOp::IrpKernelProtectMemory, 15),
+            (IrpMajorOp::IrpKernelCreateThread, 16),
+            (IrpMajorOp::IrpKernelQueueApc, 17),
+            (IrpMajorOp::IrpKernelCreateSection, 18),
+            (IrpMajorOp::IrpKernelMapSection, 19),
+            (IrpMajorOp::IrpUserModeHookEvent, 20),
+            (IrpMajorOp::IrpRootkitSsdtHook, 21),
+            (IrpMajorOp::IrpNamedPipeWrite, 29),
+        ];
+
+        for (variant, opcode) in expected {
+            assert_eq!(variant.clone() as u8, opcode);
+            assert_eq!(IrpMajorOp::from_byte(opcode), variant);
         }
     }
 }
