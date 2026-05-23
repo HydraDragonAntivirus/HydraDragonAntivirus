@@ -43,6 +43,7 @@ dependencies = [
     "esprima",
     "aiofiles",
     "unipacker",
+    "elftools",
    
     # Pylingual reverse-engineering dependencies
     "asttokens",

@@ -28,14 +28,16 @@ use windows::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, FindWindowW, GetWindowThreadProcessId, IsWindowVisible, ShowWindow, SW_HIDE,
-    SW_RESTORE,
+    EnumWindows, FindWindowW, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindowVisible, ShowWindow, SW_HIDE, SW_RESTORE,
 };
 
 const BASE_DIR: &str = r"C:\Program Files\HydraDragonAntivirus";
 const DATA_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus";
 const OWLYSHIELD_REG_KEY: &str = r"HKLM\Software\Owlyshield";
 const OWLYSHIELD_VERBOSE_LOGGING_VALUE: &str = "VERBOSE_LOGGING";
+const NO_EXCLUDED_WINDOW_TITLES: &[&str] = &[];
+const FIREWALL_ALERT_WINDOW_TITLES: &[&str] = &["HydraDragon Firewall Alert"];
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -381,11 +383,30 @@ fn set_window_visibility_by_title(title: &str, show: bool) -> Result<(), String>
 }
 
 #[cfg(windows)]
+fn window_title(hwnd: HWND) -> String {
+    unsafe {
+        let len = GetWindowTextLengthW(hwnd);
+        if len <= 0 {
+            return String::new();
+        }
+
+        let mut buffer = vec![0u16; len as usize + 1];
+        let copied = GetWindowTextW(hwnd, &mut buffer);
+        if copied <= 0 {
+            String::new()
+        } else {
+            String::from_utf16_lossy(&buffer[..copied as usize])
+        }
+    }
+}
+
+#[cfg(windows)]
 struct ProcessWindowAction {
     target_path: String,
     show: Option<bool>,
     matched: usize,
     visible: bool,
+    excluded_titles: &'static [&'static str],
 }
 
 #[cfg(windows)]
@@ -401,6 +422,15 @@ unsafe extern "system" fn enum_process_windows(hwnd: HWND, lparam: LPARAM) -> BO
                 normalize_path_for_compare(Path::new(image_path)) == action.target_path
             })
     {
+        let title = window_title(hwnd);
+        if action
+            .excluded_titles
+            .iter()
+            .any(|excluded| title.eq_ignore_ascii_case(excluded))
+        {
+            return BOOL(1);
+        }
+
         action.matched += 1;
 
         if let Some(show) = action.show {
@@ -417,12 +447,17 @@ unsafe extern "system" fn enum_process_windows(hwnd: HWND, lparam: LPARAM) -> BO
 }
 
 #[cfg(windows)]
-fn visit_process_windows(path: &Path, show: Option<bool>) -> ProcessWindowAction {
+fn visit_process_windows(
+    path: &Path,
+    show: Option<bool>,
+    excluded_titles: &'static [&'static str],
+) -> ProcessWindowAction {
     let mut action = ProcessWindowAction {
         target_path: normalize_path_for_compare(path),
         show,
         matched: 0,
         visible: false,
+        excluded_titles,
     };
 
     if !action.target_path.is_empty() {
@@ -438,23 +473,37 @@ fn visit_process_windows(path: &Path, show: Option<bool>) -> ProcessWindowAction
 }
 
 #[cfg(windows)]
-fn set_window_visibility_by_process_path(path: &Path, show: bool) -> usize {
-    visit_process_windows(path, Some(show)).matched
+fn set_window_visibility_by_process_path(
+    path: &Path,
+    show: bool,
+    excluded_titles: &'static [&'static str],
+) -> usize {
+    visit_process_windows(path, Some(show), excluded_titles).matched
 }
 
 #[cfg(not(windows))]
-fn set_window_visibility_by_process_path(_path: &Path, _show: bool) -> usize {
+fn set_window_visibility_by_process_path(
+    _path: &Path,
+    _show: bool,
+    _excluded_titles: &'static [&'static str],
+) -> usize {
     0
 }
 
 #[cfg(windows)]
-fn is_window_visible_by_process_path(path: &Path) -> Option<bool> {
-    let action = visit_process_windows(path, None);
+fn is_window_visible_by_process_path(
+    path: &Path,
+    excluded_titles: &'static [&'static str],
+) -> Option<bool> {
+    let action = visit_process_windows(path, None, excluded_titles);
     (action.matched > 0).then_some(action.visible)
 }
 
 #[cfg(not(windows))]
-fn is_window_visible_by_process_path(_path: &Path) -> Option<bool> {
+fn is_window_visible_by_process_path(
+    _path: &Path,
+    _excluded_titles: &'static [&'static str],
+) -> Option<bool> {
     None
 }
 
@@ -473,10 +522,14 @@ fn is_window_visible_by_title(title: &str) -> Option<bool> {
     }
 }
 
-fn gui_window_visible(title: &str, path: &Path) -> Option<bool> {
+fn gui_window_visible(
+    title: &str,
+    path: &Path,
+    excluded_titles: &'static [&'static str],
+) -> Option<bool> {
     match (
         is_window_visible_by_title(title),
-        is_window_visible_by_process_path(path),
+        is_window_visible_by_process_path(path, excluded_titles),
     ) {
         (Some(true), _) | (_, Some(true)) => Some(true),
         (Some(false), _) | (_, Some(false)) => Some(false),
@@ -570,7 +623,14 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
         name: "Firewall".to_string(),
         running: fw_running,
         gui_visible: if fw_running {
-            Some(gui_window_visible("HydraDragon Firewall", &firewall_path).unwrap_or(false))
+            Some(
+                gui_window_visible(
+                    "HydraDragon Firewall",
+                    &firewall_path,
+                    FIREWALL_ALERT_WINDOW_TITLES,
+                )
+                .unwrap_or(false),
+            )
         } else {
             None
         },
@@ -612,7 +672,10 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
         name: "Sanctum".to_string(),
         running: sanctum_running,
         gui_visible: if sanctum_running {
-            Some(gui_window_visible("Sanctum", &sanctum_app).unwrap_or(false))
+            Some(
+                gui_window_visible("Sanctum", &sanctum_app, NO_EXCLUDED_WINDOW_TITLES)
+                    .unwrap_or(false),
+            )
         } else {
             None
         },
@@ -729,14 +792,26 @@ async fn toggle_gui_visibility(
     show: bool,
     state: tauri::State<'_, Arc<Mutex<Components>>>,
 ) -> Result<(), String> {
-    let (title, process_path) = match component.as_str() {
-        "Firewall" => ("HydraDragon Firewall", firewall_exe_path()),
-        "Sanctum" => ("Sanctum", sanctum_app_path()),
+    set_component_gui_visibility(&component, show, state.inner().clone()).await
+}
+
+async fn set_component_gui_visibility(
+    component: &str,
+    show: bool,
+    state: Arc<Mutex<Components>>,
+) -> Result<(), String> {
+    let (title, process_path, excluded_titles) = match component {
+        "Firewall" => (
+            "HydraDragon Firewall",
+            firewall_exe_path(),
+            FIREWALL_ALERT_WINDOW_TITLES,
+        ),
+        "Sanctum" => ("Sanctum", sanctum_app_path(), NO_EXCLUDED_WINDOW_TITLES),
         _ => return Err(format!("Component {} does not have a GUI", component)),
     };
 
     if set_window_visibility_by_title(title, show).is_ok()
-        || set_window_visibility_by_process_path(&process_path, show) > 0
+        || set_window_visibility_by_process_path(&process_path, show, excluded_titles) > 0
     {
         return Ok(());
     }
@@ -867,6 +942,38 @@ fn main() -> Result<()> {
             let hide_i =
                 tauri::menu::MenuItem::with_id(app, "hide", "Hide Controller", true, None::<&str>)
                     .unwrap();
+            let show_firewall_i = tauri::menu::MenuItem::with_id(
+                app,
+                "show_firewall",
+                "Show Firewall GUI",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let hide_firewall_i = tauri::menu::MenuItem::with_id(
+                app,
+                "hide_firewall",
+                "Hide Firewall GUI",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let show_sanctum_i = tauri::menu::MenuItem::with_id(
+                app,
+                "show_sanctum",
+                "Show Sanctum GUI",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let hide_sanctum_i = tauri::menu::MenuItem::with_id(
+                app,
+                "hide_sanctum",
+                "Hide Sanctum GUI",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
             let quit_i = tauri::menu::MenuItem::with_id(
                 app,
                 "quit",
@@ -875,12 +982,19 @@ fn main() -> Result<()> {
                 None::<&str>,
             )
             .unwrap();
+            let controller_separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
+            let components_separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
             let menu = tauri::menu::Menu::with_items(
                 app,
                 &[
                     &show_i,
                     &hide_i,
-                    &tauri::menu::PredefinedMenuItem::separator(app).unwrap(),
+                    &controller_separator,
+                    &show_firewall_i,
+                    &hide_firewall_i,
+                    &show_sanctum_i,
+                    &hide_sanctum_i,
+                    &components_separator,
                     &quit_i,
                 ],
             )
@@ -900,6 +1014,25 @@ fn main() -> Result<()> {
                         if let Some(win) = app.get_webview_window("main") {
                             let _ = win.hide();
                         }
+                    }
+                    "show_firewall" | "hide_firewall" | "show_sanctum" | "hide_sanctum" => {
+                        let (component, show) = match event.id.as_ref() {
+                            "show_firewall" => ("Firewall", true),
+                            "hide_firewall" => ("Firewall", false),
+                            "show_sanctum" => ("Sanctum", true),
+                            "hide_sanctum" => ("Sanctum", false),
+                            _ => unreachable!(),
+                        };
+                        let state = app.state::<Arc<Mutex<Components>>>();
+                        let state_clone = Arc::clone(&state);
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) =
+                                set_component_gui_visibility(component, show, state_clone).await
+                            {
+                                let action = if show { "show" } else { "hide" };
+                                warn!("Failed to {} {} GUI from tray: {}", action, component, e);
+                            }
+                        });
                     }
                     "quit" => {
                         let state = app.state::<Arc<Mutex<Components>>>();
