@@ -4344,7 +4344,9 @@ impl FirewallEngine {
 
                                     let tls_proxy_cfg =
                                         settings_w.read().unwrap().tls_proxy.clone();
-                                    if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy {
+                                    // CRITICAL FIX: Only redirect to proxy if it's actually enabled AND auto-started
+                                    if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
+                                        && tls_proxy_cfg.auto_start {
                                         let mut is_tcp = false;
                                         let mut src_port = 0;
                                         let mut dst_port = 0;
@@ -4456,6 +4458,7 @@ impl FirewallEngine {
                                     }
 
                                     // REINJECT IMMEDIATELY from the SAME thread
+                                    // CRITICAL FIX: Only send if should_forward is true
                                     let mut reinject_address = packet.address.clone();
                                     if let Some(val) = loopback_flag {
                                         reinject_address.as_mut().set_loopback(val);
@@ -4468,6 +4471,7 @@ impl FirewallEngine {
                                         let _ = reinject_packet
                                             .recalculate_checksums(Default::default());
                                     }
+                                    // Send the packet back to the network stack
                                     if let Err(_e) = divert_w.send(&reinject_packet) {
                                         // Log error selectively?
                                     }
@@ -4858,7 +4862,8 @@ impl FirewallEngine {
                     am.remove_decision(&app_name.to_lowercase());
                 }
                 AppDecision::Pending => {
-                    should_forward = true;
+                    // CRITICAL FIX: Block packets when app decision is pending
+                    should_forward = false;
                     reason = Some(format!("App pending decision: {}", app_name));
                 }
             }
