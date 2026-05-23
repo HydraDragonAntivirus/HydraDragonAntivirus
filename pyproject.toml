@@ -21,6 +21,7 @@ dependencies = [
     "pywin32",
     "py7zr",
     "chardet",
+    "pyelftools",
     "zstandard",
     "debloat",
     "cryptography",
@@ -43,7 +44,6 @@ dependencies = [
     "esprima",
     "aiofiles",
     "unipacker",
-    "elftools",
    
     # Pylingual reverse-engineering dependencies
     "asttokens",
