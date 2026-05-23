@@ -272,7 +272,7 @@ For complete removal of kernel drivers and system services, please follow the **
 - Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\scripts
  
  ## Sigma-HQ - Hayabusa
- - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.8.1 (hayabusa-3.8.1-win-x64.zip)
+ - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.9.0 (hayabusa-3.9.0-win-x64.zip)
 
  ## IMPORTANT
   - **Vulnerable Drivers & Post-Infection Risk**: This project utilizes drivers like `WinDivert`. These drivers are currently vulnerable. If you see this driver abused you probably infected.
@@ -353,7 +353,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - https://github.com/radareorg/radare2/releases/tag/6.1.4 (radare2-6.1.4-w64.zip)
 - https://github.com/DimaReverse/nuitka-static-unpacker
 
-- I used these projects to decompile (with a current custom database of Detect-It-Easy 3.10).
+- I used these projects to decompile.
 
 - https://github.com/starhopp3r/ML-Antivirus
 - https://github.com/HydraDragonAntivirus/yarGen
