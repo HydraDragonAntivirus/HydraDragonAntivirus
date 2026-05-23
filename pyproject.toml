@@ -22,6 +22,7 @@ dependencies = [
     "py7zr",
     "chardet",
     "pyelftools",
+    "macholib",
     "zstandard",
     "debloat",
     "cryptography",
