@@ -8923,7 +8923,7 @@ async def scan_and_warn(
                             logger.critical(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
                             fake_size = "HEUR:FakeSize.gen"
                             if signature_check and signature_check["is_valid"]:
-                                fake_size = "HEUR:SIG.Win32.FakeSize.gen"
+                                fake_size = "HEUR:Win32.FakeSize.gen.SIG"
                             # MODIFIED: await notify function
                             await notify_user_fake_size(norm_path, fake_size, main_file_path=main_file_path)
                             # One detection enough

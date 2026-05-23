@@ -42,6 +42,13 @@ thiserror = "2.0.18"
 walkdir = "2.5.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+    "Win32_Security_WinTrust",
+] }
+
 [profile.release]
 opt-level = 3
 lto = true

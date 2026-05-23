@@ -1,3 +1,4 @@
+use crate::signature_verification::SignatureInfo;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
@@ -520,6 +521,10 @@ pub struct ScanReport {
     /// Detected threat name in SDK format (family.variant or signature name)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threat_name: Option<String>,
+
+    /// Digital signature verification information
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<SignatureInfo>,
 }
 
 impl Default for ScanResultCode {

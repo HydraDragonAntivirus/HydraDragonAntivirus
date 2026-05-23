@@ -1,0 +1,130 @@
+# Malicious Vendor Blacklist Rules
+# Based on malvendor.db (922 known malicious vendors)
+# Detects executables signed by vendors associated with adware, trojans, and PUPs
+
+rules:
+  - id: MALVENDOR-ADWARE-001
+    title: "Adware Vendor - Softonic"
+    description: "Detects files signed by Softonic International (known adware distributor)"
+    severity: critical
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and (signature.signer_name contains 'Softonic' or signature.signer_name contains 'SOFTONIC')"
+
+  - id: MALVENDOR-ADWARE-002
+    title: "Adware Vendor - Conduit"
+    description: "Detects files signed by Conduit Ltd (adware/toolbar distributor)"
+    severity: critical
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and (signature.signer_name contains 'Conduit' or signature.signer_name contains 'CONDUIT')"
+
+  - id: MALVENDOR-ADWARE-003
+    title: "Adware Vendor - Mindspark"
+    description: "Detects files signed by Mindspark Interactive Network (browser hijacker)"
+    severity: critical
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and signature.signer_name contains 'Mindspark'"
+
+  - id: MALVENDOR-ADWARE-004
+    title: "Adware Vendor - Babylon"
+    description: "Detects files signed by Babylon Ltd (toolbar/adware)"
+    severity: critical
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and signature.signer_name contains 'Babylon'"
+
+  - id: MALVENDOR-ADWARE-005
+    title: "Adware Vendor - Ask Partner Network"
+    description: "Detects files signed by Ask Partner Network (toolbar/adware)"
+    severity: critical
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and (signature.signer_name contains 'Ask Partner' or signature.signer_name contains 'Ask.com')"
+
+  - id: MALVENDOR-PUP-001
+    title: "PUP Vendor - OpenCandy"
+    description: "Detects files signed by OpenCandy (PUP bundler)"
+    severity: high
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and signature.signer_name contains 'OpenCandy'"
+
+  - id: MALVENDOR-PUP-002
+    title: "PUP Vendor - Systweak"
+    description: "Detects files signed by Systweak Software (system optimizer scareware)"
+    severity: high
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and signature.signer_name contains 'Systweak'"
+
+  - id: MALVENDOR-PUP-003
+    title: "PUP Vendor - PC Utilities Pro"
+    description: "Detects files signed by PC Utilities Pro (fake optimizer)"
+    severity: high
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and signature.signer_name contains 'PC Utilities Pro'"
+
+  - id: MALVENDOR-TROJAN-001
+    title: "Trojan Vendor - ReviverSoft"
+    description: "Detects files signed by ReviverSoft (fake antivirus/optimizer)"
+    severity: critical
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and signature.signer_name contains 'ReviverSoft'"
+
+  - id: MALVENDOR-TROJAN-002
+    title: "Trojan Vendor - Hacking Team"
+    description: "Detects files signed by HT Srl / Hacking Team (surveillance malware)"
+    severity: critical
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and (signature.signer_name contains 'HT Srl' or signature.signer_name contains 'Hacking Team')"
+
+  - id: MALVENDOR-GENERIC-001
+    title: "Known Malicious Vendors - Comprehensive List"
+    description: "Detects files signed by any vendor in the malvendor.db blacklist"
+    severity: critical
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: |
+          signature.is_signed and (
+            signature.signer_name contains 'Softonic' or
+            signature.signer_name contains 'Conduit' or
+            signature.signer_name contains 'Mindspark' or
+            signature.signer_name contains 'Babylon' or
+            signature.signer_name contains 'Ask Partner' or
+            signature.signer_name contains 'OpenCandy' or
+            signature.signer_name contains 'Systweak' or
+            signature.signer_name contains 'ReviverSoft' or
+            signature.signer_name contains 'Hacking Team' or
+            signature.signer_name contains 'HT Srl' or
+            signature.signer_name contains 'Vittalia' or
+            signature.signer_name contains 'Bandoo' or
+            signature.signer_name contains 'Yontoo' or
+            signature.signer_name contains 'Iminent' or
+            signature.signer_name contains 'Crossrider' or
+            signature.signer_name contains 'Wajam' or
+            signature.signer_name contains 'Websearch' or
+            signature.signer_name contains 'MyWebSearch' or
+            signature.signer_name contains 'FunWebProducts' or
+            signature.signer_name contains 'Zango'
+          )
+    metadata:
+      total_vendors: 922
+      source: "malvendor.db"
+      categories: "Adware, Trojan, PUP, Riskware"
+      note: "This rule covers the most common malicious vendors. Full list available in malvendor.db"

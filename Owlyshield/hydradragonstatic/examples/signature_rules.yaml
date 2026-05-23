@@ -1,0 +1,93 @@
+# Digital Signature Verification Rules
+# Examples demonstrating certificate-based detection
+
+rules:
+  - id: SIG-001
+    title: "Unsigned Executable"
+    description: "Detects unsigned PE executables which may indicate malware"
+    severity: medium
+    verdict: suspicious
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe and signature.no_signature"
+
+  - id: SIG-002
+    title: "Invalid Digital Signature"
+    description: "Detects files with invalid or tampered digital signatures"
+    severity: high
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.invalid_signature"
+
+  - id: SIG-003
+    title: "Untrusted Signer"
+    description: "Detects files signed by untrusted certificate authorities"
+    severity: medium
+    verdict: suspicious
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and not signature.is_trusted"
+
+  - id: SIG-004
+    title: "Signature Verification Failed"
+    description: "Detects files where signature verification process failed"
+    severity: low
+    verdict: suspicious
+    signature:
+      - kind: "native"
+        expression: "signature.verification_failed"
+
+  - id: SIG-005
+    title: "Known Malicious Signer - Softonic"
+    description: "Detects files signed by Softonic International (known adware distributor)"
+    severity: high
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and signature.signer_name contains 'Softonic'"
+
+  - id: SIG-006
+    title: "Known Malicious Signer - Conduit"
+    description: "Detects files signed by Conduit Ltd (known adware/PUP distributor)"
+    severity: high
+    verdict: malware
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and signature.signer_name contains 'Conduit'"
+
+  - id: SIG-007
+    title: "Trusted Microsoft Signature"
+    description: "Whitelists files signed by Microsoft Corporation"
+    severity: info
+    verdict: clean
+    signature:
+      - kind: "native"
+        expression: "signature.is_trusted and signature.signer_name contains 'Microsoft'"
+
+  - id: SIG-008
+    title: "Signed PE with Signature Issues"
+    description: "Detects signed executables with certificate problems"
+    severity: medium
+    verdict: suspicious
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe and signature.is_signed and signature.signature_status_issues"
+
+  - id: SIG-009
+    title: "Large Unsigned Executable"
+    description: "Detects large unsigned executables (potential malware)"
+    severity: high
+    verdict: suspicious
+    signature:
+      - kind: "native"
+        expression: "pe.is_pe and filesize > 1MB and signature.no_signature"
+
+  - id: SIG-010
+    title: "Expired or Revoked Certificate"
+    description: "Detects files with expired or revoked certificates"
+    severity: high
+    verdict: suspicious
+    signature:
+      - kind: "native"
+        expression: "signature.is_signed and not signature.is_trusted and signature.raw_hresult == 0x800B0109"

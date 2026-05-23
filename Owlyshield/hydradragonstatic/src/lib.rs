@@ -2,6 +2,7 @@ pub mod models;
 pub mod report;
 pub mod rules;
 pub mod scanner;
+pub mod signature_verification;
 pub mod utils;
 
 use anyhow::{Context, Result};

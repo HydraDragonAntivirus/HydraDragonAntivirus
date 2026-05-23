@@ -61,5 +61,6 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         statistics: ctx.statistics,
         archive_members: Vec::new(),
         threat_name: None,
+        signature: ctx.signature,
     }
 }
