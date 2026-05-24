@@ -15,7 +15,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::sync::Mutex;
-use tokio::{net::TcpStream, task::JoinHandle};
+use tokio::task::JoinHandle;
 
 #[cfg(all(feature = "native-tls-client", feature = "rustls-client"))]
 compile_error!(
@@ -384,7 +384,7 @@ impl DefaultClient {
     ) -> Result<SendRequest, Error> {
         let (host, port, is_tls) = host_port(uri)?;
 
-        let tcp = TcpStream::connect((host.as_str(), port)).await?;
+        let tcp = crate::connect_registered_tcp(host.as_str(), port).await?;
         // This is actually needed to some servers
         let _ = tcp.set_nodelay(true);
 

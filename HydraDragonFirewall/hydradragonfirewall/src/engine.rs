@@ -2172,9 +2172,8 @@ impl FirewallEngine {
         {
             *should_forward = false;
             // Always override reason — get_or_insert_with would silently retain a
-            // stale "App Allowed: <name>" reason from the app-decision step, causing
-            // BLOCK_EXE to be sent to owlyshield with a misleading reason and
-            // resulting in the process being killed even though it was user-allowed.
+            // stale "App Allowed: <name>" reason from the app-decision step and
+            // make firewall activity logs misleading.
             *reason = Some(
                 "Transparent TLS Proxy mode: blocked QUIC (UDP/443); the local proxy handles TCP only"
                     .to_string(),
@@ -2192,6 +2191,7 @@ impl FirewallEngine {
             && matches!(info.protocol, Protocol::TCP)
             && info.dst_port == 443
             && info.process_id != std::process::id()
+            && !http_mitm_proxy::is_registered_upstream_local_port(info.src_port)
             && !Self::is_loopback(info.dst_ip)
             && !info.dst_ip.is_unspecified()
             && !info.dst_ip.is_multicast()
@@ -4073,8 +4073,6 @@ impl FirewallEngine {
                     let mut packet_count = 0u64;
                     // Per-worker dedup: only send one NET_EVENT per PID per session
                     let mut notified_pids: HashSet<u32> = HashSet::new();
-                    // Per-worker dedup: only send one BLOCK_EXE per exe path per session
-                    let mut notified_blocked_exes: HashSet<String> = HashSet::new();
                     while !stop_w.load(Ordering::Relaxed) {
                         // Each thread competition for packets on the shared handle
                         match divert_w.recv(Some(&mut buffer)) {
@@ -4185,11 +4183,8 @@ impl FirewallEngine {
                                     &network_whitelist_index_w,
                                 );
 
-                                // ── NET EVENT + BLOCK_EXE → BEHAVIOR ENGINE ─────────
-                                // Both messages go to \\.\pipe\HydraNetEvent.
-                                //
-                                // NET_EVENT  — real outbound I/O observed (once per PID).
-                                // BLOCK_EXE  — firewall confirmed malicious traffic from
+                                // Firewall activity telemetry. Network blocks stay in the
+                                // firewall; they must not become Owlyshield process-kill alerts.
                                 let mut decision_info: Option<PacketInfo> = None;
                                 if let Some((ref p_info, _)) = pre_parsed {
                                     decision_info = Some(p_info.clone());
@@ -4197,13 +4192,7 @@ impl FirewallEngine {
 
                                 if outbound && pid != 0 {
                                     if let Some(ref parsed_info) = decision_info {
-                                        let exe_path = am_w.info_cache.get_info(pid).path;
-                                        let exe_path_lc = exe_path.to_lowercase();
-                                        let is_system = exe_path_lc.is_empty()
-                                            || exe_path_lc == "unknown"
-                                            || exe_path_lc == "system";
-
-                                        // NET_EVENT — once per new PID
+                                        // NET_EVENT records observed network activity only.
                                         if !notified_pids.contains(&pid) {
                                             let msg = format!(
                                                 "NET_EVENT:{}:{}:{}\n",
@@ -4211,51 +4200,6 @@ impl FirewallEngine {
                                             );
                                             let _ = net_ev_tx.send(msg);
                                             notified_pids.insert(pid);
-                                        }
-
-                                        // BLOCK_EXE — once per exe path when firewall blocks
-                                        // for a genuine security reason. Skip for:
-                                        //  • "App Allowed: X" — user-trusted app whose packet
-                                        //    was blocked by a later technical step (e.g. TLS
-                                        //    proxy QUIC enforcement); escalating to owlyshield
-                                        //    would wrongly kill a process the user approved.
-                                        //  • "TLS Proxy Mode" — infrastructure block, not a
-                                        //    security threat.
-                                        //  • "Embedded proxy listener" / "Unparsed packet" —
-                                        //    internal engine traffic, never security-relevant.
-                                        let reason_lc = decision._reason.to_lowercase();
-                                        let is_technical_block = reason_lc.contains("tls proxy")
-                                            || reason_lc.contains("embedded proxy")
-                                            || reason_lc.contains("unparsed packet");
-                                        if !decision.should_forward
-                                            && !is_system
-                                            && !is_technical_block
-                                            && !notified_blocked_exes.contains(&exe_path_lc)
-                                        {
-                                            let hostname = parsed_info
-                                                .hostname
-                                                .as_deref()
-                                                .unwrap_or("")
-                                                .replace('|', "/");
-                                            let reason = decision._reason.replace('|', "/");
-                                            let msg = format!(
-                                                "BLOCK_EXE:{}|{}|{}|{}|{}\n",
-                                                exe_path_lc,
-                                                parsed_info.dst_ip,
-                                                parsed_info.dst_port,
-                                                hostname,
-                                                reason,
-                                            );
-                                            let _ = net_ev_tx.send(msg);
-
-                                            // FULL_PACKET — send complete PacketInfo as JSON so
-                                            // Owlyshield can log every field for forensic visibility.
-                                            if let Ok(json) = serde_json::to_string(parsed_info) {
-                                                let full_msg = format!("FULL_PACKET:{}\n", json);
-                                                let _ = net_ev_tx.send(full_msg);
-                                            }
-
-                                            notified_blocked_exes.insert(exe_path_lc);
                                         }
                                     }
                                 }
@@ -4374,11 +4318,26 @@ impl FirewallEngine {
                                                     nat_table_w.get(dst_port)
                                                 {
                                                     let ok = match orig_ip {
-                                                        IpAddr::V4(v4) => nat_rewrite_src_ipv4(
-                                                            &mut packet_data,
-                                                            v4,
-                                                            orig_port,
-                                                        ),
+                                                        IpAddr::V4(v4) => {
+                                                            let ok_src = nat_rewrite_src_ipv4(
+                                                                &mut packet_data,
+                                                                v4,
+                                                                orig_port,
+                                                            );
+                                                            let ok_dst =
+                                                                if let IpAddr::V4(orig_client_ip) =
+                                                                    orig_src
+                                                                {
+                                                                    nat_rewrite_dst_ipv4(
+                                                                        &mut packet_data,
+                                                                        orig_client_ip,
+                                                                        dst_port,
+                                                                    )
+                                                                } else {
+                                                                    false
+                                                                };
+                                                            ok_src && ok_dst
+                                                        }
                                                         IpAddr::V6(v6) => {
                                                             let ok_src = nat_rewrite_src_ipv6(
                                                                 &mut packet_data,
@@ -4411,6 +4370,7 @@ impl FirewallEngine {
                                             } else if outbound
                                                 && dst_port == 443
                                                 && pid != std::process::id()
+                                                && !http_mitm_proxy::is_registered_upstream_local_port(src_port)
                                             {
                                                 if let (Some(orig_dst), Some(orig_src)) =
                                                     (dst_ip, src_ip)
@@ -5037,11 +4997,11 @@ impl FirewallEngine {
                 );
             }
 
-            // The embedded proxy makes outbound connections from the listen port.
-            // Detect them by src_port so we can attribute them to the original app.
+            // The embedded proxy makes upstream connections from registered
+            // ephemeral source ports.
             let is_proxy_traffic = outbound
                 && tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
-                && info.src_port == tls_proxy_cfg.listen_port;
+                && http_mitm_proxy::is_registered_upstream_local_port(info.src_port);
 
             // Proxy-originated upstream connections bypass the rate limiter so every
             // intercepted flow is visible. All other traffic stays rate-limited to 500ms.
@@ -5144,8 +5104,11 @@ impl FirewallEngine {
                         LogEntry {
                             id: format!("{}-blocked", now),
                             timestamp: now,
-                            level: LogLevel::Warning,
-                            message: format!("Blocked: {} | {}", log_reason, context),
+                            level: LogLevel::Info,
+                            message: format!(
+                                "Firewall activity: blocked network | {} | {}",
+                                log_reason, context
+                            ),
                         },
                     );
                 }

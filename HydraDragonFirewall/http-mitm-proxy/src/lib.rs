@@ -9,9 +9,17 @@ use hyper::{
 };
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use moka::sync::Cache;
-use std::{borrow::Borrow, error::Error as StdError, future::Future, net::SocketAddr, sync::Arc};
+use std::{
+    borrow::Borrow,
+    collections::HashMap,
+    error::Error as StdError,
+    future::Future,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    sync::{Arc, Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 use tls::{CertifiedKeyDer, generate_cert};
-use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
+use tokio::net::{TcpListener, TcpSocket, TcpStream, ToSocketAddrs, lookup_host};
 use tokio_rustls::rustls;
 
 pub use futures;
@@ -27,6 +35,97 @@ mod tls;
 
 #[cfg(any(feature = "native-tls-client", feature = "rustls-client"))]
 pub use default_client::DefaultClient;
+
+const UPSTREAM_LOCAL_PORT_TTL: Duration = Duration::from_secs(3600);
+static UPSTREAM_LOCAL_PORTS: OnceLock<Mutex<HashMap<u16, Instant>>> = OnceLock::new();
+
+fn upstream_local_ports() -> &'static Mutex<HashMap<u16, Instant>> {
+    UPSTREAM_LOCAL_PORTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn prune_upstream_local_ports(ports: &mut HashMap<u16, Instant>, now: Instant) {
+    ports.retain(|_, seen_at| now.duration_since(*seen_at) <= UPSTREAM_LOCAL_PORT_TTL);
+}
+
+pub fn register_upstream_local_port(port: u16) {
+    if port == 0 {
+        return;
+    }
+
+    let now = Instant::now();
+    let mut ports = upstream_local_ports().lock().unwrap();
+    prune_upstream_local_ports(&mut ports, now);
+    ports.insert(port, now);
+}
+
+pub fn unregister_upstream_local_port(port: u16) {
+    if port == 0 {
+        return;
+    }
+
+    upstream_local_ports().lock().unwrap().remove(&port);
+}
+
+pub fn is_registered_upstream_local_port(port: u16) -> bool {
+    if port == 0 {
+        return false;
+    }
+
+    let now = Instant::now();
+    let mut ports = upstream_local_ports().lock().unwrap();
+    prune_upstream_local_ports(&mut ports, now);
+    if let Some(seen_at) = ports.get_mut(&port) {
+        *seen_at = now;
+        true
+    } else {
+        false
+    }
+}
+
+pub async fn connect_registered_tcp(host: &str, port: u16) -> std::io::Result<TcpStream> {
+    let mut last_error = None;
+
+    for addr in lookup_host((host, port)).await? {
+        let socket = if addr.is_ipv4() {
+            TcpSocket::new_v4()
+        } else {
+            TcpSocket::new_v6()
+        }?;
+        let bind_addr = if addr.is_ipv4() {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+        } else {
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+        };
+
+        if let Err(err) = socket.bind(bind_addr) {
+            last_error = Some(err);
+            continue;
+        }
+
+        let registered_port = socket.local_addr().ok().map(|local_addr| {
+            let port = local_addr.port();
+            register_upstream_local_port(port);
+            port
+        });
+
+        match socket.connect(addr).await {
+            Ok(stream) => return Ok(stream),
+            Err(err) => {
+                if let Some(port) = registered_port {
+                    unregister_upstream_local_port(port);
+                }
+                last_error = Some(err);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("no address resolved for {host}:{port}"),
+        )
+    }))
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct RemoteAddr(pub std::net::SocketAddr);
@@ -386,18 +485,22 @@ where
                                 tracing::debug!("Connection closed: {}", err);
                             }
                         } else {
-                            let mut server =
-                                match TcpStream::connect(connect_authority.as_str()).await {
-                                    Ok(server) => server,
-                                    Err(err) => {
-                                        tracing::error!(
-                                            "Failed to connect to {}: {}",
-                                            connect_authority,
-                                            err
-                                        );
-                                        return;
-                                    }
-                                };
+                            let mut server = match connect_registered_tcp(
+                                connect_authority.host(),
+                                connect_authority.port_u16().unwrap_or(443),
+                            )
+                            .await
+                            {
+                                Ok(server) => server,
+                                Err(err) => {
+                                    tracing::error!(
+                                        "Failed to connect to {}: {}",
+                                        connect_authority,
+                                        err
+                                    );
+                                    return;
+                                }
+                            };
                             let _ = tokio::io::copy_bidirectional(
                                 &mut TokioIo::new(client),
                                 &mut server,
