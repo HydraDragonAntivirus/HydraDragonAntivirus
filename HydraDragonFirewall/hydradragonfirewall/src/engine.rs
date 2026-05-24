@@ -2447,13 +2447,6 @@ impl FirewallEngine {
     }
 
     fn stop_embedded_proxy(&self) {
-        let had_embedded_proxy =
-            if let Some(tx) = self.tls_proxy_backend_child.lock().unwrap().take() {
-                let _ = tx.send(());
-                true
-            } else {
-                false
-            };
         self.browser_mitm_warning_cache.lock().unwrap().clear();
     }
 
