@@ -1808,7 +1808,6 @@ impl FirewallEngine {
         )
     }
 
-
     fn wait_for_proxy_listener(addr: std::net::SocketAddr, timeout: Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         let test_addr = if addr.ip().is_unspecified() || addr.ip().is_loopback() {
@@ -2458,8 +2457,6 @@ impl FirewallEngine {
         self.browser_mitm_warning_cache.lock().unwrap().clear();
     }
 
-
-
     fn proxy_ca_cert_path() -> PathBuf {
         std::env::current_exe()
             .ok()
@@ -2699,8 +2696,6 @@ foreach ($store in $stores) {
             Err(message)
         }
     }
-
-
 
     // CA auto-trust is handled natively via `install_ca_der` during proxy startup
     // and can also be controlled manually from the firewall settings UI.
