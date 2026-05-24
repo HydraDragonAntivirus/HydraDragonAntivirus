@@ -1039,7 +1039,6 @@ async fn remove_firewall_certificate(handle: AppHandle) -> String {
     }
 }
 
-
 /// Return all body changer rules stored in body_changers.json.
 #[tauri::command]
 async fn get_body_changers() -> Vec<BodyChangerRule> {
