@@ -123,6 +123,7 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFile
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\hydradragon\assets\HydraDragonAV.ico"; AppUserModelID: "{#OwlyshieldAppId}"; AppUserModelToastActivatorCLSID: "{#OwlyshieldAppId}"
 
 [Tasks]
+Name: "enable_mitm_proxy"; Description: "Enable MITM attack to decrypt HTTPS traffic"; GroupDescription: "HydraDragon Firewall Settings:"
 Name: "verbose_logging_mode"; Description: "Verbose logging mode"; GroupDescription: "Optional logging settings:"; Flags: unchecked
 
 [Run]
@@ -252,6 +253,11 @@ begin
   Result := IsTaskSelected(VerboseLoggingModeTask);
 end;
 
+function IsMitmProxyModeSelected(): Boolean;
+begin
+  Result := IsTaskSelected('enable_mitm_proxy');
+end;
+
 function GetVerboseLoggingRegistryValue(Param: String): String;
 begin
   if IsVerboseLoggingModeSelected() then
@@ -306,11 +312,48 @@ begin
   Result := True;
 end;
 
-procedure ApplyFirewallLoggingSettingFile(const SettingsPath: String);
+function UpdateJsonStringValue(var Line: String; const Key: String; const DesiredValue: String): Boolean;
+var
+  KeyPos, ValuePos, EndPos: Integer;
+begin
+  Result := False;
+  KeyPos := Pos('"' + Key + '"', Line);
+  if KeyPos = 0 then
+    Exit;
+
+  ValuePos := KeyPos + Length(Key) + 2;
+  while (ValuePos <= Length(Line)) and IsJsonWhitespace(Copy(Line, ValuePos, 1)) do
+    ValuePos := ValuePos + 1;
+
+  if (ValuePos > Length(Line)) or (Copy(Line, ValuePos, 1) <> ':') then
+    Exit;
+
+  ValuePos := ValuePos + 1;
+  while (ValuePos <= Length(Line)) and IsJsonWhitespace(Copy(Line, ValuePos, 1)) do
+    ValuePos := ValuePos + 1;
+
+  if (ValuePos > Length(Line)) or (Copy(Line, ValuePos, 1) <> '"') then
+    Exit;
+
+  ValuePos := ValuePos + 1;
+  EndPos := ValuePos;
+  while (EndPos <= Length(Line)) and (Copy(Line, EndPos, 1) <> '"') do
+    EndPos := EndPos + 1;
+
+  if Copy(Line, ValuePos, EndPos - ValuePos) = DesiredValue then
+    Exit;
+
+  Delete(Line, ValuePos, EndPos - ValuePos);
+  Insert(DesiredValue, Line, ValuePos);
+  Result := True;
+end;
+
+procedure ApplyFirewallSettingsFile(const SettingsPath: String);
 var
   Lines: TArrayOfString;
   i: Integer;
   Changed: Boolean;
+  DesiredMode: String;
 begin
   if not LoadStringsFromFile(SettingsPath, Lines) then
   begin
@@ -318,26 +361,35 @@ begin
     Exit;
   end;
 
+  if IsMitmProxyModeSelected() then
+    DesiredMode := 'tls_proxy'
+  else
+    DesiredMode := 'metadata_only';
+
   Changed := False;
   for i := 0 to GetArrayLength(Lines) - 1 do
   begin
     if UpdateJsonBooleanValue(Lines[i], 'save_all_logs', IsVerboseLoggingModeSelected()) then
+      Changed := True;
+    if UpdateJsonBooleanValue(Lines[i], 'cert_install_consent', IsMitmProxyModeSelected()) then
+      Changed := True;
+    if UpdateJsonStringValue(Lines[i], 'mode', DesiredMode) then
       Changed := True;
   end;
 
   if Changed then
   begin
     SaveStringsToFile(SettingsPath, Lines, False);
-    Log('HydraDragon firewall save_all_logs updated by installer.');
+    Log('HydraDragon firewall settings updated by installer.');
   end
   else
-    Log('HydraDragon firewall save_all_logs already matches installer selection.');
+    Log('HydraDragon firewall settings already match installer selection.');
 end;
 
-procedure ApplyFirewallLoggingSettings(const AppDir: String);
+procedure ApplyFirewallSettings(const AppDir: String);
 begin
-  ApplyFirewallLoggingSettingFile(AppDir + '\hydradragon\HydraDragonFirewall\settings\settings.json');
-  ApplyFirewallLoggingSettingFile(AppDir + '\hydradragon\HydraDragonFirewall\json\settings.json');
+  ApplyFirewallSettingsFile(AppDir + '\hydradragon\HydraDragonFirewall\settings\settings.json');
+  ApplyFirewallSettingsFile(AppDir + '\hydradragon\HydraDragonFirewall\json\settings.json');
 end;
 
 procedure StopAndDeleteService(const SvcName: String);
@@ -469,7 +521,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
-    ApplyFirewallLoggingSettings(ExpandConstant('{app}'));
+    ApplyFirewallSettings(ExpandConstant('{app}'));
 end;
 
 function InitializeUninstall(): Boolean;
