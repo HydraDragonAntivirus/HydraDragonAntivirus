@@ -131,9 +131,9 @@ fn validate_request(
 ) -> Result<(), String> {
     let uri = req.uri();
 
-    // Check that URI has a host
-    if uri.host().is_none() {
-        return Err("Request missing host in URI".to_string());
+    // Check that URI has a host, or the request has a Host header
+    if uri.host().is_none() && !req.headers().contains_key(http_mitm_proxy::hyper::header::HOST) {
+        return Err("Request missing host in URI and missing Host header".to_string());
     }
 
     // Check that method is valid
@@ -341,20 +341,28 @@ async fn handle_proxy_request<R: Runtime>(
 
     let method = req.method().to_string();
     let uri = req.uri().clone();
-    let host = uri.host().unwrap_or("unknown").to_string();
-    let port = uri.port_u16().unwrap_or(443);
-    let path = format!(
-        "{}{}",
-        uri.path(),
-        uri.query().map(|q| format!("?{}", q)).unwrap_or_default()
-    );
-    let full_url = format!(
-        "{}://{}:{}{}",
-        uri.scheme_str().unwrap_or("https"),
-        host,
-        port,
-        path
-    );
+    
+    let host = uri.host().map(|s| s.to_string()).unwrap_or_else(|| {
+        req.headers()
+            .get(http_mitm_proxy::hyper::header::HOST)
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("unknown")
+            .to_string()
+    });
+
+    let scheme = uri.scheme_str().unwrap_or("https").to_string();
+
+    let port = uri.port_u16().unwrap_or_else(|| {
+        if host.contains(':') {
+            host.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443)
+        } else {
+            if scheme == "http" { 80 } else { 443 }
+        }
+    });
+
+    let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
+    let path = path_and_query.to_string();
+    let full_url = format!("{}://{}{}", scheme, host, path);
 
     let mut request_headers: HashMap<String, String> = HashMap::new();
     for (name, value) in req.headers().iter() {
@@ -511,6 +519,12 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Apply request body override + ALWAYS rewrite headers ────────────────
     let mut req_parts = parts;
+
+    // Rewrite URI to be absolute for hyper client
+    let absolute_uri_str = format!("{}://{}{}", scheme, host, path);
+    if let Ok(new_uri) = http_mitm_proxy::hyper::Uri::try_from(&absolute_uri_str) {
+        req_parts.uri = new_uri;
+    }
 
     // Strip Accept-Encoding so the upstream server sends plain text. This allows
     // our proxy to read/modify the body safely without breaking compression.
