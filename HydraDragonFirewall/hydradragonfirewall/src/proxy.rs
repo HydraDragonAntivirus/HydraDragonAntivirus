@@ -132,7 +132,11 @@ fn validate_request(
     let uri = req.uri();
 
     // Check that URI has a host, or the request has a Host header
-    if uri.host().is_none() && !req.headers().contains_key(http_mitm_proxy::hyper::header::HOST) {
+    if uri.host().is_none()
+        && !req
+            .headers()
+            .contains_key(http_mitm_proxy::hyper::header::HOST)
+    {
         return Err("Request missing host in URI and missing Host header".to_string());
     }
 
