@@ -2207,53 +2207,7 @@ impl FirewallEngine {
             }
         }
 
-        let mut request_headers = HashMap::new();
-        request_headers.insert(
-            "x-hydradragon-event".to_string(),
-            "transparent_tls_intercept".to_string(),
-        );
-        request_headers.insert(
-            "x-hydradragon-original-destination".to_string(),
-            format!("{}:{}", info.dst_ip, info.dst_port),
-        );
-        request_headers.insert(
-            "x-hydradragon-source-port".to_string(),
-            info.src_port.to_string(),
-        );
-        request_headers.insert(
-            "x-hydradragon-proxy-listener".to_string(),
-            Self::proxy_addr_string(tls_proxy),
-        );
-
         let now = Self::now_ts();
-        let _ = tx.emit(
-            "proxy_http",
-            crate::proxy::ProxyHttpEvent {
-                id: format!(
-                    "{}-tls-intercept-{}-{}",
-                    now, info.process_id, info.src_port
-                ),
-                timestamp: now,
-                method: "CONNECT".to_string(),
-                host: host_label.clone(),
-                port: info.dst_port,
-                path: "/".to_string(),
-                full_url,
-                status: 0,
-                request_headers,
-                response_headers: HashMap::new(),
-                user_agent: info.http_user_agent.clone(),
-                content_type: info.http_content_type.clone(),
-                referer: info.http_referer.clone(),
-                response_content_type: None,
-                response_content_length: None,
-                request_body: None,
-                request_body_truncated: false,
-                response_body: None,
-                response_body_truncated: false,
-            },
-        );
-
         emit_log_event(
             tx,
             LogEntry {
