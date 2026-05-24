@@ -2296,7 +2296,7 @@ impl FirewallEngine {
                 port: info.dst_port,
                 path: "/".to_string(),
                 full_url,
-                status: 200,
+                status: 0,
                 request_headers,
                 response_headers: HashMap::new(),
                 user_agent: info.http_user_agent.clone(),
