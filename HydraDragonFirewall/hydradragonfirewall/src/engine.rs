@@ -1689,7 +1689,7 @@ impl FirewallEngine {
     }
 
     pub fn load_settings() -> Option<FirewallSettings> {
-        let path = PathBuf::from("json/settings.json");
+        let path = PathBuf::from("settings/settings.json");
         if let Ok(content) = fs::read_to_string(&path) {
             serde_json::from_str(&content).ok()
         } else {
@@ -2106,8 +2106,8 @@ impl FirewallEngine {
         }
 
         if let Ok(content) = serde_json::to_string_pretty(&settings) {
-            let _ = fs::create_dir_all("json");
-            let _ = fs::write("json/settings.json", content);
+            let _ = fs::create_dir_all("settings");
+            let _ = fs::write("settings/settings.json", content);
         }
     }
 
