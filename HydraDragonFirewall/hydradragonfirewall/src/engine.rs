@@ -4177,11 +4177,17 @@ impl FirewallEngine {
                                                         );
                                                         let ok = match orig_dst {
                                                             IpAddr::V4(_v4) => {
-                                                                nat_rewrite_dst_ipv4(
+                                                                let ok_dst = nat_rewrite_dst_ipv4(
                                                                     &mut packet_data,
                                                                     Ipv4Addr::new(127, 0, 0, 1),
                                                                     tls_proxy_cfg.listen_port,
-                                                                )
+                                                                );
+                                                                let ok_src = nat_rewrite_src_ipv4(
+                                                                    &mut packet_data,
+                                                                    Ipv4Addr::new(127, 0, 0, 1),
+                                                                    src_port,
+                                                                );
+                                                                ok_dst && ok_src
                                                             }
                                                             IpAddr::V6(_v6) => {
                                                                 let ok_dst = nat_rewrite_dst_ipv6(
