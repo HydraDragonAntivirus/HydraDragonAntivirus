@@ -25,7 +25,7 @@ def main():
         rule = f'''  - id: malicious-vendor-{current_id:04d}
     name: "Malicious Vendor: {vendor_escaped}"
     description: "Detects files signed by {vendor_escaped} (Known for: {malware_type})"
-    severity: high
+    severity: High
     condition: |
       signature.signer_name contains "{vendor_escaped}"
     tags:
