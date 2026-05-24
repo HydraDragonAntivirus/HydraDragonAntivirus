@@ -426,14 +426,71 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Collect request body with timeout ───────────────────────────────────
     let (parts, body) = req.into_parts();
-    let raw_body: Bytes = tokio::time::timeout(
+    let raw_body: Bytes = match tokio::time::timeout(
         std::time::Duration::from_secs(request_timeout),
         body.collect(),
     )
     .await
-    .map_err(|_| "Request body timeout".to_string())?
-    .map_err(|e| e.to_string())?
-    .to_bytes();
+    {
+        Ok(Ok(collected)) => collected.to_bytes(),
+        Ok(Err(e)) => {
+            let ts = now_ts();
+            let err = e.to_string();
+            let _ = app.emit(
+                "proxy_http",
+                ProxyHttpEvent {
+                    id: format!("{}-http-request-error-{}-{}", ts, host, port),
+                    timestamp: ts,
+                    method: method.clone(),
+                    host: host.clone(),
+                    port,
+                    path: path.clone(),
+                    full_url: full_url.clone(),
+                    status: 400,
+                    request_headers: request_headers.clone(),
+                    response_headers: HashMap::new(),
+                    user_agent: user_agent.clone(),
+                    content_type: content_type.clone(),
+                    referer: referer.clone(),
+                    response_content_type: Some("text/plain".to_string()),
+                    response_content_length: None,
+                    request_body: None,
+                    request_body_truncated: false,
+                    response_body: Some(format!("Request body read failed: {}", err)),
+                    response_body_truncated: false,
+                },
+            );
+            return Err(format!("Request body read failed: {}", err));
+        }
+        Err(_) => {
+            let ts = now_ts();
+            let _ = app.emit(
+                "proxy_http",
+                ProxyHttpEvent {
+                    id: format!("{}-http-request-timeout-{}-{}", ts, host, port),
+                    timestamp: ts,
+                    method: method.clone(),
+                    host: host.clone(),
+                    port,
+                    path: path.clone(),
+                    full_url: full_url.clone(),
+                    status: 408,
+                    request_headers: request_headers.clone(),
+                    response_headers: HashMap::new(),
+                    user_agent: user_agent.clone(),
+                    content_type: content_type.clone(),
+                    referer: referer.clone(),
+                    response_content_type: Some("text/plain".to_string()),
+                    response_content_length: None,
+                    request_body: None,
+                    request_body_truncated: false,
+                    response_body: Some("Request body timeout".to_string()),
+                    response_body_truncated: false,
+                },
+            );
+            return Err("Request body timeout".to_string());
+        }
+    };
     let raw_request_body_len = raw_body.len();
 
     let body_truncated = raw_body.len() > max_body;
@@ -603,10 +660,38 @@ async fn handle_proxy_request<R: Runtime>(
     let req = http_mitm_proxy::hyper::Request::from_parts(req_parts, req_body_obj);
 
     // ── Forward upstream ────────────────────────────────────────────────────
-    let (res, _) = client
-        .send_request(req)
-        .await
-        .map_err(|e| format!("Upstream failed: {}", e))?;
+    let (res, _) = match client.send_request(req).await {
+        Ok(response) => response,
+        Err(e) => {
+            let ts = now_ts();
+            let err = format!("Upstream failed: {}", e);
+            let _ = app.emit(
+                "proxy_http",
+                ProxyHttpEvent {
+                    id: format!("{}-http-upstream-error-{}-{}", ts, host, port),
+                    timestamp: ts,
+                    method: method.clone(),
+                    host: host.clone(),
+                    port,
+                    path: path.clone(),
+                    full_url: full_url.clone(),
+                    status: 502,
+                    request_headers: request_headers.clone(),
+                    response_headers: HashMap::new(),
+                    user_agent: user_agent.clone(),
+                    content_type: content_type.clone(),
+                    referer: referer.clone(),
+                    response_content_type: Some("text/plain".to_string()),
+                    response_content_length: None,
+                    request_body: request_body.clone(),
+                    request_body_truncated: body_truncated,
+                    response_body: Some(err.clone()),
+                    response_body_truncated: false,
+                },
+            );
+            return Err(err);
+        }
+    };
 
     // ── Capture response ────────────────────────────────────────────────────
     let status = res.status().as_u16();
@@ -622,14 +707,71 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Collect response body with timeout ──────────────────────────────────
     let (mut res_parts, res_body) = res.into_parts();
-    let raw_res_body: Bytes = tokio::time::timeout(
+    let raw_res_body: Bytes = match tokio::time::timeout(
         std::time::Duration::from_secs(response_timeout),
         res_body.collect(),
     )
     .await
-    .map_err(|_| "Response body timeout".to_string())?
-    .map_err(|e| e.to_string())?
-    .to_bytes();
+    {
+        Ok(Ok(collected)) => collected.to_bytes(),
+        Ok(Err(e)) => {
+            let ts = now_ts();
+            let err = e.to_string();
+            let _ = app.emit(
+                "proxy_http",
+                ProxyHttpEvent {
+                    id: format!("{}-http-response-error-{}-{}", ts, host, port),
+                    timestamp: ts,
+                    method: method.clone(),
+                    host: host.clone(),
+                    port,
+                    path: path.clone(),
+                    full_url: full_url.clone(),
+                    status,
+                    request_headers: request_headers.clone(),
+                    response_headers: response_headers.clone(),
+                    user_agent: user_agent.clone(),
+                    content_type: content_type.clone(),
+                    referer: referer.clone(),
+                    response_content_type: response_content_type.clone(),
+                    response_content_length: response_content_length.clone(),
+                    request_body: request_body.clone(),
+                    request_body_truncated: body_truncated,
+                    response_body: Some(format!("Response body read failed: {}", err)),
+                    response_body_truncated: false,
+                },
+            );
+            return Err(format!("Response body read failed: {}", err));
+        }
+        Err(_) => {
+            let ts = now_ts();
+            let _ = app.emit(
+                "proxy_http",
+                ProxyHttpEvent {
+                    id: format!("{}-http-response-timeout-{}-{}", ts, host, port),
+                    timestamp: ts,
+                    method: method.clone(),
+                    host: host.clone(),
+                    port,
+                    path: path.clone(),
+                    full_url: full_url.clone(),
+                    status: 504,
+                    request_headers: request_headers.clone(),
+                    response_headers: response_headers.clone(),
+                    user_agent: user_agent.clone(),
+                    content_type: content_type.clone(),
+                    referer: referer.clone(),
+                    response_content_type: response_content_type.clone(),
+                    response_content_length: response_content_length.clone(),
+                    request_body: request_body.clone(),
+                    request_body_truncated: body_truncated,
+                    response_body: Some("Response body timeout".to_string()),
+                    response_body_truncated: false,
+                },
+            );
+            return Err("Response body timeout".to_string());
+        }
+    };
     let raw_response_body_len = raw_res_body.len();
 
     let res_body_truncated = raw_res_body.len() > max_body;
@@ -740,7 +882,7 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Emit events ─────────────────────────────────────────────────────────
     let ts = now_ts();
-    let show_blocked_http_only = settings.read().unwrap().tls_proxy.show_blocked_only;
+    let show_blocked_http_only = settings.read().unwrap().show_blocked_http_inspector_only;
     if !show_blocked_http_only {
         emit_log_event(
             &app,
@@ -776,32 +918,30 @@ async fn handle_proxy_request<R: Runtime>(
         }
     }
 
-    if !show_blocked_http_only {
-        let _ = app.emit(
-            "proxy_http",
-            ProxyHttpEvent {
-                id: format!("{}-http-{}-{}", ts, host, port),
-                timestamp: ts,
-                method,
-                host,
-                port,
-                path,
-                full_url,
-                status,
-                request_headers,
-                response_headers,
-                user_agent,
-                content_type,
-                referer,
-                response_content_type,
-                response_content_length,
-                request_body,
-                request_body_truncated: body_truncated,
-                response_body,
-                response_body_truncated: res_body_truncated,
-            },
-        );
-    }
+    let _ = app.emit(
+        "proxy_http",
+        ProxyHttpEvent {
+            id: format!("{}-http-{}-{}", ts, host, port),
+            timestamp: ts,
+            method,
+            host,
+            port,
+            path,
+            full_url,
+            status,
+            request_headers,
+            response_headers,
+            user_agent,
+            content_type,
+            referer,
+            response_content_type,
+            response_content_length,
+            request_body,
+            request_body_truncated: body_truncated,
+            response_body,
+            response_body_truncated: res_body_truncated,
+        },
+    );
 
     Ok(http_mitm_proxy::hyper::Response::from_parts(
         res_parts,
