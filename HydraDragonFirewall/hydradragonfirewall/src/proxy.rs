@@ -132,7 +132,11 @@ fn validate_request(
     let uri = req.uri();
 
     // Check that URI has a host, or the request has a Host header
-    if uri.host().is_none() && !req.headers().contains_key(http_mitm_proxy::hyper::header::HOST) {
+    if uri.host().is_none()
+        && !req
+            .headers()
+            .contains_key(http_mitm_proxy::hyper::header::HOST)
+    {
         return Err("Request missing host in URI and missing Host header".to_string());
     }
 
@@ -341,7 +345,7 @@ async fn handle_proxy_request<R: Runtime>(
 
     let method = req.method().to_string();
     let uri = req.uri().clone();
-    
+
     let host = uri.host().map(|s| s.to_string()).unwrap_or_else(|| {
         req.headers()
             .get(http_mitm_proxy::hyper::header::HOST)
@@ -354,7 +358,10 @@ async fn handle_proxy_request<R: Runtime>(
 
     let port = uri.port_u16().unwrap_or_else(|| {
         if host.contains(':') {
-            host.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443)
+            host.split(':')
+                .last()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(443)
         } else {
             if scheme == "http" { 80 } else { 443 }
         }
