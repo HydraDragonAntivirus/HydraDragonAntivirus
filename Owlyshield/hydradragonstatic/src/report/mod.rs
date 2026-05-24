@@ -62,5 +62,6 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         archive_members: Vec::new(),
         threat_name: None,
         signature: ctx.signature,
+        mitre_techniques: Vec::new(), // Initialize empty - will be populated by rule engine
     }
 }

@@ -44,6 +44,8 @@ pub mod worker;
 pub mod realtime_learning;
 
 pub mod mitre_attack;
+pub mod correlation;
+pub mod explainability;
 
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub mod hydradragon;

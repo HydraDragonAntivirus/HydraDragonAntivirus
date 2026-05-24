@@ -1,5 +1,6 @@
 use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use std::error::Error;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io::Write;
@@ -402,6 +403,82 @@ impl ActionOnKill for WriteReportFile {
     }
 }
 
+/// Helper function to build evidence detections from timeline events
+#[cfg(feature = "realtime_learning")]
+fn build_evidence_from_timeline(
+    timeline: &crate::mitre_attack::timeline::AttackTimeline,
+    proc: &crate::process::ProcessRecord,
+) -> Vec<crate::mitre_attack::evidence_types::DetectionEvidence> {
+    use crate::mitre_attack::EvidenceBuilder;
+    use std::collections::HashMap;
+    
+    let mut detections = Vec::new();
+    
+    // Group events by technique
+    let mut technique_events: HashMap<String, Vec<&crate::mitre_attack::timeline::TimelineEvent>> = HashMap::new();
+    for event in &timeline.events {
+        for technique in &event.mitre_techniques {
+            technique_events
+                .entry(technique.id.clone())
+                .or_insert_with(Vec::new)
+                .push(event);
+        }
+    }
+    
+    // Build evidence for each technique
+    for (technique_id, events) in technique_events {
+        let technique_name = events[0].mitre_techniques
+            .iter()
+            .find(|t| t.id == technique_id)
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| "Unknown".to_string());
+        
+        let mut builder = EvidenceBuilder::new(technique_id, technique_name);
+        
+        // Add evidence from each event
+        for event in events {
+            match event.event_type.as_str() {
+                "Process Injection" | "API Hooking" => {
+                    builder = builder.add_behavioral_evidence(
+                        format!("{}: {}", event.event_type, event.description)
+                    );
+                }
+                "High Entropy File" | "Suspicious Import" => {
+                    builder = builder.add_static_evidence(
+                        format!("{}: {}", event.event_type, event.description)
+                    );
+                }
+                "Network Activity" | "C2 Communication" => {
+                    builder = builder.add_network_evidence(
+                        format!("{}: {}", event.event_type, event.description)
+                    );
+                }
+                "Registry Modification" | "Persistence" => {
+                    builder = builder.add_registry_evidence(
+                        format!("{}: {}", event.event_type, event.description)
+                    );
+                }
+                _ => {
+                    builder = builder.add_dynamic_evidence(
+                        format!("{}: {}", event.event_type, event.description)
+                    );
+                }
+            }
+        }
+        
+        // Add process tree evidence if parent is suspicious
+        if !proc.parent_name.is_empty() {
+            builder = builder.add_process_tree_evidence(
+                format!("Parent: {} ({})", proc.parent_name, proc.parent_path.display())
+            );
+        }
+        
+        detections.push(builder.build());
+    }
+    
+    detections
+}
+
 impl ActionOnKill for WriteReportHtmlFile {
     fn run(
         &self,
@@ -469,10 +546,10 @@ impl ActionOnKill for WriteReportHtmlFile {
                 threat_info.match_details.as_deref().unwrap_or("N/A") // 11. Details
             ).as_bytes())?;
         
-        // Generate attack timeline and scoring
+        // Generate attack timeline, scoring, and evidence report
         #[cfg(feature = "realtime_learning")]
         {
-            use crate::mitre_attack::{TimelineBuilder, ScoringEngine};
+            use crate::mitre_attack::{TimelineBuilder, ScoringEngine, EvidenceEngine, EvidenceBuilder, load_all_techniques_from_json};
             use crate::realtime_learning::api_tracker::ApiTracker;
             
             // Try to get API tracker data if available
@@ -482,8 +559,83 @@ impl ActionOnKill for WriteReportHtmlFile {
             let timeline = timeline_builder.build_timeline(proc, api_tracker);
             let score = ScoringEngine::calculate_score(&timeline);
             
+            // Build evidence-based detections from timeline
+            let evidence_detections = build_evidence_from_timeline(&timeline, proc);
+            
+            // Create evidence engine and generate report
+            let technique_db = load_all_techniques_from_json();
+            let evidence_engine = EvidenceEngine::new(technique_db);
+            let evidence_report = evidence_engine.build_report(
+                proc.appname.clone(),
+                proc.exe_path.to_string_lossy().to_string(),
+                proc.pid,
+                proc.gid,
+                evidence_detections,
+                150, // analysis duration in ms
+            );
+            
             // Add scoring card
             file.write_all(ScoringEngine::to_html(&timeline, &score).as_bytes())?;
+            
+            // Store evidence report for later use in tabs
+            let evidence_html = evidence_report.to_html();
+            
+            // Add tabs
+            file.write_all(b"<table><tr><td><div class='tab'>\n")?;
+            file.write_all(b"<button class='tablinks' onclick=\"openTab(event,'evidence_report')\" id='defaultOpen'>Evidence Report</button>\n")?;
+            file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_u')\">Files updated ({})</button>\n", &proc.fpaths_updated.len()).as_bytes())?;
+            file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_c')\">Files created ({})</button>\n", &proc.fpaths_created.len()).as_bytes())?;
+            file.write_all(b"<button class='tablinks' onclick=\"openTab(event,'attack_timeline')\">Attack Timeline</button>\n")?;
+            file.write_all(b"</div></td></tr></table>\n")?;
+            
+            // Evidence Report tab (NEW - default)
+            file.write_all(b"<div id='evidence_report' class='tabcontent'>")?;
+            file.write_all(evidence_html.as_bytes())?;
+            file.write_all(b"</div>\n")?;
+            
+            // Files updated tab
+            file.write_all(b"<div id='files_u' class='tabcontent'><table><tr><td><select name='files_u' size='30' multiple='multiple'>\n")?;
+            for f in &proc.fpaths_updated {
+                file.write_all(format!("<option value='{f}'>{f}</option>\n").as_bytes())?;
+            }
+            file.write_all(b"</select></td></tr></table></div>\n")?;
+            
+            // Files created tab
+            file.write_all(b"<div id='files_c' class='tabcontent'><table><tr><td><select name='files_c' size='30' multiple='multiple'>\n")?;
+            for f in &proc.fpaths_created {
+                file.write_all(format!("<option value='{f}'>{f}</option>\n").as_bytes())?;
+            }
+            file.write_all(b"</select></td></tr></table></div>\n")?;
+            
+            // Attack timeline tab
+            file.write_all(b"<div id='attack_timeline' class='tabcontent'>")?;
+            file.write_all(timeline.to_html().as_bytes())?;
+            file.write_all(b"</div>\n")?;
+            
+            // JavaScript for tabs
+            file.write_all(b"<script>function openTab(evt, tab) { var i, tabcontent, tablinks; tabcontent = document.getElementsByClassName('tabcontent'); for (i = 0; i != tabcontent.length; i++) { tabcontent[i].style.display = 'none'; } tablinks = document.getElementsByClassName('tablinks'); for (i = 0; i != tablinks.length; i++) { tablinks[i].className = tablinks[i].className.replace(' active', ''); } document.getElementById(tab).style.display = 'block'; evt.currentTarget.className += ' active'; } document.getElementById('defaultOpen').click();</script>\n")?;
+        }
+        
+        #[cfg(not(feature = "realtime_learning"))]
+        {
+            file.write_all(b"<table><tr><td><div class='tab'>\n")?;
+            file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_u')\" id='defaultOpen'>Files updated ({})</button>\n", &proc.fpaths_updated.len()).as_bytes())?;
+            file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_c')\">Files created ({})</button>\n", &proc.fpaths_created.len()).as_bytes())?;
+            file.write_all(b"</div></td></tr></table>\n")?;
+            
+            file.write_all(b"<div id='files_u' class='tabcontent'><table><tr><td><select name='files_u' size='30' multiple='multiple'>\n")?;
+            for f in &proc.fpaths_updated {
+                file.write_all(format!("<option value='{f}'>{f}</option>\n").as_bytes())?;
+            }
+            file.write_all(b"</select></td></tr></table></div>\n")?;
+            
+            file.write_all(b"<div id='files_c' class='tabcontent'><table><tr><td><select name='files_c' size='30' multiple='multiple'>\n")?;
+            for f in &proc.fpaths_created {
+                file.write_all(format!("<option value='{f}'>{f}</option>\n").as_bytes())?;
+            }
+            file.write_all(b"</select></td></tr></table></div>\n")?;
+            
+            file.write_all(b"<script>function openTab(evt, tab) { var i, tabcontent, tablinks; tabcontent = document.getElementsByClassName('tabcontent'); for (i = 0; i != tabcontent.length; i++) { tabcontent[i].style.display = 'none'; } tablinks = document.getElementsByClassName('tablinks'); for (i = 0; i != tablinks.length; i++) { tablinks[i].className = tablinks[i].className.replace(' active', ''); } document.getElementById(tab).style.display = 'block'; evt.currentTarget.className += ' active'; } document.getElementById('defaultOpen').click();</script>\n")?;
         }
         
         file.write_all(b"<table><tr><td><div class='tab'>\n")?;
