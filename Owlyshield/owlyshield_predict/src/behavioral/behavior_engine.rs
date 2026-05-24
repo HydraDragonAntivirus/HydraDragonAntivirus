@@ -2089,7 +2089,7 @@ pub struct ProcessBehaviorState {
     pub static_files_scanned: u32,
     /// Static scan state
     pub static_scan_state: StaticScanState,
-    
+
     /// DetectItEasy static analysis results (from Owlyshield)
     pub detectiteasy_result: Option<DetectItEasyResult>,
     /// Whether the file is packed/protected
@@ -2274,7 +2274,7 @@ impl ProcessBehaviorState {
         state.static_scan_timestamp = None;
         state.static_files_scanned = 0;
         state.static_scan_state = StaticScanState::NotScanned;
-        
+
         // Initialize DetectItEasy fields
         state.detectiteasy_result = None;
         state.is_packed = false;
@@ -2793,7 +2793,7 @@ impl ProcessBehaviorState {
         self.static_ioc_matches.push(match_record);
         self.static_scan_state = StaticScanState::Malicious;
         self.static_hash_malicious = true;
-        
+
         Logging::warning(&format!(
             "[STATIC SCAN] IOC match detected - PID: {} | Hash: {} | File: {}",
             self.pid,
@@ -2839,7 +2839,7 @@ impl ProcessBehaviorState {
         self.is_upx = die_result.is_upx;
         self.static_file_type = die_result.file_type.clone();
         self.detectiteasy_result = Some(die_result.clone());
-        
+
         Logging::info(&format!(
             "[DetectItEasy] PID: {} | Type: {:?} | Packed: {} | Protected: {} | Packer: {:?} | Protector: {:?}",
             self.pid,
@@ -2877,7 +2877,7 @@ impl ProcessBehaviorState {
         severity: MitreSeverity,
     ) {
         self.mitre_techniques.insert(technique_id.clone());
-        
+
         let event = MitreTimelineEvent {
             technique_id: technique_id.clone(),
             technique_name: technique_name.clone(),
@@ -2886,9 +2886,9 @@ impl ProcessBehaviorState {
             timestamp: SystemTime::now(),
             severity,
         };
-        
+
         self.mitre_timeline_events.push(event);
-        
+
         // Update threat score based on severity
         let severity_score = match severity {
             MitreSeverity::Low => 1.0,
@@ -2897,15 +2897,10 @@ impl ProcessBehaviorState {
             MitreSeverity::Critical => 10.0,
         };
         self.mitre_threat_score += severity_score;
-        
+
         Logging::info(&format!(
             "[MITRE ATT&CK] PID: {} | Technique: {} ({}) | Tactic: {} | Severity: {:?} | Score: {:.1}",
-            self.pid,
-            technique_id,
-            technique_name,
-            tactic,
-            severity,
-            self.mitre_threat_score
+            self.pid, technique_id, technique_name, tactic, severity, self.mitre_threat_score
         ));
     }
 
@@ -3605,8 +3600,15 @@ impl BehaviorEngine {
 
             // Handle forensic syscall telemetry (Ghost Hunting)
             if source == "sanctum_ghost" {
-                let caller_address = args["caller_address"].as_u64().unwrap_or(0);
-                let hex_payload = args["hex"].as_str().unwrap_or("").to_string();
+                let caller_address = args["caller_address"]
+                    .as_u64()
+                    .or_else(|| event["address"].as_u64())
+                    .unwrap_or(0);
+                let hex_payload = args["hex"]
+                    .as_str()
+                    .or_else(|| event["hex"].as_str())
+                    .unwrap_or("")
+                    .to_string();
 
                 if caller_address != 0 || !hex_payload.is_empty() {
                     stats.ghost_telemetry.push(
@@ -3661,6 +3663,24 @@ impl BehaviorEngine {
 
             if stats.injection_score > 1.0 {
                 stats.injection_score = 1.0;
+            }
+
+            if gid != 0
+                && let Some(state) = self.process_states.get_mut(&gid)
+            {
+                state.sanctum_stats = stats.clone();
+                if matches!(
+                    function,
+                    "NtWriteVirtualMemory"
+                        | "NtAllocateVirtualMemory"
+                        | "NtCreateThreadEx"
+                        | "NtProtectVirtualMemory"
+                        | "NtMapViewOfSection"
+                        | "NtQueueApcThread"
+                        | "NtSetContextThread"
+                ) {
+                    state.sanctum_suspicious_hits.insert(function.to_string());
+                }
             }
         }
     }

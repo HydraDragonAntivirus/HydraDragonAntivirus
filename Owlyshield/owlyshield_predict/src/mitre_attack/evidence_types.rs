@@ -210,7 +210,7 @@ impl DetectionEvidence {
         }
 
         // Calculate source diversity
-        let unique_sources: std::collections::HashSet<_> = 
+        let unique_sources: std::collections::HashSet<_> =
             self.evidence_chain.iter().map(|e| &e.source).collect();
         self.source_diversity = unique_sources.len();
 
@@ -246,13 +246,15 @@ impl DetectionEvidence {
             .max(0.0);
 
         // False positive likelihood (inverse of confidence with adjustments)
-        self.false_positive_likelihood = if self.source_diversity >= 3 && self.evidence_chain.len() >= 4 {
-            (1.0 - self.confidence) * 0.5 // Strong evidence = lower FP
-        } else if self.source_diversity == 1 {
-            (1.0 - self.confidence) * 1.5 // Single source = higher FP risk
-        } else {
-            1.0 - self.confidence
-        }.clamp(0.0, 1.0);
+        self.false_positive_likelihood =
+            if self.source_diversity >= 3 && self.evidence_chain.len() >= 4 {
+                (1.0 - self.confidence) * 0.5 // Strong evidence = lower FP
+            } else if self.source_diversity == 1 {
+                (1.0 - self.confidence) * 1.5 // Single source = higher FP risk
+            } else {
+                1.0 - self.confidence
+            }
+            .clamp(0.0, 1.0);
     }
 
     /// Calculate how well evidence items correlate with each other
@@ -293,7 +295,7 @@ impl DetectionEvidence {
 
         // Check for source diversity (different sources = better correlation)
         let diversity_factor = (self.source_diversity as f32 / 5.0).min(1.0);
-        
+
         let base_correlation = if comparisons > 0 {
             correlation_score / comparisons as f32
         } else {
@@ -362,31 +364,52 @@ impl EvidenceBuilder {
     }
 
     pub fn add_static_evidence(self, description: impl Into<String>) -> Self {
-        self.add_evidence(EvidenceItem::new(EvidenceSource::Static, description.into()))
+        self.add_evidence(EvidenceItem::new(
+            EvidenceSource::Static,
+            description.into(),
+        ))
     }
 
     pub fn add_dynamic_evidence(self, description: impl Into<String>) -> Self {
-        self.add_evidence(EvidenceItem::new(EvidenceSource::Dynamic, description.into()))
+        self.add_evidence(EvidenceItem::new(
+            EvidenceSource::Dynamic,
+            description.into(),
+        ))
     }
 
     pub fn add_behavioral_evidence(self, description: impl Into<String>) -> Self {
-        self.add_evidence(EvidenceItem::new(EvidenceSource::Behavioral, description.into()))
+        self.add_evidence(EvidenceItem::new(
+            EvidenceSource::Behavioral,
+            description.into(),
+        ))
     }
 
     pub fn add_network_evidence(self, description: impl Into<String>) -> Self {
-        self.add_evidence(EvidenceItem::new(EvidenceSource::Network, description.into()))
+        self.add_evidence(EvidenceItem::new(
+            EvidenceSource::Network,
+            description.into(),
+        ))
     }
 
     pub fn add_process_tree_evidence(self, description: impl Into<String>) -> Self {
-        self.add_evidence(EvidenceItem::new(EvidenceSource::ProcessTree, description.into()))
+        self.add_evidence(EvidenceItem::new(
+            EvidenceSource::ProcessTree,
+            description.into(),
+        ))
     }
 
     pub fn add_registry_evidence(self, description: impl Into<String>) -> Self {
-        self.add_evidence(EvidenceItem::new(EvidenceSource::Registry, description.into()))
+        self.add_evidence(EvidenceItem::new(
+            EvidenceSource::Registry,
+            description.into(),
+        ))
     }
 
     pub fn add_hypervisor_evidence(self, description: impl Into<String>) -> Self {
-        self.add_evidence(EvidenceItem::new(EvidenceSource::Hypervisor, description.into()))
+        self.add_evidence(EvidenceItem::new(
+            EvidenceSource::Hypervisor,
+            description.into(),
+        ))
     }
 
     pub fn build(self) -> DetectionEvidence {
@@ -418,26 +441,27 @@ mod tests {
 
     #[test]
     fn test_confidence_calculation() {
-        let mut evidence = DetectionEvidence::new("T1055".to_string(), "Process Injection".to_string());
-        
+        let mut evidence =
+            DetectionEvidence::new("T1055".to_string(), "Process Injection".to_string());
+
         // Single weak evidence
         evidence.add_evidence(EvidenceItem::new(
             EvidenceSource::Static,
-            "Suspicious import".to_string()
+            "Suspicious import".to_string(),
         ));
         assert!(evidence.confidence < 0.6);
 
         // Add strong behavioral evidence
         evidence.add_evidence(EvidenceItem::new(
             EvidenceSource::Behavioral,
-            "VirtualAlloc + WriteProcessMemory + CreateRemoteThread".to_string()
+            "VirtualAlloc + WriteProcessMemory + CreateRemoteThread".to_string(),
         ));
         assert!(evidence.confidence > 0.7);
 
         // Add network evidence
         evidence.add_evidence(EvidenceItem::new(
             EvidenceSource::Network,
-            "C2 connection after injection".to_string()
+            "C2 connection after injection".to_string(),
         ));
         assert!(evidence.confidence > 0.8);
     }
@@ -446,6 +470,8 @@ mod tests {
     fn test_source_weights() {
         assert!(EvidenceSource::Rootkit.base_weight() > EvidenceSource::Static.base_weight());
         assert!(EvidenceSource::Behavioral.base_weight() > EvidenceSource::Yara.base_weight());
-        assert!(EvidenceSource::Hypervisor.base_weight() > EvidenceSource::FileSystem.base_weight());
+        assert!(
+            EvidenceSource::Hypervisor.base_weight() > EvidenceSource::FileSystem.base_weight()
+        );
     }
 }

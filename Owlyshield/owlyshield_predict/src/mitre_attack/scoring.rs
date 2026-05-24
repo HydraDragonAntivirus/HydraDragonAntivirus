@@ -170,8 +170,8 @@ impl ScoringEngine {
             let base_score = (total_score as f32 / 10.0).min(8.0);
 
             // Bonus for multiple high/critical events
-            let severity_bonus = (high_severity_count as f32 * 0.2)
-                + (critical_severity_count as f32 * 0.5);
+            let severity_bonus =
+                (high_severity_count as f32 * 0.2) + (critical_severity_count as f32 * 0.5);
 
             // Bonus for diverse tactics (indicates sophisticated attack)
             let unique_tactics = timeline.get_tactics_summary().len();
@@ -209,9 +209,7 @@ impl ScoringEngine {
     pub fn generate_report(timeline: &AttackTimeline, score: &ThreatScore) -> String {
         let mut report = String::new();
 
-        report.push_str(&format!(
-            "=== Threat Assessment Report ===\n\n"
-        ));
+        report.push_str(&format!("=== Threat Assessment Report ===\n\n"));
         report.push_str(&format!("Process: {}\n", timeline.process_name));
         report.push_str(&format!("Path: {}\n", timeline.process_path));
         report.push_str(&format!("GID: {}\n\n", timeline.gid));
@@ -230,11 +228,17 @@ impl ScoringEngine {
             ("Credential Access", score.category_scores.credential_access),
             ("Discovery", score.category_scores.discovery),
             ("Collection", score.category_scores.collection),
-            ("Command and Control", score.category_scores.command_and_control),
+            (
+                "Command and Control",
+                score.category_scores.command_and_control,
+            ),
             ("Exfiltration", score.category_scores.exfiltration),
             ("Impact", score.category_scores.impact),
             ("Execution", score.category_scores.execution),
-            ("Privilege Escalation", score.category_scores.privilege_escalation),
+            (
+                "Privilege Escalation",
+                score.category_scores.privilege_escalation,
+            ),
         ];
 
         for (name, score_val) in categories {
@@ -311,11 +315,17 @@ impl ScoringEngine {
             ("Credential Access", score.category_scores.credential_access),
             ("Discovery", score.category_scores.discovery),
             ("Collection", score.category_scores.collection),
-            ("Command & Control", score.category_scores.command_and_control),
+            (
+                "Command & Control",
+                score.category_scores.command_and_control,
+            ),
             ("Exfiltration", score.category_scores.exfiltration),
             ("Impact", score.category_scores.impact),
             ("Execution", score.category_scores.execution),
-            ("Privilege Escalation", score.category_scores.privilege_escalation),
+            (
+                "Privilege Escalation",
+                score.category_scores.privilege_escalation,
+            ),
         ];
 
         for (name, cat_score) in categories {

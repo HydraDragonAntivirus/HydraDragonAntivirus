@@ -2,7 +2,7 @@
 //!
 //! Correlates weak signals into strong detections
 
-use super::graph_builder::{CorrelationGraph, DetectionNode, CorrelationEdge, NodeType};
+use super::graph_builder::{CorrelationEdge, CorrelationGraph, DetectionNode};
 
 pub struct SignalCorrelator;
 
@@ -23,8 +23,8 @@ impl SignalCorrelator {
     }
 
     fn build_edges(graph: &mut CorrelationGraph) {
-        let nodes = &graph.nodes;
-        
+        let nodes = graph.nodes.clone();
+
         for i in 0..nodes.len() {
             for j in (i + 1)..nodes.len() {
                 if let Some(edge) = Self::find_relationship(&nodes[i], &nodes[j]) {
@@ -42,7 +42,8 @@ impl SignalCorrelator {
             node2.timestamp_ms - node1.timestamp_ms
         };
 
-        if time_diff < 5000 { // Within 5 seconds
+        if time_diff < 5000 {
+            // Within 5 seconds
             Some(CorrelationEdge {
                 from_id: node1.id.clone(),
                 to_id: node2.id.clone(),

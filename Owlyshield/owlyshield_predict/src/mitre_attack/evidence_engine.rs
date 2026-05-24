@@ -17,15 +17,15 @@ pub struct DetectionReport {
     pub process_path: String,
     pub pid: u32,
     pub gid: u64,
-    
+
     /// All detected techniques with evidence
     pub detections: Vec<DetectionEvidence>,
-    
+
     /// Overall threat assessment
     pub overall_confidence: f32,
     pub threat_level: ThreatLevel,
     pub primary_tactic: String,
-    
+
     /// Metadata
     pub detection_timestamp: SystemTime,
     pub analysis_duration_ms: u64,
@@ -72,68 +72,88 @@ impl DetectionReport {
     /// Generate a human-readable text report
     pub fn to_text(&self) -> String {
         let mut report = String::new();
-        
+
         report.push_str("═══════════════════════════════════════════════════════════════\n");
         report.push_str("           HYDRADRAGON DETECTION EVIDENCE REPORT\n");
         report.push_str("═══════════════════════════════════════════════════════════════\n\n");
-        
+
         report.push_str(&format!("Process: {}\n", self.process_name));
         report.push_str(&format!("Path: {}\n", self.process_path));
         report.push_str(&format!("PID: {} | GID: {}\n\n", self.pid, self.gid));
-        
-        report.push_str(&format!("Threat Level: {} (Confidence: {:.0}%)\n", 
-            self.threat_level.label(), 
+
+        report.push_str(&format!(
+            "Threat Level: {} (Confidence: {:.0}%)\n",
+            self.threat_level.label(),
             self.overall_confidence * 100.0
         ));
         report.push_str(&format!("Primary Tactic: {}\n", self.primary_tactic));
-        report.push_str(&format!("Techniques Detected: {}\n\n", self.detections.len()));
-        
+        report.push_str(&format!(
+            "Techniques Detected: {}\n\n",
+            self.detections.len()
+        ));
+
         report.push_str("───────────────────────────────────────────────────────────────\n");
         report.push_str("                    DETECTION DETAILS\n");
         report.push_str("───────────────────────────────────────────────────────────────\n\n");
-        
+
         for (idx, detection) in self.detections.iter().enumerate() {
             report.push_str(&format!("{}. {}\n\n", idx + 1, detection.summary()));
-            
+
             report.push_str("   Evidence Chain:\n");
             for (eidx, evidence) in detection.evidence_chain.iter().enumerate() {
-                let marker = if eidx == detection.evidence_chain.len() - 1 { "└─" } else { "├─" };
-                report.push_str(&format!("   {} [{}] {}\n", 
+                let marker = if eidx == detection.evidence_chain.len() - 1 {
+                    "└─"
+                } else {
+                    "├─"
+                };
+                report.push_str(&format!(
+                    "   {} [{}] {}\n",
                     marker,
                     evidence.source.label(),
                     evidence.description
                 ));
-                
+
                 if let Some(ref context) = evidence.context {
-                    let continuation = if eidx == detection.evidence_chain.len() - 1 { "  " } else { "│ " };
+                    let continuation = if eidx == detection.evidence_chain.len() - 1 {
+                        "  "
+                    } else {
+                        "│ "
+                    };
                     report.push_str(&format!("   {}    Context: {}\n", continuation, context));
                 }
             }
-            
-            report.push_str(&format!("\n   Correlation Score: {:.0}%\n", 
+
+            report.push_str(&format!(
+                "\n   Correlation Score: {:.0}%\n",
                 detection.correlation_score * 100.0
             ));
-            report.push_str(&format!("   Source Diversity: {} independent sources\n", 
+            report.push_str(&format!(
+                "   Source Diversity: {} independent sources\n",
                 detection.source_diversity
             ));
-            report.push_str(&format!("   False Positive Risk: {} ({:.0}%)\n\n", 
+            report.push_str(&format!(
+                "   False Positive Risk: {} ({:.0}%)\n\n",
                 detection.fp_risk_label(),
                 detection.false_positive_likelihood * 100.0
             ));
         }
-        
+
         report.push_str("═══════════════════════════════════════════════════════════════\n");
-        report.push_str(&format!("Analysis completed in {} ms\n", self.analysis_duration_ms));
+        report.push_str(&format!(
+            "Analysis completed in {} ms\n",
+            self.analysis_duration_ms
+        ));
         report.push_str("═══════════════════════════════════════════════════════════════\n");
-        
+
         report
     }
 
     /// Generate an HTML report with styling
     pub fn to_html(&self) -> String {
         let mut html = String::new();
-        
-        html.push_str(&format!(r#"
+
+        html.push_str(&format!(
+            r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -339,14 +359,14 @@ impl DetectionReport {
         
         <div class="detections">
             <h2>Detection Details</h2>
-"#, 
+"#,
             self.threat_level.color(),
             self.process_name,
             self.threat_level.label(),
             self.overall_confidence * 100.0,
             self.detections.len()
         ));
-        
+
         for detection in &self.detections {
             let confidence_color = if detection.confidence > 0.8 {
                 "#28a745"
@@ -355,8 +375,9 @@ impl DetectionReport {
             } else {
                 "#dc3545"
             };
-            
-            html.push_str(&format!(r#"
+
+            html.push_str(&format!(
+                r#"
             <div class="detection-card">
                 <div class="detection-header">
                     <div class="technique-id">{} - {}</div>
@@ -364,39 +385,46 @@ impl DetectionReport {
                 </div>
                 
                 <div class="evidence-chain">
-"#, 
+"#,
                 detection.technique_id,
                 detection.technique_name,
                 confidence_color,
                 detection.confidence * 100.0
             ));
-            
+
             for (idx, evidence) in detection.evidence_chain.iter().enumerate() {
-                html.push_str(&format!(r#"
+                html.push_str(&format!(
+                    r#"
                     <div class="evidence-item">
                         <div class="evidence-icon">{}</div>
                         <div class="evidence-content">
                             <div class="evidence-source">{}</div>
                             <div class="evidence-description">{}</div>
-"#, 
+"#,
                     idx + 1,
                     evidence.source.label(),
                     evidence.description
                 ));
-                
+
                 if let Some(ref context) = evidence.context {
-                    html.push_str(&format!(r#"
+                    html.push_str(&format!(
+                        r#"
                             <div class="evidence-context">{}</div>
-"#, context));
+"#,
+                        context
+                    ));
                 }
-                
-                html.push_str(r#"
+
+                html.push_str(
+                    r#"
                         </div>
                     </div>
-"#);
+"#,
+                );
             }
-            
-            html.push_str(&format!(r#"
+
+            html.push_str(&format!(
+                r#"
                 </div>
                 
                 <div class="metrics">
@@ -414,14 +442,15 @@ impl DetectionReport {
                     </div>
                 </div>
             </div>
-"#, 
+"#,
                 detection.correlation_score * 100.0,
                 detection.source_diversity,
                 detection.fp_risk_label()
             ));
         }
-        
-        html.push_str(&format!(r#"
+
+        html.push_str(&format!(
+            r#"
         </div>
         
         <div class="footer">
@@ -430,8 +459,10 @@ impl DetectionReport {
     </div>
 </body>
 </html>
-"#, self.analysis_duration_ms));
-        
+"#,
+            self.analysis_duration_ms
+        ));
+
         html
     }
 

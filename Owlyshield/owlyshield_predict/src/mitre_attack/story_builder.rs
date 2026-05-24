@@ -3,7 +3,7 @@
 //! Transforms timeline events into human-readable attack narratives
 
 use super::technique_mapping::MitreTechnique;
-use super::timeline::{AttackTimeline, TimelineEvent};
+use super::timeline::AttackTimeline;
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
@@ -54,7 +54,7 @@ impl StoryBuilder {
 
         for event in &timeline.events {
             let phase_name = Self::event_to_phase(&event.event_type);
-            
+
             if let Some(ref mut phase) = current_phase {
                 if phase.phase_name == phase_name {
                     phase.techniques.extend(event.mitre_techniques.clone());
@@ -124,18 +124,24 @@ impl StoryBuilder {
 
     fn generate_narrative(phases: &[AttackPhase], timeline: &AttackTimeline) -> String {
         let mut narrative = String::new();
-        
-        narrative.push_str(&format!("Attack Story for {} (GID: {})\n\n", 
-            timeline.process_name, timeline.gid));
+
+        narrative.push_str(&format!(
+            "Attack Story for {} (GID: {})\n\n",
+            timeline.process_name, timeline.gid
+        ));
 
         for (idx, phase) in phases.iter().enumerate() {
-            narrative.push_str(&format!("{}. {} ({})\n", 
-                idx + 1, phase.phase_name, phase.description));
-            
+            narrative.push_str(&format!(
+                "{}. {} ({})\n",
+                idx + 1,
+                phase.phase_name,
+                phase.description
+            ));
+
             for event in &phase.events {
                 narrative.push_str(&format!("   - {}\n", event));
             }
-            
+
             if !phase.techniques.is_empty() {
                 narrative.push_str("   Techniques: ");
                 let tech_ids: Vec<_> = phase.techniques.iter().map(|t| t.id.as_str()).collect();
@@ -170,16 +176,19 @@ impl StoryBuilder {
     }
 
     fn generate_timeline_summary(timeline: &AttackTimeline) -> String {
-        format!("{} events detected across {} techniques",
+        format!(
+            "{} events detected across {} techniques",
             timeline.events.len(),
-            timeline.get_unique_techniques().len())
+            timeline.get_unique_techniques().len()
+        )
     }
 
     /// Generate HTML visualization
     pub fn to_html(story: &AttackStory) -> String {
         let mut html = String::new();
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
 <div class="attack-story-container">
     <h2>📖 Attack Story</h2>
     
@@ -187,61 +196,87 @@ impl StoryBuilder {
         <div class="summary-item">
             <span class="label">Kill Chain Progress:</span>
             <div class="progress-bar">
-                <div class="progress-fill" style="width: "#);
+                <div class="progress-fill" style="width: "#,
+        );
         html.push_str(&format!("{}%", story.kill_chain_progress));
-        html.push_str(r#""></div>
+        html.push_str(
+            r#""></div>
             </div>
-            <span class="value">"#);
+            <span class="value">"#,
+        );
         html.push_str(&format!("{:.0}%", story.kill_chain_progress));
-        html.push_str(r#"</span>
+        html.push_str(
+            r#"</span>
         </div>
         <div class="summary-item">
             <span class="label">Threat Actor Similarity:</span>
-            <span class="value">"#);
-        html.push_str(story.threat_actor_similarity.as_deref().unwrap_or("Unknown"));
-        html.push_str(r#"</span>
+            <span class="value">"#,
+        );
+        html.push_str(
+            story
+                .threat_actor_similarity
+                .as_deref()
+                .unwrap_or("Unknown"),
+        );
+        html.push_str(
+            r#"</span>
         </div>
     </div>
 
     <div class="story-timeline">
-"#);
+"#,
+        );
 
         for (idx, phase) in story.phases.iter().enumerate() {
-            html.push_str(&format!(r#"
+            html.push_str(&format!(
+                r#"
         <div class="phase-card">
             <div class="phase-number">{}</div>
             <div class="phase-content">
                 <h3>{}</h3>
                 <p>{}</p>
                 <ul>
-"#, idx + 1, phase.phase_name, phase.description));
+"#,
+                idx + 1,
+                phase.phase_name,
+                phase.description
+            ));
 
             for event in &phase.events {
                 html.push_str(&format!("<li>{}</li>\n", event));
             }
 
-            html.push_str(r#"
+            html.push_str(
+                r#"
                 </ul>
                 <div class="phase-techniques">
-"#);
+"#,
+            );
 
             for tech in &phase.techniques {
-                html.push_str(&format!(r#"
+                html.push_str(&format!(
+                    r#"
                     <span class="technique-badge">{}</span>
-"#, tech.id));
+"#,
+                    tech.id
+                ));
             }
 
-            html.push_str(r#"
+            html.push_str(
+                r#"
                 </div>
             </div>
         </div>
-"#);
+"#,
+            );
         }
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
     </div>
 </div>
-"#);
+"#,
+        );
 
         html
     }
@@ -350,6 +385,9 @@ mod tests {
     #[test]
     fn test_phase_extraction() {
         assert_eq!(StoryBuilder::event_to_phase("PowerShell"), "Execution");
-        assert_eq!(StoryBuilder::event_to_phase("Registry Modification"), "Persistence");
+        assert_eq!(
+            StoryBuilder::event_to_phase("Registry Modification"),
+            "Persistence"
+        );
     }
 }

@@ -4,7 +4,7 @@
 
 use super::technique_mapping::MitreTechnique;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Coverage level for a technique
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,10 +31,10 @@ impl CoverageLevel {
 
     pub fn color(&self) -> &'static str {
         match self {
-            CoverageLevel::Strong => "#27ae60",    // Green
-            CoverageLevel::Medium => "#f39c12",    // Orange
-            CoverageLevel::Weak => "#e67e22",      // Dark Orange
-            CoverageLevel::None => "#95a5a6",      // Gray
+            CoverageLevel::Strong => "#27ae60", // Green
+            CoverageLevel::Medium => "#f39c12", // Orange
+            CoverageLevel::Weak => "#e67e22",   // Dark Orange
+            CoverageLevel::None => "#95a5a6",   // Gray
         }
     }
 
@@ -168,7 +168,10 @@ impl CoverageAnalyzer {
     }
 
     /// Assess coverage level for a specific technique
-    fn assess_technique_coverage(&self, technique_id: &str) -> (CoverageLevel, Vec<String>, String) {
+    fn assess_technique_coverage(
+        &self,
+        technique_id: &str,
+    ) -> (CoverageLevel, Vec<String>, String) {
         // This is a simplified assessment based on technique characteristics
         // In a real implementation, this would check actual detection rules and telemetry
 
@@ -258,7 +261,7 @@ impl CoverageAnalyzer {
     }
 
     /// Generate coverage notes
-    fn generate_coverage_notes(&self, technique_id: &str, sources: &[String]) -> String {
+    fn generate_coverage_notes(&self, _technique_id: &str, sources: &[String]) -> String {
         if sources.is_empty() {
             return "No detection telemetry available".to_string();
         }

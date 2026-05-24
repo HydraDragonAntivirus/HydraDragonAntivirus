@@ -103,6 +103,8 @@ mod actions_on_kill;
 mod config;
 // mod app_settings; // removed, now in behavioral
 mod connectors;
+#[cfg(feature = "realtime_learning")]
+mod correlation;
 mod csvwriter;
 #[cfg(target_os = "windows")]
 #[path = "windows/driver_com.rs"]
@@ -110,9 +112,13 @@ pub(crate) mod driver_com;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
 pub(crate) mod driver_com;
+#[cfg(feature = "realtime_learning")]
+mod explainability;
 mod extensions;
 mod jsonrpc;
 mod logging;
+#[cfg(feature = "realtime_learning")]
+mod mitre_attack;
 #[cfg(target_os = "windows")]
 #[path = "windows/notifications.rs"]
 pub(crate) mod notifications;

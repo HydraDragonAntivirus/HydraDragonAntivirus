@@ -57,7 +57,8 @@ impl TechniqueMapper {
             id: "T1027".to_string(),
             name: "Obfuscated Files or Information".to_string(),
             tactic: "Defense Evasion".to_string(),
-            description: "Adversaries may obfuscate files or information to evade detection".to_string(),
+            description: "Adversaries may obfuscate files or information to evade detection"
+                .to_string(),
             severity: 6,
         });
 
@@ -65,7 +66,8 @@ impl TechniqueMapper {
             id: "T1055".to_string(),
             name: "Process Injection".to_string(),
             tactic: "Defense Evasion".to_string(),
-            description: "Adversaries may inject code into processes to evade detection".to_string(),
+            description: "Adversaries may inject code into processes to evade detection"
+                .to_string(),
             severity: 9,
         });
 
@@ -74,7 +76,8 @@ impl TechniqueMapper {
             id: "T1547.001".to_string(),
             name: "Boot or Logon Autostart Execution: Registry Run Keys".to_string(),
             tactic: "Persistence".to_string(),
-            description: "Adversaries may achieve persistence by adding programs to startup".to_string(),
+            description: "Adversaries may achieve persistence by adding programs to startup"
+                .to_string(),
             severity: 7,
         });
 
@@ -91,7 +94,8 @@ impl TechniqueMapper {
             id: "T1003.001".to_string(),
             name: "OS Credential Dumping: LSASS Memory".to_string(),
             tactic: "Credential Access".to_string(),
-            description: "Adversaries may attempt to access credential material stored in LSASS".to_string(),
+            description: "Adversaries may attempt to access credential material stored in LSASS"
+                .to_string(),
             severity: 10,
         });
 
@@ -184,7 +188,8 @@ impl TechniqueMapper {
             id: "T1486".to_string(),
             name: "Data Encrypted for Impact".to_string(),
             tactic: "Impact".to_string(),
-            description: "Adversaries may encrypt data to disrupt availability (Ransomware)".to_string(),
+            description: "Adversaries may encrypt data to disrupt availability (Ransomware)"
+                .to_string(),
             severity: 10,
         });
 
@@ -249,7 +254,8 @@ impl TechniqueMapper {
             id: "T1106".to_string(),
             name: "Native API".to_string(),
             tactic: "Execution".to_string(),
-            description: "Adversaries may interact with Windows API to execute behaviors".to_string(),
+            description: "Adversaries may interact with Windows API to execute behaviors"
+                .to_string(),
             severity: 7,
         });
 
@@ -257,7 +263,8 @@ impl TechniqueMapper {
             id: "T1129".to_string(),
             name: "Shared Modules".to_string(),
             tactic: "Execution".to_string(),
-            description: "Adversaries may execute malicious payloads via loading shared modules".to_string(),
+            description: "Adversaries may execute malicious payloads via loading shared modules"
+                .to_string(),
             severity: 7,
         });
 
@@ -265,7 +272,8 @@ impl TechniqueMapper {
             id: "T1203".to_string(),
             name: "Exploitation for Client Execution".to_string(),
             tactic: "Execution".to_string(),
-            description: "Adversaries may exploit software vulnerabilities in client applications".to_string(),
+            description: "Adversaries may exploit software vulnerabilities in client applications"
+                .to_string(),
             severity: 8,
         });
 
@@ -330,7 +338,8 @@ impl TechniqueMapper {
             id: "T1134.001".to_string(),
             name: "Access Token Manipulation: Token Impersonation/Theft".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may duplicate then impersonate another user's token".to_string(),
+            description: "Adversaries may duplicate then impersonate another user's token"
+                .to_string(),
             severity: 8,
         });
 
@@ -346,7 +355,8 @@ impl TechniqueMapper {
             id: "T1134.003".to_string(),
             name: "Access Token Manipulation: Make and Impersonate Token".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may make and impersonate tokens to escalate privileges".to_string(),
+            description: "Adversaries may make and impersonate tokens to escalate privileges"
+                .to_string(),
             severity: 8,
         });
 
@@ -362,7 +372,8 @@ impl TechniqueMapper {
             id: "T1134.005".to_string(),
             name: "Access Token Manipulation: SID-History Injection".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may use SID-History Injection to escalate privileges".to_string(),
+            description: "Adversaries may use SID-History Injection to escalate privileges"
+                .to_string(),
             severity: 8,
         });
 
@@ -378,7 +389,8 @@ impl TechniqueMapper {
             id: "T1068".to_string(),
             name: "Exploitation for Privilege Escalation".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may exploit software vulnerabilities to elevate privileges".to_string(),
+            description: "Adversaries may exploit software vulnerabilities to elevate privileges"
+                .to_string(),
             severity: 9,
         });
 
@@ -386,7 +398,9 @@ impl TechniqueMapper {
             id: "T1574.001".to_string(),
             name: "Hijack Execution Flow: DLL Search Order Hijacking".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may execute their own malicious payloads by hijacking DLL search order".to_string(),
+            description:
+                "Adversaries may execute their own malicious payloads by hijacking DLL search order"
+                    .to_string(),
             severity: 7,
         });
 
@@ -394,7 +408,9 @@ impl TechniqueMapper {
             id: "T1574.002".to_string(),
             name: "Hijack Execution Flow: DLL Side-Loading".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may execute their own malicious payloads by side-loading DLLs".to_string(),
+            description:
+                "Adversaries may execute their own malicious payloads by side-loading DLLs"
+                    .to_string(),
             severity: 7,
         });
 
@@ -418,7 +434,8 @@ impl TechniqueMapper {
             id: "T1055.003".to_string(),
             name: "Process Injection: Thread Execution Hijacking".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may inject code into hijacked processes via thread execution".to_string(),
+            description: "Adversaries may inject code into hijacked processes via thread execution"
+                .to_string(),
             severity: 9,
         });
 
@@ -434,7 +451,8 @@ impl TechniqueMapper {
             id: "T1055.011".to_string(),
             name: "Process Injection: Extra Window Memory Injection".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may inject code into process via extra window memory".to_string(),
+            description: "Adversaries may inject code into process via extra window memory"
+                .to_string(),
             severity: 8,
         });
 
@@ -442,7 +460,8 @@ impl TechniqueMapper {
             id: "T1055.012".to_string(),
             name: "Process Injection: Process Hollowing".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may inject code into suspended and hollowed processes".to_string(),
+            description: "Adversaries may inject code into suspended and hollowed processes"
+                .to_string(),
             severity: 9,
         });
 
@@ -482,7 +501,8 @@ impl TechniqueMapper {
             id: "T1611".to_string(),
             name: "Escape to Host".to_string(),
             tactic: "Privilege Escalation".to_string(),
-            description: "Adversaries may break out of a container to gain access to the host".to_string(),
+            description: "Adversaries may break out of a container to gain access to the host"
+                .to_string(),
             severity: 9,
         });
     }

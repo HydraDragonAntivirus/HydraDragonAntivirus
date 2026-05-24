@@ -167,6 +167,23 @@
 			max-width: 1200px;
 			margin: 0 auto;
 		}
+
+		.owlyshield-cache-entry {
+			margin: 18px 0;
+		}
+
+		.cache-source {
+			font-size: 11px;
+			color: #667085;
+			margin: 0 0 8px 0;
+			word-break: break-all;
+		}
+
+		.cache-separator {
+			border: 0;
+			border-top: 1px solid #d0d5dd;
+			margin: 24px 0;
+		}
 	</style>
 
 	<script>
@@ -199,7 +216,10 @@
 							document.getElementById("pid_query_result").innerHTML = response;
 						}
 					})
-					.catch((error) => console.error("Invoke error:", error));
+					.catch((error) => {
+						document.getElementById("pid_query_result").innerHTML =
+							'<pre>' + String(error) + '</pre>';
+					});
 			};
 
 			//

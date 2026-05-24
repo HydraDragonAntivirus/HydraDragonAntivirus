@@ -29,11 +29,11 @@ impl EventSeverity {
 
     pub fn color(&self) -> &'static str {
         match self {
-            EventSeverity::Info => "#3498db",      // Blue
-            EventSeverity::Low => "#2ecc71",       // Green
-            EventSeverity::Medium => "#f39c12",    // Orange
-            EventSeverity::High => "#e67e22",      // Dark Orange
-            EventSeverity::Critical => "#e74c3c",  // Red
+            EventSeverity::Info => "#3498db",     // Blue
+            EventSeverity::Low => "#2ecc71",      // Green
+            EventSeverity::Medium => "#f39c12",   // Orange
+            EventSeverity::High => "#e67e22",     // Dark Orange
+            EventSeverity::Critical => "#e74c3c", // Red
         }
     }
 

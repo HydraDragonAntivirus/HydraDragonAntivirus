@@ -26,12 +26,12 @@ pub mod timeline_builder;
 
 // Evidence Engine exports (NEW - EDR/XDR grade)
 pub use evidence_engine::{DetectionReport, EvidenceEngine, ThreatLevel as EvidenceThreatLevel};
-pub use evidence_types::{
-    DetectionEvidence, EvidenceBuilder, EvidenceItem, EvidenceSource,
-};
+pub use evidence_types::{DetectionEvidence, EvidenceBuilder, EvidenceItem, EvidenceSource};
 
 // Coverage Analysis exports (NEW)
-pub use coverage_analyzer::{CoverageAnalysis, CoverageAnalyzer, CoverageLevel, TacticCoverage, TechniqueCoverage};
+pub use coverage_analyzer::{
+    CoverageAnalysis, CoverageAnalyzer, CoverageLevel, TacticCoverage, TechniqueCoverage,
+};
 pub use coverage_heatmap::CoverageHeatmap;
 
 // Attack Story exports (NEW)
@@ -47,5 +47,7 @@ pub use stix_updater::{AttackVersion, StixTaxiiUpdater, UpdateStatus};
 pub use json_loader::load_all_techniques_from_json;
 pub use scoring::{CategoryScores, ScoringEngine, ThreatLevel, ThreatScore};
 pub use technique_mapping::{MitreTechnique, TechniqueMapper};
-pub use timeline::{AttackEvent, AttackTimeline, EventSeverity, TimelineEvent};
+pub use timeline::{AttackTimeline, EventSeverity, TimelineEvent};
 pub use timeline_builder::TimelineBuilder;
+
+pub type AttackEvent = TimelineEvent;

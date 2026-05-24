@@ -704,7 +704,9 @@ pub mod worker_instance {
     use crate::ExepathLive;
     use crate::IOMessage;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use crate::actions_on_kill::{ActionsOnKill, ThreatInfo, restart_cleanup_reason};
+    use crate::actions_on_kill::{
+        ActionReportContext, ActionsOnKill, ThreatInfo, restart_cleanup_reason,
+    };
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::app_settings::AppSettings;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1556,6 +1558,16 @@ pub mod worker_instance {
         }
 
         #[cfg(feature = "realtime_learning")]
+        fn report_context_for_gid(
+            api_trackers: &HashMap<u64, ApiTracker>,
+            gid: u64,
+        ) -> ActionReportContext {
+            ActionReportContext {
+                api_tracker: api_trackers.get(&gid).cloned(),
+            }
+        }
+
+        #[cfg(feature = "realtime_learning")]
         fn mark_realtime_process_malicious(
             learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
             api_trackers: &HashMap<u64, ApiTracker>,
@@ -2312,8 +2324,16 @@ pub mod worker_instance {
                             "[DETECTION] Process {} (GID: {}) marked malicious by rule '{}'",
                             record.appname, det.gid, rule_name
                         ));
+                        let report_context =
+                            Self::report_context_for_gid(&self.api_trackers, det.gid);
                         ActionsOnKill::with_handler(threat_handler.clone_box())
-                            .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
+                            .run_actions_with_info_and_context(
+                                config,
+                                record,
+                                &dummy_pred_mtrx,
+                                &threat_info,
+                                &report_context,
+                            );
 
                         if det.termination_requested
                             && restart_cleanup_reason(record, &threat_info).is_none()
@@ -2335,12 +2355,15 @@ pub mod worker_instance {
                             det.gid,
                             &precord,
                         );
+                        let report_context =
+                            Self::report_context_for_gid(&self.api_trackers, det.gid);
                         ActionsOnKill::with_handler(threat_handler.clone_box())
-                            .run_actions_with_info(
+                            .run_actions_with_info_and_context(
                                 config,
                                 &mut precord,
                                 &dummy_pred_mtrx,
                                 &threat_info,
+                                &report_context,
                             );
 
                         if det.termination_requested
@@ -2370,6 +2393,30 @@ pub mod worker_instance {
                     for (pid, stats) in sanctum_stats {
                         if stats.is_detection {
                             if let Some(gid) = self.find_gid_by_pid(pid) {
+                                #[cfg(feature = "realtime_learning")]
+                                {
+                                    let tracker =
+                                        self.api_trackers.entry(gid).or_insert_with(|| {
+                                            ApiTracker::new(gid, format!("PID_{}", pid))
+                                        });
+                                    tracker.sanctum_operations = stats.clone();
+
+                                    if let Some(state) =
+                                        self.behavior_engine.process_states.get(&gid)
+                                    {
+                                        if !state.app_name.is_empty() {
+                                            tracker.process_name = state.app_name.clone();
+                                        }
+                                        #[cfg(all(target_os = "windows", feature = "firewall"))]
+                                        {
+                                            tracker.net_packets = state.net_packets.clone().into();
+                                        }
+                                    }
+                                }
+
+                                let report_context =
+                                    Self::report_context_for_gid(&self.api_trackers, gid);
+
                                 if !terminated_gids.contains(&gid) {
                                     let matching_record =
                                         self.process_records.process_records.get_mut(&gid);
@@ -2419,11 +2466,12 @@ pub mod worker_instance {
                                                 revert: false,
                                             };
                                             ActionsOnKill::with_handler(threat_handler.clone_box())
-                                                .run_actions_with_info(
+                                                .run_actions_with_info_and_context(
                                                     config,
                                                     record,
                                                     &dummy_pred_mtrx,
                                                     &threat_info,
+                                                    &report_context,
                                                 );
 
                                             if restart_cleanup_reason(record, &threat_info)

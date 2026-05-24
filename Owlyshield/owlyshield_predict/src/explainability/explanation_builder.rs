@@ -66,8 +66,10 @@ impl ExplanationBuilder {
             return "This file was flagged as suspicious.".to_string();
         }
 
-        format!("HydraDragon flagged this file because it exhibits {} suspicious behaviors.",
-            self.reasons.len())
+        format!(
+            "HydraDragon flagged this file because it exhibits {} suspicious behaviors.",
+            self.reasons.len()
+        )
     }
 
     fn generate_recommendation(&self) -> String {
@@ -81,9 +83,14 @@ impl ExplanationBuilder {
 
     fn generate_severity_explanation(&self) -> String {
         match self.severity.as_str() {
-            "Critical" => "This file shows clear signs of malicious intent with high confidence.".to_string(),
+            "Critical" => {
+                "This file shows clear signs of malicious intent with high confidence.".to_string()
+            }
             "High" => "This file exhibits multiple indicators of malicious behavior.".to_string(),
-            "Medium" => "This file shows some suspicious characteristics that warrant investigation.".to_string(),
+            "Medium" => {
+                "This file shows some suspicious characteristics that warrant investigation."
+                    .to_string()
+            }
             "Low" => "This file has minor suspicious indicators.".to_string(),
             _ => "Severity assessment pending.".to_string(),
         }
@@ -101,62 +108,78 @@ impl DetectionExplanation {
     pub fn to_html(&self) -> String {
         let mut html = String::new();
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
 <div class="explanation-container">
     <h3>🔍 Why Was This Flagged?</h3>
     
     <div class="explanation-summary">
-        <p>"#);
+        <p>"#,
+        );
         html.push_str(&self.summary);
-        html.push_str(r#"</p>
+        html.push_str(
+            r#"</p>
     </div>
 
     <div class="explanation-reasons">
         <h4>Detailed Reasons:</h4>
         <ol>
-"#);
+"#,
+        );
 
         for reason in &self.detailed_reasons {
             html.push_str(&format!("<li>{}</li>\n", reason));
         }
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
         </ol>
     </div>
-"#);
+"#,
+        );
 
         if !self.mitre_techniques.is_empty() {
-            html.push_str(r#"
+            html.push_str(
+                r#"
     <div class="explanation-techniques">
         <h4>This behavior matches these ATT&CK techniques:</h4>
         <ul>
-"#);
+"#,
+            );
 
             for tech in &self.mitre_techniques {
                 html.push_str(&format!("<li>{}</li>\n", tech));
             }
 
-            html.push_str(r#"
+            html.push_str(
+                r#"
         </ul>
     </div>
-"#);
+"#,
+            );
         }
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
     <div class="explanation-action">
         <h4>Recommended Action:</h4>
-        <p class="action-text">"#);
+        <p class="action-text">"#,
+        );
         html.push_str(&self.recommended_action);
-        html.push_str(r#"</p>
+        html.push_str(
+            r#"</p>
     </div>
 
     <div class="explanation-severity">
-        <p><strong>Severity Explanation:</strong> "#);
+        <p><strong>Severity Explanation:</strong> "#,
+        );
         html.push_str(&self.severity_explanation);
-        html.push_str(r#"</p>
+        html.push_str(
+            r#"</p>
     </div>
 </div>
-"#);
+"#,
+        );
 
         html
     }

@@ -2,8 +2,7 @@
 //!
 //! Generates visual heatmap of detection coverage across MITRE ATT&CK techniques
 
-use super::coverage_analyzer::{CoverageAnalysis, CoverageLevel};
-use serde::{Deserialize, Serialize};
+use super::coverage_analyzer::CoverageAnalysis;
 
 /// Heatmap generator for coverage visualization
 pub struct CoverageHeatmap;
@@ -13,50 +12,66 @@ impl CoverageHeatmap {
     pub fn to_html(analysis: &CoverageAnalysis) -> String {
         let mut html = String::new();
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
 <div class="coverage-heatmap-container">
     <h2>🎯 MITRE ATT&CK Coverage Analysis</h2>
     
     <div class="coverage-summary">
         <div class="summary-card">
-            <div class="summary-value">"#);
+            <div class="summary-value">"#,
+        );
         html.push_str(&format!("{}", analysis.total_techniques));
-        html.push_str(r#"</div>
+        html.push_str(
+            r#"</div>
             <div class="summary-label">Total Techniques</div>
         </div>
         <div class="summary-card strong">
-            <div class="summary-value">"#);
+            <div class="summary-value">"#,
+        );
         html.push_str(&format!("{}", analysis.strong_coverage));
-        html.push_str(r#"</div>
+        html.push_str(
+            r#"</div>
             <div class="summary-label">Strong Coverage</div>
         </div>
         <div class="summary-card medium">
-            <div class="summary-value">"#);
+            <div class="summary-value">"#,
+        );
         html.push_str(&format!("{}", analysis.medium_coverage));
-        html.push_str(r#"</div>
+        html.push_str(
+            r#"</div>
             <div class="summary-label">Medium Coverage</div>
         </div>
         <div class="summary-card weak">
-            <div class="summary-value">"#);
+            <div class="summary-value">"#,
+        );
         html.push_str(&format!("{}", analysis.weak_coverage));
-        html.push_str(r#"</div>
+        html.push_str(
+            r#"</div>
             <div class="summary-label">Weak Coverage</div>
         </div>
         <div class="summary-card none">
-            <div class="summary-value">"#);
+            <div class="summary-value">"#,
+        );
         html.push_str(&format!("{}", analysis.no_coverage));
-        html.push_str(r#"</div>
+        html.push_str(
+            r#"</div>
             <div class="summary-label">No Coverage</div>
         </div>
     </div>
 
     <h3>Coverage by Tactic</h3>
     <div class="tactic-coverage">
-"#);
+"#,
+        );
 
         // Sort tactics by coverage percentage
         let mut tactics: Vec<_> = analysis.coverage_by_tactic.values().collect();
-        tactics.sort_by(|a, b| b.coverage_percentage().partial_cmp(&a.coverage_percentage()).unwrap());
+        tactics.sort_by(|a, b| {
+            b.coverage_percentage()
+                .partial_cmp(&a.coverage_percentage())
+                .unwrap()
+        });
 
         for tactic in tactics {
             let coverage_pct = tactic.coverage_percentage();
@@ -70,7 +85,8 @@ impl CoverageHeatmap {
                 "#e74c3c"
             };
 
-            html.push_str(&format!(r#"
+            html.push_str(&format!(
+                r#"
         <div class="tactic-row">
             <div class="tactic-name">{}</div>
             <div class="tactic-bar">
@@ -84,7 +100,7 @@ impl CoverageHeatmap {
             </div>
             <div class="tactic-percentage">{:.1}%</div>
         </div>
-"#, 
+"#,
                 tactic.tactic_name,
                 coverage_pct,
                 color,
@@ -96,15 +112,18 @@ impl CoverageHeatmap {
             ));
         }
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
     </div>
 
     <h3>Technique Details</h3>
     <div class="technique-grid">
-"#);
+"#,
+        );
 
         // Group techniques by tactic
-        let mut techniques_by_tactic: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+        let mut techniques_by_tactic: std::collections::HashMap<String, Vec<_>> =
+            std::collections::HashMap::new();
         for tech in &analysis.technique_coverage {
             techniques_by_tactic
                 .entry(tech.tactic.clone())
@@ -113,18 +132,22 @@ impl CoverageHeatmap {
         }
 
         for (tactic, techniques) in techniques_by_tactic {
-            html.push_str(&format!(r#"
+            html.push_str(&format!(
+                r#"
         <div class="tactic-section">
             <h4>{}</h4>
             <div class="technique-list">
-"#, tactic));
+"#,
+                tactic
+            ));
 
             for tech in techniques {
-                html.push_str(&format!(r#"
+                html.push_str(&format!(
+                    r#"
                 <div class="technique-item" style="border-left: 4px solid {};">
                     <div class="technique-id">{}</div>
                     <div class="technique-name">{}</div>
-                    <div class="technique-coverage">{}</div>
+                    <div class="technique-coverage">{} ({}/3)</div>
                     <div class="technique-sources">{}</div>
                 </div>
 "#,
@@ -132,20 +155,25 @@ impl CoverageHeatmap {
                     tech.technique_id,
                     tech.technique_name,
                     tech.coverage_level.label(),
+                    tech.coverage_level.score(),
                     tech.detection_sources.join(", ")
                 ));
             }
 
-            html.push_str(r#"
+            html.push_str(
+                r#"
             </div>
         </div>
-"#);
+"#,
+            );
         }
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
     </div>
 </div>
-"#);
+"#,
+        );
 
         html
     }

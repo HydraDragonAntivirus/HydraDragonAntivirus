@@ -39,7 +39,11 @@ impl EnhancedConfidenceScorer {
         let correlation_bonus = evidence.correlation_score * 0.15;
         let historical_adjustment = self.get_historical_adjustment(&evidence.technique_id);
 
-        let final_confidence = (base_score + diversity_bonus + quantity_bonus + correlation_bonus + historical_adjustment)
+        let final_confidence = (base_score
+            + diversity_bonus
+            + quantity_bonus
+            + correlation_bonus
+            + historical_adjustment)
             .min(1.0)
             .max(0.0);
 
@@ -130,7 +134,7 @@ impl Default for EnhancedConfidenceScorer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mitre_attack::evidence_types::{EvidenceBuilder};
+    use crate::mitre_attack::evidence_types::EvidenceBuilder;
 
     #[test]
     fn test_confidence_calculation() {
