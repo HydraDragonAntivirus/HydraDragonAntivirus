@@ -312,6 +312,37 @@ pub async fn run_proxy<R: Runtime>(
     }
 }
 
+// ── Host:port parsing helper ───────────────────────────────────────────────────
+
+/// Extract an explicit port from a host string, handling bracketed IPv6 correctly.
+/// Returns `None` when no explicit port is present (caller should fall back to scheme default).
+fn extract_port_from_host(host: &str) -> Option<u16> {
+    // Handle bracketed IPv6 `[::1]:443`
+    if host.starts_with('[') {
+        if let Some(idx) = host.rfind("]:") {
+            return host[idx + 2..].parse().ok();
+        }
+        return None;
+    }
+
+    // Non-bracketed host: allow at most one `:` separating host and port
+    if let Some(idx) = host.rfind(':') {
+        let (host_part, port_part_with_colon) = host.split_at(idx);
+        // If the host part itself contains another `:`, this is likely bare IPv6;
+        // treat it as "no port".
+        if host_part.contains(':') {
+            return None;
+        }
+        let port_str = &port_part_with_colon[1..];
+        if port_str.is_empty() {
+            return None;
+        }
+        return port_str.parse().ok();
+    }
+
+    None
+}
+
 // ── Generic request handler ────────────────────────────────────────────────────
 
 /// All request/response streams go through this single generic handler.
@@ -341,22 +372,36 @@ async fn handle_proxy_request<R: Runtime>(
 
     let method = req.method().to_string();
     let uri = req.uri().clone();
-    
-    let host = uri.host().map(|s| s.to_string()).unwrap_or_else(|| {
-        req.headers()
+
+    let host = if let Some(h) = uri.host() {
+        h.to_string()
+    } else {
+        let host_header = req
+            .headers()
             .get(http_mitm_proxy::hyper::header::HOST)
-            .and_then(|h| h.to_str().ok())
-            .unwrap_or("unknown")
-            .to_string()
-    });
+            .ok_or_else(|| "Request missing host in URI and missing Host header".to_string())?;
+
+        let host_str = host_header
+            .to_str()
+            .map_err(|_| "Malformed Host header (invalid UTF-8)".to_string())?;
+
+        let host_str = host_str.trim();
+        if host_str.is_empty() {
+            return Err("Empty Host header".to_string());
+        }
+
+        host_str.to_string()
+    };
 
     let scheme = uri.scheme_str().unwrap_or("https").to_string();
 
     let port = uri.port_u16().unwrap_or_else(|| {
-        if host.contains(':') {
-            host.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443)
+        if let Some(p) = extract_port_from_host(&host) {
+            p
+        } else if scheme == "http" {
+            80
         } else {
-            if scheme == "http" { 80 } else { 443 }
+            443
         }
     });
 
