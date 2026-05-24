@@ -1808,54 +1808,6 @@ impl FirewallEngine {
         )
     }
 
-    fn clear_owned_windows_proxy(addr: &str) -> Result<bool, String> {
-        #[cfg(target_os = "windows")]
-        {
-            use winreg::RegKey;
-            use winreg::enums::*;
-
-            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-            let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
-
-            let proxy_server = key
-                .get_value::<String, _>("ProxyServer")
-                .unwrap_or_default();
-            let mut candidates = vec![
-                addr.to_ascii_lowercase(),
-                Self::proxy_addr_string(&TlsProxyConfig::default()).to_ascii_lowercase(),
-                "127.0.0.1:8080".to_string(),
-                "localhost:8080".to_string(),
-                "127.0.0.1:8877".to_string(),
-                "localhost:8877".to_string(),
-            ];
-            if let Some((_, port)) = addr.rsplit_once(':') {
-                candidates.push(format!("127.0.0.1:{port}").to_ascii_lowercase());
-                candidates.push(format!("localhost:{port}").to_ascii_lowercase());
-            }
-            candidates.sort();
-            candidates.dedup();
-
-            let server_lc = proxy_server.to_ascii_lowercase();
-            let owned = candidates.iter().any(|candidate| {
-                server_lc == *candidate
-                    || server_lc.contains(candidate)
-                    || server_lc.contains(&format!("http={candidate}"))
-                    || server_lc.contains(&format!("https={candidate}"))
-                    || server_lc.contains(&format!("socks={candidate}"))
-            });
-
-            if owned {
-                Self::clear_windows_proxy()?;
-                return Ok(true);
-            }
-
-            return Ok(false);
-        }
-
-        #[allow(unreachable_code)]
-        Ok(false)
-    }
 
     fn wait_for_proxy_listener(addr: std::net::SocketAddr, timeout: Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
@@ -2052,10 +2004,7 @@ impl FirewallEngine {
             settings.tls_proxy.clone()
         };
 
-        let addr = Self::proxy_addr_string(&tls_proxy_cfg);
-
         if self.stop_signal.load(Ordering::SeqCst) {
-            let _ = Self::clear_owned_windows_proxy(&addr);
             self.stop_embedded_proxy();
             return;
         }
@@ -2063,7 +2012,6 @@ impl FirewallEngine {
         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
             self.start_embedded_proxy(&tls_proxy_cfg, tx);
         } else {
-            let _ = Self::clear_owned_windows_proxy(&addr);
             self.stop_embedded_proxy();
         }
     }
@@ -2340,12 +2288,10 @@ impl FirewallEngine {
         }
 
         let listen_port = tls_proxy.listen_port;
+        // CRITICAL FIX: Only spawn ONE proxy listener instead of two conflicting ones
         let addr_v4: std::net::SocketAddr = format!("127.0.0.1:{}", listen_port)
             .parse()
             .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
-        let addr_v6: std::net::SocketAddr = format!("[::1]:{}", listen_port)
-            .parse()
-            .unwrap_or_else(|_| "[::1]:8877".parse().unwrap());
         let addr_string = format!("127.0.0.1:{}", listen_port);
 
         let ca_bundle = crate::proxy::generate_ca();
@@ -2439,18 +2385,7 @@ impl FirewallEngine {
             );
         }
 
-        // Clear any stale proxy setting for the same listener before we start.
-        let _ = Self::clear_owned_windows_proxy(&addr_string);
-
         let (stop_tx_main, stop_rx_main) = oneshot::channel::<()>();
-        let (stop_tx4, stop_rx4) = oneshot::channel::<()>();
-        let (stop_tx6, stop_rx6) = oneshot::channel::<()>();
-
-        tauri::async_runtime::spawn(async move {
-            let _ = stop_rx_main.await;
-            let _ = stop_tx4.send(());
-            let _ = stop_tx6.send(());
-        });
 
         *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx_main);
         self.browser_mitm_warning_cache.lock().unwrap().clear();
@@ -2458,29 +2393,19 @@ impl FirewallEngine {
         let app = tx.clone();
         let sdk = self.sdk.clone();
         let settings = self.settings.clone();
-        let proxy_runtime = Arc::clone(&self.tls_proxy_backend_child);
 
-        let ca_bundle_v4 = crate::proxy::generate_ca();
+        let ca_bundle = crate::proxy::generate_ca();
         tauri::async_runtime::spawn(crate::proxy::run_proxy(
             addr_v4,
-            ca_bundle_v4.issuer,
-            app.clone(),
-            sdk.clone(),
-            settings.clone(),
-            stop_rx4,
-        ));
-
-        let ca_bundle_v6 = crate::proxy::generate_ca();
-        tauri::async_runtime::spawn(crate::proxy::run_proxy(
-            addr_v6,
-            ca_bundle_v6.issuer,
+            ca_bundle.issuer,
             app,
             sdk,
             settings,
-            stop_rx6,
+            stop_rx_main,
         ));
 
         let tx_ready = tx.clone();
+        let proxy_runtime = self.tls_proxy_backend_child.clone();
         std::thread::Builder::new()
             .name("proxy_ready_waiter".to_string())
             .spawn(move || {
@@ -2492,7 +2417,6 @@ impl FirewallEngine {
 
                 let now = Self::now_ts();
                 if listener_ready {
-                    let _ = Self::clear_owned_windows_proxy(&addr_string);
                     emit_log_event(
                         &tx_ready,
                         LogEntry {
@@ -2506,7 +2430,6 @@ impl FirewallEngine {
                         },
                     );
                 } else {
-                    let _ = Self::clear_owned_windows_proxy(&addr_string);
                     emit_log_event(
                         &tx_ready,
                         LogEntry {
@@ -2533,28 +2456,9 @@ impl FirewallEngine {
                 false
             };
         self.browser_mitm_warning_cache.lock().unwrap().clear();
-        if had_embedded_proxy {
-            let addr = {
-                let settings = self.settings.read().unwrap();
-                Self::proxy_addr_string(&settings.tls_proxy)
-            };
-            let _ = Self::clear_owned_windows_proxy(&addr);
-        }
     }
 
-    /// Remove stale HydraDragon system proxy settings from older runs.
-    fn clear_windows_proxy() -> Result<(), String> {
-        use winreg::RegKey;
-        use winreg::enums::*;
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-        let (key, _) = hkcu.create_subkey(path).map_err(|e| e.to_string())?;
-        key.set_value("ProxyEnable", &0u32)
-            .map_err(|e| e.to_string())?;
-        let _ = key.delete_value("ProxyServer");
-        let _ = key.delete_value("ProxyOverride");
-        Ok(())
-    }
+
 
     fn proxy_ca_cert_path() -> PathBuf {
         std::env::current_exe()
@@ -2796,57 +2700,7 @@ foreach ($store in $stores) {
         }
     }
 
-    pub fn clear_firewall_proxy_settings<R: Runtime>(
-        &self,
-        tx: &AppHandle<R>,
-    ) -> Result<String, String> {
-        let addr = {
-            let settings = self.settings.read().unwrap();
-            Self::proxy_addr_string(&settings.tls_proxy)
-        };
-        let default_addr = Self::proxy_addr_string(&TlsProxyConfig::default());
 
-        let mut checked_addrs = vec![addr.clone()];
-        if !default_addr.eq_ignore_ascii_case(&addr) {
-            checked_addrs.push(default_addr);
-        }
-
-        let mut cleared_addr = None;
-        for candidate in checked_addrs {
-            if Self::clear_owned_windows_proxy(&candidate)? {
-                cleared_addr = Some(candidate);
-                break;
-            }
-        }
-
-        let cleared = cleared_addr.is_some();
-        let (level, message) = if cleared {
-            (
-                LogLevel::Success,
-                format!(
-                    "Cleared HydraDragon Windows proxy settings for {}.",
-                    cleared_addr.unwrap_or(addr)
-                ),
-            )
-        } else {
-            (
-                LogLevel::Info,
-                format!("No HydraDragon-owned Windows proxy entry found for {addr}."),
-            )
-        };
-
-        emit_log_event(
-            tx,
-            LogEntry {
-                id: format!("{}-windows-proxy-clear-manual", Self::now_ts()),
-                timestamp: Self::now_ts(),
-                level,
-                message: message.clone(),
-            },
-        );
-
-        Ok(message)
-    }
 
     // CA auto-trust is handled natively via `install_ca_der` during proxy startup
     // and can also be controlled manually from the firewall settings UI.
