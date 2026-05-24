@@ -3258,6 +3258,100 @@ pub mod worker_instance {
             if lowered.contains("ntsetinformationthread") {
                 push("NtSetInformationThread");
             }
+            if lowered.contains("ntwritevirtualmemory") {
+                push("NtWriteVirtualMemory");
+            }
+            if lowered.contains("zwwritevirtualmemory") {
+                push("ZwWriteVirtualMemory");
+            }
+            if lowered.contains("writeprocessmemory") {
+                push("WriteProcessMemory");
+            }
+            if lowered.contains("ntallocatevirtualmemory") {
+                push("NtAllocateVirtualMemory");
+            }
+            if lowered.contains("zwallocatevirtualmemory") {
+                push("ZwAllocateVirtualMemory");
+            }
+            if lowered.contains("virtualallocex") {
+                push("VirtualAllocEx");
+            }
+            if lowered.contains("virtualalloc") {
+                push("VirtualAlloc");
+                push("VirtualAllocEx");
+            }
+            if lowered.contains("ntprotectvirtualmemory") {
+                push("NtProtectVirtualMemory");
+            }
+            if lowered.contains("zwprotectvirtualmemory") {
+                push("ZwProtectVirtualMemory");
+            }
+            if lowered.contains("virtualprotectex") {
+                push("VirtualProtectEx");
+            }
+            if lowered.contains("virtualprotect") {
+                push("VirtualProtect");
+                push("VirtualProtectEx");
+            }
+            if lowered.contains("ntcreatethreadex") {
+                push("NtCreateThreadEx");
+            }
+            if lowered.contains("zwcreatethreadex") {
+                push("ZwCreateThreadEx");
+            }
+            if lowered.contains("createremotethread") {
+                push("CreateRemoteThread");
+                push("CreateRemoteThreadEx");
+            }
+            if lowered.contains("createthread") {
+                push("CreateThread");
+                push("CreateRemoteThread");
+                push("CreateRemoteThreadEx");
+                push("NtCreateThreadEx");
+            }
+            if lowered.contains("ntqueueapcthread") {
+                push("NtQueueApcThread");
+            }
+            if lowered.contains("zwqueueapcthread") {
+                push("ZwQueueApcThread");
+            }
+            if lowered.contains("queueuserapc") {
+                push("QueueUserAPC");
+            }
+            if lowered.contains("ntsetcontextthread") {
+                push("NtSetContextThread");
+            }
+            if lowered.contains("zwsetcontextthread") {
+                push("ZwSetContextThread");
+            }
+            if lowered.contains("setthreadcontext") {
+                push("SetThreadContext");
+            }
+            if lowered.contains("ntcreatesection") {
+                push("NtCreateSection");
+            }
+            if lowered.contains("zwcreatesection") {
+                push("ZwCreateSection");
+            }
+            if lowered.contains("ntmapviewofsection") {
+                push("NtMapViewOfSection");
+            }
+            if lowered.contains("zwmapviewofsection") {
+                push("ZwMapViewOfSection");
+            }
+            if lowered.contains("mapviewoffile") {
+                push("MapViewOfFile");
+                push("MapViewOfFileEx");
+            }
+            if lowered.contains("ntopenprocess") {
+                push("NtOpenProcess");
+            }
+            if lowered.contains("zwopenprocess") {
+                push("ZwOpenProcess");
+            }
+            if lowered == "openprocess" || lowered.ends_with("!openprocess") {
+                push("OpenProcess");
+            }
 
             variants
         }
@@ -3453,6 +3547,15 @@ pub mod worker_instance {
                                 add_many("advapi32.dll", &[function]);
                             } else if function_lower.contains("file")
                                 || function_lower.contains("deviceiocontrol")
+                                || function_lower.contains("processmemory")
+                                || function_lower.contains("virtualalloc")
+                                || function_lower.contains("virtualprotect")
+                                || function_lower.contains("createremotethread")
+                                || function_lower == "createthread"
+                                || function_lower.contains("queueuserapc")
+                                || function_lower.contains("setthreadcontext")
+                                || function_lower.contains("mapviewoffile")
+                                || function_lower == "openprocess"
                             {
                                 add_many("kernel32.dll", &[function]);
                                 add_many("kernelbase.dll", &[function]);

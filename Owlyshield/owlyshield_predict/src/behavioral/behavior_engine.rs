@@ -1477,7 +1477,7 @@ fn canonical_hypervisor_event_label(
     }
 
     let resolved = match raw_event_type {
-        12..=20 => IrpMajorOp::from_byte(raw_event_type as u8),
+        12..=29 => IrpMajorOp::from_byte(raw_event_type as u8),
         _ => irp_op.clone(),
     };
     match resolved {
@@ -1495,7 +1495,16 @@ fn canonical_hypervisor_event_label(
         | IrpMajorOp::IrpKernelCreateThread
         | IrpMajorOp::IrpKernelQueueApc
         | IrpMajorOp::IrpKernelCreateSection
-        | IrpMajorOp::IrpKernelMapSection => Some(format!("{:?}", resolved)),
+        | IrpMajorOp::IrpKernelMapSection
+        | IrpMajorOp::IrpRootkitSsdtHook
+        | IrpMajorOp::IrpRootkitHiddenProcess
+        | IrpMajorOp::IrpRootkitHiddenDriver
+        | IrpMajorOp::IrpRootkitKernelHook
+        | IrpMajorOp::IrpRootkitTerminateProcess
+        | IrpMajorOp::IrpRootkitFileMove
+        | IrpMajorOp::IrpRootkitGeneric
+        | IrpMajorOp::IrpNamedPipeCreate
+        | IrpMajorOp::IrpNamedPipeWrite => Some(format!("{:?}", resolved)),
         _ => None,
     }
 }
@@ -3015,7 +3024,7 @@ impl BehaviorEngine {
                                         for rule in rules_clone.iter() {
                                             if rule.matches_packet(&regex_cache, &pkt, &[]) {
                                                 matched_any = true;
-                                                
+
                                                 // Private rules don't generate detections (YARA-style behavior)
                                                 // They are evaluated and can be used by other rules, but don't produce alerts
                                                 if rule.is_private {

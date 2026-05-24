@@ -499,7 +499,7 @@ pub fn normalize_hypervisor_label(raw: &str) -> String {
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 pub fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u8 {
-    if msg.irp_op == 12 && (12..=20).contains(&msg.kernel_event_info.event_type) {
+    if msg.irp_op == 12 && (12..=29).contains(&msg.kernel_event_info.event_type) {
         msg.kernel_event_info.event_type as u8
     } else {
         msg.irp_op

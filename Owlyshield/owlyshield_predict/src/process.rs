@@ -34,6 +34,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, SystemTime};
 use std::{fmt, thread};
 
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::shared_def::effective_hypervisor_irp_byte;
 use crate::shared_def::{
     DriveType,
     DriveType::{CDRom, Remote, Removable},
@@ -691,7 +693,9 @@ impl ProcessRecord {
         if let Some(parent) = get_parent_path(&iomsg.filepathstr) {
             self.dirs_content.insert(PathBuf::from(parent), iomsg);
         }
-        match IrpMajorOp::from_byte(iomsg.irp_op) {
+        let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
+        self.update_kernel_event_features(iomsg, &irp_op);
+        match irp_op {
             IrpMajorOp::IrpNone => {}
             IrpMajorOp::IrpRead => self.update_read(iomsg),
             IrpMajorOp::IrpWrite => self.update_write(iomsg),
@@ -704,6 +708,142 @@ impl ProcessRecord {
 
         self.update_clusters();
         self.time = iomsg.time;
+    }
+
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    fn update_kernel_event_features(&mut self, iomsg: &IOMessage, _raw_irp: &IrpMajorOp) {
+        let effective_irp = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(iomsg));
+        self.record_kernel_event_feature(effective_irp, &iomsg.kernel_event_info.object_name);
+    }
+
+    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+    fn update_kernel_event_features(&mut self, _iomsg: &IOMessage, raw_irp: &IrpMajorOp) {
+        self.record_kernel_event_feature(raw_irp.clone(), "");
+    }
+
+    fn record_kernel_event_feature(&mut self, irp_op: IrpMajorOp, event_name: &str) {
+        let is_kernel_event = matches!(
+            irp_op,
+            IrpMajorOp::IrpHypervisorEvent
+                | IrpMajorOp::IrpUserModeHookEvent
+                | IrpMajorOp::IrpKernelRemoteThread
+                | IrpMajorOp::IrpKernelWriteMemory
+                | IrpMajorOp::IrpKernelProtectMemory
+                | IrpMajorOp::IrpKernelCreateThread
+                | IrpMajorOp::IrpKernelQueueApc
+                | IrpMajorOp::IrpKernelCreateSection
+                | IrpMajorOp::IrpKernelMapSection
+                | IrpMajorOp::IrpRootkitSsdtHook
+                | IrpMajorOp::IrpRootkitHiddenProcess
+                | IrpMajorOp::IrpRootkitHiddenDriver
+                | IrpMajorOp::IrpRootkitKernelHook
+                | IrpMajorOp::IrpRootkitTerminateProcess
+                | IrpMajorOp::IrpRootkitFileMove
+                | IrpMajorOp::IrpRootkitGeneric
+                | IrpMajorOp::IrpNamedPipeCreate
+                | IrpMajorOp::IrpNamedPipeWrite
+        );
+
+        if !is_kernel_event {
+            return;
+        }
+
+        Self::increment_u32(&mut self.kernel_events_total);
+
+        match irp_op {
+            IrpMajorOp::IrpKernelRemoteThread | IrpMajorOp::IrpKernelCreateThread => {
+                Self::increment_u32(&mut self.kernel_create_thread_count);
+            }
+            IrpMajorOp::IrpKernelWriteMemory => {
+                Self::increment_u32(&mut self.kernel_write_memory_count);
+            }
+            IrpMajorOp::IrpKernelProtectMemory => {
+                Self::increment_u32(&mut self.kernel_protect_memory_count);
+            }
+            IrpMajorOp::IrpKernelQueueApc => {
+                Self::increment_u32(&mut self.kernel_queue_apc_count);
+            }
+            IrpMajorOp::IrpKernelCreateSection => {
+                Self::increment_u32(&mut self.kernel_create_section_count);
+            }
+            IrpMajorOp::IrpKernelMapSection => {
+                Self::increment_u32(&mut self.kernel_map_section_count);
+            }
+            IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent => {
+                self.increment_kernel_counter_from_event_name(event_name);
+            }
+            _ => {}
+        }
+
+        self.refresh_kernel_events_max_individual();
+    }
+
+    fn increment_kernel_counter_from_event_name(&mut self, event_name: &str) {
+        let name = event_name.trim().to_ascii_lowercase();
+        if name.is_empty() {
+            return;
+        }
+
+        if name.contains("writevirtualmemory") || name.contains("writeprocessmemory") {
+            Self::increment_u32(&mut self.kernel_write_memory_count);
+        } else if name.contains("allocatevirtualmemory")
+            || name.contains("virtualallocex")
+            || name.contains("virtualalloc")
+        {
+            Self::increment_u32(&mut self.kernel_allocate_memory_count);
+        } else if name.contains("protectvirtualmemory")
+            || name.contains("virtualprotectex")
+            || name.contains("virtualprotect")
+        {
+            Self::increment_u32(&mut self.kernel_protect_memory_count);
+        } else if name.contains("createremotethread")
+            || name.contains("createthreadex")
+            || name.contains("createthread")
+        {
+            Self::increment_u32(&mut self.kernel_create_thread_count);
+        } else if name.contains("queueapcthread") || name.contains("queueuserapc") {
+            Self::increment_u32(&mut self.kernel_queue_apc_count);
+        } else if name.contains("setcontextthread") {
+            Self::increment_u32(&mut self.kernel_set_context_count);
+        } else if name.contains("createsection") {
+            Self::increment_u32(&mut self.kernel_create_section_count);
+        } else if name.contains("mapviewofsection") || name.contains("mapviewoffile") {
+            Self::increment_u32(&mut self.kernel_map_section_count);
+        } else if name.contains("deletefile") {
+            Self::increment_u32(&mut self.kernel_delete_file_count);
+        } else if name.contains("loaddriver") {
+            Self::increment_u32(&mut self.kernel_load_driver_count);
+        } else if name.contains("openprocess") && !name.contains("token") {
+            Self::increment_u32(&mut self.kernel_open_process_count);
+        }
+    }
+
+    fn increment_u32(value: &mut u32) {
+        *value = value.saturating_add(1);
+    }
+
+    fn refresh_kernel_events_max_individual(&mut self) {
+        let max_counter = [
+            self.kernel_write_memory_count,
+            self.kernel_allocate_memory_count,
+            self.kernel_protect_memory_count,
+            self.kernel_create_thread_count,
+            self.kernel_queue_apc_count,
+            self.kernel_set_context_count,
+            self.kernel_create_section_count,
+            self.kernel_map_section_count,
+            self.kernel_delete_file_count,
+            self.kernel_load_driver_count,
+            self.kernel_open_process_count,
+        ]
+        .into_iter()
+        .max()
+        .unwrap_or(0);
+
+        self.kernel_events_max_individual = self.kernel_events_max_individual.max(max_counter);
+        if self.kernel_events_total > 0 && self.kernel_events_max_individual == 0 {
+            self.kernel_events_max_individual = 1;
+        }
     }
 
     fn update_read(&mut self, iomsg: &IOMessage) {
@@ -910,6 +1050,8 @@ impl fmt::Display for ProcessState {
 mod tests {
     use crate::extensions::ExtensionCategory::{DocsMedia, Exe};
     use crate::process::{FileId, ProcessRecord};
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use crate::shared_def::KernelEventInfo;
     use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, RuntimeFeatures};
     use std::collections::HashSet;
     use std::path::PathBuf;
@@ -1362,5 +1504,72 @@ mod tests {
         add_record(&mut pr, &deleted_msg);
 
         assert!(pr.previous_extension_for_event(&deleted_msg).is_none());
+    }
+
+    #[test]
+    fn test_direct_kernel_opcodes_update_prediction_features() {
+        let gid = 601;
+        let mut pr = ProcessRecord::new(gid, "injector.exe".to_string(), PathBuf::new());
+        let write_msg = IOMessage {
+            pid: 4242,
+            irp_op: IrpMajorOp::IrpKernelWriteMemory as u8,
+            gid,
+            runtime_features: RuntimeFeatures::new(),
+            ..IOMessage::default()
+        };
+        let protect_msg = IOMessage {
+            pid: 4242,
+            irp_op: IrpMajorOp::IrpKernelProtectMemory as u8,
+            gid,
+            runtime_features: RuntimeFeatures::new(),
+            ..IOMessage::default()
+        };
+
+        add_record(&mut pr, &write_msg);
+        add_record(&mut pr, &protect_msg);
+
+        assert_eq!(pr.kernel_events_total, 2);
+        assert_eq!(pr.kernel_write_memory_count, 1);
+        assert_eq!(pr.kernel_protect_memory_count, 1);
+        assert_eq!(pr.kernel_events_max_individual, 1);
+    }
+
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    #[test]
+    fn test_effective_kernel_opcodes_update_prediction_features() {
+        let gid = 602;
+        let mut pr = ProcessRecord::new(gid, "hooked.exe".to_string(), PathBuf::new());
+        let normalized_legacy_msg = IOMessage {
+            pid: 4242,
+            irp_op: IrpMajorOp::IrpHypervisorEvent as u8,
+            gid,
+            kernel_event_info: KernelEventInfo {
+                event_type: IrpMajorOp::IrpKernelWriteMemory as u32,
+                object_name: "IRP_KERNEL_WRITE_MEMORY".to_string(),
+                ..KernelEventInfo::default()
+            },
+            runtime_features: RuntimeFeatures::new(),
+            ..IOMessage::default()
+        };
+        let dynamic_hook_msg = IOMessage {
+            pid: 4242,
+            irp_op: IrpMajorOp::IrpUserModeHookEvent as u8,
+            gid,
+            kernel_event_info: KernelEventInfo {
+                event_type: 0x6000,
+                object_name: "ntdll.dll!NtProtectVirtualMemory".to_string(),
+                ..KernelEventInfo::default()
+            },
+            runtime_features: RuntimeFeatures::new(),
+            ..IOMessage::default()
+        };
+
+        add_record(&mut pr, &normalized_legacy_msg);
+        add_record(&mut pr, &dynamic_hook_msg);
+
+        assert_eq!(pr.kernel_events_total, 2);
+        assert_eq!(pr.kernel_write_memory_count, 1);
+        assert_eq!(pr.kernel_protect_memory_count, 1);
+        assert_eq!(pr.kernel_events_max_individual, 1);
     }
 }

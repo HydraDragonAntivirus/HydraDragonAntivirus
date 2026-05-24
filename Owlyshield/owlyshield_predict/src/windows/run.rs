@@ -14,6 +14,8 @@ use crate::config::Param;
 use crate::connectors::register::Connectors;
 use crate::shared_def::IOMessage;
 use crate::shared_def::IrpMajorOp;
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::shared_def::effective_hypervisor_irp_byte;
 use crate::threathandling::WindowsThreatHandler;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::utils::format_process_descriptor_with_fallback;
@@ -383,12 +385,17 @@ pub fn run() {
                             let mut iomsg = IOMessage::from_driver_msg(&drivermsg);
 
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            if (12..=20).contains(&iomsg.irp_op) {
+                            if (12..=29).contains(&iomsg.irp_op) {
                                 iomsg.normalize_hypervisor_event();
                             }
 
-                            // DIAGNOSTIC: Count by opcode
-                            let op = iomsg.irp_op as usize;
+                            // DIAGNOSTIC: Count by effective opcode. Older kernel paths can
+                            // transport a specific kernel event as IRP_OP=12 with EventType=14+.
+                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                            let op_byte = effective_hypervisor_irp_byte(&iomsg);
+                            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                            let op_byte = iomsg.irp_op;
+                            let op = op_byte as usize;
                             if op < 32 {
                                 opcode_counts[op] += 1;
                             }
@@ -399,7 +406,7 @@ pub fn run() {
                             }
 
                             // Log every event from the driver.
-                            let irp = IrpMajorOp::from_byte(iomsg.irp_op);
+                            let irp = IrpMajorOp::from_byte(op_byte);
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                             {
                                 let hyper_event = iomsg.resolved_hypervisor_event();

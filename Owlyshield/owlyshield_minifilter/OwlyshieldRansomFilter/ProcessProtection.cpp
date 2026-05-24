@@ -662,6 +662,90 @@ static PCWSTR KernelEventDefaultLabel(_In_ ULONG EventType)
     }
 }
 
+static BOOLEAN WideContainsInsensitive(_In_opt_z_ PCWSTR Haystack, _In_z_ PCWSTR Needle)
+{
+    if (Haystack == NULL || Needle == NULL || Needle[0] == L'\0')
+    {
+        return FALSE;
+    }
+
+    const SIZE_T needleLen = wcslen(Needle);
+    const SIZE_T haystackLen = wcslen(Haystack);
+    if (needleLen == 0 || haystackLen < needleLen)
+    {
+        return FALSE;
+    }
+
+    for (SIZE_T i = 0; i <= haystackLen - needleLen; ++i)
+    {
+        BOOLEAN matched = TRUE;
+        for (SIZE_T j = 0; j < needleLen; ++j)
+        {
+            if (RtlUpcaseUnicodeChar(Haystack[i + j]) != RtlUpcaseUnicodeChar(Needle[j]))
+            {
+                matched = FALSE;
+                break;
+            }
+        }
+        if (matched)
+        {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+static UCHAR ResolveHookIrpOpcode(_In_ ULONG RequestedIrpOp, _In_ ULONG EventType, _In_opt_z_ PCWSTR FunctionName)
+{
+    if (RequestedIrpOp != IRP_USERMODE_HOOK_EVENT)
+    {
+        return (UCHAR)RequestedIrpOp;
+    }
+
+    if (EventType >= IRP_KERNEL_REMOTE_THREAD && EventType <= IRP_KERNEL_MAP_SECTION)
+    {
+        return (UCHAR)EventType;
+    }
+
+    if (FunctionName == NULL || FunctionName[0] == L'\0')
+    {
+        return (UCHAR)RequestedIrpOp;
+    }
+
+    if (WideContainsInsensitive(FunctionName, L"WriteVirtualMemory") ||
+        WideContainsInsensitive(FunctionName, L"WriteProcessMemory"))
+    {
+        return (UCHAR)IRP_KERNEL_WRITE_MEMORY;
+    }
+    if (WideContainsInsensitive(FunctionName, L"ProtectVirtualMemory") ||
+        WideContainsInsensitive(FunctionName, L"VirtualProtect"))
+    {
+        return (UCHAR)IRP_KERNEL_PROTECT_MEMORY;
+    }
+    if (WideContainsInsensitive(FunctionName, L"CreateRemoteThread") ||
+        WideContainsInsensitive(FunctionName, L"CreateThreadEx") ||
+        WideContainsInsensitive(FunctionName, L"CreateThread"))
+    {
+        return (UCHAR)IRP_KERNEL_CREATE_THREAD;
+    }
+    if (WideContainsInsensitive(FunctionName, L"QueueApcThread") ||
+        WideContainsInsensitive(FunctionName, L"QueueUserAPC"))
+    {
+        return (UCHAR)IRP_KERNEL_QUEUE_APC;
+    }
+    if (WideContainsInsensitive(FunctionName, L"CreateSection"))
+    {
+        return (UCHAR)IRP_KERNEL_CREATE_SECTION;
+    }
+    if (WideContainsInsensitive(FunctionName, L"MapViewOfSection"))
+    {
+        return (UCHAR)IRP_KERNEL_MAP_SECTION;
+    }
+
+    return (UCHAR)RequestedIrpOp;
+}
+
 //
 // --- Globals for ObRegisterCallbacks ---
 //
@@ -1304,9 +1388,17 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
     newItem->Gid = ownerGid;
     newItem->AttackerPID = SourcePid;
     newItem->AttackerGid = sourceGid;
-    newItem->IRP_OP = (UCHAR)IrpOp;
+    PCWSTR effectiveName =
+        (FunctionName != NULL && FunctionName[0] != L'\0') ? FunctionName : KernelEventDefaultLabel(EventType);
+    UCHAR effectiveIrpOp = ResolveHookIrpOpcode(IrpOp, EventType, effectiveName);
+    if ((effectiveName == NULL || effectiveName[0] == L'\0') && effectiveIrpOp != (UCHAR)IrpOp)
+    {
+        effectiveName = KernelEventDefaultLabel(effectiveIrpOp);
+    }
 
-    // Preserve full HIM/API-hook metadata while emitting one generic opcode.
+    newItem->IRP_OP = effectiveIrpOp;
+
+    // Preserve full HIM/API-hook metadata while emitting the most specific opcode available.
     PopulateKernelEventCommon(newItem, EventType, SourcePid, TargetPid);
     newItem->KernelEventInfo.RawArgument1 = EventArg1;
     newItem->KernelEventInfo.RawArgument2 = EventArg2;
@@ -1316,14 +1408,12 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
     newItem->KernelEventInfo.ThreadHandle = (HANDLE)EventArg1;
     newItem->KernelEventInfo.AccessMask = (ACCESS_MASK)EventArg1;
 
-    PCWSTR effectiveName =
-        (FunctionName != NULL && FunctionName[0] != L'\0') ? FunctionName : KernelEventDefaultLabel(EventType);
     SetKernelEventObjectName(newItem, effectiveName);
 
 #if IS_DEBUG_IRP
-    DbgPrint("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, IrpOp: %u, Name: %ls, "
+    DbgPrint("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, IrpOp: %u, EffectiveIrpOp: %u, Name: %ls, "
              "SourcePid=%lu, TargetPid=%lu, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
-             EventType, IrpOp, effectiveName, SourcePid, TargetPid,
+             EventType, IrpOp, effectiveIrpOp, effectiveName, SourcePid, TargetPid,
              (PVOID)EventArg1, (PVOID)EventArg2, (PVOID)EventArg3, (PVOID)EventArg4);
 #endif
 
