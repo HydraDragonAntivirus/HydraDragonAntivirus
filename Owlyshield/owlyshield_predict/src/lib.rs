@@ -43,6 +43,8 @@ pub mod worker;
 #[cfg(feature = "realtime_learning")]
 pub mod realtime_learning;
 
+pub mod mitre_attack;
+
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub mod hydradragon;
 

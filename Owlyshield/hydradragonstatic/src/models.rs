@@ -525,6 +525,25 @@ pub struct ScanReport {
     /// Digital signature verification information
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<SignatureInfo>,
+
+    /// MITRE ATT&CK techniques mapped from static analysis findings
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mitre_techniques: Vec<MitreTechnique>,
+}
+
+/// MITRE ATT&CK technique mapped from static analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MitreTechnique {
+    /// Technique ID (e.g., "T1055")
+    pub id: String,
+    /// Technique name (e.g., "Process Injection")
+    pub name: String,
+    /// Tactic (e.g., "Defense Evasion", "Privilege Escalation")
+    pub tactic: String,
+    /// Evidence from static analysis that triggered this mapping
+    pub evidence: String,
+    /// Confidence level (0-100)
+    pub confidence: u8,
 }
 
 impl Default for ScanResultCode {

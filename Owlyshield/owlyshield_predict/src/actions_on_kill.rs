@@ -441,7 +441,12 @@ impl ActionOnKill for WriteReportHtmlFile {
         let display_process = best_process_display(proc);
         file.write_all(b"<!DOCTYPE html><html><head>")?;
         file.write_all(format!("<title>Owlyshield Report {}</title><link rel='icon' href='https://static.thenounproject.com/png/3420953-200.png'/><meta name='viewport' content='width=device-width, initial-scale=1'/>\n", proc.gid).as_bytes())?;
-        file.write_all(b"<style>body{font-family: Arial;}.tab{overflow: hidden;border: 1px solid #ccc;background-color: #f1f1f1;}.tab button{background-color: inherit;    float: inherit;    border: none;    outline: none;    cursor: pointer;    padding: 14px 16px;    transition: 0.3s;    font-size: 17px;    width: 33%;}.tab button:hover{    background-color: #ddd;}.tab button.active{	background-color: #ccc;}.tabcontent{	display: none;	padding: 6px 12px;/*border: 1px solid #ccc;border-top: none;*/}table{	width: 80%;	align: center;	margin-left: auto;	margin-right: auto;}th{	background-color: red;}select{	width: 100%;    align: center;	margin-left: auto;	margin-right: auto;}</style>")?;
+        
+        // Include timeline and scoring CSS
+        file.write_all(b"<style>body{font-family: Arial;}.tab{overflow: hidden;border: 1px solid #ccc;background-color: #f1f1f1;}.tab button{background-color: inherit;    float: inherit;    border: none;    outline: none;    cursor: pointer;    padding: 14px 16px;    transition: 0.3s;    font-size: 17px;    width: 25%;}.tab button:hover{    background-color: #ddd;}.tab button.active{	background-color: #ccc;}.tabcontent{	display: none;	padding: 6px 12px;/*border: 1px solid #ccc;border-top: none;*/}table{	width: 80%;	align: center;	margin-left: auto;	margin-right: auto;}th{	background-color: red;}select{	width: 100%;    align: center;	margin-left: auto;	margin-right: auto;}")?;
+        file.write_all(crate::mitre_attack::timeline::AttackTimeline::get_timeline_css().as_bytes())?;
+        file.write_all(crate::mitre_attack::scoring::ScoringEngine::get_scoring_css().as_bytes())?;
+        file.write_all(b"</style>")?;
         file.write_all(b"</head><body>\n")?;
         // MODIFIED: Use threat_type_label
         file.write_all(
@@ -463,9 +468,28 @@ impl ActionOnKill for WriteReportHtmlFile {
                 threat_info.prediction, // 10. Certainty
                 threat_info.match_details.as_deref().unwrap_or("N/A") // 11. Details
             ).as_bytes())?;
+        
+        // Generate attack timeline and scoring
+        #[cfg(feature = "realtime_learning")]
+        {
+            use crate::mitre_attack::{TimelineBuilder, ScoringEngine};
+            use crate::realtime_learning::api_tracker::ApiTracker;
+            
+            // Try to get API tracker data if available
+            let api_tracker: Option<&ApiTracker> = None; // TODO: Pass from worker
+            
+            let timeline_builder = TimelineBuilder::new();
+            let timeline = timeline_builder.build_timeline(proc, api_tracker);
+            let score = ScoringEngine::calculate_score(&timeline);
+            
+            // Add scoring card
+            file.write_all(ScoringEngine::to_html(&timeline, &score).as_bytes())?;
+        }
+        
         file.write_all(b"<table><tr><td><div class='tab'>\n")?;
         file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_u')\">Files updated ({})</button>\n", &proc.fpaths_updated.len()).as_bytes())?;
         file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_c')\">Files created ({})</button>\n", &proc.fpaths_created.len()).as_bytes())?;
+        file.write_all(b"<button class='tablinks' onclick=\"openTab(event,'attack_timeline')\">Attack Timeline</button>\n")?;
         file.write_all(b"</div></td></tr></table>\n")?;
         file.write_all(b"<div id='files_u' class='tabcontent'><table><tr><td><select name='files_u' size='30' multiple='multiple'>\n")?;
         for f in &proc.fpaths_updated {
@@ -477,6 +501,22 @@ impl ActionOnKill for WriteReportHtmlFile {
             file.write_all(format!("<option value='{f}'>{f}</option>\n").as_bytes())?;
         }
         file.write_all(b"</select></td></tr></table></div>\n")?;
+        
+        // Add attack timeline tab content
+        #[cfg(feature = "realtime_learning")]
+        {
+            use crate::mitre_attack::TimelineBuilder;
+            use crate::realtime_learning::api_tracker::ApiTracker;
+            
+            let api_tracker: Option<&ApiTracker> = None;
+            let timeline_builder = TimelineBuilder::new();
+            let timeline = timeline_builder.build_timeline(proc, api_tracker);
+            
+            file.write_all(b"<div id='attack_timeline' class='tabcontent'>")?;
+            file.write_all(timeline.to_html().as_bytes())?;
+            file.write_all(b"</div>\n")?;
+        }
+        
         file.write_all(b"<script>function openTab(evt, tab) {	var i, tabcontent, tablinks;	tabcontent = document.getElementsByClassName('tabcontent');	for (i = 0; i != tabcontent.length; i++) {		tabcontent[i].style.display = 'none';	}	tablinks = document.getElementsByClassName('tablinks');	for (i = 0; i != tablinks.length; i++) {		tablinks[i].className = tablinks[i].className.replace(' active', '');	}	document.getElementById(tab).style.display = 'block';	evt.currentTarget.className += ' active';}document.getElementById('defaultOpen').click();</script>\n")?;
         file.write_all(b"</body></html>")?;
         Ok(())

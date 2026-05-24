@@ -3,3 +3,4 @@ pub mod driver_manager;
 pub mod file_scanner;
 pub mod security;
 pub mod settings;
+pub mod timeline;

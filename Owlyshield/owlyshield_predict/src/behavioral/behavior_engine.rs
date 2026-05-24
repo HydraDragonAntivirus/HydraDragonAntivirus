@@ -2075,6 +2075,114 @@ pub struct ProcessBehaviorState {
 
     // Chromium Detection
     pub is_acg_enabled: bool,
+
+    // Static File Scanning Results (from Sanctum FileScanner integration)
+    /// Hash-based IOC matches from static file scanning
+    pub static_ioc_matches: Vec<StaticIocMatch>,
+    /// Whether this process executable matched a known malicious hash
+    pub static_hash_malicious: bool,
+    /// MD5 hash of the process executable (if computed)
+    pub static_file_hash: Option<String>,
+    /// Timestamp of last static scan
+    pub static_scan_timestamp: Option<SystemTime>,
+    /// Number of files scanned by this process
+    pub static_files_scanned: u32,
+    /// Static scan state
+    pub static_scan_state: StaticScanState,
+    
+    /// DetectItEasy static analysis results (from Owlyshield)
+    pub detectiteasy_result: Option<DetectItEasyResult>,
+    /// Whether the file is packed/protected
+    pub is_packed: bool,
+    pub is_protected: bool,
+    /// Packer/protector names
+    pub packer_name: Option<String>,
+    pub protector_name: Option<String>,
+    /// Special detections
+    pub is_vmprotect: bool,
+    pub is_themida: bool,
+    pub is_dotnet: bool,
+    pub is_pyinstaller: bool,
+    pub is_upx: bool,
+    /// File type from static analysis
+    pub static_file_type: Option<String>,
+
+    /// MITRE ATT&CK Integration (only available with behavior_engine feature)
+    #[cfg(feature = "behavior_engine")]
+    /// Mapped MITRE ATT&CK techniques observed for this process
+    pub mitre_techniques: HashSet<String>,
+    #[cfg(feature = "behavior_engine")]
+    /// MITRE ATT&CK timeline events
+    pub mitre_timeline_events: Vec<MitreTimelineEvent>,
+    #[cfg(feature = "behavior_engine")]
+    /// MITRE ATT&CK threat score
+    pub mitre_threat_score: f64,
+}
+
+/// Static IOC match information from hash-based file scanning
+#[derive(Debug, Clone)]
+pub struct StaticIocMatch {
+    pub hash: String,
+    pub file_path: PathBuf,
+    pub match_timestamp: SystemTime,
+}
+
+/// State of static file scanning for a process
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StaticScanState {
+    NotScanned,
+    Scanning,
+    Clean,
+    Malicious,
+    Error(String),
+}
+
+impl Default for StaticScanState {
+    fn default() -> Self {
+        StaticScanState::NotScanned
+    }
+}
+
+/// DetectItEasy analysis result summary for behavior engine
+#[derive(Debug, Clone)]
+pub struct DetectItEasyResult {
+    pub is_pe: bool,
+    pub is_elf: bool,
+    pub is_packed: bool,
+    pub is_protected: bool,
+    pub packer_name: Option<String>,
+    pub protector_name: Option<String>,
+    pub is_vmprotect: bool,
+    pub is_themida: bool,
+    pub is_dotnet: bool,
+    pub is_pyinstaller: bool,
+    pub is_nuitka: bool,
+    pub is_upx: bool,
+    pub is_go_garble: bool,
+    pub file_type: Option<String>,
+    pub is_broken_executable: bool,
+}
+
+/// MITRE ATT&CK timeline event for behavior tracking
+#[cfg(feature = "behavior_engine")]
+#[derive(Debug, Clone)]
+pub struct MitreTimelineEvent {
+    pub technique_id: String,
+    pub technique_name: String,
+    pub tactic: String,
+    pub description: String,
+    pub timestamp: SystemTime,
+    pub severity: MitreSeverity,
+}
+
+/// Severity level for MITRE ATT&CK events
+#[cfg(feature = "behavior_engine")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MitreSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
 }
 
 /// Detailed information about a DLL load operation
@@ -2158,6 +2266,35 @@ impl ProcessBehaviorState {
 
         // Initialize Chromium detection
         state.is_acg_enabled = false;
+
+        // Initialize static scanning fields
+        state.static_ioc_matches = Vec::new();
+        state.static_hash_malicious = false;
+        state.static_file_hash = None;
+        state.static_scan_timestamp = None;
+        state.static_files_scanned = 0;
+        state.static_scan_state = StaticScanState::NotScanned;
+        
+        // Initialize DetectItEasy fields
+        state.detectiteasy_result = None;
+        state.is_packed = false;
+        state.is_protected = false;
+        state.packer_name = None;
+        state.protector_name = None;
+        state.is_vmprotect = false;
+        state.is_themida = false;
+        state.is_dotnet = false;
+        state.is_pyinstaller = false;
+        state.is_upx = false;
+        state.static_file_type = None;
+
+        // Initialize MITRE ATT&CK fields (only with behavior_engine feature)
+        #[cfg(feature = "behavior_engine")]
+        {
+            state.mitre_techniques = HashSet::new();
+            state.mitre_timeline_events = Vec::new();
+            state.mitre_threat_score = 0.0;
+        }
 
         state
     }
@@ -2645,6 +2782,150 @@ impl ProcessBehaviorState {
 
         self.irp_operations.push(rec);
     }
+
+    /// Record a static IOC match from hash-based file scanning
+    pub fn record_static_ioc_match(&mut self, hash: String, file_path: PathBuf) {
+        let match_record = StaticIocMatch {
+            hash: hash.clone(),
+            file_path: file_path.clone(),
+            match_timestamp: SystemTime::now(),
+        };
+        self.static_ioc_matches.push(match_record);
+        self.static_scan_state = StaticScanState::Malicious;
+        self.static_hash_malicious = true;
+        
+        Logging::warning(&format!(
+            "[STATIC SCAN] IOC match detected - PID: {} | Hash: {} | File: {}",
+            self.pid,
+            hash,
+            file_path.display()
+        ));
+    }
+
+    /// Update static scan state for this process
+    pub fn update_static_scan_state(&mut self, state: StaticScanState, file_hash: Option<String>) {
+        self.static_scan_state = state;
+        self.static_scan_timestamp = Some(SystemTime::now());
+        if let Some(hash) = file_hash {
+            self.static_file_hash = Some(hash);
+        }
+    }
+
+    /// Increment the count of files scanned by this process
+    pub fn increment_static_files_scanned(&mut self) {
+        self.static_files_scanned = self.static_files_scanned.saturating_add(1);
+    }
+
+    /// Check if this process has been flagged as malicious by static scanning
+    pub fn is_static_malicious(&self) -> bool {
+        self.static_hash_malicious || self.static_scan_state == StaticScanState::Malicious
+    }
+
+    /// Get all static IOC matches for this process
+    pub fn get_static_ioc_matches(&self) -> &[StaticIocMatch] {
+        &self.static_ioc_matches
+    }
+
+    /// Record DetectItEasy static analysis results from Owlyshield
+    pub fn record_detectiteasy_result(&mut self, die_result: DetectItEasyResult) {
+        self.is_packed = die_result.is_packed;
+        self.is_protected = die_result.is_protected;
+        self.packer_name = die_result.packer_name.clone();
+        self.protector_name = die_result.protector_name.clone();
+        self.is_vmprotect = die_result.is_vmprotect;
+        self.is_themida = die_result.is_themida;
+        self.is_dotnet = die_result.is_dotnet;
+        self.is_pyinstaller = die_result.is_pyinstaller;
+        self.is_upx = die_result.is_upx;
+        self.static_file_type = die_result.file_type.clone();
+        self.detectiteasy_result = Some(die_result.clone());
+        
+        Logging::info(&format!(
+            "[DetectItEasy] PID: {} | Type: {:?} | Packed: {} | Protected: {} | Packer: {:?} | Protector: {:?}",
+            self.pid,
+            die_result.file_type,
+            die_result.is_packed,
+            die_result.is_protected,
+            die_result.packer_name,
+            die_result.protector_name
+        ));
+    }
+
+    /// Check if process executable is packed
+    pub fn is_packed_executable(&self) -> bool {
+        self.is_packed
+    }
+
+    /// Check if process executable is protected
+    pub fn is_protected_executable(&self) -> bool {
+        self.is_protected
+    }
+
+    /// Get DetectItEasy result
+    pub fn get_detectiteasy_result(&self) -> Option<&DetectItEasyResult> {
+        self.detectiteasy_result.as_ref()
+    }
+
+    /// Record a MITRE ATT&CK technique observation
+    #[cfg(feature = "behavior_engine")]
+    pub fn record_mitre_technique(
+        &mut self,
+        technique_id: String,
+        technique_name: String,
+        tactic: String,
+        description: String,
+        severity: MitreSeverity,
+    ) {
+        self.mitre_techniques.insert(technique_id.clone());
+        
+        let event = MitreTimelineEvent {
+            technique_id: technique_id.clone(),
+            technique_name: technique_name.clone(),
+            tactic: tactic.clone(),
+            description,
+            timestamp: SystemTime::now(),
+            severity,
+        };
+        
+        self.mitre_timeline_events.push(event);
+        
+        // Update threat score based on severity
+        let severity_score = match severity {
+            MitreSeverity::Low => 1.0,
+            MitreSeverity::Medium => 3.0,
+            MitreSeverity::High => 7.0,
+            MitreSeverity::Critical => 10.0,
+        };
+        self.mitre_threat_score += severity_score;
+        
+        Logging::info(&format!(
+            "[MITRE ATT&CK] PID: {} | Technique: {} ({}) | Tactic: {} | Severity: {:?} | Score: {:.1}",
+            self.pid,
+            technique_id,
+            technique_name,
+            tactic,
+            severity,
+            self.mitre_threat_score
+        ));
+    }
+
+    /// Get all MITRE ATT&CK techniques observed for this process
+    #[cfg(feature = "behavior_engine")]
+    pub fn get_mitre_techniques(&self) -> &HashSet<String> {
+        &self.mitre_techniques
+    }
+
+    /// Get MITRE ATT&CK timeline events
+    #[cfg(feature = "behavior_engine")]
+    pub fn get_mitre_timeline(&self) -> &[MitreTimelineEvent] {
+        &self.mitre_timeline_events
+    }
+
+    /// Get MITRE ATT&CK threat score
+    #[cfg(feature = "behavior_engine")]
+    pub fn get_mitre_threat_score(&self) -> f64 {
+        self.mitre_threat_score
+    }
 }
 
 // =============================================================================
@@ -2769,6 +3050,48 @@ impl BehaviorEngine {
             }
         }
         None
+    }
+
+    /// Record static scan results from Sanctum FileScanner integration
+    /// This integrates hash-based IOC detection results into the behavior engine
+    pub fn record_static_scan_result(
+        &mut self,
+        gid: u64,
+        hash: String,
+        file_path: PathBuf,
+        is_malicious: bool,
+    ) {
+        if let Some(state) = self.process_states.get_mut(&gid) {
+            if is_malicious {
+                state.record_static_ioc_match(hash.clone(), file_path.clone());
+                Logging::warning(&format!(
+                    "[BehaviorEngine] Static scan detected malicious file - GID: {} | PID: {} | Hash: {} | Path: {}",
+                    gid,
+                    state.pid,
+                    hash,
+                    file_path.display()
+                ));
+            } else {
+                state.update_static_scan_state(StaticScanState::Clean, Some(hash));
+            }
+            state.increment_static_files_scanned();
+        }
+    }
+
+    /// Check if any process has static scan malicious findings
+    pub fn has_static_malicious_processes(&self) -> bool {
+        self.process_states
+            .values()
+            .any(|state| state.is_static_malicious())
+    }
+
+    /// Get all processes with static IOC matches
+    pub fn get_static_malicious_processes(&self) -> Vec<(u64, &ProcessBehaviorState)> {
+        self.process_states
+            .iter()
+            .filter(|(_, state)| state.is_static_malicious())
+            .map(|(gid, state)| (*gid, state))
+            .collect()
     }
 
     /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.

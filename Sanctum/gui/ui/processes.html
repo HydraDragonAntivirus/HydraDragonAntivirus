@@ -5,7 +5,169 @@
     <link rel="stylesheet" href="style.css">
 	<script src="nav.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Document</title>
+    <title>Sanctum - Process Information</title>
+
+	<style>
+		/* Sanctum Timeline Styles */
+		.sanctum-timeline {
+			font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+			background: #ffffff;
+			border-radius: 8px;
+			padding: 20px;
+			margin: 20px 0;
+			box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+		}
+
+		.timeline-header {
+			margin-bottom: 20px;
+			padding-bottom: 15px;
+			border-bottom: 2px solid #ecf0f1;
+		}
+
+		.timeline-header h3 {
+			margin: 0 0 10px 0;
+			color: #2c3e50;
+		}
+
+		.process-info {
+			display: flex;
+			gap: 20px;
+			margin: 10px 0;
+			font-size: 14px;
+			color: #555;
+		}
+
+		.threat-badge {
+			display: inline-block;
+			padding: 8px 16px;
+			border-radius: 20px;
+			font-weight: bold;
+			font-size: 14px;
+			margin-top: 10px;
+		}
+
+		.mitre-techniques {
+			margin: 15px 0;
+			padding: 15px;
+			background: #f8f9fa;
+			border-radius: 6px;
+		}
+
+		.mitre-techniques h4 {
+			margin: 0 0 10px 0;
+			color: #2c3e50;
+		}
+
+		.technique-list {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 8px;
+		}
+
+		.technique-tag {
+			display: inline-block;
+			padding: 6px 12px;
+			background: #e74c3c;
+			color: white;
+			border-radius: 4px;
+			font-size: 12px;
+			font-weight: bold;
+		}
+
+		.timeline-events {
+			margin-top: 20px;
+		}
+
+		.timeline-events h4 {
+			margin: 0 0 15px 0;
+			color: #2c3e50;
+		}
+
+		.timeline-event {
+			position: relative;
+			margin-bottom: 20px;
+			padding-left: 30px;
+		}
+
+		.event-marker {
+			position: absolute;
+			left: 0;
+			top: 5px;
+			width: 12px;
+			height: 12px;
+			border-radius: 50%;
+			border: 3px solid white;
+			box-shadow: 0 0 0 2px #ddd;
+		}
+
+		.event-content {
+			padding: 12px;
+			background: #f8f9fa;
+			border-radius: 6px;
+			border-left: 3px solid #3498db;
+		}
+
+		.event-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 8px;
+		}
+
+		.event-type {
+			font-weight: bold;
+			color: #2c3e50;
+			font-size: 14px;
+		}
+
+		.event-severity {
+			font-weight: bold;
+			font-size: 12px;
+		}
+
+		.event-description {
+			color: #555;
+			font-size: 13px;
+			margin-bottom: 8px;
+		}
+
+		.event-technique {
+			display: inline-block;
+			padding: 4px 8px;
+			background: #e74c3c;
+			color: white;
+			border-radius: 4px;
+			font-size: 11px;
+			font-weight: bold;
+			margin: 5px 0;
+		}
+
+		.event-details {
+			margin-top: 10px;
+			padding: 10px;
+			background: white;
+			border-radius: 4px;
+			font-size: 12px;
+		}
+
+		.event-details div {
+			margin: 5px 0;
+			color: #555;
+		}
+
+		.event-details strong {
+			color: #2c3e50;
+		}
+
+		#pid_query_result {
+			margin-top: 20px;
+		}
+
+		.process-timeline-container {
+			max-width: 1200px;
+			margin: 0 auto;
+		}
+	</style>
 
 	<script>
 		document.addEventListener("DOMContentLoaded", function() {
@@ -22,7 +184,20 @@
 
 				invoke('process_query_pid', { pid: pid })
 					.then((response) => {
-						document.getElementById("pid_query_result").innerHTML = response;
+						try {
+							const data = JSON.parse(response);
+							
+							// Display timeline if available
+							if (data.timeline) {
+								document.getElementById("pid_query_result").innerHTML = data.timeline;
+							} else {
+								// Fallback to JSON display
+								document.getElementById("pid_query_result").innerHTML = 
+									'<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+							}
+						} catch (e) {
+							document.getElementById("pid_query_result").innerHTML = response;
+						}
 					})
 					.catch((error) => console.error("Invoke error:", error));
 			};
@@ -46,18 +221,18 @@
 		<main id="center" class="column">
 			<article>
 			
-				<h1>Process information</h1>
-				<p>Information relating to running processes on your PC.</p>
+				<h1>Process Information</h1>
+				<p>Query process information with MITRE ATT&CK timeline visualization.</p>
 
 				<div class="full_callout" id="pid_inspector">
-					<b>Query process</b>
-					<p>Enter a PID and get information about the process.</p>
+					<b>Query Process</b>
+					<p>Enter a PID to view detailed process information including attack timeline and MITRE ATT&CK techniques.</p>
 					<form action="#" id="pid_query_form">
-						<input type="text" value="" autocomplete="off" placeholder="Enter pid" id="pid_input" />
-						<button type="submit" class="single_box_button scan_control_button" id="pid_submit">Query pid</button>
+						<input type="text" value="" autocomplete="off" placeholder="Enter PID" id="pid_input" />
+						<button type="submit" class="single_box_button scan_control_button" id="pid_submit">Query PID</button>
 					</form>
 
-					<div id="pid_query_result"></div>
+					<div id="pid_query_result" class="process-timeline-container"></div>
 				</div>
 			
 			</article>								
@@ -66,7 +241,16 @@
 		<div id="nav-placeholder"></div>
 
 		<div id="right" class="column">
-			<p> </p>
+			<div class="info-box">
+				<h3>About Process Timeline</h3>
+				<p>The attack timeline shows all suspicious activities performed by a process, mapped to MITRE ATT&CK techniques.</p>
+				<ul>
+					<li><strong>Benign:</strong> Normal behavior</li>
+					<li><strong>Suspicious:</strong> Potentially malicious</li>
+					<li><strong>Malicious:</strong> Confirmed threat</li>
+					<li><strong>Critical:</strong> Active attack</li>
+				</ul>
+			</div>
 		</div>
 
 	</div>
