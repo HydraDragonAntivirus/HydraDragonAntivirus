@@ -148,7 +148,12 @@ impl SanctumProcessTimeline {
         </div>
     </div>
 "#,
-            self.process_name, self.pid, self.process_path, threat_color, self.threat_level, self.threat_score
+            self.process_name,
+            self.pid,
+            self.process_path,
+            threat_color,
+            self.threat_level,
+            self.threat_score
         ));
 
         // MITRE techniques
