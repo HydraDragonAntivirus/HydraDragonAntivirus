@@ -615,6 +615,8 @@ impl FirewallDetection {
     pub fn is_pending_user_decision(&self) -> bool {
         let reason = self.reason.to_ascii_lowercase();
         reason.contains("pending user decision")
+            || reason.contains("app pending decision")
+            || reason.contains("user decision requested")
     }
 
     /// Derive a threat type label from the reason string.
@@ -2761,7 +2763,9 @@ impl BehaviorEngine {
     }
 
     /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.
-    /// Firewall sends: NET_EVENT:<pid>:<dst_ip>:<dst_port> and BLOCK_EXE:<exe_path>.
+    /// Firewall sends activity telemetry such as NET_EVENT and HTTP body data.
+    /// Legacy BLOCK_EXE messages are still accepted defensively, but firewall
+    /// network blocks should stay firewall activity and not become process kills.
     /// Call once after constructing BehaviorEngine, before the scan loop starts.
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub fn start_firewall_pipe(&self) {
