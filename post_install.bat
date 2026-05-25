@@ -72,29 +72,58 @@ if exist "%ELAM_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 5) Install OwlyshieldRansomFilter driver
+:: 5) Install Sanctum kernel driver service
+:: --------------------------------------------------------
+set "SANCTUM_SYS=%SANCTUM_DIR%\AppData\sanctum.sys"
+
+if not exist "%SANCTUM_SYS%" (
+    call :show_failure "Sanctum kernel driver is missing at ""%SANCTUM_SYS%""."
+    exit /b 1
+)
+
+call :log [*] Installing Sanctum kernel driver service...
+sc query Sanctum >nul 2>&1
+if errorlevel 1 (
+    call :run_and_log sc create Sanctum type= kernel start= demand error= normal binPath= "%SANCTUM_SYS%"
+    if errorlevel 1 (
+        call :show_failure "Sanctum kernel driver service creation failed."
+        exit /b 1
+    )
+    call :log [+] Sanctum kernel driver service created.
+) else (
+    call :log [*] Sanctum service already exists, refreshing driver path and start type...
+    call :run_and_log sc config Sanctum type= kernel start= demand error= normal binPath= "%SANCTUM_SYS%"
+    if errorlevel 1 (
+        call :show_failure "Sanctum kernel driver service configuration failed."
+        exit /b 1
+    )
+    call :log [+] Sanctum kernel driver service configured.
+)
+
+:: --------------------------------------------------------
+:: 6) Install OwlyshieldRansomFilter driver
 :: --------------------------------------------------------
 call :install_driver_inf "OwlyshieldRansomFilter" "%HYDRADRAGON_DIR%\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" required
 if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
-:: 6) Install MBRFilter driver
+:: 7) Install MBRFilter driver
 :: --------------------------------------------------------
 call :install_driver_inf "MBRFilter" "%HYDRADRAGON_DIR%\MBRFilter\MBRFilter.inf" required
 if errorlevel 1 exit /b 1
 
 :: --------------------------------------------------------
-:: 7) Install RedDbg driver (AMD Hypervisor)
+:: 8) Install RedDbg driver (AMD Hypervisor)
 :: --------------------------------------------------------
 call :install_driver_inf "RedDbg" "%HYDRADRAGON_DIR%\Owlyshield\RedDbg\RedDbgDrv.inf" optional
 
 :: --------------------------------------------------------
-:: 8) Install HyperDbg driver (Intel Hypervisor)
+:: 9) Install HyperDbg driver (Intel Hypervisor)
 :: --------------------------------------------------------
 call :install_driver_inf "HyperDbg" "%HYDRADRAGON_DIR%\Owlyshield\HyperDbg\hyperhv.inf" optional
 
 :: --------------------------------------------------------
-:: 9) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: 10) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_TASK_EXE=%HYDRADRAGON_DIR%\HydraDragonLauncher\hydradragonlauncher.exe"
 set "HD_TASK_EXISTS=0"
@@ -134,7 +163,7 @@ if not "%RUN_EXIT%"=="0" (
 :after_hd_task
 
 :: --------------------------------------------------------
-:: 10) Install OpenEDR service
+:: 11) Install OpenEDR service
 :: --------------------------------------------------------
 set "EDR_EXE=C:\Program Files\HydraDragonAntivirus\OpenEDR\edrsvc.exe"
 call :log [*] Checking for OpenEDR at "%EDR_EXE%"...
@@ -169,7 +198,7 @@ if not errorlevel 1 (
 :after_openedr
 
 :: --------------------------------------------------------
-:: 11) Disable Code Integrity for OpenEDR DLL injection
+:: 12) Disable Code Integrity for OpenEDR DLL injection
 :: --------------------------------------------------------
 call :log [*] Configuring system for OpenEDR DLL injection...
 call :log [*] Disabling Code Integrity checks to allow edrpm DLL injection...
@@ -207,7 +236,7 @@ call :log [*] These settings allow edrpm32.dll and edrpm64.dll to be injected in
 call :log [*] To re-enable security later, run: OpenEDR\edrav2\iprj\edrpm\enable_ci_back.bat
 
 :: --------------------------------------------------------
-:: 12) Cleanup and Restart
+:: 13) Cleanup and Restart
 :: --------------------------------------------------------
 echo [+] All installation steps complete!
 echo [*] Restarting system in 10 seconds to activate security drivers...
