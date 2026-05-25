@@ -55,7 +55,7 @@ NTSTATUS DrvDispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
         } else if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(OWLY_HV_COMM_DATA)) {
             POWLY_HV_COMM_DATA commData = (POWLY_HV_COMM_DATA)Irp->AssociatedIrp.SystemBuffer;
             if (commData->Magic == 0x4F574C59) {
-                g_OwlyCallback = commData->CallbackRoutine;
+                g_OwlyCallback = (POWLY_HV_CALLBACK)commData->CallbackRoutine;
                 DbgPrint("!!! hyperhv: Registered Owlyshield callback at %p\n", g_OwlyCallback);
             } else {
                 status = STATUS_INVALID_PARAMETER;
