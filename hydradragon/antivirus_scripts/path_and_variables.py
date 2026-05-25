@@ -261,16 +261,13 @@ _RETRY_DELAY = 0.5  # seconds between open retries
 # Path to the bundled radare2 binary shipped with HydraDragonAntivirus
 _R2_DIR = os.path.join(script_dir, "radare2")
 
-# Pipe 1: HydraDragonAV engine
-PIPE_HYDRADRAGON_AV = r"\\.\pipe\HydraDragonAV"
-
-# Pipe 2: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
+# Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\Global\hydradragon_to_owlyshield"
 
-# Pipe 3: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
+# Pipe 2: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
 PIPE_EDR_TO_AV = r"\\.\pipe\Global\owlyshield_to_hydradragon"
 
-# Pipe 4: HydraDragon AV forwards artifacts to the Firewall (Firewall receives)
+# Pipe 3: HydraDragon AV forwards artifacts to the Firewall (Firewall receives)
 PIPE_AV_TO_FIREWALL = r"\\.\pipe\HydraDragonFirewall"
 
 
