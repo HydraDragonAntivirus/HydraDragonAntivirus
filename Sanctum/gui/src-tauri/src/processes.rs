@@ -3,6 +3,7 @@
 
 use serde_json::{json, Value};
 use shared_no_std::ipc::CommandResponse;
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -136,7 +137,7 @@ fn load_owlyshield_timeline_cache(pid: &str, limit: usize) -> TimelineCacheLoad 
         collect_timeline_files(&dir, &pid, &mut candidates);
     }
 
-    candidates.sort_by(|a, b| b.modified.cmp(&a.modified));
+    candidates.sort_by_key(|candidate| Reverse(candidate.modified));
     dedup_timeline_candidates(&mut candidates);
 
     let (copied, errors) = archive_timeline_candidates(&candidates, &archive_dir);

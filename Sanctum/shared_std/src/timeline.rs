@@ -81,10 +81,10 @@ impl SanctumProcessTimeline {
     }
 
     pub fn add_event(&mut self, event: SanctumTimelineEvent) {
-        if let Some(ref technique) = event.mitre_technique {
-            if !self.mitre_techniques.contains(technique) {
-                self.mitre_techniques.push(technique.clone());
-            }
+        if let Some(ref technique) = event.mitre_technique
+            && !self.mitre_techniques.contains(technique)
+        {
+            self.mitre_techniques.push(technique.clone());
         }
         self.events.push(event);
         self.recalculate_score();
@@ -378,17 +378,17 @@ impl SanctumProcessTimeline {
 pub fn map_sanctum_event_to_mitre(event_type: &str, description: &str) -> Option<String> {
     let event_lower = event_type.to_lowercase();
     let desc_lower = description.to_lowercase();
+    let is_process_injection = event_lower.contains("injection")
+        || desc_lower.contains("writeprocessmemory")
+        || (event_lower.contains("syscall") && desc_lower.contains("suspicious"))
+        || event_lower.contains("shellcode")
+        || event_lower.contains("hook")
+        || event_lower.contains("ghost");
 
-    if event_lower.contains("injection") || desc_lower.contains("writeprocessmemory") {
+    if is_process_injection {
         Some("T1055 - Process Injection".to_string())
     } else if event_lower.contains("credential") || desc_lower.contains("lsass") {
         Some("T1003.001 - LSASS Memory".to_string())
-    } else if event_lower.contains("syscall") && desc_lower.contains("suspicious") {
-        Some("T1055 - Process Injection".to_string())
-    } else if event_lower.contains("shellcode") {
-        Some("T1055 - Process Injection".to_string())
-    } else if event_lower.contains("hook") || event_lower.contains("ghost") {
-        Some("T1055 - Process Injection".to_string())
     } else if event_lower.contains("driver") {
         Some("T1068 - Exploitation for Privilege Escalation".to_string())
     } else if event_lower.contains("token") {

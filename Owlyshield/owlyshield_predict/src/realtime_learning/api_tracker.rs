@@ -431,14 +431,16 @@ impl ApiTracker {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 let (memory_address, memory_size) = (
                     msg.kernel_event_info.memory_address,
-                    msg.kernel_event_info.memory_size,
+                    msg.kernel_event_info.memory_size as u64,
                 );
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                let (memory_address, memory_size) = (0u64, msg.mem_sized_used as u32);
+                let (memory_address, memory_size) = (0u64, msg.mem_sized_used);
 
-                self.process_operations.memory_allocated += memory_size as u64;
-                self.operation_sequence
-                    .push(OperationType::MemoryModify(memory_address, memory_size));
+                self.process_operations.memory_allocated += memory_size;
+                self.operation_sequence.push(OperationType::MemoryModify(
+                    memory_address,
+                    memory_size.min(u32::MAX as u64) as u32,
+                ));
             }
             IrpMajorOp::IrpKernelProtectMemory => {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
