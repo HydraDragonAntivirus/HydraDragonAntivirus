@@ -13,7 +13,7 @@
         "c:\\program files\\hydradragonantivirus\\hydradragonfirewall\\hydradragonfirewall.exe": "Allow",
         "c:\\program files\\hydradragonantivirus\\hydradragon\\owlyshield\\owlyshield service\\owlyshield_ransom.exe": "Allow"
     },
-    "website_path": "website",
+    "website_path": "c:\\program files\\hydradragonantivirus\\hydradragon\\website",
     "rules": [],
     "late_blocking_mode": false,
     "headless_mode": false,
