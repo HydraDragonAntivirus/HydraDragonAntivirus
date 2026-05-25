@@ -419,22 +419,39 @@ impl ApiTracker {
             IrpMajorOp::IrpKernelRemoteThread => {
                 self.process_operations.threads_created += 1;
                 self.process_operations.processes_injected += 1;
-                self.operation_sequence.push(OperationType::ProcessInjected(
-                    msg.kernel_event_info.target_process_id,
-                ));
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                let target_pid = msg.kernel_event_info.target_process_id;
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                let target_pid = msg.pid;
+
+                self.operation_sequence
+                    .push(OperationType::ProcessInjected(target_pid));
             }
             IrpMajorOp::IrpKernelWriteMemory => {
-                self.process_operations.memory_allocated +=
-                    msg.kernel_event_info.memory_size as u64;
-                self.operation_sequence.push(OperationType::MemoryModify(
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                let (memory_address, memory_size) = (
                     msg.kernel_event_info.memory_address,
-                    msg.kernel_event_info.memory_size as u32,
-                ));
+                    msg.kernel_event_info.memory_size,
+                );
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                let (memory_address, memory_size) = (0u64, msg.mem_sized_used as u32);
+
+                self.process_operations.memory_allocated += memory_size as u64;
+                self.operation_sequence
+                    .push(OperationType::MemoryModify(memory_address, memory_size));
             }
             IrpMajorOp::IrpKernelProtectMemory => {
-                self.operation_sequence.push(OperationType::MemoryProtect(
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                let (memory_address, memory_protection) = (
                     msg.kernel_event_info.memory_address,
                     msg.kernel_event_info.memory_protection,
+                );
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                let (memory_address, memory_protection) = (0u64, 0u32);
+
+                self.operation_sequence.push(OperationType::MemoryProtect(
+                    memory_address,
+                    memory_protection,
                 ));
             }
             IrpMajorOp::IrpKernelCreateThread => {

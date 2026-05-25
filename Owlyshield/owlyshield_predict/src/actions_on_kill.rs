@@ -4,6 +4,8 @@ use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+#[cfg(feature = "realtime_learning")]
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local};
@@ -897,15 +899,39 @@ fn write_timeline_cache(
     pids.sort_unstable();
     pids.dedup();
 
+    let mut cache_dirs = vec![report_dir.to_path_buf()];
+    let persistent_archive = persistent_mitre_archive_dir();
+    if !same_cache_path(report_dir, &persistent_archive) {
+        cache_dirs.push(persistent_archive);
+    }
+
+    for cache_dir in cache_dirs {
+        write_timeline_cache_files(&cache_dir, proc, &now, &html, &json, &pids)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "realtime_learning")]
+fn write_timeline_cache_files(
+    report_dir: &Path,
+    proc: &ProcessRecord,
+    now: &str,
+    html: &str,
+    json: &str,
+    pids: &[u32],
+) -> Result<(), Box<dyn Error>> {
+    std::fs::create_dir_all(report_dir)?;
+
     if pids.is_empty() {
         let latest_html = report_dir.join(format!("latest_timeline_gid_{}.html", proc.gid));
         let latest_json = report_dir.join(format!("latest_timeline_gid_{}.json", proc.gid));
-        std::fs::write(latest_html, &html)?;
-        std::fs::write(latest_json, &json)?;
+        std::fs::write(latest_html, html)?;
+        std::fs::write(latest_json, json)?;
         return Ok(());
     }
 
-    for pid in pids {
+    for pid in pids.iter().copied() {
         let latest_html = report_dir.join(format!("latest_timeline_pid_{}.html", pid));
         let latest_json = report_dir.join(format!("latest_timeline_pid_{}.json", pid));
         let history_html = report_dir.join(format!(
@@ -917,13 +943,40 @@ fn write_timeline_cache(
             pid, now, proc.gid
         ));
 
-        std::fs::write(latest_html, &html)?;
-        std::fs::write(latest_json, &json)?;
-        std::fs::write(history_html, &html)?;
-        std::fs::write(history_json, &json)?;
+        std::fs::write(latest_html, html)?;
+        std::fs::write(latest_json, json)?;
+        std::fs::write(history_html, html)?;
+        std::fs::write(history_json, json)?;
     }
 
     Ok(())
+}
+
+#[cfg(feature = "realtime_learning")]
+fn persistent_mitre_archive_dir() -> PathBuf {
+    let program_data = std::env::var_os("PROGRAMDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+
+    program_data
+        .join("HydraDragonAntivirus")
+        .join("Sanctum")
+        .join("mitre_attack")
+}
+
+#[cfg(feature = "realtime_learning")]
+fn same_cache_path(left: &Path, right: &Path) -> bool {
+    let left = left
+        .display()
+        .to_string()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    let right = right
+        .display()
+        .to_string()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    left == right
 }
 
 #[cfg(feature = "realtime_learning")]

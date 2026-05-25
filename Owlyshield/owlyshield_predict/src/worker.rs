@@ -703,10 +703,10 @@ mod process_records {
 pub mod worker_instance {
     use crate::ExepathLive;
     use crate::IOMessage;
+    #[cfg(feature = "realtime_learning")]
+    use crate::actions_on_kill::ActionReportContext;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use crate::actions_on_kill::{
-        ActionReportContext, ActionsOnKill, ThreatInfo, restart_cleanup_reason,
-    };
+    use crate::actions_on_kill::{ActionsOnKill, ThreatInfo, restart_cleanup_reason};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::app_settings::AppSettings;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

@@ -18,7 +18,7 @@ use driver_controller::{
     driver_start_driver, driver_stop_driver, driver_uninstall_driver, ioctl_ping_driver,
 };
 use ipc::global_inbound_ipc;
-use processes::process_query_pid;
+use processes::{mitre_attack_overview, process_query_pid};
 use settings::{settings_load_page_state, settings_update_settings};
 
 use tauri::Manager;
@@ -62,6 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             driver_check_state,
             ioctl_ping_driver,
             driver_get_kernel_debug_messages,
+            mitre_attack_overview,
             process_query_pid,
         ])
         .run(tauri::generate_context!())
