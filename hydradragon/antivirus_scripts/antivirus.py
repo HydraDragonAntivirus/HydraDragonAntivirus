@@ -543,6 +543,7 @@ from .notify_user import (  # noqa: E402
     notify_user_duplicate,
     notify_user_for_uefi,
     notify_user_hayabusa_critical,
+    _sync_write_pipe,
 )
 
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
@@ -1648,58 +1649,21 @@ benign_numeric_features = []
 benign_file_names = []
 
 # ============================================================================#
-# C++ ENGINE (HydraDragonAV) PIPE CLIENT
+# EDR PIPE CLIENT
 # ============================================================================#
-def scan_with_hydradragon_engine(file_path):
+def av_to_edr(file_path):
     """
-    Sends scan request to HydraDragonAV C++ pipe server (ClamAV + Legacy YARA).
+    Sends scan request to EDR via sync write pipe.
     Returns: (malicious: bool, virus_name: str, engine: str, is_vmprotect: bool, match_details: str | None)
     """
     try:
         norm_path = os.path.abspath(file_path)
         request = json.dumps({"path": norm_path})
-
-        # Connect to C++ pipe
-        handle = win32file.CreateFile(PIPE_HYDRADRAGON_AV, win32file.GENERIC_READ | win32file.GENERIC_WRITE, 0, None, win32file.OPEN_EXISTING, 0, None)
-
-        # Write request
-        win32file.WriteFile(handle, request.encode("utf-8"))
-
-        # Read response
-        resp_data = win32file.ReadFile(handle, 65536)
-        win32file.CloseHandle(handle)
-
-        if resp_data[0] == 0:
-            response = json.loads(resp_data[1].decode("utf-8"))
-            if response.get("status") == "success":
-                malicious = response.get("malicious", False)
-                clamav_virus = response.get("clamav", "")
-                yara_matches = response.get("yara", [])
-                is_vmprotect = response.get("is_vmprotect", False)
-
-                if malicious:
-                    if clamav_virus:
-                        return (
-                            True,
-                            clamav_virus,
-                            "ClamAV",
-                            is_vmprotect,
-                            f"HydraDragonAV/ClamAV matched signature '{clamav_virus}' for {norm_path}",
-                        )
-                    if yara_matches:
-                        return (
-                            True,
-                            yara_matches[0],
-                            "LegacyYARA",
-                            is_vmprotect,
-                            f"HydraDragonAV/LegacyYARA matched rule(s) for {norm_path}: {', '.join(map(str, yara_matches))}",
-                        )
-
+        _sync_write_pipe(request.encode("utf-8"))
         return False, "Clean", "", False, None
     except Exception as ex:
-        # Expected if server not running or path inaccessible
-        logger.debug(f"HydraDragonAV Pipe Error: {ex}")
-        return False, "Error", "", False, f"HydraDragonAV pipe error for {file_path}: {ex}"
+        logger.debug(f"EDR Pipe Error: {ex}")
+        return False, "Error", "", False, f"EDR pipe error for {file_path}: {ex}"
 
 
 def _select_rust_service_scan_result(service_scan_results):
@@ -3307,71 +3271,32 @@ def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
         logger.exception(f"Failed to load ML definitions: {e}")
         return False
 
-def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, die_output, pe_file: bool = False) -> Tuple[bool, str, str, Optional[bool], Optional[str]]:
+def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, die_output, pe_file: bool = False, owlyshield_service_scan_results=None) -> Tuple[bool, str, str, Optional[bool], Optional[str]]:
     """
-    Scan file in real-time using multiple engines in parallel (WITHOUT YARA).
-    Stops all workers on first detection.
+    Scan file in real-time using Rust service results.
+    Rust minifilter drivers handle the actual scanning.
 
-    Returns: (malware_found: bool, virus_name: str, engine: str)
+    Returns: (malware_found: bool, virus_name: str, engine: str, is_vmprotect: bool, match_details: str | None)
     """
     logger.info(f"Started scanning file: {file_path}")
 
-    # Shared results and synchronization primitives
-    results = {
-        "malware_found": False,
-        "virus_name": "Clean",
-        "engine": "",
-        "is_vmprotect": False,
-        "match_details": None,
-    }
-    stop_event = threading.Event()
-    thread_lock_real_time = threading.Lock()
-    sig_valid = bool(signature_check and signature_check.get("is_valid", False))
+    # Get is_vmprotect from Rust service results
+    is_vmprotect = False
+    if owlyshield_service_scan_results:
+        rust_result = _select_rust_service_scan_result(owlyshield_service_scan_results)
+        if rust_result:
+            is_vmprotect = rust_result[3]  # Fourth element is is_vmprotect
+            logger.info(f"Rust service detected VMProtect: {is_vmprotect} for {file_path}")
 
-    def cpp_scanner_worker():
-        """Worker function for HydraDragonAV C++ engine (ClamAV + Legacy YARA)."""
-        if stop_event.is_set():
-            return
-        try:
-            is_malicious, virus_name, engine, is_vmprotect, match_details = scan_with_hydradragon_engine(file_path)
-            if is_malicious:
-                if sig_valid:
-                    virus_name = f"{virus_name}.SIG"
-                logger.critical(f"Infected file detected ({engine}): {file_path} - Virus: {virus_name}")
-
-                with thread_lock_real_time:
-                    if not results["malware_found"]:
-                        results["malware_found"] = True
-                        results["virus_name"] = virus_name
-                        results["engine"] = engine
-                        results["match_details"] = match_details
-                        if is_vmprotect:
-                            results["is_vmprotect"] = True
-                        stop_event.set()
-        except Exception as ex:
-            logger.debug(f"HydraDragonAV worker error: {ex}")
-
+    # Rust service already handles scanning via minifilter drivers
+    # Just send notification to EDR and return status with vmprotect flag
     try:
-        workers = [
-            cpp_scanner_worker,
-        ]
-
-        threads = []
-        for worker in workers:
-            t = threading.Thread(daemon=True, target=worker)
-            t.start()
-            threads.append(t)
-
-        with thread_lock_real_time:
-            if results["malware_found"]:
-                return True, results["virus_name"], results["engine"], results["is_vmprotect"], results["match_details"]
-            else:
-                logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-                return False, "Clean", "", results["is_vmprotect"], None
-
+        av_to_edr(file_path)
+        logger.info(f"Sent scan request to EDR for: {file_path}")
+        return False, "Clean", "", is_vmprotect, None
     except Exception as ex:
-        logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
-        return False, "Error", "", False, f"Real-time scan error for {file_path}: {ex}"
+        logger.error(f"An error occurred while sending to EDR: {file_path}. Error: {ex}")
+        return False, "Error", "", is_vmprotect, f"Real-time scan error for {file_path}: {ex}"
 
 
 def get_next_project_name(base_name):
@@ -8052,7 +7977,7 @@ async def scan_and_warn(
                 is_malicious, virus_name, engine_detected, is_vmprotect, match_details = rust_service_result
                 logger.info(f"Using Rust service scan results for minimal scan: {norm_path}")
             else:
-                is_malicious, virus_name, engine_detected, is_vmprotect, match_details = await asyncio.to_thread(scan_with_hydradragon_engine, norm_path)
+                is_malicious, virus_name, engine_detected, is_vmprotect, match_details = await asyncio.to_thread(av_to_edr, norm_path)
             if is_vmprotect:
                 logger.warning(f"VMProtect detected by {engine_detected or 'RustService'} in minimal scan: {norm_path}")
             if is_malicious:
@@ -8992,7 +8917,7 @@ async def scan_and_warn(
         # REALTIME TASK
         async def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
             try:
-                is_malicious, virus_names, engine_detected, is_vmprotect, match_details = await asyncio.to_thread(scan_file_real_time, norm_path, signature_check, file_name, die_output, pe_file=pe_file)
+                is_malicious, virus_names, engine_detected, is_vmprotect, match_details = await asyncio.to_thread(scan_file_real_time, norm_path, signature_check, file_name, die_output, pe_file=pe_file, owlyshield_service_scan_results=owlyshield_service_scan_results)
 
                 if is_vmprotect and not getattr(threading.current_thread(), "is_unpacking_vmp", False):
                     logger.warning(f"VMProtect detected by HydraDragonAV in {norm_path}. Spawning unpacker.")
