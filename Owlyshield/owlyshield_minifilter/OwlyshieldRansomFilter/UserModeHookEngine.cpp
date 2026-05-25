@@ -1602,6 +1602,7 @@ DbgPrint("!!! UserModeHook: Failed to resolve PsGetProcessPeb\n");
 DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
 #endif
 
+        return STATUS_PROCEDURE_NOT_FOUND;
     }
 
     // Resolve ZwFreeVirtualMemory
@@ -1615,6 +1616,7 @@ DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
 DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
 #endif
 
+        return STATUS_PROCEDURE_NOT_FOUND;
     }
 
     // Resolve ZwQueryInformationProcess - optional, used for ACG detection.
