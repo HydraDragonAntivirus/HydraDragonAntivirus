@@ -519,6 +519,25 @@
     - dns
   mitre_attack:
     - T1071.004
+  
+  # Allowlist legitimate browser components to prevent false positives
+  allowlisted_apps:
+    - "msedgewebview2.exe"
+    - "msedge.exe"
+    - "chrome.exe"
+    - "firefox.exe"
+    - "brave.exe"
+    - "opera.exe"
+    - pattern: "msedgewebview2.exe"
+      signers:
+        - "Microsoft Corporation"
+      must_be_signed: true
+    - pattern: "*/microsoft/edgewebview/*"
+      signers:
+        - "Microsoft Corporation"
+      must_be_signed: true
+      is_absolute: true
+  
   stages:
     - name: High Frequency DNS
       conditions:
