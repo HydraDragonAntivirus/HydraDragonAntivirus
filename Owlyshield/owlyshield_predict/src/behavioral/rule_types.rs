@@ -416,18 +416,25 @@ fn push_unique_bytes(candidates: &mut Vec<Vec<u8>>, data: &[u8]) {
     candidates.push(data.to_vec());
 }
 
+fn push_payload_candidate(candidates: &mut Vec<Vec<u8>>, data: &[u8]) {
+    push_unique_bytes(candidates, data);
+    if let Some(decoded) = decode_relaxed_hex(data) {
+        push_unique_bytes(candidates, &decoded);
+    }
+}
+
 fn packet_payload_candidates(packet: &PacketInfo, payload: &[u8]) -> Vec<Vec<u8>> {
     let mut candidates = Vec::new();
-    push_unique_bytes(&mut candidates, payload);
+    push_payload_candidate(&mut candidates, payload);
 
     if let Some(body) = packet.http_request_body.as_deref() {
-        push_unique_bytes(&mut candidates, body.as_bytes());
+        push_payload_candidate(&mut candidates, body.as_bytes());
     }
     if let Some(body) = packet.http_response_body.as_deref() {
-        push_unique_bytes(&mut candidates, body.as_bytes());
+        push_payload_candidate(&mut candidates, body.as_bytes());
     }
     if let Some(sample) = packet.payload_sample.as_deref() {
-        push_unique_bytes(&mut candidates, sample.as_bytes());
+        push_payload_candidate(&mut candidates, sample.as_bytes());
     }
 
     candidates
@@ -1105,6 +1112,170 @@ impl RegexMatcher {
     }
 }
 
+fn decode_relaxed_hex(data: &[u8]) -> Option<Vec<u8>> {
+    let text = String::from_utf8_lossy(data);
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    if let Some(decoded) = decode_escaped_hex(text) {
+        return Some(decoded);
+    }
+
+    let mut decoded = Vec::new();
+    let mut saw_hex_cue = false;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let line = if let Some((hex_column, _ascii_column)) = line.split_once('|') {
+            saw_hex_cue = true;
+            hex_column
+        } else {
+            line
+        };
+
+        let tokens = line
+            .split(|c: char| {
+                c.is_whitespace() || matches!(c, ',' | ';' | '[' | ']' | '(' | ')' | '{' | '}')
+            })
+            .filter(|token| !token.trim().is_empty())
+            .collect::<Vec<_>>();
+
+        if tokens.is_empty() {
+            continue;
+        }
+
+        let byte_tokens_after_first = tokens
+            .iter()
+            .skip(1)
+            .filter_map(|token| clean_hex_token(token))
+            .filter(|token| token.hex.len() == 2)
+            .count();
+
+        for (index, token) in tokens.iter().enumerate() {
+            let Some(cleaned) = clean_hex_token(token) else {
+                continue;
+            };
+
+            if cleaned.has_prefix {
+                saw_hex_cue = true;
+            }
+
+            let looks_like_line_offset = index == 0
+                && cleaned.hex.len() >= 4
+                && (cleaned.has_offset_delimiter || byte_tokens_after_first >= 2);
+            if looks_like_line_offset {
+                saw_hex_cue = true;
+                continue;
+            }
+
+            if !push_hex_pairs(&mut decoded, cleaned.hex) {
+                return None;
+            }
+        }
+    }
+
+    if decoded.len() < 3 {
+        return None;
+    }
+
+    if saw_hex_cue || source_looks_plain_hex(text) {
+        Some(decoded)
+    } else {
+        None
+    }
+}
+
+struct CleanHexToken<'a> {
+    hex: &'a str,
+    has_prefix: bool,
+    has_offset_delimiter: bool,
+}
+
+fn clean_hex_token(token: &str) -> Option<CleanHexToken<'_>> {
+    let token =
+        token.trim_matches(|c: char| matches!(c, '"' | '\'' | '<' | '>' | '.' | '/' | '\\'));
+    let has_offset_delimiter = token.ends_with(':');
+    let token = token.trim_end_matches(':');
+    let (token, has_prefix) = token
+        .strip_prefix("0x")
+        .or_else(|| token.strip_prefix("0X"))
+        .map_or((token, false), |stripped| (stripped, true));
+    let (token, has_slash_prefix) = token
+        .strip_prefix("\\x")
+        .or_else(|| token.strip_prefix("\\X"))
+        .map_or((token, false), |stripped| (stripped, true));
+
+    if token.is_empty()
+        || token.len() % 2 != 0
+        || !token.as_bytes().iter().all(u8::is_ascii_hexdigit)
+    {
+        return None;
+    }
+
+    Some(CleanHexToken {
+        hex: token,
+        has_prefix: has_prefix || has_slash_prefix,
+        has_offset_delimiter,
+    })
+}
+
+fn decode_escaped_hex(text: &str) -> Option<Vec<u8>> {
+    let bytes = text.as_bytes();
+    let mut decoded = Vec::new();
+    let mut index = 0usize;
+
+    while index + 3 < bytes.len() {
+        if bytes[index] == b'\\'
+            && (bytes[index + 1] == b'x' || bytes[index + 1] == b'X')
+            && bytes[index + 2].is_ascii_hexdigit()
+            && bytes[index + 3].is_ascii_hexdigit()
+        {
+            let hex = std::str::from_utf8(&bytes[index + 2..index + 4]).ok()?;
+            decoded.push(u8::from_str_radix(hex, 16).ok()?);
+            index += 4;
+        } else {
+            index += 1;
+        }
+    }
+
+    (decoded.len() >= 3).then_some(decoded)
+}
+
+fn push_hex_pairs(out: &mut Vec<u8>, hex: &str) -> bool {
+    if hex.len() % 2 != 0 {
+        return false;
+    }
+
+    for index in (0..hex.len()).step_by(2) {
+        let Some(pair) = hex.get(index..index + 2) else {
+            return false;
+        };
+        let Ok(byte) = u8::from_str_radix(pair, 16) else {
+            return false;
+        };
+        out.push(byte);
+    }
+
+    true
+}
+
+fn source_looks_plain_hex(text: &str) -> bool {
+    let compact = text
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, ',' | ';'))
+        .collect::<String>();
+
+    compact.len() >= 6
+        && compact.len() % 2 == 0
+        && compact.as_bytes().iter().all(u8::is_ascii_hexdigit)
+}
+
 impl ContentEncoding {
     pub fn decode(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
@@ -1118,21 +1289,7 @@ impl ContentEncoding {
                 bs58::decode(text.trim()).into_vec().ok()
             }
             ContentEncoding::Reverse => Some(data.iter().rev().cloned().collect()),
-            ContentEncoding::Hex => {
-                let text = String::from_utf8_lossy(data).trim().replace(" ", "");
-                if text.len() % 2 != 0 {
-                    return None;
-                }
-                let mut result = Vec::with_capacity(text.len() / 2);
-                for i in (0..text.len()).step_by(2) {
-                    if let Ok(byte) = u8::from_str_radix(&text[i..i + 2], 16) {
-                        result.push(byte);
-                    } else {
-                        return None;
-                    }
-                }
-                Some(result)
-            }
+            ContentEncoding::Hex => decode_relaxed_hex(data),
         }
     }
 }
@@ -2873,6 +3030,53 @@ regex:
             Some(base64::engine::general_purpose::STANDARD.encode("powershell -enc test"));
 
         assert!(rule.response.traffic_attack);
+        assert!(rule.matches_packet(&Arc::new(RwLock::new(HashMap::new())), &packet, &[],));
+    }
+
+    #[test]
+    fn hex_encoding_accepts_full_packet_capture_hexdump() {
+        let payload = br#"
+00000000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  |GET / HTTP/1.1..|
+00000010  48 6f 73 74 3a 20 65 76 69 6c 2e 65 78 61 6d 70  |Host: evil.examp|
+00000020  6c 65 0d 0a 0d 0a                                |le....|
+"#;
+
+        let decoded = ContentEncoding::Hex.decode(payload).unwrap();
+        let decoded_text = String::from_utf8_lossy(&decoded);
+
+        assert!(decoded_text.contains("GET / HTTP/1.1"));
+        assert!(decoded_text.contains("Host: evil.example"));
+    }
+
+    #[test]
+    fn firewall_regex_matches_hex_packet_capture_payload_sample() {
+        let yaml = r#"
+name: Detect Hex Encoded Evil Host
+enabled: true
+protocol: http
+regex:
+  pattern: "Host:\\s*evil\\.example"
+  case_insensitive: true
+"#;
+
+        let mut rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+        rule.finalize_rich_fields();
+
+        let mut packet = test_packet();
+        packet.dst_port = 80;
+        packet.tls_handshake = false;
+        packet.full_url = Some("http://evil.example/".to_string());
+        packet.hostname = Some("evil.example".to_string());
+        packet.http_request_body = None;
+        packet.payload_sample = Some(
+            r#"
+00000000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a
+00000010  48 6f 73 74 3a 20 65 76 69 6c 2e 65 78 61 6d 70
+00000020  6c 65 0d 0a 0d 0a
+"#
+            .to_string(),
+        );
+
         assert!(rule.matches_packet(&Arc::new(RwLock::new(HashMap::new())), &packet, &[],));
     }
 

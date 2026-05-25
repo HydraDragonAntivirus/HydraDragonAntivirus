@@ -140,6 +140,48 @@
         gap: 10px;
       }
 
+      .live-graph-wrap {
+        position: relative;
+        min-height: 360px;
+        overflow: hidden;
+        border: 1px solid var(--border-main);
+        border-radius: 8px;
+        background:
+          radial-gradient(circle at 18% 22%, rgba(59, 130, 246, 0.18), transparent 26%),
+          radial-gradient(circle at 82% 72%, rgba(16, 185, 129, 0.14), transparent 28%),
+          rgba(3, 4, 8, 0.62);
+      }
+
+      #live_graph_canvas {
+        display: block;
+        width: 100%;
+        height: 360px;
+      }
+
+      .live-graph-hud {
+        position: absolute;
+        left: 12px;
+        top: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 1px solid var(--border-main);
+        border-radius: 8px;
+        background: rgba(3, 4, 8, 0.74);
+        color: var(--t-secondary);
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 11px;
+      }
+
+      .live-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent-green);
+        box-shadow: 0 0 14px var(--accent-green);
+      }
+
       .event-row {
         display: grid;
         grid-template-columns: 92px 1fr;
@@ -279,6 +321,20 @@
         const graph = document.getElementById("tactic_graph");
         const networkList = document.getElementById("network_list");
         const detectionList = document.getElementById("detection_list");
+        const liveCanvas = document.getElementById("live_graph_canvas");
+        const liveCtx = liveCanvas.getContext("2d");
+        const liveGraphLabel = document.getElementById("live_graph_label");
+        const liveGraph = {
+          nodes: [],
+          edges: [],
+          pulses: [],
+          signature: "",
+          eventCount: 0,
+          lastUpdated: 0,
+          rotation: 0
+        };
+        let lastTimelineSignature = "";
+        let livePollTimer = null;
 
         const tacticOrder = [
           "Reconnaissance",
@@ -336,6 +392,228 @@
           if (value.includes("medium")) return "#f59e0b";
           if (value.includes("low")) return "#10b981";
           return "#3b82f6";
+        }
+
+        function hashString(value) {
+          let hash = 2166136261;
+          for (let i = 0; i < value.length; i += 1) {
+            hash ^= value.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+          }
+          return String(hash >>> 0);
+        }
+
+        function clamp(value, min, max) {
+          return Math.max(min, Math.min(max, value));
+        }
+
+        function resizeLiveGraph() {
+          const ratio = window.devicePixelRatio || 1;
+          const rect = liveCanvas.getBoundingClientRect();
+          const width = Math.max(320, Math.floor(rect.width));
+          const height = Math.max(280, Math.floor(rect.height));
+          const pixelWidth = Math.floor(width * ratio);
+          const pixelHeight = Math.floor(height * ratio);
+          if (liveCanvas.width !== pixelWidth || liveCanvas.height !== pixelHeight) {
+            liveCanvas.width = pixelWidth;
+            liveCanvas.height = pixelHeight;
+          }
+          liveCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        }
+
+        function eventSignature(event) {
+          const details = Array.from(event.querySelectorAll(".event-details div"))
+            .map((node) => text(node))
+            .join("|");
+          return [
+            text(event, ".event-type"),
+            text(event, ".event-description"),
+            event.getAttribute("data-severity") || text(event, ".event-severity"),
+            details
+          ].join("::");
+        }
+
+        function shortLabel(value, fallback) {
+          const clean = (value || fallback || "event").replace(/\s+/g, " ").trim();
+          if (clean.length <= 28) {
+            return clean;
+          }
+          return clean.slice(0, 25) + "...";
+        }
+
+        function syncLiveGraph(events, techniques, details) {
+          const nextSignature = hashString(events.map(eventSignature).join("\n"));
+          const isNewTimeline = nextSignature !== liveGraph.signature;
+          const nodes = [];
+          const edges = [];
+          const techniqueByKey = new Map();
+          const eventLimit = 72;
+          const visibleEvents = events.slice(-eventLimit);
+
+          techniques.slice(0, 36).forEach((technique, index) => {
+            const laneIndex = Math.max(0, tacticOrder.indexOf(technique.tactic));
+            const angle = (laneIndex / tacticOrder.length) * Math.PI * 2;
+            const radius = 150 + (index % 4) * 28;
+            const node = {
+              id: "tech:" + technique.id + ":" + technique.tactic,
+              label: technique.id,
+              sub: technique.name,
+              type: "technique",
+              color: "#f59e0b",
+              size: clamp(7 + technique.count * 1.5, 8, 22),
+              x: Math.cos(angle) * radius,
+              y: -90 + (index % 6) * 34,
+              z: Math.sin(angle) * radius
+            };
+            nodes.push(node);
+            techniqueByKey.set(technique.id, node.id);
+          });
+
+          visibleEvents.forEach((event, index) => {
+            const severity = event.getAttribute("data-severity") || text(event, ".event-severity") || "Info";
+            const eventType = text(event, ".event-type") || "Detection";
+            const description = text(event, ".event-description") || text(event);
+            const angle = (index / Math.max(1, visibleEvents.length)) * Math.PI * 2;
+            const shell = 68 + (index % 7) * 24;
+            const node = {
+              id: "event:" + hashString(eventSignature(event)),
+              label: shortLabel(eventType, "event"),
+              sub: shortLabel(description, ""),
+              type: "event",
+              color: severityColor(severity),
+              size: /critical|high/i.test(severity) ? 13 : 9,
+              x: Math.cos(angle) * shell,
+              y: -28 + ((index % 9) - 4) * 18,
+              z: Math.sin(angle) * shell
+            };
+            nodes.push(node);
+
+            const techText = text(event, ".technique-id") || text(event, ".technique-badge");
+            const techId = (techText.match(/T\d{4}(?:\.\d{3})?/) || [])[0];
+            if (techId && techniqueByKey.has(techId)) {
+              edges.push({ from: node.id, to: techniqueByKey.get(techId), color: node.color });
+            }
+            if (index > 0) {
+              edges.push({ from: "event:" + hashString(eventSignature(visibleEvents[index - 1])), to: node.id, color: "#3b82f6" });
+            }
+          });
+
+          Array.from(details.network.entries()).slice(0, 20).forEach(([value, count], index) => {
+            const angle = (index / Math.max(1, details.network.size)) * Math.PI * 2;
+            const node = {
+              id: "net:" + hashString(value),
+              label: shortLabel(value, "network"),
+              sub: count + "x",
+              type: "network",
+              color: "#10b981",
+              size: clamp(7 + count, 8, 18),
+              x: Math.cos(angle) * 230,
+              y: 108 + (index % 5) * 18,
+              z: Math.sin(angle) * 230
+            };
+            nodes.push(node);
+            if (nodes.length > 1) {
+              edges.push({ from: nodes[Math.max(0, nodes.length - 2)].id, to: node.id, color: "#10b981" });
+            }
+          });
+
+          if (isNewTimeline && events.length > liveGraph.eventCount) {
+            const newIds = nodes.filter((node) => node.type === "event").slice(-(events.length - liveGraph.eventCount));
+            newIds.forEach((node) => liveGraph.pulses.push({ id: node.id, age: 0, color: node.color }));
+          }
+
+          liveGraph.nodes = nodes;
+          liveGraph.edges = edges;
+          liveGraph.signature = nextSignature;
+          liveGraph.eventCount = events.length;
+          liveGraph.lastUpdated = Date.now();
+          liveGraphLabel.textContent = events.length + " events / " + techniques.length + " techniques / " + details.network.size + " network";
+        }
+
+        function projectNode(node, width, height, rotation) {
+          const cos = Math.cos(rotation);
+          const sin = Math.sin(rotation);
+          const x = node.x * cos - node.z * sin;
+          const z = node.x * sin + node.z * cos + 420;
+          const scale = 360 / (360 + z);
+          return {
+            x: width / 2 + x * scale,
+            y: height / 2 + node.y * scale,
+            z,
+            scale,
+            radius: node.size * scale
+          };
+        }
+
+        function drawLiveGraphFrame() {
+          resizeLiveGraph();
+          const width = liveCanvas.clientWidth;
+          const height = liveCanvas.clientHeight;
+          liveGraph.rotation += 0.004;
+          liveCtx.clearRect(0, 0, width, height);
+          liveCtx.save();
+          liveCtx.globalCompositeOperation = "lighter";
+
+          const projected = new Map();
+          liveGraph.nodes.forEach((node) => {
+            projected.set(node.id, projectNode(node, width, height, liveGraph.rotation));
+          });
+
+          liveGraph.edges.forEach((edge) => {
+            const from = projected.get(edge.from);
+            const to = projected.get(edge.to);
+            if (!from || !to) {
+              return;
+            }
+            const alpha = clamp(0.12 + (from.scale + to.scale) * 0.18, 0.12, 0.5);
+            liveCtx.strokeStyle = edge.color || "#3b82f6";
+            liveCtx.globalAlpha = alpha;
+            liveCtx.lineWidth = clamp((from.scale + to.scale) * 1.2, 0.8, 2.4);
+            liveCtx.beginPath();
+            liveCtx.moveTo(from.x, from.y);
+            liveCtx.lineTo(to.x, to.y);
+            liveCtx.stroke();
+          });
+
+          liveGraph.pulses = liveGraph.pulses.filter((pulse) => pulse.age < 1);
+          liveGraph.pulses.forEach((pulse) => {
+            const point = projected.get(pulse.id);
+            if (!point) {
+              pulse.age = 1;
+              return;
+            }
+            liveCtx.globalAlpha = 1 - pulse.age;
+            liveCtx.strokeStyle = pulse.color;
+            liveCtx.lineWidth = 2;
+            liveCtx.beginPath();
+            liveCtx.arc(point.x, point.y, point.radius + pulse.age * 34, 0, Math.PI * 2);
+            liveCtx.stroke();
+            pulse.age += 0.018;
+          });
+
+          liveGraph.nodes
+            .slice()
+            .sort((a, b) => projectNode(b, width, height, liveGraph.rotation).z - projectNode(a, width, height, liveGraph.rotation).z)
+            .forEach((node) => {
+              const point = projected.get(node.id);
+              liveCtx.globalAlpha = clamp(0.42 + point.scale, 0.42, 1);
+              liveCtx.fillStyle = node.color;
+              liveCtx.shadowColor = node.color;
+              liveCtx.shadowBlur = node.type === "event" ? 18 : 10;
+              liveCtx.beginPath();
+              liveCtx.arc(point.x, point.y, Math.max(3, point.radius), 0, Math.PI * 2);
+              liveCtx.fill();
+              liveCtx.shadowBlur = 0;
+              if (point.scale > 0.58) {
+                liveCtx.globalAlpha = 0.82;
+                liveCtx.fillStyle = "#e5e7eb";
+                liveCtx.font = "11px IBM Plex Mono, monospace";
+                liveCtx.fillText(node.label, point.x + point.radius + 5, point.y + 4);
+              }
+            });
+
+          liveCtx.restore();
+          window.requestAnimationFrame(drawLiveGraphFrame);
         }
 
         function renderTimelineHtml(html) {
@@ -507,26 +785,33 @@
           setMetric("metric_archived", data.archived_files || 0);
 
           document.getElementById("archive_path").textContent = data.archive_dir || "C:\\ProgramData\\HydraDragonAntivirus\\Sanctum\\mitre_attack";
+          syncLiveGraph(events, techniques, details);
           renderGraph(techniques, events);
           renderNetwork(details.network);
           renderDetections(details.detections);
         }
 
         async function loadOverview() {
-          status.textContent = "Loading MITRE ATT&CK archive...";
+          status.textContent = liveGraph.eventCount ? "Refreshing live MITRE ATT&CK events..." : "Loading live MITRE ATT&CK events...";
           try {
             if (!window.__TAURI__ || !window.__TAURI__.core) {
               throw new Error("Tauri API is not available in this preview.");
             }
             const { invoke } = window.__TAURI__.core;
-            const response = await invoke("mitre_attack_overview");
+            const response = await invoke("mitre_attack_live_overview");
             const data = JSON.parse(response);
-            renderTimelineHtml(data.timeline || "");
-            buildOverview(data);
+            const timeline = data.timeline || "";
+            const timelineSignature = hashString(timeline);
+            if (timelineSignature !== lastTimelineSignature) {
+              lastTimelineSignature = timelineSignature;
+              renderTimelineHtml(timeline);
+              buildOverview(data);
+            }
             const archiveErrors = Array.isArray(data.archive_errors) && data.archive_errors.length
               ? " Archive warning: " + data.archive_errors.join(" | ")
               : "";
-            status.textContent = (data.message || "MITRE ATT&CK archive loaded.") + archiveErrors;
+            const updated = data.updated_unix_ms ? " Updated " + new Date(Number(data.updated_unix_ms)).toLocaleTimeString() + "." : "";
+            status.textContent = (data.message || "Live MITRE ATT&CK events loaded.") + updated + archiveErrors;
           } catch (error) {
             status.textContent = String(error);
             renderTimelineHtml("<section class='mitre-empty-state'><h2>MITRE ATT&CK archive unavailable</h2><p>" + String(error) + "</p></section>");
@@ -534,7 +819,15 @@
           }
         }
 
+        window.addEventListener("resize", resizeLiveGraph);
+        drawLiveGraphFrame();
         loadOverview();
+        livePollTimer = window.setInterval(loadOverview, 1500);
+        window.addEventListener("beforeunload", () => {
+          if (livePollTimer) {
+            window.clearInterval(livePollTimer);
+          }
+        });
       });
     </script>
   </head>
@@ -559,6 +852,14 @@
             <div class="mitre-kpi"><span>High/Critical</span><strong id="metric_high">0</strong></div>
             <div class="mitre-kpi"><span>IPs/Domains</span><strong id="metric_network">0</strong></div>
             <div class="mitre-kpi"><span>Archived</span><strong id="metric_archived">0</strong></div>
+          </section>
+
+          <section class="mitre-panel">
+            <h2>Live Event Graph</h2>
+            <div class="live-graph-wrap">
+              <canvas id="live_graph_canvas"></canvas>
+              <div class="live-graph-hud"><span class="live-dot"></span><span id="live_graph_label">0 events / 0 techniques / 0 network</span></div>
+            </div>
           </section>
 
           <section class="mitre-panel">

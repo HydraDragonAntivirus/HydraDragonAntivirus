@@ -890,6 +890,8 @@ pub mod worker_instance {
         pub learning_engine: crate::realtime_learning::RealtimeLearningEngine,
         #[cfg(feature = "realtime_learning")]
         pub api_trackers: HashMap<u64, ApiTracker>,
+        #[cfg(feature = "realtime_learning")]
+        live_mitre_cache_last_write: HashMap<u64, std::time::Instant>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1569,6 +1571,43 @@ pub mod worker_instance {
         }
 
         #[cfg(feature = "realtime_learning")]
+        fn write_live_mitre_timeline_if_due(&mut self, gid: u64) {
+            let now = std::time::Instant::now();
+            let interval = std::time::Duration::from_millis(1200);
+
+            if let Some(last_write) = self.live_mitre_cache_last_write.get(&gid).copied()
+                && now.duration_since(last_write) < interval
+            {
+                return;
+            }
+
+            let Some(precord) = self.process_records.process_records.peek(&gid) else {
+                return;
+            };
+
+            let timeline = crate::mitre_attack::TimelineBuilder::new()
+                .build_timeline(precord, self.api_trackers.get(&gid));
+
+            if timeline.events.is_empty() {
+                return;
+            }
+
+            match crate::actions_on_kill::write_latest_timeline_cache(
+                crate::globals::report_dir(),
+                precord,
+                &timeline,
+            ) {
+                Ok(()) => {
+                    self.live_mitre_cache_last_write.insert(gid, now);
+                }
+                Err(err) => Logging::debug(&format!(
+                    "[MITRE LIVE] Failed to write live timeline cache for GID {}: {}",
+                    gid, err
+                )),
+            }
+        }
+
+        #[cfg(feature = "realtime_learning")]
         fn mark_realtime_process_malicious(
             learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
             api_trackers: &HashMap<u64, ApiTracker>,
@@ -1716,6 +1755,8 @@ pub mod worker_instance {
                 iomsg_postprocessors: vec![],
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: std::collections::HashMap::new(),
+                #[cfg(feature = "realtime_learning")]
+                live_mitre_cache_last_write: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: Self::build_behavior_engine(config),
                 #[cfg(feature = "realtime_learning")]
@@ -2094,6 +2135,8 @@ pub mod worker_instance {
                 // Handle learning engine cleanup
                 #[cfg(feature = "realtime_learning")]
                 {
+                    self.live_mitre_cache_last_write.remove(&gid);
+
                     if precord.is_malicious {
                         self.learning_engine.mark_detected_malicious(
                             gid,
@@ -2543,6 +2586,8 @@ pub mod worker_instance {
                 },
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: HashMap::new(),
+                #[cfg(feature = "realtime_learning")]
+                live_mitre_cache_last_write: HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -2782,6 +2827,9 @@ pub mod worker_instance {
                     }
                 }
             }
+
+            #[cfg(feature = "realtime_learning")]
+            self.write_live_mitre_timeline_if_due(tracking_key);
 
             // FIX: Cleanup on termination - works regardless of feature flags
             if is_process_terminate {
@@ -3767,8 +3815,11 @@ pub mod worker_instance {
                 .unwrap_or(0);
             let has_any_targets = registered_count > 0 || already_registered_count > 0;
             let needs_apply = has_any_targets && applied_generation < target_generation;
+            let mut apply_attempted = false;
+            let mut apply_succeeded = false;
 
             if needs_apply {
+                apply_attempted = true;
                 if let Err(e) = driver.hook_process(pid) {
                     let hr = e.code().0 as u32;
                     let low_word = hr & 0xFFFF;
@@ -3830,14 +3881,28 @@ pub mod worker_instance {
                     self.dynamic_hook_apply_failures.remove(&pid);
                     self.dynamic_hook_applied_generation
                         .insert(pid, target_generation);
+                    apply_succeeded = true;
                 }
             }
 
             self.dynamic_hooks_registered = true;
-            Logging::info(&format!(
-                "[DYNAMIC HOOK] PID {} => registered={} already={} failed={} wildcard={}",
-                pid, registered_count, already_registered_count, failed_count, wildcard_count
-            ));
+            let message = format!(
+                "[DYNAMIC HOOK] PID {} => registered={} already={} failed={} wildcard={} apply_attempted={} apply_succeeded={} generation={}/{}",
+                pid,
+                registered_count,
+                already_registered_count,
+                failed_count,
+                wildcard_count,
+                apply_attempted,
+                apply_succeeded,
+                applied_generation,
+                target_generation
+            );
+            if registered_count > 0 || failed_count > 0 || apply_attempted {
+                Logging::info(&message);
+            } else {
+                Logging::debug(&message);
+            }
         }
     }
 }

@@ -841,6 +841,9 @@ extern "C" PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID)
 }
 
 #define OWLY_HV_EVENT_QUEUE_TAG 'vHwO'
+#define OWLY_UMH_DRAIN_POOL_TAG 'dHuM'
+#define OWLY_UMH_DRAIN_BATCH_EVENTS 64UL
+#define OWLY_UMH_DRAIN_MAX_ROUNDS_PER_PID 16UL
 
 typedef struct _OWLY_HV_EVENT_ENTRY
 {
@@ -1032,6 +1035,110 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     OwlyTriggerRootkitDetectorForHypervisorEvent(effectiveIrpOp);
 
     return TRUE;
+}
+
+static VOID DrainUserModeHookRingEvents(VOID)
+{
+    ULONG processIds[MAX_HOOKED_PROCESSES] = {0};
+    ULONG processCount;
+    PHOOK_EVENT_DATA events;
+
+    processCount = UserModeHookSnapshotHookedProcessIds(processIds, RTL_NUMBER_OF(processIds));
+    if (processCount == 0)
+    {
+        return;
+    }
+
+    events = (PHOOK_EVENT_DATA)ExAllocatePool2(POOL_FLAG_NON_PAGED,
+                                               sizeof(HOOK_EVENT_DATA) * OWLY_UMH_DRAIN_BATCH_EVENTS,
+                                               OWLY_UMH_DRAIN_POOL_TAG);
+    if (events == NULL)
+    {
+        return;
+    }
+
+    for (ULONG processIndex = 0; processIndex < processCount; ++processIndex)
+    {
+        ULONG processId = processIds[processIndex];
+
+        for (ULONG round = 0; round < OWLY_UMH_DRAIN_MAX_ROUNDS_PER_PID; ++round)
+        {
+            ULONG eventsRead = 0;
+            NTSTATUS status = UserModeHookDrainHookEventsForProcess(processId, events,
+                                                                    OWLY_UMH_DRAIN_BATCH_EVENTS,
+                                                                    &eventsRead);
+            if (!NT_SUCCESS(status) || eventsRead == 0)
+            {
+                break;
+            }
+
+            for (ULONG i = 0; i < eventsRead; ++i)
+            {
+                HOOK_EVENT_DATA *event = &events[i];
+                ULONG eventType = event->EventType;
+                ULONG sourcePid = (event->ProcessId != 0) ? event->ProcessId : processId;
+                ULONG_PTR rawArg1 = event->Arg1;
+                ULONG_PTR rawArg2 = event->Arg2;
+                ULONG_PTR rawArg3 = event->Arg3;
+                ULONG_PTR rawArg4 = event->Arg4;
+                ULONG targetPid = ResolveHookTargetProcessId(sourcePid, rawArg1, rawArg2, rawArg3, rawArg4);
+                WCHAR convertedName[64] = {0};
+                WCHAR resolvedName[MAX_FILE_NAME_LENGTH] = {0};
+                PCWSTR incomingWideName = NULL;
+                PCWSTR functionName = L"";
+                BOOLEAN incomingHasName = FALSE;
+                BOOLEAN incomingQualified = FALSE;
+
+                event->FunctionName[RTL_NUMBER_OF(event->FunctionName) - 1] = '\0';
+                if (event->FunctionName[0] != '\0')
+                {
+                    ANSI_STRING asFunc;
+                    UNICODE_STRING usFunc;
+                    RtlInitAnsiString(&asFunc, event->FunctionName);
+                    usFunc.Buffer = convertedName;
+                    usFunc.Length = 0;
+                    usFunc.MaximumLength = sizeof(convertedName);
+                    if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
+                    {
+                        convertedName[RTL_NUMBER_OF(convertedName) - 1] = L'\0';
+                        incomingWideName = convertedName;
+                    }
+                }
+
+                incomingHasName = (incomingWideName != NULL && incomingWideName[0] != L'\0');
+                if (incomingHasName)
+                {
+                    incomingQualified = (wcschr(incomingWideName, L'!') != NULL) ? TRUE : FALSE;
+                }
+
+                if (incomingQualified)
+                {
+                    functionName = incomingWideName;
+                }
+                else if (ResolveHookNameByEventId(eventType, resolvedName, RTL_NUMBER_OF(resolvedName)) &&
+                         resolvedName[0] != L'\0')
+                {
+                    functionName = resolvedName;
+                }
+                else if (incomingHasName)
+                {
+                    functionName = incomingWideName;
+                }
+
+#if IS_DEBUG_IRP
+                DbgPrint("UserModeHook: drained ring event RawType=%lu Name=%ws SourcePid=%lu TargetPid=%lu "
+                         "Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
+                         eventType, functionName, sourcePid, targetPid, (PVOID)rawArg1, (PVOID)rawArg2,
+                         (PVOID)rawArg3, (PVOID)rawArg4);
+#endif
+
+                (VOID)OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, sourcePid, targetPid, functionName,
+                                       rawArg1, rawArg2, rawArg3, rawArg4);
+            }
+        }
+    }
+
+    ExFreePoolWithTag(events, OWLY_UMH_DRAIN_POOL_TAG);
 }
 
 VOID ResetQueuedHypervisorEvents(VOID)
@@ -1605,6 +1712,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         }
         *ReturnOutputBufferLength = 0;
         DrainQueuedHypervisorEvents(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
+        DrainUserModeHookRingEvents();
         driverData->DriverGetIrps(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
         return STATUS_SUCCESS;
     }

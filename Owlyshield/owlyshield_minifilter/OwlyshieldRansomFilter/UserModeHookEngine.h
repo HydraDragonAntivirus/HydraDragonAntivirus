@@ -343,6 +343,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry);
 NTSTATUS UserModeHookDrainRingForProcess(_In_ ULONG ProcessId, _Out_writes_all_(MaxEvents) PUMH_RING_EVENT Events, _In_ ULONG MaxEvents, _Out_ PULONG EventsRead);
 NTSTATUS UserModeHookDrainHookEventsForProcess(_In_ ULONG ProcessId, _Out_writes_all_(MaxEvents) PHOOK_EVENT_DATA Events, _In_ ULONG MaxEvents, _Out_ PULONG EventsRead);
+ULONG UserModeHookSnapshotHookedProcessIds(_Out_writes_(MaxPids) PULONG ProcessIds, _In_ ULONG MaxPids);
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config);
 _Success_(return != FALSE)
 BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutName, _In_ ULONG OutNameCch);

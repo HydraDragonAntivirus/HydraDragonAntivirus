@@ -959,6 +959,61 @@ fn write_timeline_cache(
 }
 
 #[cfg(feature = "realtime_learning")]
+pub(crate) fn write_latest_timeline_cache(
+    report_dir: &Path,
+    proc: &ProcessRecord,
+    timeline: &crate::mitre_attack::timeline::AttackTimeline,
+) -> Result<(), Box<dyn Error>> {
+    let html = format!(
+        "<style>{}</style>\n{}",
+        crate::mitre_attack::timeline::AttackTimeline::get_timeline_css(),
+        timeline.to_html()
+    );
+    let json = serde_json::to_string_pretty(timeline)?;
+
+    let mut pids = proc.pids.iter().copied().collect::<Vec<_>>();
+    pids.sort_unstable();
+    pids.dedup();
+
+    let mut cache_dirs = vec![report_dir.to_path_buf()];
+    let persistent_archive = persistent_mitre_archive_dir();
+    if !same_cache_path(report_dir, &persistent_archive) {
+        cache_dirs.push(persistent_archive);
+    }
+
+    for cache_dir in cache_dirs {
+        write_latest_timeline_cache_files(&cache_dir, proc, &html, &json, &pids)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "realtime_learning")]
+fn write_latest_timeline_cache_files(
+    report_dir: &Path,
+    proc: &ProcessRecord,
+    html: &str,
+    json: &str,
+    pids: &[u32],
+) -> Result<(), Box<dyn Error>> {
+    std::fs::create_dir_all(report_dir)?;
+
+    let latest_gid_html = report_dir.join(format!("latest_timeline_gid_{}.html", proc.gid));
+    let latest_gid_json = report_dir.join(format!("latest_timeline_gid_{}.json", proc.gid));
+    std::fs::write(latest_gid_html, html)?;
+    std::fs::write(latest_gid_json, json)?;
+
+    for pid in pids.iter().copied() {
+        let latest_html = report_dir.join(format!("latest_timeline_pid_{}.html", pid));
+        let latest_json = report_dir.join(format!("latest_timeline_pid_{}.json", pid));
+        std::fs::write(latest_html, html)?;
+        std::fs::write(latest_json, json)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "realtime_learning")]
 fn write_timeline_cache_files(
     report_dir: &Path,
     proc: &ProcessRecord,

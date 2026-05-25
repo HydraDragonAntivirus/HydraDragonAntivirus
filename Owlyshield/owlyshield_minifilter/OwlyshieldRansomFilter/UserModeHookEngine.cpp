@@ -3918,6 +3918,38 @@ NTSTATUS UserModeHookDrainHookEventsForProcess(_In_ ULONG ProcessId,
     return status;
 }
 
+ULONG UserModeHookSnapshotHookedProcessIds(_Out_writes_(MaxPids) PULONG ProcessIds, _In_ ULONG MaxPids)
+{
+    ULONG count = 0;
+
+    if (ProcessIds == NULL || MaxPids == 0)
+    {
+        return 0;
+    }
+
+    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
+    {
+        return 0;
+    }
+
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES && count < MaxPids; ++i)
+    {
+        PPROCESS_HOOK_ENTRY entry = &g_UserHookEngine->Processes[i];
+        if (entry->ProcessId != 0 &&
+            entry->IsHooked &&
+            !entry->IsInProgress &&
+            entry->RingBase != NULL &&
+            entry->ProcessObject != NULL)
+        {
+            ProcessIds[count++] = entry->ProcessId;
+        }
+    }
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    return count;
+}
+
 
 
 //
@@ -4108,6 +4140,10 @@ DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId
 
         if (hookEntry->ShellcodeBase == NULL || hookEntry->ShellcodeSize == 0 ||
             hookEntry->RingBase == NULL || hookEntry->RingSize < sizeof(UMH_SHARED_RING))
+        {
+            rebuildInfrastructure = TRUE;
+        }
+        else if (customHookCountSnapshot > hookEntry->CustomHookCapacity)
         {
             rebuildInfrastructure = TRUE;
         }

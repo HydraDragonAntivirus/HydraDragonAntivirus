@@ -84,6 +84,11 @@ pub async fn mitre_attack_overview() -> Result<String, ()> {
     Ok(build_mitre_attack_overview_response().to_string())
 }
 
+#[tauri::command]
+pub async fn mitre_attack_live_overview() -> Result<String, ()> {
+    Ok(build_mitre_attack_live_overview_response().to_string())
+}
+
 fn build_mitre_attack_overview_response() -> Value {
     let cache = load_owlyshield_timeline_cache("", MAX_OVERVIEW_TIMELINES);
     let timeline = cache
@@ -98,6 +103,14 @@ fn build_mitre_attack_overview_response() -> Value {
         timeline,
         &cache,
     )
+}
+
+fn build_mitre_attack_live_overview_response() -> Value {
+    let mut value = build_mitre_attack_overview_response();
+    value["source"] = json!("programdata_mitre_live");
+    value["message"] = json!("Live MITRE ATT&CK event graph refreshed");
+    value["updated_unix_ms"] = json!(system_time_unix_ms(SystemTime::now()));
+    value
 }
 
 fn timeline_cache_response(
