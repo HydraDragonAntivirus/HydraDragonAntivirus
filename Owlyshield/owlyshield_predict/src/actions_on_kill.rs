@@ -638,7 +638,7 @@ fn timeline_event_context(event: &crate::mitre_attack::timeline::TimelineEvent) 
     if let Some(destination) = &event.network_destination {
         parts.push(format!("network={destination}"));
     }
-    for (key, value) in event.details.iter().take(8) {
+    for (key, value) in &event.details {
         parts.push(format!("{key}={value}"));
     }
 
@@ -647,13 +647,50 @@ fn timeline_event_context(event: &crate::mitre_attack::timeline::TimelineEvent) 
 
 #[cfg(feature = "realtime_learning")]
 fn timeline_event_raw_data(event: &crate::mitre_attack::timeline::TimelineEvent) -> String {
-    event
-        .details
-        .iter()
-        .take(24)
-        .map(|(key, value)| format!("{key}={value}"))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut rows = vec![
+        format!("event_type={}", event.event_type),
+        format!("severity={}", event.severity.label()),
+        format!("timestamp_ms={}", event.timestamp_ms),
+        format!("description={}", event.description),
+    ];
+
+    if let Some(pid) = event.pid {
+        rows.push(format!("pid={pid}"));
+    }
+    if let Some(process_name) = &event.process_name {
+        rows.push(format!("process={process_name}"));
+    }
+    if let Some(file_path) = &event.file_path {
+        rows.push(format!("file={file_path}"));
+    }
+    if let Some(registry_key) = &event.registry_key {
+        rows.push(format!("registry={registry_key}"));
+    }
+    if let Some(destination) = &event.network_destination {
+        rows.push(format!("network={destination}"));
+    }
+    if !event.mitre_techniques.is_empty() {
+        rows.push(format!(
+            "mitre_techniques={}",
+            event
+                .mitre_techniques
+                .iter()
+                .map(|technique| format!(
+                    "{}:{}:{}",
+                    technique.id, technique.name, technique.tactic
+                ))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ));
+    }
+    rows.extend(
+        event
+            .details
+            .iter()
+            .map(|(key, value)| format!("{key}={value}")),
+    );
+
+    rows.join("\n")
 }
 
 #[cfg(feature = "realtime_learning")]
@@ -720,17 +757,27 @@ fn build_detection_explanation(
         .events
         .iter()
         .filter(|event| event.severity >= EventSeverity::High)
-        .take(8)
     {
-        builder = builder.add_reason(format!(
-            "{} [{}]: {}",
-            event.event_type,
-            event.severity.label(),
-            event.description
-        ));
+        let context = timeline_event_context(event);
+        if context.is_empty() {
+            builder = builder.add_reason(format!(
+                "{} [{}]: {}",
+                event.event_type,
+                event.severity.label(),
+                event.description
+            ));
+        } else {
+            builder = builder.add_reason(format!(
+                "{} [{}]: {} | Evidence: {}",
+                event.event_type,
+                event.severity.label(),
+                event.description,
+                context
+            ));
+        }
     }
 
-    for technique in timeline.get_unique_techniques().into_iter().take(12) {
+    for technique in timeline.get_unique_techniques() {
         builder = builder.add_technique(format!(
             "{} - {} ({})",
             technique.id, technique.name, technique.tactic
@@ -865,7 +912,6 @@ fn system_time_ms(value: SystemTime) -> u64 {
         .as_millis() as u64
 }
 
-#[cfg(feature = "realtime_learning")]
 fn html_escape(value: &str) -> String {
     value
         .chars()
@@ -1060,25 +1106,37 @@ impl ActionOnKill for WriteReportHtmlFile {
         }
         file.write_all(b"</style>")?;
         file.write_all(b"</head><body>\n")?;
+        let threat_label_html = html_escape(threat_info.threat_type_label);
+        let display_process_html = html_escape(&display_process);
+        let process_state_html = html_escape(&proc.process_state.to_string());
+        let response_label_html = html_escape(threat_info.response_label_for(proc));
+        let response_time_label_html = html_escape(threat_info.response_time_label_for(proc));
+        let virus_name_html = html_escape(threat_info.virus_name);
+        let details_html = threat_info
+            .match_details
+            .as_deref()
+            .map(html_escape)
+            .unwrap_or_else(|| "N/A".to_string());
+
         // MODIFIED: Use threat_type_label
         file.write_all(
                 format!("<table><tr><th><h1><b>Owlyshield detected a </b><span style='color: white;'>{}</span><b>!</b></h1></th></tr></table>\n", 
-                threat_info.threat_type_label).as_bytes()
+                threat_label_html).as_bytes()
             )?;
         // MODIFIED: Use threat_type_label and add Detection (virus_name)
         file.write_all(format!(
-                "<br/><table><tr><td style='text-align: center;'><h3>{} detected running from: <span style='color: red;' id='fullPath'>{}</span></h3></td></tr><tr valign='top'><td style='text-align: left;'><ul><li>Process State:<b id='processState'> {}</b></li><li>Started on<b id='startDate'> {}</b></li><li>Response:<b id='response'> {}</b></li><li>{}<b id='responseDate'> {}</b></li><li>GID: <b id='gid'> {}</b></li><li>Detection: <b id='detection'> {}</b></li><li>Certainty: <b id='certainty'> {}</b></li><li>Details: <b id='details'> {}</b></li></ul></td></tr></table>\n",
-                threat_info.threat_type_label, // 1. Threat Type
-                display_process, // 2. Path
-                proc.process_state, // 3. State
+                "<br/><table><tr><td style='text-align: center;'><h3>{} detected running from: <span style='color: red;' id='fullPath'>{}</span></h3></td></tr><tr valign='top'><td style='text-align: left;'><ul><li>Process State:<b id='processState'> {}</b></li><li>Started on<b id='startDate'> {}</b></li><li>Response:<b id='response'> {}</b></li><li>{}<b id='responseDate'> {}</b></li><li>GID: <b id='gid'> {}</b></li><li>Detection: <b id='detection'> {}</b></li><li>Certainty: <b id='certainty'> {}</b></li><li>Details:<pre id='details' class='raw-panel'>{}</pre></li></ul></td></tr></table>\n",
+                threat_label_html, // 1. Threat Type
+                display_process_html, // 2. Path
+                process_state_html, // 3. State
                 stime_started.format(LONG_TIME_FORMAT), // 4. Start time
-                threat_info.response_label_for(proc), // 5. Response action
-                threat_info.response_time_label_for(proc), // 6. Response time label
+                response_label_html, // 5. Response action
+                response_time_label_html, // 6. Response time label
                 DateTime::<Local>::from(proc.time_killed.unwrap_or_else(SystemTime::now)).format(LONG_TIME_FORMAT), // 7. Response time
                 proc.gid, // 8. GID
-                threat_info.virus_name, // 9. Virus Name
+                virus_name_html, // 9. Virus Name
                 threat_info.prediction, // 10. Certainty
-                threat_info.match_details.as_deref().unwrap_or("N/A") // 11. Details
+                details_html // 11. Details
             ).as_bytes())?;
 
         // Generate attack timeline, scoring, and evidence report

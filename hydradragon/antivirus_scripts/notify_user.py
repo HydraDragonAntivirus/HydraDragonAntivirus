@@ -90,6 +90,7 @@ async def _send_av_event_to_edr(
     action: str = "kill_and_quarantine",
     pid: Optional[int] = None,
     main_file_path: Optional[str] = None,
+    match_details: Optional[str] = None,
 ) -> None:
     """
     (Internal) Async: Connects to the Owlyshield EDR pipe and sends a threat event.
@@ -120,6 +121,9 @@ async def _send_av_event_to_edr(
         "gid": None,
     }
 
+    if match_details:
+        event["match_details"] = str(match_details)
+
     if main_file_path:
         # Note: Your Rust struct does not seem to have 'main_file_path'
         # If it's needed, you must add it to AVThreatEvent in av_integration.rs
@@ -146,6 +150,7 @@ async def _send_to_edr(
     detection_type: str = "signature",
     action: str = "kill_and_quarantine",
     main_file_path: Optional[str] = None,
+    match_details: Optional[str] = None,
 ) -> None:
     """
     Async helper to forward to EDR.
@@ -170,11 +175,18 @@ async def _send_to_edr(
             detection_type=detection_type,
             action=action,
             main_file_path=main_file_path,
+            match_details=match_details,
         )
     except TypeError:
         # Defensive fallback
         try:
-            await _send_av_event_to_edr(target_path, threat_name, detection_type=detection_type, action=action)
+            await _send_av_event_to_edr(
+                target_path,
+                threat_name,
+                detection_type=detection_type,
+                action=action,
+                match_details=match_details,
+            )
         except Exception as e:
             logger.exception(f"Failed to forward to EDR (fallback): {e}")
     except Exception as e:
@@ -203,7 +215,13 @@ async def _add_malicious_hash(file_path: str, virus_name: str) -> None:
 # --- Notification Functions (Now fully async) ---
 
 
-async def notify_user(file_path, virus_name, engine_detected, main_file_path: Optional[str] = None) -> None:
+async def notify_user(
+    file_path,
+    virus_name,
+    engine_detected,
+    main_file_path: Optional[str] = None,
+    match_details: Optional[str] = None,
+) -> None:
     try:
         notification_message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
         logger.critical(notification_message)
@@ -214,12 +232,19 @@ async def notify_user(file_path, virus_name, engine_detected, main_file_path: Op
             detection_type="malware",  # MODIFIED
             action="kill_and_quarantine",
             main_file_path=main_file_path,
+            match_details=match_details,
         )
     except Exception as e:
         logger.exception(f"notify_user failed: {e}")
 
 
-async def notify_user_pua(file_path, virus_name, engine_detected, main_file_path: Optional[str] = None) -> None:
+async def notify_user_pua(
+    file_path,
+    virus_name,
+    engine_detected,
+    main_file_path: Optional[str] = None,
+    match_details: Optional[str] = None,
+) -> None:
     try:
         notification_message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
         logger.critical(notification_message)
@@ -230,6 +255,7 @@ async def notify_user_pua(file_path, virus_name, engine_detected, main_file_path
             detection_type="pua",  # MODIFIED: Set detection_type to "pua"
             action="kill_and_quarantine",
             main_file_path=main_file_path,
+            match_details=match_details,
         )
     except Exception as e:
         logger.exception(f"notify_user_pua failed: {e}")
@@ -548,6 +574,7 @@ async def notify_user_duplicate(file_path, file_hash: str, known_virus_name: str
             f"Duplicate: {known_virus_name}",
             detection_type="duplicate_malware",  # MODIFIED
             action="kill_and_quarantine",
+            match_details=f"Known malicious MD5 matched cached detection. MD5={file_hash}; PreviousDetection={known_virus_name}",
         )
     except Exception as e:
         logger.exception(f"notify_user_duplicate failed: {e}")

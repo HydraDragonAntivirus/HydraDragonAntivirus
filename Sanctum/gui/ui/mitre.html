@@ -175,6 +175,27 @@
         overflow-wrap: anywhere;
       }
 
+      .event-details-full {
+        margin-top: 10px;
+        color: var(--t-secondary);
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 11px;
+      }
+
+      .event-details-full summary {
+        cursor: pointer;
+        color: var(--accent-amber);
+      }
+
+      .event-detail-line {
+        margin-top: 6px;
+        padding: 7px 8px;
+        border-left: 2px solid var(--border-main);
+        background: rgba(255, 255, 255, 0.04);
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+
       .timeline-source {
         color: var(--t-primary);
       }
@@ -449,7 +470,16 @@
             addText(main, "strong", "", event.eventType);
             addText(main, "span", "", event.description);
             if (event.details.length) {
-              addText(main, "code", "", event.details.slice(0, 6).join(" | "));
+              const details = document.createElement("details");
+              details.className = "event-details-full";
+              details.open = true;
+              const summary = document.createElement("summary");
+              summary.textContent = "Evidence details (" + event.details.length + ")";
+              details.appendChild(summary);
+              event.details.forEach((detail) => {
+                addText(details, "div", "event-detail-line", detail);
+              });
+              main.appendChild(details);
             }
             row.appendChild(main);
             detectionList.appendChild(row);

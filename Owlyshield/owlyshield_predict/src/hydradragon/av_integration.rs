@@ -49,8 +49,8 @@ const PIPE_EDR_TO_AV: &str = r"\\.\pipe\Global\owlyshield_to_hydradragon";
 const PIPE_MBR_ALERT: &str = r"\\.\pipe\Global\mbr_filter_alerts";
 const HYDRADRAGON_AV_PIPE: &str = r"\\.\pipe\HydraDragonAV";
 
-const BUFFER_SIZE: u32 = 8192;
-const PIPE_READ_BUFFER_SIZE: u32 = 65536;
+const BUFFER_SIZE: u32 = 262144;
+const PIPE_READ_BUFFER_SIZE: u32 = 262144;
 const FAST_SERVICE_PIPE_TIMEOUT_MS: u32 = 750;
 #[allow(dead_code)] // Silencing warning, this is used by the (currently) unused send_threat_to_edr
 const CONNECT_TIMEOUT_MS: u32 = 900_000; // 900s - adjust as needed
@@ -126,6 +126,7 @@ impl ThreatAction {
             .as_str()
         {
             "kill" => ThreatAction::Kill,
+            "kill_only" => ThreatAction::Kill,
             "kill_and_remove" => ThreatAction::KillAndRemove,
             "kill_and_quarantine" => ThreatAction::KillAndQuarantine,
             _ => ThreatAction::KillAndQuarantine,
@@ -150,6 +151,8 @@ pub struct AVThreatEvent {
     pub virus_name: String,
     pub is_malicious: bool,
     pub detection_type: String,
+    #[serde(default)]
+    pub match_details: Option<String>,
     #[serde(default)]
     pub action_required: ThreatAction,
     #[serde(default)]
@@ -187,6 +190,8 @@ pub struct RustServiceScanResult {
     pub engine: String,
     pub malicious: bool,
     pub virus_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_details: Option<String>,
     #[serde(default)]
     pub is_vmprotect: bool,
     #[serde(default)]
@@ -288,6 +293,7 @@ struct ScanMetadata {
     signature_status: Option<FileSignatureStatus>,
     yara_x_matches: Vec<String>,
     hydradragon_static_matches: Vec<String>,
+    hydradragon_static_match_details: Vec<String>,
     is_vmprotect: bool,
     detectiteasy_scan_result: Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
     should_queue_scan: bool,
@@ -299,6 +305,7 @@ impl ScanMetadata {
             signature_status: None,
             yara_x_matches: Vec::new(),
             hydradragon_static_matches: Vec::new(),
+            hydradragon_static_match_details: Vec::new(),
             is_vmprotect: false,
             detectiteasy_scan_result: None,
             should_queue_scan: true,
@@ -344,6 +351,7 @@ fn clean_service_result(engine: &str) -> RustServiceScanResult {
         engine: engine.to_string(),
         malicious: false,
         virus_name: "Clean".to_string(),
+        match_details: None,
         is_vmprotect: false,
         error: None,
     }
@@ -354,6 +362,7 @@ fn service_error_result(engine: &str, error: impl Into<String>) -> RustServiceSc
         engine: engine.to_string(),
         malicious: false,
         virus_name: "Error".to_string(),
+        match_details: None,
         is_vmprotect: false,
         error: Some(error.into()),
     }
@@ -530,19 +539,38 @@ fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
                 return Ok(RustServiceScanResult {
                     engine: "HydraDragonAV/ClamAV".to_string(),
                     malicious: true,
+                    match_details: Some(format!(
+                        "HydraDragonAV/ClamAV matched signature '{}' for {}",
+                        virus_name, file_path
+                    )),
                     virus_name,
                     is_vmprotect: response.is_vmprotect.unwrap_or(false),
                     error: None,
                 });
             }
 
-            if let Some(virus_name) = response
+            if let Some(yara_matches) = response
                 .yara
-                .and_then(|matches| matches.into_iter().find(|v| !v.trim().is_empty()))
+                .filter(|matches| matches.iter().any(|v| !v.trim().is_empty()))
             {
+                let virus_name = yara_matches
+                    .iter()
+                    .find(|v| !v.trim().is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| "LegacyYARA.Match".to_string());
                 return Ok(RustServiceScanResult {
                     engine: "HydraDragonAV/LegacyYARA".to_string(),
                     malicious: true,
+                    match_details: Some(format!(
+                        "HydraDragonAV/LegacyYARA matched rule(s) for {}: {}",
+                        file_path,
+                        yara_matches
+                            .iter()
+                            .filter(|v| !v.trim().is_empty())
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
                     virus_name,
                     is_vmprotect: response.is_vmprotect.unwrap_or(false),
                     error: None,
@@ -557,6 +585,10 @@ fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
                 return Ok(RustServiceScanResult {
                     engine: "HydraDragonAV/Xvirus".to_string(),
                     malicious: true,
+                    match_details: Some(format!(
+                        "HydraDragonAV/Xvirus reported detection '{}' for {}",
+                        virus_name, file_path
+                    )),
                     virus_name,
                     is_vmprotect: response.is_vmprotect.unwrap_or(false),
                     error: None,
@@ -567,6 +599,10 @@ fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
                 engine: "HydraDragonAV".to_string(),
                 malicious: true,
                 virus_name: "HydraDragonAV.Detection".to_string(),
+                match_details: Some(format!(
+                    "HydraDragonAV pipe reported malicious=true for {} but did not return a specific signature name",
+                    file_path
+                )),
                 is_vmprotect: response.is_vmprotect.unwrap_or(false),
                 error: None,
             });
@@ -1043,6 +1079,12 @@ fn parse_av_threat_event(message: &str) -> Result<AVThreatEvent, String> {
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
+    let match_details = value
+        .get("match_details")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
     let action_required =
         ThreatAction::from_raw(value.get("action_required").and_then(|v| v.as_str()));
     let pid = value
@@ -1057,6 +1099,7 @@ fn parse_av_threat_event(message: &str) -> Result<AVThreatEvent, String> {
         virus_name,
         is_malicious,
         detection_type,
+        match_details,
         action_required,
         pid,
         gid,
@@ -1717,10 +1760,7 @@ fn hydradragon_static_match_names(
         .iter()
         .filter(|finding| detection_mode.includes(finding.verdict))
     {
-        let name = finding
-            .family
-            .clone()
-            .unwrap_or_else(|| finding.rule_id.clone());
+        let name = hydradragon_static_finding_name(finding);
         if !names.iter().any(|existing| existing == &name) {
             names.push(name);
         }
@@ -1740,24 +1780,148 @@ fn hydradragon_static_match_names(
     names
 }
 
+fn hydradragon_static_finding_name(finding: &hydradragonstatic::models::Finding) -> String {
+    finding
+        .family
+        .clone()
+        .unwrap_or_else(|| finding.rule_id.clone())
+}
+
+fn hydradragon_static_match_details(
+    report: &ScanReport,
+    detection_mode: StaticDetectionMode,
+) -> Vec<String> {
+    if !detection_mode.includes(report.verdict) {
+        return Vec::new();
+    }
+
+    let mut details = Vec::new();
+    for finding in report
+        .findings
+        .iter()
+        .filter(|finding| detection_mode.includes(finding.verdict))
+    {
+        let mut rows = vec![
+            "Engine=HydraDragonStatic".to_string(),
+            format!("File={}", report.path.display()),
+            format!("FileSize={}", report.file_size),
+            format!("Entropy={:.3}", report.entropy),
+            format!("SHA256={}", report.hashes.sha256),
+            format!("MD5={}", report.hashes.md5),
+            format!("ReportVerdict={}", report.verdict.label()),
+            format!("ReportConfidence={}", report.confidence),
+            format!("ReportScore={}", report.score),
+            format!("RuleId={}", finding.rule_id),
+            format!("RuleTitle={}", finding.title),
+            format!("RuleDescription={}", finding.description),
+            format!("RuleSeverity={:?}", finding.severity),
+            format!("RuleVerdict={}", finding.verdict.label()),
+            format!("RuleConfidence={}", finding.confidence),
+            format!("RuleScore={}", finding.score),
+            format!("ThreatName={}", hydradragon_static_finding_name(finding)),
+        ];
+
+        if !finding.tags.is_empty() {
+            rows.push(format!("Tags={}", finding.tags.join(", ")));
+        }
+        if !finding.evidence.is_empty() {
+            rows.push("MatchedEvidence:".to_string());
+            rows.extend(
+                finding
+                    .evidence
+                    .iter()
+                    .map(|evidence| format!("  - {evidence}")),
+            );
+        }
+        rows.push(format!(
+            "FileType=primary:{} tags:{}",
+            report.file_type.primary,
+            report.file_type.tags.join(",")
+        ));
+        if let Some(pe) = &report.pe {
+            rows.push(format!(
+                "PE=arch:{} entry:0x{:X} image_base:0x{:X} imports:{} dlls:{} suspicious_imports:{} likely_packed:{}",
+                pe.arch,
+                pe.entry,
+                pe.image_base,
+                pe.imports.len(),
+                pe.dlls.len(),
+                pe.suspicious_imports.join(", "),
+                pe.likely_packed
+            ));
+            if !pe.suspicious_sections.is_empty() {
+                rows.push(format!(
+                    "SuspiciousSections={}",
+                    pe.suspicious_sections.join(", ")
+                ));
+            }
+        }
+        if !report.env_hits.is_empty() {
+            rows.push(format!(
+                "EnvHits={}",
+                report
+                    .env_hits
+                    .iter()
+                    .map(|hit| format!("{}:{}", hit.name, hit.reason))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ));
+        }
+        if !report.registry_hits.is_empty() {
+            rows.push(format!(
+                "RegistryHits={}",
+                report
+                    .registry_hits
+                    .iter()
+                    .map(|hit| format!("{}:{}", hit.key_or_value, hit.reason))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ));
+        }
+
+        details.push(rows.join("\n"));
+    }
+
+    if details.is_empty() {
+        if let Some(threat_name) = &report.threat_name {
+            details.push(format!(
+                "Engine=HydraDragonStatic\nFile={}\nReportVerdict={}\nReportConfidence={}\nReportScore={}\nThreatName={}",
+                report.path.display(),
+                report.verdict.label(),
+                report.confidence,
+                report.score,
+                threat_name
+            ));
+        }
+    }
+
+    details
+}
+
 fn scan_with_hydradragon_static(
     engine: &EngineCore,
     path: &Path,
     detection_mode: StaticDetectionMode,
-) -> Vec<String> {
+) -> (Vec<String>, Vec<String>) {
     match engine.scan_path(path) {
-        Ok(report) => hydradragon_static_match_names(&report, detection_mode),
+        Ok(report) => (
+            hydradragon_static_match_names(&report, detection_mode),
+            hydradragon_static_match_details(&report, detection_mode),
+        ),
         Err(error) => {
             Logging::debug(&format!(
                 "[HydraDragonStatic] Scan skipped for {}: {error:#}",
                 path.display()
             ));
-            Vec::new()
+            (Vec::new(), Vec::new())
         }
     }
 }
 
-fn hydradragon_static_service_result(matches: &[String]) -> Option<RustServiceScanResult> {
+fn hydradragon_static_service_result(
+    matches: &[String],
+    match_details: &[String],
+) -> Option<RustServiceScanResult> {
     let virus_name = matches
         .iter()
         .find(|name| !name.trim().is_empty())
@@ -1768,13 +1932,18 @@ fn hydradragon_static_service_result(matches: &[String]) -> Option<RustServiceSc
         engine: "HydraDragonStatic".to_string(),
         malicious: true,
         virus_name,
+        match_details: (!match_details.is_empty()).then(|| match_details.join("\n\n")),
         is_vmprotect: false,
         error: None,
     })
 }
 
-fn append_hydradragon_static_result(results: &mut Vec<RustServiceScanResult>, matches: &[String]) {
-    if let Some(result) = hydradragon_static_service_result(matches) {
+fn append_hydradragon_static_result(
+    results: &mut Vec<RustServiceScanResult>,
+    matches: &[String],
+    match_details: &[String],
+) {
+    if let Some(result) = hydradragon_static_service_result(matches, match_details) {
         results.insert(0, result);
     }
 }
@@ -1994,17 +2163,39 @@ impl<'a> AVIntegration<'a> {
             "Malware"
         };
 
+        let virus_name = if event.virus_name.is_empty() {
+            &event.detection_type
+        } else {
+            &event.virus_name
+        };
+        let match_details = event.match_details.clone().or_else(|| {
+            Some(format!(
+                "DetectionType={} VirusName={} File={} Action={}",
+                event.detection_type,
+                virus_name,
+                event.file_path,
+                event.action_required.as_str()
+            ))
+        });
+
+        precord.is_malicious = event.is_malicious;
+        precord.termination_requested = event.action_required != ThreatAction::Monitor;
+        precord.quarantine_requested = event.action_required == ThreatAction::KillAndQuarantine;
+        precord.kill_and_remove_requested = event.action_required == ThreatAction::KillAndRemove;
+        precord.notify_user_requested = true;
+        precord.triggered_rule_name = Some(virus_name.to_string());
+        precord.triggered_rule_details = match_details.clone();
+        if precord.remediation_target_path.is_none() && !event.file_path.trim().is_empty() {
+            precord.remediation_target_path = Some(PathBuf::from(&event.file_path));
+        }
+
         let threat_info = ThreatInfo {
             threat_type_label: threat_label,
-            virus_name: if event.virus_name.is_empty() {
-                &event.detection_type
-            } else {
-                &event.virus_name
-            },
+            virus_name,
             prediction: prediction_behavioral,
-            match_details: None,
+            match_details,
             deny_access: false,
-            terminate: true,
+            terminate: event.action_required != ThreatAction::Monitor,
             quarantine: event.action_required == ThreatAction::KillAndQuarantine,
             kill_and_remove: event.action_required == ThreatAction::KillAndRemove,
             suspend: false,
@@ -2093,6 +2284,7 @@ impl<'a> AVIntegration<'a> {
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
+            &metadata.hydradragon_static_match_details,
         );
 
         let request = EDRScanRequest {
@@ -2150,6 +2342,7 @@ impl<'a> AVIntegration<'a> {
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
+            &metadata.hydradragon_static_match_details,
         );
 
         let request = EDRScanRequest {
@@ -2221,6 +2414,7 @@ impl<'a> AVIntegration<'a> {
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
+            &metadata.hydradragon_static_match_details,
         );
 
         let request = EDRScanRequest {
@@ -2270,7 +2464,10 @@ impl<'a> AVIntegration<'a> {
 
         let mut metadata = ScanMetadata::new();
         if let Some(engine) = &self.hydradragon_static_engine {
-            metadata.hydradragon_static_matches = scan_with_hydradragon_static(
+            (
+                metadata.hydradragon_static_matches,
+                metadata.hydradragon_static_match_details,
+            ) = scan_with_hydradragon_static(
                 engine,
                 scan_target,
                 self.hydradragon_static_detection_mode,

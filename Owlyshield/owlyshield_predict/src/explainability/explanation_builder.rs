@@ -116,7 +116,7 @@ impl DetectionExplanation {
     <div class="explanation-summary">
         <p>"#,
         );
-        html.push_str(&self.summary);
+        html.push_str(&html_escape(&self.summary));
         html.push_str(
             r#"</p>
     </div>
@@ -128,7 +128,10 @@ impl DetectionExplanation {
         );
 
         for reason in &self.detailed_reasons {
-            html.push_str(&format!("<li>{}</li>\n", reason));
+            html.push_str(&format!(
+                "<li><pre class=\"reason-detail\">{}</pre></li>\n",
+                html_escape(reason)
+            ));
         }
 
         html.push_str(
@@ -148,7 +151,7 @@ impl DetectionExplanation {
             );
 
             for tech in &self.mitre_techniques {
-                html.push_str(&format!("<li>{}</li>\n", tech));
+                html.push_str(&format!("<li>{}</li>\n", html_escape(tech)));
             }
 
             html.push_str(
@@ -165,7 +168,7 @@ impl DetectionExplanation {
         <h4>Recommended Action:</h4>
         <p class="action-text">"#,
         );
-        html.push_str(&self.recommended_action);
+        html.push_str(&html_escape(&self.recommended_action));
         html.push_str(
             r#"</p>
     </div>
@@ -173,7 +176,7 @@ impl DetectionExplanation {
     <div class="explanation-severity">
         <p><strong>Severity Explanation:</strong> "#,
         );
-        html.push_str(&self.severity_explanation);
+        html.push_str(&html_escape(&self.severity_explanation));
         html.push_str(
             r#"</p>
     </div>
@@ -220,6 +223,17 @@ impl DetectionExplanation {
     color: #333;
 }
 
+.reason-detail {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 0;
+    color: #333;
+    font: 12px/1.5 Consolas, 'Courier New', monospace;
+    background: rgba(255,255,255,0.7);
+    border-radius: 4px;
+    padding: 8px;
+}
+
 .explanation-techniques {
     background: #e7f3ff;
     padding: 15px;
@@ -253,6 +267,20 @@ impl DetectionExplanation {
 }
 "#
     }
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|ch| match ch {
+            '&' => "&amp;".chars().collect::<Vec<_>>(),
+            '<' => "&lt;".chars().collect::<Vec<_>>(),
+            '>' => "&gt;".chars().collect::<Vec<_>>(),
+            '"' => "&quot;".chars().collect::<Vec<_>>(),
+            '\'' => "&#39;".chars().collect::<Vec<_>>(),
+            _ => vec![ch],
+        })
+        .collect()
 }
 
 #[cfg(test)]

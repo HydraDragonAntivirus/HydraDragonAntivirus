@@ -121,6 +121,13 @@ impl DetectionReport {
                     };
                     report.push_str(&format!("   {}    Context: {}\n", continuation, context));
                 }
+
+                if let Some(ref raw_data) = evidence.raw_data {
+                    report.push_str("         Raw Evidence:\n");
+                    for line in raw_data.lines() {
+                        report.push_str(&format!("           {}\n", line));
+                    }
+                }
             }
 
             report.push_str(&format!(
@@ -296,6 +303,25 @@ impl DetectionReport {
             padding: 5px 8px;
             border-radius: 4px;
         }}
+        .evidence-raw {{
+            margin-top: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }}
+        .evidence-raw summary {{
+            cursor: pointer;
+            color: #495057;
+            font-weight: bold;
+        }}
+        .evidence-raw pre {{
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            margin: 8px 0 0 0;
+            padding: 10px;
+            background: #111827;
+            color: #d1d5db;
+            border-radius: 6px;
+        }}
         .metrics {{
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -407,11 +433,25 @@ impl DetectionReport {
                 ));
 
                 if let Some(ref context) = evidence.context {
+                    let context = html_escape(context);
                     html.push_str(&format!(
                         r#"
                             <div class="evidence-context">{}</div>
 "#,
                         context
+                    ));
+                }
+
+                if let Some(ref raw_data) = evidence.raw_data {
+                    let raw_data = html_escape(raw_data);
+                    html.push_str(&format!(
+                        r#"
+                            <details class="evidence-raw" open>
+                                <summary>Raw evidence</summary>
+                                <pre>{}</pre>
+                            </details>
+"#,
+                        raw_data
                     ));
                 }
 
@@ -470,6 +510,20 @@ impl DetectionReport {
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|ch| match ch {
+            '&' => "&amp;".chars().collect::<Vec<_>>(),
+            '<' => "&lt;".chars().collect::<Vec<_>>(),
+            '>' => "&gt;".chars().collect::<Vec<_>>(),
+            '"' => "&quot;".chars().collect::<Vec<_>>(),
+            '\'' => "&#39;".chars().collect::<Vec<_>>(),
+            _ => vec![ch],
+        })
+        .collect()
 }
 
 /// Evidence Engine - builds detection reports from telemetry

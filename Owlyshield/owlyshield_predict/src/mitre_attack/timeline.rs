@@ -235,7 +235,7 @@ impl AttackTimeline {
 </div>
 "#,
             self.gid,
-            self.process_name,
+            html_escape(&self.process_name),
             self.total_score,
             self.max_severity.color(),
             self.max_severity.label(),
@@ -249,7 +249,8 @@ impl AttackTimeline {
         for (tactic, count) in tactics.iter() {
             html.push_str(&format!(
                 "<span class=\"tactic-badge\">{}: {}</span>",
-                tactic, count
+                html_escape(tactic),
+                count
             ));
         }
         html.push_str("</div>");
@@ -281,11 +282,11 @@ impl AttackTimeline {
 "#,
             event.severity.label(),
             event.severity.color(),
-            event.event_type,
-            time_str,
+            html_escape(&event.event_type),
+            html_escape(&time_str),
             event.severity.color(),
             event.severity.label(),
-            event.description
+            html_escape(&event.description)
         );
 
         // MITRE techniques
@@ -298,9 +299,24 @@ impl AttackTimeline {
     <span class="technique-name">{}</span>
     <span class="technique-tactic">{}</span>
 </div>"#,
-                    technique.description, technique.id, technique.name, technique.tactic
+                    html_escape(&technique.description),
+                    html_escape(&technique.id),
+                    html_escape(&technique.name),
+                    html_escape(&technique.tactic)
                 ));
             }
+            html.push_str("<div class=\"technique-explanations\">");
+            for technique in &event.mitre_techniques {
+                html.push_str(&format!(
+                    "<div><strong>Why {} matched:</strong> {} / {}. Source event: {}. Technique detail: {}</div>",
+                    html_escape(&technique.id),
+                    html_escape(&technique.name),
+                    html_escape(&technique.tactic),
+                    html_escape(&event.description),
+                    html_escape(&technique.description)
+                ));
+            }
+            html.push_str("</div>");
             html.push_str("</div>");
         }
 
@@ -313,24 +329,37 @@ impl AttackTimeline {
             html.push_str("<div class=\"event-details\">");
 
             if let Some(path) = &event.file_path {
-                html.push_str(&format!("<div><strong>File:</strong> {}</div>", path));
+                html.push_str(&format!(
+                    "<div><strong>File:</strong> {}</div>",
+                    html_escape(path)
+                ));
             }
             if let Some(key) = &event.registry_key {
-                html.push_str(&format!("<div><strong>Registry:</strong> {}</div>", key));
+                html.push_str(&format!(
+                    "<div><strong>Registry:</strong> {}</div>",
+                    html_escape(key)
+                ));
             }
             if let Some(dest) = &event.network_destination {
-                html.push_str(&format!("<div><strong>Network:</strong> {}</div>", dest));
+                html.push_str(&format!(
+                    "<div><strong>Network:</strong> {}</div>",
+                    html_escape(dest)
+                ));
             }
             if let Some(name) = &event.process_name {
                 html.push_str(&format!(
                     "<div><strong>Process:</strong> {} (PID: {})</div>",
-                    name,
+                    html_escape(name),
                     event.pid.unwrap_or(0)
                 ));
             }
 
             for (key, value) in &event.details {
-                html.push_str(&format!("<div><strong>{}:</strong> {}</div>", key, value));
+                html.push_str(&format!(
+                    "<div><strong>{}:</strong> {}</div>",
+                    html_escape(key),
+                    html_escape(value)
+                ));
             }
 
             html.push_str("</div>");
@@ -491,6 +520,17 @@ impl AttackTimeline {
     font-style: italic;
 }
 
+.technique-explanations {
+    width: 100%;
+    margin-top: 10px;
+    padding: 10px;
+    background: rgba(52, 73, 94, 0.08);
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
 .event-details {
     margin-top: 10px;
     padding: 10px;
@@ -509,4 +549,18 @@ impl AttackTimeline {
 }
 "#
     }
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|ch| match ch {
+            '&' => "&amp;".chars().collect::<Vec<_>>(),
+            '<' => "&lt;".chars().collect::<Vec<_>>(),
+            '>' => "&gt;".chars().collect::<Vec<_>>(),
+            '"' => "&quot;".chars().collect::<Vec<_>>(),
+            '\'' => "&#39;".chars().collect::<Vec<_>>(),
+            _ => vec![ch],
+        })
+        .collect()
 }

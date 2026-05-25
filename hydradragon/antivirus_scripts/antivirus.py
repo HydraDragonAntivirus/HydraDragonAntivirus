@@ -1653,7 +1653,7 @@ benign_file_names = []
 def scan_with_hydradragon_engine(file_path):
     """
     Sends scan request to HydraDragonAV C++ pipe server (ClamAV + Legacy YARA).
-    Returns: (malicious: bool, virus_name: str, engine: str, is_vmprotect: bool)
+    Returns: (malicious: bool, virus_name: str, engine: str, is_vmprotect: bool, match_details: str | None)
     """
     try:
         norm_path = os.path.abspath(file_path)
@@ -1679,15 +1679,27 @@ def scan_with_hydradragon_engine(file_path):
 
                 if malicious:
                     if clamav_virus:
-                        return True, clamav_virus, "ClamAV", is_vmprotect
+                        return (
+                            True,
+                            clamav_virus,
+                            "ClamAV",
+                            is_vmprotect,
+                            f"HydraDragonAV/ClamAV matched signature '{clamav_virus}' for {norm_path}",
+                        )
                     if yara_matches:
-                        return True, yara_matches[0], "LegacyYARA", is_vmprotect
+                        return (
+                            True,
+                            yara_matches[0],
+                            "LegacyYARA",
+                            is_vmprotect,
+                            f"HydraDragonAV/LegacyYARA matched rule(s) for {norm_path}: {', '.join(map(str, yara_matches))}",
+                        )
 
-        return False, "Clean", "", False
+        return False, "Clean", "", False, None
     except Exception as ex:
         # Expected if server not running or path inaccessible
         logger.debug(f"HydraDragonAV Pipe Error: {ex}")
-        return False, "Error", "", False
+        return False, "Error", "", False, f"HydraDragonAV pipe error for {file_path}: {ex}"
 
 
 def _select_rust_service_scan_result(service_scan_results):
@@ -1722,17 +1734,23 @@ def _select_rust_service_scan_result(service_scan_results):
     if malicious_results:
         virus_names = []
         engines = []
+        detail_blocks = []
         for result in malicious_results:
             virus_name = str(result.get("virus_name") or "Malware").strip() or "Malware"
             engine = str(result.get("engine") or "RustService").strip() or "RustService"
             virus_names.append(virus_name)
             engines.append(engine)
+            match_details = result.get("match_details") or result.get("details")
+            if match_details:
+                detail_blocks.append(f"{engine} matched {virus_name}:\n{match_details}")
+            else:
+                detail_blocks.append(f"{engine} matched {virus_name}; no raw match_details field was supplied")
         combined_virus_name = " | ".join(virus_names)
         combined_engine = " | ".join(engines)
-        return True, combined_virus_name, combined_engine, is_vmprotect
+        return True, combined_virus_name, combined_engine, is_vmprotect, "\n\n".join(detail_blocks)
 
     if usable_results:
-        return False, "Clean", "", is_vmprotect
+        return False, "Clean", "", is_vmprotect, None
 
     return None
 
@@ -2442,13 +2460,23 @@ async def ml_fastpath_should_continue(norm_path, signature_check, pe_file, benig
             virus_name = "".join(virus_name)
 
         logger.critical("ML detected malware in %s. Virus: %s (stopping full scan)", os.path.basename(norm_path), virus_name)
+        match_details = (
+            "HydraDragon ML fast-path matched malware: "
+            f"definition={virus_name}; benign_score={benign_score}; "
+            f"benign_threshold={benign_threshold}; pe_file={pe_file}; "
+            f"signature_valid={bool(signature_check and signature_check.get('is_valid', False))}"
+        )
 
         # Spawn notification and stop further scanning for this .
         # False return value to actually stop the other scanning threads for this file.
         if virus_name.startswith("PUA."):
-            asyncio.create_task(notify_user_pua(norm_path, virus_name, "ML"))
+            asyncio.create_task(
+                notify_user_pua(norm_path, virus_name, "ML", match_details=match_details)
+            )
         else:
-            asyncio.create_task(notify_user(norm_path, virus_name, "ML"))
+            asyncio.create_task(
+                notify_user(norm_path, virus_name, "ML", match_details=match_details)
+            )
 
         # Tell the caller to stop scanning this file.
         return False
@@ -3279,7 +3307,7 @@ def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
         logger.exception(f"Failed to load ML definitions: {e}")
         return False
 
-def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, die_output, pe_file: bool = False) -> Tuple[bool, str, str, Optional[bool]]:
+def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, die_output, pe_file: bool = False) -> Tuple[bool, str, str, Optional[bool], Optional[str]]:
     """
     Scan file in real-time using multiple engines in parallel (WITHOUT YARA).
     Stops all workers on first detection.
@@ -3294,6 +3322,7 @@ def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, d
         "virus_name": "Clean",
         "engine": "",
         "is_vmprotect": False,
+        "match_details": None,
     }
     stop_event = threading.Event()
     thread_lock_real_time = threading.Lock()
@@ -3304,7 +3333,7 @@ def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, d
         if stop_event.is_set():
             return
         try:
-            is_malicious, virus_name, engine, is_vmprotect = scan_with_hydradragon_engine(file_path)
+            is_malicious, virus_name, engine, is_vmprotect, match_details = scan_with_hydradragon_engine(file_path)
             if is_malicious:
                 if sig_valid:
                     virus_name = f"{virus_name}.SIG"
@@ -3315,6 +3344,7 @@ def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, d
                         results["malware_found"] = True
                         results["virus_name"] = virus_name
                         results["engine"] = engine
+                        results["match_details"] = match_details
                         if is_vmprotect:
                             results["is_vmprotect"] = True
                         stop_event.set()
@@ -3334,14 +3364,14 @@ def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, d
 
         with thread_lock_real_time:
             if results["malware_found"]:
-                return True, results["virus_name"], results["engine"], results["is_vmprotect"]
+                return True, results["virus_name"], results["engine"], results["is_vmprotect"], results["match_details"]
             else:
                 logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-                return False, "Clean", "", results["is_vmprotect"]
+                return False, "Clean", "", results["is_vmprotect"], None
 
     except Exception as ex:
         logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
-        return False, "Error", "", False
+        return False, "Error", "", False, f"Real-time scan error for {file_path}: {ex}"
 
 
 def get_next_project_name(base_name):
@@ -7948,11 +7978,27 @@ async def scan_and_warn(
         owlyshield_yara_x_matches = owlyshield_yara_x_matches or []
         if owlyshield_yara_x_matches:
             virus_name = str(owlyshield_yara_x_matches[0])
+            match_details = (
+                "Owlyshield YARA-X matched rule(s): "
+                + ", ".join(str(match) for match in owlyshield_yara_x_matches)
+            )
             logger.critical(f"File {norm_path} is malicious. Virus: {virus_name} (Owlyshield YARA-X)")
             if virus_name.startswith("PUA."):
-                await notify_user_pua(norm_path, virus_name, "OwlyshieldYARAX", main_file_path=main_file_path)
+                await notify_user_pua(
+                    norm_path,
+                    virus_name,
+                    "OwlyshieldYARAX",
+                    main_file_path=main_file_path,
+                    match_details=match_details,
+                )
             else:
-                await notify_user(norm_path, virus_name, "OwlyshieldYARAX", main_file_path=main_file_path)
+                await notify_user(
+                    norm_path,
+                    virus_name,
+                    "OwlyshieldYARAX",
+                    main_file_path=main_file_path,
+                    match_details=match_details,
+                )
             return True
 
         if norm_path == hosts_path:
@@ -8003,10 +8049,10 @@ async def scan_and_warn(
             logger.info(f"Running minimal EDR antivirus scan for {norm_path}")
             rust_service_result = _select_rust_service_scan_result(owlyshield_service_scan_results)
             if rust_service_result is not None:
-                is_malicious, virus_name, engine_detected, is_vmprotect = rust_service_result
+                is_malicious, virus_name, engine_detected, is_vmprotect, match_details = rust_service_result
                 logger.info(f"Using Rust service scan results for minimal scan: {norm_path}")
             else:
-                is_malicious, virus_name, engine_detected, is_vmprotect = await asyncio.to_thread(scan_with_hydradragon_engine, norm_path)
+                is_malicious, virus_name, engine_detected, is_vmprotect, match_details = await asyncio.to_thread(scan_with_hydradragon_engine, norm_path)
             if is_vmprotect:
                 logger.warning(f"VMProtect detected by {engine_detected or 'RustService'} in minimal scan: {norm_path}")
             if is_malicious:
@@ -8014,9 +8060,21 @@ async def scan_and_warn(
                     virus_name = f"{virus_name}.SIG"
                 logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
                 if virus_name.startswith("PUA."):
-                    await notify_user_pua(norm_path, virus_name, engine_detected or "HydraDragonAV", main_file_path=main_file_path)
+                    await notify_user_pua(
+                        norm_path,
+                        virus_name,
+                        engine_detected or "HydraDragonAV",
+                        main_file_path=main_file_path,
+                        match_details=match_details,
+                    )
                 else:
-                    await notify_user(norm_path, virus_name, engine_detected or "HydraDragonAV", main_file_path=main_file_path)
+                    await notify_user(
+                        norm_path,
+                        virus_name,
+                        engine_detected or "HydraDragonAV",
+                        main_file_path=main_file_path,
+                        match_details=match_details,
+                    )
                 return True
             logger.info(f"Minimal EDR antivirus scan clean: {norm_path}")
             return False
@@ -8934,7 +8992,7 @@ async def scan_and_warn(
         # REALTIME TASK
         async def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
             try:
-                is_malicious, virus_names, engine_detected, is_vmprotect = await asyncio.to_thread(scan_file_real_time, norm_path, signature_check, file_name, die_output, pe_file=pe_file)
+                is_malicious, virus_names, engine_detected, is_vmprotect, match_details = await asyncio.to_thread(scan_file_real_time, norm_path, signature_check, file_name, die_output, pe_file=pe_file)
 
                 if is_vmprotect and not getattr(threading.current_thread(), "is_unpacking_vmp", False):
                     logger.warning(f"VMProtect detected by HydraDragonAV in {norm_path}. Spawning unpacker.")
@@ -8956,11 +9014,23 @@ async def scan_and_warn(
 
                     if virus_name.startswith("PUA."):
                         # MODIFIED: await notify function
-                        await notify_user_pua(norm_path, virus_name, engine_detected, main_file_path=main_file_path)
+                        await notify_user_pua(
+                            norm_path,
+                            virus_name,
+                            engine_detected,
+                            main_file_path=main_file_path,
+                            match_details=match_details,
+                        )
                         return False
                     else:
                         # MODIFIED: await notify function
-                        await notify_user(norm_path, virus_name, engine_detected, main_file_path=main_file_path)
+                        await notify_user(
+                            norm_path,
+                            virus_name,
+                            engine_detected,
+                            main_file_path=main_file_path,
+                            match_details=match_details,
+                        )
                         return False
 
             except Exception as e:
@@ -9137,7 +9207,7 @@ def _sync_read_scan_request_from_edr(timeout_ms: int = _WAIT_TIMEOUT_MS):
             handle = None
             return None
 
-        _, data = win32file.ReadFile(handle, 65536)
+        _, data = win32file.ReadFile(handle, 262144)
         if not data:
             return None
         return data.decode("utf-8", errors="replace").strip()

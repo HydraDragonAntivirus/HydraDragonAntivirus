@@ -15,13 +15,13 @@ use crate::realtime_learning::api_tracker::{ApiTracker, OperationType};
 #[derive(Debug)]
 pub struct ApiTracker;
 
-const MAX_DETAIL_ITEMS: usize = 40;
+const MAX_DETAIL_ITEMS: usize = 200;
 #[cfg(feature = "realtime_learning")]
-const MAX_SEQUENCE_EVENTS: usize = 160;
+const MAX_SEQUENCE_EVENTS: usize = 500;
 #[cfg(feature = "realtime_learning")]
-const MAX_PACKET_EVENTS: usize = 120;
+const MAX_PACKET_EVENTS: usize = 500;
 #[cfg(feature = "realtime_learning")]
-const MAX_RAW_EVENTS: usize = 80;
+const MAX_RAW_EVENTS: usize = 500;
 
 pub struct TimelineBuilder {
     mapper: TechniqueMapper,
@@ -824,13 +824,13 @@ impl TimelineBuilder {
                 event = event.with_detail("Payload URLs".to_string(), pkt.payload_urls.join(", "));
             }
             if let Some(sample) = &pkt.payload_sample {
-                event = event.with_detail("Payload Sample".to_string(), clip(sample, 500));
+                event = event.with_detail("Payload Sample".to_string(), clip(sample, 2048));
             }
             if let Some(body) = &pkt.http_request_body {
-                event = event.with_detail("MITM Request Body".to_string(), clip(body, 1000));
+                event = event.with_detail("MITM Request Body".to_string(), clip(body, 4096));
             }
             if let Some(body) = &pkt.http_response_body {
-                event = event.with_detail("MITM Response Body".to_string(), clip(body, 1000));
+                event = event.with_detail("MITM Response Body".to_string(), clip(body, 4096));
             }
 
             timeline.add_event(event);
