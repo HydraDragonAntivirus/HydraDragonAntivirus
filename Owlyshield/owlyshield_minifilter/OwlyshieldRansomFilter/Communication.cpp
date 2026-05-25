@@ -908,7 +908,15 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     newEntry->Message.Gid = ownerFound ? ownerGid : 0;
     newEntry->Message.AttackerPID = sourcePid;
     newEntry->Message.AttackerGid = attackerFound ? attackerGid : 0;
-    newEntry->Message.IRP_OP = IRP_HYPERVISOR_EVENT;
+    if (EventDetails->RawEventType >= IRP_KERNEL_REMOTE_THREAD &&
+        EventDetails->RawEventType <= IRP_NAMED_PIPE_WRITE)
+    {
+        newEntry->Message.IRP_OP = (UCHAR)EventDetails->RawEventType;
+    }
+    else
+    {
+        newEntry->Message.IRP_OP = IRP_HYPERVISOR_EVENT;
+    }
 
     KeQuerySystemTime(&timestamp);
     newEntry->Message.KernelEventInfo.EventType = EventDetails->RawEventType;
