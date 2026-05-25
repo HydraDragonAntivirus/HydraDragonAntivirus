@@ -13,6 +13,15 @@
  */
 #include "pch.h"
 
+// External function to send events to Owlyshield
+extern VOID HvSendEventToOwlyshield(
+    _In_ ULONG EventType,
+    _In_opt_ PVOID MemoryAddress,
+    _In_ SIZE_T MemorySize,
+    _In_ ULONG CoreId,
+    _In_opt_ ULONGLONG Context
+);
+
 /**
  * @brief Handling debugger functions related to SYSRET events
  *
@@ -24,6 +33,18 @@
 VOID
 DispatchEventEferSysret(VIRTUAL_MACHINE_STATE * VCpu, PVOID Context)
 {
+    //
+    // Send SYSRET event to Owlyshield
+    // Event type: 0x21 = SYSRET
+    //
+    HvSendEventToOwlyshield(
+        0x21, // SYSRET event type
+        Context,
+        0,
+        VCpu->CoreId,
+        VCpu->Regs->rax
+    );
+
     BOOLEAN                                   PostEventTriggerReq = FALSE;
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
 
@@ -72,6 +93,18 @@ DispatchEventEferSyscall(VIRTUAL_MACHINE_STATE * VCpu)
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
 
     //
+    // Send SYSCALL event to Owlyshield
+    // Event type: 0x20 = SYSCALL
+    //
+    HvSendEventToOwlyshield(
+        0x20, // SYSCALL event type
+        (PVOID)VCpu->Regs->rax,
+        0,
+        VCpu->CoreId,
+        VCpu->Regs->rax
+    );
+
+    //
     // We should trigger the event of SYSCALL here, we send the
     // syscall number in rax
     //
@@ -115,6 +148,18 @@ DispatchEventCpuid(VIRTUAL_MACHINE_STATE * VCpu)
     UINT64                                    Context;
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
     BOOLEAN                                   PostEventTriggerReq = FALSE;
+
+    //
+    // Send CPUID event to Owlyshield
+    // Event type: 0x30 = CPUID
+    //
+    HvSendEventToOwlyshield(
+        0x30, // CPUID event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        VCpu->Regs->rax & 0xffffffff
+    );
 
     //
     // As the context to event trigger, we send the eax before the cpuid
@@ -184,6 +229,18 @@ DispatchEventXsetbv(VIRTUAL_MACHINE_STATE * VCpu)
     BOOLEAN                                   PostEventTriggerReq = FALSE;
 
     //
+    // Send XSETBV event to Owlyshield
+    // Event type: 0x31 = XSETBV
+    //
+    HvSendEventToOwlyshield(
+        0x31, // XSETBV event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        VCpu->Regs->rcx & 0xffffffff
+    );
+
+    //
     // As the context to event trigger, we send the ecx (XCR index) before the xsetbv
     // so that the debugger can both read the ecx as it contains the XCR index
     // and also can modify the results
@@ -251,6 +308,18 @@ DispatchEventTsc(VIRTUAL_MACHINE_STATE * VCpu, BOOLEAN IsRdtscp)
     BOOLEAN                                   PostEventTriggerReq = FALSE;
 
     //
+    // Send TSC event to Owlyshield
+    // Event type: 0x32 = TSC_ACCESS
+    //
+    HvSendEventToOwlyshield(
+        0x32, // TSC_ACCESS event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        IsRdtscp
+    );
+
+    //
     // As the context to event trigger, we send the false which means
     // it's an rdtsc (for rdtscp we set Context to true)
     //
@@ -302,6 +371,18 @@ DispatchEventVmcall(VIRTUAL_MACHINE_STATE * VCpu)
 {
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
     BOOLEAN                                   PostEventTriggerReq = FALSE;
+
+    //
+    // Send VMCALL event to Owlyshield
+    // Event type: 0x33 = VMCALL
+    //
+    HvSendEventToOwlyshield(
+        0x33, // VMCALL event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        VCpu->Regs->rax
+    );
 
     //
     // As the context to event trigger, we send NULL
@@ -365,6 +446,18 @@ DispatchEventMode(VIRTUAL_MACHINE_STATE * VCpu, DEBUGGER_EVENT_MODE_TYPE TargetM
 {
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
     BOOLEAN                                   PostEventTriggerReq = FALSE;
+
+    //
+    // Send mode switch event to Owlyshield
+    // Event type: 0x80 = MODE_SWITCH
+    //
+    HvSendEventToOwlyshield(
+        0x80, // MODE_SWITCH event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        TargetMode
+    );
 
     //
     // As the context to event trigger, we send NULL
@@ -443,6 +536,18 @@ DispatchEventMovToCr3(VIRTUAL_MACHINE_STATE * VCpu)
     BOOLEAN                                   PostEventTriggerReq = FALSE;
 
     //
+    // Send CR3 modification event to Owlyshield
+    // Event type: 0x62 = CR3_MODIFICATION
+    //
+    HvSendEventToOwlyshield(
+        0x62, // CR3_MODIFICATION event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        0
+    );
+
+    //
     // As the context to event trigger, we send NULL
     //
     if (g_ExecTrapInitialized)
@@ -502,6 +607,18 @@ DispatchEventIO(VIRTUAL_MACHINE_STATE * VCpu)
     VMX_EXIT_QUALIFICATION_IO_INSTRUCTION     IoQualification     = {.AsUInt = VCpu->ExitQualification};
     RFLAGS                                    Flags               = {0};
     BOOLEAN                                   PostEventTriggerReq = FALSE;
+
+    //
+    // Send I/O event to Owlyshield
+    // Event type: 0x50 = IO_PORT_ACCESS
+    //
+    HvSendEventToOwlyshield(
+        0x50, // IO_PORT_ACCESS event type
+        (PVOID)(ULONG_PTR)IoQualification.PortNumber,
+        IoQualification.SizeOfAccess,
+        VCpu->CoreId,
+        IoQualification.AsUInt
+    );
 
     //
     // Read Guest's RFLAGS
@@ -576,6 +693,18 @@ DispatchEventRdmsr(VIRTUAL_MACHINE_STATE * VCpu)
     BOOLEAN                                   PostEventTriggerReq = FALSE;
 
     //
+    // Send RDMSR event to Owlyshield
+    // Event type: 0x40 = RDMSR
+    //
+    HvSendEventToOwlyshield(
+        0x40, // RDMSR event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        VCpu->Regs->rcx & 0xffffffff
+    );
+
+    //
     // Triggering the pre-event
     //
     EventTriggerResult = VmmCallbackTriggerEvents(RDMSR_INSTRUCTION_EXECUTION,
@@ -619,6 +748,18 @@ DispatchEventWrmsr(VIRTUAL_MACHINE_STATE * VCpu)
 {
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
     BOOLEAN                                   PostEventTriggerReq = FALSE;
+
+    //
+    // Send WRMSR event to Owlyshield
+    // Event type: 0x41 = WRMSR
+    //
+    HvSendEventToOwlyshield(
+        0x41, // WRMSR event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        VCpu->Regs->rcx & 0xffffffff
+    );
 
     //
     // Triggering the pre-event
@@ -666,6 +807,18 @@ DispatchEventRdpmc(VIRTUAL_MACHINE_STATE * VCpu)
     BOOLEAN                                   PostEventTriggerReq = FALSE;
 
     //
+    // Send RDPMC event to Owlyshield
+    // Event type: 0x42 = RDPMC
+    //
+    HvSendEventToOwlyshield(
+        0x42, // RDPMC event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        VCpu->Regs->rcx & 0xffffffff
+    );
+
+    //
     // Triggering the pre-event
     //
     EventTriggerResult = VmmCallbackTriggerEvents(PMC_INSTRUCTION_EXECUTION,
@@ -709,6 +862,18 @@ DispatchEventMov2DebugRegs(VIRTUAL_MACHINE_STATE * VCpu)
 {
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
     BOOLEAN                                   PostEventTriggerReq = FALSE;
+
+    //
+    // Send debug register access event to Owlyshield
+    // Event type: 0x60 = DEBUG_REGISTER_ACCESS
+    //
+    HvSendEventToOwlyshield(
+        0x60, // DEBUG_REGISTER_ACCESS event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        VCpu->ExitQualification
+    );
 
     //
     // Handle access to debug registers, if we should not ignore it, it is
@@ -777,6 +942,18 @@ DispatchEventMovToFromControlRegisters(VIRTUAL_MACHINE_STATE * VCpu)
 
     CrExitQualification = (VMX_EXIT_QUALIFICATION_MOV_CR *)&ExitQualification;
 
+    //
+    // Send control register access event to Owlyshield
+    // Event type: 0x61 = CONTROL_REGISTER_ACCESS
+    //
+    HvSendEventToOwlyshield(
+        0x61, // CONTROL_REGISTER_ACCESS event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        ExitQualification
+    );
+
     if (CrExitQualification->AccessType == VMX_EXIT_QUALIFICATION_ACCESS_MOV_TO_CR)
     {
         ModifyReg = TRUE;
@@ -836,6 +1013,18 @@ DispatchEventException(VIRTUAL_MACHINE_STATE * VCpu)
     // read the exit interruption information
     //
     VmxVmread32P(VMCS_VMEXIT_INTERRUPTION_INFORMATION, &InterruptExit.AsUInt);
+
+    //
+    // Send exception event to Owlyshield
+    // Event type: 0x70 = EXCEPTION
+    //
+    HvSendEventToOwlyshield(
+        0x70, // EXCEPTION event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        InterruptExit.AsUInt
+    );
 
     //
     // This type of vm-exit, can be either because of an !exception event,
@@ -926,6 +1115,23 @@ DispatchEventExternalInterrupts(VIRTUAL_MACHINE_STATE * VCpu)
     VMEXIT_INTERRUPT_INFORMATION              InterruptExit = {0};
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
     BOOLEAN                                   PostEventTriggerReq = FALSE;
+
+    //
+    // Read the exit interruption information
+    //
+    VmxVmread32P(VMCS_VMEXIT_INTERRUPTION_INFORMATION, &InterruptExit.AsUInt);
+
+    //
+    // Send external interrupt event to Owlyshield
+    // Event type: 0x71 = EXTERNAL_INTERRUPT
+    //
+    HvSendEventToOwlyshield(
+        0x71, // EXTERNAL_INTERRUPT event type
+        NULL,
+        0,
+        VCpu->CoreId,
+        InterruptExit.AsUInt
+    );
 
     //
     // read the exit interruption information
@@ -1036,6 +1242,18 @@ DispatchEventHiddenHookExecCc(VIRTUAL_MACHINE_STATE * VCpu, PVOID Context)
     BOOLEAN PostEventTriggerReq = FALSE;
 
     //
+    // Send hidden hook exec CC event to Owlyshield
+    // Event type: 0x90 = HIDDEN_HOOK_EXEC_CC
+    //
+    HvSendEventToOwlyshield(
+        0x90, // HIDDEN_HOOK_EXEC_CC event type
+        Context,
+        0,
+        VCpu->CoreId,
+        (ULONGLONG)Context
+    );
+
+    //
     // In syscall back, a hidden hook for the system call handler gets inserted
     //
     if (g_SyscallCallbackStatus && Context == g_SystemCallHookAddress)
@@ -1068,6 +1286,18 @@ DispatchEventHiddenHookExecDetours(VIRTUAL_MACHINE_STATE * VCpu, PVOID Context)
     BOOLEAN PostEventTriggerReq = FALSE;
 
     //
+    // Send hidden hook exec detours event to Owlyshield
+    // Event type: 0x91 = HIDDEN_HOOK_EXEC_DETOURS
+    //
+    HvSendEventToOwlyshield(
+        0x91, // HIDDEN_HOOK_EXEC_DETOURS event type
+        Context,
+        0,
+        VCpu->CoreId,
+        (ULONGLONG)Context
+    );
+
+    //
     // Triggering the pre-event (This command only support the
     // pre-event, the post-event doesn't make sense in this command)
     //
@@ -1092,6 +1322,18 @@ DispatchEventHiddenHookPageReadWriteExecuteReadPreEvent(VIRTUAL_MACHINE_STATE * 
     VMM_CALLBACK_TRIGGERING_EVENT_STATUS_TYPE EventTriggerResult;
     BOOLEAN                                   PostEventTriggerReq  = FALSE;
     BOOLEAN                                   ShortCircuitingEvent = FALSE;
+
+    //
+    // Send hidden hook read event to Owlyshield
+    // Event type: 0x92 = HIDDEN_HOOK_READ
+    //
+    HvSendEventToOwlyshield(
+        0x92, // HIDDEN_HOOK_READ event type
+        Context,
+        0,
+        VCpu->CoreId,
+        (ULONGLONG)Context
+    );
 
     //
     // Triggering the pre-event (for the read hooks)
@@ -1188,6 +1430,18 @@ DispatchEventHiddenHookPageReadWriteExecuteWritePreEvent(VIRTUAL_MACHINE_STATE *
     BOOLEAN                                   ShortCircuitingEvent = FALSE;
 
     //
+    // Send hidden hook write event to Owlyshield
+    // Event type: 0x93 = HIDDEN_HOOK_WRITE
+    //
+    HvSendEventToOwlyshield(
+        0x93, // HIDDEN_HOOK_WRITE event type
+        Context,
+        0,
+        VCpu->CoreId,
+        (ULONGLONG)Context
+    );
+
+    //
     // Triggering the pre-event (for the write hooks)
     //
     EventTriggerResult = VmmCallbackTriggerEvents(HIDDEN_HOOK_WRITE,
@@ -1282,6 +1536,18 @@ DispatchEventHiddenHookPageReadWriteExecuteExecutePreEvent(VIRTUAL_MACHINE_STATE
     BOOLEAN                                   ShortCircuitingEvent = FALSE;
 
     //
+    // Send hidden hook execute event to Owlyshield
+    // Event type: 0x94 = HIDDEN_HOOK_EXECUTE
+    //
+    HvSendEventToOwlyshield(
+        0x94, // HIDDEN_HOOK_EXECUTE event type
+        Context,
+        0,
+        VCpu->CoreId,
+        (ULONGLONG)Context
+    );
+
+    //
     // Triggering the pre-event (for the execute hooks)
     //
     EventTriggerResult = VmmCallbackTriggerEvents(HIDDEN_HOOK_EXECUTE,
@@ -1371,6 +1637,18 @@ VOID
 DispatchEventHiddenHookPageReadWriteExecReadPostEvent(VIRTUAL_MACHINE_STATE * VCpu, PVOID Context)
 {
     //
+    // Send HIDDEN_HOOK_READ_POST event to Owlyshield
+    // Event type: 0xA0 = HIDDEN_HOOK_READ_POST
+    //
+    HvSendEventToOwlyshield(
+        0xA0, // HIDDEN_HOOK_READ_POST event type
+        Context,
+        0,
+        VCpu->CoreId,
+        0
+    );
+
+    //
     // Triggering the post-event (for the read hooks)
     //
     VmmCallbackTriggerEvents(HIDDEN_HOOK_READ,
@@ -1418,6 +1696,18 @@ VOID
 DispatchEventHiddenHookPageReadWriteExecWritePostEvent(VIRTUAL_MACHINE_STATE * VCpu, PVOID Context)
 {
     //
+    // Send HIDDEN_HOOK_WRITE_POST event to Owlyshield
+    // Event type: 0xA1 = HIDDEN_HOOK_WRITE_POST
+    //
+    HvSendEventToOwlyshield(
+        0xA1, // HIDDEN_HOOK_WRITE_POST event type
+        Context,
+        0,
+        VCpu->CoreId,
+        0
+    );
+
+    //
     // Triggering the post-event (for the write hooks)
     //
     VmmCallbackTriggerEvents(HIDDEN_HOOK_WRITE,
@@ -1462,6 +1752,18 @@ DispatchEventHiddenHookPageReadWriteExecWritePostEvent(VIRTUAL_MACHINE_STATE * V
 VOID
 DispatchEventHiddenHookPageReadWriteExecExecutePostEvent(VIRTUAL_MACHINE_STATE * VCpu, PVOID Context)
 {
+    //
+    // Send HIDDEN_HOOK_EXECUTE_POST event to Owlyshield
+    // Event type: 0xA2 = HIDDEN_HOOK_EXECUTE_POST
+    //
+    HvSendEventToOwlyshield(
+        0xA2, // HIDDEN_HOOK_EXECUTE_POST event type
+        Context,
+        0,
+        VCpu->CoreId,
+        0
+    );
+
     //
     // Triggering the post-event (for the execute hooks)
     //

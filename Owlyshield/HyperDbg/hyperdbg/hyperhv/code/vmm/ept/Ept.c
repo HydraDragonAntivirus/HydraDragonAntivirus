@@ -13,6 +13,15 @@
  */
 #include "pch.h"
 
+// External function to send events to Owlyshield
+extern VOID HvSendEventToOwlyshield(
+    _In_ ULONG EventType,
+    _In_opt_ PVOID MemoryAddress,
+    _In_ SIZE_T MemorySize,
+    _In_ ULONG CoreId,
+    _In_opt_ ULONGLONG Context
+);
+
 /**
  * @brief Check whether EPT features are present or not
  *
@@ -1103,6 +1112,18 @@ EptHandleEptViolation(VIRTUAL_MACHINE_STATE * VCpu)
     // Reading guest physical address
     //
     __vmx_vmread(VMCS_GUEST_PHYSICAL_ADDRESS, &GuestPhysicalAddr);
+
+    //
+    // Send EPT violation event to Owlyshield
+    // Event type: 0x10 = EPT_VIOLATION
+    //
+    HvSendEventToOwlyshield(
+        0x10, // EPT_VIOLATION event type
+        (PVOID)GuestPhysicalAddr,
+        PAGE_SIZE,
+        VCpu->CoreId,
+        ViolationQualification.AsUInt
+    );
 
     if (EptHandlePageHookExit(VCpu, ViolationQualification, GuestPhysicalAddr))
     {

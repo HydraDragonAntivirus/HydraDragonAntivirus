@@ -4,13 +4,36 @@
 // IOCTL for Hypervisor communication
 #define IOCTL_REGISTER_OWLY_CALLBACK CTL_CODE(FILE_DEVICE_UNKNOWN, 0x815, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+// Event details structure for Owlyshield communication
+typedef struct _OWLY_HV_EVENT_DETAILS
+{
+    ULONG RawEventType;
+    ULONG SourceProcessId;
+    ULONG TargetProcessId;
+    PVOID MemoryAddress;
+    SIZE_T MemorySize;
+    ULONG CoreId;
+    ULONG ThreadId;
+    ULONGLONG Context;
+
+    // DLL Load Detection
+    BOOLEAN IsDllLoad;
+    PCWSTR LoadedDllPath;
+    BOOLEAN IsApiBasedLoad;
+
+    // ACG Detection
+    BOOLEAN IsAcgEnabled;
+} OWLY_HV_EVENT_DETAILS, *POWLY_HV_EVENT_DETAILS;
+
+typedef VOID (NTAPI *POWLY_HV_CALLBACK)(POWLY_HV_EVENT_DETAILS EventDetails);
+
 typedef struct _OWLY_HV_COMM_DATA {
     ULONG Magic;           // 0x4F574C59 ('OWLY')
-    PVOID CallbackRoutine; // PHYPERDBG_OWLY_EVENT_CALLBACK
+    PVOID CallbackRoutine; // POWLY_HV_CALLBACK
 } OWLY_HV_COMM_DATA, *POWLY_HV_COMM_DATA;
 
 // Global callback pointer
-PVOID g_OwlyCallback = NULL;
+POWLY_HV_CALLBACK g_OwlyCallback = NULL;
 
 NTSTATUS DrvDispatchCreateClose(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     UNREFERENCED_PARAMETER(DeviceObject);
@@ -27,7 +50,9 @@ NTSTATUS DrvDispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     ULONG bytesWritten = 0;
 
     if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_REGISTER_OWLY_CALLBACK) {
-        if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(OWLY_HV_COMM_DATA)) {
+        if (Irp->RequestorMode != KernelMode) {
+            status = STATUS_ACCESS_DENIED;
+        } else if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(OWLY_HV_COMM_DATA)) {
             POWLY_HV_COMM_DATA commData = (POWLY_HV_COMM_DATA)Irp->AssociatedIrp.SystemBuffer;
             if (commData->Magic == 0x4F574C59) {
                 g_OwlyCallback = commData->CallbackRoutine;
@@ -48,12 +73,38 @@ NTSTATUS DrvDispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     return status;
 }
 
+// Helper function to send events to Owlyshield
+VOID HvSendEventToOwlyshield(
+    _In_ ULONG EventType,
+    _In_opt_ PVOID MemoryAddress,
+    _In_ SIZE_T MemorySize,
+    _In_ ULONG CoreId,
+    _In_opt_ ULONGLONG Context
+) {
+    if (g_OwlyCallback == NULL) {
+        return;
+    }
+
+    OWLY_HV_EVENT_DETAILS details = {0};
+    details.RawEventType = EventType;
+    details.MemoryAddress = MemoryAddress;
+    details.MemorySize = MemorySize;
+    details.CoreId = CoreId;
+    details.Context = Context;
+    details.SourceProcessId = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    details.ThreadId = (ULONG)(ULONG_PTR)PsGetCurrentThreadId();
+
+    // Call the registered callback
+    g_OwlyCallback(&details);
+}
+
 VOID DrvUnload(PDRIVER_OBJECT DriverObject) {
     UNICODE_STRING symLink = RTL_CONSTANT_STRING(L"\\DosDevices\\hyperhv");
     IoDeleteSymbolicLink(&symLink);
     if (DriverObject->DeviceObject) {
         IoDeleteDevice(DriverObject->DeviceObject);
     }
+    g_OwlyCallback = NULL;
     DbgPrint("!!! hyperhv: Standalone driver unloaded.\n");
 }
 
