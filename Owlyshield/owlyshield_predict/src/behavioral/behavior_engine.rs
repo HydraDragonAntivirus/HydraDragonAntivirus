@@ -2073,7 +2073,7 @@ pub struct ProcessBehaviorState {
     pub loaded_dlls_name_only: HashSet<String>, // DLL names only for regex matching
     pub dll_load_details: Vec<DllLoadInfo>,
 
-    // Chromium Detection
+    // ACG Detection
     pub is_acg_enabled: bool,
 
     // Static File Scanning Results (from Sanctum FileScanner integration)
@@ -2264,7 +2264,7 @@ impl ProcessBehaviorState {
         state.loaded_dlls_name_only = HashSet::new();
         state.dll_load_details = Vec::new();
 
-        // Initialize Chromium detection
+        // Initialize ACG detection
         state.is_acg_enabled = false;
 
         // Initialize static scanning fields

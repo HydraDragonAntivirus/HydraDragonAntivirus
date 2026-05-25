@@ -158,23 +158,39 @@ impl RealtimeLearningEngine {
     }
 
     pub fn track_process(&mut self, gid: u64, process_name: String) {
-        if let std::collections::hash_map::Entry::Vacant(e) = self.process_states.entry(gid) {
-            let state = ProcessLearningState {
-                gid,
-                process_name,
-                label: LearningLabel::Unlabeled,
-                start_time: SystemTime::now(),
-                last_activity: SystemTime::now(),
-                operation_count: 0,
-                detection_count: 0,
-                collected: false,
-            };
-            e.insert(state);
-            self.stats.total_processes_tracked += 1;
+        match self.process_states.entry(gid) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let state = ProcessLearningState {
+                    gid,
+                    process_name,
+                    label: LearningLabel::Unlabeled,
+                    start_time: SystemTime::now(),
+                    last_activity: SystemTime::now(),
+                    operation_count: 0,
+                    detection_count: 0,
+                    collected: false,
+                };
+                e.insert(state);
+                self.stats.total_processes_tracked += 1;
+            }
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if !process_name.is_empty()
+                    && (e.get().process_name.is_empty() || e.get().process_name.starts_with("gid_"))
+                {
+                    e.get_mut().process_name = process_name;
+                }
+            }
         }
     }
 
     pub fn update_activity(&mut self, gid: u64) {
+        if let Some(state) = self.process_states.get_mut(&gid) {
+            state.last_activity = SystemTime::now();
+            state.operation_count += 1;
+            return;
+        }
+
+        self.track_process(gid, format!("gid_{gid}"));
         if let Some(state) = self.process_states.get_mut(&gid) {
             state.last_activity = SystemTime::now();
             state.operation_count += 1;
@@ -187,6 +203,15 @@ impl RealtimeLearningEngine {
         api_tracker: &ApiTracker,
         precord: &ProcessRecord,
     ) {
+        let process_name = if !precord.appname.trim().is_empty() {
+            precord.appname.clone()
+        } else if !api_tracker.process_name.trim().is_empty() {
+            api_tracker.process_name.clone()
+        } else {
+            format!("gid_{gid}")
+        };
+        self.track_process(gid, process_name);
+
         let mut should_collect = false;
         let mut pname = String::new();
 
@@ -272,20 +297,17 @@ impl RealtimeLearningEngine {
         }
 
         for gid in to_label_benign {
-            let mut pname = String::new();
-            let mut success = false;
+            let Some(api_tracker) = api_trackers.get(&gid) else {
+                continue;
+            };
+            let Some(precord) = get_record(gid) else {
+                continue;
+            };
 
             if let Some(state) = self.process_states.get_mut(&gid) {
                 state.label = LearningLabel::Benign;
                 state.collected = true;
-                pname = state.process_name.clone();
-                success = true;
-            }
-
-            if success
-                && let Some(api_tracker) = api_trackers.get(&gid)
-                && let Some(precord) = get_record(gid)
-            {
+                let pname = state.process_name.clone();
                 self.collector.collect_sample(api_tracker, precord, false);
                 self.stats.benign_collected += 1;
                 self.stats.auto_labeled_benign += 1;
@@ -340,28 +362,53 @@ impl RealtimeLearningEngine {
         api_tracker: &ApiTracker,
         precord: &ProcessRecord,
     ) {
+        let process_name = if !precord.appname.trim().is_empty() {
+            precord.appname.clone()
+        } else if !api_tracker.process_name.trim().is_empty() {
+            api_tracker.process_name.clone()
+        } else {
+            format!("gid_{gid}")
+        };
+        self.track_process(gid, process_name);
+
+        let mut collection = None;
+
         if let Some(state) = self.process_states.get_mut(&gid) {
-            if state.label == LearningLabel::Unlabeled && !state.collected {
-                let runtime = SystemTime::now()
-                    .duration_since(state.start_time)
-                    .unwrap_or(Duration::from_secs(0))
-                    .as_secs();
+            if state.collected {
+                return;
+            }
 
-                if runtime >= self.config.min_runtime_for_benign / 2
-                    && state.operation_count >= self.config.min_operations_for_benign / 2
-                    && state.detection_count == 0
-                {
-                    state.label = LearningLabel::Benign;
-                    self.collector.collect_sample(api_tracker, precord, false);
-                    state.collected = true;
-                    self.stats.benign_collected += 1;
-                    self.stats.auto_labeled_benign += 1;
+            let is_malicious = precord.is_malicious
+                || state.label == LearningLabel::Malicious
+                || state.detection_count > 0;
+            state.label = if is_malicious {
+                LearningLabel::Malicious
+            } else {
+                LearningLabel::Benign
+            };
+            state.collected = true;
+            collection = Some((is_malicious, state.process_name.clone()));
+        }
 
-                    println!(
-                        "[Real-Time Learning] Process terminated, labeled BENIGN: {} (GID: {})",
-                        state.process_name, gid
-                    );
-                }
+        if let Some((is_malicious, pname)) = collection {
+            self.collector
+                .collect_sample(api_tracker, precord, is_malicious);
+
+            if is_malicious {
+                self.stats.malicious_collected += 1;
+                self.stats.detections_count += 1;
+                println!(
+                    "[Real-Time Learning] Process terminated, collected MALICIOUS sample: {} (GID: {})",
+                    pname, gid
+                );
+                self.adapt_thresholds_from_detection();
+            } else {
+                self.stats.benign_collected += 1;
+                self.stats.auto_labeled_benign += 1;
+                println!(
+                    "[Real-Time Learning] Process terminated, collected BENIGN sample: {} (GID: {})",
+                    pname, gid
+                );
             }
         }
     }
@@ -531,6 +578,7 @@ impl RealtimeLearningEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_learning_engine_creation() {
@@ -544,5 +592,41 @@ mod tests {
         engine.track_process(1234, "test.exe".to_string());
         assert_eq!(engine.stats.total_processes_tracked, 1);
         assert!(engine.process_states.contains_key(&1234));
+    }
+
+    #[test]
+    fn test_process_terminated_collects_untracked_benign_sample() {
+        let gid = 2345;
+        let mut engine = RealtimeLearningEngine::new("./test_data", None);
+        let tracker = ApiTracker::new(gid, "benign.exe".to_string());
+        let precord = ProcessRecord::new(gid, "benign.exe".to_string(), PathBuf::new());
+
+        engine.process_terminated(gid, &tracker, &precord);
+
+        let (malicious, benign) = engine.collector.get_counts();
+        assert_eq!((malicious, benign), (0, 1));
+        assert_eq!(engine.stats.benign_collected, 1);
+        assert_eq!(
+            engine.process_states.get(&gid).unwrap().label,
+            LearningLabel::Benign
+        );
+    }
+
+    #[test]
+    fn test_mark_detected_malicious_collects_without_prior_tracking() {
+        let gid = 3456;
+        let mut engine = RealtimeLearningEngine::new("./test_data", None);
+        let tracker = ApiTracker::new(gid, "malicious.exe".to_string());
+        let precord = ProcessRecord::new(gid, "malicious.exe".to_string(), PathBuf::new());
+
+        engine.mark_detected_malicious(gid, &tracker, &precord);
+
+        let (malicious, benign) = engine.collector.get_counts();
+        assert_eq!((malicious, benign), (1, 0));
+        assert_eq!(engine.stats.malicious_collected, 1);
+        assert_eq!(
+            engine.process_states.get(&gid).unwrap().label,
+            LearningLabel::Malicious
+        );
     }
 }

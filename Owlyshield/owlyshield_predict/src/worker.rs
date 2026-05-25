@@ -1530,6 +1530,7 @@ pub mod worker_instance {
             iomsg: &IOMessage,
             precord: &ProcessRecord,
         ) {
+            learning_engine.track_process(gid, precord.appname.clone());
             learning_engine.update_activity(gid);
 
             let tracker = api_trackers
@@ -1578,6 +1579,9 @@ pub mod worker_instance {
 
             if let Some(tracker) = api_trackers.get(&gid) {
                 learning_engine.mark_detected_malicious(gid, tracker, precord);
+            } else {
+                let tracker = ApiTracker::new(gid, precord.appname.clone());
+                learning_engine.mark_detected_malicious(gid, &tracker, precord);
             }
         }
 

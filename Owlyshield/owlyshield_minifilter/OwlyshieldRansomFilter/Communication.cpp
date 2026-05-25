@@ -136,11 +136,24 @@ static NTSTATUS OwlySendVmmRegistrationIoctlAsync(_In_opt_ PVOID CallbackRoutine
 
 // Callback from Hypervisor (Intel/AMD)
 static VOID NTAPI OwlyHypervisorCallback(PVOID EventDetails) {
-    // Process hypervisor events (TRAP_EXECUTION, etc.)
+    if (EventDetails == NULL)
+    {
+        return;
+    }
+
+    POWLY_HV_EVENT_DETAILS details = (POWLY_HV_EVENT_DETAILS)EventDetails;
+    BOOLEAN queued = QueueHypervisorEvent(details);
+
 #if IS_DEBUG_IRP
-    DbgPrint("!!! Owlyshield: Received event from Hypervisor at %p\n", EventDetails);
+    DbgPrint("!!! Owlyshield: Received Hypervisor event raw=%lu src=%lu target=%lu addr=%p size=%zu queued=%u\n",
+             details->RawEventType,
+             details->SourceProcessId,
+             details->TargetProcessId,
+             details->MemoryAddress,
+             details->MemorySize,
+             queued);
 #else
-    UNREFERENCED_PARAMETER(EventDetails);
+    UNREFERENCED_PARAMETER(queued);
 #endif
 }
 

@@ -24,6 +24,14 @@ typedef struct _OWLY_HV_EVENT_DETAILS
     ULONG CoreId;
     ULONG ThreadId;
     ULONGLONG Context;
+
+    // DLL Load Detection
+    BOOLEAN IsDllLoad;
+    _Field_z_ PCWSTR LoadedDllPath;
+    BOOLEAN IsApiBasedLoad;
+
+    // ACG Detection
+    BOOLEAN IsAcgEnabled;
 } OWLY_HV_EVENT_DETAILS, *POWLY_HV_EVENT_DETAILS;
 
 typedef VOID (NTAPI *POWLY_HV_CALLBACK)(POWLY_HV_EVENT_DETAILS EventDetails);
