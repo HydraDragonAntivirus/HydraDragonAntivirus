@@ -64,7 +64,6 @@ def set_current_detectiteasy_result_for_path(file_path: str, file_md5: Optional[
 
 from .path_and_variables import (
     script_dir,
-    PIPE_HYDRADRAGON_AV,
     PIPE_EDR_TO_AV,
     PIPE_AV_TO_FIREWALL,
     FIREWALL_EXE_PATH,
