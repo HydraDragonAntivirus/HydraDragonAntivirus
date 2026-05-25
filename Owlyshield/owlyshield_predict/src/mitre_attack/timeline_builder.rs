@@ -98,10 +98,9 @@ impl TimelineBuilder {
 
         timeline.add_event(event);
 
-        if proc.is_malicious
-            || proc.triggered_rule_name.is_some()
-            || proc.triggered_rule_details.is_some()
-        {
+        // Always show detection events if they exist, regardless of malicious status
+        // This allows benign processes to appear in MITRE ATT&CK timeline
+        if proc.triggered_rule_name.is_some() || proc.triggered_rule_details.is_some() {
             let mut response = Vec::new();
             if proc.termination_requested {
                 response.push("terminate");
