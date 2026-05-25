@@ -249,6 +249,7 @@ static ULONG RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
 _Success_(return != FALSE)
 static BOOLEAN RkBuildVisibleProcessBitmap(_Out_writes_bytes_(BitmapBytes) PUCHAR Bitmap,
                                            _In_ ULONG BitmapBytes);
+static BOOLEAN RkIsFullScanTelemetryIrp(_In_ ULONG EventIrp);
 
 // ---------------------------------------------------------------------------
 // RootkitDetectorInitialize
@@ -399,10 +400,12 @@ DbgPrint("RootkitDetector: Cleanup done\n");
 VOID
 RootkitDetectorOnDriverEvent(_In_ RK_TRIGGER Trigger, _In_ ULONG EventIrp)
 {
-    UNREFERENCED_PARAMETER(EventIrp);
-
     if (!g_ScanWorkItem || !g_ScanDeviceObject) {
         return;
+    }
+
+    if (RkIsFullScanTelemetryIrp(EventIrp) && Trigger < RK_TRIGGER_FULL) {
+        Trigger = RK_TRIGGER_FULL;
     }
 
     // For FULL scans: enforce minimum interval between scans.
@@ -436,6 +439,13 @@ RootkitDetectorOnDriverEvent(_In_ RK_TRIGGER Trigger, _In_ ULONG EventIrp)
     }
 
     IoQueueWorkItem(g_ScanWorkItem, RkWorkItemRoutine, DelayedWorkQueue, NULL);
+}
+
+static BOOLEAN
+RkIsFullScanTelemetryIrp(_In_ ULONG EventIrp)
+{
+    return (EventIrp >= IRP_KERNEL_REMOTE_THREAD && EventIrp <= IRP_USERMODE_HOOK_EVENT) ||
+           (EventIrp >= IRP_ROOTKIT_SSDT_HOOK && EventIrp <= IRP_ROOTKIT_GENERIC);
 }
 
 // ---------------------------------------------------------------------------

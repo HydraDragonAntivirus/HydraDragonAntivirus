@@ -1,6 +1,7 @@
 #include "Communication.h"
 #include "FSfilter.h"
 #include "ProcessProtection.h" // OnKernelApiEvent - called by HookDeviceControl
+#include "RootkitDetector.h"
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
 
@@ -863,6 +864,60 @@ static VOID EnsureQueuedHypervisorEventsInitialized(VOID)
     }
 }
 
+static PCWSTR OwlyHypervisorEventDefaultLabel(_In_ ULONG EventType)
+{
+    switch (EventType)
+    {
+    case IRP_HYPERVISOR_EVENT:
+        return L"IRP_HYPERVISOR_EVENT";
+    case IRP_KERNEL_REMOTE_THREAD:
+        return L"IRP_KERNEL_REMOTE_THREAD";
+    case IRP_KERNEL_WRITE_MEMORY:
+        return L"IRP_KERNEL_WRITE_MEMORY";
+    case IRP_KERNEL_PROTECT_MEMORY:
+        return L"IRP_KERNEL_PROTECT_MEMORY";
+    case IRP_KERNEL_CREATE_THREAD:
+        return L"IRP_KERNEL_CREATE_THREAD";
+    case IRP_KERNEL_QUEUE_APC:
+        return L"IRP_KERNEL_QUEUE_APC";
+    case IRP_KERNEL_CREATE_SECTION:
+        return L"IRP_KERNEL_CREATE_SECTION";
+    case IRP_KERNEL_MAP_SECTION:
+        return L"IRP_KERNEL_MAP_SECTION";
+    case IRP_USERMODE_HOOK_EVENT:
+        return L"IRP_USER_MODE_HOOK_EVENT";
+    case IRP_ROOTKIT_SSDT_HOOK:
+        return L"IRP_ROOTKIT_SSDT_HOOK";
+    case IRP_ROOTKIT_HIDDEN_PROCESS:
+        return L"IRP_ROOTKIT_HIDDEN_PROCESS";
+    case IRP_ROOTKIT_HIDDEN_DRIVER:
+        return L"IRP_ROOTKIT_HIDDEN_DRIVER";
+    case IRP_ROOTKIT_KERNEL_HOOK:
+        return L"IRP_ROOTKIT_KERNEL_HOOK";
+    case IRP_ROOTKIT_TERMINATE_PROCESS:
+        return L"IRP_ROOTKIT_TERMINATE_PROCESS";
+    case IRP_ROOTKIT_FILE_MOVE:
+        return L"IRP_ROOTKIT_FILE_MOVE";
+    case IRP_ROOTKIT_GENERIC:
+        return L"IRP_ROOTKIT_GENERIC";
+    case IRP_NAMED_PIPE_CREATE:
+        return L"IRP_NAMED_PIPE_CREATE";
+    case IRP_NAMED_PIPE_WRITE:
+        return L"IRP_NAMED_PIPE_WRITE";
+    default:
+        return L"";
+    }
+}
+
+static VOID OwlyTriggerRootkitDetectorForHypervisorEvent(_In_ UCHAR EffectiveIrpOp)
+{
+    if ((EffectiveIrpOp >= IRP_KERNEL_REMOTE_THREAD && EffectiveIrpOp <= IRP_USERMODE_HOOK_EVENT) ||
+        (EffectiveIrpOp >= IRP_ROOTKIT_SSDT_HOOK && EffectiveIrpOp <= IRP_ROOTKIT_GENERIC))
+    {
+        RootkitDetectorOnDriverEvent(RK_TRIGGER_FULL, EffectiveIrpOp);
+    }
+}
+
 BOOLEAN
 QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
 {
@@ -877,6 +932,8 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     BOOLEAN attackerFound = FALSE;
     ULONGLONG ownerGid = 0;
     ULONGLONG attackerGid = 0;
+    UCHAR effectiveIrpOp;
+    PCWSTR eventName;
 
     EnsureQueuedHypervisorEventsInitialized();
 
@@ -908,15 +965,15 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     newEntry->Message.Gid = ownerFound ? ownerGid : 0;
     newEntry->Message.AttackerPID = sourcePid;
     newEntry->Message.AttackerGid = attackerFound ? attackerGid : 0;
-    if (EventDetails->RawEventType >= IRP_KERNEL_REMOTE_THREAD &&
-        EventDetails->RawEventType <= IRP_NAMED_PIPE_WRITE)
+    if (EventDetails->RawEventType >= IRP_KERNEL_REMOTE_THREAD && EventDetails->RawEventType <= IRP_NAMED_PIPE_WRITE)
     {
-        newEntry->Message.IRP_OP = (UCHAR)EventDetails->RawEventType;
+        effectiveIrpOp = (UCHAR)EventDetails->RawEventType;
     }
     else
     {
-        newEntry->Message.IRP_OP = IRP_HYPERVISOR_EVENT;
+        effectiveIrpOp = IRP_HYPERVISOR_EVENT;
     }
+    newEntry->Message.IRP_OP = effectiveIrpOp;
 
     KeQuerySystemTime(&timestamp);
     newEntry->Message.KernelEventInfo.EventType = EventDetails->RawEventType;
@@ -957,20 +1014,22 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     // Chromium Detection
     newEntry->Message.KernelEventInfo.IsAcgEnabled = EventDetails->IsAcgEnabled;
 
-    if (EventDetails->EventName != NULL && EventDetails->EventName[0] != L'\0')
+    eventName = (EventDetails->EventName != NULL && EventDetails->EventName[0] != L'\0')
+                    ? EventDetails->EventName
+                    : OwlyHypervisorEventDefaultLabel(EventDetails->RawEventType);
+    if (eventName != NULL && eventName[0] != L'\0')
     {
-        size_t eventNameLength = wcsnlen(EventDetails->EventName, MAX_FILE_NAME_LENGTH - 1);
-        if (eventNameLength > 0)
-        {
-            RtlCopyMemory(newEntry->Message.KernelEventInfo.ObjectName, EventDetails->EventName,
-                          eventNameLength * sizeof(WCHAR));
-        }
+        (VOID)RtlStringCchCopyW(newEntry->Message.KernelEventInfo.ObjectName,
+                                RTL_NUMBER_OF(newEntry->Message.KernelEventInfo.ObjectName),
+                                eventName);
     }
 
     KeAcquireSpinLock(&g_OwlyHvEventQueueLock, &oldIrql);
     InsertTailList(&g_OwlyHvEventQueue, &newEntry->Entry);
     g_OwlyHvEventQueueSize++;
     KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
+
+    OwlyTriggerRootkitDetectorForHypervisorEvent(effectiveIrpOp);
 
     return TRUE;
 }
