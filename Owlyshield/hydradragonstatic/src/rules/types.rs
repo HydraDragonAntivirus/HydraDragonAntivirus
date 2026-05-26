@@ -207,6 +207,12 @@ pub enum RuleCondition {
         pattern: String,
     },
 
+    SignatureSignerContains {
+        value: String,
+        #[serde(default)]
+        nocase: bool,
+    },
+
     /// Match file type tags produced by the native DetectItEasy-style classifier.
     /// Example values: pe, pe64, elf, macho, apk, zip, jar, text, script, powershell, office, broken_executable.
     FileType {

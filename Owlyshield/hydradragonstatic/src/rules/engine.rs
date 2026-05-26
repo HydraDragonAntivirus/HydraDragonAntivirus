@@ -770,6 +770,25 @@ fn evaluate_condition(
             re.is_match(&path)
                 .then(|| format!("path_regex matched {}", path))
         }
+        RuleCondition::SignatureSignerContains { value, nocase } => {
+            if value.is_empty() {
+                return None;
+            }
+            let signature = report.signature.as_ref()?;
+            let signer_name = signature.signer_name.as_ref()?;
+            let matched = if *nocase {
+                signer_name.to_lowercase().contains(&value.to_lowercase())
+            } else {
+                signer_name.contains(value)
+            };
+            matched.then(|| {
+                format!(
+                    "signature_signer_contains `{}` matched `{}`",
+                    truncate_for_evidence(value, 120),
+                    truncate_for_evidence(signer_name, 120)
+                )
+            })
+        }
         RuleCondition::FileType { values } => values
             .iter()
             .find(|value| report.file_type.matches_type(value))

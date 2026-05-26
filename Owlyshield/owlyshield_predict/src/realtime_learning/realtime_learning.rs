@@ -87,6 +87,7 @@ pub struct ProcessLearningState {
     pub operation_count: usize,
     pub detection_count: usize,
     pub collected: bool,
+    pub last_collected_operation_count: usize,
 }
 
 /// Real-time learning engine
@@ -169,6 +170,7 @@ impl RealtimeLearningEngine {
                     operation_count: 0,
                     detection_count: 0,
                     collected: false,
+                    last_collected_operation_count: 0,
                 };
                 e.insert(state);
                 self.stats.total_processes_tracked += 1;
@@ -219,8 +221,11 @@ impl RealtimeLearningEngine {
             state.detection_count += 1;
             state.label = LearningLabel::Malicious;
 
-            if !state.collected {
+            // Keep collecting malicious snapshots as the process keeps doing new work,
+            // but avoid duplicate exports from repeated scans of unchanged state.
+            if !state.collected || state.operation_count > state.last_collected_operation_count {
                 state.collected = true;
+                state.last_collected_operation_count = state.operation_count;
                 pname = state.process_name.clone();
                 should_collect = true;
             }
@@ -372,22 +377,28 @@ impl RealtimeLearningEngine {
         self.track_process(gid, process_name);
 
         let mut collection = None;
+        let mut should_clear_state = false;
 
         if let Some(state) = self.process_states.get_mut(&gid) {
-            if state.collected {
-                return;
-            }
-
             let is_malicious = precord.is_malicious
                 || state.label == LearningLabel::Malicious
                 || state.detection_count > 0;
-            state.label = if is_malicious {
-                LearningLabel::Malicious
+
+            if state.collected
+                && (!is_malicious || state.operation_count <= state.last_collected_operation_count)
+            {
+                should_clear_state = true;
             } else {
-                LearningLabel::Benign
-            };
-            state.collected = true;
-            collection = Some((is_malicious, state.process_name.clone()));
+                state.label = if is_malicious {
+                    LearningLabel::Malicious
+                } else {
+                    LearningLabel::Benign
+                };
+                state.collected = true;
+                state.last_collected_operation_count = state.operation_count;
+                collection = Some((is_malicious, state.process_name.clone()));
+                should_clear_state = true;
+            }
         }
 
         if let Some((is_malicious, pname)) = collection {
@@ -410,6 +421,10 @@ impl RealtimeLearningEngine {
                     pname, gid
                 );
             }
+        }
+
+        if should_clear_state {
+            self.clear_process_state(gid);
         }
     }
 
@@ -606,10 +621,7 @@ mod tests {
         let (malicious, benign) = engine.collector.get_counts();
         assert_eq!((malicious, benign), (0, 1));
         assert_eq!(engine.stats.benign_collected, 1);
-        assert_eq!(
-            engine.process_states.get(&gid).unwrap().label,
-            LearningLabel::Benign
-        );
+        assert!(engine.process_states.get(&gid).is_none());
     }
 
     #[test]
@@ -628,5 +640,45 @@ mod tests {
             engine.process_states.get(&gid).unwrap().label,
             LearningLabel::Malicious
         );
+    }
+
+    #[test]
+    fn test_mark_detected_malicious_collects_new_activity_snapshots() {
+        let gid = 4567;
+        let mut engine = RealtimeLearningEngine::new("./test_data", None);
+        let tracker = ApiTracker::new(gid, "malicious.exe".to_string());
+        let precord = ProcessRecord::new(gid, "malicious.exe".to_string(), PathBuf::new());
+
+        engine.track_process(gid, "malicious.exe".to_string());
+        engine.update_activity(gid);
+        engine.mark_detected_malicious(gid, &tracker, &precord);
+        engine.mark_detected_malicious(gid, &tracker, &precord);
+
+        let (malicious, benign) = engine.collector.get_counts();
+        assert_eq!((malicious, benign), (1, 0));
+
+        engine.update_activity(gid);
+        engine.mark_detected_malicious(gid, &tracker, &precord);
+
+        let (malicious, benign) = engine.collector.get_counts();
+        assert_eq!((malicious, benign), (2, 0));
+    }
+
+    #[test]
+    fn test_process_terminated_clears_collected_malicious_state() {
+        let gid = 5678;
+        let mut engine = RealtimeLearningEngine::new("./test_data", None);
+        let tracker = ApiTracker::new(gid, "malicious.exe".to_string());
+        let mut precord = ProcessRecord::new(gid, "malicious.exe".to_string(), PathBuf::new());
+        precord.is_malicious = true;
+
+        engine.track_process(gid, "malicious.exe".to_string());
+        engine.update_activity(gid);
+        engine.mark_detected_malicious(gid, &tracker, &precord);
+        engine.process_terminated(gid, &tracker, &precord);
+
+        let (malicious, benign) = engine.collector.get_counts();
+        assert_eq!((malicious, benign), (1, 0));
+        assert!(engine.process_states.get(&gid).is_none());
     }
 }
