@@ -2778,12 +2778,15 @@ impl<'a> AVIntegration<'a> {
 #[allow(dead_code)] // Silencing warning, this function is likely called by the external AV component
 fn send_threat_to_edr(event: AVThreatEvent) -> Result<(), String> {
     unsafe {
-        let pipe_name_c =
-            CString::new(PIPE_AV_TO_EDR).map_err(|e| format!("Invalid pipe name: {}", e))?;
-        let pcstr = PCSTR(pipe_name_c.as_ptr() as *const u8);
+        use windows::core::PCWSTR;
+        
+        // Convert to UTF-16 for Unicode Windows API
+        let mut pipe_name_wide: Vec<u16> = PIPE_AV_TO_EDR.encode_utf16().collect();
+        pipe_name_wide.push(0); // Null terminator
+        let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
 
         // Wait for the pipe to become available
-        let wait_ok: BOOL = WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS);
+        let wait_ok: BOOL = WaitNamedPipeW(pcwstr, CONNECT_TIMEOUT_MS);
         if !wait_ok.as_bool() {
             let err = GetLastError();
             Logging::error(&format!(
@@ -2797,8 +2800,8 @@ fn send_threat_to_edr(event: AVThreatEvent) -> Result<(), String> {
         }
 
         // Connect to the pipe
-        let pipe_handle = match CreateFileA(
-            pcstr,
+        let pipe_handle = match CreateFileW(
+            pcwstr,
             FILE_GENERIC_WRITE.0,
             FILE_SHARE_NONE,
             None,
@@ -2810,11 +2813,11 @@ fn send_threat_to_edr(event: AVThreatEvent) -> Result<(), String> {
             Err(e) => {
                 let last = GetLastError();
                 Logging::error(&format!(
-                    "Failed to connect to EDR pipe (CreateFileA error: {:?}, GetLastError={:?})",
+                    "Failed to connect to EDR pipe (CreateFileW error: {:?}, GetLastError={:?})",
                     e, last
                 ));
                 return Err(format!(
-                    "Failed to connect to EDR pipe (CreateFileA error: {:?}, GetLastError={:?})",
+                    "Failed to connect to EDR pipe (CreateFileW error: {:?}, GetLastError={:?})",
                     e, last
                 ));
             }
@@ -2823,10 +2826,10 @@ fn send_threat_to_edr(event: AVThreatEvent) -> Result<(), String> {
         if pipe_handle.is_invalid() {
             let last = GetLastError();
             Logging::error(&format!(
-                "CreateFileA returned invalid handle. GetLastError={:?}",
+                "CreateFileW returned invalid handle. GetLastError={:?}",
                 last
             ));
-            return Err(format!("CreateFileA returned invalid handle: {:?}", last));
+            return Err(format!("CreateFileW returned invalid handle: {:?}", last));
         }
 
         // Serialize and write
