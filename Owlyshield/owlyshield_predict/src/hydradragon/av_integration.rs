@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::mem;
 #[cfg(windows)]
 use std::os::windows::io::{AsHandle, AsRawHandle};
 use std::path::{Path, PathBuf};
@@ -15,6 +16,10 @@ use serde::{Deserialize, Serialize};
 use windows::core::PCSTR;
 
 use windows::Win32::Foundation::{BOOL, CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE};
+use windows::Win32::Security::{
+    InitializeSecurityDescriptor, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR,
+    SetSecurityDescriptorDacl,
+};
 use windows::Win32::Storage::FileSystem::{
     CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
     FlushFileBuffers, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, ReadFile, WriteFile,
@@ -48,6 +53,9 @@ const PIPE_AV_TO_EDR: &str = r"\\.\pipe\Global\hydradragon_to_owlyshield";
 const PIPE_EDR_TO_AV: &str = r"\\.\pipe\Global\owlyshield_to_hydradragon";
 const PIPE_MBR_ALERT: &str = r"\\.\pipe\Global\mbr_filter_alerts";
 const HYDRADRAGON_AV_PIPE: &str = r"\\.\pipe\HydraDragonAV";
+const SANCTUM_GUI_PIPE_CLIENT_SUFFIX: &str = r"hydradragon\Sanctum\app.exe";
+const SANCTUM_GUI_DEV_DEBUG_SUFFIX: &str = r"target\debug\app.exe";
+const SANCTUM_GUI_DEV_RELEASE_SUFFIX: &str = r"target\release\app.exe";
 
 const BUFFER_SIZE: u32 = 262144;
 const PIPE_READ_BUFFER_SIZE: u32 = 262144;
@@ -73,6 +81,7 @@ const MINIMAL_SCAN_TIMEOUT_MS: u64 = 30_000;
 const LATE_CHILD_SCAN_GRACE_MS: u64 = 30_000;
 const HYDRADRAGON_STATIC_RULES_DIR_NAME: &str = "static_rules";
 const HYDRADRAGON_STATIC_RULE_RELOAD_INTERVAL: Duration = Duration::from_secs(5);
+const SECURITY_DESCRIPTOR_REVISION_VALUE: u32 = 1;
 
 static ACTIVE_DIE_METADATA_SCANS: AtomicUsize = AtomicUsize::new(0);
 
@@ -309,6 +318,65 @@ impl ScanMetadata {
             is_vmprotect: false,
             detectiteasy_scan_result: None,
             should_queue_scan: true,
+        }
+    }
+}
+
+struct PipeSecurityAttributes {
+    _descriptor: Box<SECURITY_DESCRIPTOR>,
+    attributes: SECURITY_ATTRIBUTES,
+}
+
+impl PipeSecurityAttributes {
+    fn permissive() -> Result<Self, String> {
+        unsafe {
+            let mut descriptor = Box::new(mem::zeroed::<SECURITY_DESCRIPTOR>());
+            let descriptor_raw = descriptor.as_mut() as *mut _ as *mut core::ffi::c_void;
+
+            if !InitializeSecurityDescriptor(
+                PSECURITY_DESCRIPTOR(descriptor_raw),
+                SECURITY_DESCRIPTOR_REVISION_VALUE,
+            )
+            .as_bool()
+            {
+                return Err(format!(
+                    "InitializeSecurityDescriptor failed (GetLastError={:?})",
+                    GetLastError()
+                ));
+            }
+            if !SetSecurityDescriptorDacl(PSECURITY_DESCRIPTOR(descriptor_raw), true, None, false)
+                .as_bool()
+            {
+                return Err(format!(
+                    "SetSecurityDescriptorDacl failed (GetLastError={:?})",
+                    GetLastError()
+                ));
+            }
+
+            Ok(Self {
+                _descriptor: descriptor,
+                attributes: SECURITY_ATTRIBUTES {
+                    nLength: mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                    lpSecurityDescriptor: descriptor_raw,
+                    bInheritHandle: BOOL(0),
+                },
+            })
+        }
+    }
+
+    fn as_ptr(&mut self) -> *const SECURITY_ATTRIBUTES {
+        &mut self.attributes as *mut SECURITY_ATTRIBUTES as *const SECURITY_ATTRIBUTES
+    }
+}
+
+fn create_pipe_security_attributes(context: &str) -> Option<PipeSecurityAttributes> {
+    match PipeSecurityAttributes::permissive() {
+        Ok(attributes) => Some(attributes),
+        Err(error) => {
+            Logging::warning(&format!(
+                "{context} could not initialize permissive pipe security; falling back to default DACL: {error}"
+            ));
+            None
         }
     }
 }
@@ -799,6 +867,19 @@ unsafe fn validate_hydradragon_python_client(pipe_handle: HANDLE) -> bool {
     false
 }
 
+unsafe fn validate_sanctum_manual_scan_client(pipe_handle: HANDLE) -> bool {
+    for expected in [
+        SANCTUM_GUI_PIPE_CLIENT_SUFFIX,
+        SANCTUM_GUI_DEV_DEBUG_SUFFIX,
+        SANCTUM_GUI_DEV_RELEASE_SUFFIX,
+    ] {
+        if unsafe { validate_pipe_client(pipe_handle, Some(expected), false) } {
+            return true;
+        }
+    }
+    false
+}
+
 fn normalize_path_for_compare(path: &str) -> String {
     normalize_nt_path(path)
         .replace('/', "\\")
@@ -1198,6 +1279,7 @@ fn spawn_av_to_edr_listener() -> thread::JoinHandle<()> {
                 return;
             }
         };
+        let mut pipe_security = create_pipe_security_attributes("[AV->EDR]");
 
         Logging::info(&format!("[AV->EDR] Listener started on {}", PIPE_AV_TO_EDR));
         loop {
@@ -1209,7 +1291,7 @@ fn spawn_av_to_edr_listener() -> thread::JoinHandle<()> {
                 PIPE_READ_BUFFER_SIZE,
                 PIPE_READ_BUFFER_SIZE,
                 0,
-                None,
+                pipe_security.as_mut().map(|attributes| attributes.as_ptr()),
             ) {
                 Ok(h) => h,
                 Err(e) => {
@@ -1948,7 +2030,11 @@ fn append_hydradragon_static_result(
     }
 }
 
-fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> thread::JoinHandle<()> {
+fn spawn_manual_scan_listener(
+    internal_scan_tx: Sender<EDRScanRequest>,
+    hydradragon_static_rules_dir: PathBuf,
+    hydradragon_static_detection_mode: StaticDetectionMode,
+) -> thread::JoinHandle<()> {
     thread::spawn(move || unsafe {
         let pipe_name_c = match CString::new(r"\\.\pipe\Global\owlyshield_manual_scan") {
             Ok(s) => s,
@@ -1958,10 +2044,27 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
             }
         };
 
+        let mut pipe_security = create_pipe_security_attributes("[ManualScan]");
+        let (mut hydradragon_static_engine, mut hydradragon_static_rules_marker_state) =
+            load_hydradragon_static_engine(&hydradragon_static_rules_dir);
+        let mut hydradragon_static_last_reload = Instant::now();
+
         Logging::info(
             "[ManualScan] Listener started on \\\\.\\pipe\\Global\\owlyshield_manual_scan",
         );
         loop {
+            if hydradragon_static_last_reload.elapsed() >= HYDRADRAGON_STATIC_RULE_RELOAD_INTERVAL {
+                hydradragon_static_last_reload = Instant::now();
+                let files = collect_hydradragon_static_rule_files(&hydradragon_static_rules_dir);
+                let marker = hydradragon_static_rules_marker(&hydradragon_static_rules_dir, &files);
+                if marker != hydradragon_static_rules_marker_state {
+                    let (engine, new_marker) =
+                        load_hydradragon_static_engine(&hydradragon_static_rules_dir);
+                    hydradragon_static_engine = engine;
+                    hydradragon_static_rules_marker_state = new_marker;
+                }
+            }
+
             let pipe_handle = match CreateNamedPipeA(
                 PCSTR(pipe_name_c.as_ptr() as *const u8),
                 PIPE_ACCESS_INBOUND,
@@ -1970,7 +2073,7 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                 PIPE_READ_BUFFER_SIZE,
                 PIPE_READ_BUFFER_SIZE,
                 0,
-                None,
+                pipe_security.as_mut().map(|attributes| attributes.as_ptr()),
             ) {
                 Ok(h) => h,
                 Err(e) => {
@@ -1992,6 +2095,13 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
             let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
             let connect_err = GetLastError();
             if connect_ok.as_bool() || connect_err == ERROR_PIPE_CONNECTED {
+                if !validate_sanctum_manual_scan_client(pipe_handle) {
+                    Logging::error("[ManualScan] Rejected unauthorized client connection");
+                    let _ = DisconnectNamedPipe(pipe_handle);
+                    let _ = CloseHandle(pipe_handle);
+                    continue;
+                }
+
                 let mut buffer = vec![0u8; PIPE_READ_BUFFER_SIZE as usize];
                 let mut bytes_read = 0u32;
                 let read_ok = ReadFile(
@@ -2006,72 +2116,116 @@ fn spawn_manual_scan_listener(internal_scan_tx: Sender<EDRScanRequest>) -> threa
                     let message = String::from_utf8_lossy(&buffer[..bytes_read as usize])
                         .trim()
                         .to_string();
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) {
-                        if let Some(file_path) = value.get("file_path").and_then(|v| v.as_str()) {
-                            let normalized_file_path = normalize_nt_path(file_path);
-                            let scan_target = PathBuf::from(&normalized_file_path);
-                            if file_is_over_scan_limit(&scan_target) {
-                                log_skip_large_file("manual scan pipe request", &scan_target);
-                                let _ = DisconnectNamedPipe(pipe_handle);
-                                let _ = CloseHandle(pipe_handle);
-                                continue;
-                            }
-                            let scan_mode = value
-                                .get("scan_mode")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("minimal")
-                                .to_string();
-                            let deep_scan = scan_mode == "deep";
-                            let requested_timeout_ms = value
-                                .get("deep_scan_timeout_ms")
-                                .and_then(|v| v.as_u64())
-                                .filter(|v| *v > 0)
-                                .unwrap_or(if deep_scan {
-                                    DEEP_SCAN_TIMEOUT_MS
+                    match serde_json::from_str::<serde_json::Value>(&message) {
+                        Ok(value) => {
+                            if let Some(file_path) = value.get("file_path").and_then(|v| v.as_str())
+                            {
+                                let normalized_file_path = normalize_nt_path(file_path);
+                                let scan_target = PathBuf::from(&normalized_file_path);
+                                if file_is_over_scan_limit(&scan_target) {
+                                    log_skip_large_file("manual scan pipe request", &scan_target);
+                                    let _ = DisconnectNamedPipe(pipe_handle);
+                                    let _ = CloseHandle(pipe_handle);
+                                    continue;
+                                }
+                                let scan_mode = value
+                                    .get("scan_mode")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("minimal")
+                                    .to_string();
+                                let requested_deep_scan = is_deep_scan_mode(&scan_mode);
+                                let requested_timeout_ms = value
+                                    .get("deep_scan_timeout_ms")
+                                    .and_then(|v| v.as_u64())
+                                    .filter(|v| *v > 0)
+                                    .unwrap_or(if requested_deep_scan {
+                                        DEEP_SCAN_TIMEOUT_MS
+                                    } else {
+                                        MINIMAL_SCAN_TIMEOUT_MS
+                                    });
+                                let requested_grace_ms = value
+                                    .get("late_child_scan_grace_ms")
+                                    .and_then(|v| v.as_u64())
+                                    .filter(|v| *v > 0)
+                                    .unwrap_or(LATE_CHILD_SCAN_GRACE_MS);
+                                let scan_origin_path = value
+                                    .get("scan_origin_path")
+                                    .and_then(|v| v.as_str())
+                                    .map(normalize_nt_path)
+                                    .unwrap_or_else(|| normalized_file_path.clone());
+
+                                let (hydradragon_static_matches, hydradragon_static_match_details) =
+                                    if let Some(engine) = &hydradragon_static_engine {
+                                        scan_with_hydradragon_static(
+                                            engine,
+                                            &scan_target,
+                                            hydradragon_static_detection_mode,
+                                        )
+                                    } else {
+                                        (Vec::new(), Vec::new())
+                                    };
+                                let static_detected = !hydradragon_static_matches.is_empty();
+                                let effective_scan_mode = if static_detected {
+                                    "minimal"
+                                } else if requested_deep_scan {
+                                    "deep"
                                 } else {
-                                    MINIMAL_SCAN_TIMEOUT_MS
-                                });
-                            let requested_grace_ms = value
-                                .get("late_child_scan_grace_ms")
-                                .and_then(|v| v.as_u64())
-                                .filter(|v| *v > 0)
-                                .unwrap_or(LATE_CHILD_SCAN_GRACE_MS);
-                            let scan_origin_path = value
-                                .get("scan_origin_path")
-                                .and_then(|v| v.as_str())
-                                .map(normalize_nt_path)
-                                .unwrap_or_else(|| normalized_file_path.clone());
-                            let rust_service_scan_results = if deep_scan {
-                                Vec::new()
+                                    "minimal"
+                                };
+                                let deep_scan = effective_scan_mode == "deep";
+                                let mut rust_service_scan_results = if deep_scan {
+                                    Vec::new()
+                                } else {
+                                    collect_minimal_service_scan_results(&normalized_file_path)
+                                };
+                                append_hydradragon_static_result(
+                                    &mut rust_service_scan_results,
+                                    &hydradragon_static_matches,
+                                    &hydradragon_static_match_details,
+                                );
+
+                                let request = EDRScanRequest {
+                                    event_type: "MANUAL_SCAN_REQUEST".to_string(),
+                                    file_path: normalized_file_path,
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    pid: None,
+                                    additional_context: None,
+                                    signature_status: None, // Skipped for manual scans via pipe
+                                    yara_x_matches: None,
+                                    is_vmprotect: false,
+                                    deep_scan,
+                                    scan_mode: effective_scan_mode.to_string(),
+                                    detectiteasy_scan_result: None,
+                                    scan_origin_path: Some(scan_origin_path),
+                                    deep_scan_timeout_ms: Some(requested_timeout_ms),
+                                    late_child_scan_grace_ms: Some(requested_grace_ms),
+                                    rust_service_scan_results,
+                                };
+
+                                Logging::info(&format!(
+                                    "[ManualScan] Queueing {} manual scan for: {}",
+                                    request.scan_mode, request.file_path
+                                ));
+                                if let Err(error) = internal_scan_tx.send(request) {
+                                    Logging::error(&format!(
+                                        "[ManualScan] Failed to queue manual scan request: {error}"
+                                    ));
+                                }
                             } else {
-                                collect_minimal_service_scan_results(&normalized_file_path)
-                            };
-
-                            let request = EDRScanRequest {
-                                event_type: "MANUAL_SCAN_REQUEST".to_string(),
-                                file_path: normalized_file_path,
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                                pid: None,
-                                additional_context: None,
-                                signature_status: None, // Skipped for manual scans via pipe
-                                yara_x_matches: None,
-                                is_vmprotect: false,
-                                deep_scan,
-                                scan_mode,
-                                detectiteasy_scan_result: None,
-                                scan_origin_path: Some(scan_origin_path),
-                                deep_scan_timeout_ms: Some(requested_timeout_ms),
-                                late_child_scan_grace_ms: Some(requested_grace_ms),
-                                rust_service_scan_results,
-                            };
-
-                            Logging::info(&format!(
-                                "[ManualScan] Queueing {} manual scan for: {}",
-                                request.scan_mode, request.file_path
-                            ));
-                            let _ = internal_scan_tx.send(request);
+                                Logging::error(&format!(
+                                    "[ManualScan] Request missing file_path field: {message}"
+                                ));
+                            }
                         }
+                        Err(error) => Logging::error(&format!(
+                            "[ManualScan] Invalid request JSON: {error}; raw={message}"
+                        )),
                     }
+                } else if !read_ok.as_bool() {
+                    Logging::error(&format!(
+                        "[ManualScan] ReadFile failed (GetLastError={:?})",
+                        GetLastError()
+                    ));
                 }
                 let _ = DisconnectNamedPipe(pipe_handle);
             }
@@ -2092,9 +2246,13 @@ impl<'a> AVIntegration<'a> {
         });
         let av_to_edr_listener_handle = spawn_av_to_edr_listener();
         let _mbr_listener_handle = spawn_mbr_alert_listener();
-        let _manual_scan_listener_handle = spawn_manual_scan_listener(internal_scan_tx.clone());
         let hydradragon_static_rules_dir = resolve_hydradragon_static_rules_dir(config);
         let hydradragon_static_detection_mode = resolve_hydradragon_static_detection_mode(config);
+        let _manual_scan_listener_handle = spawn_manual_scan_listener(
+            internal_scan_tx.clone(),
+            hydradragon_static_rules_dir.clone(),
+            hydradragon_static_detection_mode,
+        );
         let (hydradragon_static_engine, hydradragon_static_rules_marker) =
             load_hydradragon_static_engine(&hydradragon_static_rules_dir);
 
@@ -2751,6 +2909,7 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
                 return;
             }
         };
+        let mut pipe_security = create_pipe_security_attributes("[EDR->AV]");
 
         loop {
             let pipe_handle = match CreateNamedPipeA(
@@ -2761,7 +2920,7 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
                 BUFFER_SIZE,
                 BUFFER_SIZE,
                 0,
-                None,
+                pipe_security.as_mut().map(|attributes| attributes.as_ptr()),
             ) {
                 Ok(h) => h,
                 Err(e) => {

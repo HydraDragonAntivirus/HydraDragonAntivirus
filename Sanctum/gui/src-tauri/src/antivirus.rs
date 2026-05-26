@@ -4,10 +4,15 @@
 use serde_json::{to_value, Value};
 use shared_std::file_scanner::{FileScannerState, ScanningLiveInfo};
 use shared_std::settings::SanctumSettings;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use tauri::Emitter;
 
 use crate::ipc::IpcClient;
+
+const OWLYSHIELD_MANUAL_SCAN_PIPE: &str = r"\\.\pipe\Global\owlyshield_manual_scan";
+const OWLYSHIELD_MANUAL_SCAN_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const OWLYSHIELD_MANUAL_SCAN_RETRY_DELAY: Duration = Duration::from_millis(75);
 
 #[tauri::command]
 pub async fn scanner_check_page_state() -> Result<String, ()> {
@@ -56,7 +61,7 @@ fn send_manual_scan_to_owlyshield(
     scan_mode: &str,
     timeout_ms: u64,
     late_child_scan_grace_ms: u64,
-) {
+) -> Result<(), String> {
     let message = serde_json::json!({
         "file_path": file_path,
         "scan_mode": scan_mode,
@@ -66,37 +71,110 @@ fn send_manual_scan_to_owlyshield(
     })
     .to_string();
 
-    let pipe_name = r"\\.\pipe\Global\owlyshield_manual_scan";
     let mut options = std::fs::OpenOptions::new();
     options.write(true);
 
-    if let Ok(mut file) = options.open(pipe_name) {
-        use std::io::Write;
-        let _ = file.write_all(message.as_bytes());
+    let started_at = Instant::now();
+    loop {
+        match options.open(OWLYSHIELD_MANUAL_SCAN_PIPE) {
+            Ok(mut file) => {
+                use std::io::Write;
+                file.write_all(message.as_bytes())
+                    .map_err(|e| format!("failed to write manual scan request: {e}"))?;
+                file.flush()
+                    .map_err(|e| format!("failed to flush manual scan request: {e}"))?;
+                return Ok(());
+            }
+            Err(error) => {
+                let last_error = error.to_string();
+                if started_at.elapsed() >= OWLYSHIELD_MANUAL_SCAN_CONNECT_TIMEOUT {
+                    return Err(format!(
+                        "manual scan pipe unavailable after {:?}: {}",
+                        OWLYSHIELD_MANUAL_SCAN_CONNECT_TIMEOUT, last_error
+                    ));
+                }
+                std::thread::sleep(OWLYSHIELD_MANUAL_SCAN_RETRY_DELAY);
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct ManualScanQueueStats {
+    queued: usize,
+    failed: usize,
+    first_error: Option<String>,
+    fatal_pipe_error: bool,
+}
+
+impl ManualScanQueueStats {
+    fn record(&mut self, path: &Path, result: Result<(), String>) {
+        match result {
+            Ok(()) => {
+                self.queued += 1;
+            }
+            Err(error) => {
+                self.failed += 1;
+                self.fatal_pipe_error = true;
+                let message = format!("{}: {}", path.display(), error);
+                eprintln!("[-] Failed to queue Owlyshield manual scan: {message}");
+                if self.first_error.is_none() {
+                    self.first_error = Some(message);
+                }
+            }
+        }
+    }
+
+    fn merge(&mut self, other: ManualScanQueueStats) {
+        self.queued += other.queued;
+        self.failed += other.failed;
+        self.fatal_pipe_error = self.fatal_pipe_error || other.fatal_pipe_error;
+        if self.first_error.is_none() {
+            self.first_error = other.first_error;
+        }
     }
 }
 
 fn scan_dir_recursively(
-    dir: &std::path::Path,
+    dir: &Path,
     scan_mode: &str,
     timeout_ms: u64,
     late_child_scan_grace_ms: u64,
-) {
+) -> ManualScanQueueStats {
+    let mut stats = ManualScanQueueStats::default();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
             if path.is_file() {
-                send_manual_scan_to_owlyshield(
-                    &path.to_string_lossy(),
+                stats.record(
+                    &path,
+                    send_manual_scan_to_owlyshield(
+                        &path.to_string_lossy(),
+                        scan_mode,
+                        timeout_ms,
+                        late_child_scan_grace_ms,
+                    ),
+                );
+                if stats.fatal_pipe_error {
+                    return stats;
+                }
+            } else if path.is_dir() {
+                stats.merge(scan_dir_recursively(
+                    &path,
                     scan_mode,
                     timeout_ms,
                     late_child_scan_grace_ms,
-                );
-            } else if path.is_dir() {
-                scan_dir_recursively(&path, scan_mode, timeout_ms, late_child_scan_grace_ms);
+                ));
+                if stats.fatal_pipe_error {
+                    return stats;
+                }
             }
         }
+    } else {
+        stats.failed += 1;
+        stats.first_error = Some(format!("failed to read directory {}", dir.display()));
     }
+    stats
 }
 
 #[tauri::command]
@@ -117,23 +195,41 @@ pub async fn scanner_start_folder_scan(
     };
     let path_clone = file_path.clone();
     let mode_clone = mode.clone();
+    let manual_scan_app_handle = app_handle.clone();
 
     // Spawn a thread to send the manual scan requests to Owlyshield
     std::thread::spawn(move || {
         let p = PathBuf::from(path_clone);
+        let mut stats = ManualScanQueueStats::default();
         if p.is_file() {
-            send_manual_scan_to_owlyshield(
-                &p.to_string_lossy(),
-                &mode_clone,
-                timeout_ms,
-                settings.late_child_scan_grace_ms,
+            stats.record(
+                &p,
+                send_manual_scan_to_owlyshield(
+                    &p.to_string_lossy(),
+                    &mode_clone,
+                    timeout_ms,
+                    settings.late_child_scan_grace_ms,
+                ),
             );
         } else if p.is_dir() {
-            scan_dir_recursively(
+            stats = scan_dir_recursively(
                 &p,
                 &mode_clone,
                 timeout_ms,
                 settings.late_child_scan_grace_ms,
+            );
+        } else {
+            stats.failed += 1;
+            stats.first_error = Some(format!("scan target does not exist: {}", p.display()));
+        }
+
+        if stats.queued == 0 && stats.failed > 0 {
+            let message = stats
+                .first_error
+                .unwrap_or_else(|| "Owlyshield manual scan pipe unavailable".to_string());
+            let _ = manual_scan_app_handle.emit(
+                "folder_scan_error",
+                format!("Owlyshield manual scan was not queued: {message}"),
             );
         }
     });
@@ -206,23 +302,41 @@ pub async fn scanner_start_quick_scan(app_handle: tauri::AppHandle) -> Result<St
         .unwrap();
 
         let paths_clone = paths.clone();
+        let manual_scan_app_handle = app_handle.clone();
         std::thread::spawn(move || {
+            let mut stats = ManualScanQueueStats::default();
             for p in paths_clone {
                 if p.is_file() {
-                    send_manual_scan_to_owlyshield(
-                        &p.to_string_lossy(),
-                        "minimal",
-                        settings.minimal_scan_timeout_ms,
-                        settings.late_child_scan_grace_ms,
+                    stats.record(
+                        &p,
+                        send_manual_scan_to_owlyshield(
+                            &p.to_string_lossy(),
+                            "minimal",
+                            settings.minimal_scan_timeout_ms,
+                            settings.late_child_scan_grace_ms,
+                        ),
                     );
                 } else if p.is_dir() {
-                    scan_dir_recursively(
+                    stats.merge(scan_dir_recursively(
                         &p,
                         "minimal",
                         settings.minimal_scan_timeout_ms,
                         settings.late_child_scan_grace_ms,
-                    );
+                    ));
                 }
+                if stats.fatal_pipe_error {
+                    break;
+                }
+            }
+
+            if stats.queued == 0 && stats.failed > 0 {
+                let message = stats
+                    .first_error
+                    .unwrap_or_else(|| "Owlyshield manual scan pipe unavailable".to_string());
+                let _ = manual_scan_app_handle.emit(
+                    "folder_scan_error",
+                    format!("Owlyshield quick scan was not queued: {message}"),
+                );
             }
         });
 
