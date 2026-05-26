@@ -21,13 +21,13 @@ use windows::Win32::Security::{
     SetSecurityDescriptorDacl,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
     FlushFileBuffers, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, ReadFile, WriteFile,
 };
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeA, DisconnectNamedPipe, PIPE_READMODE_BYTE,
     PIPE_READMODE_MESSAGE, PIPE_TYPE_BYTE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
-    SetNamedPipeHandleState, WaitNamedPipeA,
+    SetNamedPipeHandleState, WaitNamedPipeW,
 };
 #[cfg(windows)]
 use windows::Win32::System::Threading::{HIGH_PRIORITY_CLASS, SetPriorityClass};
@@ -441,11 +441,14 @@ fn open_duplex_pipe(
     timeout_ms: u32,
     message_read_mode: bool,
 ) -> Result<HANDLE, String> {
-    let pipe_name_c =
-        CString::new(pipe_name).map_err(|e| format!("invalid pipe name {pipe_name}: {e}"))?;
-    let pcstr = PCSTR(pipe_name_c.as_ptr() as *const u8);
+    use windows::core::PCWSTR;
+    
+    // Convert to UTF-16 for Unicode Windows API
+    let mut pipe_name_wide: Vec<u16> = pipe_name.encode_utf16().collect();
+    pipe_name_wide.push(0); // Null terminator
+    let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
 
-    let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, timeout_ms) };
+    let wait_ok: BOOL = unsafe { WaitNamedPipeW(pcwstr, timeout_ms) };
     if !wait_ok.as_bool() {
         return Err(format!(
             "pipe not ready within {timeout_ms} ms (GetLastError={:?})",
@@ -454,8 +457,8 @@ fn open_duplex_pipe(
     }
 
     let pipe_handle = unsafe {
-        CreateFileA(
-            pcstr,
+        CreateFileW(
+            pcwstr,
             FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0,
             FILE_SHARE_NONE,
             None,
@@ -466,7 +469,7 @@ fn open_duplex_pipe(
     }
     .map_err(|e| {
         format!(
-            "CreateFileA failed for {pipe_name}: {:?} (GetLastError={:?})",
+            "CreateFileW failed for {pipe_name}: {:?} (GetLastError={:?})",
             e,
             unsafe { GetLastError() }
         )
@@ -474,7 +477,7 @@ fn open_duplex_pipe(
 
     if pipe_handle.is_invalid() {
         return Err(format!(
-            "CreateFileA returned invalid handle for {pipe_name} (GetLastError={:?})",
+            "CreateFileW returned invalid handle for {pipe_name} (GetLastError={:?})",
             unsafe { GetLastError() }
         ));
     }
@@ -1478,28 +1481,23 @@ fn spawn_mbr_alert_listener() -> thread::JoinHandle<()> {
 
 /// Send a HIPS-style notification to the firewall GUI about a blocked USB MBR write.
 fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
-    use std::ffi::CString;
     use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
     use windows::Win32::Storage::FileSystem::{
-        CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, FlushFileBuffers,
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, FlushFileBuffers,
         OPEN_EXISTING, WriteFile,
     };
-    use windows::Win32::System::Pipes::WaitNamedPipeA;
-    use windows::core::PCSTR;
+    use windows::Win32::System::Pipes::WaitNamedPipeW;
+    use windows::core::PCWSTR;
 
     const HIPS_PIPE: &str = r"\\.\pipe\HydraHipEvent";
     const CONNECT_TIMEOUT_MS: u32 = 750;
 
-    let pipe_name = match CString::new(HIPS_PIPE) {
-        Ok(value) => value,
-        Err(_) => {
-            Logging::error("[MBR HIPS] Invalid HydraHipEvent pipe name");
-            return;
-        }
-    };
-    let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
+    // Convert to UTF-16 for Unicode Windows API
+    let mut pipe_name_wide: Vec<u16> = HIPS_PIPE.encode_utf16().collect();
+    pipe_name_wide.push(0); // Null terminator
+    let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
 
-    let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
+    let wait_ok: BOOL = unsafe { WaitNamedPipeW(pcwstr, CONNECT_TIMEOUT_MS) };
     if !wait_ok.as_bool() {
         Logging::warning(&format!(
             "[MBR HIPS] Firewall GUI pipe not ready for USB MBR alert (disk {}, GetLastError={:?})",
@@ -1510,8 +1508,8 @@ fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
     }
 
     let pipe_handle = unsafe {
-        CreateFileA(
-            pcstr,
+        CreateFileW(
+            pcwstr,
             FILE_GENERIC_WRITE.0,
             FILE_SHARE_NONE,
             None,
@@ -1524,7 +1522,7 @@ fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
     let pipe_handle = match pipe_handle {
         Ok(handle) if !handle.is_invalid() => handle,
         Ok(_) => {
-            Logging::error("[MBR HIPS] CreateFileA returned invalid HydraHipEvent handle");
+            Logging::error("[MBR HIPS] CreateFileW returned invalid HydraHipEvent handle");
             return;
         }
         Err(err) => {

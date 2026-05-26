@@ -3694,24 +3694,22 @@ impl BehaviorEngine {
         verdict: OpenEdrFlsVerdict,
         analysis_type: &str,
     ) {
-        use std::ffi::CString;
         use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
         use windows::Win32::Storage::FileSystem::{
-            CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
             FlushFileBuffers, OPEN_EXISTING, WriteFile,
         };
-        use windows::Win32::System::Pipes::WaitNamedPipeA;
-        use windows::core::PCSTR;
+        use windows::Win32::System::Pipes::WaitNamedPipeW;
+        use windows::core::PCWSTR;
 
         const PIPE: &str = r"\\.\pipe\HydraHipEvent";
         const CONNECT_TIMEOUT_MS: u32 = 250;
         const CONNECT_ATTEMPTS: usize = 2;
 
-        let Ok(pipe_name) = CString::new(PIPE) else {
-            Logging::error("[OpenEDRVerdict] Invalid HydraHipEvent pipe name");
-            return;
-        };
-        let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
+        // Convert to UTF-16 for Unicode Windows API
+        let mut pipe_name_wide: Vec<u16> = PIPE.encode_utf16().collect();
+        pipe_name_wide.push(0); // Null terminator
+        let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
         let message = format!(
             "HIPS_VERDICT:{}|{}|{}|{}\n",
             pid,
@@ -3723,15 +3721,15 @@ impl BehaviorEngine {
 
         let mut last_error = String::new();
         for attempt in 0..CONNECT_ATTEMPTS {
-            let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
+            let wait_ok: BOOL = unsafe { WaitNamedPipeW(pcwstr, CONNECT_TIMEOUT_MS) };
             if !wait_ok.as_bool() {
-                last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe {
+                last_error = format!("WaitNamedPipeW(GetLastError={:?})", unsafe {
                     GetLastError()
                 });
             } else {
                 let pipe_handle = match unsafe {
-                    CreateFileA(
-                        pcstr,
+                    CreateFileW(
+                        pcwstr,
                         FILE_GENERIC_WRITE.0,
                         FILE_SHARE_NONE,
                         None,
@@ -3743,14 +3741,14 @@ impl BehaviorEngine {
                     Ok(handle) if !handle.is_invalid() => handle,
                     Ok(_) => {
                         last_error =
-                            "CreateFileA returned an invalid HydraHipEvent handle".to_string();
+                            "CreateFileW returned an invalid HydraHipEvent handle".to_string();
                         if attempt + 1 < CONNECT_ATTEMPTS {
                             std::thread::sleep(std::time::Duration::from_millis(80));
                         }
                         continue;
                     }
                     Err(err) => {
-                        last_error = format!("CreateFileA failed: {:?}", err);
+                        last_error = format!("CreateFileW failed: {:?}", err);
                         if attempt + 1 < CONNECT_ATTEMPTS {
                             std::thread::sleep(std::time::Duration::from_millis(80));
                         }
@@ -5130,27 +5128,22 @@ impl BehaviorEngine {
         target: &str,
         reason: &str,
     ) -> bool {
-        use std::ffi::CString;
         use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
         use windows::Win32::Storage::FileSystem::{
-            CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
             FlushFileBuffers, OPEN_EXISTING, WriteFile,
         };
-        use windows::Win32::System::Pipes::WaitNamedPipeA;
-        use windows::core::PCSTR;
+        use windows::Win32::System::Pipes::WaitNamedPipeW;
+        use windows::core::PCWSTR;
 
         const PIPE: &str = r"\\.\pipe\HydraHipEvent";
         const CONNECT_TIMEOUT_MS: u32 = 750;
         const CONNECT_ATTEMPTS: usize = 4;
 
-        let pipe_name = match CString::new(PIPE) {
-            Ok(value) => value,
-            Err(_) => {
-                Logging::error("[Owlyshield HIPS] Invalid HydraHipEvent pipe name");
-                return false;
-            }
-        };
-        let pcstr = PCSTR(pipe_name.as_ptr() as *const u8);
+        // Convert to UTF-16 for Unicode Windows API
+        let mut pipe_name_wide: Vec<u16> = PIPE.encode_utf16().collect();
+        pipe_name_wide.push(0); // Null terminator
+        let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
 
         let message = format!(
             "HIPS_ASK:{}|{}|{}|{}|{}|{}|{}\n",
@@ -5166,15 +5159,15 @@ impl BehaviorEngine {
 
         let mut last_error = String::new();
         for attempt in 0..CONNECT_ATTEMPTS {
-            let wait_ok: BOOL = unsafe { WaitNamedPipeA(pcstr, CONNECT_TIMEOUT_MS) };
+            let wait_ok: BOOL = unsafe { WaitNamedPipeW(pcwstr, CONNECT_TIMEOUT_MS) };
             if !wait_ok.as_bool() {
-                last_error = format!("WaitNamedPipeA(GetLastError={:?})", unsafe {
+                last_error = format!("WaitNamedPipeW(GetLastError={:?})", unsafe {
                     GetLastError()
                 });
             } else {
                 let pipe_handle = match unsafe {
-                    CreateFileA(
-                        pcstr,
+                    CreateFileW(
+                        pcwstr,
                         FILE_GENERIC_WRITE.0,
                         FILE_SHARE_NONE,
                         None,
@@ -5186,14 +5179,14 @@ impl BehaviorEngine {
                     Ok(handle) if !handle.is_invalid() => handle,
                     Ok(_) => {
                         last_error =
-                            "CreateFileA returned an invalid HydraHipEvent handle".to_string();
+                            "CreateFileW returned an invalid HydraHipEvent handle".to_string();
                         if attempt + 1 < CONNECT_ATTEMPTS {
                             std::thread::sleep(std::time::Duration::from_millis(120));
                         }
                         continue;
                     }
                     Err(err) => {
-                        last_error = format!("CreateFileA failed: {:?}", err);
+                        last_error = format!("CreateFileW failed: {:?}", err);
                         if attempt + 1 < CONNECT_ATTEMPTS {
                             std::thread::sleep(std::time::Duration::from_millis(120));
                         }
