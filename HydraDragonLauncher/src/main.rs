@@ -34,6 +34,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 const BASE_DIR: &str = r"C:\Program Files\HydraDragonAntivirus";
 const DATA_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus";
+const CLAMAV_DIR: &str = r"C:\Program Files\ClamAV";
 const OWLYSHIELD_REG_KEY: &str = r"HKLM\Software\Owlyshield";
 const OWLYSHIELD_VERBOSE_LOGGING_VALUE: &str = "VERBOSE_LOGGING";
 const NO_EXCLUDED_WINDOW_TITLES: &[&str] = &[];
@@ -72,9 +73,7 @@ fn firewall_exe_path() -> PathBuf {
 }
 
 fn av_engine_exe_path() -> PathBuf {
-    PathBuf::from(BASE_DIR)
-        .join("hydradragon")
-        .join("HydraDragonAV")
+    PathBuf::from(CLAMAV_DIR)
         .join("HydraDragonAV.exe")
 }
 
