@@ -442,7 +442,7 @@ fn open_duplex_pipe(
     message_read_mode: bool,
 ) -> Result<HANDLE, String> {
     use windows::core::PCWSTR;
-    
+
     // Convert to UTF-16 for Unicode Windows API
     let mut pipe_name_wide: Vec<u16> = pipe_name.encode_utf16().collect();
     pipe_name_wide.push(0); // Null terminator
@@ -2779,7 +2779,7 @@ impl<'a> AVIntegration<'a> {
 fn send_threat_to_edr(event: AVThreatEvent) -> Result<(), String> {
     unsafe {
         use windows::core::PCWSTR;
-        
+
         // Convert to UTF-16 for Unicode Windows API
         let mut pipe_name_wide: Vec<u16> = PIPE_AV_TO_EDR.encode_utf16().collect();
         pipe_name_wide.push(0); // Null terminator
