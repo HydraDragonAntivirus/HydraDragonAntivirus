@@ -574,7 +574,23 @@ def main():
     else:
         log.info("clamav_config directory not found.")
 
-    # 2-3. Copy suricata.yaml & threshold.config
+    # 2. Move HydraDragonAV.exe to ClamAV directory
+    hydradragonav_src = HYDRADRAGON_PATH / "HydraDragonAV" / "HydraDragonAV.exe"
+    hydradragonav_dst = CLAMAV_DIR / "HydraDragonAV.exe"
+    if hydradragonav_src.exists():
+        try:
+            log.info("Moving HydraDragonAV.exe -> %s", hydradragonav_dst)
+            ensure_parent(hydradragonav_dst)
+            if not DRY_RUN:
+                shutil.move(str(hydradragonav_src), str(hydradragonav_dst))
+            log.info("Moved HydraDragonAV.exe to ClamAV directory")
+        except Exception as e:
+            log.exception("Failed to move HydraDragonAV.exe: %s", e)
+            errors.append(("HydraDragonAV.exe move", 1))
+    else:
+        log.warning("HydraDragonAV.exe not found at %s", hydradragonav_src)
+
+    # 3. Copy suricata.yaml & threshold.config
     hipsconfig = HYDRADRAGON_PATH / "hipsconfig"
     for cfg in ("suricata.yaml", "threshold.config"):
         src = hipsconfig / cfg

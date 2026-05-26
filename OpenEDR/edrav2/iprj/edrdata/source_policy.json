@@ -39,7 +39,8 @@
                 "*\\git.exe",
                 "*\\DropboxUpdate.exe",
                 "*\\GoogleUpdate.exe",
-                "*\\devenv.exe"
+                "*\\devenv.exe",
+                "*\\HydraDragonAV.exe"
             ],
             "InfectibleFiles": [
                 "*.lnk",

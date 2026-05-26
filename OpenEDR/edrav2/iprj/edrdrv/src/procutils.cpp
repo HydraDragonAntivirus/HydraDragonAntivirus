@@ -72,16 +72,20 @@ struct SpecialProcFlags
 //
 //
 //
+// SECURITY: Use full device paths to prevent malware from spoofing on other drives (D:, Z:, etc.)
+// ProcessImageFileName returns paths like: \Device\HarddiskVolume3\Program Files\...
+// Change HarddiskVolume3 to match your system volume (typically Volume3 for C: drive)
 static SpecialProcFlags g_specialProcFlags[] =
 {
-	{ U_STAT(L"\\windows\\system32\\csrss.exe"), (UINT32)ProcessInfoFlags::CsrssProcess },
-	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\openedr\\edrsvc.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\openedr\\edrcon.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\app.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\um_engine.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\elam_installer.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragonFirewall\\hydradragonfirewall.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\windows\\system32\\csrss.exe"), (UINT32)ProcessInfoFlags::CsrssProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\openedr\\edrsvc.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\openedr\\edrcon.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\ClamAV\\HydraDragonAV.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\app.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\um_engine.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\elam_installer.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\sanctum_ppl_runner.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\hydradragon\\HydraDragonFirewall\\hydradragonfirewall.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
 };
 
 NTSTATUS getProcessFlagsByName(PUNICODE_STRING pusImageName, UINT32* pnFlags)

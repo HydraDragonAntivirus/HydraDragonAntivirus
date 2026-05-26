@@ -23,11 +23,12 @@ namespace fs = std::filesystem;
 
 // Paths
 #define PIPE_NAME L"\\\\.\\pipe\\HydraDragonAV"
-#define ENGINES_DIR L"C:\\Program Files\\ClamAV\\"
-#define CLAMAV_DLL ENGINES_DIR L"libclamav.dll"
-#define CLAMAV_DB ENGINES_DIR L"database"
-#define FRESHCLAM_EXE ENGINES_DIR L"freshclam.exe"
-#define YARA_RULES_FOLDER L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\yara\\"
+#define CLAMAV_DIR L"C:\\Program Files\\ClamAV\\"
+#define HYDRADRAGON_DIR L"C:\\Program Files\\HydraDragonAntivirus\\"
+#define CLAMAV_DLL CLAMAV_DIR L"libclamav.dll"
+#define CLAMAV_DB CLAMAV_DIR L"database"
+#define FRESHCLAM_EXE CLAMAV_DIR L"freshclam.exe"
+#define YARA_RULES_FOLDER HYDRADRAGON_DIR L"hydradragon\\yara\\"
 
 // Scanner Global
 static std::unique_ptr<clamav::Scanner> g_clamavScanner;
@@ -133,7 +134,7 @@ bool RunFreshclam() {
 
   const BOOL created = CreateProcessW(
       applicationName.c_str(), mutableCommandLine.data(), nullptr, nullptr,
-      FALSE, 0, nullptr, ENGINES_DIR, &startupInfo, &processInfo);
+      FALSE, 0, nullptr, CLAMAV_DIR, &startupInfo, &processInfo);
 
   if (!created) {
     std::cerr << "[ClamAV] Failed to start freshclam.exe. Error: "
