@@ -587,10 +587,6 @@ impl ApiTracker {
 
     fn append_kernel_log(&mut self, line: String) {
         self.kernel_event_log.push(line);
-        if self.kernel_event_log.len() > 2048 {
-            let drain = self.kernel_event_log.len() - 2048;
-            self.kernel_event_log.drain(0..drain);
-        }
     }
 
     fn sanitize_raw_field(value: &str) -> String {

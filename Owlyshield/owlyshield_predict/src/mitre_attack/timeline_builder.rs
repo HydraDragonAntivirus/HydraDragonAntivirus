@@ -15,13 +15,7 @@ use crate::realtime_learning::api_tracker::{ApiTracker, OperationType};
 #[derive(Debug)]
 pub struct ApiTracker;
 
-const MAX_DETAIL_ITEMS: usize = 200;
-#[cfg(feature = "realtime_learning")]
-const MAX_SEQUENCE_EVENTS: usize = 500;
-#[cfg(feature = "realtime_learning")]
-const MAX_PACKET_EVENTS: usize = 500;
-#[cfg(feature = "realtime_learning")]
-const MAX_RAW_EVENTS: usize = 500;
+const MAX_DETAIL_ITEMS: usize = usize::MAX;
 
 pub struct TimelineBuilder {
     mapper: TechniqueMapper,
@@ -420,16 +414,7 @@ impl TimelineBuilder {
             timeline.add_event(event);
         }
 
-        for (index, raw) in tracker
-            .kernel_event_log
-            .iter()
-            .rev()
-            .take(MAX_RAW_EVENTS)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .enumerate()
-        {
+        for (index, raw) in tracker.kernel_event_log.iter().enumerate() {
             let event = TimelineEvent::new(
                 offset_time(tracker.first_seen, index),
                 "Raw Kernel Event".to_string(),
@@ -442,18 +427,9 @@ impl TimelineBuilder {
             timeline.add_event(event);
         }
 
-        for (index, raw) in tracker
-            .raw_event_log
-            .iter()
-            .rev()
-            .take(MAX_RAW_EVENTS)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .enumerate()
-        {
+        for (index, raw) in tracker.raw_event_log.iter().enumerate() {
             let event = TimelineEvent::new(
-                offset_time(tracker.first_seen, index + MAX_RAW_EVENTS),
+                offset_time(tracker.first_seen, index + tracker.kernel_event_log.len()),
                 "Raw Driver Event".to_string(),
                 raw.clone(),
                 EventSeverity::Info,
@@ -467,12 +443,7 @@ impl TimelineBuilder {
 
     #[cfg(feature = "realtime_learning")]
     fn add_operation_sequence_events(&self, timeline: &mut AttackTimeline, tracker: &ApiTracker) {
-        let start = tracker
-            .operation_sequence
-            .len()
-            .saturating_sub(MAX_SEQUENCE_EVENTS);
-
-        for (offset, op) in tracker.operation_sequence.iter().skip(start).enumerate() {
+        for (offset, op) in tracker.operation_sequence.iter().enumerate() {
             let timestamp = offset_time(tracker.first_seen, offset);
             match op {
                 OperationType::FileRead(path) => timeline.add_event(
@@ -724,9 +695,7 @@ impl TimelineBuilder {
         feature = "behavior_engine"
     ))]
     fn add_network_packet_events(&self, timeline: &mut AttackTimeline, tracker: &ApiTracker) {
-        let start = tracker.net_packets.len().saturating_sub(MAX_PACKET_EVENTS);
-
-        for pkt in tracker.net_packets.iter().skip(start) {
+        for pkt in tracker.net_packets.iter() {
             let timestamp = SystemTime::UNIX_EPOCH + Duration::from_millis(pkt.timestamp);
             let destination = format!("{}:{}", pkt.dst_ip, pkt.dst_port);
             let mut description = if let Some(query) = &pkt.dns_query {

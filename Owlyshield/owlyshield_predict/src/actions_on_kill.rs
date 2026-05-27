@@ -809,7 +809,7 @@ fn build_correlation_graph(
         timestamp_ms: system_time_ms(timeline.start_time),
     });
 
-    for (index, event) in timeline.events.iter().take(90).enumerate() {
+    for (index, event) in timeline.events.iter().enumerate() {
         signals.push(DetectionNode {
             id: format!("event-{index}"),
             node_type: node_type_for_timeline_event(&event.event_type),
@@ -819,7 +819,7 @@ fn build_correlation_graph(
         });
     }
 
-    for (index, detection) in evidence_report.detections.iter().take(40).enumerate() {
+    for (index, detection) in evidence_report.detections.iter().enumerate() {
         signals.push(DetectionNode {
             id: format!("technique-{index}-{}", detection.technique_id),
             node_type: node_type_for_detection(detection),

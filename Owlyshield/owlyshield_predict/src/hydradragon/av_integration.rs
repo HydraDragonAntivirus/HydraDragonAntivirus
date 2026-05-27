@@ -2512,6 +2512,65 @@ impl<'a> AVIntegration<'a> {
         }
     }
 
+    pub fn queue_process_start_scan_request(
+        &mut self,
+        file_path: &Path,
+        pid: Option<u32>,
+        additional_context: Option<String>,
+    ) {
+        let file_path_string = file_path.to_string_lossy().to_string();
+        if file_path_string.trim().is_empty()
+            || is_openedr_cloud_safe(&file_path_string)
+            || !file_path.is_file()
+        {
+            return;
+        }
+        if file_is_over_scan_limit(file_path) {
+            log_skip_large_file("process start scan request", file_path);
+            return;
+        }
+
+        let metadata = self.collect_scan_metadata(&file_path_string, file_path, "deep");
+        if !metadata.should_queue_scan {
+            return;
+        }
+
+        let static_detected = !metadata.hydradragon_static_matches.is_empty();
+        let effective_scan_mode = if static_detected { "minimal" } else { "deep" };
+
+        let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
+        append_hydradragon_static_result(
+            &mut rust_service_scan_results,
+            &metadata.hydradragon_static_matches,
+            &metadata.hydradragon_static_match_details,
+        );
+
+        let request = EDRScanRequest {
+            event_type: "PROCESS_START_SCAN_REQUEST".to_string(),
+            file_path: file_path_string.clone(),
+            timestamp: Utc::now().to_rfc3339(),
+            pid,
+            additional_context,
+            signature_status: metadata.signature_status,
+            yara_x_matches: Some(metadata.yara_x_matches),
+            is_vmprotect: metadata.is_vmprotect,
+            deep_scan: !static_detected,
+            scan_mode: effective_scan_mode.to_string(),
+            detectiteasy_scan_result: metadata.detectiteasy_scan_result,
+            scan_origin_path: Some(file_path_string.clone()),
+            deep_scan_timeout_ms: timeout_for_scan_mode(self.config, effective_scan_mode),
+            late_child_scan_grace_ms: Some(
+                self.config
+                    .late_child_scan_grace_ms(LATE_CHILD_SCAN_GRACE_MS),
+            ),
+            rust_service_scan_results,
+        };
+
+        if let Err(e) = self.internal_scan_tx.send(request) {
+            Logging::error(&format!("Failed to send process start scan request: {}", e));
+        }
+    }
+
     pub fn queue_manual_scan_request(
         &mut self,
         file_path: &Path,

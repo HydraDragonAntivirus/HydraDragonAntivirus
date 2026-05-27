@@ -884,6 +884,8 @@ pub mod worker_instance {
         iomsg_postprocessors: Vec<Box<dyn IOMsgPostProcessor>>,
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::hydradragon::av_integration::AVIntegration<'a>>,
+        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+        process_start_scans_queued: std::collections::HashSet<u32>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub behavior_engine: BehaviorEngine,
         #[cfg(feature = "realtime_learning")]
@@ -1750,6 +1752,8 @@ pub mod worker_instance {
                 threat_handler: None,
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
+                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                process_start_scans_queued: std::collections::HashSet::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings: app_settings.clone(),
                 iomsg_postprocessors: vec![],
@@ -1833,7 +1837,8 @@ pub mod worker_instance {
                 }
 
                 // Create ProcessRecord for pre-existing process
-                let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                precord.pids.insert(pid_u32);
                 self.process_records.insert_precord(gid, precord);
 
                 // Register in behavior engine
@@ -1847,6 +1852,14 @@ pub mod worker_instance {
                     );
                     self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
                 }
+
+                self.queue_process_start_scan_if_needed(
+                    gid,
+                    pid_u32,
+                    &appname,
+                    &exepath,
+                    "Startup process executable scan",
+                );
 
                 discovered_count += 1;
 
@@ -1893,6 +1906,48 @@ pub mod worker_instance {
             }
 
             None
+        }
+
+        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+        fn queue_process_start_scan_if_needed(
+            &mut self,
+            gid: u64,
+            pid: u32,
+            appname: &str,
+            exepath: &Path,
+            reason: &str,
+        ) {
+            if pid == 0
+                || Self::is_internal_service_pid(pid)
+                || exepath.as_os_str().is_empty()
+                || exepath.to_string_lossy().eq_ignore_ascii_case("UNKNOWN")
+                || !exepath.is_file()
+            {
+                return;
+            }
+
+            if !self.process_start_scans_queued.insert(pid) {
+                return;
+            }
+
+            if let Some(av_integration) = self.av_integration.as_mut() {
+                av_integration.queue_process_start_scan_request(
+                    exepath,
+                    Some(pid),
+                    Some(format!("{reason}: {appname} (PID: {pid}, GID: {gid})")),
+                );
+            }
+        }
+
+        #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
+        fn queue_process_start_scan_if_needed(
+            &mut self,
+            _gid: u64,
+            _pid: u32,
+            _appname: &str,
+            _exepath: &Path,
+            _reason: &str,
+        ) {
         }
 
         #[cfg(all(
@@ -1961,6 +2016,15 @@ pub mod worker_instance {
                 }
 
                 self.refresh_dynamic_hooks_for_pid_if_due(pid);
+                if is_new_record {
+                    self.queue_process_start_scan_if_needed(
+                        gid,
+                        pid,
+                        &appname,
+                        &exepath,
+                        "Firewall-observed process executable scan",
+                    );
+                }
 
                 if is_new_record {
                     Logging::info(&format!(
@@ -2131,6 +2195,12 @@ pub mod worker_instance {
                         self.dynamic_hook_apply_failures.remove(pid);
                     }
                 }
+                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                {
+                    for pid in &precord.pids {
+                        self.process_start_scans_queued.remove(pid);
+                    }
+                }
 
                 // Handle learning engine cleanup
                 #[cfg(feature = "realtime_learning")]
@@ -2274,9 +2344,17 @@ pub mod worker_instance {
                         exepath.clone(),
                         appname.clone(),
                     );
-                    let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                    let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                    precord.pids.insert(pid_u32);
                     self.process_records.insert_precord(gid, precord);
                     self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
+                    self.queue_process_start_scan_if_needed(
+                        gid,
+                        pid_u32,
+                        &appname,
+                        &exepath,
+                        "New process executable scan",
+                    );
 
                     // Register in learning engine
                     #[cfg(feature = "realtime_learning")]
@@ -2299,6 +2377,7 @@ pub mod worker_instance {
                 // --- THIRD: Sync behavior engine state to process_records ---
                 #[cfg(all(target_os = "windows", feature = "firewall"))]
                 self.sync_firewall_process_contexts();
+                let mut process_sync_scans = Vec::new();
                 for (gid, state) in self.behavior_engine.process_states.iter() {
                     if self.process_records.get_precord_by_gid(*gid).is_none() {
                         let mut precord = ProcessRecord::new(
@@ -2308,11 +2387,26 @@ pub mod worker_instance {
                         );
                         precord.pids.insert(state.pid);
                         self.process_records.insert_precord(*gid, precord);
+                        process_sync_scans.push((
+                            *gid,
+                            state.pid,
+                            state.app_name.clone(),
+                            state.exe_path.clone(),
+                        ));
                         Logging::debug(&format!(
                             "[PROCESS SYNC] Registered GID: {} from behavior_engine",
                             gid
                         ));
                     }
+                }
+                for (gid, pid, appname, exepath) in process_sync_scans {
+                    self.queue_process_start_scan_if_needed(
+                        gid,
+                        pid,
+                        &appname,
+                        &exepath,
+                        "Behavior-engine process executable scan",
+                    );
                 }
 
                 // Log Current Status
@@ -2570,6 +2664,8 @@ pub mod worker_instance {
                 iomsg_postprocessors: vec![],
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
+                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                process_start_scans_queued: std::collections::HashSet::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: Self::build_behavior_engine(config),
                 #[cfg(feature = "realtime_learning")]
@@ -2828,6 +2924,18 @@ pub mod worker_instance {
                 }
             }
 
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            if is_process_create {
+                let th_opt = self.threat_handler.as_ref().map(|h| h.clone_box());
+                if let Some(threat_handler) = th_opt {
+                    Logging::debug(&format!(
+                        "[PROCESS CREATE] Running immediate behavior scan for PID {} GID {}",
+                        iomsg.pid, tracking_key
+                    ));
+                    self.scan_processes(config, threat_handler);
+                }
+            }
+
             #[cfg(feature = "realtime_learning")]
             self.write_live_mitre_timeline_if_due(tracking_key);
 
@@ -2968,6 +3076,15 @@ pub mod worker_instance {
 
                     // Store process record (moves precord)
                     self.process_records.insert_precord(gid, precord);
+                    if irp_op == IrpMajorOp::IrpProcessCreate {
+                        self.queue_process_start_scan_if_needed(
+                            gid,
+                            pid,
+                            &appname,
+                            &exepath,
+                            "Kernel process-create executable scan",
+                        );
+                    }
                 }
                 Some(false) => {
                     // Existing process - upgrade UNKNOWN info
@@ -2995,10 +3112,20 @@ pub mod worker_instance {
                                 if let Some(state) =
                                     self.behavior_engine.process_states.get_mut(&gid)
                                 {
-                                    state.exe_path = path;
-                                    state.app_name = name;
+                                    state.exe_path = path.clone();
+                                    state.app_name = name.clone();
                                 }
                             }
+                        }
+
+                        if IrpMajorOp::from_byte(iomsg.irp_op) == IrpMajorOp::IrpProcessCreate {
+                            self.queue_process_start_scan_if_needed(
+                                gid,
+                                pid,
+                                &name,
+                                &path,
+                                "Kernel process-create executable scan",
+                            );
                         }
                     }
                 }
