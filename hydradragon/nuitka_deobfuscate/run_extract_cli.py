@@ -1,8 +1,8 @@
 """
 run_extract_cli.py
 ------------------------------------------------------
-- Added raw blob scan for marshal code objects (Nuitka constants blobs do NOT
-  store bytecode as structured section items — must scan raw bytes directly).
+- Removed raw blob scan (Pass 1); section-based extraction covers all cases.
+- emit_pyc now on by default; use --no-emit-pyc to skip writing .pyc files.
 - Added all marshal code object tags for Python 3.x (0xe3, 0x63, 0xf3).
 - Added -v/--version CLI argument (was missing in V14, causing argparse rejection).
 - Version propagated to get_pyc_header() and marshal.dumps() correctly.
@@ -589,57 +589,81 @@ def normalize_decoded_sections(sections: dict, module_metadata: list[dict] | Non
 
 
 # ============================================================================
-# RAW BLOB SCAN — finds bytecode embedded in Nuitka constants blobs
-# ============================================================================
-
-
-def raw_scan_for_code_objects(
-    raw: bytes,
-    python_version: str | tuple[int, int],
-) -> list[tuple[int, object]]:
-    """
-    Single-pass scan of raw blob bytes for marshal code-object tags using xdis.
-
-    Nuitka constants blobs do NOT store bytecode as top-level section
-    items — bytecode is embedded within the raw byte stream and must
-    be found by scanning directly. The section-based recursive_find_code
-    approach misses these entirely.
-    """
-    magic_int = get_magic_int(python_version)
-    if magic_int is None:
-        return []
-
-    results = []
-    raw_view = memoryview(raw)
-    last_accepted_offset = -8
-
-    for match in MARSHAL_CODE_TAG_PATTERN.finditer(raw):
-        offset = match.start()
-
-        # Skip if we already found a code object very nearby
-        if offset - last_accepted_offset < 8:
-            continue
-
-        obj = try_load_code_object(raw_view, offset, magic_int)
-        if obj is None:
-            continue
-
-        results.append((offset, obj))
-        last_accepted_offset = offset
-
-    return results
-
-
-# ============================================================================
 # SECTION-BASED CODE FINDER — for blobs that DO embed marshal bytes as items
 # ============================================================================
+
+
+
+def _normalize_section_items(items):
+    """Return section payload as an iterable of root items without splitting bytes into ints."""
+    if isinstance(items, (list, tuple)):
+        return items
+    if isinstance(items, (set, frozenset)):
+        return tuple(items)
+    return (items,)
+
+
+def _safe_pyc_relpath(filepath: str) -> Path:
+    """Convert a source-like path into a safe relative .pyc path."""
+    cleaned = sanitize_filename(filepath).replace("\\", "/")
+    if cleaned.lower().endswith(".py"):
+        cleaned = cleaned[:-3] + ".pyc"
+    elif not cleaned.lower().endswith(".pyc"):
+        cleaned += ".pyc"
+
+    parts = [part for part in cleaned.split("/") if part not in ("", ".", "..")]
+    if not parts:
+        return Path("unknown.pyc")
+    return Path(*parts)
+
+
+def _unique_path_for_write(dest: Path) -> Path:
+    """Return dest or a numbered sibling that does not exist yet."""
+    if not dest.exists():
+        return dest
+    stem = dest.stem
+    suffix = dest.suffix
+    parent = dest.parent
+    for counter in range(1, 10000):
+        candidate = parent / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"Could not find a free output path for {dest}")
+
+
+def _write_bytes_unique(dest: Path, data: bytes) -> Path:
+    """Write bytes without overwriting an existing extraction result."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    for counter in range(0, 10000):
+        candidate = dest if counter == 0 else dest.parent / f"{dest.stem}_{counter}{dest.suffix}"
+        try:
+            with candidate.open("xb") as handle:
+                handle.write(data)
+            return candidate
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"Could not find a free output path for {dest}")
+
+
+def _payload_dedupe_key(value):
+    if isinstance(value, (bytes, bytearray)):
+        payload = bytes(value)
+        return ("bytes", len(payload), payload[:64], payload[-64:])
+    return ("object", id(value))
+
+
+def _dump_code_object(code_obj, target_ver_tuple: tuple[int, int]) -> bytes:
+    """Dump a live/xdis code object while keeping compatibility across xdis versions."""
+    try:
+        return marshal.dumps(code_obj, python_version=target_ver_tuple)
+    except TypeError:
+        return marshal.dumps(code_obj)
 
 
 def recursive_find_code(item, results, processed_ids, magic_int: int | None, depth=0):
     """
     Recursively search structured section items for code objects.
     Works on blobs where marshal bytes appear as list/dict/tuple items.
-    Complements raw_scan_for_code_objects() which handles Nuitka blobs.
     """
     if depth > 20 or id(item) in processed_ids:
         return
@@ -654,7 +678,7 @@ def recursive_find_code(item, results, processed_ids, magic_int: int | None, dep
             pass
 
     elif isinstance(item, (bytes, bytearray)) and len(item) > 16:
-        if item[:1] in MARSHAL_CODE_TAGS:
+        if item[:1] in MARSHAL_VERSION_HINT_TAGS:
             obj = try_load_code_object(item, 0, magic_int)
             if obj is not None:
                 recursive_find_code(obj, results, processed_ids, magic_int, depth + 1)
@@ -678,14 +702,16 @@ def process_section(
     OmniDecompiler,
     generate_omni_source,
     generate_omni_nbc,
-    emit_pyc: bool = False,
+    emit_pyc: bool = True,
 ) -> tuple[int, int, int]:
-    clean_section = section_name.replace(".", "_").strip("_")
+    clean_section = section_name.replace(".", "_").strip("_") or "section"
+    root_items = _normalize_section_items(items)
     is_marshaled_bytecode_section = is_marshaled_bytecode_section_items(
         section_name,
-        items,
+        root_items,
         magic_int,
     )
+    recovered_file_paths = []
     count_pyc = 0
     count_other = 0
     omni_count = 0
@@ -693,108 +719,136 @@ def process_section(
     if OmniDecompiler and not is_marshaled_bytecode_section:
         try:
             omp = OmniDecompiler()
-            omp.run_pass_1_structural_mapping(items)
+            omp.run_pass_1_structural_mapping(root_items)
             omp.run_pass_2_ast_synthesis()
-            source = generate_omni_source(omp, section_name, raw_constants=list(items))
+            source = generate_omni_source(omp, section_name, raw_constants=list(root_items))
             if source.strip():
                 if generate_omni_nbc:
-                    nbc_text = generate_omni_nbc(omp, section_name, list(items))
+                    nbc_text = generate_omni_nbc(omp, section_name, list(root_items))
                     source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
 
                 safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name)[:80]
                 omni_out = out_dir / "omni_reconstructed"
-                omni_out.mkdir(parents=True, exist_ok=True)
-                target_py_path = omni_out / f"{safe_name}.py"
-                target_py_path.write_text(source, encoding="utf-8")
+                target_py_path = _write_bytes_unique(omni_out / f"{safe_name}.py", source.encode("utf-8"))
+                recovered_file_paths.append(str(target_py_path))
                 omni_count += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[!] Warning: OMNI reconstruction failed for {section_name}: {exc}")
 
     section_items_metadata = []
 
-    for i, root_item in enumerate(items):
+    for i, root_item in enumerate(root_items):
         item_id = f"{i:04d}"
         item_info = {"id": item_id, "type": type(root_item).__name__}
+        seen_payloads = set()
+        raw_payloads: list[bytes] = []
+        code_objects = []
 
-        if is_marshaled_bytecode_section and isinstance(root_item, (bytes, bytearray)) and len(root_item) > 16 and root_item[:1] in MARSHAL_VERSION_HINT_TAGS:
-            guessed_path = extract_path_from_marshaled_bytes(root_item)
-            guessed_label = None
-            if guessed_path:
-                guessed_label = Path(guessed_path).stem
+        for payload in _iter_marshaled_bytecode_payloads(root_item, magic_int=magic_int):
+            key = _payload_dedupe_key(payload)
+            if key in seen_payloads:
+                continue
+            seen_payloads.add(key)
+            if isinstance(payload, (bytes, bytearray)):
+                raw_payloads.append(bytes(payload))
+            elif _is_live_code_object(payload):
+                code_objects.append(payload)
 
-            item_info["detected_code_path"] = guessed_path
-            if emit_pyc:
+        actions = []
+
+        if raw_payloads:
+            item_info["marshal_payload_count"] = len(raw_payloads)
+            item_info["detected_code_paths"] = []
+            item_info["written_pyc"] = []
+            item_info["errors"] = []
+
+            for j, payload in enumerate(raw_payloads):
+                guessed_path = extract_path_from_marshaled_bytes(payload)
                 if guessed_path:
-                    dest = out_dir / "pyc" / sanitize_filename(guessed_path).replace(".py", ".pyc")
-                elif guessed_label:
-                    dest = out_dir / "pyc" / clean_section / f"{guessed_label}_{item_id}.pyc"
+                    item_info["detected_code_paths"].append(guessed_path)
+                    dest = out_dir / "pyc" / _safe_pyc_relpath(guessed_path)
                 else:
-                    dest = out_dir / "pyc" / clean_section / f"bytecode_{item_id}.pyc"
+                    dest = out_dir / "pyc" / clean_section / f"bytecode_{item_id}_{j:02d}.pyc"
 
-                try:
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(header + bytes(root_item))
-                    count_pyc += 1
-                except Exception:
-                    pass
-                item_info["action"] = "bytecode_extracted"
-            else:
-                item_info["action"] = "bytecode_detected"
-            section_items_metadata.append(item_info)
-            continue
-
-        discovered_code = []
-        recursive_find_code(root_item, discovered_code, set(), magic_int)
-
-        if discovered_code:
-            item_info["code_object_count"] = len(discovered_code)
-            item_info["detected_code_paths"] = [path for path in (extract_path_from_code(code_obj) for code_obj in discovered_code) if path and "<" not in path][:16]
-            if emit_pyc:
-                for j, code_obj in enumerate(discovered_code):
+                if emit_pyc:
                     try:
-                        raw_bytes = marshal.dumps(code_obj, python_version=target_ver_tuple)
+                        written = _write_bytes_unique(dest, header + payload)
+                        recovered_file_paths.append(str(written))
+                        item_info["written_pyc"].append(str(written))
+                        count_pyc += 1
+                    except Exception as exc:
+                        item_info["errors"].append(f"raw_payload_{j}: {exc}")
+                        print(f"[!] Warning: failed to write pyc for {section_name} item {item_id}: {exc}")
+
+            actions.append("bytecode_extracted" if emit_pyc else "bytecode_detected")
+
+        if code_objects:
+            item_info["code_object_count"] = len(code_objects)
+            detected_paths = [
+                path
+                for path in (extract_path_from_code(code_obj) for code_obj in code_objects)
+                if path and "<" not in path
+            ][:16]
+            if detected_paths:
+                item_info.setdefault("detected_code_paths", []).extend(detected_paths)
+            item_info.setdefault("written_pyc", [])
+            item_info.setdefault("errors", [])
+
+            if emit_pyc:
+                for j, code_obj in enumerate(code_objects):
+                    try:
+                        raw_bytes = _dump_code_object(code_obj, target_ver_tuple)
                         path_str = extract_path_from_code(code_obj)
                         sub_id = f"{i:04d}_{j:02d}"
                         code_label = extract_code_label(code_obj)
 
                         if path_str and "<" not in path_str:
-                            recovered_path = sanitize_filename(path_str)
-                            dest = out_dir / "pyc" / recovered_path.replace(".py", ".pyc")
+                            dest = out_dir / "pyc" / _safe_pyc_relpath(path_str)
                         elif code_label:
                             dest = out_dir / "pyc" / clean_section / f"{code_label}_{sub_id}.pyc"
                         else:
                             dest = out_dir / "pyc" / clean_section / f"bytecode_{sub_id}.pyc"
 
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_bytes(header + raw_bytes)
+                        written = _write_bytes_unique(dest, header + raw_bytes)
+                        recovered_file_paths.append(str(written))
+                        item_info["written_pyc"].append(str(written))
                         count_pyc += 1
-                    except Exception:
-                        pass
-                item_info["action"] = "code_objects_extracted"
+                    except Exception as exc:
+                        item_info["errors"].append(f"code_object_{j}: {exc}")
+                        print(f"[!] Warning: failed to dump code object for {section_name} item {item_id}: {exc}")
+                actions.append("code_objects_extracted")
             else:
-                item_info["action"] = "code_objects_detected"
-        else:
+                actions.append("code_objects_detected")
+
+        if not raw_payloads and not code_objects:
             if isinstance(root_item, (bytes, bytearray)):
                 item_info["data_preview"] = root_item[:64].hex()
                 item_info["size"] = len(root_item)
             else:
                 item_info["repr"] = repr(root_item)[:200]
             count_other += 1
+        else:
+            item_info["action"] = "+".join(actions)
+            if not item_info.get("detected_code_paths"):
+                item_info.pop("detected_code_paths", None)
+            if not item_info.get("written_pyc"):
+                item_info.pop("written_pyc", None)
+            if not item_info.get("errors"):
+                item_info.pop("errors", None)
 
         section_items_metadata.append(item_info)
 
     # WRITE UNITED METADATA
     if section_items_metadata:
         meta_dir = out_dir / "_metadata"
-        meta_dir.mkdir(parents=True, exist_ok=True)
         meta_file = meta_dir / f"{clean_section}_metadata.json"
         try:
-            meta_file.write_text(json.dumps(section_items_metadata, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+            written_meta = _write_bytes_unique(meta_file, json.dumps(section_items_metadata, indent=2).encode("utf-8"))
+            recovered_file_paths.append(str(written_meta))
+        except Exception as exc:
+            print(f"[!] Warning: failed to write metadata for {section_name}: {exc}")
 
     return count_pyc, count_other, omni_count
-
 
 # ============================================================================
 # MAIN
@@ -807,8 +861,9 @@ def main(argv=None) -> int:
     parser.add_argument("-o", "--output", type=Path, default=Path(r"C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate"), help=r"Output directory (default: C:\ProgramData\HydraDragonAntivirus\nuitka_deobfuscate)")
     parser.add_argument("-v", "--version", type=parse_version, default=None, metavar="VER", help="Target CPython version e.g. 3.13 (default: auto-detect)")
     parser.add_argument("--list-only", action="store_true", help="List decoded section names only, do not write files")
-    parser.add_argument("--emit-pyc", action="store_true", help="Also extract marshalled code objects as .pyc files (disabled by default)")
+    parser.add_argument("--no-emit-pyc", action="store_true", help="Skip writing .pyc files (only run OMNI reconstruction)")
     args = parser.parse_args(argv)
+    emit_pyc = not args.no_emit_pyc
 
     if not args.blob.is_file():
         print(f"[!] Error: blob not found: {args.blob}")
@@ -910,45 +965,6 @@ def main(argv=None) -> int:
     count_other = 0
 
     # =========================================================================
-    # PASS 1: RAW BLOB SCAN
-    # Nuitka constants blobs embed bytecode in raw bytes — NOT as section items.
-    # This is the primary extraction path for Nuitka binaries.
-    # =========================================================================
-    raw_code_objects = []
-    if args.emit_pyc:
-        if is_marshaled_bytecode_section_items(
-            "bytecode",
-            sections.get("bytecode") or [],
-            magic_int,
-        ):
-            print("[*] Pass 1: Raw blob scan skipped (bytecode section already provides marshalled code).")
-        else:
-            print("[*] Pass 1: Raw blob scan for embedded marshal code objects...")
-            raw_code_objects = raw_scan_for_code_objects(raw, target_ver_str)
-            print(f"[*] Raw scan found {len(raw_code_objects)} code object(s) in blob.")
-    else:
-        print("[*] Pass 1: Raw blob scan skipped (emit_pyc disabled; focusing on non-.pyc recovery).")
-
-    for offset, code_obj in raw_code_objects:
-        try:
-            raw_bytes = marshal.dumps(code_obj, python_version=target_ver_tuple)
-            path_str = extract_path_from_code(code_obj)
-            code_label = extract_code_label(code_obj)
-
-            if path_str and "<" not in path_str:
-                dest = out_dir / "pyc" / sanitize_filename(path_str).replace(".py", ".pyc")
-            elif code_label:
-                dest = out_dir / "pyc" / "raw_scan" / f"{code_label}_at_{offset:08x}.pyc"
-            else:
-                dest = out_dir / "pyc" / "raw_scan" / f"at_{offset:08x}.pyc"
-
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(header + raw_bytes)
-            count_pyc += 1
-        except Exception:
-            pass
-
-    # =========================================================================
     # PASS 2: SECTION-BASED SCAN + OMNI DECOMPILATION
     # Handles blobs that store marshal bytes as structured section items,
     # and runs the OMNI heuristic reconstruction pipeline.
@@ -972,7 +988,7 @@ def main(argv=None) -> int:
                     OmniDecompiler,
                     generate_omni_source,
                     generate_omni_nbc,
-                    args.emit_pyc,
+                    emit_pyc,
                 )
                 for section_name, items in work_items
             ]
@@ -988,12 +1004,7 @@ def main(argv=None) -> int:
     # =========================================================================
     print("\n[!] Orchestration Complete!")
     print(f"    Target version  : Python {target_ver_str}")
-    if args.emit_pyc:
-        print(f"    Raw scan hits   : {len(raw_code_objects)} code objects found in blob")
-        print(f"    Bytecode (.pyc) : {count_pyc} modules extracted")
-    else:
-        print("    Raw scan hits   : disabled by default")
-        print(f"    Bytecode (.pyc) : {count_pyc} modules extracted (default disabled)")
+    print(f"    Bytecode (.pyc) : {count_pyc} modules extracted")
     print(f"    Metadata items  : {count_other}")
     if OmniDecompiler:
         print(f"    OMNI recon      : {sc} Python reconstructions")
