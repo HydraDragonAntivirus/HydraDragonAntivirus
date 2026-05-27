@@ -405,13 +405,7 @@ struct HydraDragonAvPipeResponse {
     malicious: Option<bool>,
     clamav: Option<String>,
     yara: Option<Vec<String>>,
-    xvirus: Option<HydraDragonAvXvirusResponse>,
     is_vmprotect: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-struct HydraDragonAvXvirusResponse {
-    detection: Option<String>,
 }
 
 fn clean_service_result(engine: &str) -> RustServiceScanResult {
@@ -641,24 +635,6 @@ fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
                             .cloned()
                             .collect::<Vec<_>>()
                             .join(", ")
-                    )),
-                    virus_name,
-                    is_vmprotect: response.is_vmprotect.unwrap_or(false),
-                    error: None,
-                });
-            }
-
-            if let Some(virus_name) = response
-                .xvirus
-                .and_then(|x| x.detection)
-                .filter(|v| !v.trim().is_empty())
-            {
-                return Ok(RustServiceScanResult {
-                    engine: "HydraDragonAV/Xvirus".to_string(),
-                    malicious: true,
-                    match_details: Some(format!(
-                        "HydraDragonAV/Xvirus reported detection '{}' for {}",
-                        virus_name, file_path
                     )),
                     virus_name,
                     is_vmprotect: response.is_vmprotect.unwrap_or(false),
@@ -2493,8 +2469,17 @@ impl<'a> AVIntegration<'a> {
         }
 
         let static_detected = !metadata.hydradragon_static_matches.is_empty();
-        let effective_scan_mode = if static_detected { "minimal" } else { "deep" };
-        let mut rust_service_scan_results = Vec::new();
+        
+        // Sanctum requests deep scan when process behavior is suspicious
+        // Always honor the deep scan request unless static detection already found something
+        let effective_scan_mode = if static_detected {
+            "minimal"  // Static detection found malware, no need for deep scan
+        } else {
+            "deep"  // Sanctum detected suspicious behavior, do deep scan
+        };
+        
+        // Always scan with HydraDragonAV service (ClamAV/YARA)
+        let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
@@ -2557,16 +2542,16 @@ impl<'a> AVIntegration<'a> {
             return;
         }
         let static_detected = !metadata.hydradragon_static_matches.is_empty();
+        
+        // For manual scans, respect user's choice but still apply static detection override
         let effective_scan_mode = if static_detected {
             "minimal"
         } else {
-            normalized_scan_mode
+            normalized_scan_mode  // User explicitly requested this mode
         };
-        let mut rust_service_scan_results = if effective_scan_mode == "minimal" {
-            collect_minimal_service_scan_results(&file_path_string)
-        } else {
-            Vec::new()
-        };
+        
+        // Always scan with HydraDragonAV service (ClamAV/YARA)
+        let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
