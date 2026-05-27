@@ -1,10 +1,10 @@
-name: Publish Launcher
+name: Publish Controller
 
 on:
   push:
     branches: [development-version]
     paths:
-      - 'HydraDragonLauncher/**'
+      - 'HydraDragonController/**'
       - '.github/workflows/publish-launcher.yml'
   workflow_dispatch:
 
@@ -19,7 +19,7 @@ jobs:
   build-and-stage:
     if: |
       !startsWith(github.ref_name, 'auto-update-') &&
-      !contains(github.event.head_commit.message, 'chore(launcher): update binaries and lockfile') &&
+      !contains(github.event.head_commit.message, 'chore(controller): update binaries and lockfile') &&
       github.event.head_commit.author.name != 'github-actions[bot]'
     runs-on: windows-2022
     
@@ -44,30 +44,30 @@ jobs:
       with:
         tool: trunk
     
-    - name: Update Launcher lockfile
+    - name: Update Controller lockfile
       shell: pwsh
       run: |
-        cargo generate-lockfile --manifest-path HydraDragonLauncher/Cargo.toml
-        cargo update --manifest-path HydraDragonLauncher/Cargo.toml
-        cargo update --manifest-path HydraDragonLauncher/ui/Cargo.toml
+        cargo generate-lockfile --manifest-path HydraDragonController/Cargo.toml
+        cargo update --manifest-path HydraDragonController/Cargo.toml
+        cargo update --manifest-path HydraDragonController/ui/Cargo.toml
 
     - name: Format Rust sources
       shell: pwsh
       run: |
         rustup component add rustfmt
-        cargo fmt --manifest-path HydraDragonLauncher/Cargo.toml --all
-        cargo fmt --manifest-path HydraDragonLauncher/ui/Cargo.toml --all
+        cargo fmt --manifest-path HydraDragonController/Cargo.toml --all
+        cargo fmt --manifest-path HydraDragonController/ui/Cargo.toml --all
     
     - name: Build UI
-      working-directory: HydraDragonLauncher/ui
+      working-directory: HydraDragonController/ui
       run: trunk build --release -d ../dist
     
     - name: Build Release
-      working-directory: HydraDragonLauncher
+      working-directory: HydraDragonController
       run: cargo build --release --verbose
     
     - name: Run tests
-      working-directory: HydraDragonLauncher
+      working-directory: HydraDragonController
       run: cargo test --release --verbose
     
     - name: Stage
@@ -75,7 +75,7 @@ jobs:
       run: |
         $dist = "hydradragon/HydraDragonController"
         New-Item -ItemType Directory -Force -Path $dist
-        Copy-Item "HydraDragonLauncher/target/release/hydradragoncontroller.exe" "$dist/" -Force
+        Copy-Item "HydraDragonController/target/release/hydradragoncontroller.exe" "$dist/" -Force
     
     - name: Check for publishable changes
       id: check_changes
@@ -83,21 +83,21 @@ jobs:
       with:
         paths: |
           hydradragon/HydraDragonController
-          HydraDragonLauncher/Cargo.lock
-          HydraDragonLauncher/build.rs
-          HydraDragonLauncher/src
-          HydraDragonLauncher/ui/src
+          HydraDragonController/Cargo.lock
+          HydraDragonController/build.rs
+          HydraDragonController/src
+          HydraDragonController/ui/src
     
     - name: Create PR
       if: steps.check_changes.outputs.changed == 'true'
       uses: peter-evans/create-pull-request@v8
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: "chore(launcher): update binaries and lockfile"
-        title: "Update Launcher Binaries and Lockfile"
+        commit-message: "chore(controller): update binaries and lockfile"
+        title: "Update Controller Binaries and Lockfile"
         add-paths: |
           ${{ steps.check_changes.outputs.publishable_files }}
-        branch: "auto-update-launcher"
+        branch: "auto-update-controller"
         base: ${{ github.ref_name }}
         delete-branch: true
-        labels: binaries, automated-pr, launcher, development-version
+        labels: binaries, automated-pr, controller, development-version
