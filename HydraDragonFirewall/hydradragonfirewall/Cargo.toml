@@ -36,7 +36,7 @@ shared_no_std = { path = "../../Sanctum/shared_no_std" }
 tracing = "0.1"
 
 [target.'cfg(windows)'.dependencies]
-windivert = { path = "../windivert-rust-master/windivert", features = ["vendored"] }
+windivert = { path = "../windivert-rust/windivert", features = ["vendored"] }
 winreg = "0.56.0"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
