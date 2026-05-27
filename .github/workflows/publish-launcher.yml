@@ -73,16 +73,16 @@ jobs:
     - name: Stage
       shell: pwsh
       run: |
-        $dist = "hydradragon/HydraDragonLauncher"
+        $dist = "hydradragon/HydraDragonController"
         New-Item -ItemType Directory -Force -Path $dist
-        Copy-Item "HydraDragonLauncher/target/release/hydradragonlauncher.exe" "$dist/" -Force
+        Copy-Item "HydraDragonLauncher/target/release/hydradragoncontroller.exe" "$dist/" -Force
     
     - name: Check for publishable changes
       id: check_changes
       uses: ./.github/actions/check-publishable-changes
       with:
         paths: |
-          hydradragon/HydraDragonLauncher
+          hydradragon/HydraDragonController
           HydraDragonLauncher/Cargo.lock
           HydraDragonLauncher/build.rs
           HydraDragonLauncher/src

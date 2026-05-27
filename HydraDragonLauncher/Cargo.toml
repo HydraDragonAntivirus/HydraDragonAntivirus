@@ -1,9 +1,9 @@
 [package]
-name = "hydradragonlauncher"
+name = "hydradragoncontroller"
 version = "1.0.0"
 edition = "2021"
 authors = ["HydraDragon Team"]
-description = "HydraDragon Antivirus Component Launcher"
+description = "HydraDragon Antivirus Component Controller"
 build = "build.rs"
 
 [dependencies]
@@ -30,7 +30,7 @@ features = [
 ]
 
 [[bin]]
-name = "hydradragonlauncher"
+name = "hydradragoncontroller"
 path = "src/main.rs"
 
 [profile.release]
