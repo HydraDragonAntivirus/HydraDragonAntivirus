@@ -16,6 +16,7 @@ import sys
 import struct
 import json
 from concurrent.futures import ThreadPoolExecutor
+import threading
 from pathlib import Path
 import re
 
@@ -118,8 +119,11 @@ def is_marshaled_bytecode_section_items(
     items,
     magic_int: int | None = None,
 ) -> bool:
-    if section_name.strip(".").lower() != "bytecode":
-        return False
+    """Return True when a decoded section already contains marshal/code payloads.
+
+    OMNI must not reconstruct these sections. The extractor writes .pyc files
+    from the structured section scan below; OMNI is text reconstruction only.
+    """
     return any(True for _ in _iter_marshaled_bytecode_payloads(items, magic_int=magic_int))
 
 
@@ -499,28 +503,71 @@ def _load_module_metadata(raw: bytes) -> list[dict]:
         return []
 
 
-def _clean_module_name(name: object) -> str | None:
+def _clean_module_name(name: object, *, preserve_metadata: bool = False) -> str | None:
+    """Normalize a decoded/list_modules module name without dropping real modules."""
     if not isinstance(name, str):
         return None
-    name = name.strip().lstrip(".")
-    if not name or name == "bytecode":
+
+    name = name.strip().replace("\\", "/")
+    if not name:
         return None
-    if "hidden_segment" in name or name.startswith("hidden_"):
+
+    # list_modules may return a source path instead of a dotted module name.
+    # Keep package structure, but turn it into the same dotted form used by sections.
+    if name.lower().endswith(".py"):
+        name = name[:-3]
+    name = name.strip("./")
+    name = name.replace("/", ".")
+    while ".." in name:
+        name = name.replace("..", ".")
+    name = name.strip(".")
+
+    if not name:
         return None
+
+    # Only filter synthetic decoder sections. Metadata from list_modules is source of truth
+    # and must not be dropped just because the decoder failed to expose a matching section.
+    if not preserve_metadata:
+        if name == "bytecode":
+            return None
+        if "hidden_segment" in name or name.startswith("hidden_"):
+            return None
+
     return name
+
+
+def _metadata_module_name(meta: dict) -> str | None:
+    """Extract the module name/path reported by list_modules, preserving it."""
+    for key in ("name", "module", "module_name", "fullname", "qualified_name"):
+        name = _clean_module_name(meta.get(key), preserve_metadata=True)
+        if name:
+            return name
+
+    for key in ("filename", "file", "path", "source", "source_path"):
+        name = _clean_module_name(meta.get(key), preserve_metadata=True)
+        if name:
+            return name
+
+    return None
 
 
 def _metadata_name_maps(module_metadata: list[dict] | None) -> tuple[dict[int, str], list[str]]:
     by_offset: dict[int, str] = {}
     ordered_names: list[str] = []
+    seen_names: set[str] = set()
 
     for meta in module_metadata or []:
-        name = _clean_module_name(meta.get("name"))
+        if not isinstance(meta, dict):
+            continue
+        name = _metadata_module_name(meta)
         if not name:
             continue
 
-        ordered_names.append(name)
-        for key in ("section_offset", "offset"):
+        if name not in seen_names:
+            ordered_names.append(name)
+            seen_names.add(name)
+
+        for key in ("section_offset", "offset", "module_offset", "blob_offset", "start", "start_offset"):
             try:
                 by_offset[int(meta[key])] = name
             except Exception:
@@ -533,8 +580,11 @@ def _lookup_metadata_name(offset: int, by_offset: dict[int, str]) -> str | None:
     if offset in by_offset:
         return by_offset[offset]
 
+    # Decoder/list_modules offsets can differ by a few bytes depending on whether the
+    # marker/header or the payload start is reported. Prefer nearby metadata names, but
+    # do not let a random far-away offset rename a section.
     nearest = None
-    nearest_distance = 9
+    nearest_distance = 32
     for known_offset, name in by_offset.items():
         distance = abs(known_offset - offset)
         if distance < nearest_distance:
@@ -543,49 +593,88 @@ def _lookup_metadata_name(offset: int, by_offset: dict[int, str]) -> str | None:
     return nearest
 
 
+def _section_items_tuple(items) -> tuple:
+    if isinstance(items, tuple):
+        return items
+    if isinstance(items, list):
+        return tuple(items)
+    if isinstance(items, (set, frozenset)):
+        return tuple(items)
+    return (items,)
+
+
+def _merge_section_items(existing, incoming) -> tuple:
+    return _section_items_tuple(existing) + _section_items_tuple(incoming)
+
+
+def _add_normalized_section(normalized: dict[str, tuple], section_name: str, items) -> None:
+    """Add a section without silently losing data when names collide."""
+    if section_name in normalized:
+        normalized[section_name] = _merge_section_items(normalized[section_name], items)
+    else:
+        normalized[section_name] = _section_items_tuple(items)
+
+
 def normalize_decoded_sections(sections: dict, module_metadata: list[dict] | None = None) -> dict[str, tuple]:
+    """
+    Rename decoded sections using list_modules metadata without filtering metadata-only
+    modules out of --list-only output.
+
+    Rules:
+    1. list_modules names are authoritative when an offset/ordered mapping exists.
+    2. decoded/discovered names are fallback labels only.
+    3. colliding section names are merged, not dropped.
+    4. every module reported by list_modules is preserved, even if no decoded constants
+       section was emitted for it.
+    """
     metadata_by_offset, metadata_names = _metadata_name_maps(module_metadata)
     metadata_index = 0
+    claimed_metadata: set[str] = set()
+    normalized: dict[str, tuple] = {}
+
+    def claim_metadata_name(name: str | None) -> str | None:
+        if not name:
+            return None
+        claimed_metadata.add(name)
+        return name
 
     def next_metadata_name() -> str | None:
         nonlocal metadata_index
         while metadata_index < len(metadata_names):
             name = metadata_names[metadata_index]
             metadata_index += 1
-            if name not in normalized:
+            if name not in claimed_metadata:
+                claimed_metadata.add(name)
                 return name
         return None
 
-    discovered_names = []
-    for section_name in sections:
-        match = DISCOVERED_SECTION_PATTERN.fullmatch(section_name)
-        if not match:
-            continue
-        discovered_name = match.group(1).lstrip(".")
-        if discovered_name and not discovered_name.startswith("hidden_segment"):
-            discovered_names.append(discovered_name)
-
-    normalized = {}
     for section_name, items in sections.items():
         match = DISCOVERED_SECTION_PATTERN.fullmatch(section_name)
         if match:
             discovered_name = match.group(1).lstrip(".")
             section_offset = int(match.group(2))
-            real_name = _clean_module_name(discovered_name)
-            if real_name is None:
-                real_name = _lookup_metadata_name(section_offset, metadata_by_offset)
+
+            # Prefer the name list_modules found. This fixes corrupt decoder labels like
+            # "stomtkinter" when metadata knows the real module name.
+            real_name = claim_metadata_name(_lookup_metadata_name(section_offset, metadata_by_offset))
             if real_name is None:
                 real_name = next_metadata_name()
+            if real_name is None:
+                real_name = _clean_module_name(discovered_name)
+
             if real_name is not None:
-                normalized.setdefault(real_name, items)
+                _add_normalized_section(normalized, real_name, items)
             continue
 
-        plain_name = section_name.lstrip(".")
-        if _clean_module_name(plain_name) is None:
-            continue
-        if any(_discovered_alias_matches(discovered_name, plain_name) for discovered_name in discovered_names):
-            continue
-        normalized[plain_name] = items
+        plain_name = _clean_module_name(section_name.lstrip("."))
+        if plain_name is not None:
+            _add_normalized_section(normalized, plain_name, items)
+
+    # Preserve metadata-only modules. They may not have decoded constants, but --list-only
+    # must still show them so list_modules output is not lost/filtered.
+    for name in metadata_names:
+        if name not in normalized:
+            normalized[name] = ()
 
     return normalized
 
@@ -645,6 +734,7 @@ def _write_bytes_unique(dest: Path, data: bytes) -> Path:
         except FileExistsError:
             continue
     raise FileExistsError(f"Could not find a free output path for {dest}")
+
 
 
 def _payload_dedupe_key(value):
@@ -723,10 +813,15 @@ def process_section(
             omp = OmniDecompiler()
             omp.run_pass_1_structural_mapping(root_items)
             omp.run_pass_2_ast_synthesis()
-            source = generate_omni_source(omp, section_name, raw_constants=list(root_items))
+            source = generate_omni_source(
+                omp,
+                section_name,
+                raw_constants=list(root_items),
+                python_version=target_ver_tuple,
+            )
             if source.strip():
                 if generate_omni_nbc:
-                    nbc_text = generate_omni_nbc(omp, section_name, list(root_items))
+                    nbc_text = generate_omni_nbc(omp, section_name, list(root_items), python_version=target_ver_tuple)
                     source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
 
                 safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name)[:80]
@@ -775,8 +870,8 @@ def process_section(
                 if emit_pyc:
                     try:
                         written = _write_bytes_unique(dest, header + payload)
-                        recovered_file_paths.append(str(written))
                         item_info["written_pyc"].append(str(written))
+                        recovered_file_paths.append(str(written))
                         count_pyc += 1
                     except Exception as exc:
                         item_info["errors"].append(f"raw_payload_{j}: {exc}")
@@ -812,8 +907,8 @@ def process_section(
                             dest = out_dir / "pyc" / clean_section / f"bytecode_{sub_id}.pyc"
 
                         written = _write_bytes_unique(dest, header + raw_bytes)
-                        recovered_file_paths.append(str(written))
                         item_info["written_pyc"].append(str(written))
+                        recovered_file_paths.append(str(written))
                         count_pyc += 1
                     except Exception as exc:
                         item_info["errors"].append(f"code_object_{j}: {exc}")

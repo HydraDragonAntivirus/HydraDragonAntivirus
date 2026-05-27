@@ -67,6 +67,8 @@ def _trim_sequence(seq: list[Any], marker: Any, limit: int = 12) -> list[Any]:
 
 def literal_source(value: Any) -> str:
     if isinstance(value, bytes):
+        if len(value) >= 16 and value[:1] in (b"\xf3", b"\xe3", b"c"):
+            return repr(f"<marshal bytecode payload redacted: {len(value)} bytes>")
         return repr(b2s_safe(value))
     if isinstance(value, tuple):
         return repr(tuple(_trim_sequence(list(tuple_texts(value)), "...")))
@@ -3505,7 +3507,8 @@ def _generate_heuristic_omni_source(decompiler: OmniDecompiler, section_name: st
         lines.append("# UNCLAIMED RAW DATA — items not assigned to any class or function")
         lines.append("# ===========================================================================")
         for idx, item in enumerate(decompiler.unclaimed_items):
-            lines.append(f"_raw_{idx} = {repr(item)}")
+            safe_item = _redact_marshaled_bytecode_constants(item)
+            lines.append(f"_raw_{idx} = {repr(safe_item)}")
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -3528,6 +3531,75 @@ def _has_python_structure(source: str) -> bool:
 
 
 _MARSHAL_CODE_TAG_BYTES = (b"\xf3", b"\xe3", b"c")
+
+
+
+_MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
+
+
+def _looks_like_marshaled_bytecode_bytes(value: Any) -> bool:
+    return isinstance(value, (bytes, bytearray)) and len(value) >= 16 and bytes(value)[:1] in _MARSHAL_CODE_TAG_BYTES
+
+
+def _marshal_payload_placeholder(payload: bytes | bytearray) -> str:
+    data = bytes(payload)
+    return f"<marshal bytecode payload redacted: {len(data)} bytes>"
+
+
+
+def _redact_marshaled_bytecode_constants(
+    value: Any,
+    *,
+    _seen: set[int] | None = None,
+    _depth: int = 0,
+) -> Any:
+    """Replace marshal/code payload constants with small placeholders.
+
+    The extractor writes these payloads as .pyc artifacts. Source/NBC text should
+    never inline huge bytecode blobs as repr/hex strings.
+    """
+    if _depth > 20:
+        return "<max recursion depth reached>"
+
+    if _looks_like_marshaled_bytecode_bytes(value):
+        return _marshal_payload_placeholder(value)
+
+    if _is_live_code_object(value):
+        name = getattr(value, "co_name", type(value).__name__)
+        filename = getattr(value, "co_filename", None)
+        label = f"{filename}:{name}" if filename else str(name)
+        return f"<code object redacted: {label}>"
+
+    if isinstance(value, (str, int, float, complex, bool, type(None))):
+        return value
+
+    if _seen is None:
+        _seen = set()
+    obj_id = id(value)
+    if obj_id in _seen:
+        return "<recursive reference>"
+    _seen.add(obj_id)
+
+    if isinstance(value, tuple):
+        return tuple(_redact_marshaled_bytecode_constants(child, _seen=_seen, _depth=_depth + 1) for child in value)
+    if isinstance(value, list):
+        return [_redact_marshaled_bytecode_constants(child, _seen=_seen, _depth=_depth + 1) for child in value]
+    if isinstance(value, set):
+        return {_redact_marshaled_bytecode_constants(child, _seen=_seen, _depth=_depth + 1) for child in value}
+    if isinstance(value, frozenset):
+        return frozenset(_redact_marshaled_bytecode_constants(child, _seen=_seen, _depth=_depth + 1) for child in value)
+    if isinstance(value, dict):
+        return {
+            _redact_marshaled_bytecode_constants(key, _seen=_seen, _depth=_depth + 1): _redact_marshaled_bytecode_constants(val, _seen=_seen, _depth=_depth + 1)
+            for key, val in value.items()
+        }
+
+    return value
+
+
+def _redact_marshaled_bytecode_list(values: Iterable[Any]) -> list[Any]:
+    return [_redact_marshaled_bytecode_constants(value) for value in values]
+
 
 
 def _is_live_code_object(value: Any) -> bool:
@@ -3600,10 +3672,8 @@ def _is_marshaled_bytecode_section_name(
     section_name: str,
     raw_values: Iterable[Any] | None = None,
 ) -> bool:
-    if section_name.strip(".").lower() != "bytecode":
-        return False
     if raw_values is None:
-        return True
+        return section_name.strip(".").lower() == "bytecode"
     return _contains_marshaled_bytecode_payload(raw_values)
 
 
@@ -3699,7 +3769,8 @@ class OmniNuitkaCompactEmitter:
 
     @staticmethod
     def _short_repr(value: Any, cap: int | None = None) -> str:
-        text = repr(value)
+        safe_value = _redact_marshaled_bytecode_constants(value)
+        text = repr(safe_value)
         if cap is None or len(text) <= cap:
             return text
         return text[: cap - 3] + "..."
@@ -3801,7 +3872,8 @@ class OmniNuitkaCompactEmitter:
             f"@VER {version[0]}.{version[1]}",
             "",
         ]
-        cls._emit_constants(raw_constants, out)
+        display_constants = _redact_marshaled_bytecode_list(raw_constants)
+        cls._emit_constants(display_constants, out)
         out.append("")
         cls._emit_imports(decompiler, raw_constants, out)
         out.append("")
@@ -3822,7 +3894,8 @@ def reconstruct_module_artifacts(
     decompiler: OmniDecompiler | None = None,
     python_version: tuple[int, int] | None = None,
 ) -> OmniModuleArtifact:
-    if _is_marshaled_bytecode_section_name(section_name, raw_constants):
+    constants = list(raw_constants)
+    if _is_marshaled_bytecode_section_name(section_name, constants):
         return OmniModuleArtifact(
             source="",
             heuristic_source="",
@@ -3831,15 +3904,17 @@ def reconstruct_module_artifacts(
             smart_source=None,
         )
 
-    constants = list(raw_constants)
+    constants_for_render = _redact_marshaled_bytecode_list(constants)
     code_objects: list[dict[str, Any]] = []
-    for item in constants:
+    for item in constants_for_render:
         _collect_code_object_specs(item, code_objects)
 
     if decompiler is None:
         decompiler = OmniDecompiler()
-        decompiler.run_pass_1_structural_mapping(constants)
+        decompiler.run_pass_1_structural_mapping(constants_for_render)
         decompiler.run_pass_2_ast_synthesis()
+    else:
+        decompiler.unclaimed_items = _redact_marshaled_bytecode_list(decompiler.unclaimed_items)
 
     heuristic_source = _generate_heuristic_omni_source(decompiler, section_name)
 
@@ -3849,7 +3924,7 @@ def reconstruct_module_artifacts(
         try:
             smart_source = smart_reconstructor(
                 module_name=section_name or "__module__",
-                constants=constants,
+                constants=constants_for_render,
                 code_objects=code_objects,
             ).render()
         except Exception:
@@ -3866,7 +3941,7 @@ def reconstruct_module_artifacts(
 
     nbc_text = OmniNuitkaCompactEmitter.render(
         section_name=section_name,
-        raw_constants=constants,
+        raw_constants=constants_for_render,
         decompiler=decompiler,
         python_version=python_version,
     )
@@ -3924,6 +3999,7 @@ def generate_omni_source(
             decompiler=decompiler,
             python_version=python_version,
         ).source
+    decompiler.unclaimed_items = _redact_marshaled_bytecode_list(decompiler.unclaimed_items)
     return _generate_heuristic_omni_source(decompiler, section_name)
 
 
