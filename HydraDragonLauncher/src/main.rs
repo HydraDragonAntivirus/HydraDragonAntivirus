@@ -21,11 +21,13 @@ use tauri::Manager;
 use windows::core::{BOOL, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
+    CreateToolhelp32Snapshot, Process32First, Process32Next, Thread32First, Thread32Next,
+    PROCESSENTRY32, TH32CS_SNAPPROCESS, TH32CS_SNAPTHREAD, THREADENTRY32,
 };
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, TerminateProcess, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    OpenProcess, OpenThread, QueryFullProcessImageNameW, ResumeThread, SuspendThread,
+    TerminateProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    THREAD_SUSPEND_RESUME,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, FindWindowW, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
@@ -41,10 +43,21 @@ const NO_EXCLUDED_WINDOW_TITLES: &[&str] = &[];
 const FIREWALL_ALERT_WINDOW_TITLES: &[&str] = &["HydraDragon Firewall Alert"];
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(windows)]
+const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 
 fn hidden_command(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
     configure_hidden_command(&mut command);
+    command
+}
+
+fn visible_console_command(program: impl AsRef<OsStr>) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NEW_CONSOLE);
+    }
     command
 }
 
@@ -195,6 +208,158 @@ fn is_process_running_by_any_exact_path(paths: &[PathBuf]) -> bool {
 }
 
 #[cfg(windows)]
+fn matching_process_ids_by_exact_path(path: &Path) -> Vec<u32> {
+    let target = normalize_path_for_compare(path);
+    if target.is_empty() {
+        return Vec::new();
+    }
+
+    let mut pids = Vec::new();
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        let Ok(snapshot) = snapshot else {
+            return pids;
+        };
+
+        let current_pid = std::process::id();
+        let mut entry = PROCESSENTRY32 {
+            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+            ..Default::default()
+        };
+
+        if Process32First(snapshot, &mut entry).is_ok() {
+            loop {
+                let pid = entry.th32ProcessID;
+                if pid != 0
+                    && pid != current_pid
+                    && process_image_path(pid)
+                        .as_deref()
+                        .is_some_and(|image_path| {
+                            normalize_path_for_compare(Path::new(image_path)) == target
+                        })
+                {
+                    pids.push(pid);
+                }
+
+                if Process32Next(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+    }
+
+    pids
+}
+
+#[cfg(windows)]
+fn set_threads_suspended_for_pid(pid: u32, suspend: bool) -> usize {
+    let mut affected = 0usize;
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        let Ok(snapshot) = snapshot else {
+            return affected;
+        };
+
+        let mut entry = THREADENTRY32 {
+            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+            ..Default::default()
+        };
+
+        if Thread32First(snapshot, &mut entry).is_ok() {
+            loop {
+                if entry.th32OwnerProcessID == pid {
+                    if let Ok(thread) = OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID)
+                    {
+                        let previous_count = if suspend {
+                            SuspendThread(thread)
+                        } else {
+                            ResumeThread(thread)
+                        };
+
+                        if previous_count != u32::MAX {
+                            affected += 1;
+                        }
+
+                        let _ = CloseHandle(thread);
+                    }
+                }
+
+                if Thread32Next(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+    }
+
+    affected
+}
+
+#[cfg(windows)]
+fn set_processes_suspended_by_exact_path(path: &Path, suspend: bool) -> usize {
+    matching_process_ids_by_exact_path(path)
+        .into_iter()
+        .map(|pid| set_threads_suspended_for_pid(pid, suspend))
+        .sum()
+}
+
+#[cfg(not(windows))]
+fn set_processes_suspended_by_exact_path(_path: &Path, _suspend: bool) -> usize {
+    0
+}
+
+fn set_processes_suspended_by_exact_paths(paths: &[PathBuf], suspend: bool) -> usize {
+    paths
+        .iter()
+        .map(|path| set_processes_suspended_by_exact_path(path, suspend))
+        .sum()
+}
+
+fn component_process_paths(name: &str) -> Result<Vec<PathBuf>, String> {
+    match name {
+        "Owlyshield" => Ok(vec![owlyshield_exe_path()]),
+        "Firewall" => Ok(vec![firewall_exe_path()]),
+        "AV Engine" => Ok(vec![av_engine_exe_path()]),
+        "Python Engine" => Ok(python_engine_exe_paths().to_vec()),
+        "OpenEDR" => Ok(vec![openedr_exe_path()]),
+        "Sanctum" => Ok(vec![
+            sanctum_ppl_runner_path(),
+            sanctum_um_engine_path(),
+            sanctum_app_path(),
+        ]),
+        _ => Err(format!("Unknown component: {}", name)),
+    }
+}
+
+fn all_component_process_paths() -> Vec<PathBuf> {
+    let mut paths = vec![
+        owlyshield_exe_path(),
+        firewall_exe_path(),
+        openedr_exe_path(),
+        av_engine_exe_path(),
+        sanctum_ppl_runner_path(),
+        sanctum_um_engine_path(),
+        sanctum_app_path(),
+    ];
+    paths.extend(python_engine_exe_paths());
+    paths
+}
+
+fn set_component_suspended(component: &str, suspend: bool) -> Result<usize, String> {
+    let paths = component_process_paths(component)?;
+    Ok(set_processes_suspended_by_exact_paths(&paths, suspend))
+}
+
+fn set_all_components_suspended(suspend: bool) -> usize {
+    set_processes_suspended_by_exact_paths(&all_component_process_paths(), suspend)
+}
+
+#[cfg(windows)]
 fn terminate_processes_by_exact_path(path: &Path) -> usize {
     let target = normalize_path_for_compare(path);
     if target.is_empty() {
@@ -298,16 +463,7 @@ fn stop_openedr() {
 }
 
 fn terminate_launcher_started_processes() {
-    let mut paths = vec![
-        owlyshield_exe_path(),
-        firewall_exe_path(),
-        openedr_exe_path(),
-        av_engine_exe_path(),
-        sanctum_ppl_runner_path(),
-        sanctum_um_engine_path(),
-        sanctum_app_path(),
-    ];
-    paths.extend(python_engine_exe_paths());
+    let paths = all_component_process_paths();
     terminate_processes_by_exact_paths(&paths);
 }
 
@@ -608,10 +764,15 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
 
     // Owlyshield
     let owlyshield_path = owlyshield_exe_path();
+    let owlyshield_running = is_process_running_by_exact_path(&owlyshield_path);
     statuses.push(ComponentStatus {
         name: "Owlyshield".to_string(),
-        running: is_process_running_by_exact_path(&owlyshield_path),
-        gui_visible: None,
+        running: owlyshield_running,
+        gui_visible: if owlyshield_running {
+            Some(false)
+        } else {
+            None
+        },
     });
 
     // Firewall
@@ -636,18 +797,24 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
 
     // AV Engine
     let av_engine_path = av_engine_exe_path();
+    let av_engine_running = is_process_running_by_exact_path(&av_engine_path);
     statuses.push(ComponentStatus {
         name: "AV Engine".to_string(),
-        running: is_process_running_by_exact_path(&av_engine_path),
-        gui_visible: None,
+        running: av_engine_running,
+        gui_visible: if av_engine_running { Some(false) } else { None },
     });
 
     // Python Engine
     let python_engine_paths = python_engine_exe_paths();
+    let python_engine_running = is_process_running_by_any_exact_path(&python_engine_paths);
     statuses.push(ComponentStatus {
         name: "Python Engine".to_string(),
-        running: is_process_running_by_any_exact_path(&python_engine_paths),
-        gui_visible: None,
+        running: python_engine_running,
+        gui_visible: if python_engine_running {
+            Some(false)
+        } else {
+            None
+        },
     });
 
     // OpenEDR
@@ -805,7 +972,9 @@ async fn set_component_gui_visibility(
             FIREWALL_ALERT_WINDOW_TITLES,
         ),
         "Sanctum" => ("Sanctum", sanctum_app_path(), NO_EXCLUDED_WINDOW_TITLES),
-        _ => return Err(format!("Component {} does not have a GUI", component)),
+        _ => {
+            return set_non_gui_component_console_visibility(component, show, state).await;
+        }
     };
 
     if set_window_visibility_by_title(title, show).is_ok()
@@ -832,6 +1001,139 @@ async fn set_component_gui_visibility(
         title,
         process_path.display()
     ))
+}
+
+async fn set_non_gui_component_console_visibility(
+    component: &str,
+    show: bool,
+    state: Arc<Mutex<Components>>,
+) -> Result<(), String> {
+    match component {
+        "Owlyshield" => {
+            {
+                let mut comps = state.lock().await;
+                if let Some(mut child) = comps.owlyshield.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            terminate_processes_by_exact_path(&owlyshield_exe_path());
+            sleep(Duration::from_millis(300)).await;
+
+            let restarted = if show {
+                start_owlyshield_visible().await
+            } else {
+                start_owlyshield().await
+            }
+            .map_err(|e| e.to_string())?;
+
+            let mut comps = state.lock().await;
+            comps.owlyshield = restarted;
+            Ok(())
+        }
+        "AV Engine" => {
+            {
+                let mut comps = state.lock().await;
+                if let Some(mut child) = comps.av_engine.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            terminate_processes_by_exact_path(&av_engine_exe_path());
+            sleep(Duration::from_millis(300)).await;
+
+            let restarted = if show {
+                start_av_engine_visible().await
+            } else {
+                start_av_engine().await
+            }
+            .map_err(|e| e.to_string())?;
+
+            let mut comps = state.lock().await;
+            comps.av_engine = restarted;
+            Ok(())
+        }
+        "Python Engine" => {
+            {
+                let mut comps = state.lock().await;
+                if let Some(mut child) = comps.python_engine.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            terminate_processes_by_exact_paths(&python_engine_exe_paths());
+            sleep(Duration::from_millis(300)).await;
+
+            let restarted = if show {
+                start_python_engine_visible().await
+            } else {
+                start_python_engine().await
+            }
+            .map_err(|e| e.to_string())?;
+
+            let mut comps = state.lock().await;
+            comps.python_engine = restarted;
+            Ok(())
+        }
+        "OpenEDR" => Err(
+            "OpenEDR is controlled as a service, so it cannot be shown as a console window."
+                .to_string(),
+        ),
+        _ => Err(format!(
+            "Component {} does not have a GUI/console view",
+            component
+        )),
+    }
+}
+
+#[tauri::command]
+async fn suspend_component(name: String) -> Result<usize, String> {
+    let affected = set_component_suspended(&name, true)?;
+    if affected == 0 {
+        warn!(
+            "Suspend requested for {}, but no threads were suspended.",
+            name
+        );
+    } else {
+        info!("Suspended {} thread(s) for {}", affected, name);
+    }
+    Ok(affected)
+}
+
+#[tauri::command]
+async fn resume_component(name: String) -> Result<usize, String> {
+    let affected = set_component_suspended(&name, false)?;
+    if affected == 0 {
+        warn!(
+            "Resume requested for {}, but no threads were resumed.",
+            name
+        );
+    } else {
+        info!("Resumed {} thread(s) for {}", affected, name);
+    }
+    Ok(affected)
+}
+
+#[tauri::command]
+async fn suspend_all_components() -> Result<usize, String> {
+    let affected = set_all_components_suspended(true);
+    if affected == 0 {
+        warn!("Suspend all requested, but no component threads were suspended.");
+    } else {
+        info!("Suspended {} component thread(s).", affected);
+    }
+    Ok(affected)
+}
+
+#[tauri::command]
+async fn resume_all_components() -> Result<usize, String> {
+    let affected = set_all_components_suspended(false);
+    if affected == 0 {
+        warn!("Resume all requested, but no component threads were resumed.");
+    } else {
+        info!("Resumed {} component thread(s).", affected);
+    }
+    Ok(affected)
 }
 
 #[tauri::command]
@@ -972,6 +1274,86 @@ fn main() -> Result<()> {
                 None::<&str>,
             )
             .unwrap();
+            let show_av_console_i = tauri::menu::MenuItem::with_id(
+                app,
+                "show_av_console",
+                "Show AV Engine Console",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let hide_av_console_i = tauri::menu::MenuItem::with_id(
+                app,
+                "hide_av_console",
+                "Hide AV Engine Console",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let show_python_console_i = tauri::menu::MenuItem::with_id(
+                app,
+                "show_python_console",
+                "Show Python Engine Console",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let hide_python_console_i = tauri::menu::MenuItem::with_id(
+                app,
+                "hide_python_console",
+                "Hide Python Engine Console",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let suspend_av_i = tauri::menu::MenuItem::with_id(
+                app,
+                "suspend_av",
+                "Suspend AV Engine",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let resume_av_i = tauri::menu::MenuItem::with_id(
+                app,
+                "resume_av",
+                "Resume AV Engine",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let suspend_python_i = tauri::menu::MenuItem::with_id(
+                app,
+                "suspend_python",
+                "Suspend Python Engine",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let resume_python_i = tauri::menu::MenuItem::with_id(
+                app,
+                "resume_python",
+                "Resume Python Engine",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let suspend_all_i = tauri::menu::MenuItem::with_id(
+                app,
+                "suspend_all",
+                "Suspend All Components",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let resume_all_i = tauri::menu::MenuItem::with_id(
+                app,
+                "resume_all",
+                "Resume All Components",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
             let quit_i = tauri::menu::MenuItem::with_id(
                 app,
                 "quit",
@@ -981,6 +1363,9 @@ fn main() -> Result<()> {
             )
             .unwrap();
             let controller_separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
+            let gui_separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
+            let console_separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
+            let suspend_separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
             let components_separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
             let menu = tauri::menu::Menu::with_items(
                 app,
@@ -992,6 +1377,19 @@ fn main() -> Result<()> {
                     &hide_firewall_i,
                     &show_sanctum_i,
                     &hide_sanctum_i,
+                    &gui_separator,
+                    &show_av_console_i,
+                    &hide_av_console_i,
+                    &show_python_console_i,
+                    &hide_python_console_i,
+                    &console_separator,
+                    &suspend_av_i,
+                    &resume_av_i,
+                    &suspend_python_i,
+                    &resume_python_i,
+                    &suspend_separator,
+                    &suspend_all_i,
+                    &resume_all_i,
                     &components_separator,
                     &quit_i,
                 ],
@@ -1029,6 +1427,53 @@ fn main() -> Result<()> {
                             {
                                 let action = if show { "show" } else { "hide" };
                                 warn!("Failed to {} {} GUI from tray: {}", action, component, e);
+                            }
+                        });
+                    }
+                    "show_av_console"
+                    | "hide_av_console"
+                    | "show_python_console"
+                    | "hide_python_console" => {
+                        let (component, show) = match event.id.as_ref() {
+                            "show_av_console" => ("AV Engine", true),
+                            "hide_av_console" => ("AV Engine", false),
+                            "show_python_console" => ("Python Engine", true),
+                            "hide_python_console" => ("Python Engine", false),
+                            _ => unreachable!(),
+                        };
+                        let state = app.state::<Arc<Mutex<Components>>>();
+                        let state_clone = Arc::clone(&state);
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) =
+                                set_component_gui_visibility(component, show, state_clone).await
+                            {
+                                let action = if show { "show" } else { "hide" };
+                                warn!(
+                                    "Failed to {} {} console from tray: {}",
+                                    action, component, e
+                                );
+                            }
+                        });
+                    }
+                    "suspend_av" | "resume_av" | "suspend_python" | "resume_python"
+                    | "suspend_all" | "resume_all" => {
+                        let id = event.id.as_ref().to_string();
+                        tauri::async_runtime::spawn(async move {
+                            let result = match id.as_str() {
+                                "suspend_av" => set_component_suspended("AV Engine", true),
+                                "resume_av" => set_component_suspended("AV Engine", false),
+                                "suspend_python" => set_component_suspended("Python Engine", true),
+                                "resume_python" => set_component_suspended("Python Engine", false),
+                                "suspend_all" => Ok(set_all_components_suspended(true)),
+                                "resume_all" => Ok(set_all_components_suspended(false)),
+                                _ => unreachable!(),
+                            };
+
+                            match result {
+                                Ok(affected) => {
+                                    info!("Tray action {} affected {} thread(s).", id, affected);
+                                }
+                                Err(e) => warn!("Tray action {} failed: {}", id, e),
                             }
                         });
                     }
@@ -1093,6 +1538,10 @@ fn main() -> Result<()> {
             start_component,
             stop_component,
             toggle_gui_visibility,
+            suspend_component,
+            resume_component,
+            suspend_all_components,
+            resume_all_components,
             get_launcher_settings,
             set_owlyshield_verbose_logging,
             start_all_components,
@@ -1156,6 +1605,16 @@ async fn start_owlyshield() -> Result<Option<Child>> {
     }
 }
 
+async fn start_owlyshield_visible() -> Result<Option<Child>> {
+    info!("Starting Owlyshield Service with visible console...");
+    let owlyshield_path = owlyshield_exe_path();
+
+    match start_process_visible_console(&owlyshield_path, None) {
+        Ok(child) => Ok(Some(child)),
+        Err(_) => Ok(None),
+    }
+}
+
 async fn start_firewall() -> Result<Option<Child>> {
     info!("Starting HydraDragon Firewall...");
     let firewall_path = firewall_exe_path();
@@ -1192,6 +1651,16 @@ async fn start_av_engine() -> Result<Option<Child>> {
     let av_path = av_engine_exe_path();
 
     match start_process(&av_path, None) {
+        Ok(child) => Ok(Some(child)),
+        Err(_) => Ok(None),
+    }
+}
+
+async fn start_av_engine_visible() -> Result<Option<Child>> {
+    info!("Starting HydraDragon AV Engine with visible console...");
+    let av_path = av_engine_exe_path();
+
+    match start_process_visible_console(&av_path, None) {
         Ok(child) => Ok(Some(child)),
         Err(_) => Ok(None),
     }
@@ -1261,9 +1730,73 @@ async fn start_python_engine() -> Result<Option<Child>> {
     Ok(None)
 }
 
-fn configure_python_command(cmd: &mut Command, root_dir: &Path, venv_dir: &Path) -> Result<()> {
-    configure_hidden_command(cmd);
+async fn start_python_engine_visible() -> Result<Option<Child>> {
+    info!("Starting HydraDragon Python Engine with visible console...");
+    let root_dir = PathBuf::from(BASE_DIR);
+    let venv_dir = root_dir.join("venv");
+    let venv_scripts = venv_scripts_dir();
+    let venv_python = venv_scripts.join("python.exe");
+    let poetry_exe = venv_scripts.join("poetry.exe");
+    let activate_bat = venv_scripts.join("activate.bat");
+    let pyproject = root_dir.join("pyproject.toml");
 
+    if !venv_dir.exists() {
+        warn!("Python venv not found: {}", venv_dir.display());
+        return Ok(None);
+    }
+    if !pyproject.exists() {
+        warn!("pyproject.toml not found: {}", pyproject.display());
+        return Ok(None);
+    }
+
+    if venv_python.exists() {
+        let mut cmd = visible_console_command(venv_python.as_os_str());
+        cmd.args(["-m", "poetry", "run", "hydradragon"])
+            .current_dir(&root_dir);
+        configure_python_environment(&mut cmd, &root_dir, &venv_dir);
+        if let Some(child) =
+            spawn_python_candidate(cmd, "visible venv python -m poetry run hydradragon").await?
+        {
+            return Ok(Some(child));
+        }
+    } else {
+        warn!("venv python.exe not found: {}", venv_python.display());
+    }
+
+    if poetry_exe.exists() {
+        let mut cmd = visible_console_command(poetry_exe.as_os_str());
+        cmd.args(["run", "hydradragon"]).current_dir(&root_dir);
+        configure_python_environment(&mut cmd, &root_dir, &venv_dir);
+        if let Some(child) =
+            spawn_python_candidate(cmd, "visible venv poetry.exe run hydradragon").await?
+        {
+            return Ok(Some(child));
+        }
+    } else {
+        warn!("venv poetry.exe not found: {}", poetry_exe.display());
+    }
+
+    if activate_bat.exists() {
+        let cmd_args = format!(
+            "call \"{}\" && poetry run hydradragon",
+            activate_bat.display()
+        );
+        let mut cmd = visible_console_command("cmd.exe");
+        cmd.args(["/d", "/s", "/c", &cmd_args])
+            .current_dir(&root_dir);
+        configure_python_environment(&mut cmd, &root_dir, &venv_dir);
+        if let Some(child) =
+            spawn_python_candidate(cmd, "visible activate.bat && poetry run hydradragon").await?
+        {
+            return Ok(Some(child));
+        }
+    }
+
+    warn!("Visible HydraDragon Python Engine did not stay running.");
+    Ok(None)
+}
+
+fn configure_python_environment(cmd: &mut Command, root_dir: &Path, venv_dir: &Path) {
     let scripts_dir = venv_dir.join("Scripts");
     let current_path = env::var_os("PATH").unwrap_or_default();
     let mut path_value = scripts_dir.as_os_str().to_os_string();
@@ -1272,15 +1805,20 @@ fn configure_python_command(cmd: &mut Command, root_dir: &Path, venv_dir: &Path)
         path_value.push(current_path);
     }
 
-    let (stdout_log, stderr_log) = python_engine_log_stdio()?;
     cmd.env("VIRTUAL_ENV", venv_dir)
         .env("PYTHONPATH", root_dir)
         .env("POETRY_VIRTUALENVS_CREATE", "false")
         .env("POETRY_CACHE_DIR", root_dir.join("poetry_cache"))
         .env("POETRY_CONFIG_DIR", root_dir.join("poetry_config"))
-        .env("PATH", path_value)
-        .stdout(stdout_log)
-        .stderr(stderr_log);
+        .env("PATH", path_value);
+}
+
+fn configure_python_command(cmd: &mut Command, root_dir: &Path, venv_dir: &Path) -> Result<()> {
+    configure_hidden_command(cmd);
+    configure_python_environment(cmd, root_dir, venv_dir);
+
+    let (stdout_log, stderr_log) = python_engine_log_stdio()?;
+    cmd.stdout(stdout_log).stderr(stderr_log);
     Ok(())
 }
 
@@ -1421,4 +1959,24 @@ fn start_process(path: &Path, args: Option<&[&str]>) -> Result<Child> {
     }
 
     cmd.spawn().context("Failed to spawn process")
+}
+
+fn start_process_visible_console(path: &Path, args: Option<&[&str]>) -> Result<Child> {
+    if !path.exists() {
+        warn!("Executable not found: {}", path.display());
+        anyhow::bail!("File not found");
+    }
+
+    let mut cmd = visible_console_command(path.as_os_str());
+
+    if let Some(args) = args {
+        cmd.args(args);
+    }
+
+    if let Some(dir) = path.parent() {
+        cmd.current_dir(dir);
+    }
+
+    cmd.spawn()
+        .with_context(|| format!("Failed to spawn visible console: {}", path.display()))
 }
