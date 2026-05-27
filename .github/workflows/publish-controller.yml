@@ -4,7 +4,7 @@ on:
   push:
     branches: [development-version]
     paths:
-      - 'HydraDragonController/**'
+      - 'hydradragoncontroller/**'
       - '.github/workflows/publish-launcher.yml'
   workflow_dispatch:
 
@@ -47,19 +47,19 @@ jobs:
     - name: Update Controller lockfile
       shell: pwsh
       run: |
-        cargo generate-lockfile --manifest-path HydraDragonController/Cargo.toml
-        cargo update --manifest-path HydraDragonController/Cargo.toml
-        cargo update --manifest-path HydraDragonController/ui/Cargo.toml
+        cargo generate-lockfile --manifest-path hydradragoncontroller/Cargo.toml
+        cargo update --manifest-path hydradragoncontroller/Cargo.toml
+        cargo update --manifest-path hydradragoncontroller/ui/Cargo.toml
 
     - name: Format Rust sources
       shell: pwsh
       run: |
         rustup component add rustfmt
-        cargo fmt --manifest-path HydraDragonController/Cargo.toml --all
-        cargo fmt --manifest-path HydraDragonController/ui/Cargo.toml --all
+        cargo fmt --manifest-path hydradragoncontroller/Cargo.toml --all
+        cargo fmt --manifest-path hydradragoncontroller/ui/Cargo.toml --all
     
     - name: Build UI
-      working-directory: HydraDragonController/ui
+      working-directory: hydradragoncontroller/ui
       run: trunk build --release -d ../dist
     
     - name: Build Release
@@ -75,7 +75,7 @@ jobs:
       run: |
         $dist = "hydradragon/HydraDragonController"
         New-Item -ItemType Directory -Force -Path $dist
-        Copy-Item "HydraDragonController/target/release/hydradragoncontroller.exe" "$dist/" -Force
+        Copy-Item "hydradragoncontroller/target/release/hydradragoncontroller.exe" "$dist/" -Force
     
     - name: Check for publishable changes
       id: check_changes
@@ -83,10 +83,10 @@ jobs:
       with:
         paths: |
           hydradragon/HydraDragonController
-          HydraDragonController/Cargo.lock
-          HydraDragonController/build.rs
-          HydraDragonController/src
-          HydraDragonController/ui/src
+          hydradragoncontroller/Cargo.lock
+          hydradragoncontroller/build.rs
+          hydradragoncontroller/src
+          hydradragoncontroller/ui/src
     
     - name: Create PR
       if: steps.check_changes.outputs.changed == 'true'

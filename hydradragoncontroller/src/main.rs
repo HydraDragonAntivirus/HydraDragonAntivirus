@@ -22,7 +22,7 @@ use windows::core::{BOOL, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32First, Process32Next, Thread32First, Thread32Next,
-    PROCESSENTRY32, TH32CS_SNAPPROCESS, TH32CS_SNAPTHREAD, THREADENTRY32,
+    PROCESSENTRY32, THREADENTRY32, TH32CS_SNAPPROCESS, TH32CS_SNAPTHREAD,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, OpenThread, QueryFullProcessImageNameW, ResumeThread, SuspendThread,
@@ -462,7 +462,7 @@ fn stop_openedr() {
     terminate_processes_by_exact_path(&openedr_exe_path());
 }
 
-fn terminate_launcher_started_processes() {
+fn terminate_controller_started_processes() {
     let paths = all_component_process_paths();
     terminate_processes_by_exact_paths(&paths);
 }
@@ -508,9 +508,12 @@ pub struct ComponentStatus {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct LauncherSettings {
+pub struct ControllerSettings {
     owlyshield_verbose_logging: bool,
 }
+
+// Backward-compatible alias for older frontend builds that still use launcher naming.
+type LauncherSettings = ControllerSettings;
 
 // --- Windows API Helper Functions ---
 
@@ -768,11 +771,7 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
     statuses.push(ComponentStatus {
         name: "Owlyshield".to_string(),
         running: owlyshield_running,
-        gui_visible: if owlyshield_running {
-            Some(false)
-        } else {
-            None
-        },
+        gui_visible: if owlyshield_running { Some(false) } else { None },
     });
 
     // Firewall
@@ -810,11 +809,7 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
     statuses.push(ComponentStatus {
         name: "Python Engine".to_string(),
         running: python_engine_running,
-        gui_visible: if python_engine_running {
-            Some(false)
-        } else {
-            None
-        },
+        gui_visible: if python_engine_running { Some(false) } else { None },
     });
 
     // OpenEDR
@@ -1079,10 +1074,7 @@ async fn set_non_gui_component_console_visibility(
             "OpenEDR is controlled as a service, so it cannot be shown as a console window."
                 .to_string(),
         ),
-        _ => Err(format!(
-            "Component {} does not have a GUI/console view",
-            component
-        )),
+        _ => Err(format!("Component {} does not have a GUI/console view", component)),
     }
 }
 
@@ -1090,10 +1082,7 @@ async fn set_non_gui_component_console_visibility(
 async fn suspend_component(name: String) -> Result<usize, String> {
     let affected = set_component_suspended(&name, true)?;
     if affected == 0 {
-        warn!(
-            "Suspend requested for {}, but no threads were suspended.",
-            name
-        );
+        warn!("Suspend requested for {}, but no threads were suspended.", name);
     } else {
         info!("Suspended {} thread(s) for {}", affected, name);
     }
@@ -1104,10 +1093,7 @@ async fn suspend_component(name: String) -> Result<usize, String> {
 async fn resume_component(name: String) -> Result<usize, String> {
     let affected = set_component_suspended(&name, false)?;
     if affected == 0 {
-        warn!(
-            "Resume requested for {}, but no threads were resumed.",
-            name
-        );
+        warn!("Resume requested for {}, but no threads were resumed.", name);
     } else {
         info!("Resumed {} thread(s) for {}", affected, name);
     }
@@ -1137,10 +1123,15 @@ async fn resume_all_components() -> Result<usize, String> {
 }
 
 #[tauri::command]
-async fn get_launcher_settings() -> Result<LauncherSettings, String> {
-    Ok(LauncherSettings {
+async fn get_controller_settings() -> Result<ControllerSettings, String> {
+    Ok(ControllerSettings {
         owlyshield_verbose_logging: read_owlyshield_verbose_logging(),
     })
+}
+
+#[tauri::command]
+async fn get_launcher_settings() -> Result<LauncherSettings, String> {
+    get_controller_settings().await
 }
 
 #[tauri::command]
@@ -1186,7 +1177,21 @@ async fn stop_all_components(
     comps.kill_all();
     stop_openedr_service();
     stop_sanctum_ppl_runner_service();
-    terminate_launcher_started_processes();
+    terminate_controller_started_processes();
+    Ok(())
+}
+
+#[tauri::command]
+async fn quit_controller(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<Components>>>,
+) -> Result<(), String> {
+    let mut comps = state.lock().await;
+    comps.kill_all();
+    stop_openedr_service();
+    stop_sanctum_ppl_runner_service();
+    terminate_controller_started_processes();
+    app.exit(0);
     Ok(())
 }
 
@@ -1195,13 +1200,7 @@ async fn quit_launcher(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<Mutex<Components>>>,
 ) -> Result<(), String> {
-    let mut comps = state.lock().await;
-    comps.kill_all();
-    stop_openedr_service();
-    stop_sanctum_ppl_runner_service();
-    terminate_launcher_started_processes();
-    app.exit(0);
-    Ok(())
+    quit_controller(app, state).await
 }
 
 // --- Main Program ---
@@ -1214,7 +1213,7 @@ fn main() -> Result<()> {
         .with_level(true)
         .init();
 
-    info!("HydraDragon Launcher starting...");
+    info!("HydraDragon Controller starting...");
 
     let components = Arc::new(Mutex::new(Components::new()));
     let components_clone = components.clone();
@@ -1274,6 +1273,22 @@ fn main() -> Result<()> {
                 None::<&str>,
             )
             .unwrap();
+            let show_owlyshield_console_i = tauri::menu::MenuItem::with_id(
+                app,
+                "show_owlyshield_console",
+                "Show Owlyshield Terminal",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let hide_owlyshield_console_i = tauri::menu::MenuItem::with_id(
+                app,
+                "hide_owlyshield_console",
+                "Hide Owlyshield Terminal",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
             let show_av_console_i = tauri::menu::MenuItem::with_id(
                 app,
                 "show_av_console",
@@ -1302,6 +1317,22 @@ fn main() -> Result<()> {
                 app,
                 "hide_python_console",
                 "Hide Python Engine Console",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let suspend_owlyshield_i = tauri::menu::MenuItem::with_id(
+                app,
+                "suspend_owlyshield",
+                "Suspend Owlyshield",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let resume_owlyshield_i = tauri::menu::MenuItem::with_id(
+                app,
+                "resume_owlyshield",
+                "Resume Owlyshield",
                 true,
                 None::<&str>,
             )
@@ -1378,11 +1409,15 @@ fn main() -> Result<()> {
                     &show_sanctum_i,
                     &hide_sanctum_i,
                     &gui_separator,
+                    &show_owlyshield_console_i,
+                    &hide_owlyshield_console_i,
                     &show_av_console_i,
                     &hide_av_console_i,
                     &show_python_console_i,
                     &hide_python_console_i,
                     &console_separator,
+                    &suspend_owlyshield_i,
+                    &resume_owlyshield_i,
                     &suspend_av_i,
                     &resume_av_i,
                     &suspend_python_i,
@@ -1430,11 +1465,15 @@ fn main() -> Result<()> {
                             }
                         });
                     }
-                    "show_av_console"
+                    "show_owlyshield_console"
+                    | "hide_owlyshield_console"
+                    | "show_av_console"
                     | "hide_av_console"
                     | "show_python_console"
                     | "hide_python_console" => {
                         let (component, show) = match event.id.as_ref() {
+                            "show_owlyshield_console" => ("Owlyshield", true),
+                            "hide_owlyshield_console" => ("Owlyshield", false),
                             "show_av_console" => ("AV Engine", true),
                             "hide_av_console" => ("AV Engine", false),
                             "show_python_console" => ("Python Engine", true),
@@ -1455,11 +1494,19 @@ fn main() -> Result<()> {
                             }
                         });
                     }
-                    "suspend_av" | "resume_av" | "suspend_python" | "resume_python"
-                    | "suspend_all" | "resume_all" => {
+                    "suspend_owlyshield"
+                    | "resume_owlyshield"
+                    | "suspend_av"
+                    | "resume_av"
+                    | "suspend_python"
+                    | "resume_python"
+                    | "suspend_all"
+                    | "resume_all" => {
                         let id = event.id.as_ref().to_string();
                         tauri::async_runtime::spawn(async move {
                             let result = match id.as_str() {
+                                "suspend_owlyshield" => set_component_suspended("Owlyshield", true),
+                                "resume_owlyshield" => set_component_suspended("Owlyshield", false),
                                 "suspend_av" => set_component_suspended("AV Engine", true),
                                 "resume_av" => set_component_suspended("AV Engine", false),
                                 "suspend_python" => set_component_suspended("Python Engine", true),
@@ -1486,7 +1533,7 @@ fn main() -> Result<()> {
                             comps.kill_all();
                             stop_openedr_service();
                             stop_sanctum_ppl_runner_service();
-                            terminate_launcher_started_processes();
+                            terminate_controller_started_processes();
                             app_clone.exit(0);
                         });
                     }
@@ -1535,6 +1582,7 @@ fn main() -> Result<()> {
         })
         .invoke_handler(tauri::generate_handler![
             get_components_status,
+            get_controller_settings,
             start_component,
             stop_component,
             toggle_gui_visibility,
@@ -1546,6 +1594,7 @@ fn main() -> Result<()> {
             set_owlyshield_verbose_logging,
             start_all_components,
             stop_all_components,
+            quit_controller,
             quit_launcher,
         ])
         .run(tauri::generate_context!())
@@ -1726,7 +1775,7 @@ async fn start_python_engine() -> Result<Option<Child>> {
         }
     }
 
-    warn!("HydraDragon Python Engine did not stay running. Check hydradragonlauncher-python.log.");
+    warn!("HydraDragon Python Engine did not stay running. Check hydradragoncontroller-python.log.");
     Ok(None)
 }
 
@@ -1826,12 +1875,12 @@ fn python_engine_log_stdio() -> Result<(Stdio, Stdio)> {
     let log_path = PathBuf::from(DATA_DIR)
         .join("hydradragon")
         .join("logs")
-        .join("hydradragonlauncher-python.log");
+        .join("hydradragoncontroller-python.log");
 
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent).with_context(|| {
             format!(
-                "Failed to create launcher log directory: {}",
+                "Failed to create controller log directory: {}",
                 parent.display()
             )
         })?;
@@ -1841,10 +1890,10 @@ fn python_engine_log_stdio() -> Result<(Stdio, Stdio)> {
         .create(true)
         .append(true)
         .open(&log_path)
-        .with_context(|| format!("Failed to open launcher log: {}", log_path.display()))?;
+        .with_context(|| format!("Failed to open controller log: {}", log_path.display()))?;
     let stderr_log = stdout_log
         .try_clone()
-        .context("Failed to clone launcher log handle")?;
+        .context("Failed to clone controller log handle")?;
 
     Ok((Stdio::from(stdout_log), Stdio::from(stderr_log)))
 }

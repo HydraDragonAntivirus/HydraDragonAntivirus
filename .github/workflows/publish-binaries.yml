@@ -181,7 +181,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bin-controller
-          path: HydraDragonController/target/release/hydradragoncontroller.exe
+          path: hydradragoncontroller/target/release/hydradragoncontroller.exe
 
   # --- GROUP 3: Rust Projects (Separated) ---
 
@@ -426,8 +426,8 @@ jobs:
         shell: pwsh
         run: |
           rustup component add rustfmt
-          cargo fmt --manifest-path HydraDragonController/Cargo.toml --all
-          cargo fmt --manifest-path HydraDragonController/ui/Cargo.toml --all
+          cargo fmt --manifest-path hydradragoncontroller/Cargo.toml --all
+          cargo fmt --manifest-path hydradragoncontroller/ui/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/hydradragonstatic/Cargo.toml --all
           cargo fmt --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml --all
           cargo fmt --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml --all
@@ -573,9 +573,9 @@ jobs:
 
           # --- Controller (Rust) ---
           $controller = Get-ChildItem "bin-controller/" -Filter "hydradragoncontroller.exe" -Recurse
-          $controller | Copy-Item -Destination "$distRoot/HydraDragonController/" -Force
-          New-Item -ItemType Directory -Force -Path "HydraDragonController/target/release"
-          $controller | Copy-Item -Destination "HydraDragonController/target/release/" -Force
+          $controller | Copy-Item -Destination "$distRoot/hydradragoncontroller/" -Force
+          New-Item -ItemType Directory -Force -Path "hydradragoncontroller/target/release"
+          $controller | Copy-Item -Destination "hydradragoncontroller/target/release/" -Force
 
           # --- Sanctum Stack ---
           # System/Kernel Files (to AppData)
@@ -665,15 +665,15 @@ jobs:
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel
             MegaDumper/MegaDumper/bin/Release/net8.0
             HydraDragonFirewall/hydradragonfirewall/target/release
-            HydraDragonController/target/release
+            hydradragoncontroller/target/release
             Sanctum/target/release
             Sanctum/driver/target/release
             Sanctum/Cargo.lock
             Sanctum/driver/Cargo.lock
             Sanctum/driver/build.rs
-            HydraDragonController/build.rs
-            HydraDragonController/src
-            HydraDragonController/ui/src
+            hydradragoncontroller/build.rs
+            hydradragoncontroller/src
+            hydradragoncontroller/ui/src
             Owlyshield/hydradragonstatic/src
             HydraDragonFirewall/hydradragon-shared/src
             HydraDragonFirewall/http-mitm-proxy/examples

@@ -4,8 +4,8 @@ on:
   push:
     branches: ["**"]
     paths:
-      - 'HydraDragonController/**'
-      - '!HydraDragonController/README.md'
+      - 'hydradragoncontroller/**'
+      - '!hydradragoncontroller/README.md'
       - '.github/workflows/launcher-check.yml'
       - '.github/workflows/publish-binaries.yml'
   workflow_dispatch:
@@ -45,12 +45,12 @@ jobs:
       - name: Update Controller lockfile
         shell: pwsh
         run: |
-          cargo generate-lockfile --manifest-path HydraDragonController/Cargo.toml
-          cargo update --manifest-path HydraDragonController/Cargo.toml
-          cargo update --manifest-path HydraDragonController/ui/Cargo.toml
+          cargo generate-lockfile --manifest-path hydradragoncontroller/Cargo.toml
+          cargo update --manifest-path hydradragoncontroller/Cargo.toml
+          cargo update --manifest-path hydradragoncontroller/ui/Cargo.toml
 
       - name: Build UI
-        working-directory: HydraDragonController/ui
+        working-directory: hydradragoncontroller/ui
         run: trunk build --release -d ../dist
 
       - name: Check formatting
