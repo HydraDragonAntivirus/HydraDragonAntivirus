@@ -2925,9 +2925,9 @@ dependencies = [
 
 [[package]]
 name = "walrus"
-version = "0.26.2"
+version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fdd11e7cc2c5c875228bb82c1b41ff1444ab2c3aed74e9e4c845652b0349302"
+checksum = "8463cef34c08631de7553f43033e8a328283425e07dbfb65dbc17323535798f2"
 dependencies = [
  "anyhow",
  "gimli 0.32.3",
