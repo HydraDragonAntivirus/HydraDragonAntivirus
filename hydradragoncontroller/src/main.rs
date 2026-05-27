@@ -22,7 +22,7 @@ use windows::core::{BOOL, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32First, Process32Next, Thread32First, Thread32Next,
-    PROCESSENTRY32, THREADENTRY32, TH32CS_SNAPPROCESS, TH32CS_SNAPTHREAD,
+    PROCESSENTRY32, TH32CS_SNAPPROCESS, TH32CS_SNAPTHREAD, THREADENTRY32,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, OpenThread, QueryFullProcessImageNameW, ResumeThread, SuspendThread,
@@ -771,7 +771,11 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
     statuses.push(ComponentStatus {
         name: "Owlyshield".to_string(),
         running: owlyshield_running,
-        gui_visible: if owlyshield_running { Some(false) } else { None },
+        gui_visible: if owlyshield_running {
+            Some(false)
+        } else {
+            None
+        },
     });
 
     // Firewall
@@ -809,7 +813,11 @@ async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
     statuses.push(ComponentStatus {
         name: "Python Engine".to_string(),
         running: python_engine_running,
-        gui_visible: if python_engine_running { Some(false) } else { None },
+        gui_visible: if python_engine_running {
+            Some(false)
+        } else {
+            None
+        },
     });
 
     // OpenEDR
@@ -1074,7 +1082,10 @@ async fn set_non_gui_component_console_visibility(
             "OpenEDR is controlled as a service, so it cannot be shown as a console window."
                 .to_string(),
         ),
-        _ => Err(format!("Component {} does not have a GUI/console view", component)),
+        _ => Err(format!(
+            "Component {} does not have a GUI/console view",
+            component
+        )),
     }
 }
 
@@ -1082,7 +1093,10 @@ async fn set_non_gui_component_console_visibility(
 async fn suspend_component(name: String) -> Result<usize, String> {
     let affected = set_component_suspended(&name, true)?;
     if affected == 0 {
-        warn!("Suspend requested for {}, but no threads were suspended.", name);
+        warn!(
+            "Suspend requested for {}, but no threads were suspended.",
+            name
+        );
     } else {
         info!("Suspended {} thread(s) for {}", affected, name);
     }
@@ -1093,7 +1107,10 @@ async fn suspend_component(name: String) -> Result<usize, String> {
 async fn resume_component(name: String) -> Result<usize, String> {
     let affected = set_component_suspended(&name, false)?;
     if affected == 0 {
-        warn!("Resume requested for {}, but no threads were resumed.", name);
+        warn!(
+            "Resume requested for {}, but no threads were resumed.",
+            name
+        );
     } else {
         info!("Resumed {} thread(s) for {}", affected, name);
     }
@@ -1494,14 +1511,8 @@ fn main() -> Result<()> {
                             }
                         });
                     }
-                    "suspend_owlyshield"
-                    | "resume_owlyshield"
-                    | "suspend_av"
-                    | "resume_av"
-                    | "suspend_python"
-                    | "resume_python"
-                    | "suspend_all"
-                    | "resume_all" => {
+                    "suspend_owlyshield" | "resume_owlyshield" | "suspend_av" | "resume_av"
+                    | "suspend_python" | "resume_python" | "suspend_all" | "resume_all" => {
                         let id = event.id.as_ref().to_string();
                         tauri::async_runtime::spawn(async move {
                             let result = match id.as_str() {
@@ -1775,7 +1786,9 @@ async fn start_python_engine() -> Result<Option<Child>> {
         }
     }
 
-    warn!("HydraDragon Python Engine did not stay running. Check hydradragoncontroller-python.log.");
+    warn!(
+        "HydraDragon Python Engine did not stay running. Check hydradragoncontroller-python.log."
+    );
     Ok(None)
 }
 
