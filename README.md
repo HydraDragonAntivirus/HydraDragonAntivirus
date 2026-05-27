@@ -185,7 +185,7 @@ https://github.com/adrianyy/kernelhook/issues/1
 
 ### Process Protection & Orchestration
 
-- **Unified Orchestration**: The `HydraDragonLauncher` acts as the master orchestrator for the entire security stack. It manages the lifecycle of the C++ AV Engine, the Python EDR Core, and the Sanctum PPL Runner.
+- **Unified Orchestration**: The `HydraDragonController` acts as the master orchestrator for the entire security stack. It manages the lifecycle of the C++ AV Engine, the Python EDR Core, and the Sanctum PPL Runner.
 - **Protected Launcher**: The antivirus launcher itself is protected. While it can be manually terminated by an Administrator, malware cannot terminate it as the driver verifies the origin of all termination requests.
 - **Manual Control**: If you close the GUI manually, the background security engines remain active.
 
@@ -429,7 +429,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
   - **Core Engines (AV/Python)**: Look in `%ProgramFiles%\HydraDragonAntivirus\hydradragon\antivirus_scripts\log\`
   - **Sanctum Engine**: Look in `%ProgramFiles%\HydraDragonAntivirus\hydradragon\Sanctum\logs\sanctum.log`
   - **Sanctum PPL Runner**: This component logs to the **Windows Event Log** (Source: `SanctumPPLRunner`). Check Event Viewer -> Windows Logs -> Application.
-  - **Main Launcher**: Logs to the **Windows Event Log** (Source: `HydraDragonLauncher`).
+  - **Main Controller**: Logs to the **Windows Event Log** (Source: `HydraDragonController`).
 
 ### Tip 4:
 - Close the Windows Firewall on the VM to avoid any firewall blocking. We are testing this program not Windows Firewall.

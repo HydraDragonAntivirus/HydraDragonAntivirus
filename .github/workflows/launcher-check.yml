@@ -1,11 +1,11 @@
-name: HydraDragonLauncher CI Check
+name: HydraDragonController CI Check
 
 on:
   push:
     branches: ["**"]
     paths:
-      - 'HydraDragonLauncher/**'
-      - '!HydraDragonLauncher/README.md'
+      - 'HydraDragonController/**'
+      - '!HydraDragonController/README.md'
       - '.github/workflows/launcher-check.yml'
       - '.github/workflows/publish-binaries.yml'
   workflow_dispatch:
@@ -42,37 +42,37 @@ jobs:
         with:
           tool: trunk
 
-      - name: Update Launcher lockfile
+      - name: Update Controller lockfile
         shell: pwsh
         run: |
-          cargo generate-lockfile --manifest-path HydraDragonLauncher/Cargo.toml
-          cargo update --manifest-path HydraDragonLauncher/Cargo.toml
-          cargo update --manifest-path HydraDragonLauncher/ui/Cargo.toml
+          cargo generate-lockfile --manifest-path HydraDragonController/Cargo.toml
+          cargo update --manifest-path HydraDragonController/Cargo.toml
+          cargo update --manifest-path HydraDragonController/ui/Cargo.toml
 
       - name: Build UI
-        working-directory: HydraDragonLauncher/ui
+        working-directory: HydraDragonController/ui
         run: trunk build --release -d ../dist
 
       - name: Check formatting
-        working-directory: HydraDragonLauncher
+        working-directory: HydraDragonController
         run: cargo fmt --all -- --check
 
       - name: Run cargo check
-        working-directory: HydraDragonLauncher
+        working-directory: HydraDragonController
         run: cargo check --verbose
 
       - name: Run clippy
-        working-directory: HydraDragonLauncher
+        working-directory: HydraDragonController
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Build
-        working-directory: HydraDragonLauncher
+        working-directory: HydraDragonController
         run: cargo build --verbose
 
       - name: Build Release
-        working-directory: HydraDragonLauncher
+        working-directory: HydraDragonController
         run: cargo build --release --verbose
 
       - name: Run tests
-        working-directory: HydraDragonLauncher
+        working-directory: HydraDragonController
         run: cargo test --verbose

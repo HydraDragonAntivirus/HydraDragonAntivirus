@@ -6,8 +6,8 @@
 #define MyVersionInfoVersion "0.1.0.0"
 #define MyAppPublisher "Emirhan Ucan"
 #define MyAppURL "https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"
-#define MyAppExeName "hydradragon\\HydraDragonLauncher\\hydradragonlauncher.exe"
-#define MyAppExeFile "hydradragonlauncher.exe"
+#define MyAppExeName "hydradragon\\HydraDragonController\\hydradragoncontroller.exe"
+#define MyAppExeFile "hydradragoncontroller.exe"
 #define MyAppAssocName MyAppName + " File"
 #define MyAppAssocExt ".myp"
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt

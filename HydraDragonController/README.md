@@ -1,6 +1,6 @@
-# HydraDragon Launcher (Rust)
+# HydraDragon Controller (Rust)
 
-A lightweight, efficient launcher for HydraDragon Antivirus components written in Rust.
+A lightweight, efficient controller for HydraDragon Antivirus components written in Rust.
 
 ## Features
 
@@ -21,18 +21,18 @@ A lightweight, efficient launcher for HydraDragon Antivirus components written i
 ## Building
 
 ```bash
-cd HydraDragonLauncher
+cd HydraDragonController
 cargo build --release
 ```
 
-The binary will be at `target/release/hydradragonlauncher.exe`
+The binary will be at `target/release/hydradragoncontroller.exe`
 
 ## Usage
 
 Run as Administrator:
 
 ```bash
-hydradragonlauncher.exe
+hydradragoncontroller.exe
 ```
 
 Press `Ctrl+C` to stop all components and exit.

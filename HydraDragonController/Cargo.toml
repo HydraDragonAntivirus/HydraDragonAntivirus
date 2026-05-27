@@ -2,7 +2,7 @@
 name = "hydradragoncontroller"
 version = "1.0.0"
 edition = "2021"
-authors = ["HydraDragon Team"]
+authors = ["Emirhan Ucan"]
 description = "HydraDragon Antivirus Component Controller"
 build = "build.rs"
 

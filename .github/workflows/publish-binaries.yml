@@ -166,7 +166,7 @@ jobs:
 
 
 
-  build-launcher:
+  build-controller:
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -174,14 +174,14 @@ jobs:
       - uses: actions/checkout@v6
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Build Launcher
-        working-directory: HydraDragonLauncher
+      - name: Build Controller
+        working-directory: HydraDragonController
         run: cargo build --release
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: bin-launcher
-          path: HydraDragonLauncher/target/release/hydradragonlauncher.exe
+          name: bin-controller
+          path: HydraDragonController/target/release/hydradragoncontroller.exe
 
   # --- GROUP 3: Rust Projects (Separated) ---
 
@@ -397,7 +397,7 @@ jobs:
       - build-owlyshield-minifilter
       - build-reddbg
       - build-megadumper
-      - build-launcher
+      - build-controller
       - build-owlyshield-rust
       - build-tensorflowlite
       - build-firewall-rust
@@ -426,8 +426,8 @@ jobs:
         shell: pwsh
         run: |
           rustup component add rustfmt
-          cargo fmt --manifest-path HydraDragonLauncher/Cargo.toml --all
-          cargo fmt --manifest-path HydraDragonLauncher/ui/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonController/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonController/ui/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/hydradragonstatic/Cargo.toml --all
           cargo fmt --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml --all
           cargo fmt --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml --all
@@ -459,7 +459,7 @@ jobs:
             "$distRoot/Owlyshield/Owlyshield Service",
             "$distRoot/Owlyshield/RedDbg",
             "$distRoot/HydraDragonDumper",
-            "$distRoot/HydraDragonLauncher",
+            "$distRoot/HydraDragonController",
             "$distRoot/Sanctum/AppData",
             "$distRoot/Sanctum/System32",
             "$distRoot/sanctum_test_malware",
@@ -571,11 +571,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path "HydraDragonFirewall/hydradragonfirewall/target/release"
           $fwRust | Copy-Item -Destination "HydraDragonFirewall/hydradragonfirewall/target/release/" -Force
 
-          # --- Launcher (Rust) ---
-          $launcher = Get-ChildItem "bin-launcher/" -Filter "hydradragonlauncher.exe" -Recurse
-          $launcher | Copy-Item -Destination "$distRoot/HydraDragonLauncher/" -Force
-          New-Item -ItemType Directory -Force -Path "HydraDragonLauncher/target/release"
-          $launcher | Copy-Item -Destination "HydraDragonLauncher/target/release/" -Force
+          # --- Controller (Rust) ---
+          $controller = Get-ChildItem "bin-controller/" -Filter "hydradragoncontroller.exe" -Recurse
+          $controller | Copy-Item -Destination "$distRoot/HydraDragonController/" -Force
+          New-Item -ItemType Directory -Force -Path "HydraDragonController/target/release"
+          $controller | Copy-Item -Destination "HydraDragonController/target/release/" -Force
 
           # --- Sanctum Stack ---
           # System/Kernel Files (to AppData)
@@ -638,7 +638,7 @@ jobs:
             "bin-owlyshield-minifilter",
             "bin-owlyshield-rust",
             "bin-reddbg",
-            "bin-launcher",
+            "bin-controller",
             "bin-tinyantivirus",
             "bin-owlyshield-tools",
             "bin-sanctum"
@@ -665,15 +665,15 @@ jobs:
             Owlyshield/RedDbg/RedDbg/x64/ReleaseX64Kernel
             MegaDumper/MegaDumper/bin/Release/net8.0
             HydraDragonFirewall/hydradragonfirewall/target/release
-            HydraDragonLauncher/target/release
+            HydraDragonController/target/release
             Sanctum/target/release
             Sanctum/driver/target/release
             Sanctum/Cargo.lock
             Sanctum/driver/Cargo.lock
             Sanctum/driver/build.rs
-            HydraDragonLauncher/build.rs
-            HydraDragonLauncher/src
-            HydraDragonLauncher/ui/src
+            HydraDragonController/build.rs
+            HydraDragonController/src
+            HydraDragonController/ui/src
             Owlyshield/hydradragonstatic/src
             HydraDragonFirewall/hydradragon-shared/src
             HydraDragonFirewall/http-mitm-proxy/examples
@@ -700,7 +700,7 @@ jobs:
             "bin-owlyshield-tools",
             "bin-tensorflowlite",
             "bin-reddbg",
-            "bin-launcher",
+            "bin-controller",
             "bin-tinyantivirus",
             "bin-sanctum"
           )
