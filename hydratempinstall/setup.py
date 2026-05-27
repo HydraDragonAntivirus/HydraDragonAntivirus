@@ -204,6 +204,76 @@ def run_cmd(
     return last_rc
 
 
+def update_windows_root_certificates() -> int:
+    """
+    Refresh and import Windows trusted root certificates before freshclam runs.
+
+    This prevents ClamAV/freshclam TLS failures such as:
+      - Download failed (60)
+      - SSL peer certificate or SSH remote key was not OK
+      - unable to get local issuer certificate
+
+    The .sst file is created in %TEMP% instead of the ClamAV Program Files
+    directory to avoid protected-folder/UAC write issues.
+    """
+    temp_dir = Path(os.environ.get("TEMP") or os.environ.get("TMP") or str(PROGRAMDATA_LOG_DIR))
+    roots_sst = temp_dir / "roots.sst"
+    certutil = shutil.which("certutil.exe") or "certutil.exe"
+
+    log.info("Refreshing Windows trusted root certificates before ClamAV freshclam update.")
+    log.info("Using temporary root certificate SST file: %s", roots_sst)
+
+    original_cwd = os.getcwd()
+    try:
+        if not DRY_RUN:
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                if roots_sst.exists():
+                    roots_sst.unlink()
+            except Exception as e:
+                log.warning("Could not remove old %s before regenerating it: %s", roots_sst, e)
+
+        # Match the known-good manual fix:
+        #   certutil -generateSSTFromWU roots.sst
+        #   certutil -addstore -f root roots.sst
+        os.chdir(str(temp_dir))
+        rc_generate = run_cmd(
+            [certutil, "-generateSSTFromWU", "roots.sst"],
+            "Windows root certificate SST generation",
+            retries=2,
+            retry_delay=RETRY_DELAY,
+        )
+        if rc_generate != 0:
+            log.warning("Windows root certificate SST generation failed with rc=%d.", rc_generate)
+            return rc_generate
+
+        rc_import = run_cmd(
+            [certutil, "-addstore", "-f", "root", "roots.sst"],
+            "Windows root certificate import",
+            retries=2,
+            retry_delay=RETRY_DELAY,
+        )
+        if rc_import != 0:
+            log.warning(
+                "Windows root certificate import failed with rc=%d. "
+                "This step may require Administrator privileges.",
+                rc_import,
+            )
+            return rc_import
+
+        log.info("Windows trusted root certificates refreshed successfully.")
+        return 0
+    except Exception:
+        log.exception("Exception while refreshing Windows trusted root certificates.")
+        return 1
+    finally:
+        try:
+            os.chdir(original_cwd)
+        except Exception:
+            log.exception("Failed to restore working directory after root certificate refresh.")
+
+
+
 def ensure_parent(path: Path):
     parent = path.parent
     if not parent.exists():
@@ -645,7 +715,15 @@ def main():
     else:
         log.info("database directory not found.")
 
-    # 6. Update ClamAV virus definitions with retry
+    # 6. Refresh Windows root certificates, then update ClamAV virus definitions with retry
+    root_cert_rc = update_windows_root_certificates()
+    if root_cert_rc != 0:
+        log.warning(
+            "Windows root certificate refresh returned rc=%d. "
+            "Continuing to freshclam anyway; if TLS validation fails, update Windows root certificates manually.",
+            root_cert_rc,
+        )
+
     freshclam = CLAMAV_DIR / "freshclam.exe"
     if freshclam.exists():
         # Change to ClamAV directory so it can find its DLLs
