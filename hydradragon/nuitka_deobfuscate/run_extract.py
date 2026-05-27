@@ -16,7 +16,6 @@ import sys
 import struct
 import json
 from concurrent.futures import ThreadPoolExecutor
-import threading
 from pathlib import Path
 import re
 
