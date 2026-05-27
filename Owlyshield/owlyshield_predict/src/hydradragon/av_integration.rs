@@ -2469,15 +2469,15 @@ impl<'a> AVIntegration<'a> {
         }
 
         let static_detected = !metadata.hydradragon_static_matches.is_empty();
-        
+
         // Sanctum requests deep scan when process behavior is suspicious
         // Always honor the deep scan request unless static detection already found something
         let effective_scan_mode = if static_detected {
-            "minimal"  // Static detection found malware, no need for deep scan
+            "minimal" // Static detection found malware, no need for deep scan
         } else {
-            "deep"  // Sanctum detected suspicious behavior, do deep scan
+            "deep" // Sanctum detected suspicious behavior, do deep scan
         };
-        
+
         // Always scan with HydraDragonAV service (ClamAV/YARA)
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
         append_hydradragon_static_result(
@@ -2542,14 +2542,14 @@ impl<'a> AVIntegration<'a> {
             return;
         }
         let static_detected = !metadata.hydradragon_static_matches.is_empty();
-        
+
         // For manual scans, respect user's choice but still apply static detection override
         let effective_scan_mode = if static_detected {
             "minimal"
         } else {
-            normalized_scan_mode  // User explicitly requested this mode
+            normalized_scan_mode // User explicitly requested this mode
         };
-        
+
         // Always scan with HydraDragonAV service (ClamAV/YARA)
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
         append_hydradragon_static_result(
