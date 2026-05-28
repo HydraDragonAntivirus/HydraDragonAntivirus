@@ -72,7 +72,6 @@ struct FirewallPackedDataMessage {
     response_body: Option<String>,
 }
 
-
 fn rule_file_fingerprint(path: &Path) -> String {
     match std::fs::read(path) {
         Ok(bytes) => {
