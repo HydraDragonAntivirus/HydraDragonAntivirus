@@ -1,7 +1,6 @@
 #include "ClamAVScanner.h"
 
 #include <filesystem>
-#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <system_error>
@@ -23,8 +22,7 @@ std::string TrimLineBreaks(std::string value) {
 
 void DefaultLogger(const char* level, const std::string& message) {
     std::ostringstream oss;
-    oss << "[ClamAV][" << (level ? level : "INFO") << "] " << message << '
-';
+    oss << "[ClamAV][" << (level ? level : "INFO") << "] " << message << std::endl;
     const std::string line = oss.str();
     const std::string level_str = level ? std::string(level) : std::string();
     const bool is_debug = level_str == "DEBUG";
