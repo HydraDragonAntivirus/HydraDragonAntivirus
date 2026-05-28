@@ -3508,7 +3508,6 @@ impl BehaviorEngine {
             .expect("failed to spawn hydra_net_event_pipe thread");
     }
 
-
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub(crate) fn sanctum_value<'v>(
         event: &'v serde_json::Value,
@@ -3527,7 +3526,11 @@ impl BehaviorEngine {
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub(crate) fn sanctum_u32_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> u32 {
+    pub(crate) fn sanctum_u32_field(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        names: &[&str],
+    ) -> u32 {
         let Some(value) = Self::sanctum_value(event, args, names) else {
             return 0;
         };
@@ -3536,17 +3539,25 @@ impl BehaviorEngine {
             return num.min(u32::MAX as u64) as u32;
         }
 
-        let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+        let Some(text) = value
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
             return 0;
         };
 
-        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
+        {
             u64::from_str_radix(hex, 16)
         } else {
-            text.parse::<u64>().or_else(|_| u64::from_str_radix(text, 16))
+            text.parse::<u64>()
+                .or_else(|_| u64::from_str_radix(text, 16))
         };
 
-        parsed.map(|num| num.min(u32::MAX as u64) as u32).unwrap_or(0)
+        parsed
+            .map(|num| num.min(u32::MAX as u64) as u32)
+            .unwrap_or(0)
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
@@ -3581,8 +3592,7 @@ impl BehaviorEngine {
         _source: &str,
         _function: &str,
     ) -> bool {
-        if Self::sanctum_value(event, args, &["is_detection"])
-            .is_some_and(sanctum_value_is_truthy)
+        if Self::sanctum_value(event, args, &["is_detection"]).is_some_and(sanctum_value_is_truthy)
         {
             return true;
         }

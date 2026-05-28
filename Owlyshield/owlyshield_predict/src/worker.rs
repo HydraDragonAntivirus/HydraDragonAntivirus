@@ -920,7 +920,6 @@ pub mod worker_instance {
         pub last_report_time: Option<std::time::Instant>,
     }
 
-
     #[cfg(all(
         target_os = "windows",
         feature = "behavior_engine",
@@ -949,7 +948,11 @@ pub mod worker_instance {
                     ],
                 );
 
-                let mut source = BehaviorEngine::sanctum_string_field(&event, args, &["source", "provider", "sensor"]);
+                let mut source = BehaviorEngine::sanctum_string_field(
+                    &event,
+                    args,
+                    &["source", "provider", "sensor"],
+                );
                 if source.is_empty() {
                     source = "-".to_string();
                 }
@@ -963,7 +966,8 @@ pub mod worker_instance {
                     function = "-".to_string();
                 }
 
-                let is_detection = BehaviorEngine::sanctum_event_is_detection(&event, args, &source, &function);
+                let is_detection =
+                    BehaviorEngine::sanctum_event_is_detection(&event, args, &source, &function);
 
                 behavior_engine.ingest_sanctum_event(&event);
 
