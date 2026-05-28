@@ -3034,10 +3034,6 @@ fn sanctum_value_is_truthy(value: &serde_json::Value) -> bool {
 
 #[cfg(all(target_os = "windows", feature = "sanctum"))]
 fn sanctum_value_is_detection_marker(value: &serde_json::Value) -> bool {
-    if sanctum_value_is_truthy(value) {
-        return true;
-    }
-
     value
         .as_str()
         .map(|text| sanctum_token_is_one_of(text, SANCTUM_DETECTION_TOKENS))
@@ -3626,10 +3622,9 @@ impl BehaviorEngine {
     ) -> bool {
         const DETECTION_BOOL_FIELDS: &[&str] = &[
             "is_detection",
-            "detection",
-            "detected",
-            "malicious",
             "is_malicious",
+            "malicious",
+            "detected",
             "blocked",
             "suspicious",
         ];
@@ -3644,12 +3639,6 @@ impl BehaviorEngine {
             "severity",
             "level",
             "risk",
-            "detection",
-            "detected",
-            "malicious",
-            "is_malicious",
-            "blocked",
-            "suspicious",
         ];
 
         if Self::sanctum_bool_field(event, args, DETECTION_BOOL_FIELDS) {
