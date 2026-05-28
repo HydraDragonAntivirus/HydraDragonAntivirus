@@ -3660,7 +3660,7 @@ impl BehaviorEngine {
         #[cfg(all(target_os = "windows", feature = "firewall"))]
         if pid != 0
             && matches!(
-                function,
+                function.as_str(),
                 "NtOpenProcess"
                     | "NtWriteVirtualMemory"
                     | "NtAllocateVirtualMemory"
@@ -3691,7 +3691,7 @@ impl BehaviorEngine {
         {
             if gid != 0 {
                 if let Some(state) = self.process_states.get_mut(&gid) {
-                    let (risk, pattern) = match source {
+                    let (risk, pattern) = match source.as_str() {
                         "sanctum_veh" => (
                             crate::behavioral::amsi::AmsiRiskLevel::Critical,
                             format!("VEH_ABUSE: {}", function),
@@ -3790,7 +3790,7 @@ impl BehaviorEngine {
             }
 
             if matches!(
-                function,
+                function.as_str(),
                 "NtWriteVirtualMemory"
                     | "NtAllocateVirtualMemory"
                     | "NtCreateThreadEx"
@@ -3815,7 +3815,7 @@ impl BehaviorEngine {
             {
                 state.sanctum_stats = stats.clone();
                 if matches!(
-                    function,
+                    function.as_str(),
                     "NtWriteVirtualMemory"
                         | "NtAllocateVirtualMemory"
                         | "NtCreateThreadEx"
