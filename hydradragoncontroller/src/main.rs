@@ -1575,6 +1575,7 @@ fn main() -> Result<()> {
                         });
                     }
                     _ => {}
+                    }
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click {
