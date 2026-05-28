@@ -59,7 +59,6 @@ pub struct ProxyHttpEvent {
     pub response_body_truncated: bool,
 }
 
-
 #[derive(Clone, Debug, Serialize)]
 struct FirewallPackedDataMessage {
     packet: PacketInfo,
