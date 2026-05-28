@@ -1338,50 +1338,50 @@ fn main() -> Result<()> {
                 None::<&str>,
             )
             .unwrap();
-            let suspend_owlyshield_i = tauri::menu::MenuItem::with_id(
+            let toggle_owlyshield_i = tauri::menu::MenuItem::with_id(
                 app,
-                "suspend_owlyshield",
+                "toggle_owlyshield",
                 "Suspend Owlyshield",
                 true,
                 None::<&str>,
             )
             .unwrap();
-            let resume_owlyshield_i = tauri::menu::MenuItem::with_id(
+            let toggle_av_i = tauri::menu::MenuItem::with_id(
                 app,
-                "resume_owlyshield",
-                "Resume Owlyshield",
-                true,
-                None::<&str>,
-            )
-            .unwrap();
-            let suspend_av_i = tauri::menu::MenuItem::with_id(
-                app,
-                "suspend_av",
+                "toggle_av",
                 "Suspend AV Engine",
                 true,
                 None::<&str>,
             )
             .unwrap();
-            let resume_av_i = tauri::menu::MenuItem::with_id(
+            let toggle_python_i = tauri::menu::MenuItem::with_id(
                 app,
-                "resume_av",
-                "Resume AV Engine",
-                true,
-                None::<&str>,
-            )
-            .unwrap();
-            let suspend_python_i = tauri::menu::MenuItem::with_id(
-                app,
-                "suspend_python",
+                "toggle_python",
                 "Suspend Python Engine",
                 true,
                 None::<&str>,
             )
             .unwrap();
-            let resume_python_i = tauri::menu::MenuItem::with_id(
+            let toggle_openedr_i = tauri::menu::MenuItem::with_id(
                 app,
-                "resume_python",
-                "Resume Python Engine",
+                "toggle_openedr",
+                "Suspend OpenEDR",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let toggle_sanctum_i = tauri::menu::MenuItem::with_id(
+                app,
+                "toggle_sanctum",
+                "Suspend Sanctum",
+                true,
+                None::<&str>,
+            )
+            .unwrap();
+            let toggle_firewall_i = tauri::menu::MenuItem::with_id(
+                app,
+                "toggle_firewall",
+                "Suspend Firewall",
                 true,
                 None::<&str>,
             )
@@ -1433,12 +1433,12 @@ fn main() -> Result<()> {
                     &show_python_console_i,
                     &hide_python_console_i,
                     &console_separator,
-                    &suspend_owlyshield_i,
-                    &resume_owlyshield_i,
-                    &suspend_av_i,
-                    &resume_av_i,
-                    &suspend_python_i,
-                    &resume_python_i,
+                    &toggle_owlyshield_i,
+                    &toggle_av_i,
+                    &toggle_python_i,
+                    &toggle_openedr_i,
+                    &toggle_sanctum_i,
+                    &toggle_firewall_i,
                     &suspend_separator,
                     &suspend_all_i,
                     &resume_all_i,
@@ -1451,7 +1451,14 @@ fn main() -> Result<()> {
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event({
+                    let t_owlyshield = toggle_owlyshield_i.clone();
+                    let t_av = toggle_av_i.clone();
+                    let t_python = toggle_python_i.clone();
+                    let t_openedr = toggle_openedr_i.clone();
+                    let t_sanctum = toggle_sanctum_i.clone();
+                    let t_firewall = toggle_firewall_i.clone();
+                    move |app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(win) = app.get_webview_window("main") {
                             let _ = win.show();
@@ -1511,29 +1518,48 @@ fn main() -> Result<()> {
                             }
                         });
                     }
-                    "suspend_owlyshield" | "resume_owlyshield" | "suspend_av" | "resume_av"
-                    | "suspend_python" | "resume_python" | "suspend_all" | "resume_all" => {
-                        let id = event.id.as_ref().to_string();
+                    "toggle_owlyshield" | "toggle_av" | "toggle_python"
+                    | "toggle_openedr" | "toggle_sanctum" | "toggle_firewall" => {
+                        let (menu_item, comp_name) = match event.id.as_ref() {
+                            "toggle_owlyshield" => (&t_owlyshield, "Owlyshield"),
+                            "toggle_av" => (&t_av, "AV Engine"),
+                            "toggle_python" => (&t_python, "Python Engine"),
+                            "toggle_openedr" => (&t_openedr, "OpenEDR"),
+                            "toggle_sanctum" => (&t_sanctum, "Sanctum"),
+                            "toggle_firewall" => (&t_firewall, "Firewall"),
+                            _ => unreachable!(),
+                        };
+                        let text = menu_item.text().unwrap_or_default();
+                        let suspend = text.contains("Suspend");
+                        let new_text = if suspend {
+                            format!("Resume {}", comp_name)
+                        } else {
+                            format!("Suspend {}", comp_name)
+                        };
+                        let _ = menu_item.set_text(new_text);
+                        let comp_name_string = comp_name.to_string();
                         tauri::async_runtime::spawn(async move {
-                            let result = match id.as_str() {
-                                "suspend_owlyshield" => set_component_suspended("Owlyshield", true),
-                                "resume_owlyshield" => set_component_suspended("Owlyshield", false),
-                                "suspend_av" => set_component_suspended("AV Engine", true),
-                                "resume_av" => set_component_suspended("AV Engine", false),
-                                "suspend_python" => set_component_suspended("Python Engine", true),
-                                "resume_python" => set_component_suspended("Python Engine", false),
-                                "suspend_all" => Ok(set_all_components_suspended(true)),
-                                "resume_all" => Ok(set_all_components_suspended(false)),
-                                _ => unreachable!(),
-                            };
-
-                            match result {
+                            match set_component_suspended(&comp_name_string, suspend) {
                                 Ok(affected) => {
-                                    info!("Tray action {} affected {} thread(s).", id, affected);
+                                    info!("Tray action toggled {} suspended={} affected {} thread(s).", comp_name_string, suspend, affected);
                                 }
-                                Err(e) => warn!("Tray action {} failed: {}", id, e),
+                                Err(e) => warn!("Tray action toggle {} failed: {}", comp_name_string, e),
                             }
                         });
+                    }
+                    "suspend_all" | "resume_all" => {
+                        let id = event.id.as_ref().to_string();
+                        tauri::async_runtime::spawn(async move {
+                            let suspend = id == "suspend_all";
+                            let affected = set_all_components_suspended(suspend);
+                            info!("Tray action {} affected {} component thread(s).", id, affected);
+                        });
+                        let _ = t_owlyshield.set_text(if id == "suspend_all" { "Resume Owlyshield" } else { "Suspend Owlyshield" });
+                        let _ = t_av.set_text(if id == "suspend_all" { "Resume AV Engine" } else { "Suspend AV Engine" });
+                        let _ = t_python.set_text(if id == "suspend_all" { "Resume Python Engine" } else { "Suspend Python Engine" });
+                        let _ = t_openedr.set_text(if id == "suspend_all" { "Resume OpenEDR" } else { "Suspend OpenEDR" });
+                        let _ = t_sanctum.set_text(if id == "suspend_all" { "Resume Sanctum" } else { "Suspend Sanctum" });
+                        let _ = t_firewall.set_text(if id == "suspend_all" { "Resume Firewall" } else { "Suspend Firewall" });
                     }
                     "quit" => {
                         let state = app.state::<Arc<Mutex<Components>>>();

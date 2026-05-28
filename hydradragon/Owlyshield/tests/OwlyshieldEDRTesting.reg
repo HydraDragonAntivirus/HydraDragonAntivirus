@@ -17,6 +17,9 @@ Windows Registry Editor Version 5.00
 "RULES_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\rules"
 "STATIC_RULES_PATH"="C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Owlyshield\\static_rules"
 "STATIC_RULES_MODE"="malware"
+"MINIMAL_SCAN_TIMEOUT_MS"="5000"
+"DEEP_SCAN_TIMEOUT_MS"="30000"
+"LATE_CHILD_SCAN_GRACE_MS"="1000"
 
 [HKEY_CURRENT_USER\Software\Classes\AppUserModelId\8C19967B-1D27-4E6A-85CD-5059912C2788]
 "DisplayName"="HydraDragon Antivirus"

@@ -107,6 +107,9 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "RULES_PATH"; ValueData: "{app}\hydradragon\Owlyshield\rules"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REPORTS_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\Owlyshield\config\threats"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "REALTIME_LEARNING_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\Owlyshield\realtime_learning"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "MINIMAL_SCAN_TIMEOUT_MS"; ValueData: "5000"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "DEEP_SCAN_TIMEOUT_MS"; ValueData: "30000"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LATE_CHILD_SCAN_GRACE_MS"; ValueData: "1000"; Flags: uninsdeletekey
 
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "{#OwlyshieldAppId}"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
