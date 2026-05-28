@@ -52,18 +52,22 @@ constexpr DWORD FRESHCLAM_TIMEOUT_MS          = 180u * 1000u;
 static std::unordered_set<std::string> g_excludedRules;
 
 // ---------------------------------------------------------------------------
-// [GOD MODE FIX 1] Memory guard — lowered 1.5 GiB → 512 MiB.
-// RADAR_PRE_LEAK_64 fires around 200–400 MiB of sustained growth;
-// the old 1.5 GiB limit let Windows detect the leak pattern long before
-// the guard ever triggered.
+// Memory guard.
+// Uses a baseline + growth limit instead of a low fixed cap. ClamAV can
+// legitimately reserve hundreds of MiB after loading signatures, so a fixed
+// 512 MiB process limit can cause restart loops.
 // ---------------------------------------------------------------------------
-constexpr SIZE_T HYDRADRAGON_PRIVATE_BYTES_RESTART_LIMIT =
-    static_cast<SIZE_T>(512ull * 1024ull * 1024ull); // 512 MiB
-constexpr auto MEMORY_MONITOR_INTERVAL   = std::chrono::seconds(30);
+constexpr SIZE_T HYDRADRAGON_PRIVATE_BYTES_GROWTH_LIMIT =
+    static_cast<SIZE_T>(512ull * 1024ull * 1024ull); // baseline + 512 MiB
+constexpr SIZE_T HYDRADRAGON_PRIVATE_BYTES_ABSOLUTE_LIMIT =
+    static_cast<SIZE_T>(1536ull * 1024ull * 1024ull); // emergency cap: 1.5 GiB
+constexpr auto MEMORY_MONITOR_INTERVAL = std::chrono::seconds(30);
 constexpr UINT HYDRADRAGON_MEMORY_RECYCLE_EXIT_CODE = 100;
 
+static std::atomic<SIZE_T> g_memoryBaselinePrivateBytes{0};
+
 // ---------------------------------------------------------------------------
-// [GOD MODE FIX 2] ClamAV engine recycle interval.
+// ClamAV engine recycle interval.
 // cl_scanfile() accumulates heap fragmentation inside libclamav.dll over
 // thousands of scans. Periodically destroying and recreating the engine
 // (via ReloadDatabase) flushes that internal state completely.
@@ -73,7 +77,7 @@ static std::atomic<std::uint64_t> g_scansSinceEngineRecycle{0};
 static std::mutex g_engineRecycleMutex; // one recycle at a time
 
 // ---------------------------------------------------------------------------
-// [GOD MODE FIX 3] Hard file-size caps for YARA and ClamAV.
+// Hard file-size caps for YARA and ClamAV.
 // Unbounded scans on multi-hundred-MB files (installers, ISOs) can cause
 // enormous transient allocations inside both engines.
 // ---------------------------------------------------------------------------
@@ -100,7 +104,7 @@ constexpr std::size_t SCAN_CACHE_MAX_ENTRIES = 4096;
 static std::atomic<std::uint64_t> g_totalScanRequests{0};
 
 // ---------------------------------------------------------------------------
-// [GOD MODE FIX 4] Thread-pool pipe server.
+// Thread-pool pipe server.
 // The original design serialised every scan: accept → read → scan → write
 // on a single thread. Under burst load, clients pile up waiting behind a
 // slow YARA/ClamAV scan. This pool allows N concurrent scan threads while
@@ -133,7 +137,7 @@ SIZE_T GetCurrentProcessPrivateBytes() {
 }
 
 // ---------------------------------------------------------------------------
-// [GOD MODE FIX 5] Heap-trim thread.
+// Heap-trim thread.
 // After heavy scan bursts the CRT / Windows heap holds onto free blocks.
 // HeapCompact coalesces them; SetProcessWorkingSetSize(-1,-1) tells the
 // kernel it may reclaim the now-idle physical pages — reducing the RSS that
@@ -164,16 +168,38 @@ void StartMemoryGuardThread() {
             const SIZE_T privateBytes = GetCurrentProcessPrivateBytes();
             if (privateBytes == 0) continue;
 
+            SIZE_T baseline = g_memoryBaselinePrivateBytes.load(std::memory_order_relaxed);
+            if (baseline == 0) {
+                g_memoryBaselinePrivateBytes.store(privateBytes, std::memory_order_relaxed);
+                baseline = privateBytes;
+#if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
+                std::cout << "[MemoryGuard] baseline_private_bytes=" << baseline
+                          << std::endl;
+#endif
+                continue;
+            }
+
+            const SIZE_T growthLimit = baseline + HYDRADRAGON_PRIVATE_BYTES_GROWTH_LIMIT;
+            const bool exceededGrowth = privateBytes >= growthLimit;
+            const bool exceededAbsolute = privateBytes >= HYDRADRAGON_PRIVATE_BYTES_ABSOLUTE_LIMIT;
+
 #if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
             std::cout << "[MemoryGuard] private_bytes=" << privateBytes
+                      << " baseline=" << baseline
+                      << " growth_limit=" << growthLimit
+                      << " absolute_limit=" << HYDRADRAGON_PRIVATE_BYTES_ABSOLUTE_LIMIT
                       << " scans=" << g_totalScanRequests.load() << std::endl;
 #endif
 
-            if (privateBytes >= HYDRADRAGON_PRIVATE_BYTES_RESTART_LIMIT) {
+            if (exceededGrowth || exceededAbsolute) {
                 std::cerr << "[MemoryGuard] HydraDragonAV private memory reached "
                           << privateBytes << " bytes after "
                           << g_totalScanRequests.load()
-                          << " scan requests. Recycling scanner process."
+                          << " scan requests. Baseline=" << baseline
+                          << ", growth_limit=" << growthLimit
+                          << ", absolute_limit="
+                          << HYDRADRAGON_PRIVATE_BYTES_ABSOLUTE_LIMIT
+                          << ". Recycling scanner process."
                           << std::endl;
                 ExitProcess(HYDRADRAGON_MEMORY_RECYCLE_EXIT_CODE);
             }
@@ -182,7 +208,7 @@ void StartMemoryGuardThread() {
 }
 
 // ---------------------------------------------------------------------------
-// [GOD MODE FIX 6] Periodic ClamAV engine recycle.
+// Periodic ClamAV engine recycle.
 // Every CLAMAV_ENGINE_RECYCLE_INTERVAL scans we call ReloadDatabase(),
 // which in ClamAVScanner.cpp frees the old cl_engine, allocates a fresh one,
 // and reloads signatures.  This flushes all accumulated libclamav internal
@@ -272,7 +298,7 @@ bool TryGetCachedScanResponse(const std::wstring& path, std::string& response) {
     return true;
 }
 
-// [GOD MODE FIX 7] LRU single-entry eviction replaces the old nuke-all
+// LRU single-entry eviction replaces the old nuke-all
 // g_scanCache.clear().  The original strategy erased 4096 heap allocations
 // at once → massive free-list churn → heap fragmentation that RADAR read as
 // a leak. Evicting one oldest entry per insertion keeps the heap steady.
@@ -557,7 +583,7 @@ void ProcessRequest(const std::string& request, std::string& response) {
     bool                     isMalicious  = false;
     bool                     is_vmprotect = false;
 
-    // [GOD MODE FIX 3 — YARA] Skip oversized files; set 60-second timeout.
+    // [FIX 3 — YARA] Skip oversized files; set 60-second timeout.
     if (g_yaraRules && fs::exists(wFilePath)) {
         std::error_code ec;
         const auto fileBytes = fs::file_size(wFilePath, ec);
@@ -587,7 +613,7 @@ void ProcessRequest(const std::string& request, std::string& response) {
         }
     }
 
-    // [GOD MODE FIX 3 — ClamAV] Skip oversized files.
+    // [FIX 3 — ClamAV] Skip oversized files.
     if (g_clamavScanner && g_clamavScanner->IsReady() && fs::exists(wFilePath)) {
         std::error_code ec;
         const auto fileBytes = fs::file_size(wFilePath, ec);
@@ -604,7 +630,7 @@ void ProcessRequest(const std::string& request, std::string& response) {
         }
     }
 
-    // [GOD MODE FIX 6] Trigger periodic engine recycle.
+    // Trigger periodic engine recycle.
     MaybeRecycleClamAvEngine();
 
     // Build JSON response
@@ -625,7 +651,7 @@ void ProcessRequest(const std::string& request, std::string& response) {
 }
 
 // ---------------------------------------------------------------------------
-// [GOD MODE FIX 4] Thread-pool worker — handles one connected pipe client.
+// Thread-pool worker — handles one connected pipe client.
 // ---------------------------------------------------------------------------
 void PipeWorkerThread() {
     while (!g_shutdown.load()) {
@@ -669,7 +695,7 @@ int main() {
     std::cout << "[HydraDragonAV] Starting SCANNER ENGINE (Pipe Server)..."
               << std::endl;
 
-    // [GOD MODE FIX 8] Enable Low Fragmentation Heap for the process heap.
+    // Enable Low Fragmentation Heap for the process heap.
     // LFH dramatically reduces heap fragmentation from thousands of small
     // alloc/free cycles (cache strings, YARA match vectors, etc.).
     {
@@ -693,13 +719,18 @@ int main() {
     }
     LoadExcludedRules();
 
-    // Initialize ClamAV
+    // Initialize ClamAV. Do not run freshclam synchronously before the
+    // pipe server starts; a slow update must not make the engine look dead.
     std::cout << "[ClamAV] Initializing Scanner..." << std::endl;
-    UpdateClamAvDefinitionsIfNeeded();
     g_clamavScanner = clamav::Scanner::CreateAsync(CLAMAV_DLL, CLAMAV_DB);
+
+    std::thread([]() {
+        UpdateClamAvDefinitionsIfNeeded();
+    }).detach();
+
     StartClamAvDefinitionUpdateThread();
 
-    // [GOD MODE FIX 4] Spin up the pipe worker thread pool.
+    // Spin up the pipe worker thread pool.
     std::vector<std::thread> workers;
     workers.reserve(PIPE_WORKER_THREADS);
     for (std::size_t i = 0; i < PIPE_WORKER_THREADS; ++i)
