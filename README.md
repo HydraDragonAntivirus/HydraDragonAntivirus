@@ -447,7 +447,8 @@ For frequently asked questions, please refer to [FAQ.md](./FAQ.md).
 
 
 ### Credits:
-- All credits goes to Emirhan Uçan (yes it's one man project)
+- All credits goes to Emirhan Uçan (yes it's one man project until Yusif come out https://github.com/Siradankullanici)
+- Thanks to Yusif Musayev for her help in ensuring the project didn't remain a one man project (https://github.com/elnureisayeva1-cloud).
 - Thanks to Hacı Murad for collecting and compiling some machine learning signatures (https://github.com/hacimurad41). 
 - Thanks to Yusuf testing HyperVisior on Intel (https://github.com/caymazyusuf72).
 - Thanks to Emrah for .agent folder (https://github.com/emrahd0732).
