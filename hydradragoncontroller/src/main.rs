@@ -1548,18 +1548,17 @@ fn main() -> Result<()> {
                         });
                     }
                     "suspend_all" | "resume_all" => {
-                        let id = event.id.as_ref().to_string();
+                        let suspend = event.id.as_ref() == "suspend_all";
                         tauri::async_runtime::spawn(async move {
-                            let suspend = id == "suspend_all";
                             let affected = set_all_components_suspended(suspend);
-                            info!("Tray action {} affected {} component thread(s).", id, affected);
+                            info!("Tray action suspend_all={} affected {} component thread(s).", suspend, affected);
                         });
-                        let _ = t_owlyshield.set_text(if id == "suspend_all" { "Resume Owlyshield" } else { "Suspend Owlyshield" });
-                        let _ = t_av.set_text(if id == "suspend_all" { "Resume AV Engine" } else { "Suspend AV Engine" });
-                        let _ = t_python.set_text(if id == "suspend_all" { "Resume Python Engine" } else { "Suspend Python Engine" });
-                        let _ = t_openedr.set_text(if id == "suspend_all" { "Resume OpenEDR" } else { "Suspend OpenEDR" });
-                        let _ = t_sanctum.set_text(if id == "suspend_all" { "Resume Sanctum" } else { "Suspend Sanctum" });
-                        let _ = t_firewall.set_text(if id == "suspend_all" { "Resume Firewall" } else { "Suspend Firewall" });
+                        let _ = t_owlyshield.set_text(if suspend { "Resume Owlyshield" } else { "Suspend Owlyshield" });
+                        let _ = t_av.set_text(if suspend { "Resume AV Engine" } else { "Suspend AV Engine" });
+                        let _ = t_python.set_text(if suspend { "Resume Python Engine" } else { "Suspend Python Engine" });
+                        let _ = t_openedr.set_text(if suspend { "Resume OpenEDR" } else { "Suspend OpenEDR" });
+                        let _ = t_sanctum.set_text(if suspend { "Resume Sanctum" } else { "Suspend Sanctum" });
+                        let _ = t_firewall.set_text(if suspend { "Resume Firewall" } else { "Suspend Firewall" });
                     }
                     "quit" => {
                         let state = app.state::<Arc<Mutex<Components>>>();
