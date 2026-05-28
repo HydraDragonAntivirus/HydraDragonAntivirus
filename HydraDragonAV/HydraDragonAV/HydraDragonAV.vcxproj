@@ -160,7 +160,6 @@
   <ItemGroup>
     <ClCompile Include="HydraDragonAV.cpp" />
     <ClCompile Include="ClamAVScanner.cpp" />
-    <ClCompile Include="yara.cpp" />
     <ClCompile Include="libyara\*.c" />
     <ClCompile Include="libyara\proc\windows.c" />
     <ClCompile Include="libyara\modules\console\console.c" />

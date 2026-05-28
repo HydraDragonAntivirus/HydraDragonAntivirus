@@ -24,10 +24,23 @@ void DefaultLogger(const char* level, const std::string& message) {
     std::ostringstream oss;
     oss << "[ClamAV][" << level << "] " << message << '\n';
     const std::string line = oss.str();
+    const std::string level_str = level ? std::string(level) : std::string();
+    const bool is_debug = level_str == "DEBUG";
 
+#if defined(_DEBUG) || !defined(NDEBUG)
     ::OutputDebugStringA(line.c_str());
+#endif
 
-    if (std::string(level) == "ERROR" || std::string(level) == "WARN") {
+    // DEBUG messages are for debugger/development builds only. In release,
+    // do not print clean-file messages to the user's terminal.
+    if (is_debug) {
+#if defined(_DEBUG) || !defined(NDEBUG)
+        std::cout << line;
+#endif
+        return;
+    }
+
+    if (level_str == "ERROR" || level_str == "WARN") {
         std::cerr << line;
     } else {
         std::cout << line;
@@ -167,6 +180,13 @@ ScanResult Scanner::ScanFile(const std::wstring& filepath) {
     const std::string utf8_path = WideToUtf8(filepath);
     const char* virname = nullptr;
     unsigned long bytes_scanned = 0;
+#ifdef HYDRADRAGON_CLAMAV_COLLECT_SCAN_BYTES
+    unsigned long* scanned_ptr = &bytes_scanned;
+#else
+    // Avoid LibClamAV's scanned_bytes UINT32_MAX warning spam when the caller
+    // does not need byte-count telemetry.
+    unsigned long* scanned_ptr = nullptr;
+#endif
     ClScanOptions scan_opts{};
     scan_opts.general = CL_SCAN_GENERAL_HEURISTICS;
 
@@ -181,7 +201,7 @@ ScanResult Scanner::ScanFile(const std::wstring& filepath) {
         result = api_.cl_scanfile(
             utf8_path.c_str(),
             &virname,
-            &bytes_scanned,
+            scanned_ptr,
             engine_,
             &scan_opts);
     }

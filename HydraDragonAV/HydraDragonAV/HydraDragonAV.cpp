@@ -35,9 +35,51 @@ static std::unique_ptr<clamav::Scanner> g_clamavScanner;
 static YR_RULES *g_yaraRules = nullptr;
 constexpr auto CLAMAV_UPDATE_INTERVAL = std::chrono::hours(2);
 constexpr auto CLAMAV_DEFINITION_MAX_AGE = std::chrono::hours(12);
-constexpr DWORD FRESHCLAM_TIMEOUT_MS = 1500u * 1000u;
+constexpr DWORD FRESHCLAM_TIMEOUT_MS = 300u * 1000u;
 
 static std::unordered_set<std::string> g_excludedRules;
+static std::mutex g_clamavUpdateMutex;
+
+std::string JsonEscape(const std::string &value) {
+  std::ostringstream escaped;
+  for (unsigned char ch : value) {
+    switch (ch) {
+    case '"':
+      escaped << "\\\"";
+      break;
+    case '\\':
+      escaped << "\\\\";
+      break;
+    case '\b':
+      escaped << "\\b";
+      break;
+    case '\f':
+      escaped << "\\f";
+      break;
+    case '\n':
+      escaped << "\\n";
+      break;
+    case '\r':
+      escaped << "\\r";
+      break;
+    case '\t':
+      escaped << "\\t";
+      break;
+    default:
+      if (ch < 0x20) {
+        escaped << "\\u" << std::hex << std::uppercase;
+        escaped.width(4);
+        escaped.fill('0');
+        escaped << static_cast<int>(ch);
+        escaped << std::dec << std::nouppercase;
+      } else {
+        escaped << static_cast<char>(ch);
+      }
+      break;
+    }
+  }
+  return escaped.str();
+}
 
 void LoadExcludedRules() {
   std::string path = "C:\\Program "
@@ -172,6 +214,12 @@ bool RunFreshclam() {
 }
 
 void UpdateClamAvDefinitionsIfNeeded() {
+  std::unique_lock<std::mutex> updateLock(g_clamavUpdateMutex, std::try_to_lock);
+  if (!updateLock.owns_lock()) {
+    std::cout << "[ClamAV] Definition update already running; skipping duplicate request." << std::endl;
+    return;
+  }
+
   if (!IsClamAvDatabaseStale()) {
     std::cout << "[ClamAV] Definitions are current." << std::endl;
     return;
@@ -192,6 +240,22 @@ void UpdateClamAvDefinitionsIfNeeded() {
                 << std::endl;
     }
   }
+}
+
+void StartInitialClamAvDefinitionUpdateThread() {
+  std::thread([]() {
+    std::cout << "[ClamAV] Initial definition update will run in the background." << std::endl;
+
+    // Avoid racing freshclam writes against libclamav's first database load.
+    // If initialization takes too long or fails, still allow freshclam to try.
+    if (g_clamavScanner) {
+      for (int i = 0; i < 60 && g_clamavScanner->IsInitializing(); ++i) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+      }
+    }
+
+    UpdateClamAvDefinitionsIfNeeded();
+  }).detach();
 }
 
 void StartClamAvDefinitionUpdateThread() {
@@ -244,6 +308,8 @@ bool LoadYaraRules() {
   if (yr_compiler_create(&compiler) != 0)
     return false;
 
+  int compiledCount = 0;
+  int failedCount = 0;
   std::error_code ec;
   if (fs::exists(YARA_RULES_FOLDER, ec)) {
     for (const auto &entry : fs::directory_iterator(YARA_RULES_FOLDER, ec)) {
@@ -259,7 +325,10 @@ bool LoadYaraRules() {
         // Use the filename as the identifier for errors
         std::string fileName = entry.path().filename().string();
         if (yr_compiler_add_string(compiler, content.c_str(), nullptr) != 0) {
+          ++failedCount;
           std::cerr << "[YARA] Failed to compile: " << fileName << std::endl;
+        } else {
+          ++compiledCount;
         }
       }
     }
@@ -268,10 +337,23 @@ bool LoadYaraRules() {
               << fs::path(YARA_RULES_FOLDER).string() << std::endl;
   }
 
+  if (compiledCount == 0) {
+    std::cerr << "[YARA] No .yar files compiled from "
+              << fs::path(YARA_RULES_FOLDER).string() << std::endl;
+    yr_compiler_destroy(compiler);
+    return false;
+  }
+
   if (yr_compiler_get_rules(compiler, &g_yaraRules) != 0) {
     yr_compiler_destroy(compiler);
     return false;
   }
+
+  std::cout << "[YARA] Compiled " << compiledCount << " YARA rule file(s).";
+  if (failedCount > 0) {
+    std::cout << " Failed: " << failedCount;
+  }
+  std::cout << std::endl;
 
   yr_compiler_destroy(compiler);
   return true;
@@ -375,10 +457,10 @@ void ProcessRequest(const std::string &request, std::string &response) {
      << ", \"is_vmprotect\":" << (is_vmprotect ? "true" : "false")
      << ", \"yara\":[";
   for (size_t i = 0; i < yaraMatches.size(); ++i) {
-    ss << "\"" << yaraMatches[i] << "\""
+    ss << "\"" << JsonEscape(yaraMatches[i]) << "\""
        << (i == yaraMatches.size() - 1 ? "" : ",");
   }
-  ss << "], \"clamav\":\"" << clamavVirusName << "\"}";
+  ss << "], \"clamav\":\"" << JsonEscape(clamavVirusName) << "\"}";
   response = ss.str();
 }
 
@@ -397,14 +479,15 @@ int main() {
   }
   LoadExcludedRules();
 
-  // Initialize ClamAV
+  // Initialize ClamAV without blocking pipe creation. freshclam runs in the
+  // background so the scanner engine can accept pipe requests immediately.
   std::cout << "[ClamAV] Initializing Scanner..." << std::endl;
-  UpdateClamAvDefinitionsIfNeeded();
   g_clamavScanner = clamav::Scanner::CreateAsync(CLAMAV_DLL, CLAMAV_DB);
+  StartInitialClamAvDefinitionUpdateThread();
   StartClamAvDefinitionUpdateThread();
 
-  // We don't block main here; if a scan comes in before ready, ScanFile will
-  // handle it or wait
+  std::cout << "[Pipe] Starting pipe server at \\\\.\\pipe\\HydraDragonAV..."
+            << std::endl;
 
   while (true) {
     HANDLE hPipe =
@@ -413,6 +496,10 @@ int main() {
                          PIPE_UNLIMITED_INSTANCES,
                          1024 * 64, // Larger buffer for paths/results
                          1024 * 64, 0, NULL);
+
+    if (hPipe != INVALID_HANDLE_VALUE) {
+      std::cout << "[Pipe] Pipe created. Waiting for client..." << std::endl;
+    }
 
     if (hPipe == INVALID_HANDLE_VALUE) {
       std::cerr << "[Pipe] Failed to create named pipe. Error: "
@@ -423,6 +510,7 @@ int main() {
 
     if (ConnectNamedPipe(hPipe, NULL) ||
         GetLastError() == ERROR_PIPE_CONNECTED) {
+      std::cout << "[Pipe] Client connected." << std::endl;
       char buffer[65536]; // Support very long paths
       DWORD bytesRead;
       if (ReadFile(hPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
@@ -432,11 +520,23 @@ int main() {
 
         ProcessRequest(request, response);
 
-        DWORD bytesWritten;
-        WriteFile(hPipe, response.c_str(), (DWORD)response.size(),
-                  &bytesWritten, NULL);
+        DWORD bytesWritten = 0;
+        if (!WriteFile(hPipe, response.c_str(), (DWORD)response.size(),
+                       &bytesWritten, NULL)) {
+          std::cerr << "[Pipe] WriteFile failed. Error: " << GetLastError()
+                    << std::endl;
+        } else {
+          std::cout << "[Pipe] Response sent (" << bytesWritten << " bytes)."
+                    << std::endl;
+        }
         FlushFileBuffers(hPipe);
+      } else {
+        std::cerr << "[Pipe] ReadFile failed. Error: " << GetLastError()
+                  << std::endl;
       }
+    } else {
+      std::cerr << "[Pipe] ConnectNamedPipe failed. Error: " << GetLastError()
+                << std::endl;
     }
 
     DisconnectNamedPipe(hPipe);
