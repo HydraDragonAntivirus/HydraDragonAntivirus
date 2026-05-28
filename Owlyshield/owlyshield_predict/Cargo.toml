@@ -42,7 +42,7 @@ base64 = "0.21.0"
 bs58 = "0.4.0"
 goblin = "0.10.5"
 zip = { version = "8.6.0", default-features = false }
-yara-x = { version = "1.16.0", default-features = false, features = ["linkme"] }
+yara-x = { version = "1.17.0", default-features = false, features = ["linkme"] }
 
 #Windows
 [target.'cfg(target_os = "windows")'.dependencies]
