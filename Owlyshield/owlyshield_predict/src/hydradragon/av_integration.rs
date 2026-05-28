@@ -84,7 +84,10 @@ fn parallel_scan_request_worker_count() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get().saturating_mul(2))
         .unwrap_or(MIN_PARALLEL_SCAN_REQUEST_WORKERS)
-        .clamp(MIN_PARALLEL_SCAN_REQUEST_WORKERS, MAX_PARALLEL_SCAN_REQUEST_WORKERS)
+        .clamp(
+            MIN_PARALLEL_SCAN_REQUEST_WORKERS,
+            MAX_PARALLEL_SCAN_REQUEST_WORKERS,
+        )
 }
 
 const DEEP_SCAN_TIMEOUT_MS: u64 = 180_000;
@@ -3031,8 +3034,7 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
             .name(format!("edr_to_av_scan_pipe_worker_{worker_id}"))
             .spawn(move || {
                 scan_request_server_worker_loop(worker_id, worker_rx);
-            })
-        {
+            }) {
             Ok(handle) => handles.push(handle),
             Err(error) => Logging::error(&format!(
                 "[EDR->AV] Failed to spawn scan pipe worker {}: {}",
@@ -3051,15 +3053,15 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
     }
 }
 
-fn scan_request_server_worker_loop(
-    worker_id: usize,
-    rx: Arc<Mutex<Receiver<EDRScanRequest>>>,
-) {
+fn scan_request_server_worker_loop(worker_id: usize, rx: Arc<Mutex<Receiver<EDRScanRequest>>>) {
     unsafe {
         let pipe_name_c = match CString::new(PIPE_EDR_TO_AV) {
             Ok(s) => s,
             Err(e) => {
-                Logging::error(&format!("[EDR->AV worker {worker_id}] Invalid pipe name: {}", e));
+                Logging::error(&format!(
+                    "[EDR->AV worker {worker_id}] Invalid pipe name: {}",
+                    e
+                ));
                 return;
             }
         };
