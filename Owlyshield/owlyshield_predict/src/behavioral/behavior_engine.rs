@@ -2989,55 +2989,16 @@ impl Default for BehaviorEngine {
 }
 
 #[cfg(all(target_os = "windows", feature = "sanctum"))]
-const SANCTUM_TRUTHY_TOKENS: &[&str] = &[
-    "1",
-    "true",
-];
-
-#[cfg(all(target_os = "windows", feature = "sanctum"))]
-const SANCTUM_DETECTION_TOKENS: &[&str] = &[
-    "detection",
-    "detected",
-    "alert",
-    "malicious",
-    "malware",
-    "blocked",
-    "deny",
-    "denied",
-    "critical",
-    "high",
-    "suspicious",
-];
-
-#[cfg(all(target_os = "windows", feature = "sanctum"))]
-fn sanctum_token_is_one_of(token: &str, accepted: &[&str]) -> bool {
-    let normalized = token.trim().to_ascii_lowercase();
-    accepted.iter().any(|candidate| normalized == *candidate)
-}
-
-#[cfg(all(target_os = "windows", feature = "sanctum"))]
 fn sanctum_value_is_truthy(value: &serde_json::Value) -> bool {
-    value
-        .as_bool()
-        .unwrap_or_else(|| {
-            value
-                .as_u64()
-                .map(|num| num == 1)
-                .or_else(|| {
-                    value
-                        .as_str()
-                        .map(|text| sanctum_token_is_one_of(text, SANCTUM_TRUTHY_TOKENS))
-                })
-                .unwrap_or(false)
-        })
-}
-
-#[cfg(all(target_os = "windows", feature = "sanctum"))]
-fn sanctum_value_is_detection_marker(value: &serde_json::Value) -> bool {
-    value
-        .as_str()
-        .map(|text| sanctum_token_is_one_of(text, SANCTUM_DETECTION_TOKENS))
-        .unwrap_or(false)
+    value.as_bool().unwrap_or(false)
+        || value.as_u64().is_some_and(|num| num == 1)
+        || value
+            .as_str()
+            .map(|text| {
+                let text = text.trim();
+                text == "1" || text.eq_ignore_ascii_case("true")
+            })
+            .unwrap_or(false)
 }
 
 impl BehaviorEngine {
@@ -3617,44 +3578,18 @@ impl BehaviorEngine {
     pub(crate) fn sanctum_event_is_detection(
         event: &serde_json::Value,
         args: &serde_json::Value,
-        source: &str,
-        function: &str,
+        _source: &str,
+        _function: &str,
     ) -> bool {
-        const DETECTION_BOOL_FIELDS: &[&str] = &[
-            "is_detection",
-            "is_malicious",
-            "malicious",
-            "detected",
-            "blocked",
-            "suspicious",
-        ];
-        const DETECTION_MARKER_FIELDS: &[&str] = &[
-            "type",
-            "event_type",
-            "kind",
-            "category",
-            "verdict",
-            "result",
-            "action",
-            "severity",
-            "level",
-            "risk",
-        ];
-
-        if Self::sanctum_bool_field(event, args, DETECTION_BOOL_FIELDS) {
-            return true;
-        }
-
-        if Self::sanctum_value(event, args, DETECTION_MARKER_FIELDS)
-            .is_some_and(sanctum_value_is_detection_marker)
+        if Self::sanctum_value(event, args, &["is_detection"])
+            .is_some_and(sanctum_value_is_truthy)
         {
             return true;
         }
 
-        let markers = [source, function];
-        markers
-            .iter()
-            .any(|marker| sanctum_token_is_one_of(marker, SANCTUM_DETECTION_TOKENS))
+        Self::sanctum_value(event, args, &["event_type"])
+            .and_then(|value| value.as_str())
+            .is_some_and(|text| text.trim().eq_ignore_ascii_case("DETECTION"))
     }
 
     /// Ingest a telemetry event from Sanctum EDR.
