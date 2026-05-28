@@ -2988,6 +2988,38 @@ impl Default for BehaviorEngine {
     }
 }
 
+#[cfg(all(target_os = "windows", feature = "sanctum"))]
+const SANCTUM_TRUTHY_TOKENS: &[&str] = &[
+    "1",
+    "true",
+    "yes",
+    "y",
+    "detected",
+    "malicious",
+    "alert",
+    "blocked",
+];
+
+#[cfg(all(target_os = "windows", feature = "sanctum"))]
+const SANCTUM_DETECTION_TOKENS: &[&str] = &[
+    "detection",
+    "detected",
+    "alert",
+    "malicious",
+    "malware",
+    "blocked",
+    "deny",
+    "denied",
+    "critical",
+    "high",
+];
+
+#[cfg(all(target_os = "windows", feature = "sanctum"))]
+fn sanctum_token_is_one_of(token: &str, accepted: &[&str]) -> bool {
+    let normalized = token.trim().to_ascii_lowercase();
+    accepted.iter().any(|candidate| normalized == *candidate)
+}
+
 impl BehaviorEngine {
     pub fn new() -> Self {
         Self::new_with_extension_source_mode(None)
@@ -3497,7 +3529,7 @@ impl BehaviorEngine {
 
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    fn sanctum_value<'v>(
+    pub(crate) fn sanctum_value<'v>(
         event: &'v serde_json::Value,
         args: &'v serde_json::Value,
         names: &[&str],
@@ -3514,7 +3546,7 @@ impl BehaviorEngine {
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    fn sanctum_u32_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> u32 {
+    pub(crate) fn sanctum_u32_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> u32 {
         let Some(value) = Self::sanctum_value(event, args, names) else {
             return 0;
         };
@@ -3537,7 +3569,7 @@ impl BehaviorEngine {
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    fn sanctum_string_field(
+    pub(crate) fn sanctum_string_field(
         event: &serde_json::Value,
         args: &serde_json::Value,
         names: &[&str],
@@ -3553,25 +3585,19 @@ impl BehaviorEngine {
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    fn sanctum_bool_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> bool {
-        Self::sanctum_value(event, args, names)
-            .is_some_and(|value| {
-                value.as_bool().unwrap_or_else(|| {
-                    value
-                        .as_str()
-                        .map(|text| {
-                            matches!(
-                                text.trim().to_ascii_lowercase().as_str(),
-                                "1" | "true" | "yes" | "y" | "detected" | "malicious" | "alert" | "blocked"
-                            )
-                        })
-                        .unwrap_or(false)
-                })
+    pub(crate) fn sanctum_bool_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> bool {
+        Self::sanctum_value(event, args, names).is_some_and(|value| {
+            value.as_bool().unwrap_or_else(|| {
+                value
+                    .as_str()
+                    .map(|text| sanctum_token_is_one_of(text, SANCTUM_TRUTHY_TOKENS))
+                    .unwrap_or(false)
             })
+        })
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    fn sanctum_event_is_detection(
+    pub(crate) fn sanctum_event_is_detection(
         event: &serde_json::Value,
         args: &serde_json::Value,
         source: &str,
@@ -3601,21 +3627,9 @@ impl BehaviorEngine {
             Self::sanctum_string_field(event, args, &["severity", "level", "risk"]),
         ];
 
-        markers.iter().any(|marker| {
-            matches!(
-                marker.trim().to_ascii_lowercase().as_str(),
-                "detection"
-                    | "detected"
-                    | "alert"
-                    | "malicious"
-                    | "malware"
-                    | "blocked"
-                    | "deny"
-                    | "denied"
-                    | "critical"
-                    | "high"
-            )
-        })
+        markers
+            .iter()
+            .any(|marker| sanctum_token_is_one_of(marker, SANCTUM_DETECTION_TOKENS))
     }
 
     /// Ingest a telemetry event from Sanctum EDR.
