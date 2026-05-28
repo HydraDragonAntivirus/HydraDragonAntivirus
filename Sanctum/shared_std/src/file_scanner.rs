@@ -37,4 +37,5 @@ pub struct ScanningLiveInfo {
     pub num_files_scanned: u128,
     pub time_taken: Duration,
     pub scan_results: Vec<MatchedIOC>,
+    pub last_scanned_file: Option<String>,
 }

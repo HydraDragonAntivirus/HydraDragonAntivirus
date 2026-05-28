@@ -225,6 +225,11 @@
 					let txt = `${scan_text} Time taken: ${parsed_stats.time_taken.secs}s. Number of files scanned: ${parsed_stats.num_files_scanned}`;
 
 					document.getElementById("folder_scan_stats").textContent = txt;
+					if (parsed_stats.last_scanned_file) {
+						document.getElementById("folder_scan_current_file").textContent = `Currently scanning: ${parsed_stats.last_scanned_file}`;
+					} else {
+						document.getElementById("folder_scan_current_file").textContent = "";
+					}
 				}).catch((error) => console.error("Invoke error:", error));
 		}
 	});
@@ -246,6 +251,7 @@
 				<!-- For the scan results -->
 				<div id="scanResultBox">
 					<p id="folder_scan_stats"></p>
+					<p id="folder_scan_current_file" style="font-size: 0.9em; color: #555; word-break: break-all;"></p>
 					<p id="folder_scan_result"></p>
 					<p id="folder_scan_err" class="error_msg"></p>
 					<form action="#" id="cancel_scan_form">

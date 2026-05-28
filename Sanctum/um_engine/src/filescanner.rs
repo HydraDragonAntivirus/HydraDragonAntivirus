@@ -206,6 +206,7 @@ impl Sli for ScanningLiveInfo {
             num_files_scanned: 0,
             time_taken: Duration::new(0, 0),
             scan_results: Vec::<MatchedIOC>::new(),
+            last_scanned_file: None,
         }
     }
 
@@ -213,6 +214,7 @@ impl Sli for ScanningLiveInfo {
         self.num_files_scanned = 0;
         self.scan_results = Vec::new();
         self.time_taken = Duration::new(0, 0);
+        self.last_scanned_file = None;
     }
 }
 
@@ -388,6 +390,10 @@ impl FileScanner {
 
         // if the target is a FILE, then scan only the 1 file
         if !target.is_dir() {
+            {
+                let mut lock = self.scanning_info.lock().unwrap();
+                lock.last_scanned_file = Some(target.display().to_string());
+            }
             let res = self.scan_file_against_hashes(&target, &files_scanned_for_scanner);
             match res {
                 Ok(res) => {
@@ -436,6 +442,7 @@ impl FileScanner {
                 let iocs = &self.iocs;
 
                 scope.spawn(move || {
+                    let mut count = 0;
                     loop {
                         if state_is_cancelled(&state) {
                             break;
@@ -448,6 +455,12 @@ impl FileScanner {
 
                         if state_is_cancelled(&state) {
                             break;
+                        }
+                        
+                        count += 1;
+                        if count % 10 == 0 {
+                            let mut lock = scanning_info.lock().unwrap();
+                            lock.last_scanned_file = Some(path.display().to_string());
                         }
 
                         match scan_path_against_hashes(
