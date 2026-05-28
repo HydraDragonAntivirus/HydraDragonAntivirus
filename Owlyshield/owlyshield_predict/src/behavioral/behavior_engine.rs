@@ -2992,12 +2992,6 @@ impl Default for BehaviorEngine {
 const SANCTUM_TRUTHY_TOKENS: &[&str] = &[
     "1",
     "true",
-    "yes",
-    "y",
-    "detected",
-    "malicious",
-    "alert",
-    "blocked",
 ];
 
 #[cfg(all(target_os = "windows", feature = "sanctum"))]
@@ -3012,12 +3006,42 @@ const SANCTUM_DETECTION_TOKENS: &[&str] = &[
     "denied",
     "critical",
     "high",
+    "suspicious",
 ];
 
 #[cfg(all(target_os = "windows", feature = "sanctum"))]
 fn sanctum_token_is_one_of(token: &str, accepted: &[&str]) -> bool {
     let normalized = token.trim().to_ascii_lowercase();
     accepted.iter().any(|candidate| normalized == *candidate)
+}
+
+#[cfg(all(target_os = "windows", feature = "sanctum"))]
+fn sanctum_value_is_truthy(value: &serde_json::Value) -> bool {
+    value
+        .as_bool()
+        .unwrap_or_else(|| {
+            value
+                .as_u64()
+                .map(|num| num == 1)
+                .or_else(|| {
+                    value
+                        .as_str()
+                        .map(|text| sanctum_token_is_one_of(text, SANCTUM_TRUTHY_TOKENS))
+                })
+                .unwrap_or(false)
+        })
+}
+
+#[cfg(all(target_os = "windows", feature = "sanctum"))]
+fn sanctum_value_is_detection_marker(value: &serde_json::Value) -> bool {
+    if sanctum_value_is_truthy(value) {
+        return true;
+    }
+
+    value
+        .as_str()
+        .map(|text| sanctum_token_is_one_of(text, SANCTUM_DETECTION_TOKENS))
+        .unwrap_or(false)
 }
 
 impl BehaviorEngine {
@@ -3585,15 +3609,12 @@ impl BehaviorEngine {
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub(crate) fn sanctum_bool_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> bool {
-        Self::sanctum_value(event, args, names).is_some_and(|value| {
-            value.as_bool().unwrap_or_else(|| {
-                value
-                    .as_str()
-                    .map(|text| sanctum_token_is_one_of(text, SANCTUM_TRUTHY_TOKENS))
-                    .unwrap_or(false)
-            })
-        })
+    pub(crate) fn sanctum_bool_field(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        names: &[&str],
+    ) -> bool {
+        Self::sanctum_value(event, args, names).is_some_and(sanctum_value_is_truthy)
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
@@ -3603,30 +3624,45 @@ impl BehaviorEngine {
         source: &str,
         function: &str,
     ) -> bool {
-        if Self::sanctum_bool_field(
-            event,
-            args,
-            &[
-                "is_detection",
-                "detection",
-                "detected",
-                "malicious",
-                "is_malicious",
-                "blocked",
-                "suspicious",
-            ],
-        ) {
+        const DETECTION_BOOL_FIELDS: &[&str] = &[
+            "is_detection",
+            "detection",
+            "detected",
+            "malicious",
+            "is_malicious",
+            "blocked",
+            "suspicious",
+        ];
+        const DETECTION_MARKER_FIELDS: &[&str] = &[
+            "type",
+            "event_type",
+            "kind",
+            "category",
+            "verdict",
+            "result",
+            "action",
+            "severity",
+            "level",
+            "risk",
+            "detection",
+            "detected",
+            "malicious",
+            "is_malicious",
+            "blocked",
+            "suspicious",
+        ];
+
+        if Self::sanctum_bool_field(event, args, DETECTION_BOOL_FIELDS) {
             return true;
         }
 
-        let markers = [
-            source.to_string(),
-            function.to_string(),
-            Self::sanctum_string_field(event, args, &["type", "event_type", "kind", "category"]),
-            Self::sanctum_string_field(event, args, &["verdict", "result", "action"]),
-            Self::sanctum_string_field(event, args, &["severity", "level", "risk"]),
-        ];
+        if Self::sanctum_value(event, args, DETECTION_MARKER_FIELDS)
+            .is_some_and(sanctum_value_is_detection_marker)
+        {
+            return true;
+        }
 
+        let markers = [source, function];
         markers
             .iter()
             .any(|marker| sanctum_token_is_one_of(marker, SANCTUM_DETECTION_TOKENS))
