@@ -1,6 +1,7 @@
 #include "ClamAVScanner.h"
 
 #include <filesystem>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <system_error>
@@ -22,19 +23,20 @@ std::string TrimLineBreaks(std::string value) {
 
 void DefaultLogger(const char* level, const std::string& message) {
     std::ostringstream oss;
-    oss << "[ClamAV][" << level << "] " << message << '\n';
+    oss << "[ClamAV][" << (level ? level : "INFO") << "] " << message << '
+';
     const std::string line = oss.str();
     const std::string level_str = level ? std::string(level) : std::string();
     const bool is_debug = level_str == "DEBUG";
 
-#if defined(_DEBUG) || !defined(NDEBUG)
+#if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
     ::OutputDebugStringA(line.c_str());
 #endif
 
-    // DEBUG messages are for debugger/development builds only. In release,
-    // do not print clean-file messages to the user's terminal.
+    // DEBUG messages are development-only. In release builds, do not print
+    // clean-file spam to the user's terminal.
     if (is_debug) {
-#if defined(_DEBUG) || !defined(NDEBUG)
+#if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
         std::cout << line;
 #endif
         return;
@@ -177,16 +179,24 @@ ScanResult Scanner::ScanFile(const std::wstring& filepath) {
         return {};
     }
 
+    if (!fs::is_regular_file(filepath, ec) || ec) {
+        Log("WARN", "Skipping non-regular file: " + WideToUtf8(filepath));
+        return {};
+    }
+
     const std::string utf8_path = WideToUtf8(filepath);
     const char* virname = nullptr;
     unsigned long bytes_scanned = 0;
+
 #ifdef HYDRADRAGON_CLAMAV_COLLECT_SCAN_BYTES
     unsigned long* scanned_ptr = &bytes_scanned;
 #else
-    // Avoid LibClamAV's scanned_bytes UINT32_MAX warning spam when the caller
-    // does not need byte-count telemetry.
+    // Do not request scanned-byte telemetry by default.
+    // This prevents LibClamAV warning spam:
+    // cl_scanfile_callback: scanned_bytes exceeds UINT32_MAX
     unsigned long* scanned_ptr = nullptr;
 #endif
+
     ClScanOptions scan_opts{};
     scan_opts.general = CL_SCAN_GENERAL_HEURISTICS;
 
@@ -211,7 +221,9 @@ ScanResult Scanner::ScanFile(const std::wstring& filepath) {
     output.bytes_scanned = bytes_scanned;
 
     if (result == CL_CLEAN) {
+#if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
         Log("DEBUG", "File clean: " + utf8_path);
+#endif
         return output;
     }
 
