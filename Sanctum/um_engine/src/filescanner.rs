@@ -456,7 +456,7 @@ impl FileScanner {
                         if state_is_cancelled(&state) {
                             break;
                         }
-                        
+
                         count += 1;
                         if count % 10 == 0 {
                             let mut lock = scanning_info.lock().unwrap();
