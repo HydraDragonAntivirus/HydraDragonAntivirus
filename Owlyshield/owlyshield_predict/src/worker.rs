@@ -920,7 +920,6 @@ pub mod worker_instance {
         pub last_report_time: Option<std::time::Instant>,
     }
 
-
     #[cfg(all(
         target_os = "windows",
         feature = "behavior_engine",
@@ -947,7 +946,11 @@ pub mod worker_instance {
         feature = "behavior_engine",
         feature = "sanctum"
     ))]
-    fn sanctum_pipe_u32(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> u32 {
+    fn sanctum_pipe_u32(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        names: &[&str],
+    ) -> u32 {
         let Some(value) = sanctum_pipe_value(event, args, names) else {
             return 0;
         };
@@ -956,17 +959,25 @@ pub mod worker_instance {
             return num.min(u32::MAX as u64) as u32;
         }
 
-        let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+        let Some(text) = value
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
             return 0;
         };
 
-        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
+        {
             u64::from_str_radix(hex, 16)
         } else {
-            text.parse::<u64>().or_else(|_| u64::from_str_radix(text, 16))
+            text.parse::<u64>()
+                .or_else(|_| u64::from_str_radix(text, 16))
         };
 
-        parsed.map(|num| num.min(u32::MAX as u64) as u32).unwrap_or(0)
+        parsed
+            .map(|num| num.min(u32::MAX as u64) as u32)
+            .unwrap_or(0)
     }
 
     #[cfg(all(
@@ -994,7 +1005,11 @@ pub mod worker_instance {
         feature = "behavior_engine",
         feature = "sanctum"
     ))]
-    fn sanctum_pipe_bool(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> bool {
+    fn sanctum_pipe_bool(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        names: &[&str],
+    ) -> bool {
         sanctum_pipe_value(event, args, names).is_some_and(|value| {
             value.as_bool().unwrap_or_else(|| {
                 value
@@ -1002,7 +1017,13 @@ pub mod worker_instance {
                     .map(|text| {
                         matches!(
                             text.trim().to_ascii_lowercase().as_str(),
-                            "1" | "true" | "yes" | "y" | "detected" | "malicious" | "alert" | "blocked"
+                            "1" | "true"
+                                | "yes"
+                                | "y"
+                                | "detected"
+                                | "malicious"
+                                | "alert"
+                                | "blocked"
                         )
                     })
                     .unwrap_or(false)
@@ -1090,7 +1111,8 @@ pub mod worker_instance {
                     ],
                 );
 
-                let mut source = sanctum_pipe_string(&event, args, &["source", "provider", "sensor"]);
+                let mut source =
+                    sanctum_pipe_string(&event, args, &["source", "provider", "sensor"]);
                 if source.is_empty() {
                     source = "-".to_string();
                 }

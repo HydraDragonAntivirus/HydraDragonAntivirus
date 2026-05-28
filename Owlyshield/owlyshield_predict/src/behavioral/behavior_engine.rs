@@ -3495,7 +3495,6 @@ impl BehaviorEngine {
             .expect("failed to spawn hydra_net_event_pipe thread");
     }
 
-
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
     fn sanctum_value<'v>(
         event: &'v serde_json::Value,
@@ -3514,7 +3513,11 @@ impl BehaviorEngine {
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    fn sanctum_u32_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> u32 {
+    fn sanctum_u32_field(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        names: &[&str],
+    ) -> u32 {
         let Some(value) = Self::sanctum_value(event, args, names) else {
             return 0;
         };
@@ -3523,17 +3526,25 @@ impl BehaviorEngine {
             return num.min(u32::MAX as u64) as u32;
         }
 
-        let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+        let Some(text) = value
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
             return 0;
         };
 
-        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
+        {
             u64::from_str_radix(hex, 16)
         } else {
-            text.parse::<u64>().or_else(|_| u64::from_str_radix(text, 16))
+            text.parse::<u64>()
+                .or_else(|_| u64::from_str_radix(text, 16))
         };
 
-        parsed.map(|num| num.min(u32::MAX as u64) as u32).unwrap_or(0)
+        parsed
+            .map(|num| num.min(u32::MAX as u64) as u32)
+            .unwrap_or(0)
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
@@ -3553,21 +3564,30 @@ impl BehaviorEngine {
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    fn sanctum_bool_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> bool {
-        Self::sanctum_value(event, args, names)
-            .is_some_and(|value| {
-                value.as_bool().unwrap_or_else(|| {
-                    value
-                        .as_str()
-                        .map(|text| {
-                            matches!(
-                                text.trim().to_ascii_lowercase().as_str(),
-                                "1" | "true" | "yes" | "y" | "detected" | "malicious" | "alert" | "blocked"
-                            )
-                        })
-                        .unwrap_or(false)
-                })
+    fn sanctum_bool_field(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        names: &[&str],
+    ) -> bool {
+        Self::sanctum_value(event, args, names).is_some_and(|value| {
+            value.as_bool().unwrap_or_else(|| {
+                value
+                    .as_str()
+                    .map(|text| {
+                        matches!(
+                            text.trim().to_ascii_lowercase().as_str(),
+                            "1" | "true"
+                                | "yes"
+                                | "y"
+                                | "detected"
+                                | "malicious"
+                                | "alert"
+                                | "blocked"
+                        )
+                    })
+                    .unwrap_or(false)
             })
+        })
     }
 
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
