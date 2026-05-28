@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -76,6 +77,16 @@ const MAX_SCANNABLE_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
 const SCAN_METADATA_CACHE_LIMIT: usize = 4096;
 const DIE_METADATA_WORKER_LIMIT: usize = 2;
 const DIE_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_millis(750);
+const MIN_PARALLEL_SCAN_REQUEST_WORKERS: usize = 20;
+const MAX_PARALLEL_SCAN_REQUEST_WORKERS: usize = 64;
+
+fn parallel_scan_request_worker_count() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get().saturating_mul(2))
+        .unwrap_or(MIN_PARALLEL_SCAN_REQUEST_WORKERS)
+        .clamp(MIN_PARALLEL_SCAN_REQUEST_WORKERS, MAX_PARALLEL_SCAN_REQUEST_WORKERS)
+}
+
 const DEEP_SCAN_TIMEOUT_MS: u64 = 180_000;
 const MINIMAL_SCAN_TIMEOUT_MS: u64 = 30_000;
 const LATE_CHILD_SCAN_GRACE_MS: u64 = 30_000;
@@ -3001,23 +3012,63 @@ fn write_scan_request(pipe_handle: HANDLE, request: &EDRScanRequest) -> Result<u
 
 /// EDR server: persistent sender for EDR -> AV scan requests.
 ///
-/// Sends one JSON message per connection; the HydraDragon client is expected to reconnect
-/// for subsequent messages.
+/// Starts multiple named-pipe server instances so minimal and deep scan requests
+/// can be consumed in parallel by multiple HydraDragon/Python scan clients.
+/// Each connection still receives exactly one JSON request and then reconnects.
 fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
+    let worker_count = parallel_scan_request_worker_count();
     Logging::info(&format!(
-        "Starting pipe server (EDR->AV): {}",
-        PIPE_EDR_TO_AV
+        "Starting parallel pipe server (EDR->AV): {} with {} workers",
+        PIPE_EDR_TO_AV, worker_count
     ));
 
+    let shared_rx = Arc::new(Mutex::new(rx));
+    let mut handles = Vec::with_capacity(worker_count);
+
+    for worker_id in 0..worker_count {
+        let worker_rx = Arc::clone(&shared_rx);
+        match thread::Builder::new()
+            .name(format!("edr_to_av_scan_pipe_worker_{worker_id}"))
+            .spawn(move || {
+                scan_request_server_worker_loop(worker_id, worker_rx);
+            })
+        {
+            Ok(handle) => handles.push(handle),
+            Err(error) => Logging::error(&format!(
+                "[EDR->AV] Failed to spawn scan pipe worker {}: {}",
+                worker_id, error
+            )),
+        }
+    }
+
+    if handles.is_empty() {
+        Logging::error("[EDR->AV] No scan pipe workers could be started");
+        return;
+    }
+
+    for handle in handles {
+        let _ = handle.join();
+    }
+}
+
+fn scan_request_server_worker_loop(
+    worker_id: usize,
+    rx: Arc<Mutex<Receiver<EDRScanRequest>>>,
+) {
     unsafe {
         let pipe_name_c = match CString::new(PIPE_EDR_TO_AV) {
             Ok(s) => s,
             Err(e) => {
-                Logging::error(&format!("Invalid pipe name: {}", e));
+                Logging::error(&format!("[EDR->AV worker {worker_id}] Invalid pipe name: {}", e));
                 return;
             }
         };
         let mut pipe_security = create_pipe_security_attributes("[EDR->AV]");
+
+        Logging::debug(&format!(
+            "[EDR->AV worker {worker_id}] ready on {}",
+            PIPE_EDR_TO_AV
+        ));
 
         loop {
             let pipe_handle = match CreateNamedPipeA(
@@ -3032,7 +3083,10 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
             ) {
                 Ok(h) => h,
                 Err(e) => {
-                    Logging::error(&format!("CreateNamedPipeA failed: {:?}", e));
+                    Logging::error(&format!(
+                        "[EDR->AV worker {worker_id}] CreateNamedPipeA failed: {:?}",
+                        e
+                    ));
                     thread::sleep(Duration::from_secs(1));
                     continue;
                 }
@@ -3041,51 +3095,76 @@ fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
             if pipe_handle.is_invalid() {
                 let err = GetLastError();
                 Logging::error(&format!(
-                    "CreateNamedPipeA returned invalid handle: {:?}",
+                    "[EDR->AV worker {worker_id}] CreateNamedPipeA returned invalid handle: {:?}",
                     err
                 ));
                 thread::sleep(Duration::from_secs(1));
                 continue;
             }
 
-            Logging::debug("Waiting for HydraDragon client to connect...");
+            Logging::debug(&format!(
+                "[EDR->AV worker {worker_id}] waiting for HydraDragon client..."
+            ));
 
             let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
             let err = GetLastError();
 
             if connect_ok.as_bool() || err == ERROR_PIPE_CONNECTED {
                 if !validate_hydradragon_python_client(pipe_handle) {
-                    Logging::error("[EDR->AV] Rejected unauthorized scan request client");
+                    Logging::error(&format!(
+                        "[EDR->AV worker {worker_id}] Rejected unauthorized scan request client"
+                    ));
                     let _ = DisconnectNamedPipe(pipe_handle);
                     let _ = CloseHandle(pipe_handle);
                     continue;
                 }
 
-                Logging::info("PIPE: EDR scan request client (Python) connected");
+                Logging::debug(&format!(
+                    "[EDR->AV worker {worker_id}] scan client connected"
+                ));
 
-                let request = match rx.recv() {
-                    Ok(r) => r,
-                    Err(_) => {
-                        let _ = CloseHandle(pipe_handle);
-                        return;
+                let request = {
+                    let receiver_guard = match rx.lock() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => {
+                            Logging::warning(&format!(
+                                "[EDR->AV worker {worker_id}] scan request queue mutex was poisoned; continuing"
+                            ));
+                            poisoned.into_inner()
+                        }
+                    };
+
+                    match receiver_guard.recv() {
+                        Ok(request) => request,
+                        Err(_) => {
+                            let _ = DisconnectNamedPipe(pipe_handle);
+                            let _ = CloseHandle(pipe_handle);
+                            return;
+                        }
                     }
                 };
 
                 match write_scan_request(pipe_handle, &request) {
                     Ok(bytes_written) => Logging::debug(&format!(
-                        "Sent scan request: {} ({} bytes)",
-                        request.file_path, bytes_written
+                        "[EDR->AV worker {worker_id}] sent {} scan request: {} ({} bytes)",
+                        request.scan_mode, request.file_path, bytes_written
                     )),
-                    Err(e) => Logging::error(&format!("Failed to send scan request: {}", e)),
+                    Err(e) => Logging::error(&format!(
+                        "[EDR->AV worker {worker_id}] Failed to send scan request: {}",
+                        e
+                    )),
                 }
 
                 let _ = DisconnectNamedPipe(pipe_handle);
             } else {
-                Logging::error(&format!("ConnectNamedPipe failed: {:?}", err));
+                Logging::error(&format!(
+                    "[EDR->AV worker {worker_id}] ConnectNamedPipe failed: {:?}",
+                    err
+                ));
             }
 
             let _ = CloseHandle(pipe_handle);
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_millis(10));
         }
     }
 }
