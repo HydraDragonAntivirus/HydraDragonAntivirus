@@ -125,6 +125,56 @@ static std::atomic<bool>          g_shutdown{false};
 // Helpers
 // ---------------------------------------------------------------------------
 
+
+std::string JsonEscapeString(const std::string& value) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+
+    std::string escaped;
+    escaped.reserve(value.size() + 16);
+
+    for (unsigned char ch : value) {
+        switch (ch) {
+        case '"':
+            escaped += "\\\"";
+            break;
+        case '\\':
+            escaped += "\\\\";
+            break;
+        case '\b':
+            escaped += "\\b";
+            break;
+        case '\f':
+            escaped += "\\f";
+            break;
+        case '\n':
+            escaped += "\\n";
+            break;
+        case '\r':
+            escaped += "\\r";
+            break;
+        case '\t':
+            escaped += "\\t";
+            break;
+        default:
+            if (ch < 0x20) {
+                escaped += "\\u00";
+                escaped.push_back(kHex[(ch >> 4) & 0x0F]);
+                escaped.push_back(kHex[ch & 0x0F]);
+            } else {
+                escaped.push_back(static_cast<char>(ch));
+            }
+            break;
+        }
+    }
+
+    return escaped;
+}
+
+std::string BuildJsonErrorResponse(const std::string& message) {
+    return std::string("{\"status\":\"error\",\"message\":\"") +
+           JsonEscapeString(message) + "\"}";
+}
+
 SIZE_T GetCurrentProcessPrivateBytes() {
     PROCESS_MEMORY_COUNTERS_EX counters{};
     counters.cb = sizeof(counters);
@@ -574,7 +624,7 @@ void ProcessRequest(const std::string& request, std::string& response) {
     }
 
     if (filePathStr.empty()) {
-        response = "{\"status\":\"error\", \"message\":\"missing or invalid path\"}";
+        response = BuildJsonErrorResponse("missing or invalid path");
         return;
     }
 
@@ -678,17 +728,20 @@ void ProcessRequest(const std::string& request, std::string& response) {
     // Trigger periodic engine recycle.
     MaybeRecycleClamAvEngine();
 
-    // Build JSON response
+    // Build JSON response.
+    // Never concatenate unescaped YARA/ClamAV strings directly into JSON:
+    // rule names and signatures may contain quotes, backslashes, newlines or
+    // control characters, which would break Owlyshield's serde_json parser.
     std::stringstream ss;
-    ss << "{\"status\":\"success\", \"malicious\":"
-       << (isMalicious  ? "true" : "false")
-       << ", \"is_vmprotect\":" << (is_vmprotect ? "true" : "false")
-       << ", \"yara\":[";
+    ss << "{\"status\":\"success\",\"malicious\":"
+       << (isMalicious ? "true" : "false")
+       << ",\"is_vmprotect\":" << (is_vmprotect ? "true" : "false")
+       << ",\"yara\":[";
     for (size_t i = 0; i < yaraMatches.size(); ++i) {
-        ss << "\"" << yaraMatches[i] << "\""
-           << (i == yaraMatches.size() - 1 ? "" : ",");
+        ss << "\"" << JsonEscapeString(yaraMatches[i]) << "\""
+           << (i + 1 == yaraMatches.size() ? "" : ",");
     }
-    ss << "], \"clamav\":\"" << clamavVirusName << "\"}";
+    ss << "],\"clamav\":\"" << JsonEscapeString(clamavVirusName) << "\"}";
     response = ss.str();
 
     if (fs::exists(wFilePath))

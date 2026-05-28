@@ -59,6 +59,14 @@ pub struct ProxyHttpEvent {
     pub response_body_truncated: bool,
 }
 
+
+#[derive(Clone, Debug, Serialize)]
+struct FirewallPackedDataMessage {
+    packet: PacketInfo,
+    request_body: Option<String>,
+    response_body: Option<String>,
+}
+
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
 /// Directory-relative filenames used to persist the CA across restarts.
@@ -898,23 +906,17 @@ async fn handle_proxy_request<R: Runtime>(
     if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
         let mut telemetry_packet = mock_packet.clone();
         telemetry_packet.size = raw_request_body_len + raw_response_body_len;
+        telemetry_packet.http_request_body = request_body.clone();
         telemetry_packet.http_response_body = response_body.clone();
-        if let Ok(json) = serde_json::to_string(&telemetry_packet) {
-            engine.send_hydranet_message(format!("FULL_PACKET:{}\n", json));
-        }
 
-        if request_body.is_some() || response_body.is_some() {
-            let req_b = request_body.as_deref().unwrap_or("").replace('|', " ");
-            let resp_b = response_body.as_deref().unwrap_or("").replace('|', " ");
-            let msg = format!(
-                "HTTP_BODY:{}|{}|{}|{}|{}\n",
-                resolved_pid,
-                method.replace('|', " "),
-                full_url.replace('|', " "),
-                req_b,
-                resp_b
-            );
-            engine.send_hydranet_message(msg);
+        let packed = FirewallPackedDataMessage {
+            packet: telemetry_packet,
+            request_body: request_body.clone(),
+            response_body: response_body.clone(),
+        };
+
+        if let Ok(json) = serde_json::to_string(&packed) {
+            engine.send_hydranet_message(format!("FULL_PACKED_DATA:{}\n", json));
         }
     }
 

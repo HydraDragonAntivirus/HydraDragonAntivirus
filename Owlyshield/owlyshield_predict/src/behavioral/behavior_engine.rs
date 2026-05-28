@@ -51,7 +51,7 @@ type FirewallHipsDecisions = Arc<std::sync::RwLock<HashMap<String, FirewallHipsD
 type FirewallHipsAllowOnce = Arc<std::sync::RwLock<HashSet<String>>>;
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 type FirewallHipsAllowAlways = Arc<std::sync::RwLock<HashSet<String>>>;
-/// Per-PID list of (request_body, response_body) pairs received via HTTP_BODY pipe messages.
+/// Per-PID list of (request_body, response_body) pairs received via FULL_PACKED_DATA pipe messages.
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 type FirewallHttpBodyMap = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, String)>>>>;
 /// Per-PID rolling history of full PacketInfo structures from the firewall.
@@ -61,6 +61,17 @@ type FirewallFullPackets = Arc<std::sync::RwLock<HashMap<u32, VecDeque<PacketInf
 type FirewallGenerateReport = Arc<AtomicBool>;
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 type FirewallFileVerdicts = Arc<std::sync::RwLock<HashMap<String, FileVerdictInfo>>>;
+
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+#[derive(Clone, Debug, Deserialize)]
+struct FirewallPackedDataMessage {
+    packet: PacketInfo,
+    #[serde(default)]
+    request_body: Option<String>,
+    #[serde(default)]
+    response_body: Option<String>,
+}
+
 
 fn rule_file_fingerprint(path: &Path) -> String {
     match std::fs::read(path) {
@@ -2036,11 +2047,11 @@ pub struct ProcessBehaviorState {
     pub script_file: String,
     pub script_file_path: String,
 
-    /// HTTP body pairs (request_body, response_body) received via the HTTP_BODY pipe message.
+    /// HTTP body pairs (request_body, response_body) received via the FULL_PACKED_DATA pipe message.
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub http_body_entries: Vec<(String, String)>,
 
-    /// Rolling history of network packets captured for this process (FULL_PACKET).
+    /// Rolling history of network packets captured for this process (FULL_PACKED_DATA).
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub net_packets: VecDeque<PacketInfo>,
 
@@ -3316,121 +3327,141 @@ impl BehaviorEngine {
                                         )),
                                     }
                                 }
-                            } else if let Some(rest) = line.strip_prefix("HTTP_BODY:") {
-                                // HTTP_BODY:<pid>|<method>|<url>|<request_body>|<response_body>
-                                let mut parts = rest.splitn(5, '|');
-                                let pid_str      = parts.next().unwrap_or("").trim();
-                                let _method      = parts.next().unwrap_or("").trim().to_string();
-                                let _url         = parts.next().unwrap_or("").trim().to_string();
-                                let req_body     = parts.next().unwrap_or("").trim().to_string();
-                                let resp_body    = parts.next().unwrap_or("").trim().to_string();
-                                if let Ok(pid) = pid_str.parse::<u32>() {
-                                    net_pids.write().unwrap().insert(pid);
-                                    http_body_map.write().unwrap()
-                                        .entry(pid)
-                                        .or_default()
-                                        .push((req_body, resp_body));
-                                    Logging::info(&format!(
-                                        "[HTTP_BODY] Recorded body pair for PID {}", pid
-                                    ));
-                                }
                             } else if line == "GENERATE_REPORT" {
                                 generate_report_flag.store(true, Ordering::SeqCst);
                                 Logging::info("[HydraNetPipe] Received on-demand report request");
-                            } else if let Some(json) = line.strip_prefix("FULL_PACKET:") {
-                                // Full PacketInfo JSON from the firewall.
-                                if let Ok(pkt) = serde_json::from_str::<PacketInfo>(json) {
-                                    let pid = pkt.process_id;
-                                    net_pids.write().unwrap().insert(pid);
-                                    let mut pkt_map = full_packets.write().unwrap();
-                                    let history = pkt_map.entry(pid).or_insert_with(|| VecDeque::with_capacity(500));
-                                    if history.len() >= 500 {
-                                        history.pop_front();
-                                    }
-                                    history.push_back(pkt.clone());
+                            } else if let Some(json) = line.strip_prefix("FULL_PACKED_DATA:") {
+                                // Single JSON-only firewall telemetry envelope.
+                                // No pipe-delimited HTTP_BODY and no old FULL_PACKET format:
+                                // bodies can contain CR/LF, quotes, pipes and binary-looking text.
+                                match serde_json::from_str::<FirewallPackedDataMessage>(json) {
+                                    Ok(packed) => {
+                                        let mut pkt = packed.packet;
+                                        let pid = pkt.process_id;
 
-                                    // BEHAVIOR RULE MATCHING
-                                    let mut matched_any = false;
-                                    {
-                                        for rule in rules_clone.iter() {
-                                            if rule.matches_packet(&regex_cache, &pkt, &[]) {
-                                                matched_any = true;
+                                        let req_body = packed
+                                            .request_body
+                                            .or_else(|| pkt.http_request_body.clone())
+                                            .unwrap_or_default();
+                                        let resp_body = packed
+                                            .response_body
+                                            .or_else(|| pkt.http_response_body.clone())
+                                            .unwrap_or_default();
 
-                                                // Private rules don't generate detections (YARA-style behavior)
-                                                // They are evaluated and can be used by other rules, but don't produce alerts
-                                                if rule.is_private {
-                                                    continue;
-                                                }
+                                        if pkt.http_request_body.is_none() && !req_body.is_empty() {
+                                            pkt.http_request_body = Some(req_body.clone());
+                                        }
+                                        if pkt.http_response_body.is_none() && !resp_body.is_empty() {
+                                            pkt.http_response_body = Some(resp_body.clone());
+                                        }
 
-                                                Logging::alert(&format!(
-                                                    "[BEHAVIOR RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
-                                                    pid, rule.name, pkt.src_ip, pkt.dst_ip
-                                                ));
+                                        net_pids.write().unwrap().insert(pid);
 
-                                                if !rule.response.ask_user
-                                                    && (rule.response.status_access_denied
-                                                        || rule.response.quarantine
-                                                        || rule.response.kill_and_remove
-                                                        || rule.response.terminate_process)
-                                                {
-                                                    let mut blocked = blocked_exes.write().unwrap();
+                                        if !req_body.is_empty() || !resp_body.is_empty() {
+                                            http_body_map.write().unwrap()
+                                                .entry(pid)
+                                                .or_default()
+                                                .push((req_body, resp_body));
+                                        }
 
-                                                    let reason = if rule.response.change_request_body.is_some() || rule.response.change_response_body.is_some() {
-                                                        format!("Rule [{}] matched (Replacement suggested)", rule.name)
-                                                    } else {
-                                                        format!("Rule [{}] matched", rule.name)
-                                                    };
+                                        let mut pkt_map = full_packets.write().unwrap();
+                                        let history = pkt_map.entry(pid).or_insert_with(|| VecDeque::with_capacity(500));
+                                        if history.len() >= 500 {
+                                            history.pop_front();
+                                        }
+                                        history.push_back(pkt.clone());
+                                        drop(pkt_map);
 
-                                                    // Extract domain information from packet hostname
-                                                    let (detected_domain, detected_subdomain) = if let Some(ref hostname) = pkt.hostname {
-                                                        let parts: Vec<&str> = hostname.split('.').collect();
-                                                        if parts.len() >= 2 {
-                                                            let domain = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
-                                                            let subdomain = if parts.len() > 2 {
-                                                                Some(hostname.clone())
+                                        // BEHAVIOR RULE MATCHING
+                                        let mut matched_any = false;
+                                        {
+                                            for rule in rules_clone.iter() {
+                                                if rule.matches_packet(&regex_cache, &pkt, &[]) {
+                                                    matched_any = true;
+
+                                                    // Private rules don't generate detections (YARA-style behavior)
+                                                    // They are evaluated and can be used by other rules, but don't produce alerts
+                                                    if rule.is_private {
+                                                        continue;
+                                                    }
+
+                                                    Logging::alert(&format!(
+                                                        "[BEHAVIOR RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
+                                                        pid, rule.name, pkt.src_ip, pkt.dst_ip
+                                                    ));
+
+                                                    if !rule.response.ask_user
+                                                        && (rule.response.status_access_denied
+                                                            || rule.response.quarantine
+                                                            || rule.response.kill_and_remove
+                                                            || rule.response.terminate_process)
+                                                    {
+                                                        let mut blocked = blocked_exes.write().unwrap();
+
+                                                        let reason = if rule.response.change_request_body.is_some() || rule.response.change_response_body.is_some() {
+                                                            format!("Rule [{}] matched (Replacement suggested)", rule.name)
+                                                        } else {
+                                                            format!("Rule [{}] matched", rule.name)
+                                                        };
+
+                                                        // Extract domain information from packet hostname
+                                                        let (detected_domain, detected_subdomain) = if let Some(ref hostname) = pkt.hostname {
+                                                            let parts: Vec<&str> = hostname.split('.').collect();
+                                                            if parts.len() >= 2 {
+                                                                let domain = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+                                                                let subdomain = if parts.len() > 2 {
+                                                                    Some(hostname.clone())
+                                                                } else {
+                                                                    None
+                                                                };
+                                                                (Some(domain), subdomain)
                                                             } else {
-                                                                None
-                                                            };
-                                                            (Some(domain), subdomain)
+                                                                (None, None)
+                                                            }
                                                         } else {
                                                             (None, None)
-                                                        }
-                                                    } else {
-                                                        (None, None)
-                                                    };
+                                                        };
 
-                                                    blocked.insert(pkt.image_path.clone(), FirewallDetection {
-                                                        dst_ip: pkt.dst_ip.to_string(),
-                                                        dst_port: pkt.dst_port,
-                                                        hostname: pkt.hostname.clone().unwrap_or_default(),
-                                                        reason,
-                                                        is_private_rule_match: rule.is_private,
-                                                        detected_subdomain,
-                                                        detected_domain,
-                                                        used_public_suffix_list: false,
-                                                        matched_private_rules: if rule.is_private {
-                                                            vec![rule.name.clone()]
-                                                        } else {
-                                                            Vec::new()
-                                                        },
-                                                    });
-                                                }
+                                                        blocked.insert(pkt.image_path.clone(), FirewallDetection {
+                                                            dst_ip: pkt.dst_ip.to_string(),
+                                                            dst_port: pkt.dst_port,
+                                                            hostname: pkt.hostname.clone().unwrap_or_default(),
+                                                            reason,
+                                                            is_private_rule_match: rule.is_private,
+                                                            detected_subdomain,
+                                                            detected_domain,
+                                                            used_public_suffix_list: false,
+                                                            matched_private_rules: if rule.is_private {
+                                                                vec![rule.name.clone()]
+                                                            } else {
+                                                                Vec::new()
+                                                            },
+                                                        });
+                                                    }
 
-                                                if let Some(ref hostname) = pkt.hostname {
-                                                    let _replaced = rule.apply_replacement(hostname);
+                                                    if let Some(ref hostname) = pkt.hostname {
+                                                        let _replaced = rule.apply_replacement(hostname);
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
 
-                                    if !matched_any {
-                                        Logging::info(&format!(
-                                            "[FirewallEvent] Full packet recorded for PID {}: {} -> {} ({})",
-                                            pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
+                                        if !matched_any {
+                                            Logging::info(&format!(
+                                                "[FirewallEvent] Full packed data recorded for PID {}: {} -> {} ({})",
+                                                pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
+                                            ));
+                                        }
+                                    }
+                                    Err(error) => {
+                                        let preview: String = json.chars().take(240).collect();
+                                        Logging::warning(&format!(
+                                            "[FirewallEvent] Failed to parse FULL_PACKED_DATA JSON: {}; len={}; preview={}",
+                                            error,
+                                            json.len(),
+                                            preview
                                         ));
                                     }
-                                } else {
-                                    Logging::warning("[FirewallEvent] Failed to parse FULL_PACKET JSON");
                                 }
                             } else if let Some(rest) = line.strip_prefix("VERDICT:") {
                                 // VERDICT:<file_path>|<sha256>|<verdict_code>|<verdict_label>
