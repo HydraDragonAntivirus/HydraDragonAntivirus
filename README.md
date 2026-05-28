@@ -171,6 +171,13 @@ https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c
 
 ### Installation & Usage Notes
 
+> [!IMPORTANT]
+> **OpenEDR Long Path Issue**: OpenEDR contains deeply nested directory structures that exceed Windows' default 260-character path limit. Before cloning or building, run:
+> ```bash
+> git config --global core.longpaths true
+> ```
+> Without this, cloning or building the OpenEDR component will fail with path-related errors.
+
 - The installation process is not fully automated. Npcap, drivers, Firewall components, and some other dependencies may require manual approval during setup.
 - You must uninstall the ELAM driver manually if the automated uninstaller encountered issues. See the **[Uninstallation Guide](./UNINSTALLATION.md)** for registry cleanup steps.
 - Temporary ClamAV update errors during setup can be safely ignored.
