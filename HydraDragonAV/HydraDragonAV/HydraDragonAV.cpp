@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -35,51 +37,23 @@ static std::unique_ptr<clamav::Scanner> g_clamavScanner;
 static YR_RULES *g_yaraRules = nullptr;
 constexpr auto CLAMAV_UPDATE_INTERVAL = std::chrono::hours(2);
 constexpr auto CLAMAV_DEFINITION_MAX_AGE = std::chrono::hours(12);
-constexpr DWORD FRESHCLAM_TIMEOUT_MS = 300u * 1000u;
+constexpr DWORD FRESHCLAM_TIMEOUT_MS = 180u * 1000u;
 
 static std::unordered_set<std::string> g_excludedRules;
-static std::mutex g_clamavUpdateMutex;
 
-std::string JsonEscape(const std::string &value) {
-  std::ostringstream escaped;
-  for (unsigned char ch : value) {
-    switch (ch) {
-    case '"':
-      escaped << "\\\"";
-      break;
-    case '\\':
-      escaped << "\\\\";
-      break;
-    case '\b':
-      escaped << "\\b";
-      break;
-    case '\f':
-      escaped << "\\f";
-      break;
-    case '\n':
-      escaped << "\\n";
-      break;
-    case '\r':
-      escaped << "\\r";
-      break;
-    case '\t':
-      escaped << "\\t";
-      break;
-    default:
-      if (ch < 0x20) {
-        escaped << "\\u" << std::hex << std::uppercase;
-        escaped.width(4);
-        escaped.fill('0');
-        escaped << static_cast<int>(ch);
-        escaped << std::dec << std::nouppercase;
-      } else {
-        escaped << static_cast<char>(ch);
-      }
-      break;
-    }
-  }
-  return escaped.str();
-}
+struct ScanCacheEntry {
+  std::uintmax_t fileSize = 0;
+  fs::file_time_type lastWriteTime{};
+  std::chrono::steady_clock::time_point cachedAt{};
+  std::string response;
+};
+
+static std::mutex g_scanCacheMutex;
+static std::unordered_map<std::wstring, ScanCacheEntry> g_scanCache;
+
+constexpr auto SCAN_CACHE_TTL = std::chrono::seconds(30);
+constexpr std::size_t SCAN_CACHE_MAX_ENTRIES = 4096;
+
 
 void LoadExcludedRules() {
   std::string path = "C:\\Program "
@@ -99,6 +73,94 @@ void LoadExcludedRules() {
   }
   std::cout << "[YARA] Loaded " << g_excludedRules.size() << " excluded rules."
             << std::endl;
+}
+
+
+std::wstring NormalizeCachePath(const std::wstring &path) {
+  std::wstring normalized = path;
+  std::replace(normalized.begin(), normalized.end(), L'/', L'\\');
+
+  std::transform(
+      normalized.begin(), normalized.end(), normalized.begin(),
+      [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+
+  return normalized;
+}
+
+bool TryGetCachedScanResponse(const std::wstring &path, std::string &response) {
+  std::error_code ec;
+
+  if (!fs::exists(path, ec) || ec || !fs::is_regular_file(path, ec) || ec) {
+    return false;
+  }
+
+  const auto fileSize = fs::file_size(path, ec);
+  if (ec) {
+    return false;
+  }
+
+  const auto lastWriteTime = fs::last_write_time(path, ec);
+  if (ec) {
+    return false;
+  }
+
+  const auto key = NormalizeCachePath(path);
+  const auto now = std::chrono::steady_clock::now();
+
+  std::lock_guard<std::mutex> lock(g_scanCacheMutex);
+
+  auto it = g_scanCache.find(key);
+  if (it == g_scanCache.end()) {
+    return false;
+  }
+
+  const auto &entry = it->second;
+
+  if (entry.fileSize != fileSize || entry.lastWriteTime != lastWriteTime) {
+    g_scanCache.erase(it);
+    return false;
+  }
+
+  if (now - entry.cachedAt > SCAN_CACHE_TTL) {
+    g_scanCache.erase(it);
+    return false;
+  }
+
+  response = entry.response;
+  return true;
+}
+
+void StoreCachedScanResponse(const std::wstring &path, const std::string &response) {
+  std::error_code ec;
+
+  if (!fs::exists(path, ec) || ec || !fs::is_regular_file(path, ec) || ec) {
+    return;
+  }
+
+  const auto fileSize = fs::file_size(path, ec);
+  if (ec) {
+    return;
+  }
+
+  const auto lastWriteTime = fs::last_write_time(path, ec);
+  if (ec) {
+    return;
+  }
+
+  const auto key = NormalizeCachePath(path);
+
+  std::lock_guard<std::mutex> lock(g_scanCacheMutex);
+
+  if (g_scanCache.size() >= SCAN_CACHE_MAX_ENTRIES) {
+    g_scanCache.clear();
+  }
+
+  g_scanCache[key] = ScanCacheEntry{
+      fileSize,
+      lastWriteTime,
+      std::chrono::steady_clock::now(),
+      response,
+  };
 }
 
 bool IsClamAvDatabaseStale() {
@@ -214,12 +276,6 @@ bool RunFreshclam() {
 }
 
 void UpdateClamAvDefinitionsIfNeeded() {
-  std::unique_lock<std::mutex> updateLock(g_clamavUpdateMutex, std::try_to_lock);
-  if (!updateLock.owns_lock()) {
-    std::cout << "[ClamAV] Definition update already running; skipping duplicate request." << std::endl;
-    return;
-  }
-
   if (!IsClamAvDatabaseStale()) {
     std::cout << "[ClamAV] Definitions are current." << std::endl;
     return;
@@ -240,22 +296,6 @@ void UpdateClamAvDefinitionsIfNeeded() {
                 << std::endl;
     }
   }
-}
-
-void StartInitialClamAvDefinitionUpdateThread() {
-  std::thread([]() {
-    std::cout << "[ClamAV] Initial definition update will run in the background." << std::endl;
-
-    // Avoid racing freshclam writes against libclamav's first database load.
-    // If initialization takes too long or fails, still allow freshclam to try.
-    if (g_clamavScanner) {
-      for (int i = 0; i < 60 && g_clamavScanner->IsInitializing(); ++i) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-      }
-    }
-
-    UpdateClamAvDefinitionsIfNeeded();
-  }).detach();
 }
 
 void StartClamAvDefinitionUpdateThread() {
@@ -308,8 +348,6 @@ bool LoadYaraRules() {
   if (yr_compiler_create(&compiler) != 0)
     return false;
 
-  int compiledCount = 0;
-  int failedCount = 0;
   std::error_code ec;
   if (fs::exists(YARA_RULES_FOLDER, ec)) {
     for (const auto &entry : fs::directory_iterator(YARA_RULES_FOLDER, ec)) {
@@ -325,10 +363,7 @@ bool LoadYaraRules() {
         // Use the filename as the identifier for errors
         std::string fileName = entry.path().filename().string();
         if (yr_compiler_add_string(compiler, content.c_str(), nullptr) != 0) {
-          ++failedCount;
           std::cerr << "[YARA] Failed to compile: " << fileName << std::endl;
-        } else {
-          ++compiledCount;
         }
       }
     }
@@ -337,23 +372,10 @@ bool LoadYaraRules() {
               << fs::path(YARA_RULES_FOLDER).string() << std::endl;
   }
 
-  if (compiledCount == 0) {
-    std::cerr << "[YARA] No .yar files compiled from "
-              << fs::path(YARA_RULES_FOLDER).string() << std::endl;
-    yr_compiler_destroy(compiler);
-    return false;
-  }
-
   if (yr_compiler_get_rules(compiler, &g_yaraRules) != 0) {
     yr_compiler_destroy(compiler);
     return false;
   }
-
-  std::cout << "[YARA] Compiled " << compiledCount << " YARA rule file(s).";
-  if (failedCount > 0) {
-    std::cout << " Failed: " << failedCount;
-  }
-  std::cout << std::endl;
 
   yr_compiler_destroy(compiler);
   return true;
@@ -407,6 +429,19 @@ void ProcessRequest(const std::string &request, std::string &response) {
     wFilePath.assign(cleanPath.begin(), cleanPath.end());
   }
 
+
+  if (fs::exists(wFilePath)) {
+    std::string cachedResponse;
+    if (TryGetCachedScanResponse(wFilePath, cachedResponse)) {
+#if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
+      std::cout << "[Cache] Returning cached scan result for: " << cleanPath
+                << std::endl;
+#endif
+      response = cachedResponse;
+      return;
+    }
+  }
+
   std::vector<std::string> yaraMatches;
   std::string clamavVirusName;
   std::string xvirusDetectionName;
@@ -457,11 +492,15 @@ void ProcessRequest(const std::string &request, std::string &response) {
      << ", \"is_vmprotect\":" << (is_vmprotect ? "true" : "false")
      << ", \"yara\":[";
   for (size_t i = 0; i < yaraMatches.size(); ++i) {
-    ss << "\"" << JsonEscape(yaraMatches[i]) << "\""
+    ss << "\"" << yaraMatches[i] << "\""
        << (i == yaraMatches.size() - 1 ? "" : ",");
   }
-  ss << "], \"clamav\":\"" << JsonEscape(clamavVirusName) << "\"}";
+  ss << "], \"clamav\":\"" << clamavVirusName << "\"}";
   response = ss.str();
+
+  if (fs::exists(wFilePath)) {
+    StoreCachedScanResponse(wFilePath, response);
+  }
 }
 
 int main() {
@@ -479,15 +518,14 @@ int main() {
   }
   LoadExcludedRules();
 
-  // Initialize ClamAV without blocking pipe creation. freshclam runs in the
-  // background so the scanner engine can accept pipe requests immediately.
+  // Initialize ClamAV
   std::cout << "[ClamAV] Initializing Scanner..." << std::endl;
+  UpdateClamAvDefinitionsIfNeeded();
   g_clamavScanner = clamav::Scanner::CreateAsync(CLAMAV_DLL, CLAMAV_DB);
-  StartInitialClamAvDefinitionUpdateThread();
   StartClamAvDefinitionUpdateThread();
 
-  std::cout << "[Pipe] Starting pipe server at \\\\.\\pipe\\HydraDragonAV..."
-            << std::endl;
+  // We don't block main here; if a scan comes in before ready, ScanFile will
+  // handle it or wait
 
   while (true) {
     HANDLE hPipe =
@@ -496,10 +534,6 @@ int main() {
                          PIPE_UNLIMITED_INSTANCES,
                          1024 * 64, // Larger buffer for paths/results
                          1024 * 64, 0, NULL);
-
-    if (hPipe != INVALID_HANDLE_VALUE) {
-      std::cout << "[Pipe] Pipe created. Waiting for client..." << std::endl;
-    }
 
     if (hPipe == INVALID_HANDLE_VALUE) {
       std::cerr << "[Pipe] Failed to create named pipe. Error: "
@@ -510,7 +544,6 @@ int main() {
 
     if (ConnectNamedPipe(hPipe, NULL) ||
         GetLastError() == ERROR_PIPE_CONNECTED) {
-      std::cout << "[Pipe] Client connected." << std::endl;
       char buffer[65536]; // Support very long paths
       DWORD bytesRead;
       if (ReadFile(hPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
@@ -520,23 +553,11 @@ int main() {
 
         ProcessRequest(request, response);
 
-        DWORD bytesWritten = 0;
-        if (!WriteFile(hPipe, response.c_str(), (DWORD)response.size(),
-                       &bytesWritten, NULL)) {
-          std::cerr << "[Pipe] WriteFile failed. Error: " << GetLastError()
-                    << std::endl;
-        } else {
-          std::cout << "[Pipe] Response sent (" << bytesWritten << " bytes)."
-                    << std::endl;
-        }
+        DWORD bytesWritten;
+        WriteFile(hPipe, response.c_str(), (DWORD)response.size(),
+                  &bytesWritten, NULL);
         FlushFileBuffers(hPipe);
-      } else {
-        std::cerr << "[Pipe] ReadFile failed. Error: " << GetLastError()
-                  << std::endl;
       }
-    } else {
-      std::cerr << "[Pipe] ConnectNamedPipe failed. Error: " << GetLastError()
-                << std::endl;
     }
 
     DisconnectNamedPipe(hPipe);
