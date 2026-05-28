@@ -2265,8 +2265,8 @@ fn spawn_manual_scan_listener(
                                     &excluded_yara_rules,
                                     &scan_target,
                                 );
-                                let fast_detected =
-                                    !hydradragon_static_matches.is_empty() || !yara_x_matches.is_empty();
+                                let fast_detected = !hydradragon_static_matches.is_empty()
+                                    || !yara_x_matches.is_empty();
                                 let effective_scan_mode = if fast_detected {
                                     "minimal"
                                 } else if requested_deep_scan {
@@ -2663,11 +2663,7 @@ impl<'a> AVIntegration<'a> {
 
         // Sanctum requests deep scan when process behavior is suspicious.
         // If a fast detector already found malware, report that detection and skip deep scan.
-        let effective_scan_mode = if fast_detected {
-            "minimal"
-        } else {
-            "deep"
-        };
+        let effective_scan_mode = if fast_detected { "minimal" } else { "deep" };
 
         // Always scan with HydraDragonAV service (ClamAV/YARA)
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
