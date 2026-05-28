@@ -44,7 +44,7 @@ namespace fs = std::filesystem;
 // Scanner globals
 // ---------------------------------------------------------------------------
 static std::unique_ptr<clamav::Scanner> g_clamavScanner;
-static YR_RULES* g_yaraRules = nullptr;
+static std::vector<YR_RULES*> g_yaraRulesets;
 constexpr auto  CLAMAV_UPDATE_INTERVAL        = std::chrono::hours(2);
 constexpr auto  CLAMAV_DEFINITION_MAX_AGE     = std::chrono::hours(12);
 constexpr DWORD FRESHCLAM_TIMEOUT_MS          = 180u * 1000u;
@@ -481,37 +481,75 @@ int yara_callback(YR_SCAN_CONTEXT* context, int message, void* message_data,
 }
 
 // ---------------------------------------------------------------------------
-// YARA rules loader
+// YARA compiled rules loader
 // ---------------------------------------------------------------------------
 bool LoadYaraRules() {
-    YR_COMPILER* compiler = nullptr;
-    if (yr_compiler_create(&compiler) != 0) return false;
+    g_yaraRulesets.clear();
 
     std::error_code ec;
-    if (fs::exists(YARA_RULES_FOLDER, ec)) {
-        for (const auto& entry : fs::directory_iterator(YARA_RULES_FOLDER, ec)) {
-            if (ec) break;
-            if (entry.path().extension() == ".yar") {
-                std::ifstream file(entry.path());
-                if (!file.is_open()) continue;
-                std::string content((std::istreambuf_iterator<char>(file)),
-                                     std::istreambuf_iterator<char>());
-                const std::string fileName = entry.path().filename().string();
-                if (yr_compiler_add_string(compiler, content.c_str(), nullptr) != 0) {
-                    std::cerr << "[YARA] Failed to compile: " << fileName << std::endl;
-                }
-            }
-        }
-    } else {
-        std::cerr << "[YARA] Rules folder not found: "
-                  << fs::path(YARA_RULES_FOLDER).string() << std::endl;
-    }
+    const fs::path rulesFolder(YARA_RULES_FOLDER);
 
-    if (yr_compiler_get_rules(compiler, &g_yaraRules) != 0) {
-        yr_compiler_destroy(compiler);
+    if (!fs::exists(rulesFolder, ec) || !fs::is_directory(rulesFolder, ec)) {
+        std::cerr << "[YARA] Compiled rules folder not found: "
+                  << rulesFolder.string() << std::endl;
         return false;
     }
-    yr_compiler_destroy(compiler);
+
+    std::size_t loadedRulesets = 0;
+
+    for (const auto& entry : fs::directory_iterator(rulesFolder, ec)) {
+        if (ec) {
+            std::cerr << "[YARA] Failed to enumerate rules folder: "
+                      << ec.message() << std::endl;
+            break;
+        }
+
+        std::error_code entryEc;
+        if (!entry.is_regular_file(entryEc) || entryEc) {
+            continue;
+        }
+
+        std::wstring extension = entry.path().extension().wstring();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+                       [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+
+        // HydraDragon ships compiled YARA rules. Source .yar files are not
+        // compiled at runtime. .yrc is the compiled ruleset format.
+        if (extension != L".yrc") {
+            continue;
+        }
+
+        const std::string compiledPath = entry.path().string();
+        YR_RULES* rules = nullptr;
+        const int loadResult = yr_rules_load(compiledPath.c_str(), &rules);
+
+        if (loadResult != ERROR_SUCCESS || rules == nullptr) {
+            std::cerr << "[YARA] Failed to load compiled ruleset: "
+                      << compiledPath << " error=" << loadResult << std::endl;
+            if (rules != nullptr) {
+                yr_rules_destroy(rules);
+            }
+            continue;
+        }
+
+        g_yaraRulesets.push_back(rules);
+        ++loadedRulesets;
+
+#if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
+        std::cout << "[YARA] Loaded compiled ruleset: "
+                  << compiledPath << std::endl;
+#endif
+    }
+
+    std::cout << "[YARA] Loaded " << loadedRulesets
+              << " compiled .yrc ruleset(s)." << std::endl;
+
+    if (loadedRulesets == 0) {
+        std::cerr << "[YARA] No compiled .yrc rulesets were loaded from: "
+                  << rulesFolder.string() << std::endl;
+        return false;
+    }
+
     return true;
 }
 
@@ -583,16 +621,23 @@ void ProcessRequest(const std::string& request, std::string& response) {
     bool                     isMalicious  = false;
     bool                     is_vmprotect = false;
 
-    // [FIX 3 — YARA] Skip oversized files; set 60-second timeout.
-    if (g_yaraRules && fs::exists(wFilePath)) {
+    // YARA: scan with compiled .yrc rulesets. Skip oversized files and
+    // keep a timeout so a problematic rule cannot stall the pipe worker.
+    if (!g_yaraRulesets.empty() && fs::exists(wFilePath)) {
         std::error_code ec;
         const auto fileBytes = fs::file_size(wFilePath, ec);
 
         if (!ec && fileBytes <= YARA_MAX_SCAN_BYTES) {
             std::vector<std::string> rawMatches;
-            // [FIX] Timeout changed from 0 (disabled) → 60 seconds
-            yr_rules_scan_file(g_yaraRules, cleanPath.c_str(), 0,
-                               yara_callback, &rawMatches, 60);
+
+            for (YR_RULES* ruleset : g_yaraRulesets) {
+                if (ruleset == nullptr) {
+                    continue;
+                }
+
+                yr_rules_scan_file(ruleset, cleanPath.c_str(), 0,
+                                   yara_callback, &rawMatches, 60);
+            }
 
             for (const auto& match : rawMatches) {
                 std::string lowerMatch = match;
@@ -775,7 +820,12 @@ int main() {
         if (t.joinable()) t.join();
     }
 
-    if (g_yaraRules) yr_rules_destroy(g_yaraRules);
+    for (YR_RULES* ruleset : g_yaraRulesets) {
+        if (ruleset != nullptr) {
+            yr_rules_destroy(ruleset);
+        }
+    }
+    g_yaraRulesets.clear();
     yr_finalize();
 
     return 0;
