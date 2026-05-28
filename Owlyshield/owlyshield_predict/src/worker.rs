@@ -920,6 +920,215 @@ pub mod worker_instance {
         pub last_report_time: Option<std::time::Instant>,
     }
 
+
+    #[cfg(all(
+        target_os = "windows",
+        feature = "behavior_engine",
+        feature = "sanctum"
+    ))]
+    fn sanctum_pipe_value<'v>(
+        event: &'v serde_json::Value,
+        args: &'v serde_json::Value,
+        names: &[&str],
+    ) -> Option<&'v serde_json::Value> {
+        for name in names {
+            if let Some(value) = event.get(*name) {
+                return Some(value);
+            }
+            if let Some(value) = args.get(*name) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    #[cfg(all(
+        target_os = "windows",
+        feature = "behavior_engine",
+        feature = "sanctum"
+    ))]
+    fn sanctum_pipe_u32(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> u32 {
+        let Some(value) = sanctum_pipe_value(event, args, names) else {
+            return 0;
+        };
+
+        if let Some(num) = value.as_u64() {
+            return num.min(u32::MAX as u64) as u32;
+        }
+
+        let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+            return 0;
+        };
+
+        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+            u64::from_str_radix(hex, 16)
+        } else {
+            text.parse::<u64>().or_else(|_| u64::from_str_radix(text, 16))
+        };
+
+        parsed.map(|num| num.min(u32::MAX as u64) as u32).unwrap_or(0)
+    }
+
+    #[cfg(all(
+        target_os = "windows",
+        feature = "behavior_engine",
+        feature = "sanctum"
+    ))]
+    fn sanctum_pipe_string(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        names: &[&str],
+    ) -> String {
+        sanctum_pipe_value(event, args, names)
+            .and_then(|value| {
+                value
+                    .as_str()
+                    .map(|text| text.trim().to_string())
+                    .or_else(|| value.as_u64().map(|num| num.to_string()))
+            })
+            .unwrap_or_default()
+    }
+
+    #[cfg(all(
+        target_os = "windows",
+        feature = "behavior_engine",
+        feature = "sanctum"
+    ))]
+    fn sanctum_pipe_bool(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> bool {
+        sanctum_pipe_value(event, args, names).is_some_and(|value| {
+            value.as_bool().unwrap_or_else(|| {
+                value
+                    .as_str()
+                    .map(|text| {
+                        matches!(
+                            text.trim().to_ascii_lowercase().as_str(),
+                            "1" | "true" | "yes" | "y" | "detected" | "malicious" | "alert" | "blocked"
+                        )
+                    })
+                    .unwrap_or(false)
+            })
+        })
+    }
+
+    #[cfg(all(
+        target_os = "windows",
+        feature = "behavior_engine",
+        feature = "sanctum"
+    ))]
+    fn sanctum_pipe_is_detection(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        source: &str,
+        function: &str,
+    ) -> bool {
+        if sanctum_pipe_bool(
+            event,
+            args,
+            &[
+                "is_detection",
+                "detection",
+                "detected",
+                "malicious",
+                "is_malicious",
+                "blocked",
+                "suspicious",
+            ],
+        ) {
+            return true;
+        }
+
+        let markers = [
+            source.to_string(),
+            function.to_string(),
+            sanctum_pipe_string(event, args, &["type", "event_type", "kind", "category"]),
+            sanctum_pipe_string(event, args, &["verdict", "result", "action"]),
+            sanctum_pipe_string(event, args, &["severity", "level", "risk"]),
+        ];
+
+        markers.iter().any(|marker| {
+            matches!(
+                marker.trim().to_ascii_lowercase().as_str(),
+                "detection"
+                    | "detected"
+                    | "alert"
+                    | "malicious"
+                    | "malware"
+                    | "blocked"
+                    | "deny"
+                    | "denied"
+                    | "critical"
+                    | "high"
+            )
+        })
+    }
+
+    #[cfg(all(
+        target_os = "windows",
+        feature = "behavior_engine",
+        feature = "sanctum"
+    ))]
+    fn handle_sanctum_telemetry_line(behavior_engine: &mut BehaviorEngine, line: &str) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+
+        match serde_json::from_str::<serde_json::Value>(trimmed) {
+            Ok(event) => {
+                let null_args = serde_json::Value::Null;
+                let args = event.get("args").unwrap_or(&null_args);
+                let pid = sanctum_pipe_u32(
+                    &event,
+                    args,
+                    &[
+                        "pid",
+                        "process_id",
+                        "source_pid",
+                        "attacker_pid",
+                        "target_pid",
+                        "client_pid",
+                    ],
+                );
+
+                let mut source = sanctum_pipe_string(&event, args, &["source", "provider", "sensor"]);
+                if source.is_empty() {
+                    source = "-".to_string();
+                }
+
+                let mut function = sanctum_pipe_string(
+                    &event,
+                    args,
+                    &["function", "api", "syscall", "operation", "event", "name"],
+                );
+                if function.is_empty() {
+                    function = "-".to_string();
+                }
+
+                let is_detection = sanctum_pipe_is_detection(&event, args, &source, &function);
+
+                behavior_engine.ingest_sanctum_event(&event);
+
+                if is_detection {
+                    Logging::alert(&format!(
+                        "[SanctumDetection] 🚨 ALERT: Sanctum EDR flagged PID {} for malicious activity ({}/{})",
+                        pid, source, function
+                    ));
+                }
+
+                Logging::info(&format!(
+                    "[SanctumTele] pid={} src={} fn={} detection={}",
+                    pid, source, function, is_detection
+                ));
+            }
+            Err(e) => {
+                Logging::warning(&format!(
+                    "[SanctumPipe] Failed to parse event JSON: {} | raw={}",
+                    e, trimmed
+                ));
+            }
+        }
+    }
+
     impl<'a> Worker<'a> {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub fn generate_system_report(&mut self) {
@@ -1352,9 +1561,19 @@ pub mod worker_instance {
                             continue;
                         }
 
-                        // Validate: only accept Sanctum's um_engine with strict full-path validation
-                        if !unsafe { validate_pipe_client(handle, Some(r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\um_engine.exe"), false) } {
-                            Logging::error("[SanctumPipe] Rejected unauthorized client (Strict Path Validation Failed)");
+                        // Validate: accept the installed Sanctum UM engine and dev builds.
+                        let sanctum_client_valid = unsafe {
+                            validate_pipe_client(
+                                handle,
+                                Some(r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\um_engine.exe"),
+                                false,
+                            ) || validate_pipe_client(handle, Some(r"hydradragon\Sanctum\um_engine.exe"), false)
+                                || validate_pipe_client(handle, Some(r"target\debug\um_engine.exe"), false)
+                                || validate_pipe_client(handle, Some(r"target\release\um_engine.exe"), false)
+                        };
+
+                        if !sanctum_client_valid {
+                            Logging::error("[SanctumPipe] Rejected unauthorized client (Sanctum UM engine validation failed)");
                             unsafe {
                                 let _ = DisconnectNamedPipe(handle);
                                 let _ = CloseHandle(handle);
@@ -1391,38 +1610,13 @@ pub mod worker_instance {
                                     continue;
                                 }
 
-                                match serde_json::from_str::<serde_json::Value>(&line) {
-                                    Ok(event) => {
-                                        let pid = event["pid"].as_u64().unwrap_or(0) as u32;
-                                        let source = event["source"].as_str().unwrap_or("-");
-                                        let function = event["function"].as_str().unwrap_or("-");
-
-                                        let is_detection = event["is_detection"].as_bool().unwrap_or(false)
-                                            || event["type"] == "DETECTION"
-                                            || event["function"] == "DETECTION"
-                                            || source == "DETECTION";
-
-                                        // 1. Telemetry Ingestion (Other codes) - handled by behavior engine
-                                        behavior_engine.ingest_sanctum_event(&event);
-
-                                        // 2. Detection Handling - moved to Worker level
-                                        if is_detection {
-                                            Logging::alert(&format!("[SanctumDetection] 🚨 ALERT: Sanctum EDR flagged PID {} for malicious activity ({}/{})", pid, source, function));
-                                        }
-
-                                        Logging::info(&format!(
-                                            "[SanctumTele] pid={} src={} fn={}",
-                                            pid, source, function
-                                        ));
-                                    }
-                                    Err(e) => {
-                                        Logging::warning(&format!(
-                                            "[SanctumPipe] Failed to parse event JSON: {}",
-                                            e
-                                        ));
-                                    }
-                                }
+                                handle_sanctum_telemetry_line(&mut behavior_engine, &line);
                             }
+                        }
+
+                        let trailing = leftover.trim().to_string();
+                        if !trailing.is_empty() {
+                            handle_sanctum_telemetry_line(&mut behavior_engine, &trailing);
                         }
 
                         Logging::info("[SanctumPipe] Sanctum um_engine disconnected; waiting for reconnect");

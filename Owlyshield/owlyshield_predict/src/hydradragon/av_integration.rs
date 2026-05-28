@@ -2041,7 +2041,7 @@ fn spawn_manual_scan_listener(
 
             let pipe_handle = match CreateNamedPipeA(
                 PCSTR(pipe_name_c.as_ptr() as *const u8),
-                PIPE_ACCESS_INBOUND,
+                PIPE_ACCESS_DUPLEX,
                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
                 PIPE_UNLIMITED_INSTANCES,
                 PIPE_READ_BUFFER_SIZE,
@@ -2098,6 +2098,17 @@ fn spawn_manual_scan_listener(
                                 let scan_target = PathBuf::from(&normalized_file_path);
                                 if file_is_over_scan_limit(&scan_target) {
                                     log_skip_large_file("manual scan pipe request", &scan_target);
+                                    let response = serde_json::json!({
+                                        "status": "error",
+                                        "message": "file is over scan size limit",
+                                        "file_path": normalized_file_path,
+                                    })
+                                    .to_string();
+                                    let _ = write_pipe_bytes(
+                                        pipe_handle,
+                                        format!("{response}\n").as_bytes(),
+                                        "ManualScan oversized-file response",
+                                    );
                                     let _ = DisconnectNamedPipe(pipe_handle);
                                     let _ = CloseHandle(pipe_handle);
                                     continue;
@@ -2176,24 +2187,76 @@ fn spawn_manual_scan_listener(
                                     rust_service_scan_results,
                                 };
 
+                                let ack_scan_mode = request.scan_mode.clone();
+                                let ack_file_path = request.file_path.clone();
+
                                 Logging::info(&format!(
                                     "[ManualScan] Queueing {} manual scan for: {}",
                                     request.scan_mode, request.file_path
                                 ));
-                                if let Err(error) = internal_scan_tx.send(request) {
-                                    Logging::error(&format!(
-                                        "[ManualScan] Failed to queue manual scan request: {error}"
-                                    ));
+
+                                match internal_scan_tx.send(request) {
+                                    Ok(()) => {
+                                        let response = serde_json::json!({
+                                            "status": "queued",
+                                            "scan_mode": ack_scan_mode,
+                                            "file_path": ack_file_path,
+                                        })
+                                        .to_string();
+                                        let _ = write_pipe_bytes(
+                                            pipe_handle,
+                                            format!("{response}\n").as_bytes(),
+                                            "ManualScan queued response",
+                                        );
+                                    }
+                                    Err(error) => {
+                                        Logging::error(&format!(
+                                            "[ManualScan] Failed to queue manual scan request: {error}"
+                                        ));
+                                        let response = serde_json::json!({
+                                            "status": "error",
+                                            "message": format!("failed to queue manual scan request: {error}"),
+                                            "file_path": ack_file_path,
+                                        })
+                                        .to_string();
+                                        let _ = write_pipe_bytes(
+                                            pipe_handle,
+                                            format!("{response}\n").as_bytes(),
+                                            "ManualScan queue-error response",
+                                        );
+                                    }
                                 }
                             } else {
                                 Logging::error(&format!(
                                     "[ManualScan] Request missing file_path field: {message}"
                                 ));
+                                let response = serde_json::json!({
+                                    "status": "error",
+                                    "message": "request missing file_path field",
+                                })
+                                .to_string();
+                                let _ = write_pipe_bytes(
+                                    pipe_handle,
+                                    format!("{response}\n").as_bytes(),
+                                    "ManualScan missing-file-path response",
+                                );
                             }
                         }
-                        Err(error) => Logging::error(&format!(
-                            "[ManualScan] Invalid request JSON: {error}; raw={message}"
-                        )),
+                        Err(error) => {
+                            Logging::error(&format!(
+                                "[ManualScan] Invalid request JSON: {error}; raw={message}"
+                            ));
+                            let response = serde_json::json!({
+                                "status": "error",
+                                "message": format!("invalid request JSON: {error}"),
+                            })
+                            .to_string();
+                            let _ = write_pipe_bytes(
+                                pipe_handle,
+                                format!("{response}\n").as_bytes(),
+                                "ManualScan invalid-json response",
+                            );
+                        }
                     }
                 } else if !read_ok.as_bool() {
                     Logging::error(&format!(

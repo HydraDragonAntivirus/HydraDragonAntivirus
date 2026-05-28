@@ -3495,17 +3495,162 @@ impl BehaviorEngine {
             .expect("failed to spawn hydra_net_event_pipe thread");
     }
 
+
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
+    fn sanctum_value<'v>(
+        event: &'v serde_json::Value,
+        args: &'v serde_json::Value,
+        names: &[&str],
+    ) -> Option<&'v serde_json::Value> {
+        for name in names {
+            if let Some(value) = event.get(*name) {
+                return Some(value);
+            }
+            if let Some(value) = args.get(*name) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
+    fn sanctum_u32_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> u32 {
+        let Some(value) = Self::sanctum_value(event, args, names) else {
+            return 0;
+        };
+
+        if let Some(num) = value.as_u64() {
+            return num.min(u32::MAX as u64) as u32;
+        }
+
+        let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+            return 0;
+        };
+
+        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+            u64::from_str_radix(hex, 16)
+        } else {
+            text.parse::<u64>().or_else(|_| u64::from_str_radix(text, 16))
+        };
+
+        parsed.map(|num| num.min(u32::MAX as u64) as u32).unwrap_or(0)
+    }
+
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
+    fn sanctum_string_field(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        names: &[&str],
+    ) -> String {
+        Self::sanctum_value(event, args, names)
+            .and_then(|value| {
+                value
+                    .as_str()
+                    .map(|text| text.trim().to_string())
+                    .or_else(|| value.as_u64().map(|num| num.to_string()))
+            })
+            .unwrap_or_default()
+    }
+
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
+    fn sanctum_bool_field(event: &serde_json::Value, args: &serde_json::Value, names: &[&str]) -> bool {
+        Self::sanctum_value(event, args, names)
+            .is_some_and(|value| {
+                value.as_bool().unwrap_or_else(|| {
+                    value
+                        .as_str()
+                        .map(|text| {
+                            matches!(
+                                text.trim().to_ascii_lowercase().as_str(),
+                                "1" | "true" | "yes" | "y" | "detected" | "malicious" | "alert" | "blocked"
+                            )
+                        })
+                        .unwrap_or(false)
+                })
+            })
+    }
+
+    #[cfg(all(target_os = "windows", feature = "sanctum"))]
+    fn sanctum_event_is_detection(
+        event: &serde_json::Value,
+        args: &serde_json::Value,
+        source: &str,
+        function: &str,
+    ) -> bool {
+        if Self::sanctum_bool_field(
+            event,
+            args,
+            &[
+                "is_detection",
+                "detection",
+                "detected",
+                "malicious",
+                "is_malicious",
+                "blocked",
+                "suspicious",
+            ],
+        ) {
+            return true;
+        }
+
+        let markers = [
+            source.to_string(),
+            function.to_string(),
+            Self::sanctum_string_field(event, args, &["type", "event_type", "kind", "category"]),
+            Self::sanctum_string_field(event, args, &["verdict", "result", "action"]),
+            Self::sanctum_string_field(event, args, &["severity", "level", "risk"]),
+        ];
+
+        markers.iter().any(|marker| {
+            matches!(
+                marker.trim().to_ascii_lowercase().as_str(),
+                "detection"
+                    | "detected"
+                    | "alert"
+                    | "malicious"
+                    | "malware"
+                    | "blocked"
+                    | "deny"
+                    | "denied"
+                    | "critical"
+                    | "high"
+            )
+        })
+    }
+
     /// Ingest a telemetry event from Sanctum EDR.
     #[cfg(all(target_os = "windows", feature = "sanctum"))]
     pub fn ingest_sanctum_event(&mut self, event: &serde_json::Value) {
-        let pid = event["pid"].as_u64().unwrap_or(0) as u32;
-        let source = event["source"].as_str().unwrap_or("-");
-        let function = event["function"].as_str().unwrap_or("-");
-        let args = &event["args"];
-        let is_detection = event["is_detection"].as_bool().unwrap_or(false)
-            || event["type"] == "DETECTION"
-            || event["function"] == "DETECTION"
-            || source == "DETECTION";
+        let null_args = serde_json::Value::Null;
+        let args = event.get("args").unwrap_or(&null_args);
+
+        let pid = Self::sanctum_u32_field(
+            event,
+            args,
+            &[
+                "pid",
+                "process_id",
+                "source_pid",
+                "attacker_pid",
+                "target_pid",
+                "client_pid",
+            ],
+        );
+        let mut source = Self::sanctum_string_field(event, args, &["source", "provider", "sensor"]);
+        if source.is_empty() {
+            source = "-".to_string();
+        }
+
+        let mut function = Self::sanctum_string_field(
+            event,
+            args,
+            &["function", "api", "syscall", "operation", "event", "name"],
+        );
+        if function.is_empty() {
+            function = "-".to_string();
+        }
+
+        let is_detection = Self::sanctum_event_is_detection(event, args, &source, &function);
 
         let gid = self.find_gid_by_pid(pid).unwrap_or(0);
 
