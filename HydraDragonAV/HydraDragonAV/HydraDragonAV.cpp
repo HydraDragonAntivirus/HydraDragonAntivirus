@@ -2,6 +2,8 @@
 #include "ClamAVScanner.h"
 #include "framework.h"
 #include <Windows.h>
+#include <Psapi.h>
+#include <atomic>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -20,6 +22,8 @@
 
 // YARA Headers
 #include <yara.h>
+
+#pragma comment(lib, "Psapi.lib")
 
 namespace fs = std::filesystem;
 
@@ -54,6 +58,59 @@ static std::unordered_map<std::wstring, ScanCacheEntry> g_scanCache;
 constexpr auto SCAN_CACHE_TTL = std::chrono::seconds(30);
 constexpr std::size_t SCAN_CACHE_MAX_ENTRIES = 4096;
 
+static std::atomic<std::uint64_t> g_totalScanRequests{0};
+
+constexpr SIZE_T HYDRADRAGON_PRIVATE_BYTES_RESTART_LIMIT =
+    static_cast<SIZE_T>(1536ull * 1024ull * 1024ull); // 1.5 GiB
+constexpr auto MEMORY_MONITOR_INTERVAL = std::chrono::seconds(30);
+constexpr UINT HYDRADRAGON_MEMORY_RECYCLE_EXIT_CODE = 100;
+
+
+
+SIZE_T GetCurrentProcessPrivateBytes() {
+  PROCESS_MEMORY_COUNTERS_EX counters{};
+  counters.cb = sizeof(counters);
+
+  if (!GetProcessMemoryInfo(GetCurrentProcess(),
+                            reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&counters),
+                            sizeof(counters))) {
+    return 0;
+  }
+
+  return counters.PrivateUsage;
+}
+
+void StartMemoryGuardThread() {
+  std::thread([]() {
+    while (true) {
+      std::this_thread::sleep_for(MEMORY_MONITOR_INTERVAL);
+
+      const SIZE_T privateBytes = GetCurrentProcessPrivateBytes();
+      if (privateBytes == 0) {
+        continue;
+      }
+
+#if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
+      std::cout << "[MemoryGuard] private_bytes=" << privateBytes
+                << " scans=" << g_totalScanRequests.load() << std::endl;
+#endif
+
+      if (privateBytes >= HYDRADRAGON_PRIVATE_BYTES_RESTART_LIMIT) {
+        std::cerr << "[MemoryGuard] HydraDragonAV private memory reached "
+                  << privateBytes
+                  << " bytes after "
+                  << g_totalScanRequests.load()
+                  << " scan requests. Recycling scanner process to prevent "
+                     "RADAR_PRE_LEAK_64 / native engine memory growth."
+                  << std::endl;
+
+        // Controller-managed scanner engine: use a distinct exit code so the
+        // controller can restart it cleanly.
+        ExitProcess(HYDRADRAGON_MEMORY_RECYCLE_EXIT_CODE);
+      }
+    }
+  }).detach();
+}
 
 void LoadExcludedRules() {
   std::string path = "C:\\Program "
@@ -405,6 +462,8 @@ void ProcessRequest(const std::string &request, std::string &response) {
     return;
   }
 
+  g_totalScanRequests.fetch_add(1, std::memory_order_relaxed);
+
   // Convert escaped backslashes if any (basic)
   std::string cleanPath;
   for (size_t i = 0; i < filePathStr.size(); ++i) {
@@ -506,6 +565,7 @@ void ProcessRequest(const std::string &request, std::string &response) {
 int main() {
   std::cout << "[HydraDragonAV] Starting SCANNER ENGINE (Pipe Server)..."
             << std::endl;
+  StartMemoryGuardThread();
 
   // Initialize YARA
   if (yr_initialize() != 0) {
