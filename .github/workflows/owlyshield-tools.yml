@@ -1,11 +1,17 @@
-name: Publish Owlyshield Tools
+name: Owlyshield Tools
 
 on:
   push:
-    branches: [development-version]
+    branches: ["**"]
+    tags: ["v*"]
     paths:
-      - "Owlyshield/tools/**"
-      - ".github/workflows/publish-owlyshield-tools.yml"
+      - 'Owlyshield/tools/**'
+      - '.github/workflows/owlyshield-tools.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'Owlyshield/tools/**'
+      - '.github/workflows/owlyshield-tools.yml'
   workflow_dispatch:
 
 permissions:
@@ -16,28 +22,38 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  publish-tools:
-    if: (!startsWith(github.ref_name, 'auto-update-'))
+  ci:
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-
       - uses: actions/checkout@v6
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cargo check
+        working-directory: Owlyshield/tools/rust_win_toast
+        run: cargo check
+      - name: Build
+        working-directory: Owlyshield/tools/rust_win_toast
+        run: cargo build
 
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Format Rust sources
         working-directory: Owlyshield/tools/rust_win_toast
         run: |
           rustup component add rustfmt
           cargo fmt --all
-
       - name: Build Rust Win Toast
         working-directory: Owlyshield/tools/rust_win_toast
         run: cargo build --release
-
       - name: Stage Tools Files
         shell: pwsh
         run: |
@@ -46,12 +62,6 @@ jobs:
             New-Item -ItemType Directory -Force -Path $utilsDir | Out-Null
           }
           Copy-Item "Owlyshield/tools/rust_win_toast/target/release/RustWindowsToast.exe" $utilsDir -Force
-
-      - name: Set up MSVC Developer Command Prompt
-        uses: TheMrMilchmann/setup-msvc-dev@v4
-        with:
-          arch: x64
-
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
@@ -61,7 +71,6 @@ jobs:
             hydradragon/Owlyshield/Owlyshield Service/tensorflowlite_c.dll
             Owlyshield/tools/rust_win_toast/Cargo.lock
             Owlyshield/tools/rust_win_toast/src
-
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
@@ -70,9 +79,8 @@ jobs:
           commit-message: "chore(owlyshield): update tools binaries"
           title: "Update Owlyshield tools binaries"
           body: "Automated build and update for Owlyshield tools (rust_win_toast)."
-          add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-owlyshield-tools"
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: binaries, automated-pr, owlyshield, tools
+          labels: binaries, automated-pr, owlyshield, tools, development-version

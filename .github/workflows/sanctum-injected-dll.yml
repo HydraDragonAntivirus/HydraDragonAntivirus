@@ -1,24 +1,48 @@
-name: Publish Sanctum Injected DLL
+name: Sanctum Injected DLL
 
 on:
   push:
-    branches: [development-version]
+    branches: ["**"]
     paths:
       - 'Sanctum/injected_dll/**'
       - 'Sanctum/shared_std/**'
       - 'Sanctum/shared_no_std/**'
       - 'Sanctum/Cargo.toml'
       - 'Sanctum/Cargo.lock'
-      - '.github/workflows/publish-sanctum-injected-dll.yml'
+      - '.github/workflows/sanctum-injected-dll.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/injected_dll/**'
+      - 'Sanctum/shared_std/**'
+      - 'Sanctum/shared_no_std/**'
+      - 'Sanctum/Cargo.toml'
+      - 'Sanctum/Cargo.lock'
+      - '.github/workflows/sanctum-injected-dll.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build-and-stage:
-    if: (!startsWith(github.ref_name, 'auto-update-'))
+  ci:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust (Nightly)
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Cargo check
+        working-directory: Sanctum
+        run: cargo check -p injected_dll
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -64,8 +88,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(sanctum): update injected dll binary"
           title: "Update Sanctum Injected DLL Binary"
-          add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-sanctum-injected-dll"
           base: ${{ github.ref_name }}
           delete-branch: true

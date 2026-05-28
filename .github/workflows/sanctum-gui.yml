@@ -1,24 +1,48 @@
-name: Publish Sanctum UM Engine
+name: Sanctum GUI
 
 on:
   push:
-    branches: [development-version]
+    branches: ["**"]
     paths:
-      - 'Sanctum/um_engine/**'
+      - 'Sanctum/gui/**'
       - 'Sanctum/shared_std/**'
       - 'Sanctum/shared_no_std/**'
       - 'Sanctum/Cargo.toml'
       - 'Sanctum/Cargo.lock'
-      - '.github/workflows/publish-sanctum-um-engine.yml'
+      - '.github/workflows/sanctum-gui.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/gui/**'
+      - 'Sanctum/shared_std/**'
+      - 'Sanctum/shared_no_std/**'
+      - 'Sanctum/Cargo.toml'
+      - 'Sanctum/Cargo.lock'
+      - '.github/workflows/sanctum-gui.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build-and-stage:
-    if: (!startsWith(github.ref_name, 'auto-update-'))
+  ci:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust (Nightly)
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Cargo check
+        working-directory: Sanctum
+        run: cargo check -p app
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -34,27 +58,27 @@ jobs:
         run: |
           rustup component add rustfmt
           cargo fmt --all
-      - name: Build um_engine
+      - name: Build GUI
         working-directory: Sanctum
-        run: cargo build --release -p um_engine
+        run: cargo build --release -p app
       - name: Stage
         shell: pwsh
         run: |
           $dist = "hydradragon/Sanctum"
           New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "Sanctum/target/release/um_engine.exe" "$dist/" -Force
+          Copy-Item "Sanctum/target/release/app.exe" "$dist/" -Force
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: sanctum-um-engine
-          path: hydradragon/Sanctum/um_engine.exe
+          name: sanctum-gui
+          path: hydradragon/Sanctum/app.exe
           if-no-files-found: error
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
         with:
           paths: |
-            hydradragon/Sanctum/um_engine.exe
+            hydradragon/Sanctum/app.exe
             Sanctum/Cargo.lock
             Sanctum
       - name: Create PR
@@ -62,11 +86,10 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(sanctum): update um_engine binary"
-          title: "Update Sanctum UM Engine Binary"
-          add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
-          branch: "auto-update-sanctum-um-engine"
+          commit-message: "chore(sanctum): update gui binary"
+          title: "Update Sanctum GUI Binary"
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
+          branch: "auto-update-sanctum-gui"
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: binaries, automated-pr, sanctum, um-engine, development-version
+          labels: binaries, automated-pr, sanctum, gui, development-version

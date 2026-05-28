@@ -1,22 +1,44 @@
-name: Publish Sanctum ELAM Installer
+name: Sanctum ELAM Installer
 
 on:
   push:
-    branches: [development-version]
+    branches: ["**"]
     paths:
       - 'Sanctum/elam_installer/**'
       - 'Sanctum/Cargo.toml'
       - 'Sanctum/Cargo.lock'
-      - '.github/workflows/publish-sanctum-elam-installer.yml'
+      - '.github/workflows/sanctum-elam-installer.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/elam_installer/**'
+      - 'Sanctum/Cargo.toml'
+      - 'Sanctum/Cargo.lock'
+      - '.github/workflows/sanctum-elam-installer.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build-and-stage:
-    if: (!startsWith(github.ref_name, 'auto-update-'))
+  ci:
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust (Nightly)
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Cargo check
+        working-directory: Sanctum
+        run: cargo check -p elam_installer
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -62,8 +84,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(sanctum): update elam installer binary"
           title: "Update Sanctum ELAM Installer Binary"
-          add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-sanctum-elam-installer"
           base: ${{ github.ref_name }}
           delete-branch: true

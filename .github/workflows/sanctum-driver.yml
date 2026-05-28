@@ -1,13 +1,21 @@
-name: Publish Sanctum Driver
+name: Sanctum Driver
 
 on:
   push:
-    branches: [development-version]
+    branches: ["**"]
     paths:
       - 'Sanctum/driver/**'
       - 'Sanctum/shared_no_std/**'
-      - '.github/workflows/publish-sanctum-driver.yml'
-      - '!Sanctum/driver/build.rs'
+      - 'wdk_mutex/**'
+      - '.github/workflows/sanctum-driver.yml'
+      - '!Sanctum/driver/sanctum.pfx'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'Sanctum/driver/**'
+      - 'Sanctum/shared_no_std/**'
+      - 'wdk_mutex/**'
+      - '.github/workflows/sanctum-driver.yml'
       - '!Sanctum/driver/sanctum.pfx'
   workflow_dispatch:
 
@@ -15,86 +23,122 @@ permissions:
   contents: write
   pull-requests: write
 
+env:
+  CARGO_TERM_COLOR: always
+  WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
+
 jobs:
-  build-and-stage-driver:
-    if: (!startsWith(github.ref_name, 'auto-update-'))
+  ci:
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
       - name: Set up MSVC Developer Command Prompt
         uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
           arch: x64
-
-      - name: Set up Rust
+      - name: Set up Rust (Nightly)
         uses: dtolnay/rust-toolchain@nightly
-
-      - name: Update Cargo.lock
-        working-directory: Sanctum/driver
-        run: cargo update
-
-      - name: Format Rust sources
-        shell: pwsh
-        run: |
-          rustup component add rustfmt
-          cargo fmt --manifest-path Sanctum/Cargo.toml --all
-          cargo fmt --manifest-path Sanctum/driver/Cargo.toml --all
-
+        with:
+          targets: x86_64-pc-windows-msvc
       - name: Install Cargo Make
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-make
-
       - name: Install rust-script
         run: cargo install rust-script --version 0.30.0
-
       - name: Setup WDK
         shell: pwsh
         run: |
           $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
-          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
+          (New-Object Net.WebClient).DownloadFile('${{ env.WDK_URL }}', $wdkSetupPath)
           Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
-          # Install the WDK Visual Studio Extension so InfVerif.dll is available to MSBuild
           $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
           if (Test-Path $vsixPath) {
             $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
             $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
             Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
           }
-
       - name: Prepare Driver Build Environment
         working-directory: Sanctum/driver
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "target" | Out-Null
           cargo fetch
-
           $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
           $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
           $destFile = "target\rust-driver-makefile.toml"
+          if (Test-Path $sourceFile) { Copy-Item $sourceFile $destFile -Force }
+      - name: Build Driver (Debug)
+        working-directory: Sanctum
+        run: cargo make build-driver
+      - name: Build Driver (Release)
+        working-directory: Sanctum
+        run: cargo make build-driver-release
 
-          if (Test-Path $sourceFile) {
-            Write-Host "Copying $sourceFile to $destFile"
-            Copy-Item $sourceFile $destFile -Force
-          } else {
-            Write-Host "Warning: Could not find rust-driver-makefile.toml at $sourceFile"
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Update Cargo.lock
+        working-directory: Sanctum/driver
+        run: cargo update
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          rustup component add rustfmt
+          cargo fmt --manifest-path Sanctum/Cargo.toml --all
+          cargo fmt --manifest-path Sanctum/driver/Cargo.toml --all
+      - name: Install Cargo Make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      - name: Install rust-script
+        run: cargo install rust-script --version 0.30.0
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('${{ env.WDK_URL }}', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
+          if (Test-Path $vsixPath) {
+            $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
+            $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
+            Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
           }
-
+      - name: Prepare Driver Build Environment
+        working-directory: Sanctum/driver
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "target" | Out-Null
+          cargo fetch
+          $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
+          $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
+          $destFile = "target\rust-driver-makefile.toml"
+          if (Test-Path $sourceFile) { Copy-Item $sourceFile $destFile -Force }
       - name: Build and Sign Driver (with ELAM Hash Sync)
+        id: build_driver
         working-directory: Sanctum/driver
         shell: pwsh
         run: |
           ./update_hash.ps1 -Profile release
           $hash = Get-Content "sanctum_elam_hash.txt" -Raw
           echo "elam_hash=$hash" >> $env:GITHUB_OUTPUT
-
-
       - name: Stage Driver
         shell: pwsh
         run: |
@@ -104,21 +148,16 @@ jobs:
           Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$dist/sanctum.sys" -Force -ErrorAction Stop
           Copy-Item "Sanctum/driver/target/release/sanctum_package/sanctum.sys" "$artifact/sanctum.sys" -Force -ErrorAction Stop
           Copy-Item "Sanctum/driver/sanctum_elam_hash.txt" "$artifact/sanctum_elam_hash.txt" -Force -ErrorAction SilentlyContinue
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
           name: sanctum-driver
           path: artifact/sanctum-driver/
           if-no-files-found: error
-
-
       - name: Cleanup temporary files
         if: always()
         shell: pwsh
-        run: |
-          Remove-Item -Path "Sanctum/driver/sanctum_elam_hash.txt" -Force -ErrorAction SilentlyContinue
-
+        run: Remove-Item -Path "Sanctum/driver/sanctum_elam_hash.txt" -Force -ErrorAction SilentlyContinue
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
@@ -128,7 +167,6 @@ jobs:
             Sanctum/driver/Cargo.lock
             Sanctum/driver/build.rs
             Sanctum
-
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
@@ -140,8 +178,7 @@ jobs:
             Automated Sanctum driver publish and ELAM hash update.
 
             Driver To-Be-Signed Hash: `${{ steps.build_driver.outputs.elam_hash }}`
-          add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-sanctum-driver"
           base: ${{ github.ref_name }}
           delete-branch: true

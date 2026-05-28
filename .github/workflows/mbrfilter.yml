@@ -1,0 +1,116 @@
+name: MBRFilter
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths:
+      - 'MBRFilter/**'
+      - '.github/workflows/mbrfilter.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'MBRFilter/**'
+      - '.github/workflows/mbrfilter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  WDK_URL: https://go.microsoft.com/fwlink/?linkid=2335869
+  SOLUTION_FILE_PATH: "MBRFilter/MBRFilter Driver.sln"
+  BUILD_BIN_DIR: ./MBRFilter/x64/
+
+jobs:
+  ci:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        BUILD_CONFIGURATION: [Release, Debug]
+        PLATFORM: [x64]
+    steps:
+      - name: Enable long paths
+        run: git config --global core.longpaths true
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Checkout submodules recursively
+        run: git submodule update --init --recursive --remote
+      - name: Setup WDK version 25H2
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('${{env.WDK_URL}}', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
+          if (Test-Path $vsixPath) {
+            $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
+            $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
+            Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
+          }
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Build MBRFilter solution
+        run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.PLATFORM}} "${{env.SOLUTION_FILE_PATH}}"
+      - name: Upload build directory
+        if: matrix.BUILD_CONFIGURATION == 'Release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: mbrfilter_release_binaries
+          path: |
+            ${{ env.BUILD_BIN_DIR }}/${{ matrix.BUILD_CONFIGURATION }}/**
+            !${{ env.BUILD_BIN_DIR }}/${{ matrix.BUILD_CONFIGURATION }}/**/*.cer
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+      - name: Setup WDK
+        shell: pwsh
+        run: |
+          $wdkSetupPath = "$Env:TEMP\wdksetup.exe"
+          (New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/?linkid=2335869', $wdkSetupPath)
+          Start-Process -FilePath $wdkSetupPath -ArgumentList "/quiet" -NoNewWindow -Wait
+          $vsixPath = "C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\WDK.vsix"
+          if (Test-Path $vsixPath) {
+            $vsInstaller = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property enginePath
+            $vsixInstaller = Join-Path $vsInstaller "VSIXInstaller.exe"
+            Start-Process -FilePath $vsixInstaller -ArgumentList "/q `"$vsixPath`"" -NoNewWindow -Wait
+          }
+      - name: Build
+        run: msbuild "MBRFilter/MBRFilter Driver.sln" /p:Configuration=Release /p:Platform=x64
+      - name: Stage
+        shell: pwsh
+        run: |
+          $source = "MBRFilter/x64/Win8Release/MBRFilter"
+          $dist = "hydradragon/MBRFilter"
+          if (Test-Path $source) {
+            New-Item -ItemType Directory -Force -Path $dist | Out-Null
+            Copy-Item -Path "$source/*" -Destination "$dist/" -Recurse -Force
+          }
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: hydradragon/MBRFilter
+      - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(mbrfilter): update binaries"
+          title: "Update MBRFilter Binaries"
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
+          branch: "auto-update-mbrfilter"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, mbrfilter, development-version

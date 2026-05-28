@@ -1,25 +1,90 @@
-name: Publish Owlyshield Predict
+name: Owlyshield Predict
 
 on:
   push:
-    branches: [development-version]
+    branches: ["**"]
+    tags: ["v*"]
     paths:
-      - "Owlyshield/owlyshield_predict/**"
-      - "!Owlyshield/owlyshield_predict/**/*.dll"
-      - "Owlyshield/hydradragonstatic/**"
-      - ".github/workflows/publish-owlyshield-predict.yml"
+      - 'Owlyshield/owlyshield_predict/**'
+      - '!Owlyshield/owlyshield_predict/**/*.dll'
+      - 'Owlyshield/hydradragonstatic/**'
+      - '.github/workflows/owlyshield-predict.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'Owlyshield/owlyshield_predict/**'
+      - '.github/workflows/owlyshield-predict.yml'
   workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
 
 permissions:
   contents: write
   pull-requests: write
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
+  ci-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Owlyshield/owlyshield_predict
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Cargo check
+        run: cargo check
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
+
+  ci-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: Owlyshield/owlyshield_predict
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+        working-directory: .
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Cargo check
+        run: cargo check
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
+
+  ci-windows-full:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: Owlyshield/owlyshield_predict
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+        working-directory: ${{ github.workspace }}
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install nasm
+        run: choco install nasm
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Cargo check (All Features)
+        run: cargo check --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum --verbose
+
   publish:
     if: |
+      github.event_name == 'push' && github.ref == 'refs/heads/development-version' &&
       !startsWith(github.ref_name, 'auto-update-') &&
       !contains(github.event.head_commit.message, 'chore(owlyshield): update predict binaries') &&
       github.event.head_commit.author.name != 'github-actions[bot]'
@@ -27,24 +92,18 @@ jobs:
     steps:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
-
       - uses: actions/checkout@v6
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-
       - name: Set up MSVC Developer Command Prompt
         uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
           arch: x64
-
       - name: Install nasm
         run: choco install nasm
-
       - name: Update Cargo.lock
         working-directory: Owlyshield/owlyshield_predict
         run: cargo update
-
       - name: Format Rust sources
         shell: pwsh
         run: |
@@ -55,11 +114,9 @@ jobs:
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/win-pe-inspection/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/ring-patch/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/vfs-kprobes/Cargo.toml --all
-
       - name: Build Predict Service
         working-directory: Owlyshield/owlyshield_predict
         run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum
-
       - name: Stage Predict Files
         shell: pwsh
         run: |
@@ -67,10 +124,8 @@ jobs:
           $modelsDir = "$serviceDir/models"
           New-Item -ItemType Directory -Force -Path $serviceDir | Out-Null
           New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
-
           Copy-Item "Owlyshield/owlyshield_predict/target/release/owlyshield_ransom.exe" $serviceDir -Force
           Copy-Item "Owlyshield/owlyshield_predict/models/*" $modelsDir -Force
-
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
@@ -87,8 +142,7 @@ jobs:
           commit-message: "chore(owlyshield): update predict binaries"
           title: "Update Owlyshield predict binaries"
           body: "Automated predict service, model."
-          add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-owlyshield-predict"
           base: ${{ github.ref_name }}
           delete-branch: true

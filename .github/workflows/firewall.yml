@@ -1,0 +1,204 @@
+name: Firewall
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths:
+      - 'HydraDragonFirewall/**'
+      - '.github/workflows/firewall.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'HydraDragonFirewall/**'
+      - '.github/workflows/firewall.yml'
+  workflow_dispatch:
+    inputs:
+      update_lockfiles:
+        description: "Update Rust lockfiles and open PR"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.update_lockfiles != 'true' }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: HydraDragonFirewall/hydradragonfirewall
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+        working-directory: .
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Install Trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      - name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
+        working-directory: .
+      - name: Build UI (Leptos)
+        working-directory: HydraDragonFirewall/hydradragonfirewall/ui
+        run: trunk build --release -d ../dist
+      - name: Verify UI build
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist")) {
+            Write-Error "UI build failed: dist not found!"
+            exit 1
+          }
+      - name: Set up WinDivert
+        shell: pwsh
+        run: |
+          $path = Join-Path (Get-Location) "..\windivert-bin"
+          $path = Resolve-Path $path
+          echo "WINDIVERT_PATH=$path" >> $env:GITHUB_ENV
+          echo "WINDIVERT_LIB_DIR=$path" >> $env:GITHUB_ENV
+      - name: Cargo check (firewall)
+        run: cargo check
+      - name: Cargo build release (firewall)
+        run: cargo build --release --locked
+
+  update-lockfiles:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.update_lockfiles == 'true' }}
+    runs-on: windows-latest
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Update lockfiles
+        shell: pwsh
+        run: |
+          cargo generate-lockfile --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml
+          cargo generate-lockfile --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/windivert-rust-master/Cargo.toml
+      - name: Commit and push lockfile updates
+        id: commit_lockfiles
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add HydraDragonFirewall/hydradragon-shared/Cargo.lock
+          git add HydraDragonFirewall/http-mitm-proxy/Cargo.lock
+          git add HydraDragonFirewall/hydradragonfirewall/Cargo.lock
+          git add HydraDragonFirewall/hydradragonfirewall/ui/Cargo.lock
+          git add HydraDragonFirewall/windivert-rust-master/Cargo.lock
+          if (git diff --cached --quiet) {
+            Write-Host "No lockfile changes to commit."
+            echo "changed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          git commit -m "chore(deps): update firewall rust lockfiles"
+          git push origin "HEAD:${{ github.ref_name }}"
+          echo "changed=true" >> $env:GITHUB_OUTPUT
+      - name: Trigger follow-up firewall workflows
+        if: steps.commit_lockfiles.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run firewall.yml --ref "${{ github.ref_name }}"
+
+  publish:
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/development-version' &&
+      !startsWith(github.ref_name, 'auto-update-') &&
+      !contains(github.event.head_commit.message, 'chore(firewall): update binaries and lockfiles') &&
+      github.event.head_commit.author.name != 'github-actions[bot]'
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Set up MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - name: Install Trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      - name: Update lockfiles
+        shell: pwsh
+        run: |
+          cargo generate-lockfile --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml
+          cargo generate-lockfile --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml
+      - name: Format Rust sources
+        shell: pwsh
+        run: |
+          rustup component add rustfmt
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragon-shared/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/http-mitm-proxy/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml --all
+          cargo fmt --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml --all
+      - name: Build UI
+        working-directory: HydraDragonFirewall/hydradragonfirewall/ui
+        run: trunk build --release -d ../dist
+      - name: Build Rust Core
+        working-directory: HydraDragonFirewall/hydradragonfirewall
+        run: cargo build --release
+      - name: Stage
+        shell: pwsh
+        run: |
+          $dist = "hydradragon/HydraDragonFirewall"
+          New-Item -ItemType Directory -Force -Path $dist
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe" "$dist/" -Force
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.dll" "$dist/" -Force
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/WinDivert.dll" "$dist/" -ErrorAction SilentlyContinue -Force
+      - name: Check for publishable changes
+        id: check_changes
+        uses: ./.github/actions/check-publishable-changes
+        with:
+          paths: |
+            hydradragon/HydraDragonFirewall
+            HydraDragonFirewall/hydradragon-shared/Cargo.lock
+            HydraDragonFirewall/http-mitm-proxy/Cargo.lock
+            HydraDragonFirewall/hydradragonfirewall/Cargo.lock
+            HydraDragonFirewall/hydradragonfirewall/ui/Cargo.lock
+            HydraDragonFirewall/hydradragon-shared/src
+            HydraDragonFirewall/http-mitm-proxy/examples
+            HydraDragonFirewall/http-mitm-proxy/src
+            HydraDragonFirewall/http-mitm-proxy/tests
+            HydraDragonFirewall/hydradragonfirewall/src
+            HydraDragonFirewall/hydradragonfirewall/ui/src
+      - name: Create PR
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(firewall): update binaries and lockfiles"
+          title: "Update Firewall Binaries and Lockfiles"
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
+          branch: "auto-update-firewall"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, firewall, development-version

@@ -1,11 +1,16 @@
-name: Publish MegaDumper
+name: MegaDumper
 
 on:
   push:
-    branches: [development-version]
+    branches: ["**"]
     paths:
       - 'MegaDumper/**'
-      - '.github/workflows/publish-megadumper.yml'
+      - '.github/workflows/megadumper.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'MegaDumper/**'
+      - '.github/workflows/megadumper.yml'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +18,29 @@ permissions:
   pull-requests: write
 
 jobs:
-  build-and-stage:
+  ci:
+    runs-on: windows-2022
+    steps:
+      - name: Enable long paths
+        run: git config --global core.longpaths true
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore dependencies
+        run: dotnet restore MegaDumper/MegaDumper.sln
+      - name: Publish MegaDumper
+        run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dumper-release
+          path: MegaDumper/MegaDumper/bin/Release/net8.0-windows/publish/
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
@@ -25,7 +52,6 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Publish
         run: dotnet publish MegaDumper/MegaDumper/MegaDumper.csproj -c Release -r win-x64 --self-contained false -o artifacts/
-        
       - name: Stage
         shell: pwsh
         run: |
@@ -36,31 +62,25 @@ jobs:
               [Parameter(Mandatory = $true)][string]$Source,
               [Parameter(Mandatory = $true)][string]$Destination
             )
-
             if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
               throw "Missing publish source: $Source"
             }
-
             if (Test-Path -LiteralPath $Destination) {
               Remove-Item -LiteralPath $Destination -Recurse -Force
             }
-
             New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-            Get-ChildItem -LiteralPath $Source -Force |
-              Copy-Item -Destination $Destination -Recurse -Force
+            Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Destination -Recurse -Force
           }
 
           Sync-PublishTree -Source "artifacts" -Destination $dist
           if (Test-Path "$dist/MegaDumper.exe") {
             Move-Item "$dist/MegaDumper.exe" "$dist/HydraDragonDumper.exe" -Force
           }
-          
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
         with:
-          paths: |
-            hydradragon/HydraDragonDumper
+          paths: hydradragon/HydraDragonDumper
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
@@ -68,9 +88,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(dumper): update binaries"
           title: "Update MegaDumper Binaries"
-          add-paths: |
-            ${{ steps.check_changes.outputs.publishable_files }}
+          add-paths: ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-dumper"
           base: ${{ github.ref_name }}
           delete-branch: true
-          labels: binaries, automated-pr, megadumper
+          labels: binaries, automated-pr, megadumper, development-version
