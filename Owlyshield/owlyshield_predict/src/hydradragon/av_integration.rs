@@ -47,10 +47,7 @@ use chrono::Utc;
 use hydradragonstatic::models::{ScanReport, Verdict};
 use hydradragonstatic::rules::RuleSet;
 use hydradragonstatic::{EngineCore, ScanOptions};
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use crate::hydradragon::threat_response_settings::{ThreatResponseSettings, DetectionEngine, ThreatAction};
-
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use crate::windows::threathandling::{WindowsThreatHandler, QuarantineMetadata};
 
 // --- Pipe names (single source of truth) ---
@@ -2145,7 +2142,6 @@ fn spawn_manual_scan_listener(
             }
         };
 
-        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         let threat_handler = WindowsThreatHandler::new();
 
         Logging::info(
@@ -2305,7 +2301,6 @@ fn spawn_manual_scan_listener(
                                     &hydradragon_static_match_details,
                                 );
 
-                                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                                 if let Some(ref settings) = threat_settings {
                                     let mut threat_detected = false;
                                     let mut detection_engine = String::new();
