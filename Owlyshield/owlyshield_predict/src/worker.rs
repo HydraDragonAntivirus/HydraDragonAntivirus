@@ -1353,7 +1353,13 @@ pub mod worker_instance {
                                 }
 
                                 match serde_json::from_str::<serde_json::Value>(&line) {
-                                    Ok(event) => behavior_engine.ingest_openedr_event(&event),
+                                    Ok(event) => {
+                                        // Always process for behavioral analysis
+                                        behavior_engine.ingest_openedr_event(&event);
+                                        
+                                        // Additionally, queue for AV scanning if it's a file event
+                                        Self::queue_openedr_file_event_for_av_scan(&event);
+                                    }
                                     Err(err) => Logging::warning(&format!(
                                         "[OpenEDRTelemetry] Failed to parse direct event JSON: {}",
                                         err
