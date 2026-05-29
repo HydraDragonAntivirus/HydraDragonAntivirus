@@ -70,6 +70,24 @@
     <ClCompile Include="..\..\src\netmon.cpp">
       <Filter>monitors</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\amsiprotection.cpp">
+      <Filter>monitors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\processprotection.cpp">
+      <Filter>monitors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\userhook.cpp">
+      <Filter>monitors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\rootkitdetector.cpp">
+      <Filter>monitors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\quarantine.cpp">
+      <Filter>utils</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\entropy.cpp">
+      <Filter>utils</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\src\kernelinjectlib\injectengine\iatinject.cpp">
       <Filter>kernelinjectlib\injectengine</Filter>
     </ClCompile>
@@ -173,6 +191,24 @@
     </ClInclude>
     <ClInclude Include="..\..\src\netmon.h">
       <Filter>monitors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\amsiprotection.h">
+      <Filter>monitors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\processprotection.h">
+      <Filter>monitors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\userhook.h">
+      <Filter>monitors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\rootkitdetector.h">
+      <Filter>monitors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\quarantine.h">
+      <Filter>utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\entropy.h">
+      <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\kernelinjectlib\kernelinjectlib.hpp">
       <Filter>kernelinjectlib</Filter>

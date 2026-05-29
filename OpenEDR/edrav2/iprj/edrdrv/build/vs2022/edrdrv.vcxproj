@@ -19,11 +19,13 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\src\amsiprotection.cpp" />
     <ClCompile Include="..\..\src\config.cpp" />
     <ClCompile Include="..\..\src\devdisp.cpp" />
     <ClCompile Include="..\..\src\diskutils.cpp" />
     <ClCompile Include="..\..\src\dllinj.cpp" />
     <ClCompile Include="..\..\src\edrdrv.cpp" />
+    <ClCompile Include="..\..\src\entropy.cpp" />
     <ClCompile Include="..\..\src\filemon.cpp" />
     <ClCompile Include="..\..\src\fltport.cpp" />
     <ClCompile Include="..\..\src\ioctl.cpp" />
@@ -37,16 +39,22 @@
     <ClCompile Include="..\..\src\netmon.cpp" />
     <ClCompile Include="..\..\src\objmon.cpp" />
     <ClCompile Include="..\..\src\osutils.cpp" />
+    <ClCompile Include="..\..\src\processprotection.cpp" />
     <ClCompile Include="..\..\src\procmon.cpp" />
     <ClCompile Include="..\..\src\procutils.cpp" />
+    <ClCompile Include="..\..\src\quarantine.cpp" />
     <ClCompile Include="..\..\src\regmon.cpp" />
+    <ClCompile Include="..\..\src\rootkitdetector.cpp" />
+    <ClCompile Include="..\..\src\userhook.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\src\amsiprotection.h" />
     <ClInclude Include="..\..\src\common.h" />
     <ClInclude Include="..\..\src\config.h" />
     <ClInclude Include="..\..\src\devdisp.h" />
     <ClInclude Include="..\..\src\diskutils.h" />
     <ClInclude Include="..\..\src\dllinj.h" />
+    <ClInclude Include="..\..\src\entropy.h" />
     <ClInclude Include="..\..\src\filemon.h" />
     <ClInclude Include="..\..\src\fltport.h" />
     <ClInclude Include="..\..\src\ioctl.h" />
@@ -71,11 +79,15 @@
     <ClInclude Include="..\..\src\netmon.h" />
     <ClInclude Include="..\..\src\objmon.h" />
     <ClInclude Include="..\..\src\osutils.h" />
+    <ClInclude Include="..\..\src\processprotection.h" />
     <ClInclude Include="..\..\src\procmon.h" />
     <ClInclude Include="..\..\src\procutils.h" />
+    <ClInclude Include="..\..\src\quarantine.h" />
     <ClInclude Include="..\..\src\regmon.h" />
+    <ClInclude Include="..\..\src\rootkitdetector.h" />
     <ClInclude Include="..\..\src\stringutils.h" />
     <ClInclude Include="..\..\src\sysapi.h" />
+    <ClInclude Include="..\..\src\userhook.h" />
     <ClInclude Include="..\..\src\workerthread.h" />
   </ItemGroup>
   <ItemGroup>

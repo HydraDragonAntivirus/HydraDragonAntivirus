@@ -720,5 +720,193 @@ inline void convertBinToHex(const void* pSrc, size_t nSrcSize, char* psDst, size
 	psDst[nConvertSize * 2] = '\0';
 }
 
+///
+/// Owlyshield helper: Bounded wide string length
+///
+inline SIZE_T OwlyBoundedWideLength(_In_reads_(MaxCch) PCWSTR Str, _In_ SIZE_T MaxCch)
+{
+	if (Str == nullptr || MaxCch == 0)
+		return 0;
+	
+	for (SIZE_T i = 0; i < MaxCch; ++i)
+	{
+		if (Str[i] == L'\0')
+			return i;
+	}
+	return MaxCch;
+}
+
+///
+/// Owlyshield helper: Case-insensitive bounded wide string comparison
+///
+inline BOOLEAN OwlyWideEqualsInsensitiveBounded(
+	_In_reads_(ACch) PCWSTR A, _In_ SIZE_T ACch,
+	_In_reads_(BCch) PCWSTR B, _In_ SIZE_T BCch)
+{
+	if (A == nullptr || B == nullptr)
+		return FALSE;
+	
+	SIZE_T aLen = OwlyBoundedWideLength(A, ACch);
+	SIZE_T bLen = OwlyBoundedWideLength(B, BCch);
+	
+	if (aLen != bLen)
+		return FALSE;
+	
+	for (SIZE_T i = 0; i < aLen; ++i)
+	{
+		WCHAR ca = A[i];
+		WCHAR cb = B[i];
+		
+		if (ca >= L'a' && ca <= L'z')
+			ca = ca - L'a' + L'A';
+		if (cb >= L'a' && cb <= L'z')
+			cb = cb - L'a' + L'A';
+		
+		if (ca != cb)
+			return FALSE;
+	}
+	
+	return TRUE;
+}
+
+///
+/// Owlyshield helper: Normalize rule line for matching
+///
+inline BOOLEAN OwlyNormalizeRuleLineForMatch(
+	_In_reads_(InChars) PCWSTR InText,
+	_In_ SIZE_T InChars,
+	_Out_writes_(OutCch) PWCHAR OutBuffer,
+	_In_ SIZE_T OutCch,
+	_Out_ PSIZE_T OutLen)
+{
+	if (InText == nullptr || OutBuffer == nullptr || OutCch == 0 || OutLen == nullptr)
+		return FALSE;
+	
+	*OutLen = 0;
+	SIZE_T outIdx = 0;
+	
+	// Skip leading whitespace
+	SIZE_T i = 0;
+	while (i < InChars && (InText[i] == L' ' || InText[i] == L'\t'))
+		i++;
+	
+	// Copy and normalize to lowercase, skip trailing whitespace
+	SIZE_T lastNonSpace = 0;
+	while (i < InChars && outIdx < OutCch - 1)
+	{
+		WCHAR c = InText[i];
+		
+		if (c == L'\r' || c == L'\n' || c == L'\0')
+			break;
+		
+		// Convert to lowercase
+		if (c >= L'A' && c <= L'Z')
+			c = c - L'A' + L'a';
+		
+		// Normalize path separators
+		if (c == L'/')
+			c = L'\\';
+		
+		OutBuffer[outIdx++] = c;
+		
+		if (c != L' ' && c != L'\t')
+			lastNonSpace = outIdx;
+		
+		i++;
+	}
+	
+	// Trim trailing whitespace
+	outIdx = lastNonSpace;
+	OutBuffer[outIdx] = L'\0';
+	*OutLen = outIdx;
+	
+	return (outIdx > 0);
+}
+
+///
+/// Owlyshield helper: Normalize path for matching
+///
+inline BOOLEAN OwlyNormalizePathForMatch(
+	_In_reads_(InChars) PCWSTR InPath,
+	_In_ SIZE_T InChars,
+	_Out_writes_(OutCch) PWCHAR OutBuffer,
+	_In_ SIZE_T OutCch,
+	_Out_ PSIZE_T OutLen)
+{
+	if (InPath == nullptr || OutBuffer == nullptr || OutCch == 0 || OutLen == nullptr)
+		return FALSE;
+	
+	*OutLen = 0;
+	SIZE_T outIdx = 0;
+	SIZE_T i = 0;
+	
+	// Skip device prefix like \Device\HarddiskVolumeX\
+	if (InChars > 20 && _wcsnicmp(InPath, L"\\Device\\Harddisk", 16) == 0)
+	{
+		// Find the next backslash after \Device\HarddiskVolumeX
+		i = 16;
+		while (i < InChars && InPath[i] != L'\\')
+			i++;
+		if (i < InChars)
+			i++; // Skip the backslash
+	}
+	// Skip \??\ prefix
+	else if (InChars > 4 && _wcsnicmp(InPath, L"\\??\\", 4) == 0)
+	{
+		i = 4;
+	}
+	// Skip drive letter (C:\)
+	else if (InChars > 2 && InPath[1] == L':' && InPath[2] == L'\\')
+	{
+		i = 3;
+	}
+	
+	// Copy and normalize
+	while (i < InChars && outIdx < OutCch - 1)
+	{
+		WCHAR c = InPath[i];
+		
+		if (c == L'\0')
+			break;
+		
+		// Convert to lowercase
+		if (c >= L'A' && c <= L'Z')
+			c = c - L'A' + L'a';
+		
+		// Normalize path separators
+		if (c == L'/')
+			c = L'\\';
+		
+		OutBuffer[outIdx++] = c;
+		i++;
+	}
+	
+	OutBuffer[outIdx] = L'\0';
+	*OutLen = outIdx;
+	
+	return (outIdx > 0);
+}
+
+///
+/// Owlyshield helper: Normalize path for matching (UNICODE_STRING version)
+///
+inline BOOLEAN OwlyNormalizePathForMatch(
+	_In_ PCUNICODE_STRING InPath,
+	_Out_writes_(OutCch) PWCHAR OutBuffer,
+	_Out_ PUNICODE_STRING OutPath)
+{
+	if (InPath == nullptr || InPath->Buffer == nullptr || OutBuffer == nullptr || OutPath == nullptr)
+		return FALSE;
+	
+	SIZE_T outLen = 0;
+	SIZE_T inChars = InPath->Length / sizeof(WCHAR);
+	
+	if (!OwlyNormalizePathForMatch(InPath->Buffer, inChars, OutBuffer, 260, &outLen))
+		return FALSE;
+	
+	RtlInitUnicodeString(OutPath, OutBuffer);
+	return TRUE;
+}
+
 } // namespace cmd
 /// @}
