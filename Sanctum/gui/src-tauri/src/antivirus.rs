@@ -62,6 +62,8 @@ fn send_manual_scan_to_owlyshield(
     timeout_ms: u64,
     late_child_scan_grace_ms: u64,
 ) -> Result<(), String> {
+    use std::io::{BufRead, BufReader, Write};
+
     let message = serde_json::json!({
         "file_path": file_path,
         "scan_mode": scan_mode,
@@ -72,17 +74,71 @@ fn send_manual_scan_to_owlyshield(
     .to_string();
 
     let mut options = std::fs::OpenOptions::new();
-    options.write(true);
+    options.read(true).write(true);
 
     let started_at = Instant::now();
     loop {
         match options.open(OWLYSHIELD_MANUAL_SCAN_PIPE) {
             Ok(mut file) => {
-                use std::io::Write;
                 file.write_all(message.as_bytes())
                     .map_err(|e| format!("failed to write manual scan request: {e}"))?;
                 file.flush()
                     .map_err(|e| format!("failed to flush manual scan request: {e}"))?;
+
+                let mut reader = BufReader::new(file);
+                let mut line = String::new();
+
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let trimmed = line.trim();
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+
+                            match serde_json::from_str::<serde_json::Value>(trimmed) {
+                                Ok(response) => {
+                                    if let Some(status) = response.get("status").and_then(|s| s.as_str()) {
+                                        match status {
+                                            "threat_detected" => {
+                                                let file_path = response.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                let detection_name = response.get("detection_name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                let detection_engine = response.get("detection_engine").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                let recommended_action = response.get("recommended_action").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                
+                                                eprintln!("[!] THREAT DETECTED: {} detected by {} as {}, recommended action: {}",
+                                                    file_path, detection_engine, detection_name, recommended_action);
+                                            }
+                                            "action_executed" => {
+                                                let file_path = response.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                let action = response.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                let result = response.get("result").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                
+                                                eprintln!("[*] ACTION EXECUTED: {} on {}, result: {}",
+                                                    action, file_path, result);
+                                            }
+                                            "scan_complete" => {
+                                                break;
+                                            }
+                                            _ => {
+                                                eprintln!("[?] Unknown response status: {}", status);
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("[-] Failed to parse response JSON: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            return Err(format!("failed to read response from pipe: {}", e));
+                        }
+                    }
+                }
+
                 return Ok(());
             }
             Err(error) => {
