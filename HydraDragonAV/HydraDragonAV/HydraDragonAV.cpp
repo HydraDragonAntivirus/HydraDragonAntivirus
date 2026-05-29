@@ -47,21 +47,24 @@ static std::unique_ptr<clamav::Scanner> g_clamavScanner;
 static std::vector<YR_RULES*> g_yaraRulesets;
 constexpr auto  CLAMAV_UPDATE_INTERVAL        = std::chrono::hours(2);
 constexpr auto  CLAMAV_DEFINITION_MAX_AGE     = std::chrono::hours(12);
-constexpr DWORD FRESHCLAM_TIMEOUT_MS          = 180u * 1000u;
+constexpr DWORD FRESHCLAM_TIMEOUT_MS          = 1000u * 1000u;
 
 static std::unordered_set<std::string> g_excludedRules;
 
 // ---------------------------------------------------------------------------
 // Memory guard.
-// Uses a baseline + growth limit instead of a low fixed cap. ClamAV can
-// legitimately reserve hundreds of MiB after loading signatures, so a fixed
-// 512 MiB process limit can cause restart loops.
+// Signature databases can legitimately make HydraDragonAV.exe large at startup.
+// Do not use a low fixed process-memory cap for ClamAV/YARA. Instead:
+//   1) warm up while engines/signatures settle,
+//   2) capture a baseline after warm-up,
+//   3) recycle only if memory grows far beyond that baseline.
 // ---------------------------------------------------------------------------
 constexpr SIZE_T HYDRADRAGON_PRIVATE_BYTES_GROWTH_LIMIT =
-    static_cast<SIZE_T>(512ull * 1024ull * 1024ull); // baseline + 512 MiB
-constexpr SIZE_T HYDRADRAGON_PRIVATE_BYTES_ABSOLUTE_LIMIT =
-    static_cast<SIZE_T>(1536ull * 1024ull * 1024ull); // emergency cap: 1.5 GiB
+    static_cast<SIZE_T>(1536ull * 1024ull * 1024ull); // baseline + 1.5 GiB
+constexpr SIZE_T HYDRADRAGON_PRIVATE_BYTES_EMERGENCY_LIMIT =
+    static_cast<SIZE_T>(8192ull * 1024ull * 1024ull); // emergency-only cap: 8 GiB
 constexpr auto MEMORY_MONITOR_INTERVAL = std::chrono::seconds(30);
+constexpr auto MEMORY_GUARD_WARMUP_TIME = std::chrono::minutes(3);
 constexpr UINT HYDRADRAGON_MEMORY_RECYCLE_EXIT_CODE = 100;
 
 static std::atomic<SIZE_T> g_memoryBaselinePrivateBytes{0};
@@ -212,45 +215,75 @@ void StartHeapTrimThread() {
 
 void StartMemoryGuardThread() {
     std::thread([]() {
+        const auto guardStartedAt = std::chrono::steady_clock::now();
+        SIZE_T warmupHighWaterPrivateBytes = 0;
+
         while (!g_shutdown.load()) {
             std::this_thread::sleep_for(MEMORY_MONITOR_INTERVAL);
 
             const SIZE_T privateBytes = GetCurrentProcessPrivateBytes();
-            if (privateBytes == 0) continue;
+            if (privateBytes == 0) {
+                continue;
+            }
 
-            SIZE_T baseline = g_memoryBaselinePrivateBytes.load(std::memory_order_relaxed);
-            if (baseline == 0) {
-                g_memoryBaselinePrivateBytes.store(privateBytes, std::memory_order_relaxed);
-                baseline = privateBytes;
+            const auto elapsed = std::chrono::steady_clock::now() - guardStartedAt;
+
+            // During warm-up, ClamAV/YARA signatures and caches can still be
+            // loading. Treat the highest observed value as the startup baseline.
+            if (elapsed < MEMORY_GUARD_WARMUP_TIME) {
+                if (privateBytes > warmupHighWaterPrivateBytes) {
+                    warmupHighWaterPrivateBytes = privateBytes;
+                }
+
 #if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
-                std::cout << "[MemoryGuard] baseline_private_bytes=" << baseline
+                std::cout << "[MemoryGuard] warmup private_bytes=" << privateBytes
+                          << " warmup_high_water=" << warmupHighWaterPrivateBytes
+                          << " scans=" << g_totalScanRequests.load()
                           << std::endl;
 #endif
                 continue;
             }
 
+            SIZE_T baseline = g_memoryBaselinePrivateBytes.load(std::memory_order_relaxed);
+            if (baseline == 0) {
+                baseline = std::max(warmupHighWaterPrivateBytes, privateBytes);
+                g_memoryBaselinePrivateBytes.store(baseline, std::memory_order_relaxed);
+
+                std::cout << "[MemoryGuard] baseline set after warm-up: "
+                          << baseline
+                          << " bytes; growth_limit="
+                          << HYDRADRAGON_PRIVATE_BYTES_GROWTH_LIMIT
+                          << " emergency_limit="
+                          << HYDRADRAGON_PRIVATE_BYTES_EMERGENCY_LIMIT
+                          << std::endl;
+                continue;
+            }
+
             const SIZE_T growthLimit = baseline + HYDRADRAGON_PRIVATE_BYTES_GROWTH_LIMIT;
             const bool exceededGrowth = privateBytes >= growthLimit;
-            const bool exceededAbsolute = privateBytes >= HYDRADRAGON_PRIVATE_BYTES_ABSOLUTE_LIMIT;
+            const bool exceededEmergency = privateBytes >= HYDRADRAGON_PRIVATE_BYTES_EMERGENCY_LIMIT;
 
 #if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
             std::cout << "[MemoryGuard] private_bytes=" << privateBytes
                       << " baseline=" << baseline
                       << " growth_limit=" << growthLimit
-                      << " absolute_limit=" << HYDRADRAGON_PRIVATE_BYTES_ABSOLUTE_LIMIT
-                      << " scans=" << g_totalScanRequests.load() << std::endl;
+                      << " emergency_limit=" << HYDRADRAGON_PRIVATE_BYTES_EMERGENCY_LIMIT
+                      << " scans=" << g_totalScanRequests.load()
+                      << std::endl;
 #endif
 
-            if (exceededGrowth || exceededAbsolute) {
+            if (exceededGrowth || exceededEmergency) {
                 std::cerr << "[MemoryGuard] HydraDragonAV private memory reached "
-                          << privateBytes << " bytes after "
+                          << privateBytes
+                          << " bytes after "
                           << g_totalScanRequests.load()
                           << " scan requests. Baseline=" << baseline
                           << ", growth_limit=" << growthLimit
-                          << ", absolute_limit="
-                          << HYDRADRAGON_PRIVATE_BYTES_ABSOLUTE_LIMIT
+                          << ", emergency_limit="
+                          << HYDRADRAGON_PRIVATE_BYTES_EMERGENCY_LIMIT
                           << ". Recycling scanner process."
                           << std::endl;
+
                 ExitProcess(HYDRADRAGON_MEMORY_RECYCLE_EXIT_CODE);
             }
         }
