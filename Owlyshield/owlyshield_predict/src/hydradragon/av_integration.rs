@@ -47,8 +47,9 @@ use chrono::Utc;
 use hydradragonstatic::models::{ScanReport, Verdict};
 use hydradragonstatic::rules::RuleSet;
 use hydradragonstatic::{EngineCore, ScanOptions};
-use crate::hydradragon::threat_response_settings::{ThreatResponseSettings, DetectionEngine, ThreatAction};
-use crate::windows::threathandling::{WindowsThreatHandler, QuarantineMetadata};
+use crate::hydradragon::threat_response_settings::{ThreatResponseSettings, DetectionEngine, ThreatAction as SettingsThreatAction};
+use crate::windows::threathandling::WindowsThreatHandler;
+use crate::threat_handler::QuarantineMetadata;
 
 // --- Pipe names (single source of truth) ---
 const PIPE_AV_TO_EDR: &str = r"\\.\pipe\Global\hydradragon_to_owlyshield";
@@ -2307,6 +2308,7 @@ fn spawn_manual_scan_listener(
                                     let mut detection_name = String::new();
                                     let mut recommended_action = String::new();
                                     let mut trust_level = 0u8;
+                                    let mut current_action = SettingsThreatAction::KillAndQuarantine;
 
                                     if !hydradragon_static_matches.is_empty() {
                                         threat_detected = true;
@@ -2315,6 +2317,7 @@ fn spawn_manual_scan_listener(
                                         let engine_config = settings.get_engine_config(DetectionEngine::HydraDragonStatic);
                                         recommended_action = engine_config.action.as_str().to_string();
                                         trust_level = engine_config.trust_level;
+                                        current_action = engine_config.action;
                                     } else if !yara_x_matches.is_empty() {
                                         threat_detected = true;
                                         detection_engine = "YaraX".to_string();
@@ -2322,13 +2325,15 @@ fn spawn_manual_scan_listener(
                                         let engine_config = settings.get_engine_config(DetectionEngine::YaraX);
                                         recommended_action = engine_config.action.as_str().to_string();
                                         trust_level = engine_config.trust_level;
-                                    } else if let Some(clamav_result) = rust_service_scan_results.iter().find(|r| r.engine == "ClamAV" && r.verdict != "clean") {
+                                        current_action = engine_config.action;
+                                    } else if let Some(clamav_result) = rust_service_scan_results.iter().find(|r| r.engine == "ClamAV" && r.malicious) {
                                         threat_detected = true;
                                         detection_engine = "ClamAV".to_string();
-                                        detection_name = clamav_result.verdict.clone();
+                                        detection_name = clamav_result.virus_name.clone();
                                         let engine_config = settings.get_engine_config(DetectionEngine::ClamAV);
                                         recommended_action = engine_config.action.as_str().to_string();
                                         trust_level = engine_config.trust_level;
+                                        current_action = engine_config.action;
                                     }
 
                                     if threat_detected && settings.should_act_on_detection(
@@ -2360,22 +2365,22 @@ fn spawn_manual_scan_listener(
                                             "ManualScan threat_detected response",
                                         );
 
-                                        let action_result = match engine_config.action {
-                                            ThreatAction::DoNothing => {
+                                        let action_result = match current_action {
+                                            SettingsThreatAction::DoNothing => {
                                                 Logging::info(&format!(
                                                     "[ManualScan] Action: DoNothing for {}",
                                                     normalized_file_path
                                                 ));
                                                 "success_no_action"
                                             }
-                                            ThreatAction::NotifyOnly => {
+                                            SettingsThreatAction::NotifyOnly => {
                                                 Logging::info(&format!(
                                                     "[ManualScan] Action: NotifyOnly for {}",
                                                     normalized_file_path
                                                 ));
                                                 "success_notified"
                                             }
-                                            ThreatAction::DenyAccess => {
+                                            SettingsThreatAction::DenyAccess => {
                                                 Logging::info(&format!(
                                                     "[ManualScan] Action: DenyAccess for {}",
                                                     normalized_file_path
@@ -2383,16 +2388,13 @@ fn spawn_manual_scan_listener(
                                                 threat_handler.deny_path_access(std::path::Path::new(&normalized_file_path));
                                                 "success_denied"
                                             }
-                                            ThreatAction::Quarantine => {
+                                            SettingsThreatAction::Quarantine => {
                                                 Logging::info(&format!(
                                                     "[ManualScan] Action: Quarantine for {}",
                                                     normalized_file_path
                                                 ));
                                                 let metadata = QuarantineMetadata {
-                                                    detection_name: detection_name.clone(),
-                                                    detection_engine: detection_engine.clone(),
-                                                    original_path: normalized_file_path.clone(),
-                                                    quarantine_reason: format!("Manual scan detected: {}", detection_name),
+                                                    detection: format!("{}: {}", detection_engine, detection_name),
                                                 };
                                                 let synthetic_gid = std::collections::hash_map::DefaultHasher::new();
                                                 use std::hash::{Hash, Hasher};
@@ -2402,7 +2404,7 @@ fn spawn_manual_scan_listener(
                                                 threat_handler.kill_and_quarantine(gid, std::path::Path::new(&normalized_file_path), &metadata);
                                                 "success_quarantined"
                                             }
-                                            ThreatAction::Kill => {
+                                            SettingsThreatAction::Kill => {
                                                 Logging::info(&format!(
                                                     "[ManualScan] Action: Kill for {}",
                                                     normalized_file_path
@@ -2415,16 +2417,13 @@ fn spawn_manual_scan_listener(
                                                 threat_handler.kill(gid);
                                                 "success_killed"
                                             }
-                                            ThreatAction::KillAndQuarantine => {
+                                            SettingsThreatAction::KillAndQuarantine => {
                                                 Logging::info(&format!(
                                                     "[ManualScan] Action: KillAndQuarantine for {}",
                                                     normalized_file_path
                                                 ));
                                                 let metadata = QuarantineMetadata {
-                                                    detection_name: detection_name.clone(),
-                                                    detection_engine: detection_engine.clone(),
-                                                    original_path: normalized_file_path.clone(),
-                                                    quarantine_reason: format!("Manual scan detected: {}", detection_name),
+                                                    detection: format!("{}: {}", detection_engine, detection_name),
                                                 };
                                                 let synthetic_gid = std::collections::hash_map::DefaultHasher::new();
                                                 use std::hash::{Hash, Hasher};
@@ -2434,7 +2433,7 @@ fn spawn_manual_scan_listener(
                                                 threat_handler.kill_and_quarantine(gid, std::path::Path::new(&normalized_file_path), &metadata);
                                                 "success_killed_quarantined"
                                             }
-                                            ThreatAction::KillAndRemove => {
+                                            SettingsThreatAction::KillAndRemove => {
                                                 Logging::info(&format!(
                                                     "[ManualScan] Action: KillAndRemove for {}",
                                                     normalized_file_path
@@ -2447,14 +2446,14 @@ fn spawn_manual_scan_listener(
                                                 threat_handler.kill_and_remove(gid, std::path::Path::new(&normalized_file_path));
                                                 "success_killed_removed"
                                             }
-                                            ThreatAction::Suspend => {
-                                                Logging::warn(&format!(
+                                            SettingsThreatAction::Suspend => {
+                                                Logging::warning(&format!(
                                                     "[ManualScan] Action: Suspend not applicable for manual scan (no process context) for {}",
                                                     normalized_file_path
                                                 ));
                                                 "error_suspend_not_applicable"
                                             }
-                                            ThreatAction::AskUser => {
+                                            SettingsThreatAction::AskUser => {
                                                 Logging::info(&format!(
                                                     "[ManualScan] Action: AskUser - defaulting to NotifyOnly for {}",
                                                     normalized_file_path

@@ -125,7 +125,7 @@ impl DetectionEngine {
 }
 
 /// Configuration for a specific detection engine
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EngineConfig {
     pub trust_level: u8, // 0-100, where 100 means full trust
     pub action: ThreatAction,
@@ -141,7 +141,7 @@ impl Default for EngineConfig {
 }
 
 /// Threat response settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThreatResponseSettings {
     pub engine_configs: HashMap<String, EngineConfig>,
 }
