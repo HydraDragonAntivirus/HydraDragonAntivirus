@@ -14,10 +14,10 @@ use std::time::Duration;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE, HANDLE};
 use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE, PIPE_ACCESS_INBOUND,
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
     PIPE_UNLIMITED_INSTANCES,
 };
-use windows::Win32::Storage::FileSystem::ReadFile;
+use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
 
 use crate::logging::Logging;
 use crate::behavioral::behavior_engine::BehaviorEngine;
@@ -162,7 +162,7 @@ pub fn spawn_pid_log_listener(pid: u32, mut behavior_engine: BehaviorEngine) {
                     // and ingest it into behavior_engine.
                     if let Ok(doc) = bson::Document::from_reader(bson_data) {
                         Logging::info(&format!("[CapemonLog] PID {} sent API hook: {:?}", pid, doc.get_str("api")));
-                        // behavior_engine.ingest_capemon_event(pid, doc);
+                        behavior_engine.ingest_capemon_event(pid, doc);
                     }
                 }
             }

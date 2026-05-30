@@ -9,6 +9,7 @@
 //! which calls queue_manual_scan_request -> antivirus.py -> YARA/ML.
 
 use std::ffi::OsStr;
+use std::os::windows::ffi::OsStrExt;
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
@@ -17,9 +18,9 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE, HANDLE};
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
-    PIPE_ACCESS_INBOUND, PIPE_UNLIMITED_INSTANCES,
+    PIPE_UNLIMITED_INSTANCES,
 };
-use windows::Win32::Storage::FileSystem::ReadFile;
+use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
 
 use crate::logging::Logging;
 use crate::hydradragon::av_integration::EDRScanRequest;

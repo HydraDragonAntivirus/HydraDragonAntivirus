@@ -4339,6 +4339,99 @@ impl BehaviorEngine {
         }
     }
 
+    /// Ingest a BSON telemetry event from Capemon API hooks.
+    /// Capemon hooks LoadLibrary, CreateProcess, and other APIs, sending BSON-encoded logs.
+    /// This method dynamically processes ALL BSON fields without hardcoded API name checks.
+    pub fn ingest_capemon_event(&mut self, pid: u32, doc: bson::Document) {
+        let gid = self.find_gid_by_pid(pid).unwrap_or(0);
+        
+        // Extract API name from BSON document (if present)
+        let api_name = doc.get_str("api").unwrap_or("Unknown").to_string();
+        
+        // Build a summary of all BSON fields for logging and analysis
+        let mut field_summary = Vec::new();
+        
+        // Iterate over ALL BSON document fields dynamically
+        for (key, value) in doc.iter() {
+            let value_str = match value {
+                bson::Bson::String(s) => s.clone(),
+                bson::Bson::Int32(i) => i.to_string(),
+                bson::Bson::Int64(i) => i.to_string(),
+                bson::Bson::Double(d) => d.to_string(),
+                bson::Bson::Boolean(b) => b.to_string(),
+                bson::Bson::Array(arr) => {
+                    // Convert array elements to string representation
+                    let elements: Vec<String> = arr.iter().map(|elem| {
+                        match elem {
+                            bson::Bson::String(s) => s.clone(),
+                            bson::Bson::Int32(i) => i.to_string(),
+                            bson::Bson::Int64(i) => i.to_string(),
+                            bson::Bson::Double(d) => d.to_string(),
+                            _ => format!("{:?}", elem),
+                        }
+                    }).collect();
+                    format!("[{}]", elements.join(", "))
+                }
+                bson::Bson::Document(subdoc) => {
+                    // Nested document - convert to compact string
+                    format!("{{{} fields}}", subdoc.len())
+                }
+                _ => format!("{:?}", value),
+            };
+            
+            field_summary.push(format!("{}={}", key, value_str));
+        }
+        
+        // Update process state with detected API and ALL BSON fields
+        if gid != 0 {
+            if let Some(state) = self.process_states.get_mut(&gid) {
+                // Store API name in detected_apis set
+                state.detected_apis.insert(api_name.clone());
+                
+                // Store ALL BSON fields dynamically in the process state
+                // The behavior engine's rule matching system will analyze these fields
+                for (key, value) in doc.iter() {
+                    let field_key = format!("capemon:{}:{}", api_name, key);
+                    
+                    // Convert BSON value to string for storage
+                    let value_str = match value {
+                        bson::Bson::String(s) => s.clone(),
+                        bson::Bson::Int32(i) => i.to_string(),
+                        bson::Bson::Int64(i) => i.to_string(),
+                        bson::Bson::Double(d) => d.to_string(),
+                        bson::Bson::Boolean(b) => b.to_string(),
+                        bson::Bson::Array(arr) => {
+                            let elements: Vec<String> = arr.iter().map(|elem| {
+                                match elem {
+                                    bson::Bson::String(s) => s.clone(),
+                                    bson::Bson::Int32(i) => i.to_string(),
+                                    bson::Bson::Int64(i) => i.to_string(),
+                                    _ => format!("{:?}", elem),
+                                }
+                            }).collect();
+                            elements.join(";")
+                        }
+                        _ => format!("{:?}", value),
+                    };
+                    
+                    // Store in detected_apis for rule matching
+                    state.detected_apis.insert(field_key);
+                    
+                    // Also store the actual value for potential future use
+                    if !value_str.is_empty() && value_str.len() < 512 {
+                        let value_key = format!("capemon_value:{}:{}", api_name, key);
+                        state.detected_apis.insert(format!("{}={}", value_key, value_str));
+                    }
+                }
+            }
+        }
+        
+        Logging::debug(&format!(
+            "[Capemon] Ingested API hook from PID {}: {} (GID: {}) | Fields: {}",
+            pid, api_name, gid, field_summary.join(", ")
+        ));
+    }
+
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     fn sanitize_firewall_hips_field(value: &str) -> String {
         value

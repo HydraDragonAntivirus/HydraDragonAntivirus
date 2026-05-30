@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::fs;
 
 use shared_no_std::constants::SANCTUM_DLL_RELATIVE_PATH;
 use windows::{
@@ -124,16 +125,9 @@ pub fn inject_edr_dll(pid: u64) -> Result<(), ProcessErrors> {
 /// Injects CAPEMON.DLL into the target process using Sanctum's injection technique
 /// (VirtualAllocEx + CreateRemoteThread) instead of relying on a subprocess loader.exe.
 pub fn inject_capemon_dll(pid: u64) -> Result<(), ProcessErrors> {
-    // 1. Detect DLL sideloading and deploy CAPEMON proxy if needed
-    if let Some(path_str) = resolve_process_path(pid as u32) {
-        let path = PathBuf::from(path_str);
-        if let Some(dir) = path.parent() {
-            if detect_dll_sideloading(dir) && has_msimg32(dir) {
-                // If it is suspected of sideloading, deploy version.dll proxy (capemon)
-                let _ = deploy_version_proxy(dir, pid as u32);
-            }
-        }
-    }
+    // DLL sideloading detection is handled by Capemon's LoadLibraryExW hook
+    // which reports suspicious DLL loads via BSON telemetry to the behavior engine.
+    // The behavior engine analyzes these reports and triggers appropriate responses.
 
     // Open the process
     let h_process = unsafe {

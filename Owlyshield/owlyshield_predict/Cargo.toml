@@ -42,7 +42,8 @@ base64 = "0.21.0"
 bs58 = "0.4.0"
 goblin = "0.10.5"
 zip = { version = "8.6.0", default-features = false }
-yara-x = "1.17.0" 
+yara-x = "1.17.0"
+bson = "2.9.0"
 
 #Windows
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -60,6 +61,8 @@ features = [
     "Win32_Storage_InstallableFileSystems",
     "Win32_System_Com",
     "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_LibraryLoader",
     "Win32_System_ProcessStatus",
     "Win32_System_Threading",
     "Win32_System_RemoteDesktop",

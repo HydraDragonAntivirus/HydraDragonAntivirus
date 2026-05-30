@@ -1,9 +1,7 @@
-use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
-use std::{fs, thread, time};
-use windows::core::{s, w, PCSTR, PCWSTR};
-use windows::Win32::Foundation::{CloseHandle, GetLastError, BOOL, HANDLE, HMODULE, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use std::path::PathBuf;
+use windows::core::{s, w, PCWSTR};
+use windows::Win32::Foundation::{CloseHandle, BOOL, HANDLE, HMODULE, WAIT_OBJECT_0};
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W,
@@ -18,23 +16,10 @@ use windows::Win32::System::Threading::{
 
 use crate::logging::Logging;
 
-fn get_antivirus_install_dir() -> PathBuf {
-    let mut candidates = Vec::new();
-    if let Ok(pf) = std::env::var("ProgramFiles") {
-        candidates.push(PathBuf::from(pf).join("HydraDragonAntivirus").join("hydradragon"));
-    }
-    if let Ok(pf86) = std::env::var("ProgramFiles(x86)") {
-        candidates.push(PathBuf::from(pf86).join("HydraDragonAntivirus").join("hydradragon"));
-    }
-    candidates.push(PathBuf::from(r"C:\HydraDragonAntivirus\hydradragon"));
-    
-    candidates.into_iter().find(|p| p.exists()).unwrap_or_else(|| PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\hydradragon"))
-}
-
 fn is_64bit_process(process_handle: HANDLE) -> bool {
     let mut is_wow64 = BOOL(0);
     unsafe {
-        if IsWow64Process(process_handle, &mut is_wow64).is_ok() {
+        if let Ok(()) = IsWow64Process(process_handle, &mut is_wow64) {
             return is_wow64.0 == 0;
         }
     }
@@ -75,7 +60,7 @@ fn find_remote_module_base(pid: u32, module_name: &str) -> Option<usize> {
 pub fn inject(pid: u32) -> bool {
     Logging::info(&format!("[PythonHook] Attempting to inject hook into PID: {}", pid));
 
-    let install_dir = get_antivirus_install_dir();
+    let install_dir = PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\hydradragon");
     let hook_py_path = install_dir.join("__hook__.py");
 
     let h_proc = unsafe { OpenProcess(PROCESS_ALL_ACCESS, false, pid) };
@@ -122,13 +107,13 @@ pub fn inject(pid: u32) -> bool {
         }
 
         let mut bytes_written = 0;
-        if WriteProcessMemory(
+        if let Err(_) = WriteProcessMemory(
             h_proc,
             mem,
             path_utf16.as_ptr() as *const std::ffi::c_void,
             path_size,
             Some(&mut bytes_written),
-        ).is_err() {
+        ) {
             Logging::error(&format!("[PythonHook] WriteProcessMemory failed for PID {}", pid));
             let _ = CloseHandle(h_proc);
             return false;
