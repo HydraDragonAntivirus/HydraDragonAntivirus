@@ -133,7 +133,9 @@ std::string JsonEscapeString(const std::string& value) {
     static constexpr char kHex[] = "0123456789ABCDEF";
 
     std::string escaped;
-    escaped.reserve(value.size() + 16);
+    // Reserve 2x: worst-case each char escapes to 2 chars (\\, \", etc.)
+    // \uXXXX is 6 chars but extremely rare in YARA/ClamAV names.
+    escaped.reserve(value.size() * 2);
 
     for (unsigned char ch : value) {
         switch (ch) {
@@ -640,18 +642,28 @@ bool LoadYaraRules() {
 // ProcessRequest — core scan logic
 // ---------------------------------------------------------------------------
 void ProcessRequest(const std::string& request, std::string& response) {
-    // Basic JSON extraction for {"path": "..."}
+    // JSON extraction for {"path": "..."} — properly skips escaped quotes \" inside the value.
     std::string filePathStr;
     size_t path_key_pos = request.find("\"path\"");
     if (path_key_pos != std::string::npos) {
-        size_t colon_pos   = request.find(":", path_key_pos);
+        size_t colon_pos = request.find(':', path_key_pos + 6);
         if (colon_pos != std::string::npos) {
-            size_t start_quote = request.find("\"", colon_pos);
-            if (start_quote != std::string::npos) {
-                size_t end_quote = request.find("\"", start_quote + 1);
-                if (end_quote != std::string::npos)
-                    filePathStr = request.substr(start_quote + 1,
-                                                  end_quote - start_quote - 1);
+            // Skip whitespace between ':' and opening quote
+            size_t start_quote = colon_pos + 1;
+            while (start_quote < request.size() && request[start_quote] == ' ') ++start_quote;
+            if (start_quote < request.size() && request[start_quote] == '"') {
+                // Walk forward, respecting backslash escapes
+                size_t pos = start_quote + 1;
+                while (pos < request.size()) {
+                    if (request[pos] == '\\') {
+                        pos += 2; // skip escape sequence (both \ and the next char)
+                    } else if (request[pos] == '"') {
+                        filePathStr = request.substr(start_quote + 1, pos - start_quote - 1);
+                        break;
+                    } else {
+                        ++pos;
+                    }
+                }
             }
         }
     }
@@ -663,13 +675,46 @@ void ProcessRequest(const std::string& request, std::string& response) {
 
     g_totalScanRequests.fetch_add(1, std::memory_order_relaxed);
 
-    // Unescape double-backslashes
+    // Full JSON string unescape: handle \\, \", \/, \b, \f, \n, \r, \t, \uXXXX
     std::string cleanPath;
     for (size_t i = 0; i < filePathStr.size(); ++i) {
-        if (filePathStr[i] == '\\' && i + 1 < filePathStr.size() &&
-            filePathStr[i + 1] == '\\') {
-            cleanPath += '\\';
-            ++i;
+        if (filePathStr[i] == '\\' && i + 1 < filePathStr.size()) {
+            const char next = filePathStr[i + 1];
+            switch (next) {
+            case '"':  cleanPath += '"';  ++i; break;
+            case '\\': cleanPath += '\\'; ++i; break;
+            case '/':  cleanPath += '/';  ++i; break;
+            case 'b':  cleanPath += '\b'; ++i; break;
+            case 'f':  cleanPath += '\f'; ++i; break;
+            case 'n':  cleanPath += '\n'; ++i; break;
+            case 'r':  cleanPath += '\r'; ++i; break;
+            case 't':  cleanPath += '\t'; ++i; break;
+            case 'u': {
+                // \uXXXX — decode as UTF-8 (BMP only, sufficient for paths)
+                if (i + 5 < filePathStr.size()) {
+                    char hex[5] = { filePathStr[i+2], filePathStr[i+3],
+                                    filePathStr[i+4], filePathStr[i+5], '\0' };
+                    unsigned long cp = std::strtoul(hex, nullptr, 16);
+                    if (cp < 0x80) {
+                        cleanPath += static_cast<char>(cp);
+                    } else if (cp < 0x800) {
+                        cleanPath += static_cast<char>(0xC0 | (cp >> 6));
+                        cleanPath += static_cast<char>(0x80 | (cp & 0x3F));
+                    } else {
+                        cleanPath += static_cast<char>(0xE0 | (cp >> 12));
+                        cleanPath += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                        cleanPath += static_cast<char>(0x80 | (cp & 0x3F));
+                    }
+                    i += 5;
+                } else {
+                    cleanPath += next; ++i; // malformed, pass through
+                }
+                break;
+            }
+            default:
+                // Unknown escape: keep as-is
+                cleanPath += next; ++i; break;
+            }
         } else {
             cleanPath += filePathStr[i];
         }

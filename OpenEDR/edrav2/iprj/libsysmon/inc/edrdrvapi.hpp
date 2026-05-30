@@ -117,6 +117,8 @@ enum class EventField : variant::lbvs::FieldId
 	ProcessCreatorPid = 23, ///< int. It is sent if creator is not the same as parent (e.g. elevated processes)
 	TargetProcessPid = 24, ///< int
 	AccessMask = 25, ///< int
+	OwlyEntropy = 100, ///< float
+	OwlyIsEntropyCalc = 101, ///< int
 };
 
 ///

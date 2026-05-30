@@ -48,7 +48,7 @@ use hydradragonstatic::models::{ScanReport, Verdict};
 use hydradragonstatic::rules::RuleSet;
 use hydradragonstatic::{EngineCore, ScanOptions};
 use crate::hydradragon::threat_response_settings::{ThreatResponseSettings, DetectionEngine, ThreatAction as SettingsThreatAction};
-use crate::windows::threathandling::WindowsThreatHandler;
+use crate::threathandling::WindowsThreatHandler;
 use crate::threat_handler::QuarantineMetadata;
 
 // --- Pipe names (single source of truth) ---

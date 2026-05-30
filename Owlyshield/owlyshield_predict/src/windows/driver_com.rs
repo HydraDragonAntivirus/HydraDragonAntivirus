@@ -1,41 +1,49 @@
-//! Low-level communication with the minifilter.
+//! OpenEDR/edrdrv transport for the Owlyshield behavior engine.
+//!
+//! This replaces the old Owlyshield `\\RWFilter` polling protocol. Events are
+//! received from edrdrv's OpenEDR fltport and converted into the existing
+//! `IOMessage` model by `openedr_lbvs.rs`.
+
 use core::ffi::c_void;
 use std::mem;
+use std::path::Path;
 use std::ptr;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use wchar::wchar_t;
 use widestring::U16CString;
-
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use windows::Win32::Storage::InstallableFileSystems::{
-    FilterConnectCommunicationPort, FilterSendMessage,
-};
 use windows::core::{Error, PCWSTR};
-
-use std::collections::HashMap;
-use std::os::raw::{c_uchar, c_ulong, c_ulonglong, c_ushort};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::SystemTime;
-
-use std::os::windows::ffi::OsStringExt;
-use win_pe_inspection::{inspect_ntdll_syscalls, inspect_win32u_syscalls};
-use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
-
-use crate::shared_def::{
-    DriverComMessageType,
-    FileId,
-    IOMessage,
-    IrpMajorOp,
-    KernelEventInfo, // AMENDED: Fix typo
-    RuntimeFeatures,
-    known_raw_event_name,
+use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
-use crate::utils::resolve_process_path;
+use windows::Win32::Storage::InstallableFileSystems::{
+    FilterConnectCommunicationPort, FilterGetMessage, FILTER_MESSAGE_HEADER,
+};
+use windows::Win32::System::IO::DeviceIoControl;
+
+use crate::openedr_lbvs::lbvs_to_iomessage;
+use crate::shared_def::{DriverComMessageType, IOMessage};
 
 pub type BufPath = [wchar_t; 520];
 
-static SYSCALL_MAP: OnceLock<HashMap<u32, String>> = OnceLock::new();
+const EDRDRV_FLTPORT_NAME: &str = "\\{A6F9548E-BE5E-4BE6-A632-18AC626532FE}";
+const EDRDRV_IOCTL_WIN32_NAME: &str = "\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}";
+
+const FILE_DEVICE_UNKNOWN_VALUE: u32 = 0x0000_0022;
+const METHOD_BUFFERED_VALUE: u32 = 0;
+const FILE_ANY_ACCESS_VALUE: u32 = 0;
+const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
+    (device_type << 16) | (access << 14) | (function << 2) | method
+}
+const IOCTL_OWLY_COMPAT_MESSAGE: u32 = ctl_code(
+    FILE_DEVICE_UNKNOWN_VALUE,
+    0x921,
+    METHOD_BUFFERED_VALUE,
+    FILE_ANY_ACCESS_VALUE,
+);
+
 static SHARED_DRIVER: OnceLock<Mutex<Option<Driver>>> = OnceLock::new();
 
 fn shared_driver_slot() -> &'static Mutex<Option<Driver>> {
@@ -51,400 +59,184 @@ pub fn with_shared_driver<T>(f: impl FnOnce(&Driver) -> T) -> Option<T> {
     driver.as_ref().map(f)
 }
 
-fn is_syscall_number_label(label: &str) -> bool {
-    let up = label.to_ascii_uppercase();
-    up.contains("TRANSPARENT_SYSCALL_HOOK") || up.starts_with("SYSCALL_HOOK_EFER_SYSCALL")
-}
-
-fn is_already_resolved_api(label: &str) -> bool {
-    let lower = label.to_ascii_lowercase();
-    lower.contains(".dll!") || lower.starts_with("nt!")
-}
-
-fn syscall_id_from_raw_arg1(raw_arg1: u64) -> u32 {
-    (raw_arg1 & 0xFFFF_FFFF) as u32
-}
-
-fn get_syscall_map() -> &'static HashMap<u32, String> {
-    SYSCALL_MAP.get_or_init(|| {
-        let mut map = HashMap::new();
-        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-        let ntdll_path = Path::new(&system_root).join("System32").join("ntdll.dll");
-        let win32u_path = Path::new(&system_root).join("System32").join("win32u.dll");
-
-        if let Ok(entries) = inspect_ntdll_syscalls(&ntdll_path) {
-            for e in entries {
-                map.entry(e.id).or_insert(format!("ntdll.dll!{}", e.api));
-            }
-        }
-
-        if let Ok(entries) = inspect_win32u_syscalls(&win32u_path) {
-            for e in entries {
-                map.entry(e.id).or_insert(format!("win32u.dll!{}", e.api));
-            }
-        }
-        map
-    })
-}
-
-fn resolve_hypervisor_api_name(raw_label: &str, raw_arg1: u64, raw_event_type: u32) -> String {
-    let trimmed = raw_label.trim();
-    if trimmed.is_empty() {
-        if let Some(name) = known_raw_event_name(raw_event_type) {
-            return name.to_string();
-        }
-        return String::new();
-    }
-
-    if is_already_resolved_api(trimmed) || !is_syscall_number_label(trimmed) {
-        return trimmed.to_string();
-    }
-
-    let syscall_id = syscall_id_from_raw_arg1(raw_arg1);
-    let map = get_syscall_map();
-    if let Some(api) = map.get(&syscall_id) {
-        format!("{api} (syscall=0x{:X})", syscall_id)
-    } else {
-        format!("syscall_0x{:X}", syscall_id)
-    }
-}
-
-/// The usermode app (this app) can send several messages types to the driver. See [`DriverComMessageType`]
-/// for details.
-/// Depending on the message type, the *pid*, *gid* and *path* fields can be optional.
 #[derive(Debug)]
 #[repr(C)]
 struct DriverComMessage {
-    /// The type message to send. See [DriverComMessageType].
-    r#type: c_ulong,
-    /// The pid of the process which triggered an i/o activity;
-    pid: c_ulong,
-    /// The gid is maintained by the driver
-    gid: c_ulonglong,
+    r#type: u32,
+    pid: u32,
+    gid: u64,
     path: BufPath,
-    /// The path of the file to quarantine
     quarantine_path: BufPath,
 }
 
-/// A minifilter is identified by a port (know in advance), like a named pipe used for communication,
-/// and a handle, retrieved by [`Self::open_kernel_driver_com`].
 #[derive(Debug, Clone)]
 pub struct Driver {
-    handle: Arc<Mutex<HANDLE>>, // Full type name because Intellij raises an error...
+    port_handle: Arc<Mutex<HANDLE>>,
+    ioctl_handle: Arc<Mutex<HANDLE>>,
 }
 
 impl Driver {
-    /// Can be used to properly close the communication (and unregister) with the minifilter.
-    /// If this fn is not used and the program has stopped, the handle is automatically closed,
-    /// seemingly without any side-effects.
-    pub fn _close_kernel_communication(&self) -> bool {
-        let mut guard = self.handle.lock().unwrap();
-        let handle = *guard;
-        if handle.is_invalid() {
-            return true;
-        }
-        let closed = unsafe { CloseHandle(handle).as_bool() };
-        if closed {
-            *guard = HANDLE::default();
-        }
-        closed
-    }
-
-    /// The usermode running app (this one) has to register itself to the driver.
-    pub fn driver_set_app_pid(&self) -> Result<(), Error> {
-        let buf = Driver::string_to_commessage_buffer(r"\Device\harddiskVolume");
-
-        let mut get_irp_msg: DriverComMessage = DriverComMessage {
-            r#type: DriverComMessageType::MessageSetPid as c_ulong,
-            pid: std::process::id() as c_ulong,
-            gid: 140713315094899,
-            path: buf, //wch!("\0"),
-            quarantine_path: [0; 520],
-        };
-        let mut tmp: u32 = 0;
-        unsafe {
-            FilterSendMessage(
-                self.current_handle(),
-                ptr::addr_of_mut!(get_irp_msg) as *mut c_void,
-                mem::size_of::<DriverComMessage>() as c_ulong,
-                Some(ptr::null_mut()),
-                0,
-                &mut tmp as *mut u32,
-            )
-        }
-    }
-
-    /// Try to open a com canal with the minifilter before this app is registered. This fn can fail
-    /// is the minifilter is unreachable:
-    /// * if it is not started (try ```sc start owlyshieldransomfilter``` first
-    /// * if a connection is already established: it can accepts only one at a time.
-    /// In that case the Error is raised by the OS (`windows::Error`) and is generally readable.
     pub fn open_kernel_driver_com() -> Result<Driver, Error> {
-        let com_port_name = U16CString::from_str("\\RWFilter").unwrap().into_raw();
-        let handle;
-        unsafe {
-            handle = FilterConnectCommunicationPort(
-                PCWSTR(com_port_name),
+        let port_name = U16CString::from_str(EDRDRV_FLTPORT_NAME).unwrap();
+        let port_handle = unsafe {
+            FilterConnectCommunicationPort(
+                PCWSTR(port_name.as_ptr()),
                 0,
                 Some(ptr::null()),
                 0,
                 Some(ptr::null_mut()),
-            )?;
-        }
-        let res = Driver {
-            handle: Arc::new(Mutex::new(handle)),
+            )?
         };
-        Ok(res)
+
+        let ioctl_name = U16CString::from_str(EDRDRV_IOCTL_WIN32_NAME).unwrap();
+        let ioctl_handle = unsafe {
+            CreateFileW(
+                PCWSTR(ioctl_name.as_ptr()),
+                FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                None,
+            )?
+        };
+
+        Ok(Driver {
+            port_handle: Arc::new(Mutex::new(port_handle)),
+            ioctl_handle: Arc::new(Mutex::new(ioctl_handle)),
+        })
     }
 
-    fn current_handle(&self) -> HANDLE {
-        *self.handle.lock().unwrap()
-    }
-
-    fn should_reconnect(err: &Error) -> bool {
-        matches!(err.code().0 as u32, 0xC0000008 | 0x80070006 | 0xC0000037)
-    }
-
-    fn install_reconnected_handle(&self, handle: HANDLE) {
-        let mut guard = self.handle.lock().unwrap();
-        let old = *guard;
-        *guard = handle;
-        if old != handle {
-            unsafe {
-                let _ = CloseHandle(old);
+    pub fn _close_kernel_communication(&self) -> bool {
+        let mut ok = true;
+        for slot in [&self.port_handle, &self.ioctl_handle] {
+            let mut guard = slot.lock().unwrap();
+            let handle = *guard;
+            if !handle.is_invalid() && handle != INVALID_HANDLE_VALUE {
+                ok &= unsafe { CloseHandle(handle).as_bool() };
+                *guard = HANDLE::default();
             }
         }
+        ok
     }
 
-    fn reconnect_port(&self, op_name: &str) -> Result<(), Error> {
-        crate::logging::Logging::warning(&format!(
-            "[DriverCom] {} hit a stale RWFilter handle; reconnecting",
-            op_name
-        ));
-        let driver = Driver::open_kernel_driver_com()?;
-        driver.driver_set_app_pid()?;
-        self.install_reconnected_handle(driver.current_handle());
-        Ok(())
+    fn current_port_handle(&self) -> HANDLE {
+        *self.port_handle.lock().unwrap()
     }
 
-    fn with_reconnect_retry<T>(
-        &self,
-        op_name: &str,
-        mut op: impl FnMut(HANDLE) -> Result<T, Error>,
-    ) -> Result<T, Error> {
-        match op(self.current_handle()) {
-            Ok(value) => Ok(value),
-            Err(err) if Self::should_reconnect(&err) => {
-                self.reconnect_port(op_name)?;
-                op(self.current_handle())
-            }
-            Err(err) => Err(err),
+    fn current_ioctl_handle(&self) -> HANDLE {
+        *self.ioctl_handle.lock().unwrap()
+    }
+
+    pub fn get_iomsg(&self, scratch: &mut [u8]) -> Result<Option<IOMessage>, Error> {
+        let header_size = mem::size_of::<FILTER_MESSAGE_HEADER>();
+        if scratch.len() <= header_size + 16 {
+            return Ok(None);
         }
-    }
 
-    /// Ask the driver for a [`ReplyIrp`], if any. This is a low-level function and the returned object
-    /// uses C pointers. Managing C pointers requires a special care, because of the Rust timelines.
-    /// [`ReplyIrp`] is optional since the minifilter returns null if there is no new activity.
-    pub fn get_irp(&self, vecnew: &mut [u8]) -> Result<Option<ReplyIrp>, Error> {
-        let tmp = self.with_reconnect_retry("get_irp", |handle| {
-            let mut get_irp_msg = Driver::build_irp_msg(
-                DriverComMessageType::MessageGetOps,
-                std::process::id(),
-                0,
-                "",
-            );
-            let mut tmp: u32 = 0;
-            unsafe {
-                let status = FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(get_irp_msg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    Some(vecnew.as_mut_ptr() as *mut c_void),
-                    65536,
-                    &mut tmp,
-                );
+        unsafe {
+            ptr::write_bytes(scratch.as_mut_ptr(), 0, scratch.len());
 
-                if let Err(e) = status {
-                    crate::logging::Logging::error(&format!(
-                        "FilterSendMessage failed: 0x{:X}",
-                        e.code().0
-                    ));
-                    return Err(e);
+            let header = scratch.as_mut_ptr() as *mut FILTER_MESSAGE_HEADER;
+            FilterGetMessage(
+                self.current_port_handle(),
+                header,
+                scratch.len() as u32,
+                None,
+            )?;
+
+            // FilterGetMessage writes FILTER_MESSAGE_HEADER followed by the raw
+            // payload passed to FltSendMessage. The payload is LBVS and contains
+            // its own declared size, so the parser can safely ignore zeroed tail bytes.
+            let payload = &scratch[header_size..];
+
+            match lbvs_to_iomessage(payload) {
+                Ok(iomsg) => Ok(Some(iomsg)),
+                Err(e) => {
+                    crate::Logging::warning(&format!("[OpenEDR] Failed to parse LBVS event: {e}"));
+                    Ok(None)
                 }
             }
-            Ok(tmp)
-        })?;
-        if tmp != 0 {
-            let mut reply_irp: ReplyIrp;
-            unsafe {
-                reply_irp = ptr::read_unaligned(vecnew.as_ptr() as *const ReplyIrp);
-                // FIX: The kernel cannot set a valid user-mode pointer for `data`.
-                // We must set it ourselves to point to the memory immediately following the struct.
-                reply_irp.data =
-                    vecnew.as_ptr().add(mem::size_of::<ReplyIrp>()) as *const CDriverMsg;
-            }
-            return Ok(Some(reply_irp));
         }
-        Ok(None)
     }
 
-    /// Ask the minifilter to kill all pids related to the given *gid*. Pids are killed in drivermode
-    /// by calls to `NtClose`.
-    pub fn try_kill(&self, gid: c_ulonglong) -> Result<windows::core::HRESULT, Error> {
-        let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
-            (0, (gid & !0x80000000_00000000) as c_ulong)
+    fn send_compat_message(
+        &self,
+        msg: &mut DriverComMessage,
+        output: Option<&mut [u8]>,
+    ) -> Result<u32, Error> {
+        let mut bytes_returned = 0u32;
+        let (out_ptr, out_len) = if let Some(out) = output {
+            (Some(out.as_mut_ptr() as *mut c_void), out.len() as u32)
         } else {
-            (gid, 0)
+            (None, 0)
         };
 
-        let res = self.with_reconnect_retry("try_kill", |handle| {
-            let mut killmsg = DriverComMessage {
-                r#type: DriverComMessageType::MessageKillGid as c_ulong,
-                pid: real_pid,
-                gid: real_gid,
-                path: [0; 520],
-                quarantine_path: [0; 520],
-            };
-            let mut res: u32 = 0;
-            let mut res_size: u32 = 0;
-
-            unsafe {
-                FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(killmsg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    Some(ptr::addr_of_mut!(res) as *mut c_void),
-                    4,
-                    &mut res_size,
-                )?;
-            }
-            Ok(res)
-        })?;
-        let hres = windows::core::HRESULT(res as i32);
-        Ok(hres)
+        unsafe {
+            DeviceIoControl(
+                self.current_ioctl_handle(),
+                IOCTL_OWLY_COMPAT_MESSAGE,
+                Some(msg as *mut _ as *const c_void),
+                mem::size_of::<DriverComMessage>() as u32,
+                out_ptr,
+                out_len,
+                Some(&mut bytes_returned),
+                None,
+            ).ok()?;
+        }
+        Ok(bytes_returned)
     }
 
-    pub fn revert_registry_changes(&self, gid: c_ulonglong) -> Result<(), Error> {
-        let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
-            (0, (gid & !0x80000000_00000000) as c_ulong)
-        } else {
-            (gid, 0)
-        };
-
-        self.with_reconnect_retry("revert_registry_changes", |handle| {
-            let mut revert_msg = DriverComMessage {
-                r#type: DriverComMessageType::MessageRevertRegistryChanges as c_ulong,
-                pid: real_pid,
-                gid: real_gid,
-                path: [0; 520],
-                quarantine_path: [0; 520],
-            };
-            let mut res_size: u32 = 0;
-
-            unsafe {
-                FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(revert_msg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    None,
-                    0,
-                    &mut res_size,
-                )?;
-            }
-            Ok(())
-        })?;
+    pub fn driver_set_app_pid(&self) -> Result<(), Error> {
+        let mut msg = Driver::build_message(
+            DriverComMessageType::MessageSetPid,
+            std::process::id(),
+            0,
+            r"\Device\HarddiskVolume",
+            "",
+        );
+        self.send_compat_message(&mut msg, None)?;
         Ok(())
+    }
+
+    pub fn try_kill(&self, gid: u64) -> Result<windows::core::HRESULT, Error> {
+        self.send_gid_command(DriverComMessageType::MessageKillGid, gid, None)
     }
 
     pub fn kill_and_quarantine_driver(
         &self,
-        gid: c_ulonglong,
+        gid: u64,
         path: &Path,
     ) -> Result<windows::core::HRESULT, Error> {
-        let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
-            (0, (gid & !0x80000000_00000000) as c_ulong)
-        } else {
-            (gid, 0)
-        };
-
-        let quarantine_path = Driver::string_to_commessage_buffer(path.to_str().unwrap_or(""));
-        let res = self.with_reconnect_retry("kill_and_quarantine_driver", |handle| {
-            let mut kill_quarantine_msg = DriverComMessage {
-                r#type: DriverComMessageType::MessageKillAndQuarantineGid as c_ulong,
-                pid: real_pid,
-                gid: real_gid,
-                path: [0; 520],
-                quarantine_path,
-            };
-            let mut res: u32 = 0;
-            let mut res_size: u32 = 0;
-
-            unsafe {
-                FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(kill_quarantine_msg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    Some(ptr::addr_of_mut!(res) as *mut c_void),
-                    4,
-                    &mut res_size,
-                )?;
-            }
-            Ok(res)
-        })?;
-        let hres = windows::core::HRESULT(res as i32);
-        Ok(hres)
+        self.send_gid_command(
+            DriverComMessageType::MessageKillAndQuarantineGid,
+            gid,
+            path.to_str(),
+        )
     }
 
     pub fn kill_and_remove_driver(
         &self,
-        gid: c_ulonglong,
+        gid: u64,
         path: &Path,
     ) -> Result<windows::core::HRESULT, Error> {
-        let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
-            (0, (gid & !0x80000000_00000000) as c_ulong)
-        } else {
-            (gid, 0)
-        };
-
-        let quarantine_path = Driver::string_to_commessage_buffer(path.to_str().unwrap_or(""));
-        let res = self.with_reconnect_retry("kill_and_remove_driver", |handle| {
-            let mut kill_remove_msg = DriverComMessage {
-                r#type: DriverComMessageType::MessageKillAndRemoveGid as c_ulong,
-                pid: real_pid,
-                gid: real_gid,
-                path: [0; 520],
-                quarantine_path,
-            };
-            let mut res: u32 = 0;
-            let mut res_size: u32 = 0;
-
-            unsafe {
-                FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(kill_remove_msg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    Some(ptr::addr_of_mut!(res) as *mut c_void),
-                    4,
-                    &mut res_size,
-                )?;
-            }
-            Ok(res)
-        })?;
-        let hres = windows::core::HRESULT(res as i32);
-        Ok(hres)
+        self.send_gid_command(
+            DriverComMessageType::MessageKillAndRemoveGid,
+            gid,
+            path.to_str(),
+        )
     }
 
-    /// Dynamically add a hook target to the driver.
-    /// * `module`: DLL name (e.g., "user32.dll")
-    /// * `function`: Function name (e.g., "MessageBoxW")
-    /// * `event_id`: Custom event ID to report when hooked (driver default is 0x6000 when 0)
-    pub fn add_hook_target(
-        &self,
-        module: &str,
-        function: &str,
-        event_id: u32,
-    ) -> Result<(), Error> {
-        self.add_hook_target_for_pid(0, module, function, event_id)
+    pub fn revert_registry_changes(&self, gid: u64) -> Result<(), Error> {
+        let mut msg = Driver::build_message(
+            DriverComMessageType::MessageRevertRegistryChanges,
+            0,
+            gid,
+            "",
+            "",
+        );
+        self.send_compat_message(&mut msg, None)?;
+        Ok(())
     }
 
     pub fn add_hook_target_for_pid(
@@ -454,459 +246,72 @@ impl Driver {
         function: &str,
         event_id: u32,
     ) -> Result<(), Error> {
-        let path = Driver::string_to_commessage_buffer(module);
-        let quarantine_path = Driver::string_to_commessage_buffer(function);
-        self.with_reconnect_retry("add_hook_target_for_pid", |handle| {
-            let mut msg = DriverComMessage {
-                r#type: DriverComMessageType::MessageAddHook as c_ulong,
-                pid: pid as c_ulong,
-                gid: event_id as u64,
-                path,
-                quarantine_path,
-            };
-            let mut res_size: u32 = 0;
-
-            unsafe {
-                FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(msg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    None,
-                    0,
-                    &mut res_size,
-                )?;
-            }
-            Ok(())
-        })?;
+        let mut msg = Driver::build_message(
+            DriverComMessageType::MessageAddHook,
+            pid,
+            event_id as u64,
+            module,
+            function,
+        );
+        self.send_compat_message(&mut msg, None)?;
         Ok(())
     }
 
-    pub fn hook_process(&self, pid: u32) -> Result<(), Error> {
-        self.with_reconnect_retry("hook_process", |handle| {
-            let mut msg = DriverComMessage {
-                r#type: DriverComMessageType::MessageHookProcess as c_ulong,
-                pid: pid as c_ulong,
-                gid: 0,
-                path: [0; 520],
-                quarantine_path: [0; 520],
-            };
-            let mut res_size: u32 = 0;
+    pub fn add_hook_target(&self, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
+        self.add_hook_target_for_pid(0, module, function, event_id)
+    }
 
-            unsafe {
-                FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(msg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    None,
-                    0,
-                    &mut res_size,
-                )?;
-            }
-            Ok(())
-        })?;
+    pub fn hook_process(&self, pid: u32) -> Result<(), Error> {
+        let mut msg = Driver::build_message(DriverComMessageType::MessageHookProcess, pid, 0, "", "");
+        self.send_compat_message(&mut msg, None)?;
         Ok(())
     }
 
     pub fn add_block_path(&self, path: &str) -> Result<windows::core::HRESULT, Error> {
-        let path = Driver::string_to_commessage_buffer(path);
-        let res = self.with_reconnect_retry("add_block_path", |handle| {
-            let mut msg = DriverComMessage {
-                r#type: DriverComMessageType::MessageAddBlockPath as c_ulong,
-                pid: 0,
-                gid: 0,
-                path,
-                quarantine_path: [0; 520],
-            };
-            let mut res: u32 = 0;
-            let mut res_size: u32 = 0;
-
-            unsafe {
-                FilterSendMessage(
-                    handle,
-                    ptr::addr_of_mut!(msg) as *mut c_void,
-                    mem::size_of::<DriverComMessage>() as c_ulong,
-                    Some(ptr::addr_of_mut!(res) as *mut c_void),
-                    4,
-                    &mut res_size,
-                )?;
-            }
-            Ok(res)
-        })?;
-        let hres = windows::core::HRESULT(res as i32);
-        Ok(hres)
+        self.send_gid_command(DriverComMessageType::MessageAddBlockPath, 0, Some(path))
     }
 
-    fn string_to_commessage_buffer(bufstr: &str) -> BufPath {
-        let temp = U16CString::from_str(bufstr).unwrap();
-        let mut buf: BufPath = [0; 520];
-        for (i, c) in temp.as_slice_with_nul().iter().enumerate() {
-            buf[i] = *c as wchar_t;
-        }
-        buf
+    fn send_gid_command(
+        &self,
+        command: DriverComMessageType,
+        gid: u64,
+        path: Option<&str>,
+    ) -> Result<windows::core::HRESULT, Error> {
+        let (real_gid, real_pid) = if gid & 0x8000_0000_0000_0000 != 0 {
+            (0, (gid & !0x8000_0000_0000_0000) as u32)
+        } else {
+            (gid, 0)
+        };
+        let mut msg = Driver::build_message(command, real_pid, real_gid, path.unwrap_or(""), "");
+        let mut output = [0u8; 4];
+        self.send_compat_message(&mut msg, Some(&mut output))?;
+        let code = u32::from_le_bytes(output);
+        Ok(windows::core::HRESULT(code as i32))
     }
 
-    fn build_irp_msg(
-        commsgtype: DriverComMessageType,
+    fn build_message(
+        kind: DriverComMessageType,
         pid: u32,
         gid: u64,
         path: &str,
+        quarantine_path: &str,
     ) -> DriverComMessage {
         DriverComMessage {
-            r#type: commsgtype as c_ulong, // MessageSetPid
-            pid: pid as c_ulong,
+            r#type: kind as u32,
+            pid,
             gid,
             path: Driver::string_to_commessage_buffer(path),
-            quarantine_path: [0; 520],
+            quarantine_path: Driver::string_to_commessage_buffer(quarantine_path),
         }
     }
-}
 
-/// Low-level C-like object to communicate with the minifilter.
-/// The minifilter yields `ReplyIrp` objects (retrieved by [`Driver::get_irp`] to manage the fixed size of the *data buffer.
-/// In other words, a `ReplyIrp` is a collection of [`CDriverMsg`] with a capped size.
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct ReplyIrp {
-    /// The size od the collection.
-    pub data_size: c_ulonglong,
-    /// The C pointer to the buffer containinf the [CDriverMsg] events.
-    pub data: *const CDriverMsg,
-    /// The number of different operations in this collection.
-    pub num_ops: u64,
-}
-
-/// This class is the straight Rust translation of the Win32 API [`UNICODE_STRING`](https://docs.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-_unicode_string),
-/// returned by the driver.
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct UnicodeString {
-    pub length: c_ushort,
-    pub maximum_length: c_ushort,
-    pub buffer: *const wchar_t,
-}
-
-/// NEW: C-compatible representation of kernel_event_info from the driver
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct CKernelEventInfo {
-    pub event_type: c_ulong,
-    pub timestamp: c_ulonglong,
-    pub source_process_id: c_ulong,
-    pub target_process_id: c_ulong,
-
-    pub memory_address: *const c_void,
-    pub memory_size: usize,
-    pub memory_protection: c_ulong,
-    pub is_executable_memory: c_uchar, // BOOLEAN in C
-
-    pub thread_handle: *const c_void, // HANDLE
-    pub thread_start_routine: *const c_void,
-
-    pub raw_argument1: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
-    pub raw_argument2: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
-    pub raw_argument3: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
-    pub raw_argument4: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
-
-    pub object_name: [wchar_t; 520], // MAX_FILE_NAME_LENGTH from SharedDefs.h
-
-    pub access_mask: c_ulong,
-    pub operation_status: i32, // NTSTATUS
-    pub core_id: c_ulong,
-    pub thread_id: c_ulong,
-    pub context: c_ulonglong,
-
-    // DLL Load Detection
-    pub is_dll_load: c_uchar, // BOOLEAN
-    pub loaded_dll_path: [wchar_t; 520],
-    pub is_api_based_load: c_uchar, // BOOLEAN
-
-    // ACG Detection
-    pub is_acg_enabled: c_uchar, // BOOLEAN
-
-    // AMSI Detection
-    pub is_amsi_event: c_uchar,
-    pub amsi_content_sample: [wchar_t; 256],
-}
-
-/// The C object returned by the minifilter, available through [`ReplyIrp`].
-/// It is low level and use C pointers logic which is
-/// not always compatible with RUST (in particular the lifetime of *next). That's why we convert
-/// it asap to a plain Rust [`IOMessage`] object.
-/// ```next``` is null (0x0) when there is no [`IOMessage`] remaining
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct CDriverMsg {
-    pub extension: [wchar_t; 12],
-    pub file_id: FILE_ID_INFO,
-    pub mem_sized_used: c_ulonglong,
-    pub entropy: f64,
-    pub pid: c_ulong,
-    pub irp_op: c_uchar,
-    pub is_entropy_calc: u8,
-    pub file_change: c_uchar,
-    pub file_location_info: c_uchar,
-    pub filepath: UnicodeString,
-    pub gid: c_ulonglong,
-    /// Parent PID of the process
-    pub parent_pid: c_ulong,
-    /// Process command line captured at process creation (if available)
-    pub command_line: [wchar_t; 520],
-    /// For IRP_PROCESS_TERMINATE_ATTEMPT: PID of attacker process (0 if not applicable)
-    pub attacker_pid: c_ulong,
-    /// For IRP_PROCESS_TERMINATE_ATTEMPT: GID of attacker process (0 if not tracked)
-    pub attacker_gid: c_ulonglong,
-    /// Shared kernel event payload used by both VMM/HyperDbg events and
-    /// kernel process-protection/FSfilter signals.
-    pub kernel_event_info: CKernelEventInfo,
-    /// null (0x0) when there is no [`IOMessage`] remaining
-    pub next: *const CDriverMsg,
-}
-
-/// To iterate easily over a collection of [`IOMessage`] received from the minifilter, before they
-/// are converted to [`IOMessage`]
-pub struct CDriverMsgs<'a> {
-    drivermsgs: Vec<&'a CDriverMsg>,
-    index: usize,
-}
-
-impl UnicodeString {
-    pub fn as_string_ext(&self, _extension: [wchar_t; 12]) -> String {
-        if self.buffer.is_null() || self.length == 0 {
-            return String::new();
+    fn string_to_commessage_buffer(text: &str) -> BufPath {
+        let wide = U16CString::from_str(text).unwrap_or_else(|_| U16CString::from_str("").unwrap());
+        let mut buf: BufPath = [0; 520];
+        for (i, c) in wide.as_slice_with_nul().iter().take(520).enumerate() {
+            buf[i] = *c as wchar_t;
         }
-
-        // UNICODE_STRING.Length is in bytes. wchar_t is 2 bytes.
-        let num_elements = self.length as usize / 2;
-
-        // Safety check: ensure the pointer is aligned for wchar_t (2 bytes)
-        if !(self.buffer as usize).is_multiple_of(2) {
-            return String::new();
-        }
-
-        unsafe {
-            let str_slice = std::slice::from_raw_parts(self.buffer, num_elements);
-            // Find the first null terminator or use the full length
-            let effective_len = str_slice
-                .iter()
-                .position(|&c| c == 0)
-                .unwrap_or(num_elements);
-            String::from_utf16_lossy(&str_slice[..effective_len])
-        }
-    }
-}
-
-impl CKernelEventInfo {
-    /// Convert C kernel event info to Rust KernelEventInfo
-    pub fn to_kernel_event_info(&self) -> KernelEventInfo {
-        // AMENDED: Fix return type
-        let raw_object_name = if self.object_name[0] != 0 {
-            let len = self.object_name.iter().position(|&c| c == 0).unwrap_or(520);
-            String::from_utf16_lossy(&self.object_name[..len])
-        } else {
-            String::new()
-        };
-        let object_name =
-            resolve_hypervisor_api_name(&raw_object_name, self.raw_argument1, self.event_type);
-
-        KernelEventInfo {
-            // AMENDED: Fix struct construction
-            event_type: self.event_type,
-            timestamp: self.timestamp,
-            source_process_id: self.source_process_id,
-            target_process_id: self.target_process_id,
-            core_id: self.core_id,
-            thread_id: self.thread_id,
-            context: self.context,
-            memory_address: self.memory_address as u64,
-            memory_size: self.memory_size,
-            memory_protection: self.memory_protection,
-            is_executable_memory: self.is_executable_memory != 0,
-            thread_handle: self.thread_handle as u64,
-            thread_start_routine: self.thread_start_routine as u64,
-            raw_argument1: self.raw_argument1,
-            raw_argument2: self.raw_argument2,
-            raw_argument3: self.raw_argument3,
-            raw_argument4: self.raw_argument4,
-            object_name,
-            access_mask: self.access_mask,
-            bin_payload: if self.event_type == 29 {
-                // For Named Pipe Writes, the ObjectName buffer contains raw binary payload.
-                // raw_argument1 contains the captured length (up to 512).
-                let len = self.raw_argument1 as usize;
-                let capture_len = if len > 512 { 512 } else { len };
-                let ptr = self.object_name.as_ptr() as *const u8;
-                let slice = unsafe { std::slice::from_raw_parts(ptr, capture_len) };
-                slice.to_vec()
-            } else {
-                Vec::new()
-            },
-            // DLL Load Detection
-            is_dll_load: self.is_dll_load != 0,
-            loaded_dll_path: if self.is_dll_load != 0 && self.loaded_dll_path[0] != 0 {
-                let len = self
-                    .loaded_dll_path
-                    .iter()
-                    .position(|&c| c == 0)
-                    .unwrap_or(520);
-                String::from_utf16_lossy(&self.loaded_dll_path[..len])
-            } else {
-                String::new()
-            },
-            is_api_based_load: self.is_api_based_load != 0,
-            // ACG Detection
-            is_acg_enabled: self.is_acg_enabled != 0,
-            // AMSI Detection
-            is_amsi_event: self.is_amsi_event != 0,
-            amsi_content_sample: if self.is_amsi_event != 0 && self.amsi_content_sample[0] != 0 {
-                let len = self
-                    .amsi_content_sample
-                    .iter()
-                    .position(|&c| c == 0)
-                    .unwrap_or(256);
-                String::from_utf16_lossy(&self.amsi_content_sample[..len])
-            } else {
-                String::new()
-            },
-            operation_status: self.operation_status,
-        }
-    }
-}
-
-impl ReplyIrp {
-    /// Iterate through ```self.data``` and returns the collection of [`CDriverMsg`]
-    fn unpack_drivermsg(&self) -> Vec<&CDriverMsg> {
-        let mut res = vec![];
-        unsafe {
-            let mut current_ptr = self.data as *mut u8;
-            let end_ptr = current_ptr.add(self.data_size as usize);
-
-            for _ in 0..self.num_ops {
-                if current_ptr.is_null() || current_ptr >= end_ptr {
-                    break;
-                }
-                let msg_ptr = current_ptr as *mut CDriverMsg;
-
-                // Safety check: ensure CDriverMsg fits
-                if current_ptr.add(mem::size_of::<CDriverMsg>()) > end_ptr {
-                    break;
-                }
-
-                let msg = &mut *msg_ptr;
-
-                // Always fixup buffer pointer to point to the appended data
-                // The pointer coming from kernel is not valid in user space
-                if msg.filepath.length > 0 {
-                    let path_ptr = current_ptr.add(mem::size_of::<CDriverMsg>());
-                    if path_ptr.add(msg.filepath.length as usize) > end_ptr {
-                        msg.filepath.buffer = ptr::null();
-                        msg.filepath.length = 0;
-                    } else {
-                        msg.filepath.buffer = path_ptr as *const wchar_t;
-                    }
-                } else {
-                    msg.filepath.buffer = ptr::null();
-                }
-
-                res.push(&*msg_ptr);
-
-                let name_buffer_size = msg.filepath.length as usize;
-                // Align to 8 bytes to find the next CDriverMsg
-                let aligned_name_buffer_size = (name_buffer_size + 7) & !7;
-                let total_size = mem::size_of::<CDriverMsg>() + aligned_name_buffer_size;
-
-                current_ptr = current_ptr.add(total_size);
-            }
-        }
-        res
-    }
-}
-
-impl IOMessage {
-    pub fn from_driver_msg(c_drivermsg: &CDriverMsg) -> IOMessage {
-        let command_line = if c_drivermsg.command_line[0] != 0 {
-            let len = c_drivermsg
-                .command_line
-                .iter()
-                .position(|&c| c == 0)
-                .unwrap_or(520);
-            String::from_utf16_lossy(&c_drivermsg.command_line[..len])
-        } else {
-            String::new()
-        };
-
-        let mut filepathstr = c_drivermsg.filepath.as_string_ext(c_drivermsg.extension);
-        let irp_op = IrpMajorOp::from_byte(c_drivermsg.irp_op);
-
-        if filepathstr.trim().is_empty()
-            && matches!(
-                irp_op,
-                IrpMajorOp::IrpProcessCreate
-                    | IrpMajorOp::IrpProcessTerminate
-                    | IrpMajorOp::IrpProcessTerminateAttempt
-                    | IrpMajorOp::IrpProcessExit
-                    | IrpMajorOp::IrpProcessHandleOpen
-            )
-            && let Some(path) = resolve_process_path(c_drivermsg.pid)
-        {
-            filepathstr = path.display().to_string();
-        }
-
-        IOMessage {
-            extension: std::ffi::OsString::from_wide(
-                c_drivermsg.extension.split(|&v| v == 0).next().unwrap(),
-            )
-            .to_string_lossy()
-            .into(), //String::from_utf16_lossy(&c_drivermsg.extension),
-            file_id_id: FileId::from(c_drivermsg.file_id.FileId.Identifier),
-            mem_sized_used: c_drivermsg.mem_sized_used,
-            entropy: c_drivermsg.entropy,
-            pid: c_drivermsg.pid,
-            irp_op: c_drivermsg.irp_op,
-            is_entropy_calc: c_drivermsg.is_entropy_calc,
-            file_change: c_drivermsg.file_change,
-            file_location_info: c_drivermsg.file_location_info,
-            filepathstr: filepathstr.clone(),
-            gid: c_drivermsg.gid,
-            parent_pid: c_drivermsg.parent_pid,
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            attacker_pid: c_drivermsg.attacker_pid,
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            attacker_gid: c_drivermsg.attacker_gid,
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            kernel_event_info: c_drivermsg.kernel_event_info.to_kernel_event_info(),
-            runtime_features: RuntimeFeatures {
-                exepath: PathBuf::new(),
-                exe_still_exists: true,
-                command_line,
-            },
-            file_size: match PathBuf::from(&filepathstr).metadata() {
-                Ok(f) => f.len() as i64,
-                Err(_) => -1,
-            },
-            time: SystemTime::now(),
-        }
-    }
-}
-
-impl CDriverMsgs<'_> {
-    pub fn new(irp: &ReplyIrp) -> CDriverMsgs<'_> {
-        CDriverMsgs {
-            drivermsgs: irp.unpack_drivermsg(),
-            index: 0,
-        }
-    }
-}
-
-impl Iterator for CDriverMsgs<'_> {
-    type Item = CDriverMsg;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index == self.drivermsgs.len() {
-            None
-        } else {
-            let res = *self.drivermsgs[self.index];
-            self.index += 1;
-            Some(res)
-        }
+        buf[519] = 0;
+        buf
     }
 }

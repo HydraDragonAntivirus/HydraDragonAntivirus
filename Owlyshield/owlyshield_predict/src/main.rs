@@ -93,8 +93,6 @@ pub fn init_hydra_dragon(
 /*
 */
 
-#[cfg(target_os = "windows")]
-use crate::driver_com::CDriverMsgs;
 use crate::logging::Logging;
 use crate::shared_def::IOMessage;
 use crate::worker::process_record_handling::ExepathLive;
@@ -109,6 +107,8 @@ mod csvwriter;
 #[cfg(target_os = "windows")]
 #[path = "windows/driver_com.rs"]
 pub(crate) mod driver_com;
+#[cfg(target_os = "windows")]
+mod openedr_lbvs;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
 pub(crate) mod driver_com;

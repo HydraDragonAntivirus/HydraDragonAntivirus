@@ -40,6 +40,20 @@
     <ClCompile Include="..\..\src\procmon.cpp" />
     <ClCompile Include="..\..\src\procutils.cpp" />
     <ClCompile Include="..\..\src\regmon.cpp" />
+    <ClCompile Include="..\..\src\Regedit.cpp" />
+    <ClCompile Include="..\..\src\ProcessProtection.cpp" />
+    <ClCompile Include="..\..\src\KernelCommon.cpp" />
+    <ClCompile Include="..\..\src\KernelString.cpp" />
+    <ClCompile Include="..\..\src\Communication.cpp" />
+    <ClCompile Include="..\..\src\DriverData.cpp" />
+    <ClCompile Include="..\..\src\UserModeHookEngine.cpp" />
+    <ClCompile Include="..\..\src\RootkitDetector.cpp" />
+    <ClCompile Include="..\..\src\AmsiProtection.cpp" />
+    <ClCompile Include="..\..\src\ShanonEntropy.cpp" />
+    <ClCompile Include="..\..\src\owly\OwlyCompatIoctl.cpp" />
+    <ClCompile Include="..\..\src\owly\OwlyFeatureHost.cpp" />
+    <ClCompile Include="..\..\src\owly\OwlyGlobals.cpp" />
+    <ClCompile Include="..\..\src\owly\OwlyOpenEdrBridge.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\common.h" />
@@ -77,6 +91,21 @@
     <ClInclude Include="..\..\src\stringutils.h" />
     <ClInclude Include="..\..\src\sysapi.h" />
     <ClInclude Include="..\..\src\workerthread.h" />
+    <ClInclude Include="..\..\src\Regedit.h" />
+    <ClInclude Include="..\..\src\ProcessProtection.h" />
+    <ClInclude Include="..\..\src\KernelCommon.h" />
+    <ClInclude Include="..\..\src\KernelString.h" />
+    <ClInclude Include="..\..\src\PoolTags.h" />
+    <ClInclude Include="..\..\src\SharedDefs.h" />
+    <ClInclude Include="..\..\src\Communication.h" />
+    <ClInclude Include="..\..\src\DriverData.h" />
+    <ClInclude Include="..\..\src\owly\OwlyCompatIoctl.h" />
+    <ClInclude Include="..\..\src\owly\OwlyFeatureHost.h" />
+    <ClInclude Include="..\..\src\owly\OwlyOpenEdrBridge.h" />
+    <ClInclude Include="..\..\src\UserModeHookEngine.h" />
+    <ClInclude Include="..\..\src\RootkitDetector.h" />
+    <ClInclude Include="..\..\src\AmsiProtection.h" />
+    <ClInclude Include="..\..\src\ShanonEntropy.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\src\edrdrv.rc" />

@@ -17,6 +17,7 @@
 #include "procmon.h"
 #include "filemon.h"
 #include "regmon.h"
+#include "owly/OwlyCompatIoctl.h"
 
 namespace cmd {
 namespace drvioctl {
@@ -211,6 +212,15 @@ NTSTATUS processRequest(DeviceInputOutput &inOut, ULONG IoControl)
 {
 	switch (IoControl)
 	{
+		case IOCTL_OWLY_COMPAT_MESSAGE:
+		{
+			return owly::ProcessCompatMessage(
+				inOut.m_pInput,
+				inOut.m_nInputSize,
+				inOut.m_pOutput,
+				inOut.m_nOutputSize,
+				inOut.m_pSizeWritten);
+		}
 		case CMD_ERDDRV_IOCTL_START:
 		{
 			IFERR_RET(startMonitoring());

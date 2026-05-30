@@ -73,8 +73,6 @@
     <ClCompile Include="RootkitDetector.cpp" />
     <ClCompile Include="ShanonEntropy.cpp" />
     <ClCompile Include="UserModeHookEngine.cpp" />
-    <ResourceCompile Include="FSfilter.rc" />
-    <ClCompile Include="FSfilter.cpp" />
     <ClCompile Include="Communication.cpp" />
     <ClCompile Include="DriverData.cpp" />
     <ClCompile Include="Regedit.cpp" />
@@ -440,7 +438,6 @@
   <ItemGroup>
     <ClInclude Include="Communication.h" />
     <ClInclude Include="DriverData.h" />
-    <ClInclude Include="FSfilter.h" />
     <ClInclude Include="HashTable.h" />
     <ClInclude Include="KernelCommon.h" />
     <ClInclude Include="KernelHookEngine.h" />

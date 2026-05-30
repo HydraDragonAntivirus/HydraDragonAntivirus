@@ -10,10 +10,12 @@
 /// @addtogroup edrdrv
 /// @{
 #include <initguid.h>
+
 #include "common.h"
 #include "osutils.h"
 #include "filemon.h"
 #include "diskutils.h"
+#include "ShanonEntropy.h"
 #include "procmon.h"
 #include "fltport.h"
 #include "config.h"
@@ -167,6 +169,7 @@ struct SequenceActionInfo
 	AtomicBool fEnabled = FALSE; ///< Processing is enabled
 	xxh::hash_state64_t hash;  ///< Processed data hash
 	uint64_t nNextPos = 0;  ///< Expected offset of next action
+	ULONGLONG nMaxEntropyQ24 = 0; ///< Maximum entropy detected during sequence
 
 	// Allow processing sub-IRP requests 
 	// sub-IRP can be sent if driver returns STATUS_FLT_DISALLOW_FAST_IO
@@ -872,6 +875,12 @@ inline NTSTATUS _updateHashOnPostOp(StreamHandleContext* pStreamHandleContext, P
 				return STATUS_INVALID_PARAMETER_3;
 
 			size_t nCurMdlDataSize = min(MmGetMdlByteCount(pCurMdl), nRestDataSize);
+			if (eAction == HashedAction::Write) {
+				ULONGLONG currentEntropy = shannonEntropyQ24((PUCHAR)pDataBuffer, nCurMdlDataSize);
+				if (currentEntropy > actionInfo.nMaxEntropyQ24) {
+					actionInfo.nMaxEntropyQ24 = currentEntropy;
+				}
+			}
 			IFERR_RET_NOLOG(actionInfo.updateHash(pDataBuffer, nCurMdlDataSize));
 
 			nRestDataSize -= nCurMdlDataSize;
@@ -904,6 +913,12 @@ inline NTSTATUS _updateHashOnPostOp(StreamHandleContext* pStreamHandleContext, P
 		}
 
 		void* pDataBuffer = (eAction == HashedAction::Read) ? readParams.ReadBuffer : writeParams.WriteBuffer;
+		if (eAction == HashedAction::Write) {
+			ULONGLONG currentEntropy = shannonEntropyQ24((PUCHAR)pDataBuffer, nDataSize);
+			if (currentEntropy > actionInfo.nMaxEntropyQ24) {
+				actionInfo.nMaxEntropyQ24 = currentEntropy;
+			}
+		}
 		return actionInfo.updateHash(pDataBuffer, nDataSize);
 	}
 }
@@ -1361,6 +1376,9 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postCleanup(
 
 			sendFileEvent(SysmonEvent::FileDataWriteFull, pStreamHandleContext, 
 				[&writeInfo](auto pSerializer) {
+					// Write entropy as raw Q24 uint64; Rust side divides by (1<<24) to get float.
+					pSerializer->write(EvFld::OwlyEntropy, (uint64_t)writeInfo.nMaxEntropyQ24);
+					pSerializer->write(EvFld::OwlyIsEntropyCalc, (uint32_t)1);
 					return writeFileHash(pSerializer, writeInfo);
 				}
 			);

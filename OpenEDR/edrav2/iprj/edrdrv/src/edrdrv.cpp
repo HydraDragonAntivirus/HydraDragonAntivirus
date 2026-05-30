@@ -22,6 +22,7 @@
 #include "fltport.h"
 #include "config.h"
 #include "dllinj.h"
+#include "owly/OwlyFeatureHost.h"
 
 //////////////////////////////////////////////////////////////////////////
 //
@@ -85,6 +86,7 @@ VOID unloadDriver(_In_ PDRIVER_OBJECT /*pDriverObject*/)
 	dllinj::finalize();
 	netmon::finalize();
 	drvioctl::finalize();
+	owly::FinalizeFeatureHost();
 	objmon::finalize();
 	regmon::finalize();
 	filemon::finalize();
@@ -188,6 +190,7 @@ EXTERN_C NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT pDriverObject, _In_ PUNICODE_S
 		IFERR_RET(regmon::initialize(), "Can't initialize registry filter\r\n");
 		IFERR_RET(objmon::initialize(), "Can't initialize process filter\r\n");
 		IFERR_RET(drvioctl::initialize(), "Can't initialize IOCTL device\r\n");
+		IFERR_RET(owly::InitializeFeatureHost(pDriverObject), "Can't initialize Owlyshield feature host\r\n");
 		IFERR_RET(netmon::initialize(), "Can't initialize network monitor\r\n");
 		IFERR_RET(dllinj::initialize(), "Can't initialize DLL injector\r\n");
 

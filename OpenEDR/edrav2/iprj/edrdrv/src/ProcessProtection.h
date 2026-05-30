@@ -1,0 +1,150 @@
+#pragma once
+
+#ifndef PROCESS_PROTECTION_H
+#define PROCESS_PROTECTION_H
+
+/*++
+
+Module Name:
+
+    ProcessProtection.h
+
+Abstract:
+
+    Header file for comprehensive process protection using ObRegisterCallbacks
+    and kernel-level API hooks. Detects all process-related events:
+    - Process creation
+    - Process termination attempts
+    - Process exit events
+    - Process handle operations
+    - Kernel API hooking for injection detection
+
+Environment:
+
+    Kernel mode
+
+--*/
+
+#include <fltKernel.h>
+#include <ntddk.h>
+
+// ===================================================================
+// Process Creation/Termination/Exit Callbacks
+// ===================================================================
+
+// Initialize process protection callbacks
+NTSTATUS InitProcessProtection();
+
+// Uninitialize process protection callbacks (call during driver unload)
+VOID UninitProcessProtection();
+VOID ReloadProcessProtectionExcludeRules(VOID);
+NTSTATUS SetProcessProtectionExcludeRulesFromBuffer(
+    _In_reads_bytes_(BytesRead) PUCHAR Buffer,
+    _In_ ULONG BytesRead);
+
+// ===================================================================
+// Process Event Detection Functions
+// ===================================================================
+
+// Detect process creation events
+NTSTATUS OnProcessCreate(
+    _In_ HANDLE ProcessId,
+    _In_ HANDLE ParentProcessId
+);
+
+// Detect process exit/termination
+NTSTATUS OnProcessExit(
+    _In_ HANDLE ProcessId
+);
+
+// Detect process handle operations (open, duplicate)
+NTSTATUS OnProcessHandleOperation(
+    _In_ HANDLE CallerProcessId,
+    _In_ HANDLE TargetProcessId,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_ UCHAR OperationType  // OB_OPERATION_HANDLE_CREATE or OB_OPERATION_HANDLE_DUPLICATE
+);
+
+// Detect process termination attempt
+NTSTATUS OnProcessTerminationAttempt(
+    _In_ HANDLE AttackerPid,
+    _In_ HANDLE TargetPid
+);
+
+// ===================================================================
+// Kernel API Hook Integration Functions
+// ===================================================================
+
+// Log kernel-level or user-mode API hooking events.
+// IrpOp selects the opcode stamped on the outgoing message:
+//   IRP_HYPERVISOR_EVENT     - VMM/HyperDbg-origin events
+//   IRP_USERMODE_HOOK_EVENT  - shellcode callbacks from UserModeHookEngine
+NTSTATUS OnKernelApiEvent(
+    _In_ ULONG IrpOp,
+    _In_ ULONG EventType,
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid,
+    _In_opt_ PCWSTR FunctionName,
+    _In_opt_ ULONG_PTR EventArg1,
+    _In_opt_ ULONG_PTR EventArg2,
+    _In_opt_ ULONG_PTR EventArg3,
+    _In_opt_ ULONG_PTR EventArg4
+);
+
+// Format a diagnostic process descriptor as "pid:path" when the image path
+// can be resolved at PASSIVE_LEVEL, otherwise "pid:<path_unavailable>".
+VOID FormatProcessDescriptorByPid(
+    _In_ ULONG ProcessId,
+    _Out_writes_z_(OutCch) PWCHAR OutBuffer,
+    _In_ SIZE_T OutCch
+);
+
+// Specific kernel API event handlers
+NTSTATUS OnMemoryWrite(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid,
+    _In_ PVOID TargetAddress,
+    _In_ SIZE_T Size,
+    _In_ BOOLEAN IsExecutableMemory
+);
+
+NTSTATUS OnMemoryProtectionChange(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid,
+    _In_ PVOID BaseAddress,
+    _In_ SIZE_T RegionSize,
+    _In_ ULONG NewProtection,
+    _In_ ULONG OldProtection
+);
+
+NTSTATUS OnThreadCreation(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid,
+    _In_ PVOID StartRoutine
+);
+
+VOID NoteRemoteThreadCandidate(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid
+);
+
+BOOLEAN ResolveRemoteThreadCandidate(
+    _In_ ULONG TargetPid,
+    _Out_ PULONG SourcePid
+);
+
+NTSTATUS OnApcQueueing(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid,
+    _In_ HANDLE ThreadHandle,
+    _In_ PVOID ApcRoutine
+);
+
+NTSTATUS OnSectionOperation(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid,
+    _In_opt_ PCWSTR SectionName,
+    _In_ UCHAR OperationType  // Create or Map
+);
+
+#endif // PROCESS_PROTECTION_H

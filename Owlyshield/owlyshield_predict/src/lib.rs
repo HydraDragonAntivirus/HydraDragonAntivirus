@@ -23,6 +23,7 @@ pub mod actions_on_kill;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 pub mod behavioral;
 pub mod config;
+pub mod openedr_lbvs;
 pub mod connectors;
 pub mod csvwriter;
 pub mod extensions;
@@ -117,7 +118,7 @@ pub use crate::worker::worker_instance::{
 #[cfg(target_os = "windows")]
 pub use crate::windows::driver_com;
 #[cfg(target_os = "windows")]
-pub use crate::windows::driver_com::{CDriverMsgs, Driver};
+pub use crate::windows::driver_com::Driver;
 #[cfg(target_os = "windows")]
 pub use crate::windows::notifications;
 #[cfg(target_os = "windows")]
