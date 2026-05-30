@@ -2,14 +2,14 @@
 
 Module Name:
 
-    rootkitdetector.cpp
+    RootkitDetector.cpp
 
 Abstract:
 
     Event-driven rootkit detection engine.
-    No timer - detection triggered via rootkitDetectorOnDriverEvent().
+    No timer - detection triggered via RootkitDetectorOnDriverEvent().
 
-    Called by filemon.cpp on relevant IRP events:
+    Called by FSfilter.cpp on relevant IRP events:
         IRP_PROCESS_CREATE   -> RK_TRIGGER_FULL   (new process, full scan)
         IRP_KERNEL_* events  -> RK_TRIGGER_FULL   (injection activity, full scan)
         ImageLoadCallback    -> RK_TRIGGER_DRIVER  (new image/driver loaded)
@@ -24,12 +24,15 @@ Environment:
 
 --*/
 
-#include "rootkitdetector.h"
-#include "common.h"
-#include "fltport.h"
-#include "procmon.h"
+#include "RootkitDetector.h"
+#include "DriverData.h"
 #include <ntimage.h>
 #include <ntstrsafe.h>
+
+// ---------------------------------------------------------------------------
+// External
+// ---------------------------------------------------------------------------
+extern DriverData *driverData;
 
 // ---------------------------------------------------------------------------
 // Dynamic imports
@@ -262,7 +265,7 @@ RootkitDetectorInitialize(VOID)
     if (!fnZwQuerySystemInformation) {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "ZwQuerySystemInformation not found\n");
+DbgPrint("RootkitDetector: ZwQuerySystemInformation not found\n");
 #endif
 
         return STATUS_NOT_FOUND;
@@ -274,7 +277,7 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "ZwQuerySystemInformation not found\n");
     if (!fnPsLookupProcessByProcessId) {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "PsLookupProcessByProcessId not found\n");
+DbgPrint("RootkitDetector: PsLookupProcessByProcessId not found\n");
 #endif
 
         return STATUS_NOT_FOUND;
@@ -286,7 +289,7 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "PsLookupProcessByProcessId not found\n");
     if (!fnPsGetProcessImageFileName) {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "PsGetProcessImageFileName not found, process names will be generic\n");
+DbgPrint("RootkitDetector: PsGetProcessImageFileName not found, process names will be generic\n");
 #endif
 
     }
@@ -297,7 +300,7 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "PsGetProcessImageFileName not found, proce
     if (!fnZwQueryDirectoryObject) {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "ZwQueryDirectoryObject not found, hidden-driver scan will be limited\n");
+DbgPrint("RootkitDetector: ZwQueryDirectoryObject not found, hidden-driver scan will be limited\n");
 #endif
 
     }
@@ -308,7 +311,7 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "ZwQueryDirectoryObject not found, hidden-d
     if (!fnObReferenceObjectByName) {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "ObReferenceObjectByName not found, hidden-driver and driver-object scans will be limited\n");
+DbgPrint("RootkitDetector: ObReferenceObjectByName not found, hidden-driver and driver-object scans will be limited\n");
 #endif
 
     }
@@ -319,7 +322,7 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "ObReferenceObjectByName not found, hidden-
     if (!g_IoFileObjectType) {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "IoFileObjectType not found, object-type tamper scan will be limited\n");
+DbgPrint("RootkitDetector: IoFileObjectType not found, object-type tamper scan will be limited\n");
 #endif
 
     }
@@ -330,15 +333,15 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "IoFileObjectType not found, object-type ta
     if (!fnKeServiceDescriptorTable) {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "KeServiceDescriptorTable not found, SSDT scan will be skipped on this build\n");
+DbgPrint("RootkitDetector: KeServiceDescriptorTable not found, SSDT scan will be skipped on this build\n");
 #endif
 
     }
 
     
 #if IS_DEBUG_IRP
-LOGINFO1("Rootkit detector initialized (event-driven, debounce=%lu ms)\n",
-	(ULONG)ROOTKIT_DEBOUNCE_MS);
+DbgPrint("RootkitDetector: Initialized (event-driven, debounce=%lu ms)\n",
+             (ULONG)ROOTKIT_DEBOUNCE_MS);
 #endif
 
     return STATUS_SUCCESS;
@@ -384,7 +387,7 @@ RootkitDetectorCleanup(VOID)
     InterlockedExchange(&g_PendingTrigger, (LONG)RK_TRIGGER_LIGHT);
     
 #if IS_DEBUG_IRP
-LOGINFO1("Rootkit detector cleanup done\n");
+DbgPrint("RootkitDetector: Cleanup done\n");
 #endif
 
 }
@@ -497,7 +500,7 @@ RootkitDetectorRunScan(VOID)
     if (total > 0) {
         
 #if IS_DEBUG_IRP
-LOGINFO1("Rootkit scan complete - %lu anomalies\n", total);
+DbgPrint("RootkitDetector: scan complete - %lu anomalies\n", total);
 #endif
 
     }
@@ -513,11 +516,19 @@ LOGINFO1("Rootkit scan complete - %lu anomalies\n", total);
 static ULONGLONG
 RkResolveFindingGid(_In_ ULONG SourcePid)
 {
-    UNREFERENCED_PARAMETER(SourcePid);
-    
-    // EDRDrv: Use a global GID for rootkit findings
-    // These are system-level detections not tied to a specific process context
-    return RK_ROOTKIT_GLOBAL_GID;
+    BOOLEAN found = FALSE;
+    ULONGLONG gid = 0;
+
+    if (SourcePid == 0 || driverData == NULL) {
+        return RK_ROOTKIT_GLOBAL_GID;
+    }
+
+    gid = driverData->GetProcessGid(SourcePid, &found);
+    if (found && gid != 0) {
+        return gid;
+    }
+
+    return RK_ROOTKIT_PSEUDO_GID_MASK | (ULONGLONG)SourcePid;
 }
 
 static VOID
@@ -526,40 +537,33 @@ RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
               _In_opt_ PVOID  MemoryAddress, _In_ SIZE_T MemSize,
               _In_ ULONG_PTR Extra1, _In_ ULONG_PTR Extra2)
 {
-    // EDRDrv: Send rootkit detection event via fltport
-    if (!fltport::isClientConnected()) {
-        return;
-    }
+    if (!driverData) return;
 
-    // Build event structure for serialization
-    struct RootkitEvent {
-        ULONG EventType;
-        ULONG SourcePid;
-        ULONGLONG Gid;
-        PVOID MemoryAddress;
-        SIZE_T MemorySize;
-        ULONG_PTR Extra1;
-        ULONG_PTR Extra2;
-        WCHAR ObjectName[MAX_FILE_NAME_LENGTH];
-    };
+    IRP_ENTRY *entry = new IRP_ENTRY();
+    if (!entry) return;
 
-    RootkitEvent event = {0};
-    event.EventType = IrpOpCode;
-    event.SourcePid = SourcePid;
-    event.Gid = RkResolveFindingGid(SourcePid);
-    event.MemoryAddress = MemoryAddress;
-    event.MemorySize = MemSize;
-    event.Extra1 = Extra1;
-    event.Extra2 = Extra2;
+    PDRIVER_MESSAGE msg = &entry->data;
+    RtlZeroMemory(msg, sizeof(*msg));
+
+    msg->IRP_OP                              = (UCHAR)IrpOpCode;
+    msg->PID                                 = SourcePid;
+    msg->Gid                                 = RkResolveFindingGid(SourcePid);
+    msg->KernelEventInfo.EventType           = IrpOpCode;
+    msg->KernelEventInfo.SourceProcessId     = SourcePid;
+    msg->KernelEventInfo.MemoryAddress       = MemoryAddress;
+    msg->KernelEventInfo.MemorySize          = MemSize;
+    msg->KernelEventInfo.RawArgument1        = Extra1;
+    msg->KernelEventInfo.RawArgument2        = Extra2;
 
     if (ObjectName) {
-        (VOID)RtlStringCchCopyW(event.ObjectName,
-                                RTL_NUMBER_OF(event.ObjectName),
+        (VOID)RtlStringCchCopyW(msg->KernelEventInfo.ObjectName,
+                                RTL_NUMBER_OF(msg->KernelEventInfo.ObjectName),
                                 ObjectName);
     }
 
-    // Send raw event to user-mode
-    (VOID)fltport::sendRawEvent(&event, sizeof(event));
+    if (!driverData->AddIrpMessage(entry)) {
+        delete entry;
+    }
 }
 
 static BOOLEAN
@@ -587,13 +591,13 @@ RkQuerySystemModules(_Outptr_ PRTL_PROCESS_MODULES *Modules)
     need += 4096;
     mods = (PRTL_PROCESS_MODULES)ExAllocatePool2(POOL_FLAG_NON_PAGED,
                                                  need,
-                                                 'erdd');
+                                                 'kMhO');
     if (!mods) return FALSE;
 
     status = fnZwQuerySystemInformation(SystemModuleInformation, mods, need, NULL);
     if (!NT_SUCCESS(status) || mods->NumberOfModules == 0)
     {
-        ExFreePoolWithTag(mods, 'erdd');
+        ExFreePoolWithTag(mods, 'kMhO');
         return FALSE;
     }
 
@@ -605,7 +609,7 @@ static VOID
 RkFreeSystemModules(_In_opt_ PRTL_PROCESS_MODULES Modules)
 {
     if (Modules) {
-        ExFreePoolWithTag(Modules, 'erdd');
+        ExFreePoolWithTag(Modules, 'kMhO');
     }
 }
 
@@ -764,7 +768,7 @@ RkCheckDriverPointerField(_In_ PCWSTR DriverPath,
 
     
 #if IS_DEBUG_IRP
-DbgPrint("edrdrv: driver object hook %ws field=%ws ptr=%p\n",
+DbgPrint("RootkitDetector: driver object hook %ws field=%ws ptr=%p\n",
              DriverPath,
              FieldName,
              Pointer);
@@ -860,7 +864,7 @@ RkCheckDriverObjectPathIntegrity(_In_ PCWSTR Path,
     __except (EXCEPTION_EXECUTE_HANDLER) {
         
 #if IS_DEBUG_IRP
-DbgPrint("edrdrv: exception while checking driver object %ws (0x%X)\n",
+DbgPrint("RootkitDetector: exception while checking driver object %ws (0x%X)\n",
                  Path,
                  GetExceptionCode());
 #endif
@@ -907,7 +911,7 @@ RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
     status = ZwOpenDirectoryObject(&hDir, DIRECTORY_QUERY, &oa);
     if (!NT_SUCCESS(status)) return 0;
 
-    qbuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, qbufSize, 'erdd');
+    qbuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, qbufSize, 'qRhO');
     if (!qbuf) {
         ZwClose(hDir);
         return 0;
@@ -946,7 +950,7 @@ RkScanDriverObjectDirectory(_In_ PCWSTR DirectoryPath,
                     RkFindModuleForAddress(Modules, drv->DriverStart) == NULL) {
                     
 #if IS_DEBUG_IRP
-DbgPrint("edrdrv: hidden driver object %ws base=%p\n",
+DbgPrint("RootkitDetector: hidden driver object %ws base=%p\n",
                              path,
                              drv->DriverStart);
 #endif
@@ -968,7 +972,7 @@ DbgPrint("edrdrv: hidden driver object %ws base=%p\n",
         if (status != STATUS_MORE_ENTRIES) break;
     }
 
-    ExFreePoolWithTag(qbuf, 'erdd');
+    ExFreePoolWithTag(qbuf, 'qRhO');
     ZwClose(hDir);
     return findings;
 }
@@ -1046,8 +1050,8 @@ RkCheckSsdtIntegrity(VOID)
 
                     
 #if IS_DEBUG_IRP
-LOGINFO1("SSDT hook detected: index=%llu -> %p\n",
-	(ULONGLONG)i, resolved);
+DbgPrint("RootkitDetector: SSDT hook index=%llu -> %p\n",
+                             (ULONGLONG)i, resolved);
 #endif
 
 
@@ -1061,7 +1065,8 @@ LOGINFO1("SSDT hook detected: index=%llu -> %p\n",
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         
 #if IS_DEBUG_IRP
-LOGERROR(GetExceptionCode(), "SSDT check exception\n");
+DbgPrint("RootkitDetector: SSDT check exception 0x%X\n",
+                 GetExceptionCode());
 #endif
 
     }
@@ -1095,19 +1100,19 @@ RkCheckHiddenProcesses(VOID)
 
     if (!fnZwQuerySystemInformation || !fnPsLookupProcessByProcessId) return 0;
 
-    bitmapPrimary = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, BITMAP_BYTES, 'erdd');
-    bitmapSecondary = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, BITMAP_BYTES, 'erdd');
+    bitmapPrimary = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, BITMAP_BYTES, 'bRhO');
+    bitmapSecondary = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, BITMAP_BYTES, '2RhO');
     if (!bitmapPrimary || !bitmapSecondary) {
-        if (bitmapPrimary) ExFreePoolWithTag(bitmapPrimary, 'erdd');
-        if (bitmapSecondary) ExFreePoolWithTag(bitmapSecondary, 'erdd');
+        if (bitmapPrimary) ExFreePoolWithTag(bitmapPrimary, 'bRhO');
+        if (bitmapSecondary) ExFreePoolWithTag(bitmapSecondary, '2RhO');
         return 0;
     }
 
     if (!RkBuildVisibleProcessBitmap(bitmapPrimary, BITMAP_BYTES) ||
         !RkBuildVisibleProcessBitmap(bitmapSecondary, BITMAP_BYTES))
     {
-        ExFreePoolWithTag(bitmapPrimary, 'erdd');
-        ExFreePoolWithTag(bitmapSecondary, 'erdd');
+        ExFreePoolWithTag(bitmapPrimary, 'bRhO');
+        ExFreePoolWithTag(bitmapSecondary, '2RhO');
         return 0;
     }
 
@@ -1139,8 +1144,8 @@ RkCheckHiddenProcesses(VOID)
 
             
 #if IS_DEBUG_IRP
-LOGINFO1("DKOM hidden process detected: PID=%lu name=%S\n",
-	pid, name);
+DbgPrint("RootkitDetector: DKOM hidden process PID=%lu name=%S\n",
+                     pid, name);
 #endif
 
             RkEmitFinding(IRP_ROOTKIT_HIDDEN_PROCESS, pid,
@@ -1151,8 +1156,8 @@ LOGINFO1("DKOM hidden process detected: PID=%lu name=%S\n",
         }
     }
 
-    ExFreePoolWithTag(bitmapPrimary, 'erdd');
-    ExFreePoolWithTag(bitmapSecondary, 'erdd');
+    ExFreePoolWithTag(bitmapPrimary, 'bRhO');
+    ExFreePoolWithTag(bitmapSecondary, '2RhO');
     return findings;
 }
 
@@ -1178,14 +1183,14 @@ RkBuildVisibleProcessBitmap(_Out_writes_bytes_(BitmapBytes) PUCHAR Bitmap,
     }
 
     need += 65536;
-    buf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, need, 'erdd');
+    buf = (PUCHAR)ExAllocatePool2(POOL_FLAG_PAGED, need, 'pRhO');
     if (!buf) {
         return FALSE;
     }
 
     status = fnZwQuerySystemInformation(SystemProcessInformation, buf, need, NULL);
     if (!NT_SUCCESS(status)) {
-        ExFreePoolWithTag(buf, 'erdd');
+        ExFreePoolWithTag(buf, 'pRhO');
         return FALSE;
     }
 
@@ -1201,7 +1206,7 @@ RkBuildVisibleProcessBitmap(_Out_writes_bytes_(BitmapBytes) PUCHAR Bitmap,
         entry = (SYSTEM_PROCESS_INFORMATION *)((PUCHAR)entry + entry->NextEntryOffset);
     }
 
-    ExFreePoolWithTag(buf, 'erdd');
+    ExFreePoolWithTag(buf, 'pRhO');
     return TRUE;
 }
 
@@ -1318,8 +1323,8 @@ RkCheckKernelInlineHooks(VOID)
 
                 
 #if IS_DEBUG_IRP
-LOGINFO1("Inline hook detected: %s -> %p\n",
-	g_MonitoredExports[i], target);
+DbgPrint("RootkitDetector: inline hook %s -> %p\n",
+                         g_MonitoredExports[i], target);
 #endif
 
                 RkEmitFinding(IRP_ROOTKIT_KERNEL_HOOK, 0, wnBuf,
@@ -1329,7 +1334,8 @@ LOGINFO1("Inline hook detected: %s -> %p\n",
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             
 #if IS_DEBUG_IRP
-LOGERROR(GetExceptionCode(), "Exception inspecting %s\n", g_MonitoredExports[i]);
+DbgPrint("RootkitDetector: exception inspecting %s\n",
+                     g_MonitoredExports[i]);
 #endif
 
         }

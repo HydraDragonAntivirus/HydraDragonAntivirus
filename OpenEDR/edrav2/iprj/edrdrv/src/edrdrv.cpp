@@ -22,11 +22,6 @@
 #include "fltport.h"
 #include "config.h"
 #include "dllinj.h"
-#include "processprotection.h"
-#include "amsiprotection.h"
-#include "userhook.h"
-#include "rootkitdetector.h"
-#include "quarantine.h"
 
 //////////////////////////////////////////////////////////////////////////
 //
@@ -87,11 +82,6 @@ VOID unloadDriver(_In_ PDRIVER_OBJECT /*pDriverObject*/)
 	LOGINFO2("%s: Entered\r\n", __FUNCTION__);
 	LOGINFO1("Unload\r\n");
 
-	rootkitdetector::finalize();
-	userhook::finalize();
-	amsiprotection::finalize();
-	processprotection::UninitProcessProtection();
-	quarantine::finalize();
 	dllinj::finalize();
 	netmon::finalize();
 	drvioctl::finalize();
@@ -200,11 +190,6 @@ EXTERN_C NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT pDriverObject, _In_ PUNICODE_S
 		IFERR_RET(drvioctl::initialize(), "Can't initialize IOCTL device\r\n");
 		IFERR_RET(netmon::initialize(), "Can't initialize network monitor\r\n");
 		IFERR_RET(dllinj::initialize(), "Can't initialize DLL injector\r\n");
-		IFERR_RET(quarantine::initialize(), "Can't initialize quarantine\r\n");
-		IFERR_RET(processprotection::InitProcessProtection(), "Can't initialize process protection\r\n");
-		IFERR_RET(amsiprotection::initialize(), "Can't initialize AMSI protection\r\n");
-		IFERR_RET(userhook::initialize(), "Can't initialize user-mode hooks\r\n");
-		IFERR_RET(rootkitdetector::initialize(), "Can't initialize rootkit detector\r\n");
 
 		g_pCommonData->pfnSaveDriverUnload = g_pCommonData->pDriverObject->DriverUnload;
 

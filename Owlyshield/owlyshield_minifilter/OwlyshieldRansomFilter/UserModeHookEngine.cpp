@@ -39,9 +39,8 @@ Environment:
 
 --*/
 
-#include "userhook.h"
-#include "common.h"
-#include "procmon.h"
+#include "UserModeHookEngine.h"
+#include "DriverData.h"
 #include <ntimage.h>
 #include <ntstrsafe.h>
 
@@ -179,7 +178,7 @@ HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 ULONG g_CustomHookCount = 0;
 FAST_MUTEX g_ConfigMutex;
 
-#define HOOK_RULE_POOL_TAG 'erdd'
+#define HOOK_RULE_POOL_TAG 'rKhO'
 #define HOOK_RULE_MAX_FILE_SIZE (64 * 1024)
 #define HOOK_RULE_MAX_LINE_CHARS 512
 
@@ -574,11 +573,23 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
     return matched;
 }
 
+static BOOLEAN IsRegisteredOwlyshieldAppProcess(_In_ ULONG ProcessId)
+{
+    if (ProcessId == 0 || driverData == NULL)
+    {
+        return FALSE;
+    }
+
+    return (ProcessId == driverData->getPID());
+}
+
 static BOOLEAN IsAlwaysSkippedProcessForHooking(_In_ ULONG ProcessId)
 {
-    UNREFERENCED_PARAMETER(ProcessId);
-    // EDRDrv doesn't have a concept of "registered app process"
-    // All processes are subject to hooking based on rules
+    if (IsRegisteredOwlyshieldAppProcess(ProcessId))
+    {
+        return TRUE;
+    }
+
     return FALSE;
 }
 
@@ -626,7 +637,9 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process, _I
 static BOOLEAN IsExcludedAncestorProcessForHooking(_In_ PEPROCESS Process)
 {
     static const ULONG kMaxAncestorDepth = 16;
+    WCHAR parentPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
     WCHAR parentNormalizedPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    UNICODE_STRING parentPath;
     UNICODE_STRING parentNormalizedPath;
     ULONG visitedPids[kMaxAncestorDepth] = {0};
     ULONG visitedCount = 0;
@@ -634,7 +647,7 @@ static BOOLEAN IsExcludedAncestorProcessForHooking(_In_ PEPROCESS Process)
     BOOLEAN currentProcessReferenced = FALSE;
     BOOLEAN shouldSkip = FALSE;
 
-    if (Process == NULL || fnPsGetProcessInheritedFromUniqueProcessId == NULL)
+    if (Process == NULL || driverData == NULL || fnPsGetProcessInheritedFromUniqueProcessId == NULL)
     {
         return FALSE;
     }
@@ -645,7 +658,6 @@ static BOOLEAN IsExcludedAncestorProcessForHooking(_In_ PEPROCESS Process)
         ULONG parentPid = (ULONG)(ULONG_PTR)parentHandle;
         BOOLEAN seenBefore = FALSE;
         PEPROCESS parentProcess = NULL;
-        PUNICODE_STRING parentImagePath = NULL;
 
         if (parentPid <= 4)
         {
@@ -672,25 +684,28 @@ static BOOLEAN IsExcludedAncestorProcessForHooking(_In_ PEPROCESS Process)
         }
         visitedPids[visitedCount++] = parentPid;
 
-        // Get parent process path using EDRDrv method
+        if (IsRegisteredOwlyshieldAppProcess(parentPid))
+        {
+            shouldSkip = TRUE;
+            break;
+        }
+
+        RtlZeroMemory(parentPathBuffer, sizeof(parentPathBuffer));
+        if (driverData->CopyProcessPathByPid(parentPid, parentPathBuffer, RTL_NUMBER_OF(parentPathBuffer)))
+        {
+            RtlInitUnicodeString(&parentPath, parentPathBuffer);
+            if (OwlyNormalizePathForMatch(&parentPath, parentNormalizedPathBuffer, &parentNormalizedPath) &&
+                IsNormalizedPathExcludedByHookRules(&parentNormalizedPath))
+            {
+                shouldSkip = TRUE;
+                break;
+            }
+        }
+
         if (!NT_SUCCESS(PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)parentPid, &parentProcess)) ||
             parentProcess == NULL)
         {
             break;
-        }
-
-        NTSTATUS status = SeLocateProcessImageName(parentProcess, &parentImagePath);
-        if (NT_SUCCESS(status) && parentImagePath != NULL && parentImagePath->Buffer != NULL)
-        {
-            if (OwlyNormalizePathForMatch(parentImagePath, parentNormalizedPathBuffer, &parentNormalizedPath) &&
-                IsNormalizedPathExcludedByHookRules(&parentNormalizedPath))
-            {
-                shouldSkip = TRUE;
-                ExFreePool(parentImagePath);
-                ObDereferenceObject(parentProcess);
-                break;
-            }
-            ExFreePool(parentImagePath);
         }
 
         if (currentProcessReferenced)
@@ -735,8 +750,10 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
             return TRUE;
     }
 
-    // EDRDrv: No special "registered app" concept
-    // Process filtering is done via rules only
+    if (IsRegisteredOwlyshieldAppProcess(ProcessId))
+    {
+        return TRUE;
+    }
 
     {
         PACCESS_TOKEN primaryToken = PsReferencePrimaryToken(Process);
@@ -1537,7 +1554,7 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
 {
     
 #if IS_DEBUG_IRP
-LOGINFO1("User-mode hooking engine initializing...\n");
+DbgPrint("!!! UserModeHook: Initializing user-mode hooking engine...\n");
 #endif
 
     NTSTATUS status;
@@ -1555,7 +1572,7 @@ LOGINFO1("User-mode hooking engine initializing...\n");
     {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "Failed to resolve ZwProtectVirtualMemory\n");
+DbgPrint("!!! UserModeHook: Failed to resolve ZwProtectVirtualMemory\n");
 #endif
 
         return STATUS_PROCEDURE_NOT_FOUND;
@@ -1569,7 +1586,7 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "Failed to resolve ZwProtectVirtualMemory\n
     {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "Failed to resolve PsGetProcessPeb\n");
+DbgPrint("!!! UserModeHook: Failed to resolve PsGetProcessPeb\n");
 #endif
 
         return STATUS_PROCEDURE_NOT_FOUND;
@@ -1582,7 +1599,7 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "Failed to resolve PsGetProcessPeb\n");
     {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "Failed to resolve ZwAllocateVirtualMemory\n");
+DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
 #endif
 
         return STATUS_PROCEDURE_NOT_FOUND;
@@ -1596,7 +1613,7 @@ LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "Failed to resolve ZwAllocateVirtualMemory\
     {
         
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_PROCEDURE_NOT_FOUND, "Failed to resolve ZwFreeVirtualMemory\n");
+DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
 #endif
 
         return STATUS_PROCEDURE_NOT_FOUND;
@@ -2867,7 +2884,7 @@ NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle, _In_ PVOID TargetAddress
 
     
 #if IS_DEBUG_IRP
-LOGINFO1("Hooking %p -> Detour %p\n", TargetAddress, DetourAddress);
+DbgPrint("!!! UserModeHook: Hooking %p -> Detour %p\n", TargetAddress, DetourAddress);
 #endif
 
 
@@ -2881,7 +2898,7 @@ LOGINFO1("Hooking %p -> Detour %p\n", TargetAddress, DetourAddress);
         {
             
 #if IS_DEBUG_IRP
-LOGERROR(status, "Protect failed\n");
+DbgPrint("!!! UserModeHook: Protect failed: 0x%X\n", status);
 #endif
 
             __leave;
@@ -2939,7 +2956,7 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         HookEntry->RingBase == NULL || HookEntry->RingSize < sizeof(UMH_SHARED_RING))
     {
 #if IS_DEBUG_IRP
-        LOGINFO1("PID %lu skipping hook at %p - ring infrastructure unavailable\n",
+        DbgPrint("UserModeHook: PID %lu skipping hook at %p - ring infrastructure unavailable\n",
                  ProcessId, HookDef->Address);
 #endif
         return STATUS_NOT_SUPPORTED;
@@ -2964,7 +2981,7 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         {
             
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_ACCESS_VIOLATION, "ProbeForRead faulted at %p - skipping hook\n", HookDef->Address);
+DbgPrint("UserModeHook: ProbeForRead faulted at %p - skipping hook\n", HookDef->Address);
 #endif
 
             return STATUS_ACCESS_VIOLATION;
@@ -2975,8 +2992,8 @@ LOGERROR(STATUS_ACCESS_VIOLATION, "ProbeForRead faulted at %p - skipping hook\n"
         {
             
 #if IS_DEBUG_IRP
-LOGINFO1("Skipping %p - no instruction boundary within %u bytes\n", HookDef->Address,
-                 (ULONG)USERMODE_HOOK_STOLEN_MAX);
+DbgPrint("UserModeHook: Skipping %p - no instruction boundary within %u bytes\n", HookDef->Address,
+                     (ULONG)USERMODE_HOOK_STOLEN_MAX);
 #endif
 
             return STATUS_NOT_SUPPORTED;
@@ -2987,7 +3004,7 @@ LOGINFO1("Skipping %p - no instruction boundary within %u bytes\n", HookDef->Add
         {
             
 #if IS_DEBUG_IRP
-LOGINFO1("Skipping %p - stolen bytes contain relative branch\n", HookDef->Address);
+DbgPrint("UserModeHook: Skipping %p - stolen bytes contain relative branch\n", HookDef->Address);
 #endif
 
             return STATUS_NOT_SUPPORTED;
@@ -3045,7 +3062,7 @@ LOGINFO1("Skipping %p - stolen bytes contain relative branch\n", HookDef->Addres
         {
             
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_INVALID_PARAMETER, "stolenSize %zu out of range [1,%u] at %p - refusing hook\n",
+DbgPrint("UserModeHook: stolenSize %zu out of range [1,%u] at %p - refusing hook\n",
                      stolenSize, (ULONG)USERMODE_HOOK_STOLEN_MAX, HookDef->Address);
 #endif
 
@@ -3109,7 +3126,7 @@ LOGERROR(STATUS_INVALID_PARAMETER, "stolenSize %zu out of range [1,%u] at %p - r
             {
                 
 #if IS_DEBUG_IRP
-LOGERROR(qst, "ZwQueryVirtualMemory failed for %p\n", HookDef->Address);
+DbgPrint("UserModeHook: ZwQueryVirtualMemory failed 0x%X for %p\n", qst, HookDef->Address);
 #endif
 
                 return qst;
@@ -3118,7 +3135,7 @@ LOGERROR(qst, "ZwQueryVirtualMemory failed for %p\n", HookDef->Address);
             {
                 
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_INVALID_ADDRESS, "Target %p is not in a committed region\n", HookDef->Address);
+DbgPrint("UserModeHook: Target %p is not in a committed region\n", HookDef->Address);
 #endif
 
                 return STATUS_INVALID_ADDRESS;
@@ -3128,7 +3145,7 @@ LOGERROR(STATUS_INVALID_ADDRESS, "Target %p is not in a committed region\n", Hoo
             {
                 
 #if IS_DEBUG_IRP
-LOGINFO1("14-byte patch at %p straddles VAD boundary - skipping\n", HookDef->Address);
+DbgPrint("UserModeHook: 14-byte patch at %p straddles VAD boundary - skipping\n", HookDef->Address);
 #endif
 
                 return STATUS_CONFLICTING_ADDRESSES;
@@ -3208,7 +3225,7 @@ NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout
         HookEntry->RingBase == NULL || HookEntry->RingSize < sizeof(UMH_SHARED_RING))
     {
 #if IS_DEBUG_IRP
-        LOGINFO1("PID %lu skipping hook at %p - ring infrastructure unavailable (32-bit)\n",
+        DbgPrint("UserModeHook32: PID %lu skipping hook at %p - ring infrastructure unavailable\n",
                  ProcessId, HookDef->Address);
 #endif
         return STATUS_NOT_SUPPORTED;
@@ -3230,7 +3247,7 @@ NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout
         {
             
 #if IS_DEBUG_IRP
-LOGERROR(STATUS_ACCESS_VIOLATION, "ProbeForRead faulted at %p - skipping (32-bit)\n", HookDef->Address);
+DbgPrint("UserModeHook32: ProbeForRead faulted at %p - skipping\n", HookDef->Address);
 #endif
 
             return STATUS_ACCESS_VIOLATION;
@@ -3240,7 +3257,7 @@ LOGERROR(STATUS_ACCESS_VIOLATION, "ProbeForRead faulted at %p - skipping (32-bit
         {
             
 #if IS_DEBUG_IRP
-LOGINFO1("Skipping %p - relative branch in prologue (32-bit)\n", HookDef->Address);
+DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef->Address);
 #endif
 
             return STATUS_NOT_SUPPORTED;
@@ -4059,7 +4076,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                 RtlZeroMemory(&g_UserHookEngine->Processes[i], sizeof(PROCESS_HOOK_ENTRY));
                 
 #if IS_DEBUG_IRP
-LOGINFO1("PID %lu reuse detected; stale slot cleared\n", ProcessId);
+DbgPrint("UserModeHook: PID %lu reuse detected; stale slot cleared\n", ProcessId);
 #endif
 
                 break; // stale slot cleared; fall through to free-slot search
@@ -4191,19 +4208,20 @@ LOGINFO1("PID %lu reuse detected; stale slot cleared\n", ProcessId);
             goto HookProcessFailure;
         }
 
-        // Detect ACG status for the process
-        BOOLEAN isAcgEnabled = IsProcessAcgEnabled(process);
-        
-#if IS_DEBUG_IRP
-        if (isAcgEnabled)
+        // Detect if this is a Chromium-based process and store it in DriverData 
+        // so that KERNEL_EVENT_INFO can be accurately populated during hooks.
+        if (driverData != NULL)
         {
-            LOGINFO1("PID %lu has ACG enabled\n", ProcessId);
-        }
+            BOOLEAN isAcgEnabled = IsProcessAcgEnabled(process);
+            driverData->SetProcessIsAcgEnabled(ProcessId, isAcgEnabled);
+            
+#if IS_DEBUG_IRP
+            if (isAcgEnabled)
+            {
+                DbgPrint("UserModeHook: PID %lu has ACG enabled\n", ProcessId);
+            }
 #endif
-        
-        // EDRDrv: ACG status can be stored in process context if needed
-        // For now, we just detect it for logging purposes
-        UNREFERENCED_PARAMETER(isAcgEnabled);
+        }
 
         if (hookEntry->CustomHookCapacity > 0)
         {
@@ -4334,7 +4352,7 @@ LOGINFO1("PID %lu reuse detected; stale slot cleared\n", ProcessId);
                     {
                         
 #if IS_DEBUG_IRP
-LOGINFO1("PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
+DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
                                  currentHookConfig->FunctionName, hookStatus);
 #endif
 
@@ -4347,8 +4365,8 @@ LOGINFO1("PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
                     //                  STATUS_DEVICE_DOES_NOT_EXIST).
                     
 #if IS_DEBUG_IRP
-LOGERROR(hookStatus, "PID %lu fatal hook[%lu] '%ws!%s' failed\n", ProcessId, i,
-                             currentHookConfig->ModuleName, currentHookConfig->FunctionName);
+DbgPrint("UserModeHook: PID %lu fatal hook[%lu] '%ws!%s' failed 0x%X\n", ProcessId, i,
+                             currentHookConfig->ModuleName, currentHookConfig->FunctionName, hookStatus);
 #endif
 
                     status = hookStatus;
@@ -4359,7 +4377,7 @@ LOGERROR(hookStatus, "PID %lu fatal hook[%lu] '%ws!%s' failed\n", ProcessId, i,
                 {
                     
 #if IS_DEBUG_IRP
-LOGINFO1("PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
+DbgPrint("UserModeHook: PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
                              ProcessId, appliedHookCount, recoverableHookFailureCount);
 #endif
 
@@ -4374,7 +4392,7 @@ LOGINFO1("PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
                 if (!existingHookEntry && hookCountToInstall > 0 && appliedHookCount == 0)
                 {
 #if IS_DEBUG_IRP
-                    LOGINFO1("PID %lu skipped - no hooks could be installed (recoverable failures=%lu)\n",
+                    DbgPrint("UserModeHook: PID %lu skipped - no hooks could be installed (recoverable failures=%lu)\n",
                              ProcessId, recoverableHookFailureCount);
 #endif
                     status = STATUS_NOT_SUPPORTED;
@@ -4420,7 +4438,7 @@ LOGINFO1("PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
         {
             
 #if IS_DEBUG_IRP
-LOGINFO1("Shellcodes processed for PID %lu (%s)\n", ProcessId,
+DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s)\n", ProcessId,
                      existingHookEntry ? "refresh" : "initial");
 #endif
 
@@ -4443,7 +4461,7 @@ LOGINFO1("Shellcodes processed for PID %lu (%s)\n", ProcessId,
 HookProcessFailure:
     
 #if IS_DEBUG_IRP
-LOGERROR(status, "PID %lu hook processing failed (%s)\n", ProcessId,
+DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, status,
              existingHookEntry ? "refresh" : "initial");
 #endif
 
@@ -4453,7 +4471,7 @@ LOGERROR(status, "PID %lu hook processing failed (%s)\n", ProcessId,
     if (recoverableProcessFailure)
     {
 #if IS_DEBUG_IRP
-        LOGINFO1("PID %lu hook processing skipped as recoverable 0x%X (%s)\n",
+        DbgPrint("UserModeHook: PID %lu hook processing skipped as recoverable 0x%X (%s)\n",
                  ProcessId, status, existingHookEntry ? "refresh" : "initial");
 #endif
     }
@@ -4753,7 +4771,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         {
             
 #if IS_DEBUG_IRP
-LOGERROR(GetExceptionCode(), "Exception during unhook of PID %lu\n", ProcessId);
+DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n", GetExceptionCode(), ProcessId);
 #endif
 
         }
