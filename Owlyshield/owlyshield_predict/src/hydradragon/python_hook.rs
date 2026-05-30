@@ -1,5 +1,7 @@
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
+use std::thread;
+use std::time;
 use windows::core::{s, w, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, BOOL, HANDLE, HMODULE, WAIT_OBJECT_0};
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
@@ -23,13 +25,13 @@ use crate::logging::Logging;
 /// expected by CreateRemoteThread. The caller must ensure the pointer is valid.
 #[inline]
 unsafe fn cast_to_thread_start_routine(fn_ptr: *const ()) -> LPTHREAD_START_ROUTINE {
-    Some(std::mem::transmute(fn_ptr))
+    Some(unsafe { std::mem::transmute(fn_ptr) })
 }
 
 fn is_64bit_process(process_handle: HANDLE) -> bool {
     let mut is_wow64 = BOOL(0);
     unsafe {
-        if let Ok(()) = IsWow64Process(process_handle, &mut is_wow64) {
+        if IsWow64Process(process_handle, &mut is_wow64).as_bool() {
             return is_wow64.0 == 0;
         }
     }
@@ -45,7 +47,7 @@ fn find_remote_module_base(pid: u32, module_name: &str) -> Option<usize> {
                 let mut entry = MODULEENTRY32W::default();
                 entry.dwSize = std::mem::size_of::<MODULEENTRY32W>() as u32;
 
-                if Module32FirstW(snap, &mut entry).is_ok() {
+                if Module32FirstW(snap, &mut entry).as_bool() {
                     loop {
                         let sz_module = String::from_utf16_lossy(&entry.szModule);
                         let sz_module = sz_module.trim_matches(char::from(0)).to_lowercase();
@@ -54,7 +56,7 @@ fn find_remote_module_base(pid: u32, module_name: &str) -> Option<usize> {
                             let _ = CloseHandle(snap);
                             return Some(entry.modBaseAddr as usize);
                         }
-                        if Module32NextW(snap, &mut entry).is_err() {
+                        if !Module32NextW(snap, &mut entry).as_bool() {
                             break;
                         }
                     }
@@ -117,13 +119,13 @@ pub fn inject(pid: u32) -> bool {
         }
 
         let mut bytes_written = 0;
-        if let Err(_) = WriteProcessMemory(
+        if !WriteProcessMemory(
             h_proc,
             mem,
             path_utf16.as_ptr() as *const std::ffi::c_void,
             path_size,
             Some(&mut bytes_written),
-        ) {
+        ).as_bool() {
             Logging::error(&format!("[PythonHook] WriteProcessMemory failed for PID {}", pid));
             let _ = CloseHandle(h_proc);
             return false;
@@ -144,7 +146,7 @@ pub fn inject(pid: u32) -> bool {
             h_proc,
             None,
             0,
-            unsafe { cast_to_thread_start_routine(load_lib_addr.unwrap()) },
+            unsafe { cast_to_thread_start_routine(load_lib_addr.unwrap() as *const ()) },
             Some(mem),
             0,
             Some(&mut thread_id),
