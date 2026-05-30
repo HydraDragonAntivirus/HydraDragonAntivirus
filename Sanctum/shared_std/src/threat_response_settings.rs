@@ -165,7 +165,8 @@ impl ThreatResponseSettings {
 
     /// Set configuration for a specific engine
     pub fn set_engine_config(&mut self, engine: DetectionEngine, config: EngineConfig) {
-        self.engine_configs.insert(engine.as_str().to_string(), config);
+        self.engine_configs
+            .insert(engine.as_str().to_string(), config);
     }
 
     /// Get recommended action for a detection from a specific engine
@@ -182,7 +183,8 @@ impl ThreatResponseSettings {
     /// Reset all engines to default configuration
     pub fn reset_to_defaults(&mut self) {
         for engine in DetectionEngine::all_engines() {
-            self.engine_configs.insert(engine.as_str().to_string(), EngineConfig::default());
+            self.engine_configs
+                .insert(engine.as_str().to_string(), EngineConfig::default());
         }
     }
 }
@@ -199,15 +201,30 @@ mod tests {
 
     #[test]
     fn test_threat_action_conversion() {
-        assert_eq!(ThreatAction::from_str("kill_and_quarantine"), ThreatAction::KillAndQuarantine);
-        assert_eq!(ThreatAction::from_str("KILL_AND_QUARANTINE"), ThreatAction::KillAndQuarantine);
-        assert_eq!(ThreatAction::KillAndQuarantine.as_str(), "kill_and_quarantine");
+        assert_eq!(
+            ThreatAction::from_str("kill_and_quarantine"),
+            ThreatAction::KillAndQuarantine
+        );
+        assert_eq!(
+            ThreatAction::from_str("KILL_AND_QUARANTINE"),
+            ThreatAction::KillAndQuarantine
+        );
+        assert_eq!(
+            ThreatAction::KillAndQuarantine.as_str(),
+            "kill_and_quarantine"
+        );
     }
 
     #[test]
     fn test_detection_engine_conversion() {
-        assert_eq!(DetectionEngine::from_str("clamav"), Some(DetectionEngine::ClamAV));
-        assert_eq!(DetectionEngine::from_str("yara-x"), Some(DetectionEngine::YaraX));
+        assert_eq!(
+            DetectionEngine::from_str("clamav"),
+            Some(DetectionEngine::ClamAV)
+        );
+        assert_eq!(
+            DetectionEngine::from_str("yara-x"),
+            Some(DetectionEngine::YaraX)
+        );
         assert_eq!(DetectionEngine::ClamAV.as_str(), "clamav");
     }
 
