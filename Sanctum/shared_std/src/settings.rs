@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
 use crate::threat_response_settings::ThreatResponseSettings;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SanctumSettings {

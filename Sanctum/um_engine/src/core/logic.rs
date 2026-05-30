@@ -276,13 +276,19 @@ impl Core {
                     // println!("[i] Target process detected, injecting EDR DLL into PID: {pid}...");
                     if let Err(e) = inject_edr_dll(pid as _) {
                         println!("[-] Error injecting Sanctum DLL: {e:?}");
-                        logger.log(LogLevel::Error, &format!("Error injecting Sanctum DLL: {e:?}"));
+                        logger.log(
+                            LogLevel::Error,
+                            &format!("Error injecting Sanctum DLL: {e:?}"),
+                        );
                     }
-                    
+
                     // Also inject CAPEMON.DLL for Cuckoo behavioral tracing
                     if let Err(e) = crate::core::process_monitor::inject_capemon_dll(pid as _) {
                         println!("[-] Error injecting Capemon DLL: {e:?}");
-                        logger.log(LogLevel::Error, &format!("Error injecting Capemon DLL: {e:?}"));
+                        logger.log(
+                            LogLevel::Error,
+                            &format!("Error injecting Capemon DLL: {e:?}"),
+                        );
 
                         // Let the driver know we failed to inject
                         let mut mtx = driver_manager.lock().await;
@@ -292,14 +298,19 @@ impl Core {
                     // Check if it's PowerShell to inject Exorcism
                     if let Some(path_str) = crate::utils::env::resolve_process_path(pid as u32) {
                         let lower_path = path_str.to_lowercase();
-                        if lower_path.contains("powershell.exe") || lower_path.contains("pwsh.exe") {
-                            if let Err(e) = crate::core::process_monitor::inject_exorcism_dll(pid as _) {
+                        if lower_path.contains("powershell.exe") || lower_path.contains("pwsh.exe")
+                        {
+                            if let Err(e) =
+                                crate::core::process_monitor::inject_exorcism_dll(pid as _)
+                            {
                                 println!("[-] Error injecting Exorcism DLL: {e:?}");
-                                logger.log(LogLevel::Error, &format!("Error injecting Exorcism DLL: {e:?}"));
+                                logger.log(
+                                    LogLevel::Error,
+                                    &format!("Error injecting Exorcism DLL: {e:?}"),
+                                );
                             }
                         }
                     }
-
                 }
             }
         }
