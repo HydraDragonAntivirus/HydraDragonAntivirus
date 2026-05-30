@@ -104,30 +104,53 @@ fn send_manual_scan_to_owlyshield(
 
                             match serde_json::from_str::<serde_json::Value>(trimmed) {
                                 Ok(response) => {
-                                    if let Some(status) = response.get("status").and_then(|s| s.as_str()) {
+                                    if let Some(status) =
+                                        response.get("status").and_then(|s| s.as_str())
+                                    {
                                         match status {
                                             "threat_detected" => {
-                                                let file_path = get_str_or(&response, "file_path", "unknown");
-                                                let detection_name = get_str_or(&response, "detection_name", "unknown");
-                                                let detection_engine = get_str_or(&response, "detection_engine", "unknown");
-                                                let recommended_action = get_str_or(&response, "recommended_action", "unknown");
-                                                
+                                                let file_path =
+                                                    get_str_or(&response, "file_path", "unknown");
+                                                let detection_name = get_str_or(
+                                                    &response,
+                                                    "detection_name",
+                                                    "unknown",
+                                                );
+                                                let detection_engine = get_str_or(
+                                                    &response,
+                                                    "detection_engine",
+                                                    "unknown",
+                                                );
+                                                let recommended_action = get_str_or(
+                                                    &response,
+                                                    "recommended_action",
+                                                    "unknown",
+                                                );
+
                                                 eprintln!("[!] THREAT DETECTED: {} detected by {} as {}, recommended action: {}",
                                                     file_path, detection_engine, detection_name, recommended_action);
                                             }
                                             "action_executed" => {
-                                                let file_path = get_str_or(&response, "file_path", "unknown");
-                                                let action = get_str_or(&response, "action", "unknown");
-                                                let result = get_str_or(&response, "result", "unknown");
-                                                
-                                                eprintln!("[*] ACTION EXECUTED: {} on {}, result: {}",
-                                                    action, file_path, result);
+                                                let file_path =
+                                                    get_str_or(&response, "file_path", "unknown");
+                                                let action =
+                                                    get_str_or(&response, "action", "unknown");
+                                                let result =
+                                                    get_str_or(&response, "result", "unknown");
+
+                                                eprintln!(
+                                                    "[*] ACTION EXECUTED: {} on {}, result: {}",
+                                                    action, file_path, result
+                                                );
                                             }
                                             "scan_complete" => {
                                                 break;
                                             }
                                             _ => {
-                                                eprintln!("[?] Unknown response status: {}", status);
+                                                eprintln!(
+                                                    "[?] Unknown response status: {}",
+                                                    status
+                                                );
                                             }
                                         }
                                     }
