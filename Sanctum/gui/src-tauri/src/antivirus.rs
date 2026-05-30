@@ -56,6 +56,10 @@ pub async fn scanner_stop_scan() -> Result<(), ()> {
     Ok(())
 }
 
+fn get_str_or<'a>(value: &'a serde_json::Value, key: &str, default: &'a str) -> &'a str {
+    value.get(key).and_then(|v| v.as_str()).unwrap_or(default)
+}
+
 fn send_manual_scan_to_owlyshield(
     file_path: &str,
     scan_mode: &str,
@@ -103,18 +107,18 @@ fn send_manual_scan_to_owlyshield(
                                     if let Some(status) = response.get("status").and_then(|s| s.as_str()) {
                                         match status {
                                             "threat_detected" => {
-                                                let file_path = response.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                                let detection_name = response.get("detection_name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                                let detection_engine = response.get("detection_engine").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                                let recommended_action = response.get("recommended_action").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                let file_path = get_str_or(&response, "file_path", "unknown");
+                                                let detection_name = get_str_or(&response, "detection_name", "unknown");
+                                                let detection_engine = get_str_or(&response, "detection_engine", "unknown");
+                                                let recommended_action = get_str_or(&response, "recommended_action", "unknown");
                                                 
                                                 eprintln!("[!] THREAT DETECTED: {} detected by {} as {}, recommended action: {}",
                                                     file_path, detection_engine, detection_name, recommended_action);
                                             }
                                             "action_executed" => {
-                                                let file_path = response.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                                let action = response.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                                let result = response.get("result").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                let file_path = get_str_or(&response, "file_path", "unknown");
+                                                let action = get_str_or(&response, "action", "unknown");
+                                                let result = get_str_or(&response, "result", "unknown");
                                                 
                                                 eprintln!("[*] ACTION EXECUTED: {} on {}, result: {}",
                                                     action, file_path, result);

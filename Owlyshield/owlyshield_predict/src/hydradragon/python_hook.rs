@@ -10,11 +10,21 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 use windows::Win32::System::LibraryLoader::{FreeLibrary, GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows::Win32::System::Memory::{VirtualAllocEx, MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, GetExitCodeThread, IsWow64Process, OpenProcess, WaitForSingleObject,
-    PROCESS_ALL_ACCESS,
+    CreateRemoteThread, GetExitCodeThread, IsWow64Process, LPTHREAD_START_ROUTINE, OpenProcess,
+    WaitForSingleObject, PROCESS_ALL_ACCESS,
 };
 
 use crate::logging::Logging;
+
+/// Helper function to safely cast function pointer for LoadLibraryW
+///
+/// # Safety
+/// This function casts a raw function pointer to LPTHREAD_START_ROUTINE type
+/// expected by CreateRemoteThread. The caller must ensure the pointer is valid.
+#[inline]
+unsafe fn cast_to_thread_start_routine(fn_ptr: *const ()) -> LPTHREAD_START_ROUTINE {
+    Some(std::mem::transmute(fn_ptr))
+}
 
 fn is_64bit_process(process_handle: HANDLE) -> bool {
     let mut is_wow64 = BOOL(0);
@@ -134,7 +144,7 @@ pub fn inject(pid: u32) -> bool {
             h_proc,
             None,
             0,
-            Some(std::mem::transmute(load_lib_addr.unwrap())),
+            unsafe { cast_to_thread_start_routine(load_lib_addr.unwrap()) },
             Some(mem),
             0,
             Some(&mut thread_id),
@@ -200,7 +210,7 @@ pub fn inject(pid: u32) -> bool {
             h_proc,
             None,
             0,
-            Some(std::mem::transmute(remote_fn_addr)),
+            unsafe { cast_to_thread_start_routine(remote_fn_addr as *const ()) },
             None,
             0,
             Some(&mut thread_id),

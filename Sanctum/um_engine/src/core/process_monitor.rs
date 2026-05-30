@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::fs;
+use std::path::PathBuf;
 
 use shared_no_std::constants::SANCTUM_DLL_RELATIVE_PATH;
 use windows::{
@@ -10,13 +11,29 @@ use windows::{
             LibraryLoader::{GetModuleHandleA, GetProcAddress},
             Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx},
             Threading::{
-                CreateRemoteThread, OpenProcess, PROCESS_CREATE_THREAD,
+                CreateRemoteThread, OpenProcess, LPTHREAD_START_ROUTINE, PROCESS_CREATE_THREAD,
                 PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_WRITE,
             },
         },
     },
     core::s,
 };
+
+/// Base installation path for HydraDragon Antivirus
+const HYDRADRAGON_BASE_PATH: &str = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\";
+
+/// Path to Exorcism DLL for PowerShell monitoring
+const EXORCISM_DLL_PATH: &str = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Exorcism-PowershellEdition.dll";
+
+/// Helper function to safely cast function pointer for LoadLibraryA
+///
+/// # Safety
+/// This function casts a raw function pointer to LPTHREAD_START_ROUTINE type
+/// expected by CreateRemoteThread. The caller must ensure the pointer is valid.
+#[inline]
+unsafe fn cast_to_thread_start_routine(fn_ptr: *const ()) -> LPTHREAD_START_ROUTINE {
+    Some(std::mem::transmute(fn_ptr))
+}
 
 /// Inject the EDR's DLL into a given process by PID. This should be done for processes running on start, and for
 /// processes which are newly created.
@@ -91,13 +108,7 @@ pub fn inject_edr_dll(pid: u64) -> Result<(), ProcessErrors> {
     }
 
     // correctly cast the address of LoadLibraryA
-    let load_library_fn_address: Option<unsafe extern "system" fn(*mut c_void) -> u32> = Some(
-        unsafe {
-            std::mem::transmute::<*const (), unsafe extern "system" fn(*mut std::ffi::c_void) -> u32>(
-                load_library_fn_address,
-            )
-        },
-    );
+    let load_library_fn_address = unsafe { cast_to_thread_start_routine(load_library_fn_address) };
 
     // Create thread in process
     let mut thread: u32 = 0;
@@ -199,13 +210,7 @@ pub fn inject_capemon_dll(pid: u64) -> Result<(), ProcessErrors> {
         return Err(ProcessErrors::FailedToWriteMemory);
     }
 
-    let load_library_fn_address: Option<unsafe extern "system" fn(*mut c_void) -> u32> = Some(
-        unsafe {
-            std::mem::transmute::<*const (), unsafe extern "system" fn(*mut std::ffi::c_void) -> u32>(
-                load_library_fn_address,
-            )
-        },
-    );
+    let load_library_fn_address = unsafe { cast_to_thread_start_routine(load_library_fn_address) };
 
     // Write config.ini for capemon
     let config_dir = PathBuf::from(base_path).join("configs");
@@ -300,11 +305,7 @@ pub fn inject_exorcism_dll(pid: u64) -> Result<(), ProcessErrors> {
         return Err(ProcessErrors::FailedToWriteMemory);
     }
 
-    let load_library_fn_address: Option<unsafe extern "system" fn(*mut c_void) -> u32> = Some(unsafe {
-        std::mem::transmute::<*const (), unsafe extern "system" fn(*mut std::ffi::c_void) -> u32>(
-            load_library_fn_address,
-        )
-    });
+    let load_library_fn_address = unsafe { cast_to_thread_start_routine(load_library_fn_address) };
 
     let mut thread: u32 = 0;
     if unsafe {
