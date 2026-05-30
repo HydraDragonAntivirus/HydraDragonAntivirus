@@ -121,6 +121,138 @@ pub fn inject_edr_dll(pid: u64) -> Result<(), ProcessErrors> {
     Ok(())
 }
 
+/// Injects CAPEMON.DLL into the target process using Sanctum's injection technique
+/// (VirtualAllocEx + CreateRemoteThread) instead of relying on a subprocess loader.exe.
+pub fn inject_capemon_dll(pid: u64) -> Result<(), ProcessErrors> {
+    // 1. Detect DLL sideloading and deploy CAPEMON proxy if needed
+    if let Some(path_str) = resolve_process_path(pid as u32) {
+        let path = PathBuf::from(path_str);
+        if let Some(dir) = path.parent() {
+            if detect_dll_sideloading(dir) && has_msimg32(dir) {
+                // If it is suspected of sideloading, deploy version.dll proxy (capemon)
+                let _ = deploy_version_proxy(dir, pid as u32);
+            }
+        }
+    }
+
+    // Open the process
+    let h_process = unsafe {
+        OpenProcess(
+            PROCESS_VM_OPERATION
+                | PROCESS_VM_WRITE
+                | PROCESS_CREATE_THREAD
+                | PROCESS_QUERY_LIMITED_INFORMATION,
+            false,
+            pid as u32,
+        )
+    };
+    let h_process = match h_process {
+        Ok(h) => h,
+        Err(_) => {
+            return Err(ProcessErrors::FailedToOpenProcess(unsafe {
+                GetLastError().0 as i32
+            }));
+        }
+    };
+
+    // Get a handle to Kernel32.dll
+    let h_kernel32 = unsafe { GetModuleHandleA(s!("Kernel32.dll")) };
+    let h_kernel32 = match h_kernel32 {
+        Ok(h) => h,
+        Err(_) => return Err(ProcessErrors::BadHandle),
+    };
+
+    // Get a function pointer to LoadLibraryA from Kernel32.dll
+    let load_library_fn_address = unsafe { GetProcAddress(h_kernel32, s!("LoadLibraryA")) };
+    let load_library_fn_address = match load_library_fn_address {
+        None => return Err(ProcessErrors::BadFnAddress),
+        Some(address) => address as *const (),
+    };
+
+    // Allocate memory for the path to the CAPEMON DLL
+    // Assuming x64 by default for the EDR
+    let base_path = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\capemon\\";
+    let dll_path = format!("{}capemon64.dll\0", base_path);
+    let path_len = dll_path.len();
+
+    let remote_buffer_base_address = unsafe {
+        VirtualAllocEx(
+            h_process,
+            None,
+            path_len,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_READWRITE,
+        )
+    };
+
+    if remote_buffer_base_address.is_null() {
+        return Err(ProcessErrors::BaseAddressNull);
+    }
+
+    // Write to the buffer
+    let mut bytes_written: usize = 0;
+    let buff_result = unsafe {
+        WriteProcessMemory(
+            h_process,
+            remote_buffer_base_address,
+            dll_path.as_ptr() as *const _,
+            path_len,
+            Some(&mut bytes_written as *mut usize),
+        )
+    };
+
+    if buff_result.is_err() {
+        return Err(ProcessErrors::FailedToWriteMemory);
+    }
+
+    let load_library_fn_address: Option<unsafe extern "system" fn(*mut c_void) -> u32> = Some(
+        unsafe {
+            std::mem::transmute::<*const (), unsafe extern "system" fn(*mut std::ffi::c_void) -> u32>(
+                load_library_fn_address,
+            )
+        },
+    );
+
+    // Write config.ini for capemon
+    let config_dir = PathBuf::from(base_path).join("configs");
+    let _ = fs::create_dir_all(&config_dir);
+    let config_path = config_dir.join(format!("{}.ini", pid));
+    let config_content = format!(
+        "host-ip=127.0.0.1\n\
+         host-port=8080\n\
+         pipe=\\\\.\\pipe\\HydraDragonCapemon\n\
+         logserver=\\\\.\\pipe\\HydraDragonLog_{}\n\
+         first-process=1\n\
+         startup-time=0\n\
+         terminate-event=CapeMonTerminate{}\n",
+        pid, pid
+    );
+    let _ = fs::write(config_path, config_content);
+
+    // Create thread in process to LoadLibraryA(capemon64.dll)
+    let mut thread: u32 = 0;
+    let h_thread = unsafe {
+        CreateRemoteThread(
+            h_process,
+            None, // default security descriptor
+            0,    // default stack size
+            load_library_fn_address,
+            Some(remote_buffer_base_address),
+            0,
+            Some(&mut thread as *mut u32),
+        )
+    };
+
+    if h_thread.is_err() {
+        return Err(ProcessErrors::FailedToCreateRemoteThread(unsafe {
+            GetLastError().0 as _
+        }));
+    }
+
+    println!("[Capemon] Successfully injected capemon64.dll into PID: {}", pid);
+    Ok(())
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum ProcessErrors {

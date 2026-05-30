@@ -275,24 +275,20 @@ impl Core {
                 for pid in image_loads {
                     // println!("[i] Target process detected, injecting EDR DLL into PID: {pid}...");
                     if let Err(e) = inject_edr_dll(pid as _) {
-                        println!("[-] Error injecting DLL: {e:?}");
-                        logger.log(LogLevel::Error, &format!("Error injecting DLL: {e:?}"));
+                        println!("[-] Error injecting Sanctum DLL: {e:?}");
+                        logger.log(LogLevel::Error, &format!("Error injecting Sanctum DLL: {e:?}"));
+                    }
+                    
+                    // Also inject CAPEMON.DLL for Cuckoo behavioral tracing
+                    if let Err(e) = crate::core::process_monitor::inject_capemon_dll(pid as _) {
+                        println!("[-] Error injecting Capemon DLL: {e:?}");
+                        logger.log(LogLevel::Error, &format!("Error injecting Capemon DLL: {e:?}"));
 
-                        //
-                        // We do get the occasional error here; most likely something we simply cannot inject into,
-                        // such as PPL / AppContainers, etc.
-                        // In the cases the injection failed, this is mostly OK. The DLL is at this point (thanks to
-                        // alt syscalls) detecting the abuse of direct / indirect syscalls.
-                        // Any process we cannot touch, the adversary will also have a hard time touching; thus we
-                        // aren't too bothered. As the Alt Syscalls can do everything the EDR's DLL was, then, we can
-                        // just keep the logic there.
-                        //
-                        // We do however want to send down an IOCTL to tell the driver we failed to inject, as to not
-                        // ghost hunt that process.
-                        //
+                        // Let the driver know we failed to inject
                         let mut mtx = driver_manager.lock().await;
                         mtx.ioctl_dll_inject_failed(pid as u32);
                     }
+
                 }
             }
         }

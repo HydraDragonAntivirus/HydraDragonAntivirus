@@ -1246,6 +1246,8 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "sanctum"))]
             static SANCTUM_PIPE_START: std::sync::Once = std::sync::Once::new();
             static OPENEDR_PIPE_START: std::sync::Once = std::sync::Once::new();
+            #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+            static CAPEMON_PIPE_START: std::sync::Once = std::sync::Once::new();
 
             let extension_source_mode = config.extension_source_mode();
             let engine =
@@ -1262,6 +1264,13 @@ pub mod worker_instance {
                 let engine = engine.clone();
                 move || {
                     Self::start_openedr_telemetry_pipe(engine);
+                }
+            });
+            #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+            CAPEMON_PIPE_START.call_once({
+                let engine = engine.clone();
+                move || {
+                    crate::hydradragon::capemon_listener::start_capemon_telemetry_pipe(engine);
                 }
             });
             engine
