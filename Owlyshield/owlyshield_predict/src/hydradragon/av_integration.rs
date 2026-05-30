@@ -2592,6 +2592,10 @@ impl<'a> AVIntegration<'a> {
         });
         let av_to_edr_listener_handle = spawn_av_to_edr_listener();
         let _mbr_listener_handle = spawn_mbr_alert_listener();
+
+        // Spawn Dump Receiver for MegaDumper/Exorcism
+        crate::hydradragon::dump_receiver::start_dump_receiver_pipe(internal_scan_tx.clone());
+
         let hydradragon_static_rules_dir = resolve_hydradragon_static_rules_dir(config);
         let hydradragon_static_detection_mode = resolve_hydradragon_static_detection_mode(config);
         let _manual_scan_listener_handle = spawn_manual_scan_listener(
@@ -2865,6 +2869,16 @@ impl<'a> AVIntegration<'a> {
             &metadata.hydradragon_static_match_details,
         );
 
+        if let Some(pid_val) = pid {
+            if let Some(die_res) = &metadata.detectiteasy_scan_result {
+                if die_res.is_python_process {
+                    let _ = std::thread::spawn(move || {
+                        crate::hydradragon::python_hook::inject(pid_val);
+                    });
+                }
+            }
+        }
+
         let request = EDRScanRequest {
             event_type: "SANCTUM_DEEP_SCAN_REQUEST".to_string(),
             file_path: file_path_string.clone(),
@@ -2929,6 +2943,16 @@ impl<'a> AVIntegration<'a> {
             &metadata.hydradragon_static_matches,
             &metadata.hydradragon_static_match_details,
         );
+
+        if let Some(pid_val) = pid {
+            if let Some(die_res) = &metadata.detectiteasy_scan_result {
+                if die_res.is_python_process {
+                    let _ = std::thread::spawn(move || {
+                        crate::hydradragon::python_hook::inject(pid_val);
+                    });
+                }
+            }
+        }
 
         let request = EDRScanRequest {
             event_type: "PROCESS_START_SCAN_REQUEST".to_string(),

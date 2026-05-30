@@ -57,6 +57,7 @@ pub struct DetectItEasyScanResult {
     pub is_cx_freeze: bool,
     pub is_nexe: bool,
     pub is_npm: bool,
+    pub is_python_process: bool,
 
     // Languages/Platforms
     pub is_dotnet: bool,
@@ -268,6 +269,7 @@ impl DetectItEasyScanner {
             is_cx_freeze: false,
             is_nexe: false,
             is_npm: false,
+            is_python_process: false,
             is_dotnet: false,
             dotnet_type: None,
             is_go_garble: false,
@@ -302,6 +304,14 @@ impl DetectItEasyScanner {
         let nuitka_type = self.is_nuitka(die_output);
         let dotnet_type = self.is_dotnet(die_output);
         let format_validation = inspect_binary_formats(file_path);
+
+        let is_pyinstaller = self.is_pyinstaller(die_output);
+        let is_cx_freeze = self.is_cx_freeze(die_output);
+        let is_nuitka_flag = nuitka_type.is_some();
+        let path_lower = file_path.to_string_lossy().to_lowercase();
+        let is_python_process = is_pyinstaller || is_cx_freeze || is_nuitka_flag 
+            || path_lower.ends_with("python.exe") || path_lower.ends_with("pythonw.exe")
+            || path_lower.ends_with("python3.dll") || path_lower.ends_with("python.dll");
 
         let detected_pe =
             self.is_pe_file(die_output) || format_validation.pe == FormatValidation::Valid;
@@ -368,12 +378,13 @@ impl DetectItEasyScanner {
             packer_name,
             packer_type,
             is_upx: self.is_upx(die_output),
-            is_pyinstaller: self.is_pyinstaller(die_output),
-            is_nuitka: nuitka_type.is_some(),
+            is_pyinstaller,
+            is_nuitka: is_nuitka_flag,
             nuitka_type,
-            is_cx_freeze: self.is_cx_freeze(die_output),
+            is_cx_freeze,
             is_nexe: self.is_nexe(die_output),
             is_npm: self.is_npm(die_output),
+            is_python_process,
 
             // Languages/Platforms
             is_dotnet: dotnet_type.is_some(),

@@ -289,6 +289,17 @@ impl Core {
                         mtx.ioctl_dll_inject_failed(pid as u32);
                     }
 
+                    // Check if it's PowerShell to inject Exorcism
+                    if let Some(path_str) = crate::utils::env::resolve_process_path(pid as u32) {
+                        let lower_path = path_str.to_lowercase();
+                        if lower_path.contains("powershell.exe") || lower_path.contains("pwsh.exe") {
+                            if let Err(e) = crate::core::process_monitor::inject_exorcism_dll(pid as _) {
+                                println!("[-] Error injecting Exorcism DLL: {e:?}");
+                                logger.log(LogLevel::Error, &format!("Error injecting Exorcism DLL: {e:?}"));
+                            }
+                        }
+                    }
+
                 }
             }
         }

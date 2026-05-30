@@ -114,18 +114,6 @@ def _iter_marshaled_bytecode_payloads(
             )
 
 
-def is_marshaled_bytecode_section_items(
-    section_name: str,
-    items,
-    magic_int: int | None = None,
-) -> bool:
-    """Return True when a decoded section already contains marshal/code payloads.
-
-    OMNI must not reconstruct these sections. The extractor writes .pyc files
-    from the structured section scan below; OMNI is text reconstruction only.
-    """
-    return any(True for _ in _iter_marshaled_bytecode_payloads(items, magic_int=magic_int))
-
 
 # ============================================================================
 # PYC HEADER
@@ -795,46 +783,62 @@ def process_section(
 ) -> tuple[int, int, int]:
     clean_section = section_name.replace(".", "_").strip("_") or "section"
     root_items = _normalize_section_items(items)
-    is_marshaled_bytecode_section = is_marshaled_bytecode_section_items(
-        section_name,
-        root_items,
-        magic_int,
-    )
     recovered_file_paths = []
     count_pyc = 0
     count_other = 0
     omni_count = 0
 
-    if OmniDecompiler and not is_marshaled_bytecode_section:
+    # ── Per-item partition: classify before acting ────────────────────────────
+    # A section can be mixed: some items are marshal bytecode blobs, others are
+    # plain Nuitka constants. The old section-level gate blocked OMNI entirely
+    # whenever any single item in the section contained bytecode. We now classify
+    # per-item so bytecode items are always dumped as .pyc and constant items
+    # are always passed to OMNI — nothing is lost either way.
+    bytecode_item_indices: set[int] = set()
+    for i, root_item in enumerate(root_items):
+        if any(True for _ in _iter_marshaled_bytecode_payloads(root_item, magic_int=magic_int)):
+            bytecode_item_indices.add(i)
+
+    omni_items = tuple(
+        item for i, item in enumerate(root_items) if i not in bytecode_item_indices
+    )
+
+    # ── OMNI on pure-constant items ───────────────────────────────────────────
+    if OmniDecompiler and omni_items:
         try:
             omp = OmniDecompiler()
-            omp.run_pass_1_structural_mapping(root_items)
+            omp.run_pass_1_structural_mapping(omni_items)
             omp.run_pass_2_ast_synthesis()
             source = generate_omni_source(
                 omp,
                 section_name,
-                raw_constants=list(root_items),
+                raw_constants=list(omni_items),
                 python_version=target_ver_tuple,
             )
             if source.strip():
                 if generate_omni_nbc:
-                    nbc_text = generate_omni_nbc(omp, section_name, list(root_items), python_version=target_ver_tuple)
+                    nbc_text = generate_omni_nbc(
+                        omp, section_name, list(omni_items), python_version=target_ver_tuple
+                    )
                     source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
 
                 safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name)[:80]
                 omni_out = out_dir / "omni_reconstructed"
-                target_py_path = _write_bytes_unique(omni_out / f"{safe_name}.py", source.encode("utf-8"))
+                target_py_path = _write_bytes_unique(
+                    omni_out / f"{safe_name}.py", source.encode("utf-8")
+                )
                 recovered_file_paths.append(str(target_py_path))
                 omni_count += 1
         except Exception as exc:
             print(f"[!] Warning: OMNI reconstruction failed for {section_name}: {exc}")
 
+    # ── Per-item pyc extraction ───────────────────────────────────────────────
     section_items_metadata = []
 
     for i, root_item in enumerate(root_items):
         item_id = f"{i:04d}"
         item_info = {"id": item_id, "type": type(root_item).__name__}
-        seen_payloads = set()
+        seen_payloads: set = set()
         raw_payloads: list[bytes] = []
         code_objects = []
 
@@ -872,7 +876,9 @@ def process_section(
                         count_pyc += 1
                     except Exception as exc:
                         item_info["errors"].append(f"raw_payload_{j}: {exc}")
-                        print(f"[!] Warning: failed to write pyc for {section_name} item {item_id}: {exc}")
+                        print(
+                            f"[!] Warning: failed to write pyc for {section_name} item {item_id}: {exc}"
+                        )
 
             actions.append("bytecode_extracted" if emit_pyc else "bytecode_detected")
 
@@ -909,7 +915,10 @@ def process_section(
                         count_pyc += 1
                     except Exception as exc:
                         item_info["errors"].append(f"code_object_{j}: {exc}")
-                        print(f"[!] Warning: failed to dump code object for {section_name} item {item_id}: {exc}")
+                        print(
+                            f"[!] Warning: failed to dump code object for {section_name} "
+                            f"item {item_id}: {exc}"
+                        )
                 actions.append("code_objects_extracted")
             else:
                 actions.append("code_objects_detected")
@@ -932,12 +941,14 @@ def process_section(
 
         section_items_metadata.append(item_info)
 
-    # WRITE UNITED METADATA
+    # ── Write unified metadata ────────────────────────────────────────────────
     if section_items_metadata:
         meta_dir = out_dir / "_metadata"
         meta_file = meta_dir / f"{clean_section}_metadata.json"
         try:
-            written_meta = _write_bytes_unique(meta_file, json.dumps(section_items_metadata, indent=2).encode("utf-8"))
+            written_meta = _write_bytes_unique(
+                meta_file, json.dumps(section_items_metadata, indent=2).encode("utf-8")
+            )
             recovered_file_paths.append(str(written_meta))
         except Exception as exc:
             print(f"[!] Warning: failed to write metadata for {section_name}: {exc}")

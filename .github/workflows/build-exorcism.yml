@@ -1,0 +1,43 @@
+name: Build Exorcism-PowershellEdition
+
+on:
+  push:
+    paths:
+      - 'Exorcism-PowershellEdition/**'
+  pull_request:
+    paths:
+      - 'Exorcism-PowershellEdition/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v3
+
+    - name: Restore NuGet packages
+      run: nuget restore Exorcism-PowershellEdition\Exorcism-PowershellEdition.sln
+
+    - name: Build Solution
+      run: msbuild Exorcism-PowershellEdition\Exorcism-PowershellEdition.sln /p:Configuration=Release /p:Platform="Any CPU"
+
+    - name: Copy DLL to hydradragon/exorcism
+      run: |
+        New-Item -ItemType Directory -Force -Path "hydradragon\exorcism"
+        Copy-Item -Path "Exorcism-PowershellEdition\Exorcism-PowershellEdition\bin\Release\Exorcism-PowershellEdition.dll" -Destination "hydradragon\exorcism\Exorcism-PowershellEdition.dll" -Force
+
+    - name: Commit and push DLL
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git add "hydradragon\exorcism\Exorcism-PowershellEdition.dll"
+        git commit -m "Auto-build and update Exorcism-PowershellEdition.dll" || exit 0
+        git push

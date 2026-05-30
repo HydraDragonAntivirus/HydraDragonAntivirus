@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using System;
 using System.IO;
 using System.Reflection;
@@ -26,6 +26,19 @@ namespace Exorcism_PowershellEdition
 
                 File.WriteAllBytes(outPath, rawAssembly);
                 Console.WriteLine($"[+] Dumped assembly -> {outPath}");
+
+                // Notify the Rust Backend Handler so antivirus.py knows about it!
+                try
+                {
+                    using (var pipeClient = new System.IO.Pipes.NamedPipeClientStream(".", "HydraDragonDumper", System.IO.Pipes.PipeDirection.Out))
+                    {
+                        pipeClient.Connect(200); // Fast timeout
+                        byte[] msg = System.Text.Encoding.UTF8.GetBytes("EXORCISM|" + outPath);
+                        pipeClient.Write(msg, 0, msg.Length);
+                        pipeClient.Flush();
+                    }
+                }
+                catch { }
             }
             catch (Exception ex)
             {

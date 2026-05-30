@@ -571,11 +571,6 @@ from .pe_feature_extractor import pe_extractor, calculate_vector_similarity
 logger.debug(f"pe_feature_extractor functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .py_source_hook import (
-    hook_python_process,
-    enable_debug_privilege as enable_hook_debug_privilege,
-)
-
 logger.debug(f"py_source_hook functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -1211,39 +1206,6 @@ def save_extracted_strings(output_filename, extracted_strings):
     """Save extracted ASCII strings to a file."""
     with open(output_filename, "w", encoding="utf-8") as output_file:
         output_file.writelines(f"{line}\n" for line in extracted_strings)
-
-
-def extract_with_hydra(pid: str, output_dir: str) -> bool:
-    """
-    Run HydraDragonDumper (Mega Dumper CLI) to dump suspicious modules from a process PID.
-
-    Args:
-        pid: PID of the target process (as string).
-        output_dir: Directory where the dumper will place extracted files.
-
-    Returns:
-        bool: True if extraction succeeded, False otherwise.
-    """
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-        # HydraDragonDumper (Mega Dumper CLI) expected arguments:
-        #   -pid <PID> -o <output_dir>
-
-        subprocess.run(
-            [hydra_dragon_dumper_path, "--pid", pid, "--output", output_dir, "--no-restore-filename"],
-            check=True,
-        )
-
-        logger.info(f"HydraDragonDumper extraction complete for PID {pid} into {output_dir}")
-        return True
-
-    except subprocess.CalledProcessError as e:
-        logger.error(f"HydraDragonDumper extraction failed for PID {pid}: {e}")
-        return False
-
-    except FileNotFoundError:
-        logger.error(f"HydraDragonDumper executable not found at: {hydra_dragon_dumper_path}")
-        return False
 
 
 def extract_with_unipacker(file_path):
@@ -7585,128 +7547,6 @@ async def check_hosts_file_for_blocked_antivirus() -> bool:
         return False
 
 
-def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
-    """
-    Dump a process using HydraDragonDumper and return a dumped .exe according to:
-      1) Any .exe directly in the dump folder (root) -> highest priority.
-      2) Otherwise, search MegaDumper's sorted folders recursively and prefer
-         vdump_*.exe, then rawdump_*.exe, then the first .exe.
-      3) Return None if nothing suitable found.
-
-    Does NOT extract strings and does NOT remove dumps.
-    """
-    try:
-        process_name = os.path.basename(process_name_or_path) if os.path.sep in process_name_or_path else process_name_or_path
-
-        # Find matching processes
-        matching_processes = []
-        for proc in psutil.process_iter(["pid", "name", "exe"]):
-            try:
-                pname = proc.info.get("name")
-                if pname and pname.lower() == process_name.lower():
-                    matching_processes.append((proc.info["pid"], proc.info.get("exe")))
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-
-        if not matching_processes:
-            logger.error(f"No running processes found matching: {process_name}")
-            return None
-
-        if len(matching_processes) > 1:
-            logger.info(f"Multiple processes found matching {process_name}: {matching_processes}")
-
-        target_pid, target_exe = matching_processes[0]
-        logger.info(f"Found target process: {target_exe} (PID: {target_pid})")
-
-        pid_hydra_dir = os.path.join(hydra_dragon_dumper_extracted_dir, f"pid_{target_pid}")
-        os.makedirs(pid_hydra_dir, exist_ok=True)
-
-        logger.info(f"Running HydraDragonDumper on process PID: {target_pid}")
-        try:
-            if not extract_with_hydra(str(target_pid), pid_hydra_dir):
-                logger.error(f"HydraDragonDumper extraction failed for PID {target_pid}")
-                return None
-
-            logger.info(f"HydraDragonDumper successfully extracted to: {pid_hydra_dir}")
-
-            # 1) Highest priority: vdump_*.exe directly in pid_hydra_dir, then rawdump_*.exe.
-            # The CLI runs with --no-restore-filename so these names remain stable.
-            if os.path.exists(pid_hydra_dir):
-                rawdump_candidate = None
-                fallback_candidate = None
-                for fname in sorted(os.listdir(pid_hydra_dir)):
-                    full_path = os.path.join(pid_hydra_dir, fname)
-                    lower_name = fname.lower()
-                    if not os.path.isfile(full_path) or not lower_name.endswith(".exe"):
-                        continue
-
-                    if lower_name.startswith("vdump_"):
-                        logger.info(f"Returning prioritized root vdump exe: {full_path}")
-                        return full_path
-
-                    if rawdump_candidate is None and lower_name.startswith("rawdump_"):
-                        rawdump_candidate = full_path
-                        continue
-
-                    if fallback_candidate is None:
-                        fallback_candidate = full_path
-
-                if rawdump_candidate:
-                    logger.info(f"Returning prioritized root rawdump exe: {rawdump_candidate}")
-                    return rawdump_candidate
-
-                if fallback_candidate:
-                    logger.info(f"Returning first root dumped exe: {fallback_candidate}")
-                    return fallback_candidate
-
-            # 2) If none in root, search the sorted output tree. MegaDumper may move
-            # dumps into Native/System/UnknownName and restore the original filename.
-            if os.path.exists(pid_hydra_dir):
-                rawdump_candidate = None
-                fallback_candidate = None
-                try:
-                    for current_dir, _, files in os.walk(pid_hydra_dir):
-                        for fname in files:
-                            lower_name = fname.lower()
-                            if not lower_name.endswith(".exe"):
-                                continue
-
-                            full_path = os.path.join(current_dir, fname)
-                            if lower_name.startswith("vdump_"):
-                                logger.info(f"Returning prioritized vdump exe: {full_path}")
-                                return full_path
-
-                            if rawdump_candidate is None and lower_name.startswith("rawdump_"):
-                                rawdump_candidate = full_path
-                                continue
-
-                            if fallback_candidate is None:
-                                fallback_candidate = full_path
-
-                    if rawdump_candidate:
-                        logger.info(f"Returning prioritized rawdump exe: {rawdump_candidate}")
-                        return rawdump_candidate
-
-                    if fallback_candidate:
-                        logger.info(f"Returning first dumped exe from sorted output tree: {fallback_candidate}")
-                        return fallback_candidate
-
-                except Exception as e:
-                    logger.error(f"Error scanning dump output tree {pid_hydra_dir}: {e}")
-
-            # 3) Nothing found
-            logger.error(f"No dumped executables found for PID {target_pid} in {pid_hydra_dir} or sorted subfolders")
-            return None
-
-        except Exception as hydra_ex:
-            logger.error(f"Error during HydraDragonDumper extraction for PID {target_pid}: {hydra_ex}")
-            return None
-
-    except Exception as overall_ex:
-        logger.error(f"Overall error in analyze_specific_process: {overall_ex}")
-        return None
-
-
 # --- Helper function for file reading ---
 def _open_and_read_lines_sync(norm_path: str) -> List[str]:
     """Synchronous helper to read file lines for asyncio.to_thread."""
@@ -8311,7 +8151,6 @@ async def scan_and_warn(
                     if cx_main_pyc:
                         # MODIFIED: Call async scan_and_warn as a new task
                         asyncio.create_task(scan_and_warn(cx_main_pyc, main_file_path=main_file_path))
-                    asyncio.create_task(hook_python_process(norm_path))
             except Exception as e:
                 logger.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
 
@@ -8809,7 +8648,6 @@ async def scan_and_warn(
                         for extracted_file in nuitka_files:
                             # Run async scan task for extracted content
                             asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
-                    asyncio.create_task(hook_python_process(norm_path))
             except Exception as e:
                 logger.error(f"Error in Nuitka analysis for {norm_path}: {e}")
 
@@ -8826,8 +8664,6 @@ async def scan_and_warn(
                         for extracted_file in extracted_files_pyinstaller:
                             # MODIFIED: Call async scan_and_warn as a new task
                             asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
-
-                    asyncio.create_task(hook_python_process(norm_path))
             except Exception as e:
                 logger.error(f"Error in PyInstaller analysis for {norm_path}: {e}")
 
@@ -9507,8 +9343,6 @@ async def start_real_time_protection_async():
     asyncio.create_task(wrap_async_function("ResourceLoader", load_all_resources_async))
     asyncio.create_task(wrap_async_function("HayabusaLive", run_hayabusa_live_task))
 
-    # Enable SeDebugPrivilege once so hook injection can reach any Python process
-    await asyncio.to_thread(enable_hook_debug_privilege)
 
     logger.info("All protection, resource, and Hayabusa tasks launched (fire-and-forget).")
 
