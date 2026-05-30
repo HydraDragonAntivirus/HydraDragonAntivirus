@@ -4342,6 +4342,46 @@ impl BehaviorEngine {
     /// Ingest a BSON telemetry event from Capemon API hooks.
     /// Capemon hooks LoadLibrary, CreateProcess, and other APIs, sending BSON-encoded logs.
     /// This method dynamically processes ALL BSON fields without hardcoded API name checks.
+    /// Helper function to convert BSON values to string representation
+    ///
+    /// # Parameters
+    /// - `value`: The BSON value to convert
+    /// - `array_format`: Controls array formatting:
+    ///   - `"bracketed"`: Format as `[elem1, elem2]` (for logging)
+    ///   - `"semicolon"`: Format as `elem1;elem2` (for storage)
+    /// - `handle_document`: Whether to handle Document type (true for logging, false for storage)
+    fn bson_value_to_string(value: &bson::Bson, array_format: &str, handle_document: bool) -> String {
+        match value {
+            bson::Bson::String(s) => s.clone(),
+            bson::Bson::Int32(i) => i.to_string(),
+            bson::Bson::Int64(i) => i.to_string(),
+            bson::Bson::Double(d) => d.to_string(),
+            bson::Bson::Boolean(b) => b.to_string(),
+            bson::Bson::Array(arr) => {
+                let elements: Vec<String> = arr.iter().map(|elem| {
+                    match elem {
+                        bson::Bson::String(s) => s.clone(),
+                        bson::Bson::Int32(i) => i.to_string(),
+                        bson::Bson::Int64(i) => i.to_string(),
+                        bson::Bson::Double(d) => d.to_string(),
+                        _ => format!("{:?}", elem),
+                    }
+                }).collect();
+                
+                match array_format {
+                    "bracketed" => format!("[{}]", elements.join(", ")),
+                    "semicolon" => elements.join(";"),
+                    _ => elements.join(";"), // Default to semicolon
+                }
+            }
+            bson::Bson::Document(subdoc) if handle_document => {
+                // Nested document - convert to compact string
+                format!("{{{} fields}}", subdoc.len())
+            }
+            _ => format!("{:?}", value),
+        }
+    }
+
     pub fn ingest_capemon_event(&mut self, pid: u32, doc: bson::Document) {
         let gid = self.find_gid_by_pid(pid).unwrap_or(0);
         
@@ -4353,31 +4393,7 @@ impl BehaviorEngine {
         
         // Iterate over ALL BSON document fields dynamically
         for (key, value) in doc.iter() {
-            let value_str = match value {
-                bson::Bson::String(s) => s.clone(),
-                bson::Bson::Int32(i) => i.to_string(),
-                bson::Bson::Int64(i) => i.to_string(),
-                bson::Bson::Double(d) => d.to_string(),
-                bson::Bson::Boolean(b) => b.to_string(),
-                bson::Bson::Array(arr) => {
-                    // Convert array elements to string representation
-                    let elements: Vec<String> = arr.iter().map(|elem| {
-                        match elem {
-                            bson::Bson::String(s) => s.clone(),
-                            bson::Bson::Int32(i) => i.to_string(),
-                            bson::Bson::Int64(i) => i.to_string(),
-                            bson::Bson::Double(d) => d.to_string(),
-                            _ => format!("{:?}", elem),
-                        }
-                    }).collect();
-                    format!("[{}]", elements.join(", "))
-                }
-                bson::Bson::Document(subdoc) => {
-                    // Nested document - convert to compact string
-                    format!("{{{} fields}}", subdoc.len())
-                }
-                _ => format!("{:?}", value),
-            };
+            let value_str = Self::bson_value_to_string(value, "bracketed", true);
             
             field_summary.push(format!("{}={}", key, value_str));
         }
@@ -4394,25 +4410,7 @@ impl BehaviorEngine {
                     let field_key = format!("capemon:{}:{}", api_name, key);
                     
                     // Convert BSON value to string for storage
-                    let value_str = match value {
-                        bson::Bson::String(s) => s.clone(),
-                        bson::Bson::Int32(i) => i.to_string(),
-                        bson::Bson::Int64(i) => i.to_string(),
-                        bson::Bson::Double(d) => d.to_string(),
-                        bson::Bson::Boolean(b) => b.to_string(),
-                        bson::Bson::Array(arr) => {
-                            let elements: Vec<String> = arr.iter().map(|elem| {
-                                match elem {
-                                    bson::Bson::String(s) => s.clone(),
-                                    bson::Bson::Int32(i) => i.to_string(),
-                                    bson::Bson::Int64(i) => i.to_string(),
-                                    _ => format!("{:?}", elem),
-                                }
-                            }).collect();
-                            elements.join(";")
-                        }
-                        _ => format!("{:?}", value),
-                    };
+                    let value_str = Self::bson_value_to_string(value, "semicolon", false);
                     
                     // Store in detected_apis for rule matching
                     state.detected_apis.insert(field_key);
