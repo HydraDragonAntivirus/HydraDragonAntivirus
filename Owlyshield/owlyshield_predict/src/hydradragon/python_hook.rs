@@ -2,19 +2,21 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::thread;
 use std::time;
-use windows::core::{s, w, PCWSTR};
-use windows::Win32::Foundation::{CloseHandle, BOOL, HANDLE, HMODULE, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{BOOL, CloseHandle, HANDLE, HMODULE, WAIT_OBJECT_0};
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
 use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W,
-    TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32,
+    CreateToolhelp32Snapshot, MODULEENTRY32W, Module32FirstW, Module32NextW, TH32CS_SNAPMODULE,
+    TH32CS_SNAPMODULE32,
 };
-use windows::Win32::System::LibraryLoader::{FreeLibrary, GetModuleHandleW, GetProcAddress, LoadLibraryW};
-use windows::Win32::System::Memory::{VirtualAllocEx, MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
+use windows::Win32::System::LibraryLoader::{
+    FreeLibrary, GetModuleHandleW, GetProcAddress, LoadLibraryW,
+};
+use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx};
 use windows::Win32::System::Threading::{
     CreateRemoteThread, GetExitCodeThread, IsWow64Process, LPTHREAD_START_ROUTINE, OpenProcess,
-    WaitForSingleObject, PROCESS_ALL_ACCESS,
+    PROCESS_ALL_ACCESS, WaitForSingleObject,
 };
+use windows::core::{PCWSTR, s, w};
 
 use crate::logging::Logging;
 
@@ -42,7 +44,8 @@ fn find_remote_module_base(pid: u32, module_name: &str) -> Option<usize> {
     let module_name_lower = module_name.to_lowercase();
     for _ in 0..20 {
         unsafe {
-            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid).unwrap_or(HANDLE::default());
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
+                .unwrap_or(HANDLE::default());
             if !snap.is_invalid() {
                 let mut entry = MODULEENTRY32W::default();
                 entry.dwSize = std::mem::size_of::<MODULEENTRY32W>() as u32;
@@ -51,7 +54,7 @@ fn find_remote_module_base(pid: u32, module_name: &str) -> Option<usize> {
                     loop {
                         let sz_module = String::from_utf16_lossy(&entry.szModule);
                         let sz_module = sz_module.trim_matches(char::from(0)).to_lowercase();
-                        
+
                         if sz_module == module_name_lower {
                             let _ = CloseHandle(snap);
                             return Some(entry.modBaseAddr as usize);
@@ -70,7 +73,10 @@ fn find_remote_module_base(pid: u32, module_name: &str) -> Option<usize> {
 }
 
 pub fn inject(pid: u32) -> bool {
-    Logging::info(&format!("[PythonHook] Attempting to inject hook into PID: {}", pid));
+    Logging::info(&format!(
+        "[PythonHook] Attempting to inject hook into PID: {}",
+        pid
+    ));
 
     let install_dir = PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\hydradragon");
     let hook_py_path = install_dir.join("__hook__.py");
@@ -79,7 +85,10 @@ pub fn inject(pid: u32) -> bool {
     let h_proc = match h_proc {
         Ok(h) => h,
         Err(e) => {
-            Logging::error(&format!("[PythonHook] OpenProcess failed for PID {}: {:?}", pid, e));
+            Logging::error(&format!(
+                "[PythonHook] OpenProcess failed for PID {}: {:?}",
+                pid, e
+            ));
             return false;
         }
     };
@@ -92,7 +101,10 @@ pub fn inject(pid: u32) -> bool {
     };
 
     if !target_dll.exists() {
-        Logging::error(&format!("[PythonHook] Target DLL not found: {:?}", target_dll));
+        Logging::error(&format!(
+            "[PythonHook] Target DLL not found: {:?}",
+            target_dll
+        ));
         let _ = unsafe { CloseHandle(h_proc) };
         return false;
     }
@@ -101,7 +113,10 @@ pub fn inject(pid: u32) -> bool {
     let dumps_dir = PathBuf::from(r"C:\HydraDragon\Dumps");
     let _ = std::fs::create_dir_all(&dumps_dir);
     let config_path = dumps_dir.join("hook_config.ini");
-    let config_content = format!("[General]\nHookPath={}\n", hook_py_path.parent().unwrap().display());
+    let config_content = format!(
+        "[General]\nHookPath={}\n",
+        hook_py_path.parent().unwrap().display()
+    );
     let _ = std::fs::write(&config_path, config_content);
 
     let mut path_utf16: Vec<u16> = target_dll.as_os_str().encode_wide().collect();
@@ -111,9 +126,18 @@ pub fn inject(pid: u32) -> bool {
     let path_size = path_utf16.len() * 2;
 
     unsafe {
-        let mem = VirtualAllocEx(h_proc, None, path_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        let mem = VirtualAllocEx(
+            h_proc,
+            None,
+            path_size,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_READWRITE,
+        );
         if mem.is_null() {
-            Logging::error(&format!("[PythonHook] VirtualAllocEx failed for PID {}", pid));
+            Logging::error(&format!(
+                "[PythonHook] VirtualAllocEx failed for PID {}",
+                pid
+            ));
             let _ = CloseHandle(h_proc);
             return false;
         }
@@ -125,8 +149,13 @@ pub fn inject(pid: u32) -> bool {
             path_utf16.as_ptr() as *const std::ffi::c_void,
             path_size,
             Some(&mut bytes_written),
-        ).as_bool() {
-            Logging::error(&format!("[PythonHook] WriteProcessMemory failed for PID {}", pid));
+        )
+        .as_bool()
+        {
+            Logging::error(&format!(
+                "[PythonHook] WriteProcessMemory failed for PID {}",
+                pid
+            ));
             let _ = CloseHandle(h_proc);
             return false;
         }
@@ -153,7 +182,10 @@ pub fn inject(pid: u32) -> bool {
         ) {
             Ok(h) => h,
             Err(_) => {
-                Logging::error(&format!("[PythonHook] CreateRemoteThread (LoadLibraryW) failed for PID {}", pid));
+                Logging::error(&format!(
+                    "[PythonHook] CreateRemoteThread (LoadLibraryW) failed for PID {}",
+                    pid
+                ));
                 let _ = CloseHandle(h_proc);
                 return false;
             }
@@ -164,13 +196,19 @@ pub fn inject(pid: u32) -> bool {
             let mut exit_code = 0;
             let _ = GetExitCodeThread(h_thread, &mut exit_code);
             if exit_code == 0 {
-                Logging::error(&format!("[PythonHook] LoadLibraryW returned NULL for PID {}", pid));
+                Logging::error(&format!(
+                    "[PythonHook] LoadLibraryW returned NULL for PID {}",
+                    pid
+                ));
                 let _ = CloseHandle(h_thread);
                 let _ = CloseHandle(h_proc);
                 return false;
             }
         } else {
-            Logging::error(&format!("[PythonHook] LoadLibraryW thread timeout/failed for PID {}", pid));
+            Logging::error(&format!(
+                "[PythonHook] LoadLibraryW thread timeout/failed for PID {}",
+                pid
+            ));
             let _ = CloseHandle(h_thread);
             let _ = CloseHandle(h_proc);
             return false;
@@ -178,11 +216,18 @@ pub fn inject(pid: u32) -> bool {
         let _ = CloseHandle(h_thread);
 
         // Find module base in remote
-        let dll_name = target_dll.file_name().unwrap().to_string_lossy().to_string();
+        let dll_name = target_dll
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         let remote_mod = match find_remote_module_base(pid, &dll_name) {
             Some(addr) => addr,
             None => {
-                Logging::error(&format!("[PythonHook] Could not find {} in PID {}", dll_name, pid));
+                Logging::error(&format!(
+                    "[PythonHook] Could not find {} in PID {}",
+                    dll_name, pid
+                ));
                 let _ = CloseHandle(h_proc);
                 return false;
             }
@@ -199,7 +244,10 @@ pub fn inject(pid: u32) -> bool {
         let local_fn_addr = match GetProcAddress(local_mod, s!("HydraStartHook")) {
             Some(addr) => addr as usize,
             None => {
-                Logging::error(&format!("[PythonHook] HydraStartHook export not found in {}", dll_name));
+                Logging::error(&format!(
+                    "[PythonHook] HydraStartHook export not found in {}",
+                    dll_name
+                ));
                 let _ = FreeLibrary(local_mod);
                 let _ = CloseHandle(h_proc);
                 return false;
@@ -219,7 +267,10 @@ pub fn inject(pid: u32) -> bool {
         ) {
             Ok(h) => h,
             Err(_) => {
-                Logging::error(&format!("[PythonHook] CreateRemoteThread (HydraStartHook) failed for PID {}", pid));
+                Logging::error(&format!(
+                    "[PythonHook] CreateRemoteThread (HydraStartHook) failed for PID {}",
+                    pid
+                ));
                 let _ = FreeLibrary(local_mod);
                 let _ = CloseHandle(h_proc);
                 return false;
@@ -228,9 +279,15 @@ pub fn inject(pid: u32) -> bool {
 
         let wait_start = WaitForSingleObject(h_start, 5000);
         if wait_start == WAIT_OBJECT_0 {
-            Logging::info(&format!("[PythonHook] Successfully injected and started hook in PID {}", pid));
+            Logging::info(&format!(
+                "[PythonHook] Successfully injected and started hook in PID {}",
+                pid
+            ));
         } else {
-            Logging::error(&format!("[PythonHook] HydraStartHook thread timeout/failed for PID {}", pid));
+            Logging::error(&format!(
+                "[PythonHook] HydraStartHook thread timeout/failed for PID {}",
+                pid
+            ));
         }
 
         let _ = CloseHandle(h_start);

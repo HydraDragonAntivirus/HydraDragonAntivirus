@@ -14,16 +14,18 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE, HANDLE};
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
+};
+use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_INBOUND, ReadFile};
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
     PIPE_UNLIMITED_INSTANCES,
 };
-use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+use windows::core::PCWSTR;
 
-use crate::logging::Logging;
 use crate::hydradragon::av_integration::EDRScanRequest;
+use crate::logging::Logging;
 
 /// Spawns a dedicated pipe server thread that receives dump notifications from
 /// Exorcism / MegaDumper / Python hooks. Each received file path is sent over
@@ -123,9 +125,7 @@ pub fn start_dump_receiver_pipe(tx: Sender<EDRScanRequest>) {
                             ));
                         }
                     } else {
-                        Logging::error(&format!(
-                            "[DumpReceiver] Unknown message format: {msg}"
-                        ));
+                        Logging::error(&format!("[DumpReceiver] Unknown message format: {msg}"));
                     }
                 }
 

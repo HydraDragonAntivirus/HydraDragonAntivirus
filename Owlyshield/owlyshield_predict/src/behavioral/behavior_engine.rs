@@ -4350,7 +4350,11 @@ impl BehaviorEngine {
     ///   - `"bracketed"`: Format as `[elem1, elem2]` (for logging)
     ///   - `"semicolon"`: Format as `elem1;elem2` (for storage)
     /// - `handle_document`: Whether to handle Document type (true for logging, false for storage)
-    fn bson_value_to_string(value: &bson::Bson, array_format: &str, handle_document: bool) -> String {
+    fn bson_value_to_string(
+        value: &bson::Bson,
+        array_format: &str,
+        handle_document: bool,
+    ) -> String {
         match value {
             bson::Bson::String(s) => s.clone(),
             bson::Bson::Int32(i) => i.to_string(),
@@ -4358,16 +4362,17 @@ impl BehaviorEngine {
             bson::Bson::Double(d) => d.to_string(),
             bson::Bson::Boolean(b) => b.to_string(),
             bson::Bson::Array(arr) => {
-                let elements: Vec<String> = arr.iter().map(|elem| {
-                    match elem {
+                let elements: Vec<String> = arr
+                    .iter()
+                    .map(|elem| match elem {
                         bson::Bson::String(s) => s.clone(),
                         bson::Bson::Int32(i) => i.to_string(),
                         bson::Bson::Int64(i) => i.to_string(),
                         bson::Bson::Double(d) => d.to_string(),
                         _ => format!("{:?}", elem),
-                    }
-                }).collect();
-                
+                    })
+                    .collect();
+
                 match array_format {
                     "bracketed" => format!("[{}]", elements.join(", ")),
                     "semicolon" => elements.join(";"),
@@ -4384,49 +4389,54 @@ impl BehaviorEngine {
 
     pub fn ingest_capemon_event(&mut self, pid: u32, doc: bson::Document) {
         let gid = self.find_gid_by_pid(pid).unwrap_or(0);
-        
+
         // Extract API name from BSON document (if present)
         let api_name = doc.get_str("api").unwrap_or("Unknown").to_string();
-        
+
         // Build a summary of all BSON fields for logging and analysis
         let mut field_summary = Vec::new();
-        
+
         // Iterate over ALL BSON document fields dynamically
         for (key, value) in doc.iter() {
             let value_str = Self::bson_value_to_string(value, "bracketed", true);
-            
+
             field_summary.push(format!("{}={}", key, value_str));
         }
-        
+
         // Update process state with detected API and ALL BSON fields
         if gid != 0 {
             if let Some(state) = self.process_states.get_mut(&gid) {
                 // Store API name in detected_apis set
                 state.detected_apis.insert(api_name.clone());
-                
+
                 // Store ALL BSON fields dynamically in the process state
                 // The behavior engine's rule matching system will analyze these fields
                 for (key, value) in doc.iter() {
                     let field_key = format!("capemon:{}:{}", api_name, key);
-                    
+
                     // Convert BSON value to string for storage
                     let value_str = Self::bson_value_to_string(value, "semicolon", false);
-                    
+
                     // Store in detected_apis for rule matching
                     state.detected_apis.insert(field_key);
-                    
+
                     // Also store the actual value for potential future use
                     if !value_str.is_empty() && value_str.len() < 512 {
                         let value_key = format!("capemon_value:{}:{}", api_name, key);
-                        state.detected_apis.insert(format!("{}={}", value_key, value_str));
+                        state
+                            .detected_apis
+                            .insert(format!("{}={}", value_key, value_str));
                     }
                 }
             }
         }
-        
+
         Logging::debug(&format!(
             "[Capemon] Ingested API hook from PID {}: {} (GID: {}) | Fields: {}",
-            pid, api_name, gid, field_summary.join(", ")
+            pid,
+            api_name,
+            gid,
+            field_summary.join(", ")
         ));
     }
 

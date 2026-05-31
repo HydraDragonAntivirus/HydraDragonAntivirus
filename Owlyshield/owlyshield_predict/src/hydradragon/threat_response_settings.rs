@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use winreg::enums::*;
 use winreg::RegKey;
+use winreg::enums::*;
 
 /// Threat action to take when malware is detected
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,13 +149,13 @@ impl ThreatResponseSettings {
     fn load_from_registry(&mut self) -> Result<(), String> {
         for engine in DetectionEngine::all_engines() {
             let engine_str = engine.as_str();
-            
+
             // Read trust level (default 100)
             let trust_level: u32 = self
                 .registry_key
                 .get_value(&format!("{}_trust_level", engine_str))
                 .unwrap_or(100);
-            
+
             // Read action (default "kill_and_quarantine")
             let action_str: String = self
                 .registry_key
@@ -177,7 +177,7 @@ impl ThreatResponseSettings {
     pub fn save_to_registry(&self) -> Result<(), String> {
         for (engine, config) in &self.engine_configs {
             let engine_str = engine.as_str();
-            
+
             self.registry_key
                 .set_value(
                     &format!("{}_trust_level", engine_str),
@@ -186,10 +186,7 @@ impl ThreatResponseSettings {
                 .map_err(|e| format!("Failed to save trust level for {}: {}", engine_str, e))?;
 
             self.registry_key
-                .set_value(
-                    &format!("{}_action", engine_str),
-                    &config.action.as_str(),
-                )
+                .set_value(&format!("{}_action", engine_str), &config.action.as_str())
                 .map_err(|e| format!("Failed to save action for {}: {}", engine_str, e))?;
         }
 
@@ -261,15 +258,30 @@ mod tests {
 
     #[test]
     fn test_threat_action_conversion() {
-        assert_eq!(ThreatAction::from_str("kill_and_quarantine"), ThreatAction::KillAndQuarantine);
-        assert_eq!(ThreatAction::from_str("KILL_AND_QUARANTINE"), ThreatAction::KillAndQuarantine);
-        assert_eq!(ThreatAction::KillAndQuarantine.as_str(), "kill_and_quarantine");
+        assert_eq!(
+            ThreatAction::from_str("kill_and_quarantine"),
+            ThreatAction::KillAndQuarantine
+        );
+        assert_eq!(
+            ThreatAction::from_str("KILL_AND_QUARANTINE"),
+            ThreatAction::KillAndQuarantine
+        );
+        assert_eq!(
+            ThreatAction::KillAndQuarantine.as_str(),
+            "kill_and_quarantine"
+        );
     }
 
     #[test]
     fn test_detection_engine_conversion() {
-        assert_eq!(DetectionEngine::from_str("clamav"), Some(DetectionEngine::ClamAV));
-        assert_eq!(DetectionEngine::from_str("yara-x"), Some(DetectionEngine::YaraX));
+        assert_eq!(
+            DetectionEngine::from_str("clamav"),
+            Some(DetectionEngine::ClamAV)
+        );
+        assert_eq!(
+            DetectionEngine::from_str("yara-x"),
+            Some(DetectionEngine::YaraX)
+        );
         assert_eq!(DetectionEngine::ClamAV.as_str(), "clamav");
     }
 

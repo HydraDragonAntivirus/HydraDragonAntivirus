@@ -11,16 +11,18 @@ use std::os::windows::ffi::OsStrExt;
 use std::thread;
 use std::time::Duration;
 
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE, HANDLE};
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
+};
+use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_INBOUND, ReadFile};
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
     PIPE_UNLIMITED_INSTANCES,
 };
-use windows::Win32::Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND};
+use windows::core::PCWSTR;
 
-use crate::logging::Logging;
 use crate::behavioral::behavior_engine::BehaviorEngine;
+use crate::logging::Logging;
 
 /// Spawns a dedicated thread that listens on `\\.\pipe\HydraDragonCapemon`
 /// and dynamically spawns readers for `\\.\pipe\HydraDragonLog_<PID>`
@@ -87,8 +89,11 @@ pub fn start_capemon_telemetry_pipe(mut behavior_engine: BehaviorEngine) {
                 if ok.as_bool() && bytes_read > 0 {
                     // Capemon initial check-in data processing
                     let data = &buf[..bytes_read as usize];
-                    Logging::info(&format!("[CapemonPipe] Received checkin of {} bytes", bytes_read));
-                    
+                    Logging::info(&format!(
+                        "[CapemonPipe] Received checkin of {} bytes",
+                        bytes_read
+                    ));
+
                     // TODO: Parse BSON init packet and spawn `HydraDragonLog_<PID>` listener
                     // for that specific PID.
                 }
@@ -157,11 +162,15 @@ pub fn spawn_pid_log_listener(pid: u32, mut behavior_engine: BehaviorEngine) {
 
                     // Process BSON data here.
                     let bson_data = &buf[..bytes_read as usize];
-                    
+
                     // We parse the bson_data, map it to Owlyshield behavioral events,
                     // and ingest it into behavior_engine.
                     if let Ok(doc) = bson::Document::from_reader(bson_data) {
-                        Logging::info(&format!("[CapemonLog] PID {} sent API hook: {:?}", pid, doc.get_str("api")));
+                        Logging::info(&format!(
+                            "[CapemonLog] PID {} sent API hook: {:?}",
+                            pid,
+                            doc.get_str("api")
+                        ));
                         behavior_engine.ingest_capemon_event(pid, doc);
                     }
                 }

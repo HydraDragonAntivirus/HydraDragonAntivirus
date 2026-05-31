@@ -107,8 +107,6 @@ mod csvwriter;
 #[cfg(target_os = "windows")]
 #[path = "windows/driver_com.rs"]
 pub(crate) mod driver_com;
-#[cfg(target_os = "windows")]
-mod openedr_lbvs;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
 pub(crate) mod driver_com;
@@ -125,6 +123,8 @@ pub(crate) mod notifications;
 #[cfg(target_os = "linux")]
 #[path = "linux/notifications.rs"]
 pub(crate) mod notifications;
+#[cfg(target_os = "windows")]
+mod openedr_lbvs;
 mod predictions;
 mod process;
 #[cfg(target_os = "windows")]

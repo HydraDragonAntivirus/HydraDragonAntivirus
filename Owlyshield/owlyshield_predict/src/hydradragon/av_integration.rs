@@ -36,20 +36,22 @@ use windows::Win32::System::Threading::{HIGH_PRIORITY_CLASS, SetPriorityClass};
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::config::{Config, Param};
 use crate::driver_com::Driver;
+use crate::hydradragon::threat_response_settings::{
+    DetectionEngine, ThreatAction as SettingsThreatAction, ThreatResponseSettings,
+};
 use crate::logging::Logging;
 use crate::process::ProcessRecord;
 use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp};
 use crate::signature_verification::verify_signature;
+use crate::threat_handler::QuarantineMetadata;
 use crate::threat_handler::ThreatHandler;
+use crate::threathandling::WindowsThreatHandler;
 use crate::utils::validate_pipe_client;
 use crate::worker::predictor::PredictorMalware;
 use chrono::Utc;
 use hydradragonstatic::models::{ScanReport, Verdict};
 use hydradragonstatic::rules::RuleSet;
 use hydradragonstatic::{EngineCore, ScanOptions};
-use crate::hydradragon::threat_response_settings::{ThreatResponseSettings, DetectionEngine, ThreatAction as SettingsThreatAction};
-use crate::threathandling::WindowsThreatHandler;
-use crate::threat_handler::QuarantineMetadata;
 
 // --- Pipe names (single source of truth) ---
 const PIPE_AV_TO_EDR: &str = r"\\.\pipe\Global\hydradragon_to_owlyshield";
@@ -2138,7 +2140,10 @@ fn spawn_manual_scan_listener(
         let threat_settings = match ThreatResponseSettings::new() {
             Ok(settings) => Some(settings),
             Err(e) => {
-                Logging::error(&format!("[ManualScan] Failed to load threat response settings: {}", e));
+                Logging::error(&format!(
+                    "[ManualScan] Failed to load threat response settings: {}",
+                    e
+                ));
                 None
             }
         };
@@ -2308,42 +2313,56 @@ fn spawn_manual_scan_listener(
                                     let mut detection_name = String::new();
                                     let mut recommended_action = String::new();
                                     let mut trust_level = 0u8;
-                                    let mut current_action = SettingsThreatAction::KillAndQuarantine;
+                                    let mut current_action =
+                                        SettingsThreatAction::KillAndQuarantine;
 
                                     if !hydradragon_static_matches.is_empty() {
                                         threat_detected = true;
                                         detection_engine = "HydraDragonStatic".to_string();
                                         detection_name = hydradragon_static_matches.join(", ");
-                                        let engine_config = settings.get_engine_config(DetectionEngine::HydraDragonStatic);
-                                        recommended_action = engine_config.action.as_str().to_string();
+                                        let engine_config = settings
+                                            .get_engine_config(DetectionEngine::HydraDragonStatic);
+                                        recommended_action =
+                                            engine_config.action.as_str().to_string();
                                         trust_level = engine_config.trust_level;
                                         current_action = engine_config.action;
                                     } else if !yara_x_matches.is_empty() {
                                         threat_detected = true;
                                         detection_engine = "YaraX".to_string();
                                         detection_name = yara_x_matches.join(", ");
-                                        let engine_config = settings.get_engine_config(DetectionEngine::YaraX);
-                                        recommended_action = engine_config.action.as_str().to_string();
+                                        let engine_config =
+                                            settings.get_engine_config(DetectionEngine::YaraX);
+                                        recommended_action =
+                                            engine_config.action.as_str().to_string();
                                         trust_level = engine_config.trust_level;
                                         current_action = engine_config.action;
-                                    } else if let Some(clamav_result) = rust_service_scan_results.iter().find(|r| r.engine == "ClamAV" && r.malicious) {
+                                    } else if let Some(clamav_result) = rust_service_scan_results
+                                        .iter()
+                                        .find(|r| r.engine == "ClamAV" && r.malicious)
+                                    {
                                         threat_detected = true;
                                         detection_engine = "ClamAV".to_string();
                                         detection_name = clamav_result.virus_name.clone();
-                                        let engine_config = settings.get_engine_config(DetectionEngine::ClamAV);
-                                        recommended_action = engine_config.action.as_str().to_string();
+                                        let engine_config =
+                                            settings.get_engine_config(DetectionEngine::ClamAV);
+                                        recommended_action =
+                                            engine_config.action.as_str().to_string();
                                         trust_level = engine_config.trust_level;
                                         current_action = engine_config.action;
                                     }
 
-                                    if threat_detected && settings.should_act_on_detection(
-                                        match detection_engine.as_str() {
+                                    if threat_detected
+                                        && settings.should_act_on_detection(match detection_engine
+                                            .as_str()
+                                        {
                                             "ClamAV" => DetectionEngine::ClamAV,
                                             "YaraX" => DetectionEngine::YaraX,
-                                            "HydraDragonStatic" => DetectionEngine::HydraDragonStatic,
+                                            "HydraDragonStatic" => {
+                                                DetectionEngine::HydraDragonStatic
+                                            }
                                             _ => DetectionEngine::ClamAV,
-                                        }
-                                    ) {
+                                        })
+                                    {
                                         Logging::info(&format!(
                                             "[ManualScan] Threat detected by {}: {} in file: {}",
                                             detection_engine, detection_name, normalized_file_path
@@ -2385,7 +2404,9 @@ fn spawn_manual_scan_listener(
                                                     "[ManualScan] Action: DenyAccess for {}",
                                                     normalized_file_path
                                                 ));
-                                                threat_handler.deny_path_access(std::path::Path::new(&normalized_file_path));
+                                                threat_handler.deny_path_access(
+                                                    std::path::Path::new(&normalized_file_path),
+                                                );
                                                 "success_denied"
                                             }
                                             SettingsThreatAction::Quarantine => {
@@ -2394,14 +2415,23 @@ fn spawn_manual_scan_listener(
                                                     normalized_file_path
                                                 ));
                                                 let metadata = QuarantineMetadata {
-                                                    detection: format!("{}: {}", detection_engine, detection_name),
+                                                    detection: format!(
+                                                        "{}: {}",
+                                                        detection_engine, detection_name
+                                                    ),
                                                 };
-                                                let synthetic_gid = std::collections::hash_map::DefaultHasher::new();
+                                                let synthetic_gid =
+                                                    std::collections::hash_map::DefaultHasher::new(
+                                                    );
                                                 use std::hash::{Hash, Hasher};
                                                 let mut hasher = synthetic_gid;
                                                 normalized_file_path.hash(&mut hasher);
                                                 let gid = hasher.finish();
-                                                threat_handler.kill_and_quarantine(gid, std::path::Path::new(&normalized_file_path), &metadata);
+                                                threat_handler.kill_and_quarantine(
+                                                    gid,
+                                                    std::path::Path::new(&normalized_file_path),
+                                                    &metadata,
+                                                );
                                                 "success_quarantined"
                                             }
                                             SettingsThreatAction::Kill => {
@@ -2409,7 +2439,9 @@ fn spawn_manual_scan_listener(
                                                     "[ManualScan] Action: Kill for {}",
                                                     normalized_file_path
                                                 ));
-                                                let synthetic_gid = std::collections::hash_map::DefaultHasher::new();
+                                                let synthetic_gid =
+                                                    std::collections::hash_map::DefaultHasher::new(
+                                                    );
                                                 use std::hash::{Hash, Hasher};
                                                 let mut hasher = synthetic_gid;
                                                 normalized_file_path.hash(&mut hasher);
@@ -2423,14 +2455,23 @@ fn spawn_manual_scan_listener(
                                                     normalized_file_path
                                                 ));
                                                 let metadata = QuarantineMetadata {
-                                                    detection: format!("{}: {}", detection_engine, detection_name),
+                                                    detection: format!(
+                                                        "{}: {}",
+                                                        detection_engine, detection_name
+                                                    ),
                                                 };
-                                                let synthetic_gid = std::collections::hash_map::DefaultHasher::new();
+                                                let synthetic_gid =
+                                                    std::collections::hash_map::DefaultHasher::new(
+                                                    );
                                                 use std::hash::{Hash, Hasher};
                                                 let mut hasher = synthetic_gid;
                                                 normalized_file_path.hash(&mut hasher);
                                                 let gid = hasher.finish();
-                                                threat_handler.kill_and_quarantine(gid, std::path::Path::new(&normalized_file_path), &metadata);
+                                                threat_handler.kill_and_quarantine(
+                                                    gid,
+                                                    std::path::Path::new(&normalized_file_path),
+                                                    &metadata,
+                                                );
                                                 "success_killed_quarantined"
                                             }
                                             SettingsThreatAction::KillAndRemove => {
@@ -2438,12 +2479,17 @@ fn spawn_manual_scan_listener(
                                                     "[ManualScan] Action: KillAndRemove for {}",
                                                     normalized_file_path
                                                 ));
-                                                let synthetic_gid = std::collections::hash_map::DefaultHasher::new();
+                                                let synthetic_gid =
+                                                    std::collections::hash_map::DefaultHasher::new(
+                                                    );
                                                 use std::hash::{Hash, Hasher};
                                                 let mut hasher = synthetic_gid;
                                                 normalized_file_path.hash(&mut hasher);
                                                 let gid = hasher.finish();
-                                                threat_handler.kill_and_remove(gid, std::path::Path::new(&normalized_file_path));
+                                                threat_handler.kill_and_remove(
+                                                    gid,
+                                                    std::path::Path::new(&normalized_file_path),
+                                                );
                                                 "success_killed_removed"
                                             }
                                             SettingsThreatAction::Suspend => {

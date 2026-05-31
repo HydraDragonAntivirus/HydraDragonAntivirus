@@ -189,17 +189,17 @@ fn openedr_event_to_owly_irp(raw_event_id: u32, details_irp_op: Option<u8>) -> u
     }
 
     match raw_event_id {
-        0x0000 => 7,  // ProcessCreate
-        0x0001 => 10, // ProcessDelete -> IrpProcessExit
+        0x0000 => 7,                            // ProcessCreate
+        0x0001 => 10,                           // ProcessDelete -> IrpProcessExit
         0x0003 | 0x0004 | 0x0005 | 0x0006 => 6, // Registry
-        0x0007 => 4,  // FileCreate
-        0x0008 => 3,  // FileDelete as SetInfo
-        0x000A | 0x000C => 2, // Write/data change
-        0x000B => 1,  // Read
-        0x000D => 11, // ProcessOpen
-        0x000E => 12, // DeviceIoControl -> Hypervisor/Event
-        0x000F => 28, // NamedPipeCreate
-        0x0010 => 20, // SelfDefense -> UserModeHook/Kernel event fallback
+        0x0007 => 4,                            // FileCreate
+        0x0008 => 3,                            // FileDelete as SetInfo
+        0x000A | 0x000C => 2,                   // Write/data change
+        0x000B => 1,                            // Read
+        0x000D => 11,                           // ProcessOpen
+        0x000E => 12,                           // DeviceIoControl -> Hypervisor/Event
+        0x000F => 28,                           // NamedPipeCreate
+        0x0010 => 20,                           // SelfDefense -> UserModeHook/Kernel event fallback
         _ => 0,
     }
 }
@@ -227,7 +227,10 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
     let details = parse_owly_details(&fields);
 
     let raw_event_id = field_u32(&fields, EventField::RawEventId);
-    let details_irp = details.get("irp_op").and_then(|v| v.as_u64()).map(|v| v as u8);
+    let details_irp = details
+        .get("irp_op")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u8);
     let irp_op = openedr_event_to_owly_irp(raw_event_id, details_irp);
 
     let pid = field_u32(&fields, EventField::ProcessPid);
@@ -249,7 +252,11 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
         source_process_id: json_u64(&details, "source_pid") as u32,
         target_process_id: {
             let from_details = json_u64(&details, "target_pid") as u32;
-            if from_details != 0 { from_details } else { field_u32(&fields, EventField::TargetProcessPid) }
+            if from_details != 0 {
+                from_details
+            } else {
+                field_u32(&fields, EventField::TargetProcessPid)
+            }
         },
         core_id: json_u64(&details, "core_id") as u32,
         thread_id: json_u64(&details, "thread_id") as u32,
@@ -267,7 +274,11 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
         object_name: event_name,
         access_mask: {
             let from_details = json_u64(&details, "access_mask") as u32;
-            if from_details != 0 { from_details } else { field_u32(&fields, EventField::AccessMask) }
+            if from_details != 0 {
+                from_details
+            } else {
+                field_u32(&fields, EventField::AccessMask)
+            }
         },
         bin_payload: Vec::new(),
         is_dll_load: json_u64(&details, "is_dll_load") != 0,
@@ -291,7 +302,10 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
         pid,
         irp_op,
         is_entropy_calc: 0,
-        file_change: details.get("file_change").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+        file_change: details
+            .get("file_change")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u8,
         file_location_info: 0,
         filepathstr: filepath.clone(),
         gid: json_u64(&details, "gid"),

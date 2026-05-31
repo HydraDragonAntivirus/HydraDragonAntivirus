@@ -1249,7 +1249,6 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "hydradragon"))]
             static CAPEMON_PIPE_START: std::sync::Once = std::sync::Once::new();
 
-
             let extension_source_mode = config.extension_source_mode();
             let engine =
                 BehaviorEngine::new_with_extension_source_mode(extension_source_mode.as_deref());

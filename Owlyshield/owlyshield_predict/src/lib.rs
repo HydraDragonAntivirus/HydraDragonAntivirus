@@ -23,7 +23,6 @@ pub mod actions_on_kill;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 pub mod behavioral;
 pub mod config;
-pub mod openedr_lbvs;
 pub mod connectors;
 pub mod csvwriter;
 pub mod extensions;
@@ -31,6 +30,7 @@ pub mod globals;
 pub mod jsonrpc;
 pub mod logging;
 pub mod novelty;
+pub mod openedr_lbvs;
 pub mod predictions;
 pub mod process;
 pub mod report;
