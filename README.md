@@ -360,6 +360,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot
 - https://github.com/radareorg/radare2/releases/tag/6.1.4 (radare2-6.1.4-w64.zip)
 - https://github.com/DimaReverse/nuitka-static-unpacker
+- https://github.com/KingKDot/Exorcism-PowershellEdition
 
 - I used these projects to decompile.
 
