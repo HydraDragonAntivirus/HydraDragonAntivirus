@@ -1,4 +1,3 @@
-use std::ffi::c_void;
 use std::fs;
 use std::path::PathBuf;
 
@@ -32,7 +31,7 @@ const EXORCISM_DLL_PATH: &str = "C:\\Program Files\\HydraDragonAntivirus\\hydrad
 /// expected by CreateRemoteThread. The caller must ensure the pointer is valid.
 #[inline]
 unsafe fn cast_to_thread_start_routine(fn_ptr: *const ()) -> LPTHREAD_START_ROUTINE {
-    Some(std::mem::transmute(fn_ptr))
+    Some(unsafe { std::mem::transmute(fn_ptr) })
 }
 
 /// Inject the EDR's DLL into a given process by PID. This should be done for processes running on start, and for
@@ -281,7 +280,7 @@ pub fn inject_exorcism_dll(pid: u64) -> Result<(), ProcessErrors> {
         Some(address) => address as *const (),
     };
 
-    let dll_path = concat!(EXORCISM_DLL_PATH, "\0");
+    let dll_path = format!("{}\0", EXORCISM_DLL_PATH);
     let path_len = dll_path.len();
 
     let remote_buffer_base_address = unsafe {
