@@ -281,7 +281,7 @@ pub fn inject_exorcism_dll(pid: u64) -> Result<(), ProcessErrors> {
         Some(address) => address as *const (),
     };
 
-    let dll_path = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Exorcism-PowershellEdition.dll\0";
+    let dll_path = concat!(EXORCISM_DLL_PATH, "\0");
     let path_len = dll_path.len();
 
     let remote_buffer_base_address = unsafe {
