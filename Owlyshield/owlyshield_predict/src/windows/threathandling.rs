@@ -2,6 +2,7 @@ use crate::driver_com::Driver;
 use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::quarantine::{compute_sha256, quarantine_file};
+use crate::shadow_copy;
 use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use crate::utils::{
     protected_process_reason, protected_process_record_reason,
@@ -644,6 +645,20 @@ impl ThreatHandler for WindowsThreatHandler {
                     gid, e
                 ));
             }
+        }
+    }
+
+    fn restore_files_from_shadow_copy(&self, paths: &[PathBuf]) {
+        let summary = shadow_copy::restore_files(paths);
+        if summary.requested > 0 {
+            Logging::info(&format!(
+                "[ThreatHandler] Shadow-copy restore summary: requested={}, attempted={}, restored={}, skipped={}, failed={}",
+                summary.requested,
+                summary.attempted,
+                summary.restored,
+                summary.skipped,
+                summary.failed
+            ));
         }
     }
 

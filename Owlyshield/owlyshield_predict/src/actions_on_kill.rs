@@ -3,9 +3,7 @@ use std::error::Error;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
-#[cfg(feature = "realtime_learning")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local};
@@ -245,6 +243,132 @@ fn quarantine_detection_label(proc: &ProcessRecord, threat_info: &ThreatInfo<'_>
     } else {
         segments.join(" | ")
     }
+}
+
+const SHADOW_COPY_RESTORE_CANDIDATE_LIMIT: usize = 512;
+
+fn has_active_threat_response(threat_info: &ThreatInfo<'_>) -> bool {
+    threat_info.deny_access
+        || threat_info.terminate
+        || threat_info.quarantine
+        || threat_info.kill_and_remove
+        || threat_info.suspend
+        || threat_info.revert
+}
+
+fn destructive_file_threat(proc: &ProcessRecord, threat_info: &ThreatInfo<'_>) -> bool {
+    let mut haystack = format!(
+        "{} {} {}",
+        threat_info.threat_type_label,
+        threat_info.virus_name,
+        threat_info.match_details.as_deref().unwrap_or_default()
+    )
+    .to_ascii_lowercase();
+
+    if let Some(rule_name) = proc.triggered_rule_name.as_deref() {
+        haystack.push(' ');
+        haystack.push_str(&rule_name.to_ascii_lowercase());
+    }
+    if let Some(rule_details) = proc.triggered_rule_details.as_deref() {
+        haystack.push(' ');
+        haystack.push_str(&rule_details.to_ascii_lowercase());
+    }
+
+    [
+        "ransomware",
+        "ransom",
+        "wiper",
+        "encryptor",
+        "encrypt",
+        "destructive",
+        "data destruction",
+        "impact-stage",
+    ]
+    .iter()
+    .any(|needle| haystack.contains(needle))
+}
+
+fn should_attempt_shadow_copy_restore(proc: &ProcessRecord, threat_info: &ThreatInfo<'_>) -> bool {
+    !proc.fpaths_updated.is_empty()
+        && has_active_threat_response(threat_info)
+        && (threat_info.revert
+            || destructive_file_threat(proc, threat_info)
+            || proc.is_malicious
+            || threat_info.prediction >= 0.98)
+}
+
+fn normalize_shadow_restore_candidate(path: &str) -> Option<PathBuf> {
+    let mut normalized = path.trim_matches(char::from(0)).trim().replace('/', "\\");
+
+    for prefix in ["\\\\?\\", "\\??\\"] {
+        if let Some(stripped) = normalized.strip_prefix(prefix) {
+            normalized = stripped.to_string();
+        }
+    }
+
+    if !is_drive_absolute_path(&normalized) {
+        return None;
+    }
+
+    let candidate = PathBuf::from(normalized);
+    if candidate.file_name().is_none() {
+        return None;
+    }
+
+    Some(candidate)
+}
+
+fn is_drive_absolute_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
+}
+
+fn is_process_remediation_path(proc: &ProcessRecord, path: &Path) -> bool {
+    let candidate = normalized_path_key(path);
+
+    if !proc.exepath.as_os_str().is_empty()
+        && candidate == normalized_path_key(proc.exepath.as_path())
+    {
+        return true;
+    }
+
+    let remediation_path = proc.primary_remediation_path();
+    !remediation_path.as_os_str().is_empty() && candidate == normalized_path_key(remediation_path)
+}
+
+fn shadow_copy_restore_candidates(proc: &ProcessRecord) -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    let mut candidates = Vec::new();
+
+    let mut updated_paths = proc.fpaths_updated.iter().collect::<Vec<_>>();
+    updated_paths.sort();
+
+    for raw_path in updated_paths {
+        let Some(candidate) = normalize_shadow_restore_candidate(raw_path) else {
+            continue;
+        };
+        if is_process_remediation_path(proc, &candidate) {
+            continue;
+        }
+
+        let key = normalized_path_key(&candidate);
+        if seen.insert(key) {
+            candidates.push(candidate);
+        }
+
+        if candidates.len() == SHADOW_COPY_RESTORE_CANDIDATE_LIMIT {
+            Logging::warning(&format!(
+                "[ActionOnKill] Shadow-copy restore candidate list reached the {} file limit for {} (GID: {})",
+                SHADOW_COPY_RESTORE_CANDIDATE_LIMIT, proc.appname, proc.gid
+            ));
+            break;
+        }
+    }
+
+    candidates
 }
 
 impl ActionsOnKill {
@@ -1588,6 +1712,25 @@ impl ActionOnKill for RevertAction {
                 proc.appname
             ));
             self.handler.revert_registry(proc.gid);
+        }
+
+        if should_attempt_shadow_copy_restore(proc, threat_info) {
+            let restore_candidates = shadow_copy_restore_candidates(proc);
+            if restore_candidates.is_empty() {
+                Logging::info(&format!(
+                    "[ActionOnKill] Shadow-copy restore skipped for {} (GID: {}) because no restorable file paths were recorded",
+                    proc.appname, proc.gid
+                ));
+            } else {
+                Logging::alert(&format!(
+                    "[ActionOnKill] Attempting shadow-copy restore for {} changed file(s) after malware detection: {} (GID: {})",
+                    restore_candidates.len(),
+                    proc.appname,
+                    proc.gid
+                ));
+                self.handler
+                    .restore_files_from_shadow_copy(&restore_candidates);
+            }
         }
         Ok(())
     }

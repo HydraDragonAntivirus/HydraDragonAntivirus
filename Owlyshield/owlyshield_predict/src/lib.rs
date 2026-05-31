@@ -58,6 +58,9 @@ pub mod hydradragon;
 #[cfg(target_os = "windows")]
 #[path = "windows/quarantine.rs"]
 pub mod quarantine;
+#[cfg(target_os = "windows")]
+#[path = "windows/shadow_copy.rs"]
+pub mod shadow_copy;
 
 // Platform-Specific Modules via sub-mod files
 #[cfg(target_os = "windows")]

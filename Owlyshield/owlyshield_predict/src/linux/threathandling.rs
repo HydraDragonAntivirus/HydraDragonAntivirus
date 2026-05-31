@@ -56,4 +56,13 @@ impl ThreatHandler for LinuxThreatHandler {
     fn revert_registry(&self, _gid: u64) {
         todo!()
     }
+
+    fn restore_files_from_shadow_copy(&self, paths: &[std::path::PathBuf]) {
+        if !paths.is_empty() {
+            warn!(
+                "shadow-copy restore is only supported on Windows; requested restore for {} path(s), ignoring",
+                paths.len()
+            );
+        }
+    }
 }

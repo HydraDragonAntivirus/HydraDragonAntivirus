@@ -1,5 +1,5 @@
 use crate::process::ProcessRecord;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct QuarantineMetadata {
@@ -16,5 +16,6 @@ pub trait ThreatHandler: Send + Sync {
     fn schedule_cleanup_on_reboot(&self, path: &Path);
     fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool);
     fn revert_registry(&self, gid: u64);
+    fn restore_files_from_shadow_copy(&self, paths: &[PathBuf]);
     fn clone_box(&self) -> Box<dyn ThreatHandler>;
 }

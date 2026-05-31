@@ -208,7 +208,7 @@ C:\ProgramData\HydraDragonQuarantine
 
 - Current ransomware response focuses on detection, blocking, process termination, quarantine, and telemetry.
 - There is currently no automatic file restore fallback after ransomware modifies or encrypts files.
-- Shadow Copy based file rollback is planned, but it should not be treated as available protection today.
+- Shadow Copy based file rollback is exists but don't trust them.
 - Registry rollback already exists for supported ransomware-related persistence or configuration changes; this is separate from file content restoration.
 - Keep independent backups and restore points; detection is not a replacement for recovery.
 
