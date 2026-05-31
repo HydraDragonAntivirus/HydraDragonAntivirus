@@ -309,9 +309,13 @@ impl DetectItEasyScanner {
         let is_cx_freeze = self.is_cx_freeze(die_output);
         let is_nuitka_flag = nuitka_type.is_some();
         let path_lower = file_path.to_string_lossy().to_lowercase();
-        let is_python_process = is_pyinstaller || is_cx_freeze || is_nuitka_flag 
-            || path_lower.ends_with("python.exe") || path_lower.ends_with("pythonw.exe")
-            || path_lower.ends_with("python3.dll") || path_lower.ends_with("python.dll");
+        let is_python_process = is_pyinstaller
+            || is_cx_freeze
+            || is_nuitka_flag
+            || path_lower.ends_with("python.exe")
+            || path_lower.ends_with("pythonw.exe")
+            || path_lower.ends_with("python3.dll")
+            || path_lower.ends_with("python.dll");
 
         let detected_pe =
             self.is_pe_file(die_output) || format_validation.pe == FormatValidation::Valid;

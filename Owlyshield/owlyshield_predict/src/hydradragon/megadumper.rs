@@ -1,32 +1,29 @@
-use std::path::PathBuf;
 use std::process::Command;
+
+use crate::hydradragon::paths;
 use crate::logging::Logging;
 
 pub fn dump_process(pid: u32) -> bool {
     Logging::info(&format!("[MegaDumper] Attempting to dump PID: {}", pid));
 
-    let mut candidates = Vec::new();
-    if let Ok(pf) = std::env::var("ProgramFiles") {
-        candidates.push(PathBuf::from(pf).join("HydraDragonAntivirus").join("hydradragon"));
-    }
-    if let Ok(pf86) = std::env::var("ProgramFiles(x86)") {
-        candidates.push(PathBuf::from(pf86).join("HydraDragonAntivirus").join("hydradragon"));
-    }
-    candidates.push(PathBuf::from(r"C:\HydraDragonAntivirus\hydradragon"));
-
-    let install_dir = candidates.into_iter().find(|p| p.exists()).unwrap_or_else(|| PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\hydradragon"));
-    let dumper_path = install_dir.join("HydraDragonDumper").join("MegaDumper.exe");
+    let dumper_path = paths::install_path("HydraDragonDumper").join("MegaDumper.exe");
 
     if !dumper_path.exists() {
-        Logging::error(&format!("[MegaDumper] Executable not found at {:?}", dumper_path));
+        Logging::error(&format!(
+            "[MegaDumper] Executable not found at {:?}",
+            dumper_path
+        ));
         return false;
     }
 
-    let extracted_dir = PathBuf::from(r"C:\HydraDragon\MegaDumperExtracted");
+    let extracted_dir = paths::runtime_data_path("MegaDumperExtracted");
     let output_dir = extracted_dir.join(format!("pid_{}", pid));
     let _ = std::fs::create_dir_all(&output_dir);
 
-    Logging::info(&format!("[MegaDumper] Running dumper on PID: {} to output: {:?}", pid, output_dir));
+    Logging::info(&format!(
+        "[MegaDumper] Running dumper on PID: {} to output: {:?}",
+        pid, output_dir
+    ));
 
     let output = Command::new(&dumper_path)
         .arg("--pid")
@@ -43,12 +40,18 @@ pub fn dump_process(pid: u32) -> bool {
                 true
             } else {
                 let err_str = String::from_utf8_lossy(&out.stderr);
-                Logging::error(&format!("[MegaDumper] Extraction failed for PID {}: {}", pid, err_str));
+                Logging::error(&format!(
+                    "[MegaDumper] Extraction failed for PID {}: {}",
+                    pid, err_str
+                ));
                 false
             }
         }
         Err(e) => {
-            Logging::error(&format!("[MegaDumper] Failed to launch MegaDumper for PID {}: {}", pid, e));
+            Logging::error(&format!(
+                "[MegaDumper] Failed to launch MegaDumper for PID {}: {}",
+                pid, e
+            ));
             false
         }
     }

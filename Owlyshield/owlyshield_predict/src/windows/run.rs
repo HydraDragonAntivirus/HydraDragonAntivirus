@@ -417,8 +417,7 @@ pub fn run() {
                             .map(|event| event.event_name.clone())
                             .filter(|name| !name.trim().is_empty())
                             .unwrap_or_else(|| {
-                                let from_payload =
-                                    iomsg.kernel_event_info.object_name.trim();
+                                let from_payload = iomsg.kernel_event_info.object_name.trim();
                                 if from_payload.is_empty() {
                                     iomsg.filepathstr.clone()
                                 } else {

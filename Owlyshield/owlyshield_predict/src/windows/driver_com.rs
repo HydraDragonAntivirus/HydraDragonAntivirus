@@ -12,16 +12,16 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use wchar::wchar_t;
 use widestring::U16CString;
-use windows::core::{Error, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows::Win32::Storage::InstallableFileSystems::{
-    FilterConnectCommunicationPort, FilterGetMessage, FILTER_MESSAGE_HEADER,
+    FILTER_MESSAGE_HEADER, FilterConnectCommunicationPort, FilterGetMessage,
 };
 use windows::Win32::System::IO::DeviceIoControl;
+use windows::core::{Error, PCWSTR};
 
 use crate::openedr_lbvs::lbvs_to_iomessage;
 use crate::shared_def::{DriverComMessageType, IOMessage};
@@ -182,7 +182,8 @@ impl Driver {
                 out_len,
                 Some(&mut bytes_returned),
                 None,
-            ).ok()?;
+            )
+            .ok()?;
         }
         Ok(bytes_returned)
     }
@@ -257,12 +258,18 @@ impl Driver {
         Ok(())
     }
 
-    pub fn add_hook_target(&self, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
+    pub fn add_hook_target(
+        &self,
+        module: &str,
+        function: &str,
+        event_id: u32,
+    ) -> Result<(), Error> {
         self.add_hook_target_for_pid(0, module, function, event_id)
     }
 
     pub fn hook_process(&self, pid: u32) -> Result<(), Error> {
-        let mut msg = Driver::build_message(DriverComMessageType::MessageHookProcess, pid, 0, "", "");
+        let mut msg =
+            Driver::build_message(DriverComMessageType::MessageHookProcess, pid, 0, "", "");
         self.send_compat_message(&mut msg, None)?;
         Ok(())
     }
