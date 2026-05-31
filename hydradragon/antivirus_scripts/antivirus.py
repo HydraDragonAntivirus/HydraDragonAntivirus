@@ -143,7 +143,6 @@ from .path_and_variables import (
     ISx_installshield_extractor_path,
     installshield_extracted_dir,
     autoit_extracted_dir,
-    hydra_dragon_dumper_path,
     hydra_dragon_dumper_extracted_dir,
     deobfuscar_path,
     eazfixer_path,
