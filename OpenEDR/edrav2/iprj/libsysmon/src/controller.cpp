@@ -14,6 +14,7 @@
 #include "../../libprocmon/inc/procmonevent.h"
 
 #include <mutex>
+#include <string_view>
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "libsysmon"
@@ -24,6 +25,7 @@ namespace win {
 namespace {
 
 constexpr wchar_t c_sOwlyshieldOpenEdrPipe[] = LR"(\\.\pipe\Global\HydraDragonOpenEdrTelemetry)";
+constexpr DWORD c_nOwlyshieldOpenEdrPipeWaitMs = 250;
 
 const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventType)
 {
@@ -38,6 +40,43 @@ const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventTyp
 		default:
 			return getEventTypeString(eventType);
 	}
+}
+
+bool isOpenEdrRegistryRawEvent(edrdrv::SysmonEvent rawEvent)
+{
+	switch (rawEvent)
+	{
+		case edrdrv::SysmonEvent::RegistryKeyNameChange:
+		case edrdrv::SysmonEvent::RegistryKeyCreate:
+		case edrdrv::SysmonEvent::RegistryKeyDelete:
+		case edrdrv::SysmonEvent::RegistryValueSet:
+		case edrdrv::SysmonEvent::RegistryValueDelete:
+			return true;
+		default:
+			return false;
+	}
+}
+
+void moveVariantPathIfPresent(Variant& vEvent, std::string_view sSourcePath, std::string_view sTargetPath)
+{
+	auto optValue = variant::getByPathSafe(vEvent, sSourcePath);
+	if (!optValue.has_value() || optValue->isNull())
+		return;
+
+	variant::putByPath(vEvent, sTargetPath, *optValue, true);
+}
+
+void sanitizeOpenEdrTelemetryForOwlyshield(Variant& vEvent, edrdrv::SysmonEvent rawEvent)
+{
+	if (isOpenEdrRegistryRawEvent(rawEvent))
+		return;
+
+	if (!variant::getByPathSafe(vEvent, "registry").has_value())
+		return;
+
+	moveVariantPathIfPresent(vEvent, "registry.rawPath", "owly.loadedDllPath");
+	moveVariantPathIfPresent(vEvent, "registry.data", "owly.details");
+	variant::deleteByPath(vEvent, "registry");
 }
 
 void sendOpenEdrTelemetryToOwlyshield(const Variant& vEvent)
@@ -63,7 +102,7 @@ void sendOpenEdrTelemetryToOwlyshield(const Variant& vEvent)
 
 	std::scoped_lock lock(s_mtxPipeSend);
 
-	if (!::WaitNamedPipeW(c_sOwlyshieldOpenEdrPipe, 10))
+	if (!::WaitNamedPipeW(c_sOwlyshieldOpenEdrPipe, c_nOwlyshieldOpenEdrPipeWaitMs))
 		return;
 
 	HANDLE hPipe = ::CreateFileW(
@@ -557,7 +596,9 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 		vEvent.put("rawEventId", createRaw(c_nClassId, (uint32_t)nRawEventId));
 		vEvent.put("type", getOpenEdrWireEventType(nRawEventId, eEvent));
 		vEvent.put("source", "openedr");
-		sendOpenEdrTelemetryToOwlyshield(vEvent);
+		Variant vOwlyEvent = vEvent.clone();
+		sanitizeOpenEdrTelemetryForOwlyshield(vOwlyEvent, nRawEventId);
+		sendOpenEdrTelemetryToOwlyshield(vOwlyEvent);
 
 		if (m_eInjection == InjectionMode::Controller && eEvent == Event::LLE_PROCESS_CREATE)
 		{

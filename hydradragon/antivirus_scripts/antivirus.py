@@ -144,7 +144,6 @@ from .path_and_variables import (
     ISx_installshield_extractor_path,
     installshield_extracted_dir,
     autoit_extracted_dir,
-    hydra_dragon_dumper_extracted_dir,
     deobfuscar_path,
     eazfixer_path,
     eazfixer_dir_data,
@@ -652,7 +651,6 @@ PACKER_FLAGS = {
 
 # Base directories common to both lists
 MANAGED_DIRECTORIES = [
-    hydra_dragon_dumper_extracted_dir,
     enigma1_extracted_dir,
     inno_setup_unpacked_dir,
     themida_unpacked_dir,

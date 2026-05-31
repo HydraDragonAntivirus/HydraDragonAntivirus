@@ -226,6 +226,8 @@ type OpenEdrNetDetails = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, u16)>>>
 type SelfDefenseTelemetryMap =
     Arc<std::sync::RwLock<HashMap<u32, VecDeque<SelfDefenseTelemetryEvent>>>>;
 
+const SELF_DEFENSE_DUPLICATE_SUPPRESS_MS: u64 = 2_000;
+
 fn shared_openedr_stats() -> OpenEdrTelemetryStatsMap {
     static OPENEDR_STATS: OnceLock<OpenEdrTelemetryStatsMap> = OnceLock::new();
     OPENEDR_STATS
@@ -418,6 +420,21 @@ impl SelfDefenseTelemetryEvent {
             self.timestamp_ms
         )
     }
+
+    fn dedupe_key(&self) -> String {
+        format!(
+            "{}:{}:{}:{}:{}:{}:{}:{}:{}",
+            self.source,
+            self.category,
+            self.attack_type,
+            self.operation,
+            self.protected_path,
+            self.attacker_path,
+            self.attacker_pid,
+            self.target_pid,
+            self.action
+        )
+    }
 }
 
 trait IfEmpty {
@@ -454,6 +471,15 @@ pub fn record_self_defense_telemetry(event: serde_json::Value) {
     let queue = guard
         .entry(attacker_pid)
         .or_insert_with(|| VecDeque::with_capacity(128));
+    let event_dedupe_key = event.dedupe_key();
+    let is_recent_duplicate = queue.iter().rev().any(|recent| {
+        event.timestamp_ms.saturating_sub(recent.timestamp_ms) <= SELF_DEFENSE_DUPLICATE_SUPPRESS_MS
+            && recent.dedupe_key() == event_dedupe_key
+    });
+    if is_recent_duplicate {
+        return;
+    }
+
     if queue.len() >= 128 {
         queue.pop_front();
     }
@@ -478,6 +504,17 @@ fn event_time(event: &SelfDefenseTelemetryEvent) -> SystemTime {
 
 #[derive(Debug, Clone, Default)]
 pub struct OpenEdrTelemetryStats {
+    pub total_event_count: usize,
+    pub process_event_count: usize,
+    pub file_event_count: usize,
+    pub registry_event_count: usize,
+    pub memory_event_count: usize,
+    pub network_event_count: usize,
+    pub device_event_count: usize,
+    pub pipe_event_count: usize,
+    pub input_event_count: usize,
+    pub user_event_count: usize,
+    pub self_defense_event_count: usize,
     pub process_open_count: usize,
     pub memory_write_count: usize,
     pub injection_activity_count: usize,
@@ -4048,6 +4085,84 @@ impl BehaviorEngine {
             })
         }
 
+        fn openedr_alias_token(event_type: &str) -> String {
+            let mut token = String::new();
+            for part in event_type.trim_start_matches("LLE_").split('_') {
+                let mut chars = part.chars();
+                let Some(first) = chars.next() else {
+                    continue;
+                };
+                token.push(first.to_ascii_uppercase());
+                token.push_str(&chars.as_str().to_ascii_lowercase());
+            }
+            token
+        }
+
+        fn is_openedr_registry_event(event_type: &str) -> bool {
+            matches!(
+                event_type,
+                "LLE_REGISTRY_KEY_CREATE"
+                    | "LLE_REGISTRY_KEY_DELETE"
+                    | "LLE_REGISTRY_KEY_NAME_CHANGE"
+                    | "LLE_REGISTRY_VALUE_SET"
+                    | "LLE_REGISTRY_VALUE_DELETE"
+            )
+        }
+
+        fn openedr_event_family(event_type: &str) -> &'static str {
+            if event_type.starts_with("LLE_FILE_") {
+                "File"
+            } else if is_openedr_registry_event(event_type) {
+                "Registry"
+            } else if matches!(
+                event_type,
+                "LLE_PROCESS_CREATE"
+                    | "LLE_PROCESS_DELETE"
+                    | "LLE_PROCESS_OPEN"
+                    | "LLE_PROCESS_MEMORY_READ"
+                    | "LLE_PROCESS_MEMORY_WRITE"
+                    | "LLE_INJECTION_ACTIVITY"
+            ) {
+                "Process"
+            } else if event_type.starts_with("LLE_NETWORK_") {
+                "Network"
+            } else if matches!(
+                event_type,
+                "LLE_DEVICE_IOCTL"
+                    | "LLE_DISK_RAW_WRITE_ACCESS"
+                    | "LLE_VOLUME_RAW_WRITE_ACCESS"
+                    | "LLE_DEVICE_RAW_WRITE_ACCESS"
+                    | "LLE_DISK_LINK_CREATE"
+                    | "LLE_VOLUME_LINK_CREATE"
+                    | "LLE_DEVICE_LINK_CREATE"
+            ) {
+                "Device"
+            } else if event_type == "LLE_NAMED_PIPE_CREATE" {
+                "Pipe"
+            } else if matches!(
+                event_type,
+                "LLE_WINDOW_PROC_GLOBAL_HOOK"
+                    | "LLE_KEYBOARD_GLOBAL_READ"
+                    | "LLE_KEYBOARD_GLOBAL_WRITE"
+                    | "LLE_KEYBOARD_BLOCK"
+                    | "LLE_CLIPBOARD_READ"
+                    | "LLE_MICROPHONE_ENUM"
+                    | "LLE_MICROPHONE_READ"
+                    | "LLE_MOUSE_GLOBAL_WRITE"
+                    | "LLE_MOUSE_BLOCK"
+                    | "LLE_WINDOW_DATA_READ"
+                    | "LLE_DESKTOP_WALLPAPER_SET"
+            ) {
+                "Input"
+            } else if matches!(event_type, "LLE_USER_LOGON" | "LLE_USER_IMPERSONATION") {
+                "User"
+            } else if event_type == "LLE_SELF_DEFENSE" {
+                "SelfDefense"
+            } else {
+                "Other"
+            }
+        }
+
         let event_type = str_at(event, &["type"])
             .or_else(|| str_at(event, &["event_type"]))
             .or_else(|| str_at(event, &["baseType"]))
@@ -4087,7 +4202,8 @@ impl BehaviorEngine {
             .or_else(|| str_at(event, &["registry", "rawPath"]))
             .or_else(|| str_at(event, &["registry.rawPath"]))
             .unwrap_or("");
-        let protected_path = if !registry_path.is_empty() {
+        let is_registry_event = is_openedr_registry_event(event_type);
+        let protected_path = if is_registry_event && !registry_path.is_empty() {
             registry_path
         } else {
             file_path
@@ -4095,17 +4211,34 @@ impl BehaviorEngine {
         let access_or_ioctl = u64_at(event, &["accessMask"])
             .or_else(|| u64_at(event, &["access_mask"]))
             .unwrap_or(0);
+        let event_family = openedr_event_family(event_type);
+        let event_alias_token = openedr_alias_token(event_type);
 
         let mut aliases = vec![format!(
             "OpenEDR::{}",
             event_type.trim_start_matches("LLE_")
         )];
+        if !event_alias_token.is_empty() {
+            aliases.push(format!("OpenEDR::{event_alias_token}"));
+            aliases.push(format!("OpenEDR::{event_family}::{event_alias_token}"));
+        }
+        aliases.push(format!("OpenEDR::Family::{event_family}"));
         match event_type {
+            "LLE_PROCESS_CREATE" => {
+                aliases.push("OpenEDR::ProcessCreate".to_string());
+            }
+            "LLE_PROCESS_DELETE" => {
+                aliases.push("OpenEDR::ProcessDelete".to_string());
+            }
             "LLE_PROCESS_OPEN" => {
                 aliases.push("OpenEDR::ProcessOpen".to_string());
                 if target_pid != 0 && target_pid != pid {
                     aliases.push("OpenEDR::CrossProcessHandle".to_string());
                 }
+            }
+            "LLE_PROCESS_MEMORY_READ" => {
+                aliases.push("OpenEDR::ProcessMemoryRead".to_string());
+                aliases.push("OpenEDR::MemoryRead".to_string());
             }
             "LLE_PROCESS_MEMORY_WRITE" => {
                 aliases.push("OpenEDR::ProcessMemoryWrite".to_string());
@@ -4124,13 +4257,68 @@ impl BehaviorEngine {
             "LLE_NETWORK_REQUEST_DATA" => {
                 aliases.push("OpenEDR::NetworkRequestData".to_string());
             }
+            "LLE_FILE_CREATE" => {
+                aliases.push("OpenEDR::FileCreate".to_string());
+                aliases.push("OpenEDR::FileAccess".to_string());
+            }
+            "LLE_FILE_DELETE" => {
+                aliases.push("OpenEDR::FileDelete".to_string());
+                aliases.push("OpenEDR::FileModify".to_string());
+            }
+            "LLE_FILE_CLOSE" => {
+                aliases.push("OpenEDR::FileClose".to_string());
+            }
+            "LLE_FILE_DATA_CHANGE" => {
+                aliases.push("OpenEDR::FileDataChange".to_string());
+                aliases.push("OpenEDR::FileModify".to_string());
+            }
+            "LLE_FILE_DATA_READ_FULL" => {
+                aliases.push("OpenEDR::FileRead".to_string());
+                aliases.push("OpenEDR::FileAccess".to_string());
+            }
+            "LLE_FILE_DATA_WRITE_FULL" => {
+                aliases.push("OpenEDR::FileWrite".to_string());
+                aliases.push("OpenEDR::FileModify".to_string());
+            }
+            "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
+                aliases.push("OpenEDR::RegistryKeyModify".to_string());
+                aliases.push("OpenEDR::RegistryModify".to_string());
+            }
+            "LLE_REGISTRY_KEY_DELETE" => {
+                aliases.push("OpenEDR::RegistryKeyDelete".to_string());
+                aliases.push("OpenEDR::RegistryModify".to_string());
+            }
+            "LLE_REGISTRY_VALUE_SET" => {
+                aliases.push("OpenEDR::RegistryValueSet".to_string());
+                aliases.push("OpenEDR::RegistryModify".to_string());
+            }
+            "LLE_REGISTRY_VALUE_DELETE" => {
+                aliases.push("OpenEDR::RegistryValueDelete".to_string());
+                aliases.push("OpenEDR::RegistryModify".to_string());
+            }
             "LLE_DEVICE_IOCTL" => {
                 aliases.push("OpenEDR::DeviceIoControl".to_string());
                 aliases.push(format!("OpenEDR::IOCTL:0x{access_or_ioctl:08X}"));
             }
+            "LLE_DISK_RAW_WRITE_ACCESS" | "LLE_VOLUME_RAW_WRITE_ACCESS" => {
+                aliases.push("OpenEDR::RawDiskWrite".to_string());
+                aliases.push("OpenEDR::DiskTamper".to_string());
+            }
+            "LLE_DEVICE_RAW_WRITE_ACCESS" => {
+                aliases.push("OpenEDR::DeviceRawWrite".to_string());
+            }
+            "LLE_DISK_LINK_CREATE" | "LLE_VOLUME_LINK_CREATE" | "LLE_DEVICE_LINK_CREATE" => {
+                aliases.push("OpenEDR::DeviceLinkCreate".to_string());
+            }
             "LLE_NAMED_PIPE_CREATE" => {
                 aliases.push("OpenEDR::NamedPipeCreate".to_string());
                 aliases.push("OpenEDR::NamedPipe".to_string());
+            }
+            "LLE_USER_LOGON" => {
+                aliases.push("OpenEDR::UserLogon".to_string());
+            }
+            "LLE_USER_IMPERSONATION" => {
+                aliases.push("OpenEDR::UserImpersonation".to_string());
             }
             "LLE_SELF_DEFENSE" => {
                 aliases.push("OpenEDR::SelfDefense".to_string());
@@ -4141,6 +4329,12 @@ impl BehaviorEngine {
         let mut summary = event_type.to_string();
         if target_pid != 0 && target_pid != pid {
             summary.push_str(&format!(" target={}", target_pid));
+        }
+        if !protected_path.is_empty() {
+            summary.push_str(&format!(" path={}", protected_path));
+        }
+        if is_registry_event && !registry_path.is_empty() {
+            summary.push_str(&format!(" registry={}", registry_path));
         }
         if !remote_ip.is_empty() {
             if remote_port != 0 {
@@ -4176,6 +4370,7 @@ impl BehaviorEngine {
         }
 
         let protected_path_lc = protected_path.replace('/', "\\").to_ascii_lowercase();
+        let registry_path_lc = registry_path.replace('/', "\\").to_ascii_lowercase();
         let pipe_path = if event_type == "LLE_NAMED_PIPE_CREATE" {
             file_path
         } else {
@@ -4195,18 +4390,19 @@ impl BehaviorEngine {
                 || protected_path_lc.contains("\\system32\\edrpm64.dll")
                 || protected_path_lc.contains("\\system32\\edrpm32.dll")
                 || protected_path_lc.contains("\\system32\\edrmm.dll"));
-        let is_security_registry = !protected_path_lc.is_empty()
-            && (protected_path_lc.contains("\\services\\owlyshield_ransom")
-                || protected_path_lc.contains("\\services\\reddbg")
-                || protected_path_lc.contains("\\services\\hyperdbg")
-                || protected_path_lc.contains("\\services\\hyperhv")
-                || protected_path_lc.contains("\\services\\sanctum_ppl_runner")
-                || protected_path_lc.contains("\\services\\mbrfilter")
-                || protected_path_lc.contains("\\services\\fs_minifilter")
-                || protected_path_lc.contains("\\services\\sanctum")
-                || protected_path_lc.contains("\\services\\edrdrv")
-                || protected_path_lc.contains("\\services\\edrsvc")
-                || protected_path_lc.contains("\\software\\owlyshield"));
+        let is_security_registry = is_registry_event
+            && !registry_path_lc.is_empty()
+            && (registry_path_lc.contains("\\services\\owlyshield_ransom")
+                || registry_path_lc.contains("\\services\\reddbg")
+                || registry_path_lc.contains("\\services\\hyperdbg")
+                || registry_path_lc.contains("\\services\\hyperhv")
+                || registry_path_lc.contains("\\services\\sanctum_ppl_runner")
+                || registry_path_lc.contains("\\services\\mbrfilter")
+                || registry_path_lc.contains("\\services\\fs_minifilter")
+                || registry_path_lc.contains("\\services\\sanctum")
+                || registry_path_lc.contains("\\services\\edrdrv")
+                || registry_path_lc.contains("\\services\\edrsvc")
+                || registry_path_lc.contains("\\software\\owlyshield"));
         let is_security_pipe = !pipe_lc.is_empty()
             && (pipe_lc.contains("hydradragon")
                 || pipe_lc.contains("owlyshield")
@@ -4215,11 +4411,26 @@ impl BehaviorEngine {
                 || pipe_lc.contains("hydranet")
                 || pipe_lc.contains("hydra"));
         let is_disk_wiper_ioctl = event_type == "LLE_DEVICE_IOCTL";
+        let is_cross_process_open =
+            event_type == "LLE_PROCESS_OPEN" && target_pid != 0 && target_pid != pid;
+        let is_process_memory_tamper = matches!(
+            event_type,
+            "LLE_PROCESS_MEMORY_WRITE" | "LLE_INJECTION_ACTIVITY"
+        );
+        let is_raw_device_tamper = matches!(
+            event_type,
+            "LLE_DISK_RAW_WRITE_ACCESS"
+                | "LLE_VOLUME_RAW_WRITE_ACCESS"
+                | "LLE_DEVICE_RAW_WRITE_ACCESS"
+        );
 
         if is_security_file
             || is_security_registry
             || is_security_pipe
             || is_disk_wiper_ioctl
+            || is_cross_process_open
+            || is_process_memory_tamper
+            || is_raw_device_tamper
             || event_type == "LLE_SELF_DEFENSE"
         {
             let (category, operation, attack_type, target) = if is_disk_wiper_ioctl {
@@ -4248,12 +4459,35 @@ impl BehaviorEngine {
                     "REGISTRY_TAMPERING".to_string(),
                     protected_path.to_string(),
                 )
-            } else if event_type == "LLE_PROCESS_OPEN" || event_type == "LLE_SELF_DEFENSE" {
+            } else if is_process_memory_tamper {
                 (
                     "process",
-                    "PROCESS_OPEN".to_string(),
-                    "PROCESS_TAMPERING".to_string(),
+                    event_alias_token.clone(),
+                    "PROCESS_MEMORY_TAMPERING".to_string(),
                     format!("pid:{}", target_pid),
+                )
+            } else if is_cross_process_open || event_type == "LLE_SELF_DEFENSE" {
+                (
+                    "process",
+                    event_alias_token.clone().if_empty("PROCESS_OPEN"),
+                    if is_cross_process_open {
+                        "CROSS_PROCESS_HANDLE".to_string()
+                    } else {
+                        "PROCESS_TAMPERING".to_string()
+                    },
+                    format!("pid:{}", target_pid),
+                )
+            } else if is_raw_device_tamper {
+                (
+                    "disk",
+                    event_alias_token.clone(),
+                    "RAW_DEVICE_TAMPERING".to_string(),
+                    if protected_path.is_empty() {
+                        "BOOT_DISK_OR_DRIVE_LAYOUT"
+                    } else {
+                        protected_path
+                    }
+                    .to_string(),
                 )
             } else {
                 (
@@ -4281,6 +4515,7 @@ impl BehaviorEngine {
         let stats = openedr_lock
             .entry(pid)
             .or_insert_with(OpenEdrTelemetryStats::default);
+        stats.total_event_count += 1;
         stats.last_event = Some(summary.clone());
         if stats.recent_events.len() >= 32 {
             stats.recent_events.pop_front();
@@ -4288,6 +4523,26 @@ impl BehaviorEngine {
         stats.recent_events.push_back(summary);
         for alias in aliases {
             stats.detected_apis.insert(alias);
+        }
+
+        match event_family {
+            "Process" => stats.process_event_count += 1,
+            "File" => stats.file_event_count += 1,
+            "Registry" => stats.registry_event_count += 1,
+            "Network" => stats.network_event_count += 1,
+            "Device" => stats.device_event_count += 1,
+            "Pipe" => stats.pipe_event_count += 1,
+            "Input" => stats.input_event_count += 1,
+            "User" => stats.user_event_count += 1,
+            "SelfDefense" => stats.self_defense_event_count += 1,
+            _ => {}
+        }
+
+        if matches!(
+            event_type,
+            "LLE_PROCESS_MEMORY_READ" | "LLE_PROCESS_MEMORY_WRITE"
+        ) {
+            stats.memory_event_count += 1;
         }
 
         match event_type {

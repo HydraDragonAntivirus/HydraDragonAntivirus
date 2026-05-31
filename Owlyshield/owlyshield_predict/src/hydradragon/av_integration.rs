@@ -2272,10 +2272,11 @@ fn spawn_manual_scan_listener(
         };
 
         let mut pipe_security = create_pipe_security_attributes("[ManualScan]");
-        let yara_rules = load_yara_x_rules();
-        let excluded_yara_rules = load_excluded_rules();
-        let (mut hydradragon_static_engine, mut hydradragon_static_rules_marker_state) =
-            load_hydradragon_static_engine(&hydradragon_static_rules_dir);
+        let mut manual_scan_rules_loaded = false;
+        let mut yara_rules = None;
+        let mut excluded_yara_rules = std::collections::HashSet::new();
+        let mut hydradragon_static_engine = None;
+        let mut hydradragon_static_rules_marker_state = None;
         let mut hydradragon_static_last_reload = Instant::now();
 
         let threat_settings = match ThreatResponseSettings::new() {
@@ -2295,7 +2296,10 @@ fn spawn_manual_scan_listener(
             "[ManualScan] Listener started on \\\\.\\pipe\\Global\\owlyshield_manual_scan",
         );
         loop {
-            if hydradragon_static_last_reload.elapsed() >= HYDRADRAGON_STATIC_RULE_RELOAD_INTERVAL {
+            if manual_scan_rules_loaded
+                && hydradragon_static_last_reload.elapsed()
+                    >= HYDRADRAGON_STATIC_RULE_RELOAD_INTERVAL
+            {
                 hydradragon_static_last_reload = Instant::now();
                 let files = collect_hydradragon_static_rule_files(&hydradragon_static_rules_dir);
                 let marker = hydradragon_static_rules_marker(&hydradragon_static_rules_dir, &files);
@@ -2406,6 +2410,18 @@ fn spawn_manual_scan_listener(
                                     .and_then(|v| v.as_str())
                                     .map(normalize_nt_path)
                                     .unwrap_or_else(|| normalized_file_path.clone());
+
+                                if !manual_scan_rules_loaded {
+                                    excluded_yara_rules = load_excluded_rules();
+                                    yara_rules = load_yara_x_rules();
+                                    let (engine, marker) = load_hydradragon_static_engine(
+                                        &hydradragon_static_rules_dir,
+                                    );
+                                    hydradragon_static_engine = engine;
+                                    hydradragon_static_rules_marker_state = marker;
+                                    hydradragon_static_last_reload = Instant::now();
+                                    manual_scan_rules_loaded = true;
+                                }
 
                                 let (hydradragon_static_matches, hydradragon_static_match_details) =
                                     if let Some(engine) = &hydradragon_static_engine {

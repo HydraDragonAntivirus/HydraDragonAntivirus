@@ -104,30 +104,53 @@ fn send_manual_scan_to_owlyshield(
 
                             match serde_json::from_str::<serde_json::Value>(trimmed) {
                                 Ok(response) => {
-                                    if let Some(status) = response.get("status").and_then(|s| s.as_str()) {
+                                    if let Some(status) =
+                                        response.get("status").and_then(|s| s.as_str())
+                                    {
                                         match status {
                                             "threat_detected" => {
-                                                let file_path = get_str_or(&response, "file_path", "unknown");
-                                                let detection_name = get_str_or(&response, "detection_name", "unknown");
-                                                let detection_engine = get_str_or(&response, "detection_engine", "unknown");
-                                                let recommended_action = get_str_or(&response, "recommended_action", "unknown");
-                                                
+                                                let file_path =
+                                                    get_str_or(&response, "file_path", "unknown");
+                                                let detection_name = get_str_or(
+                                                    &response,
+                                                    "detection_name",
+                                                    "unknown",
+                                                );
+                                                let detection_engine = get_str_or(
+                                                    &response,
+                                                    "detection_engine",
+                                                    "unknown",
+                                                );
+                                                let recommended_action = get_str_or(
+                                                    &response,
+                                                    "recommended_action",
+                                                    "unknown",
+                                                );
+
                                                 eprintln!("[!] THREAT DETECTED: {} detected by {} as {}, recommended action: {}",
                                                     file_path, detection_engine, detection_name, recommended_action);
                                             }
                                             "action_executed" => {
-                                                let file_path = get_str_or(&response, "file_path", "unknown");
-                                                let action = get_str_or(&response, "action", "unknown");
-                                                let result = get_str_or(&response, "result", "unknown");
-                                                
-                                                eprintln!("[*] ACTION EXECUTED: {} on {}, result: {}",
-                                                    action, file_path, result);
+                                                let file_path =
+                                                    get_str_or(&response, "file_path", "unknown");
+                                                let action =
+                                                    get_str_or(&response, "action", "unknown");
+                                                let result =
+                                                    get_str_or(&response, "result", "unknown");
+
+                                                eprintln!(
+                                                    "[*] ACTION EXECUTED: {} on {}, result: {}",
+                                                    action, file_path, result
+                                                );
                                             }
                                             "scan_complete" => {
                                                 break;
                                             }
                                             _ => {
-                                                eprintln!("[?] Unknown response status: {}", status);
+                                                eprintln!(
+                                                    "[?] Unknown response status: {}",
+                                                    status
+                                                );
                                             }
                                         }
                                     }
@@ -192,6 +215,12 @@ impl ManualScanQueueStats {
         if self.first_error.is_none() {
             self.first_error = other.first_error;
         }
+    }
+
+    fn first_error_is_pipe_unavailable(&self) -> bool {
+        self.first_error
+            .as_deref()
+            .is_some_and(|error| error.contains("manual scan pipe unavailable"))
     }
 }
 
@@ -284,13 +313,20 @@ pub async fn scanner_start_folder_scan(
         }
 
         if stats.queued == 0 && stats.failed > 0 {
+            let is_pipe_unavailable = stats.first_error_is_pipe_unavailable();
             let message = stats
                 .first_error
                 .unwrap_or_else(|| "Owlyshield manual scan pipe unavailable".to_string());
-            let _ = manual_scan_app_handle.emit(
-                "folder_scan_error",
-                format!("Owlyshield manual scan was not queued: {message}"),
-            );
+            if is_pipe_unavailable {
+                eprintln!(
+                    "[*] Owlyshield manual scan pipe unavailable; continuing with Sanctum scanner: {message}"
+                );
+            } else {
+                let _ = manual_scan_app_handle.emit(
+                    "folder_scan_error",
+                    format!("Owlyshield manual scan was not queued: {message}"),
+                );
+            }
         }
     });
 
@@ -390,13 +426,20 @@ pub async fn scanner_start_quick_scan(app_handle: tauri::AppHandle) -> Result<St
             }
 
             if stats.queued == 0 && stats.failed > 0 {
+                let is_pipe_unavailable = stats.first_error_is_pipe_unavailable();
                 let message = stats
                     .first_error
                     .unwrap_or_else(|| "Owlyshield manual scan pipe unavailable".to_string());
-                let _ = manual_scan_app_handle.emit(
-                    "folder_scan_error",
-                    format!("Owlyshield quick scan was not queued: {message}"),
-                );
+                if is_pipe_unavailable {
+                    eprintln!(
+                        "[*] Owlyshield quick-scan pipe unavailable; continuing with Sanctum scanner: {message}"
+                    );
+                } else {
+                    let _ = manual_scan_app_handle.emit(
+                        "folder_scan_error",
+                        format!("Owlyshield quick scan was not queued: {message}"),
+                    );
+                }
             }
         });
 
