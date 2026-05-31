@@ -841,6 +841,29 @@ fn die_result_is_unsupported_for_deep_scan(
         .is_some_and(|r| r.scan_ok && !die_result_has_supported_deep_scan_type(result))
 }
 
+fn should_inject_python_hook_for_process(
+    pid: u32,
+    die_result: &Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+) -> bool {
+    die_result
+        .as_ref()
+        .is_some_and(|die_res| die_res.is_python_process)
+        || crate::hydradragon::python_hook::process_has_python_runtime(pid)
+}
+
+fn maybe_spawn_python_hook(
+    pid: Option<u32>,
+    die_result: &Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+) {
+    if let Some(pid_val) = pid {
+        if should_inject_python_hook_for_process(pid_val, die_result) {
+            let _ = std::thread::spawn(move || {
+                crate::hydradragon::python_hook::inject(pid_val);
+            });
+        }
+    }
+}
+
 /// AV scan response (sent to EDR as a threat event)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AVScanResponse {
@@ -2917,15 +2940,7 @@ impl<'a> AVIntegration<'a> {
             &metadata.hydradragon_static_match_details,
         );
 
-        if let Some(pid_val) = pid {
-            if let Some(die_res) = &metadata.detectiteasy_scan_result {
-                if die_res.is_python_process {
-                    let _ = std::thread::spawn(move || {
-                        crate::hydradragon::python_hook::inject(pid_val);
-                    });
-                }
-            }
-        }
+        maybe_spawn_python_hook(pid, &metadata.detectiteasy_scan_result);
 
         let request = EDRScanRequest {
             event_type: "SANCTUM_DEEP_SCAN_REQUEST".to_string(),
@@ -2992,15 +3007,7 @@ impl<'a> AVIntegration<'a> {
             &metadata.hydradragon_static_match_details,
         );
 
-        if let Some(pid_val) = pid {
-            if let Some(die_res) = &metadata.detectiteasy_scan_result {
-                if die_res.is_python_process {
-                    let _ = std::thread::spawn(move || {
-                        crate::hydradragon::python_hook::inject(pid_val);
-                    });
-                }
-            }
-        }
+        maybe_spawn_python_hook(pid, &metadata.detectiteasy_scan_result);
 
         let request = EDRScanRequest {
             event_type: "PROCESS_START_SCAN_REQUEST".to_string(),

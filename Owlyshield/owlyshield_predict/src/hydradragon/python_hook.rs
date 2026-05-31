@@ -1,4 +1,5 @@
 use std::os::windows::ffi::OsStrExt;
+use std::path::PathBuf;
 use std::thread;
 use std::time;
 use windows::Win32::Foundation::{BOOL, CloseHandle, HANDLE, HMODULE, WAIT_OBJECT_0};
@@ -17,8 +18,11 @@ use windows::Win32::System::Threading::{
 };
 use windows::core::{PCWSTR, s, w};
 
-use crate::hydradragon::paths;
 use crate::logging::Logging;
+
+const HYDRADRAGON_HOOK_INSTALL_DIR: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon";
+pub(crate) const PYTHON_HOOK_DUMPS_DIR: &str =
+    r"C:\ProgramData\HydraDragonAntivirus\hydradragon\python_dumps";
 
 /// Helper function to safely cast function pointer for LoadLibraryW
 ///
@@ -72,13 +76,55 @@ fn find_remote_module_base(pid: u32, module_name: &str) -> Option<usize> {
     None
 }
 
+fn is_python_runtime_module(module_name: &str) -> bool {
+    module_name == "python.dll"
+        || module_name == "python3.dll"
+        || (module_name.starts_with("python3") && module_name.ends_with(".dll"))
+}
+
+pub fn process_has_python_runtime(pid: u32) -> bool {
+    for _ in 0..3 {
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
+                .unwrap_or(HANDLE::default());
+            if !snap.is_invalid() {
+                let mut entry = MODULEENTRY32W::default();
+                entry.dwSize = std::mem::size_of::<MODULEENTRY32W>() as u32;
+
+                if Module32FirstW(snap, &mut entry).as_bool() {
+                    loop {
+                        let sz_module = String::from_utf16_lossy(&entry.szModule);
+                        let sz_module = sz_module.trim_matches(char::from(0)).to_lowercase();
+
+                        if is_python_runtime_module(&sz_module) {
+                            let _ = CloseHandle(snap);
+                            Logging::debug(&format!(
+                                "[PythonHook] Python runtime module found in PID {}: {}",
+                                pid, sz_module
+                            ));
+                            return true;
+                        }
+                        if !Module32NextW(snap, &mut entry).as_bool() {
+                            break;
+                        }
+                    }
+                }
+                let _ = CloseHandle(snap);
+            }
+        }
+        thread::sleep(time::Duration::from_millis(50));
+    }
+
+    false
+}
+
 pub fn inject(pid: u32) -> bool {
     Logging::info(&format!(
         "[PythonHook] Attempting to inject hook into PID: {}",
         pid
     ));
 
-    let install_dir = paths::resolve_install_dir();
+    let install_dir = PathBuf::from(HYDRADRAGON_HOOK_INSTALL_DIR);
     let hook_py_path = install_dir.join("__hook__.py");
 
     let h_proc = unsafe { OpenProcess(PROCESS_ALL_ACCESS, false, pid) };
@@ -110,7 +156,7 @@ pub fn inject(pid: u32) -> bool {
     }
 
     // Write config
-    let dumps_dir = paths::runtime_data_path("Dumps");
+    let dumps_dir = PathBuf::from(PYTHON_HOOK_DUMPS_DIR);
     let _ = std::fs::create_dir_all(&dumps_dir);
     let config_path = dumps_dir.join("hook_config.ini");
     let config_content = format!(

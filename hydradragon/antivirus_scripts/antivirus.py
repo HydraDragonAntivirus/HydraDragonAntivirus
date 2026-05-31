@@ -118,6 +118,7 @@ from .path_and_variables import (
     extensions_path,
     sanctum_settings_path,
     vmprotect_unpacked_dir,
+    python_dumps_dir,
     python_source_code_dir,
     python_deobfuscated_dir,
     python_deobfuscated_marshal_pyc_dir,
@@ -639,7 +640,7 @@ version_flag = f"-{sys.version_info.major}.{sys.version_info.minor}"
 # --- Global tracking sets ---
 seen_files = set()  # Tracks already-scanned (path, md5) tuples
 
-script_exts = {".vbs", ".vbe", ".js", ".jse", ".bat", ".url", ".cmd", ".hta", ".ps1", ".psm1", ".wsf", ".wsb", ".sct"}
+script_exts = {".py", ".pyw", ".pyi", ".vbs", ".vbe", ".js", ".jse", ".bat", ".url", ".cmd", ".hta", ".ps1", ".psm1", ".wsf", ".wsb", ".sct"}
 
 # Known Enigma versions -> working evbunpack flags
 PACKER_FLAGS = {
@@ -7698,9 +7699,33 @@ async def scan_and_warn(
             die_output, plain_text_flag = detectiteasy_cache[md5]
         else:
             die_output, plain_text_flag = get_detectiteasy_output(norm_path)
-            detectiteasy_cache[md5] = (die_output, plain_text_flag)
+        detectiteasy_cache[md5] = (die_output, plain_text_flag)
         detectiteasy_result = _detectiteasy_result(norm_path) or {}
         plain_text_flag = bool(detectiteasy_result.get("is_plain_text"))
+        source_language = str(detectiteasy_result.get("source_language") or "").lower()
+        source_origin = str(detectiteasy_result.get("source_origin") or "").lower()
+
+        if bool(detectiteasy_result.get("is_source")) and source_language == "python":
+            logger.info(f"Scanning Python source from {source_origin or 'source'}: {norm_path}")
+            try:
+                with open(norm_path, "r", encoding="utf-8", errors="ignore") as source_file:
+                    source_content = source_file.read()
+                await asyncio.to_thread(
+                    scan_code_for_links,
+                    source_content,
+                    norm_path,
+                    python_source_flag=True,
+                    python_hook_source_flag=(source_origin == "python_hook"),
+                    main_file_path=main_file_path,
+                )
+            except Exception as ex:
+                logger.error(f"Python source link scan failed for {norm_path}: {ex}")
+
+            try:
+                if await process_decompiled_code(norm_path, main_file_path=main_file_path):
+                    return True
+            except Exception as ex:
+                logger.error(f"Python source deobfuscation scan failed for {norm_path}: {ex}")
 
         # CRITICAL: Unknown file check that can cause early return - NO THREADING.
         # A Sanctum deep-scan request is the explicit exception: it asks Python to run the heavy path.
@@ -8852,6 +8877,80 @@ _DEFAULT_EDR_DEEP_SCAN_TIMEOUT_MS = 180_000
 _DEFAULT_EDR_MINIMAL_SCAN_TIMEOUT_MS = 30_000
 _DEFAULT_LATE_CHILD_SCAN_GRACE_MS = 30_000
 _MAX_EDR_SCAN_TIMEOUT_MS = 24 * 60 * 60 * 1000
+_PYTHON_SOURCE_SUFFIXES = (".py", ".pyw", ".pyi")
+
+
+def _looks_like_python_source_path(file_path: str) -> bool:
+    try:
+        return os.path.normpath(str(file_path)).lower().endswith(_PYTHON_SOURCE_SUFFIXES)
+    except Exception:
+        return False
+
+
+def _path_is_under_directory(file_path: str, directory: str) -> bool:
+    try:
+        candidate = os.path.abspath(os.path.normpath(str(file_path)))
+        root = os.path.abspath(os.path.normpath(str(directory)))
+        return os.path.commonpath([candidate, root]).lower() == root.lower()
+    except Exception:
+        return False
+
+
+def _is_python_hook_source_request(
+    request_obj: dict,
+    normalized: str,
+    detectiteasy_result: Optional[Dict[str, Any]] = None,
+) -> bool:
+    detectiteasy_result = detectiteasy_result if isinstance(detectiteasy_result, dict) else {}
+    event_type = str(request_obj.get("event_type") or "").strip().lower()
+    additional_context = str(request_obj.get("additional_context") or "").strip().lower()
+    source_language = str(
+        detectiteasy_result.get("source_language")
+        or request_obj.get("source_language")
+        or ""
+    ).strip().lower()
+    source_origin = str(
+        detectiteasy_result.get("source_origin")
+        or request_obj.get("source_origin")
+        or ""
+    ).strip().lower()
+    under_python_dumps = _path_is_under_directory(normalized, python_dumps_dir)
+
+    if bool(detectiteasy_result.get("is_source")) and source_language == "python":
+        return under_python_dumps and source_origin == "python_hook"
+
+    if event_type == "python_hook_source_scan":
+        return under_python_dumps
+
+    if not _looks_like_python_source_path(normalized):
+        return False
+
+    return (
+        under_python_dumps
+        and (
+            additional_context == "python_hook"
+            or additional_context.startswith("python_hook;")
+            or source_origin == "python_hook"
+        )
+    )
+
+
+def _ensure_python_source_detectiteasy_result(request_obj: dict, normalized: str) -> Dict[str, Any]:
+    existing = request_obj.get("detectiteasy_scan_result")
+    result = dict(existing) if isinstance(existing, dict) else {}
+    result.setdefault("scanner", "detectiteasy")
+    result["file_path"] = normalized
+    result.setdefault("scan_ok", True)
+    result.setdefault("scan_error", None)
+    result.setdefault("die_output", "Text\n    Format: python source")
+    result.setdefault("file_type", "python source")
+    result["is_plain_text"] = True
+    result["is_source"] = True
+    result["source_language"] = "python"
+    result.setdefault("source_origin", "python_hook")
+    result.setdefault("is_unknown", False)
+    request_obj["detectiteasy_scan_result"] = result
+    return result
 
 
 def _load_sanctum_settings() -> dict:
@@ -9033,6 +9132,12 @@ async def _handle_edr_scan_request(request_obj: dict) -> None:
 
     # Cache DetectItEasy results generated by Owlyshield/Rust to avoid Python rescans.
     detectiteasy_scan_result = request_obj.get("detectiteasy_scan_result")
+    if _is_python_hook_source_request(request_obj, normalized, detectiteasy_scan_result):
+        detectiteasy_scan_result = _ensure_python_source_detectiteasy_result(request_obj, normalized)
+        request_obj["deep_scan"] = True
+        request_obj["scan_mode"] = "deep"
+        logger.info(f"[EDR->AV] Python hook source scan metadata applied for: {normalized}")
+
     if detectiteasy_scan_result:
         cache_detectiteasy_result(normalized, detectiteasy_scan_result)
         logger.info(f"[EDR->AV] Cached DetectItEasy result from Owlyshield for: {normalized}")

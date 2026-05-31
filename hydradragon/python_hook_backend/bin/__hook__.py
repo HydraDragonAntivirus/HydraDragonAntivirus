@@ -27,6 +27,35 @@ from pathlib import Path
 # alter the host process's recursion limit on the main thread before our
 # worker even starts.  It is set inside _hook_worker() instead.
 MAX_WORKER_THREADS = 64
+HYDRADRAGON_DUMPER_PIPE = r"\\.\pipe\HydraDragonDumper"
+PYTHON_DUMPS_DIR = r"C:\ProgramData\HydraDragonAntivirus\hydradragon\python_dumps"
+
+
+def notify_hydradragon_dump_receiver_async(source_paths):
+    """Best-effort notification to Owlyshield; never block the hooked process."""
+    paths = [str(path) for path in source_paths]
+    if not paths:
+        return 0
+
+    def _worker():
+        for source_path in paths:
+            try:
+                with open(HYDRADRAGON_DUMPER_PIPE, "w", encoding="utf-8", errors="ignore") as pipe:
+                    pipe.write(f"PYTHON_HOOK|{source_path}")
+            except Exception:
+                pass
+            time.sleep(0.05)
+
+    try:
+        threading.Thread(
+            target=_worker,
+            daemon=True,
+            name="HydraDragonDumpNotify",
+        ).start()
+    except Exception:
+        return 0
+
+    return len(paths)
 
 # =============================================================================
 # BYTECODE DECOMPILER
@@ -1361,7 +1390,7 @@ def run_decompiler():
     # host process's main thread.
     sys.setrecursionlimit(15000)
 
-    dump_root = Path(r"C:\ProgramData\HydraDragonAntivirus\python_dumps")
+    dump_root = Path(PYTHON_DUMPS_DIR)
     backup_dir = get_next_dump_path(str(dump_root))
     source_dir = backup_dir / "RECONSTRUCTED_SOURCE"
     started_path = backup_dir / "started.txt"
@@ -1611,6 +1640,15 @@ def run_decompiler():
                 compiled=len(recon.compiled_modules),
             ),
         )
+        try:
+            source_paths = sorted(source_dir.rglob("*.py"))
+            notified_count = notify_hydradragon_dump_receiver_async(source_paths)
+            hook_log(f"Queued {notified_count} Python source dump notifications\n")
+        except Exception as e:
+            try:
+                hook_log(f"[DUMP_NOTIFY] failed: {e}\n")
+            except Exception:
+                pass
         write_marker(finished_path, "DONE\n")
     except Exception:
         try:

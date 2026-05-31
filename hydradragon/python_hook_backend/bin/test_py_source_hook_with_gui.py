@@ -157,7 +157,7 @@ def _sanitize_identifier(name: str) -> str:
 
 
 class DynamicDumpReader:
-    DEFAULT_BASE = r"C:\ProgramData\HydraDragonAntivirus\python_dumps"
+    DEFAULT_BASE = r"C:\ProgramData\HydraDragonAntivirus\hydradragon\python_dumps"
 
     @staticmethod
     def get_latest_dump_dir(base: str | None = None) -> tuple[str | None, int]:
@@ -573,7 +573,7 @@ class LiteInjector:
                 self.log(f"ERROR: Hook script not found: {hook_path}")
                 return
             try:
-                config_dir = r"C:\ProgramData\HydraDragonAntivirus\python_dumps"
+                config_dir = r"C:\ProgramData\HydraDragonAntivirus\hydradragon\python_dumps"
                 os.makedirs(config_dir, exist_ok=True)
                 with open(os.path.join(config_dir, "hook_config.ini"), "w", encoding="utf-8") as f:
                     f.write(f"HookPath={os.path.abspath(hook_path)}\n")
@@ -647,7 +647,7 @@ class LiteInjector:
                     self.log("ERROR: HydraStartHook thread timed out (possible deadlock in target).")
                 else:
                     self.log(f"ERROR: HydraStartHook returned {exit_code} — hook init failed inside target.")
-                    self.log("ERROR: Exit code 1 is generic here; check C:\\ProgramData\\HydraDragonAntivirus\\python_dumps\\hook_dll.log for the real reason.")
+                    self.log("ERROR: Exit code 1 is generic here; check C:\\ProgramData\\HydraDragonAntivirus\\hydradragon\\python_dumps\\hook_dll.log for the real reason.")
             finally:
                 k32.CloseHandle(h_proc)
         except Exception as e:

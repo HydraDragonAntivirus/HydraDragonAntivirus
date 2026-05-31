@@ -100,7 +100,7 @@ static void CheckForProtection() {
 
 static bool GetHookFilePathFromConfig(char *outPath, size_t maxLen) {
   const char *configPath =
-      "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps\\hook_config.ini";
+      "C:\\ProgramData\\HydraDragonAntivirus\\hydradragon\\python_dumps\\hook_config.ini";
   FILE *f = NULL;
   if (fopen_s(&f, configPath, "r") != 0 || !f)
     return false;
@@ -679,8 +679,9 @@ static void AutoSetPythonHome() {
 }
 
 static bool SetupStdoutStderrToLog(char *outLogPath) {
-  const char *baseDir = "C:\\ProgramData\\HydraDragonAntivirus";
-  const char *logDir = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps";
+  const char *baseDir = "C:\\ProgramData\\HydraDragonAntivirus\\hydradragon";
+  const char *logDir =
+      "C:\\ProgramData\\HydraDragonAntivirus\\hydradragon\\python_dumps";
   char logPath[MAX_PATH];
 
   EnsureDirectoryExists(baseDir);

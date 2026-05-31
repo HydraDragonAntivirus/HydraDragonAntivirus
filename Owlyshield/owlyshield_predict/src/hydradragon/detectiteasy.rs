@@ -17,6 +17,23 @@ use zip::ZipArchive;
 const DIE_SCAN_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_DIE_SCAN_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
 
+pub fn source_language_from_path(file_path: &Path) -> Option<&'static str> {
+    let extension = file_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())?;
+
+    match extension.as_str() {
+        "py" | "pyw" | "pyi" => Some("python"),
+        "ps1" | "psm1" | "psd1" => Some("powershell"),
+        "js" | "jse" | "mjs" | "cjs" => Some("javascript"),
+        "vbs" | "vbe" | "wsf" | "hta" => Some("vbscript"),
+        "bat" | "cmd" => Some("batch"),
+        "ahk" => Some("autohotkey"),
+        _ => None,
+    }
+}
+
 /// Complete DetectItEasy scan result with all detections
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectItEasyScanResult {
@@ -87,6 +104,12 @@ pub struct DetectItEasyScanResult {
     // Special
     pub is_unknown: bool,
     pub is_plain_text: bool,
+    #[serde(default)]
+    pub is_source: bool,
+    #[serde(default)]
+    pub source_language: Option<String>,
+    #[serde(default)]
+    pub source_origin: Option<String>,
     pub is_enigma_virtual_box: bool,
 }
 
@@ -237,6 +260,12 @@ impl DetectItEasyScanner {
     }
 
     pub fn error_result(file_path: &Path, error: String) -> DetectItEasyScanResult {
+        let is_plain_text = is_plain_text_file(file_path).unwrap_or(false);
+        let source_language = is_plain_text
+            .then(|| source_language_from_path(file_path))
+            .flatten()
+            .map(str::to_string);
+
         DetectItEasyScanResult {
             scanner: "detectiteasy".to_string(),
             file_path: file_path.to_string_lossy().to_string(),
@@ -290,7 +319,75 @@ impl DetectItEasyScanner {
             is_asar: false,
             is_microsoft_compound: false,
             is_unknown: false,
-            is_plain_text: is_plain_text_file(file_path).unwrap_or(false),
+            is_plain_text,
+            is_source: source_language.is_some(),
+            source_language,
+            source_origin: None,
+            is_enigma_virtual_box: false,
+        }
+    }
+
+    pub fn source_result(file_path: &Path, source_origin: Option<&str>) -> DetectItEasyScanResult {
+        let source_language = source_language_from_path(file_path).map(str::to_string);
+        let source_label = source_language.as_deref().unwrap_or("source");
+
+        DetectItEasyScanResult {
+            scanner: "detectiteasy".to_string(),
+            file_path: file_path.to_string_lossy().to_string(),
+            scan_ok: true,
+            scan_error: None,
+            die_output: format!("Text\n    Format: {source_label} source"),
+            is_pe: false,
+            is_elf: false,
+            is_macho: false,
+            is_apk: false,
+            file_type: Some(format!("{source_label} source")),
+            pe_result: None,
+            elf_result: None,
+            macho_result: None,
+            apk_result: None,
+            is_broken_executable: false,
+            broken_executable_type: None,
+            is_protected: false,
+            protector_name: None,
+            is_themida: false,
+            themida_type: None,
+            is_vmprotect: false,
+            is_packed: false,
+            packer_name: None,
+            packer_type: None,
+            is_upx: false,
+            is_pyinstaller: false,
+            is_nuitka: false,
+            nuitka_type: None,
+            is_cx_freeze: false,
+            is_nexe: false,
+            is_npm: false,
+            is_python_process: false,
+            is_dotnet: false,
+            dotnet_type: None,
+            is_go_garble: false,
+            is_pyc: false,
+            is_pyarmor_archive: false,
+            is_jar: false,
+            is_java_class: false,
+            is_jsc: None,
+            is_inno_setup: false,
+            is_nsis: false,
+            is_advanced_installer: false,
+            is_installshield: false,
+            is_clickteam: false,
+            is_autoit: false,
+            is_compiled_autohotkey: false,
+            is_archive: false,
+            is_7z: false,
+            is_asar: false,
+            is_microsoft_compound: false,
+            is_unknown: false,
+            is_plain_text: true,
+            is_source: source_language.is_some(),
+            source_language,
+            source_origin: source_origin.map(str::to_string),
             is_enigma_virtual_box: false,
         }
     }
@@ -304,6 +401,12 @@ impl DetectItEasyScanner {
         let nuitka_type = self.is_nuitka(die_output);
         let dotnet_type = self.is_dotnet(die_output);
         let format_validation = inspect_binary_formats(file_path);
+        let is_plain_text = self.detects_plain_text_format(die_output)
+            || is_plain_text_file(file_path).unwrap_or(false);
+        let source_language = is_plain_text
+            .then(|| source_language_from_path(file_path))
+            .flatten()
+            .map(str::to_string);
 
         let is_pyinstaller = self.is_pyinstaller(die_output);
         let is_cx_freeze = self.is_cx_freeze(die_output);
@@ -417,8 +520,10 @@ impl DetectItEasyScanner {
 
             // Special
             is_unknown: self.is_file_fully_unknown(die_output),
-            is_plain_text: self.detects_plain_text_format(die_output)
-                || is_plain_text_file(file_path).unwrap_or(false),
+            is_plain_text,
+            is_source: source_language.is_some(),
+            source_language,
+            source_origin: None,
             is_enigma_virtual_box: self.is_enigma_virtual_box(die_output),
         }
     }
