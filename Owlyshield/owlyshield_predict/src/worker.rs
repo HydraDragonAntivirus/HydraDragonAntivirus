@@ -997,12 +997,17 @@ pub mod worker_instance {
         pub fn generate_system_report(&mut self) {
             let config = self.config;
             let _ = &config[crate::config::Param::ConfigPath]; // Explicit read to ensure compiler sees it as used
-            let fw_pids = self.behavior_engine.firewall_net_pids.read().unwrap();
             let signatures_count = self.behavior_engine.rules.len();
             let rootkit_findings = self.behavior_engine.get_rootkit_findings();
+            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            let fw_pids = self.behavior_engine.firewall_net_pids.read().unwrap();
+            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            let firewall_pids = Some(&*fw_pids);
+            #[cfg(not(all(target_os = "windows", feature = "firewall")))]
+            let firewall_pids = None;
             let mut report = crate::report::SystemReport::collect(
                 config,
-                Some(&fw_pids),
+                firewall_pids,
                 signatures_count,
                 rootkit_findings,
             );
@@ -1248,7 +1253,6 @@ pub mod worker_instance {
             static OPENEDR_PIPE_START: std::sync::Once = std::sync::Once::new();
             #[cfg(all(target_os = "windows", feature = "hydradragon"))]
             static CAPEMON_PIPE_START: std::sync::Once = std::sync::Once::new();
-
 
             let extension_source_mode = config.extension_source_mode();
             let engine =
@@ -2796,11 +2800,15 @@ pub mod worker_instance {
             {
                 let now = std::time::Instant::now();
                 let report_interval = std::time::Duration::from_secs(3600); // 1 hour
+                #[cfg(all(target_os = "windows", feature = "firewall"))]
                 use std::sync::atomic::Ordering; // Import Ordering
+                #[cfg(all(target_os = "windows", feature = "firewall"))]
                 let force_report = self
                     .behavior_engine
                     .generate_report_flag
                     .swap(false, Ordering::SeqCst);
+                #[cfg(not(all(target_os = "windows", feature = "firewall")))]
+                let force_report = false;
                 if force_report
                     || self
                         .last_report_time

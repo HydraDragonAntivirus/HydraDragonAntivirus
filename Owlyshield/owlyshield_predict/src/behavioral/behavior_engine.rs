@@ -723,7 +723,6 @@ impl FirewallHipsDecision {
     }
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FirewallHipsPromptOutcome {
     Pending,
@@ -3011,6 +3010,21 @@ fn sanctum_value_is_truthy(value: &serde_json::Value) -> bool {
             .unwrap_or(false)
 }
 
+#[derive(Clone, Copy)]
+enum CapemonBsonFormat {
+    Log,
+    Storage,
+}
+
+impl CapemonBsonFormat {
+    fn format_array(self, elements: &[String]) -> String {
+        match self {
+            CapemonBsonFormat::Log => format!("[{}]", elements.join(", ")),
+            CapemonBsonFormat::Storage => elements.join(";"),
+        }
+    }
+}
+
 impl BehaviorEngine {
     pub fn new() -> Self {
         Self::new_with_extension_source_mode(None)
@@ -4339,94 +4353,94 @@ impl BehaviorEngine {
         }
     }
 
-    /// Ingest a BSON telemetry event from Capemon API hooks.
-    /// Capemon hooks LoadLibrary, CreateProcess, and other APIs, sending BSON-encoded logs.
-    /// This method dynamically processes ALL BSON fields without hardcoded API name checks.
-    /// Helper function to convert BSON values to string representation
-    ///
-    /// # Parameters
-    /// - `value`: The BSON value to convert
-    /// - `array_format`: Controls array formatting:
-    ///   - `"bracketed"`: Format as `[elem1, elem2]` (for logging)
-    ///   - `"semicolon"`: Format as `elem1;elem2` (for storage)
-    /// - `handle_document`: Whether to handle Document type (true for logging, false for storage)
-    fn bson_value_to_string(value: &bson::Bson, array_format: &str, handle_document: bool) -> String {
-        match value {
+    fn format_capemon_bson_scalar(value: &bson::Bson) -> Option<String> {
+        Some(match value {
             bson::Bson::String(s) => s.clone(),
             bson::Bson::Int32(i) => i.to_string(),
             bson::Bson::Int64(i) => i.to_string(),
             bson::Bson::Double(d) => d.to_string(),
             bson::Bson::Boolean(b) => b.to_string(),
+            _ => return None,
+        })
+    }
+
+    fn format_capemon_bson_value(value: &bson::Bson, format: CapemonBsonFormat) -> String {
+        if let Some(scalar) = Self::format_capemon_bson_scalar(value) {
+            return scalar;
+        }
+
+        match value {
             bson::Bson::Array(arr) => {
-                let elements: Vec<String> = arr.iter().map(|elem| {
-                    match elem {
-                        bson::Bson::String(s) => s.clone(),
-                        bson::Bson::Int32(i) => i.to_string(),
-                        bson::Bson::Int64(i) => i.to_string(),
-                        bson::Bson::Double(d) => d.to_string(),
-                        _ => format!("{:?}", elem),
-                    }
-                }).collect();
-                
-                match array_format {
-                    "bracketed" => format!("[{}]", elements.join(", ")),
-                    "semicolon" => elements.join(";"),
-                    _ => elements.join(";"), // Default to semicolon
-                }
+                let elements: Vec<String> = arr
+                    .iter()
+                    .map(|element| {
+                        Self::format_capemon_bson_scalar(element)
+                            .unwrap_or_else(|| format!("{:?}", element))
+                    })
+                    .collect();
+                format.format_array(&elements)
             }
-            bson::Bson::Document(subdoc) if handle_document => {
-                // Nested document - convert to compact string
+            bson::Bson::Document(subdoc) if matches!(format, CapemonBsonFormat::Log) => {
                 format!("{{{} fields}}", subdoc.len())
             }
             _ => format!("{:?}", value),
         }
     }
 
+    /// Ingest a BSON telemetry event from Capemon API hooks.
+    /// Capemon hooks LoadLibrary, CreateProcess, and other APIs, sending BSON-encoded logs.
+    /// This method dynamically processes ALL BSON fields without hardcoded API name checks.
     pub fn ingest_capemon_event(&mut self, pid: u32, doc: bson::Document) {
         let gid = self.find_gid_by_pid(pid).unwrap_or(0);
-        
+
         // Extract API name from BSON document (if present)
         let api_name = doc.get_str("api").unwrap_or("Unknown").to_string();
-        
+
         // Build a summary of all BSON fields for logging and analysis
         let mut field_summary = Vec::new();
-        
+
         // Iterate over ALL BSON document fields dynamically
         for (key, value) in doc.iter() {
-            let value_str = Self::bson_value_to_string(value, "bracketed", true);
-            
+            let value_str = Self::format_capemon_bson_value(value, CapemonBsonFormat::Log);
+
             field_summary.push(format!("{}={}", key, value_str));
         }
-        
+
         // Update process state with detected API and ALL BSON fields
         if gid != 0 {
             if let Some(state) = self.process_states.get_mut(&gid) {
                 // Store API name in detected_apis set
                 state.detected_apis.insert(api_name.clone());
-                
+
                 // Store ALL BSON fields dynamically in the process state
                 // The behavior engine's rule matching system will analyze these fields
                 for (key, value) in doc.iter() {
                     let field_key = format!("capemon:{}:{}", api_name, key);
-                    
+
                     // Convert BSON value to string for storage
-                    let value_str = Self::bson_value_to_string(value, "semicolon", false);
-                    
+                    let value_str =
+                        Self::format_capemon_bson_value(value, CapemonBsonFormat::Storage);
+
                     // Store in detected_apis for rule matching
                     state.detected_apis.insert(field_key);
-                    
+
                     // Also store the actual value for potential future use
                     if !value_str.is_empty() && value_str.len() < 512 {
                         let value_key = format!("capemon_value:{}:{}", api_name, key);
-                        state.detected_apis.insert(format!("{}={}", value_key, value_str));
+                        state
+                            .detected_apis
+                            .insert(format!("{}={}", value_key, value_str));
                     }
                 }
             }
         }
-        
+
         Logging::debug(&format!(
             "[Capemon] Ingested API hook from PID {}: {} (GID: {}) | Fields: {}",
-            pid, api_name, gid, field_summary.join(", ")
+            pid,
+            api_name,
+            gid,
+            field_summary.join(", ")
         ));
     }
 
@@ -5601,6 +5615,16 @@ impl BehaviorEngine {
                 FirewallHipsPromptOutcome::Pending
             }
         }
+    }
+
+    #[cfg(not(all(target_os = "windows", feature = "firewall")))]
+    fn resolve_firewall_hips_prompt(
+        &self,
+        _gid: u64,
+        _state: &ProcessBehaviorState,
+        _rule: &BehaviorRule,
+    ) -> FirewallHipsPromptOutcome {
+        FirewallHipsPromptOutcome::Allowed
     }
 
     #[allow(dead_code)]
@@ -7753,6 +7777,7 @@ impl BehaviorEngine {
                 }
 
                 // ── Firewall-content conditions ──────────────────────────────────
+                #[cfg(all(target_os = "windows", feature = "firewall"))]
                 if !matched {
                     let exe_path_lc = state.exe_path.to_string_lossy().to_lowercase();
                     let fw_blocked_map = self.firewall_blocked_exes.read().unwrap();
@@ -10242,10 +10267,20 @@ impl BehaviorEngine {
                     Comparison::Ne => (entropy - threshold).abs() >= 0.001,
                 }
             }),
-            RuleCondition::NetworkCondition(net_rule) => state
-                .net_packets
-                .iter()
-                .any(|pkt| net_rule.matches_packet(&self.regex_cache, pkt, &[])),
+            RuleCondition::NetworkCondition(net_rule) => {
+                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                {
+                    state
+                        .net_packets
+                        .iter()
+                        .any(|pkt| net_rule.matches_packet(&self.regex_cache, pkt, &[]))
+                }
+                #[cfg(not(all(target_os = "windows", feature = "firewall")))]
+                {
+                    let _ = net_rule;
+                    false
+                }
+            }
             RuleCondition::Amsi {
                 risk_at_least,
                 patterns,
@@ -10291,36 +10326,53 @@ impl BehaviorEngine {
                 hex_patterns,
                 min_matches,
             } => {
-                let mut unique_matches = std::collections::HashSet::new();
-                for ghost in &state.sanctum_stats.ghost_telemetry {
-                    let func_ok = functions.is_empty()
-                        || functions.iter().any(|f| ghost.function.contains(f));
-
-                    let addr_ok = caller_address_patterns.is_empty() || {
-                        let addr_hex = format!("{:X}", ghost.caller_address);
-                        caller_address_patterns.iter().any(|p| {
-                            let p_lower = p.to_lowercase();
-                            if p_lower == "unknown" || p_lower == "unbacked" {
-                                // If the driver couldn't resolve the caller or it's unbacked, it often reports 0
-                                ghost.caller_address == 0
-                            } else {
-                                Self::matches_pattern_internal(&self.regex_cache, p, &addr_hex)
-                            }
-                        })
-                    };
-
-                    let hex_ok = hex_patterns.is_empty()
-                        || hex_patterns.iter().any(|p| {
-                            Self::matches_pattern_internal(&self.regex_cache, p, &ghost.hex_payload)
-                        });
-
-                    if func_ok && addr_ok && hex_ok {
-                        // Deduplicate: same function from same caller address counts as 1 unique match
-                        let key = format!("{}_{}", ghost.function, ghost.caller_address);
-                        unique_matches.insert(key);
-                    }
+                #[cfg(not(all(target_os = "windows", feature = "sanctum")))]
+                {
+                    let _ = (
+                        functions,
+                        caller_address_patterns,
+                        hex_patterns,
+                        min_matches,
+                    );
+                    false
                 }
-                unique_matches.len() >= *min_matches
+                #[cfg(all(target_os = "windows", feature = "sanctum"))]
+                {
+                    let mut unique_matches = std::collections::HashSet::new();
+                    for ghost in &state.sanctum_stats.ghost_telemetry {
+                        let func_ok = functions.is_empty()
+                            || functions.iter().any(|f| ghost.function.contains(f));
+
+                        let addr_ok = caller_address_patterns.is_empty() || {
+                            let addr_hex = format!("{:X}", ghost.caller_address);
+                            caller_address_patterns.iter().any(|p| {
+                                let p_lower = p.to_lowercase();
+                                if p_lower == "unknown" || p_lower == "unbacked" {
+                                    // If the driver couldn't resolve the caller or it's unbacked, it often reports 0
+                                    ghost.caller_address == 0
+                                } else {
+                                    Self::matches_pattern_internal(&self.regex_cache, p, &addr_hex)
+                                }
+                            })
+                        };
+
+                        let hex_ok = hex_patterns.is_empty()
+                            || hex_patterns.iter().any(|p| {
+                                Self::matches_pattern_internal(
+                                    &self.regex_cache,
+                                    p,
+                                    &ghost.hex_payload,
+                                )
+                            });
+
+                        if func_ok && addr_ok && hex_ok {
+                            // Deduplicate: same function from same caller address counts as 1 unique match
+                            let key = format!("{}_{}", ghost.function, ghost.caller_address);
+                            unique_matches.insert(key);
+                        }
+                    }
+                    unique_matches.len() >= *min_matches
+                }
             }
             RuleCondition::Api {
                 functions,
