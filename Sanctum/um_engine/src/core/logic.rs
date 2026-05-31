@@ -276,13 +276,19 @@ impl Core {
                     // println!("[i] Target process detected, injecting EDR DLL into PID: {pid}...");
                     if let Err(e) = inject_edr_dll(pid as _) {
                         println!("[-] Error injecting Sanctum DLL: {e:?}");
-                        logger.log(LogLevel::Error, &format!("Error injecting Sanctum DLL: {e:?}"));
+                        logger.log(
+                            LogLevel::Error,
+                            &format!("Error injecting Sanctum DLL: {e:?}"),
+                        );
                     }
-                    
+
                     // Also inject CAPEMON.DLL for Cuckoo behavioral tracing
                     if let Err(e) = crate::core::process_monitor::inject_capemon_dll(pid as _) {
                         println!("[-] Error injecting Capemon DLL: {e:?}");
-                        logger.log(LogLevel::Error, &format!("Error injecting Capemon DLL: {e:?}"));
+                        logger.log(
+                            LogLevel::Error,
+                            &format!("Error injecting Capemon DLL: {e:?}"),
+                        );
 
                         // Let the driver know we failed to inject
                         let mut mtx = driver_manager.lock().await;
@@ -293,14 +299,19 @@ impl Core {
                     if let Some(path_str) = crate::utils::env::resolve_process_path(pid as u32) {
                         if let Some(file_name) = std::path::Path::new(&path_str).file_name() {
                             let file_name_lower = file_name.to_string_lossy().to_lowercase();
-                            if file_name_lower == "powershell.exe" || file_name_lower == "pwsh.exe" {
-                                if let Err(e) = crate::core::process_monitor::inject_exorcism_dll(pid as _) {
-                                    logger.log(LogLevel::Error, &format!("Error injecting Exorcism DLL: {e:?}"));
+                            if file_name_lower == "powershell.exe" || file_name_lower == "pwsh.exe"
+                            {
+                                if let Err(e) =
+                                    crate::core::process_monitor::inject_exorcism_dll(pid as _)
+                                {
+                                    logger.log(
+                                        LogLevel::Error,
+                                        &format!("Error injecting Exorcism DLL: {e:?}"),
+                                    );
                                 }
                             }
                         }
                     }
-
                 }
             }
         }
