@@ -10,7 +10,7 @@ use windows::{
             LibraryLoader::{GetModuleHandleA, GetProcAddress},
             Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx},
             Threading::{
-                CreateRemoteThread, OpenProcess, LPTHREAD_START_ROUTINE, PROCESS_CREATE_THREAD,
+                CreateRemoteThread, LPTHREAD_START_ROUTINE, OpenProcess, PROCESS_CREATE_THREAD,
                 PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_WRITE,
             },
         },
@@ -22,7 +22,8 @@ use windows::{
 const HYDRADRAGON_BASE_PATH: &str = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\";
 
 /// Path to Exorcism DLL for PowerShell monitoring
-const EXORCISM_DLL_PATH: &str = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Exorcism-PowershellEdition.dll";
+const EXORCISM_DLL_PATH: &str =
+    "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Exorcism-PowershellEdition.dll";
 
 /// Helper function to safely cast function pointer for LoadLibraryA
 ///
@@ -247,7 +248,10 @@ pub fn inject_capemon_dll(pid: u64) -> Result<(), ProcessErrors> {
         }));
     }
 
-    println!("[Capemon] Successfully injected capemon64.dll into PID: {}", pid);
+    println!(
+        "[Capemon] Successfully injected capemon64.dll into PID: {}",
+        pid
+    );
     Ok(())
 }
 
@@ -265,7 +269,11 @@ pub fn inject_exorcism_dll(pid: u64) -> Result<(), ProcessErrors> {
     };
     let h_process = match h_process {
         Ok(h) => h,
-        Err(_) => return Err(ProcessErrors::FailedToOpenProcess(unsafe { GetLastError().0 as i32 })),
+        Err(_) => {
+            return Err(ProcessErrors::FailedToOpenProcess(unsafe {
+                GetLastError().0 as i32
+            }));
+        }
     };
 
     let h_kernel32 = unsafe { GetModuleHandleA(s!("Kernel32.dll")) };
@@ -284,7 +292,13 @@ pub fn inject_exorcism_dll(pid: u64) -> Result<(), ProcessErrors> {
     let path_len = dll_path.len();
 
     let remote_buffer_base_address = unsafe {
-        VirtualAllocEx(h_process, None, path_len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)
+        VirtualAllocEx(
+            h_process,
+            None,
+            path_len,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_READWRITE,
+        )
     };
 
     if remote_buffer_base_address.is_null() {
@@ -300,7 +314,9 @@ pub fn inject_exorcism_dll(pid: u64) -> Result<(), ProcessErrors> {
             path_len,
             Some(&mut bytes_written as *mut usize),
         )
-    }.is_err() {
+    }
+    .is_err()
+    {
         return Err(ProcessErrors::FailedToWriteMemory);
     }
 
@@ -309,13 +325,26 @@ pub fn inject_exorcism_dll(pid: u64) -> Result<(), ProcessErrors> {
     let mut thread: u32 = 0;
     if unsafe {
         CreateRemoteThread(
-            h_process, None, 0, load_library_fn_address, Some(remote_buffer_base_address), 0, Some(&mut thread as *mut u32),
+            h_process,
+            None,
+            0,
+            load_library_fn_address,
+            Some(remote_buffer_base_address),
+            0,
+            Some(&mut thread as *mut u32),
         )
-    }.is_err() {
-        return Err(ProcessErrors::FailedToCreateRemoteThread(unsafe { GetLastError().0 as _ }));
+    }
+    .is_err()
+    {
+        return Err(ProcessErrors::FailedToCreateRemoteThread(unsafe {
+            GetLastError().0 as _
+        }));
     }
 
-    println!("[Exorcism] Successfully injected Exorcism-PowershellEdition.dll into PID: {}", pid);
+    println!(
+        "[Exorcism] Successfully injected Exorcism-PowershellEdition.dll into PID: {}",
+        pid
+    );
     Ok(())
 }
 
