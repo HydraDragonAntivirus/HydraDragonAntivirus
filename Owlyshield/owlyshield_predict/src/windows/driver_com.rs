@@ -2,7 +2,7 @@
 //!
 //! This replaces the old Owlyshield `\\RWFilter` polling protocol. Events are
 //! received from edrdrv's OpenEDR fltport and converted into the existing
-//! `IOMessage` model by `openedr_lbvs.rs`.
+//! `IOMessage` model by the Windows-owned LBVS mapper.
 
 use core::ffi::c_void;
 use std::mem;
@@ -23,8 +23,9 @@ use windows::Win32::Storage::InstallableFileSystems::{
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::core::{Error, PCWSTR};
 
-use crate::openedr_lbvs::lbvs_to_iomessage;
 use crate::shared_def::{DriverComMessageType, IOMessage};
+
+use super::openedr_lbvs::lbvs_to_iomessage;
 
 pub type BufPath = [wchar_t; 520];
 

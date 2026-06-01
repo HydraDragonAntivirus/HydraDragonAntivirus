@@ -1,5 +1,5 @@
 #include "Communication.h"
-#include "FSfilter.h"
+#include "common.h"
 #include "ProcessProtection.h" // OnKernelApiEvent - called by HookDeviceControl
 #include "RootkitDetector.h"
 #include "UserModeHookEngine.h"
@@ -872,6 +872,30 @@ static PCWSTR OwlyHypervisorEventDefaultLabel(_In_ ULONG EventType)
 {
     switch (EventType)
     {
+    case IRP_NONE:
+        return L"IRP_NONE";
+    case IRP_READ:
+        return L"IRP_READ";
+    case IRP_WRITE:
+        return L"IRP_WRITE";
+    case IRP_SETINFO:
+        return L"IRP_SETINFO";
+    case IRP_CREATE:
+        return L"IRP_CREATE";
+    case IRP_CLEANUP:
+        return L"IRP_CLEANUP";
+    case IRP_REGISTRY:
+        return L"IRP_REGISTRY";
+    case IRP_PROCESS_CREATE:
+        return L"IRP_PROCESS_CREATE";
+    case IRP_PROCESS_TERMINATE:
+        return L"IRP_PROCESS_TERMINATE";
+    case IRP_PROCESS_TERMINATE_ATTEMPT:
+        return L"IRP_PROCESS_TERMINATE_ATTEMPT";
+    case IRP_PROCESS_EXIT:
+        return L"IRP_PROCESS_EXIT";
+    case IRP_PROCESS_HANDLE_OPEN:
+        return L"IRP_PROCESS_HANDLE_OPEN";
     case IRP_HYPERVISOR_EVENT:
         return L"IRP_HYPERVISOR_EVENT";
     case IRP_KERNEL_REMOTE_THREAD:
@@ -969,7 +993,7 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     newEntry->Message.Gid = ownerFound ? ownerGid : 0;
     newEntry->Message.AttackerPID = sourcePid;
     newEntry->Message.AttackerGid = attackerFound ? attackerGid : 0;
-    if (EventDetails->RawEventType >= IRP_KERNEL_REMOTE_THREAD && EventDetails->RawEventType <= IRP_NAMED_PIPE_WRITE)
+    if (EventDetails->RawEventType <= IRP_NAMED_PIPE_WRITE)
     {
         effectiveIrpOp = (UCHAR)EventDetails->RawEventType;
     }
@@ -1393,6 +1417,138 @@ VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie)
     }
 }
 
+static NTSTATUS OwlyGetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *Name)
+{
+    if (Name == NULL)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    *Name = NULL;
+
+    cmd::PZwQueryInformationProcess queryProcessInfo =
+        (cmd::g_pCommonData != NULL) ? cmd::g_pCommonData->fnZwQueryInformationProcess : NULL;
+    if (queryProcessInfo == NULL)
+    {
+        return STATUS_NOT_IMPLEMENTED;
+    }
+
+    ULONG bufferSize = 0;
+    NTSTATUS status = queryProcessInfo(ProcessHandle, ProcessImageFileName, NULL, 0, &bufferSize);
+    if (NT_ERROR(status) && status != STATUS_INFO_LENGTH_MISMATCH && status != STATUS_BUFFER_TOO_SMALL)
+    {
+        return status;
+    }
+
+    if (bufferSize < sizeof(UNICODE_STRING))
+    {
+        bufferSize = 512;
+    }
+
+    PUNICODE_STRING processName =
+        (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, OWLY_POOL_TAG_PROCESS_NAME);
+    if (processName == NULL)
+    {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    status = queryProcessInfo(ProcessHandle, ProcessImageFileName, processName, bufferSize, &bufferSize);
+    if (!NT_SUCCESS(status))
+    {
+        ExFreePoolWithTag(processName, OWLY_POOL_TAG_PROCESS_NAME);
+        return status;
+    }
+
+    *Name = processName;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS OwlyDeleteFileByPath(_In_ PUNICODE_STRING FilePath)
+{
+    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    OBJECT_ATTRIBUTES objAttributes;
+    InitializeObjectAttributes(&objAttributes, FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    return ZwDeleteFile(&objAttributes);
+}
+
+static NTSTATUS OwlyQuarantineFileByPath(_In_ PUNICODE_STRING FilePath)
+{
+    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    NTSTATUS status;
+    HANDLE sourceHandle = NULL;
+    HANDLE destHandle = NULL;
+    OBJECT_ATTRIBUTES objAttribs;
+    IO_STATUS_BLOCK ioStatus;
+
+    UNICODE_STRING quarantineDir;
+    RtlInitUnicodeString(&quarantineDir, QuarantinePath);
+
+    InitializeObjectAttributes(&objAttribs, &quarantineDir, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    status = ZwCreateFile(&destHandle, GENERIC_WRITE | SYNCHRONIZE, &objAttribs, &ioStatus, NULL,
+                          FILE_ATTRIBUTE_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN_IF,
+                          FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    InitializeObjectAttributes(&objAttribs, FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    status = ZwOpenFile(&sourceHandle, DELETE | SYNCHRONIZE, &objAttribs, &ioStatus,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_SYNCHRONOUS_IO_NONALERT);
+    if (!NT_SUCCESS(status))
+    {
+        ZwClose(destHandle);
+        return status;
+    }
+
+    USHORT filenameOffset = 0;
+    for (USHORT i = FilePath->Length / sizeof(WCHAR); i > 0; i--)
+    {
+        if (FilePath->Buffer[i - 1] == L'\\')
+        {
+            filenameOffset = i;
+            break;
+        }
+    }
+
+    UNICODE_STRING filename;
+    filename.Buffer = &FilePath->Buffer[filenameOffset];
+    filename.Length = FilePath->Length - (filenameOffset * sizeof(WCHAR));
+    filename.MaximumLength = filename.Length;
+
+    ULONG renameInfoSize = sizeof(FILE_RENAME_INFORMATION) + filename.Length;
+    PFILE_RENAME_INFORMATION renameInfo =
+        (PFILE_RENAME_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, renameInfoSize, OWLY_POOL_TAG_FILE_TEMP);
+    if (renameInfo == NULL)
+    {
+        ZwClose(sourceHandle);
+        ZwClose(destHandle);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(renameInfo, renameInfoSize);
+    renameInfo->ReplaceIfExists = TRUE;
+    renameInfo->RootDirectory = destHandle;
+    renameInfo->FileNameLength = filename.Length;
+    RtlCopyMemory(renameInfo->FileName, filename.Buffer, filename.Length);
+
+    status = ZwSetInformationFile(sourceHandle, &ioStatus, renameInfo, renameInfoSize, FileRenameInformation);
+
+    ExFreePoolWithTag(renameInfo, OWLY_POOL_TAG_FILE_TEMP);
+    ZwClose(sourceHandle);
+    ZwClose(destHandle);
+
+    return status;
+}
+
 // NEW: Helper function to kill all processes in a GID
 // removalMode: 0 = Kill Only, 1 = Kill & Quarantine, 2 = Kill & Remove
 NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode)
@@ -1480,7 +1636,7 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
             // Get the executable path BEFORE killing (important!)
             if (removalMode > 0)
             {
-                NTSTATUS pathStatus = GetProcessNameByHandle(processHandle, &exePath);
+                NTSTATUS pathStatus = OwlyGetProcessNameByHandle(processHandle, &exePath);
                 if (NT_SUCCESS(pathStatus) && exePath != NULL && exePath->Length > 0)
                 {
 #if IS_DEBUG_IRP
@@ -1519,7 +1675,7 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
             {
                 if (removalMode == 1) // Quarantine
                 {
-                    NTSTATUS quarantineStatus = QuarantineFileByPath(exePath);
+                    NTSTATUS quarantineStatus = OwlyQuarantineFileByPath(exePath);
                     if (NT_SUCCESS(quarantineStatus))
                     {
 #if IS_DEBUG_IRP
@@ -1535,7 +1691,7 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
                 }
                 else if (removalMode == 2) // Remove (Delete)
                 {
-                    NTSTATUS deleteStatus = DeleteFileByPath(exePath);
+                    NTSTATUS deleteStatus = OwlyDeleteFileByPath(exePath);
                     if (NT_SUCCESS(deleteStatus))
                     {
 #if IS_DEBUG_IRP

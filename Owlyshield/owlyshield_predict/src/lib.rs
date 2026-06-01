@@ -30,8 +30,6 @@ pub mod globals;
 pub mod jsonrpc;
 pub mod logging;
 pub mod novelty;
-#[cfg(target_os = "windows")]
-pub mod openedr_lbvs;
 pub mod predictions;
 pub mod process;
 pub mod report;
@@ -54,13 +52,6 @@ pub mod mitre_attack;
 
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub mod hydradragon;
-
-#[cfg(target_os = "windows")]
-#[path = "windows/quarantine.rs"]
-pub mod quarantine;
-#[cfg(target_os = "windows")]
-#[path = "windows/shadow_copy.rs"]
-pub mod shadow_copy;
 
 // Platform-Specific Modules via sub-mod files
 #[cfg(target_os = "windows")]
@@ -126,7 +117,11 @@ pub use crate::windows::driver_com::Driver;
 #[cfg(target_os = "windows")]
 pub use crate::windows::notifications;
 #[cfg(target_os = "windows")]
+pub use crate::windows::quarantine;
+#[cfg(target_os = "windows")]
 pub use crate::windows::run;
+#[cfg(target_os = "windows")]
+pub use crate::windows::shadow_copy;
 #[cfg(target_os = "windows")]
 pub use crate::windows::signature_verification;
 #[cfg(target_os = "windows")]

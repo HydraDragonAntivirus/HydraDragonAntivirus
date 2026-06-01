@@ -16,6 +16,7 @@ use crate::shared_def::IOMessage;
 use crate::shared_def::IrpMajorOp;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::shared_def::effective_hypervisor_irp_byte;
+use crate::shared_def::irp_major_op_label;
 use crate::threathandling::WindowsThreatHandler;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::utils::format_process_descriptor_with_fallback;
@@ -598,41 +599,13 @@ pub fn run() {
             // DIAGNOSTIC: Print opcode distribution every 10 seconds
             if last_diag.elapsed() >= std::time::Duration::from_secs(10) {
                 let mut summary = format!("[DIAG] {} total msgs in 10s. Opcodes: ", total_msgs);
-                let opcode_names: [&str; 30] = [
-                    "None",              // 0
-                    "Read",              // 1
-                    "Write",             // 2
-                    "SetInfo",           // 3
-                    "Create",            // 4
-                    "Cleanup",           // 5
-                    "Registry",          // 6
-                    "ProcCreate",        // 7
-                    "ProcTerm",          // 8
-                    "ProcTermAttempt",   // 9
-                    "ProcExit",          // 10
-                    "ProcHandleOpen",    // 11
-                    "Hypervisor",        // 12
-                    "KernRemoteThread",  // 13
-                    "KernWriteMem",      // 14
-                    "KernProtectMem",    // 15
-                    "KernCreateThread",  // 16
-                    "KernQueueApc",      // 17
-                    "KernCreateSection", // 18
-                    "KernMapSection",    // 19
-                    "UserModeHook",      // 20
-                    "RkSsdtHook",        // 21
-                    "RkHiddenProc",      // 22
-                    "RkHiddenDrv",       // 23
-                    "RkKernelHook",      // 24
-                    "RkTermProc",        // 25
-                    "RkFileMove",        // 26
-                    "RkGeneric",         // 27
-                    "NamedPipeCreate",   // 28
-                    "NamedPipeWrite",    // 29
-                ];
                 for i in 0..30 {
                     if opcode_counts[i] > 0 {
-                        summary.push_str(&format!("{}={} ", opcode_names[i], opcode_counts[i]));
+                        summary.push_str(&format!(
+                            "{}={} ",
+                            irp_major_op_label(i as u8),
+                            opcode_counts[i]
+                        ));
                     }
                 }
                 if saw_any_hypervisor_event_since_start {

@@ -1828,6 +1828,10 @@ pub struct NamedConditionGroup {
     pub pipe_names: Vec<String>,
     #[serde(default)]
     pub pipe_operations: Vec<String>, // "create", "write"
+    #[serde(default, alias = "opsets", alias = "op_set", alias = "operation_sets")]
+    pub irp_operations: Vec<String>,
+    #[serde(default, alias = "opcodes", alias = "irp_ops")]
+    pub irp_opcodes: Vec<u8>,
     #[serde(default)]
     pub pipe_payloads: Vec<ContentMatchData>,
     #[serde(default)]

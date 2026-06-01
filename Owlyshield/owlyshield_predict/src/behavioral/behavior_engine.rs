@@ -8,7 +8,8 @@ use crate::logging::Logging;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::shared_def::{
-    FileChangeInfo, IOMessage, IrpMajorOp, is_hypervisor_raw_event_type, known_raw_event_name,
+    FileChangeInfo, IOMessage, IrpMajorOp, irp_major_op_label, is_hypervisor_raw_event_type,
+    known_raw_event_name,
 };
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::shared_def::{
@@ -872,6 +873,9 @@ pub struct IrpStatistics {
     // Hypervisor event operation history (limited to last 100 for memory efficiency)
     pub hypervisor_event_operations: Vec<HypervisorEventOperation>,
 
+    // Lossless 0-29 opcode counters for OpenEDR/Owlyshield bridge rules.
+    pub raw_irp_counts: HashMap<u8, u64>,
+
     // All APIs called (for comprehensive tracking)
     pub all_apis_called: HashSet<String>,
 }
@@ -911,6 +915,7 @@ impl IrpStatistics {
     }
 
     pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
+        *self.raw_irp_counts.entry(rec.irp_type).or_insert(0) += 1;
         let irp_op = IrpMajorOp::from_byte(rec.irp_type);
 
         match irp_op {
@@ -1145,6 +1150,10 @@ impl IrpStatistics {
     }
 
     pub fn get_operation_count(&self, op_type: &str) -> u64 {
+        if let Some(opcode) = irp_opcode_from_operation_token(op_type) {
+            return *self.raw_irp_counts.get(&opcode).unwrap_or(&0);
+        }
+
         match op_type {
             "read" => self.read_count,
             "write" => self.write_count,
@@ -1162,6 +1171,8 @@ impl IrpStatistics {
             "process_handle_open" => self.process_handle_open_count,
             "process_terminate_attempt" => self.process_terminate_attempt_count,
             "hypervisor_event" => self.hypervisor_event_count,
+            "named_pipe_create" | "pipe_create" => self.pipe_create_count,
+            "named_pipe_write" | "pipe_write" => self.pipe_write_count,
             _ => 0,
         }
     }
@@ -1395,6 +1406,152 @@ fn is_file_data_irp(irp_op: &IrpMajorOp) -> bool {
         irp_op,
         IrpMajorOp::IrpRead | IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo
     )
+}
+
+fn normalize_irp_operation_token(token: &str) -> String {
+    token
+        .trim()
+        .trim_start_matches("IRP_")
+        .trim_start_matches("Irp")
+        .replace(['-', ' ', ':'], "_")
+        .to_ascii_lowercase()
+}
+
+fn irp_opcode_from_operation_token(token: &str) -> Option<u8> {
+    let normalized = normalize_irp_operation_token(token);
+    let numeric = normalized
+        .strip_prefix("opcode_")
+        .or_else(|| normalized.strip_prefix("opcode"))
+        .or_else(|| normalized.strip_prefix("op_"))
+        .or_else(|| normalized.strip_prefix("op"))
+        .or_else(|| normalized.strip_prefix("irp_"))
+        .or_else(|| normalized.strip_prefix("irp"));
+    if let Some(value) = numeric
+        && let Ok(opcode) = value.parse::<u8>()
+        && opcode <= 29
+    {
+        return Some(opcode);
+    }
+    if let Ok(opcode) = normalized.parse::<u8>()
+        && opcode <= 29
+    {
+        return Some(opcode);
+    }
+
+    match normalized.as_str() {
+        "none" => Some(0),
+        "read" => Some(1),
+        "write" => Some(2),
+        "setinfo" | "set_info" => Some(3),
+        "create" | "open" => Some(4),
+        "cleanup" | "clean_up" => Some(5),
+        "registry" => Some(6),
+        "process_create" | "processcreate" | "proc_create" | "proccreate" => Some(7),
+        "process_terminate" | "processterminate" | "proc_terminate" | "proc_term" | "procterm" => {
+            Some(8)
+        }
+        "process_terminate_attempt" | "proc_terminate_attempt" | "proc_term_attempt" => Some(9),
+        "process_exit" | "processexit" | "proc_exit" | "procexit" => Some(10),
+        "process_handle_open" | "processhandleopen" | "proc_handle_open" | "prochandleopen" => {
+            Some(11)
+        }
+        "hypervisor" | "hypervisor_event" | "hypervisorevent" => Some(12),
+        "kernel_remote_thread"
+        | "kernelremotethread"
+        | "kern_remote_thread"
+        | "kernremotethread" => Some(13),
+        "kernel_write_memory" | "kernelwritememory" | "kern_write_mem" | "kernwritemem" => Some(14),
+        "kernel_protect_memory" | "kernelprotectmemory" | "kern_protect_mem" | "kernprotectmem" => {
+            Some(15)
+        }
+        "kernel_create_thread"
+        | "kernelcreatethread"
+        | "kern_create_thread"
+        | "kerncreatethread" => Some(16),
+        "kernel_queue_apc" | "kernelqueueapc" | "kern_queue_apc" | "kernqueueapc" => Some(17),
+        "kernel_create_section"
+        | "kernelcreatesection"
+        | "kern_create_section"
+        | "kerncreatesection" => Some(18),
+        "kernel_map_section" | "kernelmapsection" | "kern_map_section" | "kernmapsection" => {
+            Some(19)
+        }
+        "user_mode_hook"
+        | "user_mode_hook_event"
+        | "usermode_hook"
+        | "usermodehook"
+        | "usermodehookevent" => Some(20),
+        "rootkit_ssdt_hook" | "rootkitssdthook" | "rk_ssdt_hook" | "rkssdthook" => Some(21),
+        "rootkit_hidden_process" | "rootkithiddenprocess" | "rk_hidden_proc" | "rkhiddenproc" => {
+            Some(22)
+        }
+        "rootkit_hidden_driver" | "rootkithiddendriver" | "rk_hidden_drv" | "rkhiddendrv" => {
+            Some(23)
+        }
+        "rootkit_kernel_hook" | "rootkitkernelhook" | "rk_kernel_hook" | "rkkernelhook" => Some(24),
+        "rootkit_terminate_process" | "rootkitterminateprocess" | "rk_term_proc" | "rktermproc" => {
+            Some(25)
+        }
+        "rootkit_file_move" | "rootkitfilemove" | "rk_file_move" | "rkfilemove" => Some(26),
+        "rootkit_generic" | "rootkitgeneric" | "rk_generic" | "rkgeneric" => Some(27),
+        "named_pipe_create" | "namedpipecreate" | "pipe_create" | "pipecreate" => Some(28),
+        "named_pipe_write" | "namedpipewrite" | "pipe_write" | "pipewrite" => Some(29),
+        _ => None,
+    }
+}
+
+fn irp_operation_matches_token(irp_type: u8, file_change: u8, token: &str) -> bool {
+    let normalized = normalize_irp_operation_token(token);
+    let irp_op = IrpMajorOp::from_byte(irp_type);
+
+    match normalized.as_str() {
+        "delete" => {
+            return irp_op == IrpMajorOp::IrpSetInfo
+                && matches!(
+                    file_change,
+                    x if x == FileChangeInfo::ChangeDeleteFile as u8
+                        || x == FileChangeInfo::ChangeDeleteNewFile as u8
+                );
+        }
+        "rename" => {
+            return irp_op == IrpMajorOp::IrpSetInfo
+                && matches!(
+                    file_change,
+                    x if x == FileChangeInfo::ChangeRenameFile as u8
+                        || x == FileChangeInfo::ChangeExtensionChanged as u8
+                );
+        }
+        "registry_read" => {
+            return irp_op == IrpMajorOp::IrpRegistry
+                && !matches!(
+                    file_change,
+                    x if x == FileChangeInfo::RegCreateKey as u8
+                        || x == FileChangeInfo::RegSetValue as u8
+                        || x == FileChangeInfo::RegDeleteValue as u8
+                        || x == FileChangeInfo::RegDeleteKey as u8
+                        || x == FileChangeInfo::RegRenameKey as u8
+                );
+        }
+        "registry_write" => {
+            return irp_op == IrpMajorOp::IrpRegistry
+                && file_change == FileChangeInfo::RegSetValue as u8;
+        }
+        "registry_delete" => {
+            return irp_op == IrpMajorOp::IrpRegistry
+                && matches!(
+                    file_change,
+                    x if x == FileChangeInfo::RegDeleteValue as u8
+                        || x == FileChangeInfo::RegDeleteKey as u8
+                );
+        }
+        "registry_create" => {
+            return irp_op == IrpMajorOp::IrpRegistry
+                && file_change == FileChangeInfo::RegCreateKey as u8;
+        }
+        _ => {}
+    }
+
+    irp_opcode_from_operation_token(&normalized) == Some(irp_type)
 }
 
 const RECENT_WRITTEN_PAYLOAD_RETENTION_SECS: u64 = 300;
@@ -7697,6 +7854,7 @@ impl BehaviorEngine {
             .as_ref()
             .map(|event| event.irp_op.clone())
             .unwrap_or_else(|| irp_op.clone());
+        let current_irp_opcode = effective_hypervisor_irp_byte(msg);
         let current_raw_event_type = current_hypervisor_event
             .as_ref()
             .map(|event| event.raw_event_type)
@@ -7852,6 +8010,31 @@ impl BehaviorEngine {
                     && !api_context_has_extension_conditions
                     && cond_group.file_operations.is_empty()
                     && !conjunctive_process_context;
+
+                if !matched
+                    && (!cond_group.irp_operations.is_empty() || !cond_group.irp_opcodes.is_empty())
+                {
+                    let opcode_match = cond_group
+                        .irp_opcodes
+                        .iter()
+                        .any(|opcode| *opcode == current_irp_opcode);
+                    let operation_match = cond_group.irp_operations.iter().any(|required| {
+                        irp_operation_matches_token(current_irp_opcode, msg.file_change, required)
+                    });
+
+                    if opcode_match || operation_match {
+                        matched = true;
+                        let operation_name = Self::operation_label(msg);
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - IRP op match for PID {}: opcode={} ({}) operation={}",
+                            cond_name,
+                            state.pid,
+                            current_irp_opcode,
+                            irp_major_op_label(current_irp_opcode),
+                            operation_name
+                        ));
+                    }
+                }
 
                 if has_api_conditions {
                     let api_iter = cond_group
@@ -10430,35 +10613,8 @@ impl BehaviorEngine {
                         .irp_operations
                         .iter()
                         .filter(|rec| {
-                            let irp_op = IrpMajorOp::from_byte(rec.irp_type);
-                            let is_match = match op_type.as_str() {
-                                "read" => irp_op == IrpMajorOp::IrpRead,
-                                "write" => irp_op == IrpMajorOp::IrpWrite,
-                                "create" => irp_op == IrpMajorOp::IrpCreate,
-                                "delete" => {
-                                    irp_op == IrpMajorOp::IrpSetInfo
-                                        && rec.file_change == FileChangeInfo::ChangeDeleteFile as u8
-                                }
-                                "rename" => {
-                                    irp_op == IrpMajorOp::IrpSetInfo
-                                        && (rec.file_change
-                                            == FileChangeInfo::ChangeRenameFile as u8
-                                            || rec.file_change
-                                                == FileChangeInfo::ChangeExtensionChanged as u8)
-                                }
-                                "setinfo" => irp_op == IrpMajorOp::IrpSetInfo,
-                                "registry_read" | "registry_write" | "registry_delete"
-                                | "registry_create" => irp_op == IrpMajorOp::IrpRegistry,
-                                "process_create" => irp_op == IrpMajorOp::IrpProcessCreate,
-                                "process_terminate" => irp_op == IrpMajorOp::IrpProcessTerminate,
-                                "process_exit" => irp_op == IrpMajorOp::IrpProcessExit,
-                                "process_handle_open" => irp_op == IrpMajorOp::IrpProcessHandleOpen,
-                                "process_terminate_attempt" => {
-                                    irp_op == IrpMajorOp::IrpProcessTerminateAttempt
-                                }
-                                "hypervisor_event" => irp_op == IrpMajorOp::IrpHypervisorEvent,
-                                _ => false,
-                            };
+                            let is_match =
+                                irp_operation_matches_token(rec.irp_type, rec.file_change, op_type);
                             is_match
                                 && Self::matches_pattern_internal(
                                     &self.regex_cache,

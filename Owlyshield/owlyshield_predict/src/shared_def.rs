@@ -150,7 +150,7 @@ impl IrpMajorOp {
             2 => IrpMajorOp::IrpWrite,
             3 => IrpMajorOp::IrpSetInfo,
             4 => IrpMajorOp::IrpCreate,
-            5 => IrpMajorOp::IrpCreate,
+            5 => IrpMajorOp::_IrpCleanUp,
             6 => IrpMajorOp::IrpRegistry,
             7 => IrpMajorOp::IrpProcessCreate,
             8 => IrpMajorOp::IrpProcessTerminate,
@@ -182,6 +182,42 @@ impl IrpMajorOp {
     }
 }
 
+pub fn irp_major_op_label(opcode: u8) -> &'static str {
+    match opcode {
+        0 => "None",
+        1 => "Read",
+        2 => "Write",
+        3 => "SetInfo",
+        4 => "Create",
+        5 => "Cleanup",
+        6 => "Registry",
+        7 => "ProcCreate",
+        8 => "ProcTerm",
+        9 => "ProcTermAttempt",
+        10 => "ProcExit",
+        11 => "ProcHandleOpen",
+        12 => "Hypervisor",
+        13 => "KernRemoteThread",
+        14 => "KernWriteMem",
+        15 => "KernProtectMem",
+        16 => "KernCreateThread",
+        17 => "KernQueueApc",
+        18 => "KernCreateSection",
+        19 => "KernMapSection",
+        20 => "UserModeHook",
+        21 => "RkSsdtHook",
+        22 => "RkHiddenProc",
+        23 => "RkHiddenDrv",
+        24 => "RkKernelHook",
+        25 => "RkTermProc",
+        26 => "RkFileMove",
+        27 => "RkGeneric",
+        28 => "NamedPipeCreate",
+        29 => "NamedPipeWrite",
+        _ => "Unknown",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::IrpMajorOp;
@@ -189,6 +225,7 @@ mod tests {
     #[test]
     fn irp_major_op_discriminants_match_kernel_opcodes() {
         let expected = [
+            (IrpMajorOp::_IrpCleanUp, 5),
             (IrpMajorOp::IrpProcessCreate, 7),
             (IrpMajorOp::IrpHypervisorEvent, 12),
             (IrpMajorOp::IrpKernelRemoteThread, 13),

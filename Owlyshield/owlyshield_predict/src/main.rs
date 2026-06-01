@@ -105,8 +105,9 @@ mod connectors;
 mod correlation;
 mod csvwriter;
 #[cfg(target_os = "windows")]
-#[path = "windows/driver_com.rs"]
-pub(crate) mod driver_com;
+mod windows;
+#[cfg(target_os = "windows")]
+pub(crate) use windows::driver_com;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
 pub(crate) mod driver_com;
@@ -118,27 +119,21 @@ mod logging;
 #[cfg(feature = "realtime_learning")]
 mod mitre_attack;
 #[cfg(target_os = "windows")]
-#[path = "windows/notifications.rs"]
-pub(crate) mod notifications;
+pub(crate) use windows::notifications;
 #[cfg(target_os = "linux")]
 #[path = "linux/notifications.rs"]
 pub(crate) mod notifications;
-#[cfg(target_os = "windows")]
-mod openedr_lbvs;
 mod predictions;
 mod process;
 #[cfg(target_os = "windows")]
-#[path = "windows/quarantine.rs"]
-pub(crate) mod quarantine;
+pub(crate) use windows::quarantine;
 #[cfg(target_os = "windows")]
-#[path = "windows/run.rs"]
-mod run;
+pub(crate) use windows::run;
 #[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
 #[path = "linux/run.rs"]
 mod run;
 #[cfg(target_os = "windows")]
-#[path = "windows/signature_verification.rs"]
-pub mod signature_verification;
+pub use windows::signature_verification;
 
 #[cfg(all(target_os = "linux", not(feature = "linux-ebpf")))]
 mod run {
@@ -156,13 +151,11 @@ mod report;
 #[cfg(target_os = "windows")]
 pub mod services;
 #[cfg(target_os = "windows")]
-#[path = "windows/shadow_copy.rs"]
-pub(crate) mod shadow_copy;
+pub(crate) use windows::shadow_copy;
 pub(crate) mod shared_def;
 mod threat_handler;
 #[cfg(target_os = "windows")]
-#[path = "windows/threathandling.rs"]
-pub(crate) mod threathandling;
+pub(crate) use windows::threathandling;
 #[cfg(target_os = "linux")]
 #[path = "linux/threathandling.rs"]
 pub(crate) mod threathandling;

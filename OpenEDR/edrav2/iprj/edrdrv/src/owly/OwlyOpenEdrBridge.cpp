@@ -3,6 +3,7 @@
 #include "common.h"
 #include "fltport.h"
 #include "lbvsext.h"
+#include "osutils.h"
 #include <ntstrsafe.h>
 
 namespace cmd {
@@ -121,6 +122,8 @@ USHORT MapOwlyMessageToOpenEdrEventId(_In_ UCHAR IrpOp, _In_ UCHAR FileChange)
     {
     case IRP_CREATE:
         return (USHORT)edrdrv::SysmonEvent::FileCreate;
+    case IRP_CLEANUP:
+        return (USHORT)edrdrv::SysmonEvent::FileClose;
     case IRP_READ:
         return (USHORT)edrdrv::SysmonEvent::FileDataReadFull;
     case IRP_WRITE:
@@ -201,8 +204,8 @@ NTSTATUS MirrorDriverMessageToOpenEdr(_In_ const DRIVER_MESSAGE* Message)
 
     const USHORT rawEventId = MapOwlyMessageToOpenEdrEventId(Message->IRP_OP, Message->FileChange);
 
-    if (!serializer.write(EvFld::RawEventId, (uint32_t)rawEventId)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::TickTime, getTickCount64())) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::RawEventId, uint16_t(rawEventId))) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::TickTime, uint64_t(getTickCount64()))) return STATUS_NO_MEMORY;
     if (!serializer.write(EvFld::ProcessPid, (uint32_t)Message->PID)) return STATUS_NO_MEMORY;
 
     if (Message->ParentPid != 0)

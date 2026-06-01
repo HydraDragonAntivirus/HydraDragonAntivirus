@@ -22,6 +22,9 @@
     <Filter Include="kernelinjectlib\injectengine">
       <UniqueIdentifier>{d2eaecef-5ae5-4c0d-a974-89e689355010}</UniqueIdentifier>
     </Filter>
+    <Filter Include="owly">
+      <UniqueIdentifier>{c62ec66d-775c-4b44-8d86-53f02e9eb6ad}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\filemon.cpp">
@@ -84,6 +87,48 @@
     </ClCompile>
     <ClCompile Include="..\..\src\kernelinjectlib\injectengine\apcinjector.cpp">
       <Filter>kernelinjectlib\injectengine</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Regedit.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\ProcessProtection.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\KernelCommon.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\KernelString.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Communication.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\DriverData.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\UserModeHookEngine.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\RootkitDetector.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\AmsiProtection.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\ShanonEntropy.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\owly\OwlyCompatIoctl.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\owly\OwlyFeatureHost.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\owly\OwlyGlobals.cpp">
+      <Filter>owly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\owly\OwlyOpenEdrBridge.cpp">
+      <Filter>owly</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -191,6 +236,51 @@
     </ClInclude>
     <ClInclude Include="..\..\src\kernelinjectlib\injectengine\apcinjector.hpp">
       <Filter>kernelinjectlib\injectengine</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Regedit.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ProcessProtection.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\KernelCommon.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\KernelString.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\PoolTags.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\SharedDefs.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Communication.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\DriverData.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\owly\OwlyCompatIoctl.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\owly\OwlyFeatureHost.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\owly\OwlyOpenEdrBridge.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\UserModeHookEngine.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\RootkitDetector.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\AmsiProtection.h">
+      <Filter>owly</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ShanonEntropy.h">
+      <Filter>owly</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

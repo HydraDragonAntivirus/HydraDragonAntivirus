@@ -1,4 +1,4 @@
-//! Minimal OpenEDR LBVS parser and Owlyshield compatibility mapper.
+//! Windows OpenEDR LBVS parser and Owlyshield compatibility mapper.
 //!
 //! This module parses the edrdrv fltport payload produced by
 //! `variant::BasicLbvsSerializer<edrdrv::EventField>` and maps it into the
@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use crate::shared_def::{FileId, IOMessage, KernelEventInfo, RuntimeFeatures};
+use crate::shared_def::{
+    FileChangeInfo, FileId, IOMessage, IrpMajorOp, KernelEventInfo, RuntimeFeatures,
+};
 
 const LBVS_MAGIC: u32 = 0x5356_424c; // 'SVBL' as written by the C++ serializer on little-endian Windows.
 
@@ -189,18 +191,58 @@ fn openedr_event_to_owly_irp(raw_event_id: u32, details_irp_op: Option<u8>) -> u
     }
 
     match raw_event_id {
-        0x0000 => 7,                            // ProcessCreate
-        0x0001 => 10,                           // ProcessDelete -> IrpProcessExit
-        0x0003 | 0x0004 | 0x0005 | 0x0006 => 6, // Registry
-        0x0007 => 4,                            // FileCreate
-        0x0008 => 3,                            // FileDelete as SetInfo
-        0x000A | 0x000C => 2,                   // Write/data change
-        0x000B => 1,                            // Read
-        0x000D => 11,                           // ProcessOpen
-        0x000E => 12,                           // DeviceIoControl -> Hypervisor/Event
-        0x000F => 28,                           // NamedPipeCreate
-        0x0010 => 20,                           // SelfDefense -> UserModeHook/Kernel event fallback
+        0x0000 => IrpMajorOp::IrpProcessCreate as u8,
+        0x0001 => IrpMajorOp::IrpProcessExit as u8,
+        0x0002 | 0x0003 | 0x0004 | 0x0005 | 0x0006 => IrpMajorOp::IrpRegistry as u8,
+        0x0007 => IrpMajorOp::IrpCreate as u8,
+        0x0008 => IrpMajorOp::IrpSetInfo as u8,
+        0x0009 => IrpMajorOp::_IrpCleanUp as u8,
+        0x000A | 0x000C => IrpMajorOp::IrpWrite as u8,
+        0x000B => IrpMajorOp::IrpRead as u8,
+        0x000D => IrpMajorOp::IrpProcessHandleOpen as u8,
+        0x000E => IrpMajorOp::IrpHypervisorEvent as u8,
+        0x000F => IrpMajorOp::IrpNamedPipeCreate as u8,
+        0x0010 => IrpMajorOp::IrpUserModeHookEvent as u8,
         _ => 0,
+    }
+}
+
+fn openedr_event_to_file_change(raw_event_id: u32, details: &serde_json::Value) -> u8 {
+    let from_details = details
+        .get("file_change")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u8;
+    if from_details != FileChangeInfo::ChangeNotSet as u8 {
+        return from_details;
+    }
+
+    match raw_event_id {
+        0x0002 => FileChangeInfo::RegRenameKey as u8,
+        0x0003 => FileChangeInfo::RegCreateKey as u8,
+        0x0004 => FileChangeInfo::RegDeleteKey as u8,
+        0x0005 => FileChangeInfo::RegSetValue as u8,
+        0x0006 => FileChangeInfo::RegDeleteValue as u8,
+        0x0007 => FileChangeInfo::ChangeNewFile as u8,
+        0x0008 => FileChangeInfo::ChangeDeleteFile as u8,
+        0x000A | 0x000C => FileChangeInfo::ChangeWrite as u8,
+        _ => FileChangeInfo::ChangeNotSet as u8,
+    }
+}
+
+fn registry_display_path(registry_path: String, registry_name: String) -> String {
+    let path = registry_path.trim();
+    let name = registry_name.trim();
+
+    if path.is_empty() {
+        return name.to_string();
+    }
+    if name.is_empty() {
+        return path.to_string();
+    }
+    if path.ends_with('\\') {
+        format!("{path}{name}")
+    } else {
+        format!("{path}\\{name}")
     }
 }
 
@@ -234,20 +276,40 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
     let irp_op = openedr_event_to_owly_irp(raw_event_id, details_irp);
 
     let pid = field_u32(&fields, EventField::ProcessPid);
-    let filepath = {
-        let p = field_string(&fields, EventField::FilePath);
-        if p.is_empty() {
-            field_string(&fields, EventField::ProcessImageFile)
-        } else {
-            p
-        }
+    let is_registry_event = irp_op == IrpMajorOp::IrpRegistry as u8;
+    let file_path = field_string(&fields, EventField::FilePath);
+    let process_image_file = field_string(&fields, EventField::ProcessImageFile);
+    let registry_path = registry_display_path(
+        field_string(&fields, EventField::RegistryPath),
+        field_string(&fields, EventField::RegistryName),
+    );
+    let filepath = if is_registry_event {
+        registry_path.clone()
+    } else if !file_path.trim().is_empty() {
+        file_path.clone()
+    } else if !process_image_file.trim().is_empty() {
+        process_image_file.clone()
+    } else {
+        registry_path.clone()
+    };
+    let runtime_exepath = if !process_image_file.trim().is_empty() {
+        process_image_file.clone()
+    } else {
+        filepath.clone()
     };
 
     let command_line = field_string(&fields, EventField::ProcessCmdLine);
     let event_name = field_string(&fields, EventField::FileRawHash);
 
     let kernel_event_info = KernelEventInfo {
-        event_type: json_u64(&details, "event_type") as u32,
+        event_type: {
+            let from_details = json_u64(&details, "event_type") as u32;
+            if from_details != 0 {
+                from_details
+            } else {
+                raw_event_id
+            }
+        },
         timestamp: json_u64(&details, "timestamp"),
         source_process_id: json_u64(&details, "source_pid") as u32,
         target_process_id: {
@@ -282,7 +344,7 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
         },
         bin_payload: Vec::new(),
         is_dll_load: json_u64(&details, "is_dll_load") != 0,
-        loaded_dll_path: field_string(&fields, EventField::RegistryPath),
+        loaded_dll_path: registry_path.clone(),
         is_api_based_load: json_u64(&details, "is_api_based_load") != 0,
         is_acg_enabled: json_u64(&details, "is_acg_enabled") != 0,
         is_amsi_event: json_u64(&details, "is_amsi_event") != 0,
@@ -291,21 +353,22 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
     };
 
     Ok(IOMessage {
-        extension: PathBuf::from(&filepath)
-            .extension()
-            .and_then(|v| v.to_str())
-            .unwrap_or_default()
-            .to_string(),
+        extension: if is_registry_event {
+            String::new()
+        } else {
+            PathBuf::from(&filepath)
+                .extension()
+                .and_then(|v| v.to_str())
+                .unwrap_or_default()
+                .to_string()
+        },
         file_id_id: FileId::from([0u8; crate::shared_def::FILE_ID_LEN]),
         mem_sized_used: kernel_event_info.memory_size as u64,
         entropy: 0.0,
         pid,
         irp_op,
         is_entropy_calc: 0,
-        file_change: details
-            .get("file_change")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u8,
+        file_change: openedr_event_to_file_change(raw_event_id, &details),
         file_location_info: 0,
         filepathstr: filepath.clone(),
         gid: json_u64(&details, "gid"),
@@ -317,14 +380,18 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         kernel_event_info,
         runtime_features: RuntimeFeatures {
-            exepath: PathBuf::from(&filepath),
+            exepath: PathBuf::from(&runtime_exepath),
             exe_still_exists: true,
             command_line,
         },
-        file_size: PathBuf::from(&filepath)
-            .metadata()
-            .map(|m| m.len() as i64)
-            .unwrap_or(-1),
+        file_size: if is_registry_event {
+            -1
+        } else {
+            PathBuf::from(&filepath)
+                .metadata()
+                .map(|m| m.len() as i64)
+                .unwrap_or(-1)
+        },
         time: SystemTime::now(),
     })
 }
