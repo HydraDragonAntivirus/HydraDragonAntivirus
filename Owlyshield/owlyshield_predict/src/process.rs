@@ -1343,7 +1343,7 @@ mod tests {
         assert_eq!(pr.ops_read, 2);
         assert_eq!(pr.ops_setinfo, 2);
         assert_eq!(pr.ops_written, 2);
-        assert_eq!(pr.ops_open, 4);
+        assert_eq!(pr.ops_open, 2);
         assert_eq!(pr.bytes_read, 308182);
         assert_eq!(pr.bytes_written, 16210);
         assert_eq!(pr.entropy_read, 1170968.3895067428);
