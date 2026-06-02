@@ -99,6 +99,7 @@
     <ClInclude Include="..\..\src\SharedDefs.h" />
     <ClInclude Include="..\..\src\Communication.h" />
     <ClInclude Include="..\..\src\DriverData.h" />
+    <ClInclude Include="..\..\src\HashTable.h" />
     <ClInclude Include="..\..\src\owly\OwlyCompatIoctl.h" />
     <ClInclude Include="..\..\src\owly\OwlyFeatureHost.h" />
     <ClInclude Include="..\..\src\owly\OwlyOpenEdrBridge.h" />

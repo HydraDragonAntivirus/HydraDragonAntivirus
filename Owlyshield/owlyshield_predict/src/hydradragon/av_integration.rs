@@ -1239,6 +1239,66 @@ fn quarantine_metadata(detection_engine: &str, detection_name: &str) -> Quaranti
     }
 }
 
+fn detectiteasy_malware_name(
+    result: &Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+) -> Option<String> {
+    result.as_ref().and_then(|result| {
+        if !result.scan_ok || !result.is_malware {
+            return None;
+        }
+
+        Some(
+            result
+                .malware_name
+                .clone()
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| "DetectItEasy.Malware".to_string()),
+        )
+    })
+}
+
+fn quarantine_detectiteasy_malware_with_handler<T: ThreatHandler + ?Sized>(
+    threat_handler: &T,
+    normalized_file_path: &str,
+    detection_name: &str,
+) -> &'static str {
+    Logging::alert(&format!(
+        "[DetectItEasy] Malware flag detected; quarantining in Rust: {} ({})",
+        normalized_file_path, detection_name
+    ));
+
+    let metadata = quarantine_metadata("DetectItEasy", detection_name);
+    threat_handler.kill_and_quarantine(
+        synthetic_gid_from_path(normalized_file_path),
+        Path::new(normalized_file_path),
+        &metadata,
+    );
+    "success_killed_quarantined"
+}
+
+fn quarantine_detectiteasy_malware(
+    normalized_file_path: &str,
+    detection_name: &str,
+) -> &'static str {
+    let driver = match Driver::open_kernel_driver_com() {
+        Ok(driver) => driver,
+        Err(error) => {
+            Logging::error(&format!(
+                "[DetectItEasy] Failed to open driver for Rust quarantine of {}: {}",
+                normalized_file_path, error
+            ));
+            return "error_driver_unavailable";
+        }
+    };
+
+    let threat_handler = WindowsThreatHandler::from(driver);
+    quarantine_detectiteasy_malware_with_handler(
+        &threat_handler,
+        normalized_file_path,
+        detection_name,
+    )
+}
+
 fn apply_manual_scan_threat_action<T: ThreatHandler + ?Sized>(
     threat_handler: &T,
     action: SettingsThreatAction,
@@ -2438,6 +2498,49 @@ fn spawn_manual_scan_listener(
                                     &excluded_yara_rules,
                                     &scan_target,
                                 );
+                                let detectiteasy_scan_result = run_detectiteasy_metadata_scan(
+                                    &normalized_file_path,
+                                    &scan_target,
+                                );
+                                if let Some(detection_name) =
+                                    detectiteasy_malware_name(&detectiteasy_scan_result)
+                                {
+                                    let action_result =
+                                        quarantine_detectiteasy_malware_with_handler(
+                                            &threat_handler,
+                                            &normalized_file_path,
+                                            &detection_name,
+                                        );
+                                    let threat_response = serde_json::json!({
+                                        "status": "threat_detected",
+                                        "file_path": &normalized_file_path,
+                                        "detection_name": &detection_name,
+                                        "engine": "DetectItEasy",
+                                        "recommended_action": "kill_and_quarantine",
+                                        "trust_level": 100,
+                                    })
+                                    .to_string();
+                                    let _ = write_pipe_bytes(
+                                        pipe_handle,
+                                        format!("{threat_response}\n").as_bytes(),
+                                        "ManualScan DetectItEasy threat_detected response",
+                                    );
+                                    let action_result_response = serde_json::json!({
+                                        "status": "action_executed",
+                                        "file_path": &normalized_file_path,
+                                        "action": "kill_and_quarantine",
+                                        "result": action_result,
+                                    })
+                                    .to_string();
+                                    let _ = write_pipe_bytes(
+                                        pipe_handle,
+                                        format!("{action_result_response}\n").as_bytes(),
+                                        "ManualScan DetectItEasy action_executed response",
+                                    );
+                                    let _ = DisconnectNamedPipe(pipe_handle);
+                                    let _ = CloseHandle(pipe_handle);
+                                    continue;
+                                }
                                 let fast_detected = !hydradragon_static_matches.is_empty()
                                     || !yara_x_matches.is_empty();
                                 let effective_scan_mode = if fast_detected {
@@ -3193,6 +3296,14 @@ impl<'a> AVIntegration<'a> {
                 return self.cache_scan_metadata(file_identity.clone(), metadata);
             }
 
+            if let Some(detection_name) =
+                detectiteasy_malware_name(&metadata.detectiteasy_scan_result)
+            {
+                quarantine_detectiteasy_malware(file_path, &detection_name);
+                metadata.should_queue_scan = false;
+                return self.cache_scan_metadata(file_identity.clone(), metadata);
+            }
+
             if die_result_is_fully_unknown(&metadata.detectiteasy_scan_result) {
                 Logging::debug(&format!(
                     "[DetectItEasy] Deep scan gate skipped fully unknown DIE result: {}",
@@ -3223,7 +3334,11 @@ impl<'a> AVIntegration<'a> {
             )
         {
             let die_result = run_detectiteasy_metadata_scan(file_path, scan_target);
-            if die_result_is_fully_unknown(&die_result) {
+            if let Some(detection_name) = detectiteasy_malware_name(&die_result) {
+                quarantine_detectiteasy_malware(file_path, &detection_name);
+                metadata.should_queue_scan = false;
+                return self.cache_scan_metadata(file_identity.clone(), metadata);
+            } else if die_result_is_fully_unknown(&die_result) {
                 Logging::debug(&format!(
                     "[DetectItEasy] Minimal scan ignored fully unknown DIE result: {}",
                     file_path

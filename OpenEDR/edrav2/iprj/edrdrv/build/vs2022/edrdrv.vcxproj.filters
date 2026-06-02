@@ -261,6 +261,9 @@
     <ClInclude Include="..\..\src\DriverData.h">
       <Filter>owly</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\HashTable.h">
+      <Filter>owly</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\owly\OwlyCompatIoctl.h">
       <Filter>owly</Filter>
     </ClInclude>

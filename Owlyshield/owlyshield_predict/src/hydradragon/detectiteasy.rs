@@ -110,6 +110,10 @@ pub struct DetectItEasyScanResult {
     pub source_language: Option<String>,
     #[serde(default)]
     pub source_origin: Option<String>,
+    #[serde(default)]
+    pub is_malware: bool,
+    #[serde(default)]
+    pub malware_name: Option<String>,
     pub is_enigma_virtual_box: bool,
 }
 
@@ -323,6 +327,8 @@ impl DetectItEasyScanner {
             is_source: source_language.is_some(),
             source_language,
             source_origin: None,
+            is_malware: false,
+            malware_name: None,
             is_enigma_virtual_box: false,
         }
     }
@@ -388,6 +394,8 @@ impl DetectItEasyScanner {
             is_source: source_language.is_some(),
             source_language,
             source_origin: source_origin.map(str::to_string),
+            is_malware: false,
+            malware_name: None,
             is_enigma_virtual_box: false,
         }
     }
@@ -400,6 +408,7 @@ impl DetectItEasyScanner {
         let packer_type = self.packer_type(die_output);
         let nuitka_type = self.is_nuitka(die_output);
         let dotnet_type = self.is_dotnet(die_output);
+        let malware_name = self.malware_name(die_output);
         let format_validation = inspect_binary_formats(file_path);
         let is_plain_text = self.detects_plain_text_format(die_output)
             || is_plain_text_file(file_path).unwrap_or(false);
@@ -524,6 +533,8 @@ impl DetectItEasyScanner {
             is_source: source_language.is_some(),
             source_language,
             source_origin: None,
+            is_malware: malware_name.is_some(),
+            malware_name,
             is_enigma_virtual_box: self.is_enigma_virtual_box(die_output),
         }
     }
@@ -799,6 +810,14 @@ impl DetectItEasyScanner {
 
     pub fn is_enigma_virtual_box(&self, die_output: &str) -> bool {
         die_output.contains(".enigma1")
+    }
+
+    pub fn malware_name(&self, die_output: &str) -> Option<String> {
+        die_output
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && line.to_ascii_lowercase().contains("malware"))
+            .map(str::to_string)
     }
 
     /// Get file type string
@@ -1147,5 +1166,10 @@ mod tests {
 
         // Test generic archive detection
         assert!(scanner.is_archive("Binary\nArchive: Zip archive data"));
+
+        assert_eq!(
+            scanner.malware_name("Binary\nHeuristic: Malware.Generic\nPacker: Test"),
+            Some("Heuristic: Malware.Generic".to_string())
+        );
     }
 }
