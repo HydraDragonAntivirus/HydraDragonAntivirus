@@ -422,7 +422,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - I have collected every malicious IP, domain from the Internet. So there must be big false positives, but I handle them.
 
 **Note 7:**
-- Inno Setup version 6.7.1
+- Inno Setup version 6.7.3
 
 **Note 8:**
 - The Sanctum scanner is not a full antivirus engine scan. It only checks some static components.
