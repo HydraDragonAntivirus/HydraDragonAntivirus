@@ -70,6 +70,7 @@ pub fn is_hydra_dragon_enabled() -> bool {
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub fn init_hydra_dragon(
     config: &crate::config::Config,
+    driver: crate::driver_com::Driver,
 ) -> Option<hydradragon::av_integration::AVIntegration<'_>> {
     if !is_hydra_dragon_enabled() {
         crate::logging::Logging::warning(
@@ -87,6 +88,7 @@ pub fn init_hydra_dragon(
     Some(hydradragon::av_integration::AVIntegration::new(
         config,
         predictor_malware,
+        driver,
     ))
 }
 

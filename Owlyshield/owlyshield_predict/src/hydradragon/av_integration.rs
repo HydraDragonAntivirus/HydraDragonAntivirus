@@ -1280,23 +1280,22 @@ fn quarantine_detectiteasy_malware(
     normalized_file_path: &str,
     detection_name: &str,
 ) -> &'static str {
-    let driver = match Driver::open_kernel_driver_com() {
-        Ok(driver) => driver,
-        Err(error) => {
-            Logging::error(&format!(
-                "[DetectItEasy] Failed to open driver for Rust quarantine of {}: {}",
-                normalized_file_path, error
-            ));
-            return "error_driver_unavailable";
-        }
-    };
-
-    let threat_handler = WindowsThreatHandler::from(driver);
-    quarantine_detectiteasy_malware_with_handler(
-        &threat_handler,
-        normalized_file_path,
-        detection_name,
-    )
+    use crate::driver_com::with_shared_driver;
+    with_shared_driver(|driver| {
+        let threat_handler = WindowsThreatHandler::from(driver.clone());
+        quarantine_detectiteasy_malware_with_handler(
+            &threat_handler,
+            normalized_file_path,
+            detection_name,
+        )
+    })
+    .unwrap_or_else(|| {
+        Logging::error(&format!(
+            "[DetectItEasy] Shared driver unavailable for Rust quarantine of {}",
+            normalized_file_path
+        ));
+        "error_driver_unavailable"
+    })
 }
 
 fn apply_manual_scan_threat_action<T: ThreatHandler + ?Sized>(
@@ -1427,35 +1426,31 @@ fn apply_fast_driver_action(event: &AVThreatEvent) {
         }
     };
 
-    let driver = match Driver::open_kernel_driver_com() {
-        Ok(d) => d,
-        Err(e) => {
-            Logging::error(&format!(
-                "[AV->EDR] Failed to open driver for threat action '{}': {}",
-                event.action_required.as_str(),
-                e
-            ));
-            return;
+    use crate::driver_com::with_shared_driver;
+    let outcome = with_shared_driver(|driver| {
+        let file_path = Path::new(&event.file_path);
+        match event.action_required {
+            ThreatAction::Kill => driver.try_kill(gid),
+            ThreatAction::KillAndQuarantine => driver.kill_and_quarantine_driver(gid, file_path),
+            ThreatAction::KillAndRemove => driver.kill_and_remove_driver(gid, file_path),
+            ThreatAction::Monitor => unreachable!("Monitor case handled above"),
         }
-    };
+    });
 
-    let file_path = Path::new(&event.file_path);
-    let action_result = match event.action_required {
-        ThreatAction::Kill => driver.try_kill(gid),
-        ThreatAction::KillAndQuarantine => driver.kill_and_quarantine_driver(gid, file_path),
-        ThreatAction::KillAndRemove => driver.kill_and_remove_driver(gid, file_path),
-        ThreatAction::Monitor => return,
-    };
-
-    match action_result {
-        Ok(hr) => Logging::info(&format!(
+    match outcome {
+        None => Logging::error(&format!(
+            "[AV->EDR] Shared driver unavailable for threat action '{}': {}",
+            event.action_required.as_str(),
+            event.file_path
+        )),
+        Some(Ok(hr)) => Logging::info(&format!(
             "[AV->EDR] Applied threat action '{}' for gid={} path={} hr=0x{:08X}",
             event.action_required.as_str(),
             gid,
             event.file_path,
             hr.0 as u32
         )),
-        Err(e) => Logging::error(&format!(
+        Some(Err(e)) => Logging::error(&format!(
             "[AV->EDR] Threat action '{}' failed for gid={} path={}: {}",
             event.action_required.as_str(),
             gid,
@@ -2321,6 +2316,7 @@ fn spawn_manual_scan_listener(
     internal_scan_tx: Sender<EDRScanRequest>,
     hydradragon_static_rules_dir: PathBuf,
     hydradragon_static_detection_mode: StaticDetectionMode,
+    driver: crate::driver_com::Driver,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || unsafe {
         let pipe_name_c = match CString::new(r"\\.\pipe\Global\owlyshield_manual_scan") {
@@ -2350,7 +2346,7 @@ fn spawn_manual_scan_listener(
             }
         };
 
-        let threat_handler = WindowsThreatHandler::new();
+        let threat_handler = WindowsThreatHandler::from(driver);
 
         Logging::info(
             "[ManualScan] Listener started on \\\\.\\pipe\\Global\\owlyshield_manual_scan",
@@ -2773,8 +2769,7 @@ fn spawn_manual_scan_listener(
 
 impl<'a> AVIntegration<'a> {
     /// Create new AVIntegration instance
-    pub fn new(config: &'a Config, predictor_malware: PredictorMalware<'a>) -> Self {
-        // <-- MODIFIED: Takes a borrow
+    pub fn new(config: &'a Config, predictor_malware: PredictorMalware<'a>, driver: crate::driver_com::Driver) -> Self {
         let (internal_scan_tx, internal_scan_rx) = channel::<EDRScanRequest>();
 
         let scan_request_handle = thread::spawn(move || {
@@ -2792,6 +2787,7 @@ impl<'a> AVIntegration<'a> {
             internal_scan_tx.clone(),
             hydradragon_static_rules_dir.clone(),
             hydradragon_static_detection_mode,
+            driver,
         );
         let (hydradragon_static_engine, hydradragon_static_rules_marker) =
             load_hydradragon_static_engine(&hydradragon_static_rules_dir);

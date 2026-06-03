@@ -279,10 +279,22 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
     let is_registry_event = irp_op == IrpMajorOp::IrpRegistry as u8;
     let file_path = field_string(&fields, EventField::FilePath);
     let process_image_file = field_string(&fields, EventField::ProcessImageFile);
-    let registry_path = registry_display_path(
-        field_string(&fields, EventField::RegistryPath),
-        field_string(&fields, EventField::RegistryName),
-    );
+    // OwlyOpenEdrBridge writes the actual key path to EvFld::FilePath (not
+    // EvFld::RegistryPath). EvFld::RegistryPath receives LoadedDllPath which is
+    // always empty for registry events. Fall back to file_path when the dedicated
+    // registry path field arrives empty.
+    let registry_path_raw = {
+        let rp = registry_display_path(
+            field_string(&fields, EventField::RegistryPath),
+            field_string(&fields, EventField::RegistryName),
+        );
+        if rp.trim().is_empty() && !file_path.trim().is_empty() {
+            file_path.clone()
+        } else {
+            rp
+        }
+    };
+    let registry_path = registry_path_raw;
     let filepath = if is_registry_event {
         registry_path.clone()
     } else if !file_path.trim().is_empty() {
