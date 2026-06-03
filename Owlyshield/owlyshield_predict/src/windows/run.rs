@@ -268,7 +268,8 @@ pub fn run() {
 
             #[cfg(all(target_os = "windows", feature = "hydradragon"))]
             {
-                let hydra_dragon_integration = crate::init_hydra_dragon(&thread_config, thread_driver.clone());
+                let hydra_dragon_integration =
+                    crate::init_hydra_dragon(&thread_config, thread_driver.clone());
                 worker = worker.av_integration(hydra_dragon_integration);
             }
 

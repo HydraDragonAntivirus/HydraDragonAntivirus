@@ -2769,7 +2769,11 @@ fn spawn_manual_scan_listener(
 
 impl<'a> AVIntegration<'a> {
     /// Create new AVIntegration instance
-    pub fn new(config: &'a Config, predictor_malware: PredictorMalware<'a>, driver: crate::driver_com::Driver) -> Self {
+    pub fn new(
+        config: &'a Config,
+        predictor_malware: PredictorMalware<'a>,
+        driver: crate::driver_com::Driver,
+    ) -> Self {
         let (internal_scan_tx, internal_scan_rx) = channel::<EDRScanRequest>();
 
         let scan_request_handle = thread::spawn(move || {
