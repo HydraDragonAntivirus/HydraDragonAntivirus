@@ -228,12 +228,12 @@ impl IrpMajorOp {
     pub fn to_sysmonevent_u32(&self) -> u32 {
         match self {
             IrpMajorOp::IrpNone => 0xFFFF_FFFF,
-            IrpMajorOp::IrpRead => 0x000B,        // FileDataReadFull
-            IrpMajorOp::IrpWrite => 0x000A,       // FileDataChange
-            IrpMajorOp::IrpSetInfo => 0x0008,     // FileDelete (representative)
-            IrpMajorOp::IrpCreate => 0x0007,      // FileCreate
-            IrpMajorOp::_IrpCleanUp => 0x0009,   // FileClose
-            IrpMajorOp::IrpRegistry => 0x0005,    // RegistryValueSet (representative)
+            IrpMajorOp::IrpRead => 0x000B,     // FileDataReadFull
+            IrpMajorOp::IrpWrite => 0x000A,    // FileDataChange
+            IrpMajorOp::IrpSetInfo => 0x0008,  // FileDelete (representative)
+            IrpMajorOp::IrpCreate => 0x0007,   // FileCreate
+            IrpMajorOp::_IrpCleanUp => 0x0009, // FileClose
+            IrpMajorOp::IrpRegistry => 0x0005, // RegistryValueSet (representative)
             IrpMajorOp::IrpProcessCreate => 0x0000,
             IrpMajorOp::IrpProcessTerminate => 0x0001,
             IrpMajorOp::IrpProcessHandleOpen => 0x000D,
@@ -299,10 +299,16 @@ mod tests {
 
     #[test]
     fn from_sysmonevent_maps_correctly() {
-        assert_eq!(IrpMajorOp::from_sysmonevent(0x0000), IrpMajorOp::IrpProcessCreate);
+        assert_eq!(
+            IrpMajorOp::from_sysmonevent(0x0000),
+            IrpMajorOp::IrpProcessCreate
+        );
         assert_eq!(IrpMajorOp::from_sysmonevent(0x0007), IrpMajorOp::IrpCreate);
         assert_eq!(IrpMajorOp::from_sysmonevent(0x000B), IrpMajorOp::IrpRead);
-        assert_eq!(IrpMajorOp::from_sysmonevent(0x000F), IrpMajorOp::IrpNamedPipeCreate);
+        assert_eq!(
+            IrpMajorOp::from_sysmonevent(0x000F),
+            IrpMajorOp::IrpNamedPipeCreate
+        );
     }
 }
 
