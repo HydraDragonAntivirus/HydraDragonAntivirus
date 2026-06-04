@@ -113,11 +113,11 @@ pub use crate::worker::worker_instance::{
 };
 
 #[cfg(target_os = "windows")]
+pub use crate::windows::notifications;
+#[cfg(target_os = "windows")]
 pub use crate::windows::openedr_lbvs as driver_com;
 #[cfg(target_os = "windows")]
 pub use crate::windows::openedr_lbvs::Driver;
-#[cfg(target_os = "windows")]
-pub use crate::windows::notifications;
 #[cfg(target_os = "windows")]
 pub use crate::windows::quarantine;
 #[cfg(target_os = "windows")]
