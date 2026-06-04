@@ -1,5 +1,4 @@
 #include "DriverData.h"
-#include "owly/OwlyOpenEdrBridge.h"
 
 // Sentinel stored in PidToGids when a terminate callback fires for a PID that
 // RecordNewProcess has not yet inserted. If RecordNewProcess later runs for the
@@ -694,11 +693,6 @@ BOOLEAN DriverData::AddIrpMessage(PIRP_ENTRY newEntry) {
     if (newEntry == nullptr) {
         return FALSE;
     }
-
-    // Integrated OpenEDR mode: mirror the Owlyshield event into the edrdrv
-    // LBVS/fltport event stream. This is best-effort and must not break the
-    // legacy in-memory queue while the migration is being rolled out.
-    (VOID)cmd::owly::MirrorDriverMessageToOpenEdr(&newEntry->data);
 
     InitializeListHead(&droppedIrps);
 

@@ -281,7 +281,7 @@ impl ApiTracker {
         self.last_activity = msg.time;
         self.raw_event_log.push(Self::render_raw_event(msg));
 
-        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        let irp_op = IrpMajorOp::from_sysmonevent(msg.irp_op);
         let file_change: FileChangeInfo =
             num::FromPrimitive::from_u8(msg.file_change).unwrap_or(FileChangeInfo::ChangeNotSet);
 
@@ -460,11 +460,13 @@ impl ApiTracker {
                 self.process_operations.threads_created += 1;
             }
             _ => {
-                // Track any other kernel ops as generic kernel operations
-                if msg.irp_op >= 13 {
-                    self.kernel_operations.total_kernel_events += 1;
+                    // Track any other kernel ops as generic kernel operations.
+                    // SysmonEvent 0x000E (DeviceIoControl=14) and above are kernel/hypervisor
+                    // events in the legacy Communication.cpp path (event_types 12-29).
+                    if msg.irp_op >= 0x000E {
+                        self.kernel_operations.total_kernel_events += 1;
+                    }
                 }
-            }
         }
 
         if self.file_operations.files_written + self.file_operations.files_deleted > 100 {
@@ -523,7 +525,7 @@ impl ApiTracker {
             msg.pid,
             0u64,
             0i32,
-            msg.irp_op as u32,
+            msg.irp_op,
             0u64,
             0u64,
             0u64,
@@ -604,7 +606,7 @@ impl ApiTracker {
         let irp_op = hyper_event
             .as_ref()
             .map(|event| event.irp_op.clone())
-            .unwrap_or_else(|| IrpMajorOp::from_byte(msg.irp_op));
+            .unwrap_or_else(|| IrpMajorOp::from_sysmonevent(msg.irp_op));
         let file_change: FileChangeInfo =
             num::FromPrimitive::from_u8(msg.file_change).unwrap_or(FileChangeInfo::ChangeNotSet);
         let raw_event_type = hyper_event
@@ -674,7 +676,7 @@ impl ApiTracker {
 
     #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
     fn render_raw_event(msg: &IOMessage) -> String {
-        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        let irp_op = IrpMajorOp::from_sysmonevent(msg.irp_op);
         let file_change: FileChangeInfo =
             num::FromPrimitive::from_u8(msg.file_change).unwrap_or(FileChangeInfo::ChangeNotSet);
         let timestamp_ms = msg

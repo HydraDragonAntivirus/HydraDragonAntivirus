@@ -3,7 +3,6 @@
 #include "ProcessProtection.h" // OnKernelApiEvent - called by HookDeviceControl
 #include "RootkitDetector.h"
 #include "UserModeHookEngine.h"
-#include "owly/OwlyOpenEdrBridge.h"
 #include <ntstrsafe.h>
 
 #ifdef OWLY_HAS_EMBEDDED_HOOK_RULE_LOADER
@@ -1051,11 +1050,6 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
                                 RTL_NUMBER_OF(newEntry->Message.KernelEventInfo.ObjectName),
                                 eventName);
     }
-
-    // Integrated OpenEDR mode: mirror VMM/API-hook events immediately to the
-    // edrdrv LBVS/fltport event stream. The legacy queue remains populated for
-    // rollback and compatibility during the migration.
-    (VOID)cmd::owly::MirrorDriverMessageToOpenEdr(&newEntry->Message);
 
     KeAcquireSpinLock(&g_OwlyHvEventQueueLock, &oldIrql);
     InsertTailList(&g_OwlyHvEventQueue, &newEntry->Entry);

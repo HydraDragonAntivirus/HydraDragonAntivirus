@@ -1,22 +1,370 @@
-//! Windows OpenEDR LBVS parser and Owlyshield compatibility mapper.
+//! OpenEDR/edrdrv fltport transport and native LBVS event parser.
 //!
-//! This module parses the edrdrv fltport payload produced by
+//! Receives events directly from the OpenEDR edrdrv minifilter via FilterGetMessage.
+//! Parses the native LBVS (Length-Based Value Serialization) payload produced by
 //! `variant::BasicLbvsSerializer<edrdrv::EventField>` and maps it into the
-//! existing Owlyshield `IOMessage` model. It is intentionally self-contained so
-//! it can replace the old `ReplyIrp/CDriverMsg` path incrementally.
+//! Owlyshield `IOMessage` model using only the standard OpenEDR EventField IDs.
+//!
+//! No owly_schema JSON blob. No OwlyOpenEdrBridge. Events are interpreted
+//! purely from the SysmonEvent raw_event_id and the native LBVS fields.
+//!
+//! Native fields per event type (from filemon/procmon/regmon/objmon):
+//!   ProcessCreate (0x0000): RawEventId, TickTime, ProcessPid, ProcessParentPid,
+//!     ProcessCreatorPid, ProcessCmdLine, ProcessImageFile, ProcessCreationTime,
+//!     ProcessUserSid, ProcessIsElevated, ProcessElevationType
+//!   ProcessDelete (0x0001): RawEventId, TickTime, ProcessPid, ProcessDeletionTime,
+//!     ProcessExitCode
+//!   Registry    (0x0002-0x0006): RawEventId, RegistryPath, TickTime, ProcessPid,
+//!     RegistryName, RegistryRawData (actual value binary data), RegistryDataType,
+//!     RegistryKeyNewName
+//!   FileCreate  (0x0007): RawEventId, TickTime, ProcessPid, FilePath, AccessMask,
+//!     FileVolumeGuid, FileVolumeType, FileVolumeDevice
+//!   FileDelete  (0x0008): same as FileCreate
+//!   FileClose   (0x0009): same as FileCreate
+//!   FileData*   (0x000A-0x000C): same as FileCreate
+//!   ProcessOpen (0x000D): RawEventId, TickTime, ProcessPid, FilePath, AccessMask
+//!   NamedPipe   (0x000F): RawEventId, TickTime, ProcessPid, FilePath
+//!
+//! gid and attacker_pid are always 0 (OpenEDR has no equivalent concept).
+//! file_change is derived from the SysmonEvent ID via sysmonevent_to_file_change.
+//! irp_op stores the raw SysmonEvent ID (u32) directly. Consumers call
+//! IrpMajorOp::from_sysmonevent(iomsg.irp_op) for semantic classification.
+//! KernelEventInfo fields not present in native OpenEDR events are left at their
+//! zero-value defaults.
 
+use core::ffi::c_void;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::mem;
+use std::path::{Path, PathBuf};
+use std::ptr;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
-use crate::shared_def::{
-    FileChangeInfo, FileId, IOMessage, IrpMajorOp, KernelEventInfo, RuntimeFeatures,
+use wchar::wchar_t;
+use widestring::U16CString;
+use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, OPEN_EXISTING,
 };
+use windows::Win32::Storage::InstallableFileSystems::{
+    FILTER_MESSAGE_HEADER, FilterConnectCommunicationPort, FilterGetMessage,
+};
+use windows::Win32::System::IO::DeviceIoControl;
+use windows::core::{Error, PCWSTR};
 
-const LBVS_MAGIC: u32 = 0x5356_424c; // 'SVBL' as written by the C++ serializer on little-endian Windows.
+use crate::shared_def::{
+    DriverComMessageType, FileChangeInfo, FileId, IOMessage, RuntimeFeatures, SysmonEvent,
+};
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::shared_def::KernelEventInfo;
+
+pub type BufPath = [wchar_t; 520];
+
+const EDRDRV_FLTPORT_NAME: &str = "\\{A6F9548E-BE5E-4BE6-A632-18AC626532FE}";
+const EDRDRV_IOCTL_WIN32_NAME: &str = "\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}";
+
+const FILE_DEVICE_UNKNOWN_VALUE: u32 = 0x0000_0022;
+const METHOD_BUFFERED_VALUE: u32 = 0;
+const FILE_ANY_ACCESS_VALUE: u32 = 0;
+const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
+    (device_type << 16) | (access << 14) | (function << 2) | method
+}
+const IOCTL_OWLY_COMPAT_MESSAGE: u32 = ctl_code(
+    FILE_DEVICE_UNKNOWN_VALUE,
+    0x921,
+    METHOD_BUFFERED_VALUE,
+    FILE_ANY_ACCESS_VALUE,
+);
+
+static SHARED_DRIVER: OnceLock<Mutex<Option<Driver>>> = OnceLock::new();
+
+fn shared_driver_slot() -> &'static Mutex<Option<Driver>> {
+    SHARED_DRIVER.get_or_init(|| Mutex::new(None))
+}
+
+pub fn register_shared_driver(driver: Driver) {
+    *shared_driver_slot().lock().unwrap() = Some(driver);
+}
+
+pub fn with_shared_driver<T>(f: impl FnOnce(&Driver) -> T) -> Option<T> {
+    let driver = shared_driver_slot().lock().unwrap().clone();
+    driver.as_ref().map(f)
+}
+
+#[derive(Debug)]
+#[repr(C)]
+struct DriverComMessage {
+    r#type: u32,
+    pid: u32,
+    gid: u64,
+    path: BufPath,
+    quarantine_path: BufPath,
+}
 
 #[derive(Debug, Clone)]
-pub enum LbvsValue {
+pub struct Driver {
+    port_handle: Arc<Mutex<HANDLE>>,
+    ioctl_handle: Arc<Mutex<HANDLE>>,
+}
+
+impl Driver {
+    pub fn open_kernel_driver_com() -> Result<Driver, Error> {
+        let port_name = U16CString::from_str(EDRDRV_FLTPORT_NAME).unwrap();
+        let port_handle = unsafe {
+            FilterConnectCommunicationPort(
+                PCWSTR(port_name.as_ptr()),
+                0,
+                Some(ptr::null()),
+                0,
+                Some(ptr::null_mut()),
+            )?
+        };
+
+        let ioctl_name = U16CString::from_str(EDRDRV_IOCTL_WIN32_NAME).unwrap();
+        let ioctl_handle = unsafe {
+            CreateFileW(
+                PCWSTR(ioctl_name.as_ptr()),
+                FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                None,
+            )?
+        };
+
+        Ok(Driver {
+            port_handle: Arc::new(Mutex::new(port_handle)),
+            ioctl_handle: Arc::new(Mutex::new(ioctl_handle)),
+        })
+    }
+
+    pub fn _close_kernel_communication(&self) -> bool {
+        let mut ok = true;
+        for slot in [&self.port_handle, &self.ioctl_handle] {
+            let mut guard = slot.lock().unwrap();
+            let handle = *guard;
+            if !handle.is_invalid() && handle != INVALID_HANDLE_VALUE {
+                ok &= unsafe { CloseHandle(handle).as_bool() };
+                *guard = HANDLE::default();
+            }
+        }
+        ok
+    }
+
+    fn current_port_handle(&self) -> HANDLE {
+        *self.port_handle.lock().unwrap()
+    }
+
+    fn current_ioctl_handle(&self) -> HANDLE {
+        *self.ioctl_handle.lock().unwrap()
+    }
+
+    pub fn get_iomsg(&self, scratch: &mut [u8]) -> Result<Option<IOMessage>, Error> {
+        let header_size = mem::size_of::<FILTER_MESSAGE_HEADER>();
+        if scratch.len() <= header_size + 16 {
+            return Ok(None);
+        }
+
+        unsafe {
+            ptr::write_bytes(scratch.as_mut_ptr(), 0, scratch.len());
+
+            let header = scratch.as_mut_ptr() as *mut FILTER_MESSAGE_HEADER;
+            FilterGetMessage(
+                self.current_port_handle(),
+                header,
+                scratch.len() as u32,
+                None,
+            )?;
+
+            // FilterGetMessage writes FILTER_MESSAGE_HEADER followed by the raw
+            // payload passed to FltSendMessage. The payload is LBVS and contains
+            // its own declared size, so the parser can safely ignore zeroed tail bytes.
+            let payload = &scratch[header_size..];
+
+            match lbvs_to_iomessage_inner(payload) {
+                Ok(iomsg) => Ok(Some(iomsg)),
+                Err(e) => {
+                    crate::Logging::warning(&format!("[OpenEDR] Failed to parse LBVS event: {e}"));
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    fn send_compat_message(
+        &self,
+        msg: &mut DriverComMessage,
+        output: Option<&mut [u8]>,
+    ) -> Result<u32, Error> {
+        let mut bytes_returned = 0u32;
+        let (out_ptr, out_len) = if let Some(out) = output {
+            (Some(out.as_mut_ptr() as *mut c_void), out.len() as u32)
+        } else {
+            (None, 0)
+        };
+
+        unsafe {
+            DeviceIoControl(
+                self.current_ioctl_handle(),
+                IOCTL_OWLY_COMPAT_MESSAGE,
+                Some(msg as *mut _ as *const c_void),
+                mem::size_of::<DriverComMessage>() as u32,
+                out_ptr,
+                out_len,
+                Some(&mut bytes_returned),
+                None,
+            )
+            .ok()?;
+        }
+        Ok(bytes_returned)
+    }
+
+    pub fn driver_set_app_pid(&self) -> Result<(), Error> {
+        let mut msg = Driver::build_message(
+            DriverComMessageType::MessageSetPid,
+            std::process::id(),
+            0,
+            r"\Device\HarddiskVolume",
+            "",
+        );
+        self.send_compat_message(&mut msg, None)?;
+        Ok(())
+    }
+
+    pub fn try_kill(&self, gid: u64) -> Result<windows::core::HRESULT, Error> {
+        self.send_gid_command(DriverComMessageType::MessageKillGid, gid, None)
+    }
+
+    pub fn kill_and_quarantine_driver(
+        &self,
+        gid: u64,
+        path: &Path,
+    ) -> Result<windows::core::HRESULT, Error> {
+        self.send_gid_command(
+            DriverComMessageType::MessageKillAndQuarantineGid,
+            gid,
+            path.to_str(),
+        )
+    }
+
+    pub fn kill_and_remove_driver(
+        &self,
+        gid: u64,
+        path: &Path,
+    ) -> Result<windows::core::HRESULT, Error> {
+        self.send_gid_command(
+            DriverComMessageType::MessageKillAndRemoveGid,
+            gid,
+            path.to_str(),
+        )
+    }
+
+    pub fn revert_registry_changes(&self, gid: u64) -> Result<(), Error> {
+        let mut msg = Driver::build_message(
+            DriverComMessageType::MessageRevertRegistryChanges,
+            0,
+            gid,
+            "",
+            "",
+        );
+        self.send_compat_message(&mut msg, None)?;
+        Ok(())
+    }
+
+    pub fn add_hook_target_for_pid(
+        &self,
+        pid: u32,
+        module: &str,
+        function: &str,
+        event_id: u32,
+    ) -> Result<(), Error> {
+        let mut msg = Driver::build_message(
+            DriverComMessageType::MessageAddHook,
+            pid,
+            event_id as u64,
+            module,
+            function,
+        );
+        self.send_compat_message(&mut msg, None)?;
+        Ok(())
+    }
+
+    pub fn add_hook_target(
+        &self,
+        module: &str,
+        function: &str,
+        event_id: u32,
+    ) -> Result<(), Error> {
+        self.add_hook_target_for_pid(0, module, function, event_id)
+    }
+
+    pub fn hook_process(&self, pid: u32) -> Result<(), Error> {
+        let mut msg =
+            Driver::build_message(DriverComMessageType::MessageHookProcess, pid, 0, "", "");
+        self.send_compat_message(&mut msg, None)?;
+        Ok(())
+    }
+
+    pub fn add_block_path(&self, path: &str) -> Result<windows::core::HRESULT, Error> {
+        self.send_gid_command(DriverComMessageType::MessageAddBlockPath, 0, Some(path))
+    }
+
+    fn send_gid_command(
+        &self,
+        command: DriverComMessageType,
+        gid: u64,
+        path: Option<&str>,
+    ) -> Result<windows::core::HRESULT, Error> {
+        let (real_gid, real_pid) = if gid & 0x8000_0000_0000_0000 != 0 {
+            (0, (gid & !0x8000_0000_0000_0000) as u32)
+        } else {
+            (gid, 0)
+        };
+        let mut msg = Driver::build_message(command, real_pid, real_gid, path.unwrap_or(""), "");
+        let mut output = [0u8; 4];
+        self.send_compat_message(&mut msg, Some(&mut output))?;
+        let code = u32::from_le_bytes(output);
+        Ok(windows::core::HRESULT(code as i32))
+    }
+
+    fn build_message(
+        kind: DriverComMessageType,
+        pid: u32,
+        gid: u64,
+        path: &str,
+        quarantine_path: &str,
+    ) -> DriverComMessage {
+        DriverComMessage {
+            r#type: kind as u32,
+            pid,
+            gid,
+            path: Driver::string_to_commessage_buffer(path),
+            quarantine_path: Driver::string_to_commessage_buffer(quarantine_path),
+        }
+    }
+
+    fn string_to_commessage_buffer(text: &str) -> BufPath {
+        let wide = U16CString::from_str(text).unwrap_or_else(|_| U16CString::from_str("").unwrap());
+        let mut buf: BufPath = [0; 520];
+        for (i, c) in wide.as_slice_with_nul().iter().take(520).enumerate() {
+            buf[i] = *c as wchar_t;
+        }
+        buf[519] = 0;
+        buf
+    }
+}
+
+// ============================================================================
+// LBVS parser and IOMessage mapper (previously openedr_lbvs.rs)
+// ============================================================================
+
+// LBVS magic: 'LBVS' in little-endian as written by the C++ serializer.
+const LBVS_MAGIC: u32 = 0x5356_424c;
+
+#[derive(Debug, Clone)]
+enum LbvsValue {
     Null,
     String(String),
     WString(String),
@@ -28,9 +376,10 @@ pub enum LbvsValue {
     SeqSeq,
 }
 
+// OpenEDR EventField IDs (edrdrv/src/EventSink.h / edrdrvapi.hpp)
 #[derive(Debug, Clone, Copy)]
 #[repr(u16)]
-pub enum EventField {
+enum EventField {
     RawEventId = 0,
     TickTime = 1,
     ProcessPid = 2,
@@ -96,7 +445,7 @@ fn read_w_string(buf: &[u8], off: &mut usize) -> Option<String> {
     Some(String::from_utf16_lossy(&words))
 }
 
-pub fn parse_lbvs(buf: &[u8]) -> Result<HashMap<u16, LbvsValue>, String> {
+fn parse_lbvs(buf: &[u8]) -> Result<HashMap<u16, LbvsValue>, String> {
     if buf.len() < 10 {
         return Err("LBVS buffer is too small".to_string());
     }
@@ -161,7 +510,7 @@ pub fn parse_lbvs(buf: &[u8]) -> Result<HashMap<u16, LbvsValue>, String> {
     Ok(fields)
 }
 
-fn field_u32(fields: &HashMap<u16, LbvsValue>, id: EventField) -> u32 {
+fn lbvs_field_u32(fields: &HashMap<u16, LbvsValue>, id: EventField) -> u32 {
     match fields.get(&(id as u16)) {
         Some(LbvsValue::Uint32(v)) => *v,
         Some(LbvsValue::Uint64(v)) => *v as u32,
@@ -169,15 +518,7 @@ fn field_u32(fields: &HashMap<u16, LbvsValue>, id: EventField) -> u32 {
     }
 }
 
-fn field_u64(fields: &HashMap<u16, LbvsValue>, id: EventField) -> u64 {
-    match fields.get(&(id as u16)) {
-        Some(LbvsValue::Uint64(v)) => *v,
-        Some(LbvsValue::Uint32(v)) => *v as u64,
-        _ => 0,
-    }
-}
-
-fn field_string(fields: &HashMap<u16, LbvsValue>, id: EventField) -> String {
+fn lbvs_field_string(fields: &HashMap<u16, LbvsValue>, id: EventField) -> String {
     match fields.get(&(id as u16)) {
         Some(LbvsValue::String(v)) | Some(LbvsValue::WString(v)) => v.clone(),
         Some(LbvsValue::Stream(v)) => String::from_utf8_lossy(v).into_owned(),
@@ -185,37 +526,9 @@ fn field_string(fields: &HashMap<u16, LbvsValue>, id: EventField) -> String {
     }
 }
 
-fn openedr_event_to_owly_irp(raw_event_id: u32, details_irp_op: Option<u8>) -> u8 {
-    if let Some(op) = details_irp_op {
-        return op;
-    }
-
-    match raw_event_id {
-        0x0000 => IrpMajorOp::IrpProcessCreate as u8,
-        0x0001 => IrpMajorOp::IrpProcessExit as u8,
-        0x0002 | 0x0003 | 0x0004 | 0x0005 | 0x0006 => IrpMajorOp::IrpRegistry as u8,
-        0x0007 => IrpMajorOp::IrpCreate as u8,
-        0x0008 => IrpMajorOp::IrpSetInfo as u8,
-        0x0009 => IrpMajorOp::_IrpCleanUp as u8,
-        0x000A | 0x000C => IrpMajorOp::IrpWrite as u8,
-        0x000B => IrpMajorOp::IrpRead as u8,
-        0x000D => IrpMajorOp::IrpProcessHandleOpen as u8,
-        0x000E => IrpMajorOp::IrpHypervisorEvent as u8,
-        0x000F => IrpMajorOp::IrpNamedPipeCreate as u8,
-        0x0010 => IrpMajorOp::IrpUserModeHookEvent as u8,
-        _ => 0,
-    }
-}
-
-fn openedr_event_to_file_change(raw_event_id: u32, details: &serde_json::Value) -> u8 {
-    let from_details = details
-        .get("file_change")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u8;
-    if from_details != FileChangeInfo::ChangeNotSet as u8 {
-        return from_details;
-    }
-
+// Maps an OpenEDR SysmonEvent raw_event_id to the Owlyshield FileChangeInfo byte.
+// Derived purely from the SysmonEvent ID — no JSON blob involved.
+fn sysmonevent_to_file_change(raw_event_id: u32) -> u8 {
     match raw_event_id {
         0x0002 => FileChangeInfo::RegRenameKey as u8,
         0x0003 => FileChangeInfo::RegCreateKey as u8,
@@ -232,7 +545,6 @@ fn openedr_event_to_file_change(raw_event_id: u32, details: &serde_json::Value) 
 fn registry_display_path(registry_path: String, registry_name: String) -> String {
     let path = registry_path.trim();
     let name = registry_name.trim();
-
     if path.is_empty() {
         return name.to_string();
     }
@@ -246,55 +558,36 @@ fn registry_display_path(registry_path: String, registry_name: String) -> String
     }
 }
 
-fn parse_owly_details(fields: &HashMap<u16, LbvsValue>) -> serde_json::Value {
-    match fields.get(&(EventField::RegistryRawData as u16)) {
-        Some(LbvsValue::Stream(bytes)) => serde_json::from_slice(bytes).unwrap_or_default(),
-        Some(LbvsValue::String(text)) | Some(LbvsValue::WString(text)) => {
-            serde_json::from_str(text).unwrap_or_default()
-        }
-        _ => serde_json::Value::Null,
-    }
-}
-
-fn json_u64(v: &serde_json::Value, key: &str) -> u64 {
-    v.get(key).and_then(|v| v.as_u64()).unwrap_or(0)
-}
-
-fn json_i32(v: &serde_json::Value, key: &str) -> i32 {
-    v.get(key).and_then(|v| v.as_i64()).unwrap_or(0) as i32
-}
-
-pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
+fn lbvs_to_iomessage_inner(buf: &[u8]) -> Result<IOMessage, String> {
     let fields = parse_lbvs(buf)?;
-    let details = parse_owly_details(&fields);
 
-    let raw_event_id = field_u32(&fields, EventField::RawEventId);
-    let details_irp = details
-        .get("irp_op")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u8);
-    let irp_op = openedr_event_to_owly_irp(raw_event_id, details_irp);
+    let raw_event_id = lbvs_field_u32(&fields, EventField::RawEventId);
+    // irp_op now stores the raw SysmonEvent ID directly (u32).
+    // IrpMajorOp::from_sysmonevent() is used by consumers when semantic
+    // classification is needed; no translation happens at the parse layer.
+    let irp_op: u32 = raw_event_id;
 
-    let pid = field_u32(&fields, EventField::ProcessPid);
-    let is_registry_event = irp_op == IrpMajorOp::IrpRegistry as u8;
-    let file_path = field_string(&fields, EventField::FilePath);
-    let process_image_file = field_string(&fields, EventField::ProcessImageFile);
-    // OwlyOpenEdrBridge writes the actual key path to EvFld::FilePath (not
-    // EvFld::RegistryPath). EvFld::RegistryPath receives LoadedDllPath which is
-    // always empty for registry events. Fall back to file_path when the dedicated
-    // registry path field arrives empty.
-    let registry_path_raw = {
-        let rp = registry_display_path(
-            field_string(&fields, EventField::RegistryPath),
-            field_string(&fields, EventField::RegistryName),
-        );
-        if rp.trim().is_empty() && !file_path.trim().is_empty() {
+    let pid = lbvs_field_u32(&fields, EventField::ProcessPid);
+    let is_registry_event = SysmonEvent::is_registry_event(raw_event_id);
+
+    // Native OpenEDR field reads — no JSON blob involved.
+    // ProcessCreate populates ProcessImageFile and ProcessCmdLine natively.
+    // File/pipe events populate FilePath.
+    // Registry events populate RegistryPath + RegistryName (RegistryRawData is actual binary data).
+    // ProcessOpen populates FilePath + TargetProcessPid + AccessMask.
+    let file_path = lbvs_field_string(&fields, EventField::FilePath);
+    let process_image_file = {
+        let pif = lbvs_field_string(&fields, EventField::ProcessImageFile);
+        if pif.trim().is_empty() {
             file_path.clone()
         } else {
-            rp
+            pif
         }
     };
-    let registry_path = registry_path_raw;
+    let registry_path = registry_display_path(
+        lbvs_field_string(&fields, EventField::RegistryPath),
+        lbvs_field_string(&fields, EventField::RegistryName),
+    );
     let filepath = if is_registry_event {
         registry_path.clone()
     } else if !file_path.trim().is_empty() {
@@ -310,58 +603,22 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
         filepath.clone()
     };
 
-    let command_line = field_string(&fields, EventField::ProcessCmdLine);
-    let event_name = field_string(&fields, EventField::FileRawHash);
+    let command_line = lbvs_field_string(&fields, EventField::ProcessCmdLine);
 
+    // KernelEventInfo: fields that cannot be derived from standard OpenEDR fltport events
+    // (memory ops, thread ops, hypervisor args, ACG, AMSI) are left at their zero defaults.
+    // Those are only populated by the Communication.cpp hypervisor/hook path which feeds
+    // into a separate queue and is not covered by the standard LBVS fltport pipeline.
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     let kernel_event_info = KernelEventInfo {
-        event_type: {
-            let from_details = json_u64(&details, "event_type") as u32;
-            if from_details != 0 {
-                from_details
-            } else {
-                raw_event_id
-            }
-        },
-        timestamp: json_u64(&details, "timestamp"),
-        source_process_id: json_u64(&details, "source_pid") as u32,
-        target_process_id: {
-            let from_details = json_u64(&details, "target_pid") as u32;
-            if from_details != 0 {
-                from_details
-            } else {
-                field_u32(&fields, EventField::TargetProcessPid)
-            }
-        },
-        core_id: json_u64(&details, "core_id") as u32,
-        thread_id: json_u64(&details, "thread_id") as u32,
-        context: json_u64(&details, "context"),
-        memory_address: json_u64(&details, "memory_address"),
-        memory_size: json_u64(&details, "memory_size") as usize,
-        memory_protection: json_u64(&details, "memory_protection") as u32,
-        is_executable_memory: json_u64(&details, "is_executable_memory") != 0,
-        thread_handle: json_u64(&details, "thread_handle"),
-        thread_start_routine: json_u64(&details, "thread_start_routine"),
-        raw_argument1: json_u64(&details, "raw_argument1"),
-        raw_argument2: json_u64(&details, "raw_argument2"),
-        raw_argument3: json_u64(&details, "raw_argument3"),
-        raw_argument4: json_u64(&details, "raw_argument4"),
-        object_name: event_name,
-        access_mask: {
-            let from_details = json_u64(&details, "access_mask") as u32;
-            if from_details != 0 {
-                from_details
-            } else {
-                field_u32(&fields, EventField::AccessMask)
-            }
-        },
-        bin_payload: Vec::new(),
-        is_dll_load: json_u64(&details, "is_dll_load") != 0,
+        event_type: irp_op,
+        timestamp: lbvs_field_u32(&fields, EventField::TickTime) as u64,
+        source_process_id: pid,
+        target_process_id: lbvs_field_u32(&fields, EventField::TargetProcessPid),
+        access_mask: lbvs_field_u32(&fields, EventField::AccessMask),
+        object_name: String::new(),
         loaded_dll_path: registry_path.clone(),
-        is_api_based_load: json_u64(&details, "is_api_based_load") != 0,
-        is_acg_enabled: json_u64(&details, "is_acg_enabled") != 0,
-        is_amsi_event: json_u64(&details, "is_amsi_event") != 0,
-        amsi_content_sample: String::new(),
-        operation_status: json_i32(&details, "operation_status"),
+        ..KernelEventInfo::default()
     };
 
     Ok(IOMessage {
@@ -375,20 +632,20 @@ pub fn lbvs_to_iomessage(buf: &[u8]) -> Result<IOMessage, String> {
                 .to_string()
         },
         file_id_id: FileId::from([0u8; crate::shared_def::FILE_ID_LEN]),
-        mem_sized_used: kernel_event_info.memory_size as u64,
+        mem_sized_used: 0,
         entropy: 0.0,
         pid,
         irp_op,
         is_entropy_calc: 0,
-        file_change: openedr_event_to_file_change(raw_event_id, &details),
+        file_change: sysmonevent_to_file_change(raw_event_id),
         file_location_info: 0,
         filepathstr: filepath.clone(),
-        gid: json_u64(&details, "gid"),
-        parent_pid: field_u32(&fields, EventField::ProcessParentPid),
+        gid: 0,
+        parent_pid: lbvs_field_u32(&fields, EventField::ProcessParentPid),
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        attacker_pid: json_u64(&details, "attacker_pid") as u32,
+        attacker_pid: 0,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        attacker_gid: json_u64(&details, "attacker_gid"),
+        attacker_gid: 0,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         kernel_event_info,
         runtime_features: RuntimeFeatures {

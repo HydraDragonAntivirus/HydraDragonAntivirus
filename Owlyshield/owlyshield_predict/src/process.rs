@@ -693,7 +693,7 @@ impl ProcessRecord {
         if let Some(parent) = get_parent_path(&iomsg.filepathstr) {
             self.dirs_content.insert(PathBuf::from(parent), iomsg);
         }
-        let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
+        let irp_op = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
         self.update_kernel_event_features(iomsg, &irp_op);
         match irp_op {
             IrpMajorOp::IrpNone => {}
@@ -712,7 +712,7 @@ impl ProcessRecord {
 
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     fn update_kernel_event_features(&mut self, iomsg: &IOMessage, _raw_irp: &IrpMajorOp) {
-        let effective_irp = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(iomsg));
+        let effective_irp = IrpMajorOp::from_sysmonevent(effective_hypervisor_irp_byte(iomsg));
         self.record_kernel_event_feature(effective_irp, &iomsg.kernel_event_info.object_name);
     }
 
@@ -1313,7 +1313,7 @@ mod tests {
             extension: extension.to_string(),
             file_id_id: file_id,
             pid: 4242,
-            irp_op: irp_op as u8,
+            irp_op: irp_op.to_sysmonevent_u32(),
             file_change: file_change as u8,
             filepathstr: path.to_string(),
             gid,
@@ -1512,14 +1512,14 @@ mod tests {
         let mut pr = ProcessRecord::new(gid, "injector.exe".to_string(), PathBuf::new());
         let write_msg = IOMessage {
             pid: 4242,
-            irp_op: IrpMajorOp::IrpKernelWriteMemory as u8,
+            irp_op: IrpMajorOp::IrpKernelWriteMemory.to_sysmonevent_u32(),
             gid,
             runtime_features: RuntimeFeatures::new(),
             ..IOMessage::default()
         };
         let protect_msg = IOMessage {
             pid: 4242,
-            irp_op: IrpMajorOp::IrpKernelProtectMemory as u8,
+            irp_op: IrpMajorOp::IrpKernelProtectMemory.to_sysmonevent_u32(),
             gid,
             runtime_features: RuntimeFeatures::new(),
             ..IOMessage::default()
@@ -1541,10 +1541,10 @@ mod tests {
         let mut pr = ProcessRecord::new(gid, "hooked.exe".to_string(), PathBuf::new());
         let normalized_legacy_msg = IOMessage {
             pid: 4242,
-            irp_op: IrpMajorOp::IrpHypervisorEvent as u8,
+            irp_op: IrpMajorOp::IrpHypervisorEvent.to_sysmonevent_u32(),
             gid,
             kernel_event_info: KernelEventInfo {
-                event_type: IrpMajorOp::IrpKernelWriteMemory as u32,
+                event_type: IrpMajorOp::IrpKernelWriteMemory.to_sysmonevent_u32(),
                 object_name: "IRP_KERNEL_WRITE_MEMORY".to_string(),
                 ..KernelEventInfo::default()
             },
@@ -1553,7 +1553,7 @@ mod tests {
         };
         let dynamic_hook_msg = IOMessage {
             pid: 4242,
-            irp_op: IrpMajorOp::IrpUserModeHookEvent as u8,
+            irp_op: IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32(),
             gid,
             kernel_event_info: KernelEventInfo {
                 event_type: 0x6000,

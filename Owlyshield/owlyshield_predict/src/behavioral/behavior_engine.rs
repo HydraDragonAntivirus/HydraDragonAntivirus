@@ -778,7 +778,8 @@ enum FirewallHipsPromptOutcome {
 #[derive(Debug, Clone)]
 pub struct IrpOperationRecord {
     pub timestamp: SystemTime,
-    pub irp_type: u8,
+    /// Raw SysmonEvent ID (u32) on Windows; legacy eBPF small-int on Linux.
+    pub irp_type: u32,
     pub file_path: String,
     pub file_change: u8,
     pub extension: String,
@@ -873,8 +874,8 @@ pub struct IrpStatistics {
     // Hypervisor event operation history (limited to last 100 for memory efficiency)
     pub hypervisor_event_operations: Vec<HypervisorEventOperation>,
 
-    // Lossless 0-29 opcode counters for OpenEDR/Owlyshield bridge rules.
-    pub raw_irp_counts: HashMap<u8, u64>,
+    // Per-SysmonEvent-ID opcode counters for OpenEDR/Owlyshield bridge rules.
+    pub raw_irp_counts: HashMap<u32, u64>,
 
     // All APIs called (for comprehensive tracking)
     pub all_apis_called: HashSet<String>,
@@ -916,7 +917,7 @@ impl IrpStatistics {
 
     pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
         *self.raw_irp_counts.entry(rec.irp_type).or_insert(0) += 1;
-        let irp_op = IrpMajorOp::from_byte(rec.irp_type);
+        let irp_op = IrpMajorOp::from_sysmonevent(rec.irp_type);
 
         match irp_op {
             // File operations
@@ -1012,7 +1013,7 @@ impl IrpStatistics {
                 };
                 self.record_hypervisor_event_operation(
                     rec,
-                    IrpMajorOp::from_byte(rec.irp_type),
+                    IrpMajorOp::from_sysmonevent(rec.irp_type),
                     &details,
                 );
                 if is_real_api_observation(&rec.function_name) {
@@ -1151,7 +1152,7 @@ impl IrpStatistics {
 
     pub fn get_operation_count(&self, op_type: &str) -> u64 {
         if let Some(opcode) = irp_opcode_from_operation_token(op_type) {
-            return *self.raw_irp_counts.get(&opcode).unwrap_or(&0);
+            return *self.raw_irp_counts.get(&(opcode as u32)).unwrap_or(&0);
         }
 
         match op_type {
@@ -1417,7 +1418,7 @@ fn normalize_irp_operation_token(token: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn irp_opcode_from_operation_token(token: &str) -> Option<u8> {
+fn irp_opcode_from_operation_token(token: &str) -> Option<u32> {
     let normalized = normalize_irp_operation_token(token);
     let numeric = normalized
         .strip_prefix("opcode_")
@@ -1427,12 +1428,12 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u8> {
         .or_else(|| normalized.strip_prefix("irp_"))
         .or_else(|| normalized.strip_prefix("irp"));
     if let Some(value) = numeric
-        && let Ok(opcode) = value.parse::<u8>()
+        && let Ok(opcode) = value.parse::<u32>()
         && opcode <= 29
     {
         return Some(opcode);
     }
-    if let Ok(opcode) = normalized.parse::<u8>()
+    if let Ok(opcode) = normalized.parse::<u32>()
         && opcode <= 29
     {
         return Some(opcode);
@@ -1500,9 +1501,9 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u8> {
     }
 }
 
-fn irp_operation_matches_token(irp_type: u8, file_change: u8, token: &str) -> bool {
+fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> bool {
     let normalized = normalize_irp_operation_token(token);
-    let irp_op = IrpMajorOp::from_byte(irp_type);
+    let irp_op = IrpMajorOp::from_sysmonevent(irp_type);
 
     match normalized.as_str() {
         "delete" => {
@@ -1551,7 +1552,7 @@ fn irp_operation_matches_token(irp_type: u8, file_change: u8, token: &str) -> bo
         _ => {}
     }
 
-    irp_opcode_from_operation_token(&normalized) == Some(irp_type)
+    irp_opcode_from_operation_token(&normalized) == Some(irp_type as u32)
 }
 
 const RECENT_WRITTEN_PAYLOAD_RETENTION_SECS: u64 = 300;
@@ -1679,8 +1680,10 @@ fn canonical_hypervisor_event_label(
         return Some(normalized_event_name);
     }
 
+    // raw_event_type 12–29 are the legacy Communication.cpp hypervisor sub-types.
+    // For those we map back through from_sysmonevent for semantic resolution.
     let resolved = match raw_event_type {
-        12..=29 => IrpMajorOp::from_byte(raw_event_type as u8),
+        12..=29 => IrpMajorOp::from_sysmonevent(raw_event_type),
         _ => irp_op.clone(),
     };
     match resolved {
@@ -2537,7 +2540,7 @@ impl ProcessBehaviorState {
     }
 
     /// Record IRP operation with full context and track normalized hypervisor events
-    pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
+    pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u32) {
         let hyper_event = msg.resolved_hypervisor_event();
         let normalized_kernel_api = hyper_event
             .as_ref()
@@ -2581,7 +2584,13 @@ impl ProcessBehaviorState {
             } else {
                 normalized_kernel_api.clone()
             },
-            pipe_name: if matches!(irp_op, 28 | 29) {
+            pipe_name: if irp_op == 0x000F_u32 {
+                // OpenEDR native LBVS path: NamedPipeCreate event
+                // Pipe name comes in filepathstr (FilePath LBVS field)
+                msg.filepathstr.trim_matches('\0').to_string()
+            } else if matches!(irp_op, 28u32 | 29u32) {
+                // Legacy Communication.cpp sub-type path (NamedPipeCreate/Write)
+                // Pipe name comes in kernel_event_info.object_name
                 msg.kernel_event_info
                     .object_name
                     .trim_matches('\0')
@@ -2589,7 +2598,7 @@ impl ProcessBehaviorState {
             } else {
                 String::new()
             },
-            pipe_payload: if irp_op == 29 {
+            pipe_payload: if irp_op == 29u32 {
                 msg.kernel_event_info.bin_payload.clone()
             } else {
                 Vec::new()
@@ -2614,7 +2623,7 @@ impl ProcessBehaviorState {
         let irp_kind = hyper_event
             .as_ref()
             .map(|event| event.irp_op.clone())
-            .unwrap_or_else(|| IrpMajorOp::from_byte(irp_op));
+            .unwrap_or_else(|| IrpMajorOp::from_sysmonevent(irp_op));
         let is_api_event = is_kernel_api_irp(&irp_kind);
         let real_api = is_real_api_observation(&event_name);
         let operation_status = hyper_event

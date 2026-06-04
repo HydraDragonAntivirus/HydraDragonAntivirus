@@ -413,7 +413,7 @@ pub fn run() {
                         let raw_ty = hyper_event
                             .as_ref()
                             .map(|event| event.raw_event_type)
-                            .unwrap_or(iomsg.irp_op as u32);
+                            .unwrap_or(iomsg.irp_op);
                         let api_name = hyper_event
                             .as_ref()
                             .map(|event| event.event_name.clone())
@@ -604,7 +604,7 @@ pub fn run() {
                     if opcode_counts[i] > 0 {
                         summary.push_str(&format!(
                             "{}={} ",
-                            irp_major_op_label(i as u8),
+                            irp_major_op_label(i as u32),
                             opcode_counts[i]
                         ));
                     }

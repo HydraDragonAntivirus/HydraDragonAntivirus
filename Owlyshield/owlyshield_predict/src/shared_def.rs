@@ -75,175 +75,234 @@ pub enum DriverComMessageType {
     MessageAddBlockPath = 11,
 }
 
-/// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-major-function-codes).
-#[repr(u8)]
+/// OpenEDR SysmonEvent IDs as emitted by edrdrv (edrdrvapi.hpp SysmonEvent enum).
+/// These are the raw values stored in `IOMessage.irp_op` on Windows.
+/// On Linux, the eBPF monitor uses small integer legacy values (1=read, 2=write, etc).
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SysmonEvent {
+    ProcessCreate = 0x0000,
+    ProcessDelete = 0x0001,
+    RegistryKeyNameChange = 0x0002,
+    RegistryKeyCreate = 0x0003,
+    RegistryKeyDelete = 0x0004,
+    RegistryValueSet = 0x0005,
+    RegistryValueDelete = 0x0006,
+    FileCreate = 0x0007,
+    FileDelete = 0x0008,
+    FileClose = 0x0009,
+    FileDataChange = 0x000A,
+    FileDataReadFull = 0x000B,
+    FileDataWriteFull = 0x000C,
+    ProcessOpen = 0x000D,
+    DeviceIoControl = 0x000E,
+    NamedPipeCreate = 0x000F,
+    SelfDefense = 0x0010,
+    Unknown = 0xFFFF_FFFF,
+}
+
+impl SysmonEvent {
+    pub fn from_u32(v: u32) -> SysmonEvent {
+        match v {
+            0x0000 => SysmonEvent::ProcessCreate,
+            0x0001 => SysmonEvent::ProcessDelete,
+            0x0002 => SysmonEvent::RegistryKeyNameChange,
+            0x0003 => SysmonEvent::RegistryKeyCreate,
+            0x0004 => SysmonEvent::RegistryKeyDelete,
+            0x0005 => SysmonEvent::RegistryValueSet,
+            0x0006 => SysmonEvent::RegistryValueDelete,
+            0x0007 => SysmonEvent::FileCreate,
+            0x0008 => SysmonEvent::FileDelete,
+            0x0009 => SysmonEvent::FileClose,
+            0x000A => SysmonEvent::FileDataChange,
+            0x000B => SysmonEvent::FileDataReadFull,
+            0x000C => SysmonEvent::FileDataWriteFull,
+            0x000D => SysmonEvent::ProcessOpen,
+            0x000E => SysmonEvent::DeviceIoControl,
+            0x000F => SysmonEvent::NamedPipeCreate,
+            0x0010 => SysmonEvent::SelfDefense,
+            _ => SysmonEvent::Unknown,
+        }
+    }
+
+    pub fn label(v: u32) -> &'static str {
+        match v {
+            0x0000 => "ProcessCreate",
+            0x0001 => "ProcessDelete",
+            0x0002 => "RegistryKeyNameChange",
+            0x0003 => "RegistryKeyCreate",
+            0x0004 => "RegistryKeyDelete",
+            0x0005 => "RegistryValueSet",
+            0x0006 => "RegistryValueDelete",
+            0x0007 => "FileCreate",
+            0x0008 => "FileDelete",
+            0x0009 => "FileClose",
+            0x000A => "FileDataChange",
+            0x000B => "FileDataReadFull",
+            0x000C => "FileDataWriteFull",
+            0x000D => "ProcessOpen",
+            0x000E => "DeviceIoControl",
+            0x000F => "NamedPipeCreate",
+            0x0010 => "SelfDefense",
+            _ => "Unknown",
+        }
+    }
+
+    pub fn is_file_event(v: u32) -> bool {
+        matches!(v, 0x0007..=0x000C)
+    }
+
+    pub fn is_registry_event(v: u32) -> bool {
+        matches!(v, 0x0002..=0x0006)
+    }
+
+    pub fn is_process_event(v: u32) -> bool {
+        matches!(v, 0x0000 | 0x0001 | 0x000D)
+    }
+
+    pub fn is_pipe_event(v: u32) -> bool {
+        v == 0x000F
+    }
+}
+
+/// Semantic classification of events for the behavior engine.
+/// Maps OpenEDR SysmonEvent IDs to coarse operation categories.
+/// Use `IrpMajorOp::from_sysmonevent(iomsg.irp_op)` to classify an event.
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum IrpMajorOp {
-    /// Nothing happened
-    IrpNone = 0,
-    /// On read, any time following the successful completion of a create request.
-    IrpRead = 1,
-    /// On write, any time following the successful completion of a create request.
-    IrpWrite = 2,
-    /// Set Metadata about a file or file handle. In that case, [shared_def::FileChangeInfo] indicates
-    /// the nature of the modification.
-    IrpSetInfo = 3,
-    /// Open a handle to a file object or device object.
-    IrpCreate = 4,
-    /// File object handle has been closed
-    _IrpCleanUp = 5, //not used (yet)
-    /// Registry operation
-    IrpRegistry = 6,
-
-    // Process-related operations
-    /// Process creation
-    IrpProcessCreate = 7,
-    /// Process termination (normal exit)
-    IrpProcessTerminate = 8,
-    /// External process attempting to terminate another (attacker -> target)
-    IrpProcessTerminateAttempt = 9,
-    /// Process exit/cleanup detected
-    IrpProcessExit = 10,
-    /// Process handle opened for access (OB callback)
-    IrpProcessHandleOpen = 11,
-    /// Single normalized opcode for real VMM/HyperDbg-origin activity only.
-    /// Kernel process-protection signals stay in the dedicated IrpKernel* variants below.
-    IrpHypervisorEvent = 12,
-    /// Kernel process-protection signal: remote thread creation
-    IrpKernelRemoteThread = 13,
-    /// Kernel process-protection signal: write memory
-    IrpKernelWriteMemory = 14,
-    /// Kernel process-protection signal: change memory protection
-    IrpKernelProtectMemory = 15,
-    /// Kernel process-protection signal: create thread
-    IrpKernelCreateThread = 16,
-    /// Kernel process-protection signal: queue APC
-    IrpKernelQueueApc = 17,
-    /// Kernel process-protection signal: create section
-    IrpKernelCreateSection = 18,
-    /// Kernel process-protection signal: map section
-    IrpKernelMapSection = 19,
-    /// User-mode API hook callback from UserModeHookEngine shellcode.
-    /// With the handle-free ring transport, the driver drains the ring and
-    /// emits this same opcode into the normal IOMessage pipeline.
-    IrpUserModeHookEvent = 20,
-
-    // Rootkit-related operations
-    IrpRootkitSsdtHook = 21,
-    IrpRootkitHiddenProcess = 22,
-    IrpRootkitHiddenDriver = 23,
-    IrpRootkitKernelHook = 24,
-    IrpRootkitTerminateProcess = 25,
-    IrpRootkitFileMove = 26,
-    IrpRootkitGeneric = 27,
-
-    // Named Pipe Operations (Kernel + Usermode)
-    IrpNamedPipeCreate = 28,
-    IrpNamedPipeWrite = 29,
+    IrpNone,
+    IrpRead,
+    IrpWrite,
+    IrpSetInfo,
+    IrpCreate,
+    _IrpCleanUp,
+    IrpRegistry,
+    IrpProcessCreate,
+    IrpProcessTerminate,
+    IrpProcessTerminateAttempt,
+    IrpProcessExit,
+    IrpProcessHandleOpen,
+    IrpHypervisorEvent,
+    IrpKernelRemoteThread,
+    IrpKernelWriteMemory,
+    IrpKernelProtectMemory,
+    IrpKernelCreateThread,
+    IrpKernelQueueApc,
+    IrpKernelCreateSection,
+    IrpKernelMapSection,
+    IrpUserModeHookEvent,
+    IrpRootkitSsdtHook,
+    IrpRootkitHiddenProcess,
+    IrpRootkitHiddenDriver,
+    IrpRootkitKernelHook,
+    IrpRootkitTerminateProcess,
+    IrpRootkitFileMove,
+    IrpRootkitGeneric,
+    IrpNamedPipeCreate,
+    IrpNamedPipeWrite,
 }
 
 impl IrpMajorOp {
-    pub fn from_byte(b: u8) -> IrpMajorOp {
+    /// Map a raw SysmonEvent u32 (`IOMessage.irp_op`) to a semantic classification bucket.
+    pub fn from_sysmonevent(v: u32) -> IrpMajorOp {
+        match v {
+            0x0000 => IrpMajorOp::IrpProcessCreate,
+            0x0001 => IrpMajorOp::IrpProcessTerminate,
+            0x0002..=0x0006 => IrpMajorOp::IrpRegistry,
+            0x0007 => IrpMajorOp::IrpCreate,
+            0x0008 => IrpMajorOp::IrpSetInfo,
+            0x0009 => IrpMajorOp::_IrpCleanUp,
+            0x000A | 0x000C => IrpMajorOp::IrpWrite,
+            0x000B => IrpMajorOp::IrpRead,
+            0x000D => IrpMajorOp::IrpProcessHandleOpen,
+            0x000E => IrpMajorOp::IrpHypervisorEvent,
+            0x000F => IrpMajorOp::IrpNamedPipeCreate,
+            0x0010 => IrpMajorOp::IrpUserModeHookEvent,
+            _ => IrpMajorOp::IrpNone,
+        }
+    }
+
+    /// Legacy adapter for Linux eBPF path (small int opcodes: 1=read, 2=write, etc).
+    /// Returns a representative SysmonEvent u32 for this semantic op.
+    /// Used only for test fixtures and serialization — not for wire parsing.
+    pub fn to_sysmonevent_u32(&self) -> u32 {
+        match self {
+            IrpMajorOp::IrpNone => 0xFFFF_FFFF,
+            IrpMajorOp::IrpRead => 0x000B,        // FileDataReadFull
+            IrpMajorOp::IrpWrite => 0x000A,       // FileDataChange
+            IrpMajorOp::IrpSetInfo => 0x0008,     // FileDelete (representative)
+            IrpMajorOp::IrpCreate => 0x0007,      // FileCreate
+            IrpMajorOp::_IrpCleanUp => 0x0009,   // FileClose
+            IrpMajorOp::IrpRegistry => 0x0005,    // RegistryValueSet (representative)
+            IrpMajorOp::IrpProcessCreate => 0x0000,
+            IrpMajorOp::IrpProcessTerminate => 0x0001,
+            IrpMajorOp::IrpProcessHandleOpen => 0x000D,
+            IrpMajorOp::IrpHypervisorEvent => 0x000E,
+            IrpMajorOp::IrpUserModeHookEvent => 0x0010,
+            IrpMajorOp::IrpNamedPipeCreate => 0x000F,
+            // Legacy Communication.cpp sub-types (12-29 range)
+            IrpMajorOp::IrpProcessTerminateAttempt => 9,
+            IrpMajorOp::IrpProcessExit => 10,
+            IrpMajorOp::IrpKernelRemoteThread => 13,
+            IrpMajorOp::IrpKernelWriteMemory => 14,
+            IrpMajorOp::IrpKernelProtectMemory => 15,
+            IrpMajorOp::IrpKernelCreateThread => 16,
+            IrpMajorOp::IrpKernelQueueApc => 17,
+            IrpMajorOp::IrpKernelCreateSection => 18,
+            IrpMajorOp::IrpKernelMapSection => 19,
+            IrpMajorOp::IrpRootkitSsdtHook => 21,
+            IrpMajorOp::IrpRootkitHiddenProcess => 22,
+            IrpMajorOp::IrpRootkitHiddenDriver => 23,
+            IrpMajorOp::IrpRootkitKernelHook => 24,
+            IrpMajorOp::IrpRootkitTerminateProcess => 25,
+            IrpMajorOp::IrpRootkitFileMove => 26,
+            IrpMajorOp::IrpRootkitGeneric => 27,
+            IrpMajorOp::IrpNamedPipeWrite => 29,
+        }
+    }
+
+    pub fn from_byte(b: u32) -> IrpMajorOp {
         match b {
-            0 => IrpMajorOp::IrpNone,
             1 => IrpMajorOp::IrpRead,
             2 => IrpMajorOp::IrpWrite,
             3 => IrpMajorOp::IrpSetInfo,
             4 => IrpMajorOp::IrpCreate,
             5 => IrpMajorOp::_IrpCleanUp,
             6 => IrpMajorOp::IrpRegistry,
-            7 => IrpMajorOp::IrpProcessCreate,
-            8 => IrpMajorOp::IrpProcessTerminate,
-            9 => IrpMajorOp::IrpProcessTerminateAttempt,
-            10 => IrpMajorOp::IrpProcessExit,
-            11 => IrpMajorOp::IrpProcessHandleOpen,
-            12 => IrpMajorOp::IrpHypervisorEvent,
-            13 => IrpMajorOp::IrpKernelRemoteThread,
-            14 => IrpMajorOp::IrpKernelWriteMemory,
-            15 => IrpMajorOp::IrpKernelProtectMemory,
-            16 => IrpMajorOp::IrpKernelCreateThread,
-            17 => IrpMajorOp::IrpKernelQueueApc,
-            18 => IrpMajorOp::IrpKernelCreateSection,
-            19 => IrpMajorOp::IrpKernelMapSection,
-            20 => IrpMajorOp::IrpUserModeHookEvent,
-
-            21 => IrpMajorOp::IrpRootkitSsdtHook,
-            22 => IrpMajorOp::IrpRootkitHiddenProcess,
-            23 => IrpMajorOp::IrpRootkitHiddenDriver,
-            24 => IrpMajorOp::IrpRootkitKernelHook,
-            25 => IrpMajorOp::IrpRootkitTerminateProcess,
-            26 => IrpMajorOp::IrpRootkitFileMove,
-            27 => IrpMajorOp::IrpRootkitGeneric,
-            28 => IrpMajorOp::IrpNamedPipeCreate,
-            29 => IrpMajorOp::IrpNamedPipeWrite,
-
-            _ => IrpMajorOp::IrpNone,
+            _ => IrpMajorOp::from_sysmonevent(b),
         }
     }
 }
 
-pub fn irp_major_op_label(opcode: u8) -> &'static str {
-    match opcode {
-        0 => "None",
-        1 => "Read",
-        2 => "Write",
-        3 => "SetInfo",
-        4 => "Create",
-        5 => "Cleanup",
-        6 => "Registry",
-        7 => "ProcCreate",
-        8 => "ProcTerm",
-        9 => "ProcTermAttempt",
-        10 => "ProcExit",
-        11 => "ProcHandleOpen",
-        12 => "Hypervisor",
-        13 => "KernRemoteThread",
-        14 => "KernWriteMem",
-        15 => "KernProtectMem",
-        16 => "KernCreateThread",
-        17 => "KernQueueApc",
-        18 => "KernCreateSection",
-        19 => "KernMapSection",
-        20 => "UserModeHook",
-        21 => "RkSsdtHook",
-        22 => "RkHiddenProc",
-        23 => "RkHiddenDrv",
-        24 => "RkKernelHook",
-        25 => "RkTermProc",
-        26 => "RkFileMove",
-        27 => "RkGeneric",
-        28 => "NamedPipeCreate",
-        29 => "NamedPipeWrite",
-        _ => "Unknown",
-    }
+/// Human-readable label for a raw SysmonEvent u32 (`IOMessage.irp_op`).
+pub fn irp_major_op_label(opcode: u32) -> &'static str {
+    SysmonEvent::label(opcode)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::IrpMajorOp;
+    use super::{IrpMajorOp, SysmonEvent};
 
     #[test]
-    fn irp_major_op_discriminants_match_kernel_opcodes() {
-        let expected = [
-            (IrpMajorOp::_IrpCleanUp, 5),
-            (IrpMajorOp::IrpProcessCreate, 7),
-            (IrpMajorOp::IrpHypervisorEvent, 12),
-            (IrpMajorOp::IrpKernelRemoteThread, 13),
-            (IrpMajorOp::IrpKernelWriteMemory, 14),
-            (IrpMajorOp::IrpKernelProtectMemory, 15),
-            (IrpMajorOp::IrpKernelCreateThread, 16),
-            (IrpMajorOp::IrpKernelQueueApc, 17),
-            (IrpMajorOp::IrpKernelCreateSection, 18),
-            (IrpMajorOp::IrpKernelMapSection, 19),
-            (IrpMajorOp::IrpUserModeHookEvent, 20),
-            (IrpMajorOp::IrpRootkitSsdtHook, 21),
-            (IrpMajorOp::IrpNamedPipeWrite, 29),
+    fn sysmonevent_roundtrip() {
+        let cases = [
+            (0x0000u32, SysmonEvent::ProcessCreate),
+            (0x0001, SysmonEvent::ProcessDelete),
+            (0x0007, SysmonEvent::FileCreate),
+            (0x000F, SysmonEvent::NamedPipeCreate),
+            (0x0010, SysmonEvent::SelfDefense),
         ];
-
-        for (variant, opcode) in expected {
-            assert_eq!(variant.clone() as u8, opcode);
-            assert_eq!(IrpMajorOp::from_byte(opcode), variant);
+        for (id, expected) in cases {
+            assert_eq!(SysmonEvent::from_u32(id), expected);
         }
+    }
+
+    #[test]
+    fn from_sysmonevent_maps_correctly() {
+        assert_eq!(IrpMajorOp::from_sysmonevent(0x0000), IrpMajorOp::IrpProcessCreate);
+        assert_eq!(IrpMajorOp::from_sysmonevent(0x0007), IrpMajorOp::IrpCreate);
+        assert_eq!(IrpMajorOp::from_sysmonevent(0x000B), IrpMajorOp::IrpRead);
+        assert_eq!(IrpMajorOp::from_sysmonevent(0x000F), IrpMajorOp::IrpNamedPipeCreate);
     }
 }
 
@@ -450,7 +509,10 @@ pub struct IOMessage {
     pub mem_sized_used: u64,
     pub entropy: f64,
     pub pid: u32,
-    pub irp_op: u8,
+    /// Raw OpenEDR SysmonEvent ID (0x0000–0x0010 on Windows, legacy small int on Linux).
+    /// Use `IrpMajorOp::from_sysmonevent(irp_op)` for semantic classification,
+    /// or `SysmonEvent::from_u32(irp_op)` for exact event type matching.
+    pub irp_op: u32,
     pub is_entropy_calc: u8,
     pub file_change: u8,
     pub file_location_info: u8,
@@ -480,7 +542,7 @@ impl Default for IOMessage {
             mem_sized_used: 0,
             entropy: 0.0,
             pid: 0,
-            irp_op: 0,
+            irp_op: 0u32,
             is_entropy_calc: 0,
             file_change: 0,
             file_location_info: 0,
@@ -534,10 +596,18 @@ pub fn normalize_hypervisor_label(raw: &str) -> String {
     value.trim().to_string()
 }
 
+/// Returns the effective IRP opcode for hypervisor/kernel-API events as `u32`.
+///
+/// `irp_op` now stores raw SysmonEvent IDs (0x0000–0x0010).
+/// `DeviceIoControl` (0x000E) is the entry-point for hypervisor bridge events;
+/// when `kernel_event_info.event_type` carries a more-specific sub-type (12–29
+/// from the old Communication.cpp path) we forward that instead.
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-pub fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u8 {
-    if msg.irp_op == 12 && (12..=29).contains(&msg.kernel_event_info.event_type) {
-        msg.kernel_event_info.event_type as u8
+pub fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u32 {
+    if msg.irp_op == SysmonEvent::DeviceIoControl as u32
+        && (12..=29).contains(&msg.kernel_event_info.event_type)
+    {
+        msg.kernel_event_info.event_type
     } else {
         msg.irp_op
     }
@@ -548,7 +618,7 @@ pub fn effective_hypervisor_raw_event_type(msg: &IOMessage) -> u32 {
     if msg.kernel_event_info.event_type != 0 {
         msg.kernel_event_info.event_type
     } else {
-        effective_hypervisor_irp_byte(msg) as u32
+        effective_hypervisor_irp_byte(msg)
     }
 }
 
@@ -628,7 +698,7 @@ impl IOMessage {
     }
 
     pub fn resolved_hypervisor_event(&self) -> Option<ResolvedHypervisorEvent> {
-        let irp_op = IrpMajorOp::from_byte(effective_hypervisor_irp_byte(self));
+        let irp_op = IrpMajorOp::from_sysmonevent(effective_hypervisor_irp_byte(self));
         if !is_kernel_api_irp(&irp_op) {
             return None;
         }

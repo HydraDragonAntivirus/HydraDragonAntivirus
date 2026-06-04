@@ -53,7 +53,7 @@ pub struct LDriverMsg {
     pub ino: u64,
     pub pid: u32,
     pub fsize: i64,
-    pub irp_op: u8,
+    pub irp_op: u32,
     pub file_change: u8,
     pub file_location_info: u8,
     pub mem_sized_used: u64,
@@ -72,7 +72,7 @@ impl LDriverMsg {
             ino: 0,
             pid: 0,
             fsize: 0,
-            irp_op: 0,
+            irp_op: 0u32,
             file_change: 0,
             file_location_info: 0,
             mem_sized_used: 0,
@@ -95,43 +95,45 @@ impl LDriverMsg {
         self.comm = fileaccess.comm;
         self.file_location_info = 1;
         match fileaccess.access {
+            // Linux eBPF legacy small-integer opcodes.
+            // IrpMajorOp::from_byte(b) maps these to semantic variants.
             Read(mem) => {
-                self.irp_op = 1;
+                self.irp_op = 1u32;
                 self.file_change = 0;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Write(mem) => {
-                self.irp_op = 2;
+                self.irp_op = 2u32;
                 self.file_change = 2;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Unlink(mem) => {
-                self.irp_op = 0;
+                self.irp_op = 0u32;
                 self.file_change = 6;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Rmdir(mem) => {
-                self.irp_op = 0;
+                self.irp_op = 0u32;
                 self.file_change = 6;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Mkdir(mem) => {
-                self.irp_op = 4;
+                self.irp_op = 4u32;
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Symlink(mem) => {
-                self.irp_op = 4;
+                self.irp_op = 4u32;
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Create(mem) => {
-                self.irp_op = 4;
+                self.irp_op = 4u32;
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Rename(mem) => {
-                self.irp_op = 3;
+                self.irp_op = 3u32;
                 self.file_change = 4;
                 self.mem_sized_used = mem.try_into().unwrap();
             }

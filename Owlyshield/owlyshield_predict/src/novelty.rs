@@ -220,7 +220,7 @@ impl DirectoriesContent {
 
     pub fn insert(&mut self, path: PathBuf, iomsg: &IOMessage) {
         let fileid = iomsg.file_id_id;
-        let operation_type = IrpMajorOp::from_byte(iomsg.irp_op);
+        let operation_type = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
         if !self.dirs_fileids.contains_key(&path) {
             self.dirs_fileids
                 .insert(path.clone(), HashSet::from([fileid]));

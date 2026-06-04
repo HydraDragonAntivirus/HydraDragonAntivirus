@@ -109,7 +109,7 @@ mod csvwriter;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
-pub(crate) use windows::driver_com;
+pub(crate) use windows::openedr_lbvs as driver_com;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
 pub(crate) mod driver_com;

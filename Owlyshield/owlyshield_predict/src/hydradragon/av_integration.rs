@@ -975,7 +975,7 @@ fn normalize_nt_path(nt_path: &str) -> String {
 }
 
 fn is_new_file_event(iomsg: &IOMessage) -> bool {
-    IrpMajorOp::from_byte(iomsg.irp_op) == IrpMajorOp::IrpCreate
+    IrpMajorOp::from_sysmonevent(iomsg.irp_op) == IrpMajorOp::IrpCreate
         && num::FromPrimitive::from_u8(iomsg.file_change) == Some(FileChangeInfo::ChangeNewFile)
 }
 

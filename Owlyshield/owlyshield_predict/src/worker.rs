@@ -2789,8 +2789,8 @@ pub mod worker_instance {
         /// Process kernel I/O event - this is the main event handler
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
             let irp_op = iomsg.irp_op;
-            let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate as u8;
-            let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate as u8;
+            let is_process_create = IrpMajorOp::from_sysmonevent(irp_op) == IrpMajorOp::IrpProcessCreate;
+            let is_process_terminate = IrpMajorOp::from_sysmonevent(irp_op) == IrpMajorOp::IrpProcessTerminate;
             let _ = is_process_create;
             let _ = is_process_terminate;
 
@@ -2823,7 +2823,7 @@ pub mod worker_instance {
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                let irp_kind_for_name_resolution = IrpMajorOp::from_byte(iomsg.irp_op);
+                let irp_kind_for_name_resolution = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
                 if matches!(
                     irp_kind_for_name_resolution,
                     IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent
@@ -2840,7 +2840,7 @@ pub mod worker_instance {
                 }
             }
 
-            let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
+            let irp_op = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
             let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate;
             let _ = is_process_create;
@@ -3073,7 +3073,7 @@ pub mod worker_instance {
             match needs_action {
                 Some(true) => {
                     // New process - get info from kernel
-                    let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
+                    let irp_op = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
 
                     let (exepath, appname) = if irp_op == IrpMajorOp::IrpProcessCreate
                         && !iomsg.filepathstr.is_empty()
@@ -3197,7 +3197,7 @@ pub mod worker_instance {
                             }
                         }
 
-                        if IrpMajorOp::from_byte(iomsg.irp_op) == IrpMajorOp::IrpProcessCreate {
+                        if IrpMajorOp::from_sysmonevent(iomsg.irp_op) == IrpMajorOp::IrpProcessCreate {
                             self.queue_process_start_scan_if_needed(
                                 gid,
                                 pid,
