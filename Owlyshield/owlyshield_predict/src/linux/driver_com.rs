@@ -1,7 +1,7 @@
 //! Low-level communication with the minifilter.
 use std::time::SystemTime;
 
-use crate::shared_def::{FileId, IOMessage, RuntimeFeatures};
+use crate::shared_def::{FileId, IOMessage, IrpMajorOp, RuntimeFeatures};
 
 use ebpf_monitor_common::Access::{Create, Mkdir, Read, Rename, Rmdir, Symlink, Unlink, Write};
 use ebpf_monitor_common::FileAccess;
@@ -95,45 +95,44 @@ impl LDriverMsg {
         self.comm = fileaccess.comm;
         self.file_location_info = 1;
         match fileaccess.access {
-            // Linux eBPF legacy small-integer opcodes.
-            // IrpMajorOp::from_byte(b) maps these to semantic variants.
+            // Linux eBPF opcodes mapped to OpenEDR SysmonEvent IDs via to_sysmonevent_u32().
             Read(mem) => {
-                self.irp_op = 1u32;
+                self.irp_op = IrpMajorOp::IrpRead.to_sysmonevent_u32();
                 self.file_change = 0;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Write(mem) => {
-                self.irp_op = 2u32;
+                self.irp_op = IrpMajorOp::IrpWrite.to_sysmonevent_u32();
                 self.file_change = 2;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Unlink(mem) => {
-                self.irp_op = 0u32;
+                self.irp_op = IrpMajorOp::IrpSetInfo.to_sysmonevent_u32();
                 self.file_change = 6;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Rmdir(mem) => {
-                self.irp_op = 0u32;
+                self.irp_op = IrpMajorOp::IrpSetInfo.to_sysmonevent_u32();
                 self.file_change = 6;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Mkdir(mem) => {
-                self.irp_op = 4u32;
+                self.irp_op = IrpMajorOp::IrpCreate.to_sysmonevent_u32();
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Symlink(mem) => {
-                self.irp_op = 4u32;
+                self.irp_op = IrpMajorOp::IrpCreate.to_sysmonevent_u32();
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Create(mem) => {
-                self.irp_op = 4u32;
+                self.irp_op = IrpMajorOp::IrpCreate.to_sysmonevent_u32();
                 self.file_change = 3;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
             Rename(mem) => {
-                self.irp_op = 3u32;
+                self.irp_op = IrpMajorOp::IrpSetInfo.to_sysmonevent_u32();
                 self.file_change = 4;
                 self.mem_sized_used = mem.try_into().unwrap();
             }
