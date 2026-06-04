@@ -127,9 +127,6 @@
     <ClCompile Include="..\..\src\owly\OwlyGlobals.cpp">
       <Filter>owly</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\owly\OwlyOpenEdrBridge.cpp">
-      <Filter>owly</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\filemon.h">
@@ -268,9 +265,6 @@
       <Filter>owly</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\owly\OwlyFeatureHost.h">
-      <Filter>owly</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\owly\OwlyOpenEdrBridge.h">
       <Filter>owly</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\UserModeHookEngine.h">

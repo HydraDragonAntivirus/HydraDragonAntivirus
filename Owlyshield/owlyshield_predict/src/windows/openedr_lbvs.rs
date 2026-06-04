@@ -395,6 +395,14 @@ enum EventField {
     FileRawHash = 20,
     TargetProcessPid = 24,
     AccessMask = 25,
+    // Owlyshield kernel API hook event fields (ProcessProtection.cpp → LBVS)
+    OwlyHookEventType = 102,
+    OwlyHookFunctionName = 103,
+    OwlyHookArg1 = 104,
+    OwlyHookArg2 = 105,
+    OwlyHookArg3 = 106,
+    OwlyHookArg4 = 107,
+    OwlyHookSourcePid = 108,
 }
 
 fn read_u16_le(buf: &[u8], off: &mut usize) -> Option<u16> {
@@ -518,6 +526,14 @@ fn lbvs_field_u32(fields: &HashMap<u16, LbvsValue>, id: EventField) -> u32 {
     }
 }
 
+fn lbvs_field_u64(fields: &HashMap<u16, LbvsValue>, id: EventField) -> u64 {
+    match fields.get(&(id as u16)) {
+        Some(LbvsValue::Uint64(v)) => *v,
+        Some(LbvsValue::Uint32(v)) => *v as u64,
+        _ => 0,
+    }
+}
+
 fn lbvs_field_string(fields: &HashMap<u16, LbvsValue>, id: EventField) -> String {
     match fields.get(&(id as u16)) {
         Some(LbvsValue::String(v)) | Some(LbvsValue::WString(v)) => v.clone(),
@@ -569,12 +585,14 @@ fn lbvs_to_iomessage_inner(buf: &[u8]) -> Result<IOMessage, String> {
 
     let pid = lbvs_field_u32(&fields, EventField::ProcessPid);
     let is_registry_event = SysmonEvent::is_registry_event(raw_event_id);
+    let is_kernel_hook_event = (raw_event_id == 0x000E); // SysmonEvent::DeviceIoControl
 
     // Native OpenEDR field reads — no JSON blob involved.
     // ProcessCreate populates ProcessImageFile and ProcessCmdLine natively.
     // File/pipe events populate FilePath.
     // Registry events populate RegistryPath + RegistryName (RegistryRawData is actual binary data).
     // ProcessOpen populates FilePath + TargetProcessPid + AccessMask.
+    // DeviceIoControl (0x000E) carries kernel API hook events with OwlyHookEvent* fields.
     let file_path = lbvs_field_string(&fields, EventField::FilePath);
     let process_image_file = {
         let pif = lbvs_field_string(&fields, EventField::ProcessImageFile);
@@ -605,20 +623,33 @@ fn lbvs_to_iomessage_inner(buf: &[u8]) -> Result<IOMessage, String> {
 
     let command_line = lbvs_field_string(&fields, EventField::ProcessCmdLine);
 
-    // KernelEventInfo: fields that cannot be derived from standard OpenEDR fltport events
-    // (memory ops, thread ops, hypervisor args, ACG, AMSI) are left at their zero defaults.
-    // Those are only populated by the Communication.cpp hypervisor/hook path which feeds
-    // into a separate queue and is not covered by the standard LBVS fltport pipeline.
+    // KernelEventInfo: for DeviceIoControl (0x000E), populate from OwlyHookEvent* fields.
+    // ProcessProtection.cpp OnKernelApiEvent now serializes kernel API hook events via LBVS fltport.
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    let kernel_event_info = KernelEventInfo {
-        event_type: irp_op,
-        timestamp: lbvs_field_u32(&fields, EventField::TickTime) as u64,
-        source_process_id: pid,
-        target_process_id: lbvs_field_u32(&fields, EventField::TargetProcessPid),
-        access_mask: lbvs_field_u32(&fields, EventField::AccessMask),
-        object_name: String::new(),
-        loaded_dll_path: registry_path.clone(),
-        ..KernelEventInfo::default()
+    let kernel_event_info = if is_kernel_hook_event {
+        KernelEventInfo {
+            event_type: lbvs_field_u32(&fields, EventField::OwlyHookEventType),
+            timestamp: lbvs_field_u32(&fields, EventField::TickTime) as u64,
+            source_process_id: lbvs_field_u32(&fields, EventField::OwlyHookSourcePid),
+            target_process_id: pid, // ProcessPid is the target
+            raw_argument1: lbvs_field_u64(&fields, EventField::OwlyHookArg1),
+            raw_argument2: lbvs_field_u64(&fields, EventField::OwlyHookArg2),
+            raw_argument3: lbvs_field_u64(&fields, EventField::OwlyHookArg3),
+            raw_argument4: lbvs_field_u64(&fields, EventField::OwlyHookArg4),
+            object_name: lbvs_field_string(&fields, EventField::OwlyHookFunctionName),
+            ..KernelEventInfo::default()
+        }
+    } else {
+        KernelEventInfo {
+            event_type: irp_op,
+            timestamp: lbvs_field_u32(&fields, EventField::TickTime) as u64,
+            source_process_id: pid,
+            target_process_id: lbvs_field_u32(&fields, EventField::TargetProcessPid),
+            access_mask: lbvs_field_u32(&fields, EventField::AccessMask),
+            object_name: String::new(),
+            loaded_dll_path: registry_path.clone(),
+            ..KernelEventInfo::default()
+        }
     };
 
     Ok(IOMessage {

@@ -24,6 +24,7 @@ Environment:
 #include "Communication.h"
 #include "DriverData.h"
 #include "common.h"
+#include "fltport.h"
 #include <ntstrsafe.h>
 
 // PROCESS_TERMINATE is defined in ntddk.h but may need explicit definition
@@ -60,16 +61,11 @@ static VOID EnsurePsGetProcessImageFileName(VOID)
 }
 
 // Forward declaration for helper function
-static BOOLEAN IsExecutableProtection(ULONG Protect);
-static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item, _In_ ULONG EventType, _In_ ULONG SourcePid,
-                                      _In_ ULONG TargetPid);
-static VOID SetKernelEventObjectName(_Inout_ PDRIVER_MESSAGE Item, _In_opt_z_ PCWSTR EventName);
 static PCWSTR KernelEventDefaultLabel(_In_ ULONG EventType);
 static VOID AppendProcessPathSuffix(_Inout_updates_z_(OutCch) PWCHAR OutBuffer, _In_ SIZE_T OutCch,
                                     _In_ ULONG ProcessId);
 static BOOLEAN CopyProcessPathByPidBestEffort(_In_ ULONG ProcessId, _Out_writes_z_(OutCch) PWCHAR OutBuffer,
                                               _In_ SIZE_T OutCch, _In_ BOOLEAN AllowSlowLookup);
-static VOID PopulateIrpProcessPath(_Inout_ PIRP_ENTRY Entry, _In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup);
 static BOOLEAN ShouldSkipProcessProtectionPid(_In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup);
 static BOOLEAN ShouldSkipProcessProtectionPair(_In_ ULONG SourcePid, _In_ ULONG TargetPid,
                                                _In_ BOOLEAN AllowSlowLookup);
@@ -603,40 +599,6 @@ static BOOLEAN ShouldSkipProcessProtectionPair(_In_ ULONG SourcePid, _In_ ULONG 
     return FALSE;
 }
 
-static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item, _In_ ULONG EventType, _In_ ULONG SourcePid,
-                                      _In_ ULONG TargetPid)
-{
-    LARGE_INTEGER timestamp;
-
-    if (Item == NULL)
-    {
-        return;
-    }
-
-    KeQuerySystemTime(&timestamp);
-    Item->KernelEventInfo.EventType = EventType;
-    Item->KernelEventInfo.Timestamp = (ULONGLONG)timestamp.QuadPart;
-    Item->KernelEventInfo.SourceProcessId = SourcePid;
-    Item->KernelEventInfo.TargetProcessId = TargetPid;
-    Item->KernelEventInfo.OperationStatus = STATUS_SUCCESS;
-    Item->KernelEventInfo.IsAcgEnabled = (driverData != NULL) ? driverData->GetProcessIsAcgEnabled(SourcePid) : FALSE;
-}
-
-static VOID SetKernelEventObjectName(_Inout_ PDRIVER_MESSAGE Item, _In_opt_z_ PCWSTR EventName)
-{
-    if (Item == NULL)
-    {
-        return;
-    }
-
-    RtlZeroMemory(Item->KernelEventInfo.ObjectName, sizeof(Item->KernelEventInfo.ObjectName));
-    if (EventName != NULL && EventName[0] != L'\0')
-    {
-        (VOID) RtlStringCchCopyW(Item->KernelEventInfo.ObjectName, RTL_NUMBER_OF(Item->KernelEventInfo.ObjectName),
-                                 EventName);
-    }
-}
-
 static PCWSTR KernelEventDefaultLabel(_In_ ULONG EventType)
 {
     switch (EventType)
@@ -1128,151 +1090,34 @@ static BOOLEAN IsSystemProcessPP(PEPROCESS Process)
 
 NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS TargetProcess)
 {
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
+    ULONG attackerPid = (ULONG)(ULONG_PTR)PsGetProcessId(AttackerProcess);
+    ULONG targetPid   = (ULONG)(ULONG_PTR)PsGetProcessId(TargetProcess);
 
-    HANDLE attackerPid = PsGetProcessId(AttackerProcess);
-    HANDLE targetPid = PsGetProcessId(TargetProcess);
-
-    if (ShouldSkipProcessProtectionPair((ULONG)(ULONG_PTR)attackerPid, (ULONG)(ULONG_PTR)targetPid, FALSE))
-    {
-        return STATUS_SUCCESS;
-    }
-
-    // Get GIDs if processes are tracked
-    BOOLEAN attackerFound = FALSE;
-    BOOLEAN targetFound = FALSE;
-    ULONGLONG attackerGid = driverData->GetProcessGid((ULONG)(ULONG_PTR)attackerPid, &attackerFound);
-    ULONGLONG targetGid = driverData->GetProcessGid((ULONG)(ULONG_PTR)targetPid, &targetFound);
-
-    // Skip if neither process is tracked by us
-    if (!attackerFound && !targetFound)
+    if (ShouldSkipProcessProtectionPair(attackerPid, targetPid, FALSE))
         return STATUS_SUCCESS;
 
-    // Allocate IRP entry
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
+    LOGINFO2("QueueTerminationAttempt LBVS: AttackerPid=%lu -> TargetPid=%lu\r\n", attackerPid, targetPid);
 
-    PDRIVER_MESSAGE newItem = &newEntry->data;
+    // Send via LBVS as ProcessOpen with PROCESS_TERMINATE access mask.
+    // OpenEDR SysmonEvent::ProcessOpen (0x000D) carries process handle ops;
+    // PROCESS_TERMINATE (0x0001) in AccessMask signals the termination intent.
+    NonPagedLbvsSerializer<EventField> serializer;
+    if (!serializer.write(EvFld::RawEventId, uint16_t(SysmonEvent::ProcessOpen))) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::TickTime, getTickCount64())) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::ProcessPid, (uint32_t)attackerPid)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::TargetProcessPid, (uint32_t)targetPid)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::AccessMask, (uint32_t)PROCESS_TERMINATE)) return STATUS_NO_MEMORY;
 
-    // Set the message fields
-    // The "main" PID/GID is the TARGET (the process being terminated)
-    newItem->PID = (ULONG)(ULONG_PTR)targetPid;
-    newItem->Gid = targetGid;
-    newItem->IRP_OP = IRP_PROCESS_TERMINATE_ATTEMPT;
-
-    // The attacker info goes in the new fields
-    newItem->AttackerPID = (ULONG)(ULONG_PTR)attackerPid;
-    newItem->AttackerGid = attackerGid;
-
-    // OB callback path: use the cached kernel path only here and let user-mode
-    // fall back to PID-based resolution if the cache has no entry yet.
-    PopulateIrpProcessPath(newEntry, (ULONG)(ULONG_PTR)targetPid, FALSE);
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: Termination attempt detected - Attacker PID %d (GID %llu) -> Target PID %d (GID "
-             "%llu)\n",
-             (ULONG)(ULONG_PTR)attackerPid, attackerGid, (ULONG)(ULONG_PTR)targetPid, targetGid);
-#endif
-
-    // Add to IRP queue
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
+    return fltport::sendRawEvent(serializer);
 }
 //
-// --- New Event Detection Functions for Comprehensive Process Monitoring ---
+// --- Process Handle Open: LBVS path (OpenEDR ProcessOpen / SysmonEvent 0x000D) ---
 //
-
-NTSTATUS OnProcessCreate(_In_ HANDLE ProcessId, _In_ HANDLE ParentProcessId)
-{
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
-
-    ULONG pid = (ULONG)(ULONG_PTR)ProcessId;
-    ULONG parentPid = (ULONG)(ULONG_PTR)ParentProcessId;
-
-    if (ShouldSkipProcessProtectionPid(pid, TRUE))
-        return STATUS_SUCCESS;
-
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = pid;
-    newItem->ParentPid = parentPid;
-    newItem->IRP_OP = IRP_PROCESS_CREATE;
-
-    BOOLEAN found = FALSE;
-    newItem->Gid = driverData->GetProcessGid(pid, &found);
-    PopulateIrpProcessPath(newEntry, pid, TRUE);
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: Process created - PID %lu (Parent: %lu, GID: %llu)\n", pid, parentPid,
-             newItem->Gid);
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS OnProcessExit(_In_ HANDLE ProcessId)
-{
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
-
-    ULONG pid = (ULONG)(ULONG_PTR)ProcessId;
-
-    if (ShouldSkipProcessProtectionPid(pid, TRUE))
-        return STATUS_SUCCESS;
-
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = pid;
-    newItem->IRP_OP = IRP_PROCESS_EXIT;
-
-    BOOLEAN found = FALSE;
-    newItem->Gid = driverData->GetProcessGid(pid, &found);
-    PopulateIrpProcessPath(newEntry, pid, FALSE);
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: Process exited - PID %lu (GID: %llu)\n", pid, newItem->Gid);
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
-}
 
 NTSTATUS OnProcessHandleOperation(_In_ HANDLE CallerProcessId, _In_ HANDLE TargetProcessId,
                                   _In_ ACCESS_MASK DesiredAccess, _In_ UCHAR OperationType)
 {
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
+    UNREFERENCED_PARAMETER(OperationType);
 
     ULONG callerPid = (ULONG)(ULONG_PTR)CallerProcessId;
     ULONG targetPid = (ULONG)(ULONG_PTR)TargetProcessId;
@@ -1280,77 +1125,18 @@ NTSTATUS OnProcessHandleOperation(_In_ HANDLE CallerProcessId, _In_ HANDLE Targe
     if (ShouldSkipProcessProtectionPair(callerPid, targetPid, FALSE))
         return STATUS_SUCCESS;
 
-    // Get GIDs if processes are tracked
-    BOOLEAN callerFound = FALSE;
-    BOOLEAN targetFound = FALSE;
-    ULONGLONG callerGid = driverData->GetProcessGid(callerPid, &callerFound);
-    ULONGLONG targetGid = driverData->GetProcessGid(targetPid, &targetFound);
+    LOGINFO2("OnProcessHandleOperation LBVS: CallerPid=%lu, TargetPid=%lu, Access=0x%X\r\n",
+        callerPid, targetPid, DesiredAccess);
 
-    // Skip if neither process is tracked
-    if (!callerFound && !targetFound)
-        return STATUS_SUCCESS;
+    // Send via OpenEDR LBVS fltport — mirrors SysmonEvent::ProcessOpen (0x000D)
+    NonPagedLbvsSerializer<EventField> serializer;
+    if (!serializer.write(EvFld::RawEventId, uint16_t(SysmonEvent::ProcessOpen))) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::TickTime, getTickCount64())) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::ProcessPid, (uint32_t)callerPid)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::TargetProcessPid, (uint32_t)targetPid)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::AccessMask, (uint32_t)DesiredAccess)) return STATUS_NO_MEMORY;
 
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = targetPid;
-    newItem->Gid = targetGid;
-    newItem->AttackerPID = callerPid;
-    newItem->AttackerGid = callerGid;
-    newItem->IRP_OP = IRP_PROCESS_HANDLE_OPEN;
-
-    // Store access mask and operation type in KernelEventInfo
-    newItem->KernelEventInfo.AccessMask = DesiredAccess;
-    newItem->KernelEventInfo.SourceProcessId = callerPid;
-    newItem->KernelEventInfo.TargetProcessId = targetPid;
-    PopulateIrpProcessPath(newEntry, targetPid, FALSE);
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: Process handle opened - Caller PID %lu -> Target PID %lu (Access: 0x%X, Op: %u)\n",
-             callerPid, targetPid, DesiredAccess, OperationType);
-#else
-    UNREFERENCED_PARAMETER(OperationType);
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS OnProcessTerminationAttempt(_In_ HANDLE AttackerPid, _In_ HANDLE TargetPid)
-{
-    // FIX: AttackerPid/TargetPid are PID integers, NOT PEPROCESS pointers.
-    // The old cast (PEPROCESS)AttackerPid caused instant bugcheck when
-    // QueueTerminationAttemptToUserMode dereferenced the "pointer".
-    // Resolve EPROCESS from PID with reference counting.
-    PEPROCESS attackerProc = NULL;
-    PEPROCESS targetProc = NULL;
-    NTSTATUS st;
-
-    st = PsLookupProcessByProcessId(AttackerPid, &attackerProc);
-    if (!NT_SUCCESS(st))
-        return st;
-
-    st = PsLookupProcessByProcessId(TargetPid, &targetProc);
-    if (!NT_SUCCESS(st))
-    {
-        ObDereferenceObject(attackerProc);
-        return st;
-    }
-
-    st = QueueTerminationAttemptToUserMode(attackerProc, targetProc);
-
-    ObDereferenceObject(targetProc);
-    ObDereferenceObject(attackerProc);
-    return st;
+    return fltport::sendRawEvent(serializer);
 }
 
 //
@@ -1361,347 +1147,37 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
                           _In_opt_ PCWSTR FunctionName, _In_opt_ ULONG_PTR EventArg1, _In_opt_ ULONG_PTR EventArg2,
                           _In_opt_ ULONG_PTR EventArg3, _In_opt_ ULONG_PTR EventArg4)
 {
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
-
     if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
         return STATUS_SUCCESS;
 
-    BOOLEAN sourceFound = FALSE;
-    BOOLEAN targetFound = FALSE;
-    ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
-    ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
-
-    // Keep the owning message PID stable even when a hook event cannot resolve
-    // a remote target PID. KernelEventInfo preserves the exact source/target.
-    const ULONG ownerPid = (TargetPid != 0) ? TargetPid : SourcePid;
-    const ULONGLONG ownerGid = targetFound ? targetGid : sourceGid;
-
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = ownerPid;
-    newItem->Gid = ownerGid;
-    newItem->AttackerPID = SourcePid;
-    newItem->AttackerGid = sourceGid;
+    // Resolve effective name and IRP opcode for this event type
     PCWSTR effectiveName =
         (FunctionName != NULL && FunctionName[0] != L'\0') ? FunctionName : KernelEventDefaultLabel(EventType);
     UCHAR effectiveIrpOp = ResolveHookIrpOpcode(IrpOp, EventType, effectiveName);
     if ((effectiveName == NULL || effectiveName[0] == L'\0') && effectiveIrpOp != (UCHAR)IrpOp)
-    {
         effectiveName = KernelEventDefaultLabel(effectiveIrpOp);
-    }
 
-    newItem->IRP_OP = effectiveIrpOp;
+    LOGINFO2("OnKernelApiEvent LBVS: EventType=%lu, IrpOp=%u, EffIrpOp=%u, SourcePid=%lu, TargetPid=%lu\r\n",
+        EventType, IrpOp, (ULONG)effectiveIrpOp, SourcePid, TargetPid);
 
-    // Preserve full HIM/API-hook metadata while emitting the most specific opcode available.
-    PopulateKernelEventCommon(newItem, EventType, SourcePid, TargetPid);
-    newItem->KernelEventInfo.RawArgument1 = EventArg1;
-    newItem->KernelEventInfo.RawArgument2 = EventArg2;
-    newItem->KernelEventInfo.RawArgument3 = EventArg3;
-    newItem->KernelEventInfo.RawArgument4 = EventArg4;
-    newItem->KernelEventInfo.MemoryAddress = (PVOID)EventArg2;
-    newItem->KernelEventInfo.ThreadHandle = (HANDLE)EventArg1;
-    newItem->KernelEventInfo.AccessMask = (ACCESS_MASK)EventArg1;
-
-    SetKernelEventObjectName(newItem, effectiveName);
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, IrpOp: %u, EffectiveIrpOp: %u, Name: %ls, "
-             "SourcePid=%lu, TargetPid=%lu, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
-             EventType, IrpOp, effectiveIrpOp, effectiveName, SourcePid, TargetPid,
-             (PVOID)EventArg1, (PVOID)EventArg2, (PVOID)EventArg3, (PVOID)EventArg4);
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
+    // Serialize via OpenEDR LBVS fltport — this is what Rust usermode reads.
+    // SysmonEvent::DeviceIoControl (0x000E) is the carrier event for kernel API hook events.
+    NonPagedLbvsSerializer<EventField> serializer;
+    if (!serializer.write(EvFld::RawEventId, uint16_t(SysmonEvent::DeviceIoControl))) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::TickTime, getTickCount64())) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::ProcessPid, (uint32_t)TargetPid)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::OwlyHookEventType, (uint32_t)EventType)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::OwlyHookSourcePid, (uint32_t)SourcePid)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::OwlyHookArg1, (uint64_t)EventArg1)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::OwlyHookArg2, (uint64_t)EventArg2)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::OwlyHookArg3, (uint64_t)EventArg3)) return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::OwlyHookArg4, (uint64_t)EventArg4)) return STATUS_NO_MEMORY;
+    if (effectiveName != NULL && effectiveName[0] != L'\0')
     {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
+        UNICODE_STRING usName;
+        RtlInitUnicodeString(&usName, effectiveName);
+        if (!serializer.write(EvFld::OwlyHookFunctionName, &usName)) return STATUS_NO_MEMORY;
     }
 
-    return STATUS_SUCCESS;
+    return fltport::sendRawEvent(serializer);
 }
-
-NTSTATUS OnMemoryWrite(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ PVOID TargetAddress, _In_ SIZE_T Size,
-                       _In_ BOOLEAN IsExecutableMemory)
-{
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
-
-    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
-        return STATUS_SUCCESS;
-
-    BOOLEAN sourceFound = FALSE;
-    BOOLEAN targetFound = FALSE;
-    ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
-    ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
-
-    if (!sourceFound && !targetFound)
-        return STATUS_SUCCESS;
-
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = TargetPid;
-    newItem->Gid = targetGid;
-    newItem->AttackerPID = SourcePid;
-    newItem->AttackerGid = sourceGid;
-    newItem->IRP_OP = IRP_KERNEL_WRITE_MEMORY;
-
-    PopulateKernelEventCommon(newItem, IRP_KERNEL_WRITE_MEMORY, SourcePid, TargetPid);
-    newItem->KernelEventInfo.MemoryAddress = TargetAddress;
-    newItem->KernelEventInfo.MemorySize = Size;
-    newItem->KernelEventInfo.IsExecutableMemory = IsExecutableMemory;
-    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)TargetAddress;
-    newItem->KernelEventInfo.RawArgument2 = (ULONG_PTR)Size;
-    newItem->KernelEventInfo.AccessMask = PROCESS_VM_WRITE;
-    SetKernelEventObjectName(newItem, L"IRP_KERNEL_WRITE_MEMORY");
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: Memory write detected - Source PID %lu -> Target PID %lu (Address: %p, Size: %zu, "
-             "Executable: %u)\n",
-             SourcePid, TargetPid, TargetAddress, Size, IsExecutableMemory);
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS OnMemoryProtectionChange(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ PVOID BaseAddress,
-                                  _In_ SIZE_T RegionSize, _In_ ULONG NewProtection, _In_ ULONG OldProtection)
-{
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
-
-    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
-        return STATUS_SUCCESS;
-
-    BOOLEAN sourceFound = FALSE;
-    BOOLEAN targetFound = FALSE;
-    ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
-    ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
-
-    if (!sourceFound && !targetFound)
-        return STATUS_SUCCESS;
-
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = TargetPid;
-    newItem->Gid = targetGid;
-    newItem->AttackerPID = SourcePid;
-    newItem->AttackerGid = sourceGid;
-    newItem->IRP_OP = IRP_KERNEL_PROTECT_MEMORY;
-
-    PopulateKernelEventCommon(newItem, IRP_KERNEL_PROTECT_MEMORY, SourcePid, TargetPid);
-    newItem->KernelEventInfo.MemoryAddress = BaseAddress;
-    newItem->KernelEventInfo.MemorySize = RegionSize;
-    newItem->KernelEventInfo.MemoryProtection = NewProtection;
-    newItem->KernelEventInfo.IsExecutableMemory = IsExecutableProtection(NewProtection);
-    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)BaseAddress;
-    newItem->KernelEventInfo.RawArgument2 =
-        (((ULONG_PTR)NewProtection) << 32) | ((ULONG_PTR)OldProtection & 0xffffffffull);
-    newItem->KernelEventInfo.AccessMask = PROCESS_VM_OPERATION;
-    SetKernelEventObjectName(newItem, L"IRP_KERNEL_PROTECT_MEMORY");
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: Memory protection change - Source PID %lu -> Target PID %lu (Old: 0x%X, New: "
-             "0x%X, Executable: %u)\n",
-             SourcePid, TargetPid, OldProtection, NewProtection, IsExecutableProtection(NewProtection));
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS OnThreadCreation(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ PVOID StartRoutine)
-{
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
-
-    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
-        return STATUS_SUCCESS;
-
-    BOOLEAN sourceFound = FALSE;
-    BOOLEAN targetFound = FALSE;
-    ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
-    ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
-
-    if (!sourceFound && !targetFound)
-        return STATUS_SUCCESS;
-
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = TargetPid;
-    newItem->Gid = targetGid;
-    newItem->AttackerPID = SourcePid;
-    newItem->AttackerGid = sourceGid;
-    newItem->IRP_OP = IRP_KERNEL_REMOTE_THREAD;
-
-    PopulateKernelEventCommon(newItem, IRP_KERNEL_REMOTE_THREAD, SourcePid, TargetPid);
-    newItem->KernelEventInfo.ThreadStartRoutine = StartRoutine;
-    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)StartRoutine;
-    newItem->KernelEventInfo.AccessMask = PROCESS_CREATE_THREAD;
-    SetKernelEventObjectName(newItem, L"IRP_KERNEL_REMOTE_THREAD");
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: Remote thread creation - Source PID %lu -> Target PID %lu (Start: %p)\n",
-             SourcePid, TargetPid, StartRoutine);
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS OnApcQueueing(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ HANDLE ThreadHandle, _In_ PVOID ApcRoutine)
-{
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
-
-    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
-        return STATUS_SUCCESS;
-
-    BOOLEAN sourceFound = FALSE;
-    BOOLEAN targetFound = FALSE;
-    ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
-    ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
-
-    if (!sourceFound && !targetFound)
-        return STATUS_SUCCESS;
-
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = TargetPid;
-    newItem->Gid = targetGid;
-    newItem->AttackerPID = SourcePid;
-    newItem->AttackerGid = sourceGid;
-    newItem->IRP_OP = IRP_KERNEL_QUEUE_APC;
-
-    PopulateKernelEventCommon(newItem, IRP_KERNEL_QUEUE_APC, SourcePid, TargetPid);
-    newItem->KernelEventInfo.ThreadHandle = ThreadHandle;
-    newItem->KernelEventInfo.ThreadStartRoutine = ApcRoutine;
-    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)ThreadHandle;
-    newItem->KernelEventInfo.RawArgument2 = (ULONG_PTR)ApcRoutine;
-    SetKernelEventObjectName(newItem, L"IRP_KERNEL_QUEUE_APC");
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: APC queued - Source PID %lu -> Target PID %lu (Thread: %p, APC: %p)\n", SourcePid,
-             TargetPid, ThreadHandle, ApcRoutine);
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS OnSectionOperation(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_opt_ PCWSTR SectionName,
-                            _In_ UCHAR OperationType)
-{
-    if (driverData == NULL || driverData->isFilterClosed())
-        return STATUS_DEVICE_NOT_READY;
-
-    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
-        return STATUS_SUCCESS;
-
-    BOOLEAN sourceFound = FALSE;
-    BOOLEAN targetFound = FALSE;
-    ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
-    ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
-
-    if (!sourceFound && !targetFound)
-        return STATUS_SUCCESS;
-
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL)
-    {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = TargetPid;
-    newItem->Gid = targetGid;
-    newItem->AttackerPID = SourcePid;
-    newItem->AttackerGid = sourceGid;
-
-    UCHAR irpOp = (OperationType == 1) ? (UCHAR)IRP_KERNEL_CREATE_SECTION : (UCHAR)IRP_KERNEL_MAP_SECTION;
-    newItem->IRP_OP = irpOp;
-
-    PopulateKernelEventCommon(newItem, irpOp, SourcePid, TargetPid);
-    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)OperationType;
-    SetKernelEventObjectName(newItem, (OperationType == 1) ? L"IRP_KERNEL_CREATE_SECTION" : L"IRP_KERNEL_MAP_SECTION");
-
-    if (SectionName != NULL)
-    {
-        (VOID) RtlStringCchCopyW(newEntry->Buffer, RTL_NUMBER_OF(newEntry->Buffer), SectionName);
-        newEntry->filePath.Buffer = newEntry->Buffer;
-        newEntry->filePath.Length = (USHORT)(wcslen(newEntry->Buffer) * sizeof(WCHAR));
-        newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-    }
-
-#if IS_DEBUG_IRP
-    _LOGINFO_RAW("!!! ProcessProtection: Section operation - Source PID %lu -> Target PID %lu (Type: %u, Name: %ws)\n",
-             SourcePid, TargetPid, OperationType, SectionName ? SectionName : L"<unnamed>");
-#endif
-
-    if (!driverData->AddIrpMessage(newEntry))
-    {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-//
-// --- Helper function for memory protection checking ---
-//
-
-static BOOLEAN IsExecutableProtection(ULONG Protect)
-{
-    return (Protect & PAGE_EXECUTE) || (Protect & PAGE_EXECUTE_READ) || (Protect & PAGE_EXECUTE_READWRITE) ||
-           (Protect & PAGE_EXECUTE_WRITECOPY);
-}
-
-
-

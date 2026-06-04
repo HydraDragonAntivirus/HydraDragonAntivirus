@@ -1,10 +1,10 @@
 #include "AmsiProtection.h"
 #include "common.h"
-#include "common.h"
-#include "DriverData.h"
+#include "fltport.h"
 #include <ntstrsafe.h>
 
-extern DriverData* driverData;
+namespace EvFld = cmd::edrdrv::EventField;
+namespace SysmonEv = cmd::edrdrv::SysmonEvent;
 
 // Heuristic signatures for AMSI bypass detection (lower-case)
 static const PCWSTR g_AmsiBypassPatterns[] = {
@@ -62,53 +62,35 @@ NTSTATUS AmsiReportEvent(
     _In_opt_ PVOID AmsiContent,
     _In_ ULONG AmsiSize
 ) {
-    if (driverData == NULL || driverData->isFilterClosed())
+    UNREFERENCED_PARAMETER(AmsiContent);
+    UNREFERENCED_PARAMETER(AmsiSize);
+
+    if (!cmd::fltport::isClientConnected())
         return STATUS_DEVICE_NOT_READY;
 
-    // Use a unique IRP_ENTRY for AMSI telemetry to avoid touching ProcessProtection.cpp logic
-    PIRP_ENTRY newEntry = new IRP_ENTRY();
-    if (newEntry == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+    // AMSI events are delivered as OwlyHookEvent (DeviceIoControl carrier, 0x000E).
+    // OwlyHookEventType = IRP_USERMODE_HOOK_EVENT (20) identifies it on the Rust side.
+    // OwlyHookFunctionName carries the label ("AmsiBypassHeuristic" etc.).
+    cmd::variant::NonPagedLbvsSerializer<cmd::edrdrv::EventField> serializer;
 
-    PDRIVER_MESSAGE newItem = &newEntry->data;
-    
-    BOOLEAN found = FALSE;
-    ULONGLONG gid = driverData->GetProcessGid(SourcePid, &found);
+    if (!serializer.write(EvFld::RawEventId,
+            uint16_t(SysmonEv::DeviceIoControl)))         return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::TickTime,
+            getTickCount64()))                             return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::ProcessPid,
+            (uint32_t)SourcePid))                         return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::OwlyHookEventType,
+            (uint32_t)IRP_USERMODE_HOOK_EVENT))            return STATUS_NO_MEMORY;
+    if (!serializer.write(EvFld::OwlyHookSourcePid,
+            (uint32_t)SourcePid))                         return STATUS_NO_MEMORY;
 
-    newItem->PID = SourcePid;
-    newItem->Gid = gid;
-    newItem->AttackerPID = SourcePid;
-    newItem->AttackerGid = gid;
-    newItem->IRP_OP = IRP_USERMODE_HOOK_EVENT;
-
-    // Population of new high-fidelity telemetry fields specifically for AMSI
-    newItem->KernelEventInfo.EventType = IRP_USERMODE_HOOK_EVENT;
-    newItem->KernelEventInfo.SourceProcessId = SourcePid;
-    newItem->KernelEventInfo.Timestamp = KeQueryInterruptTime();
-    newItem->KernelEventInfo.IsAmsiEvent = TRUE;
-
-    if (AmsiContent && AmsiSize > 0) {
-        // Max 256 WCHARs = 512 bytes
-        ULONG copySize = (AmsiSize > 510) ? 510 : AmsiSize;
-        RtlCopyMemory(newItem->KernelEventInfo.AmsiContentSample, AmsiContent, copySize);
+    // Function name / label
+    if (FunctionName != NULL) {
+        UNICODE_STRING fnUs;
+        RtlInitUnicodeString(&fnUs, FunctionName);
+        if (!serializer.write(EvFld::OwlyHookFunctionName, fnUs))
+            return STATUS_NO_MEMORY;
     }
 
-    if (FunctionName) {
-        RtlStringCchCopyW(newItem->KernelEventInfo.ObjectName, RTL_NUMBER_OF(newItem->KernelEventInfo.ObjectName), FunctionName);
-    } else {
-        RtlStringCchCopyW(newItem->KernelEventInfo.ObjectName, RTL_NUMBER_OF(newItem->KernelEventInfo.ObjectName), L"AmsiScanEvent");
-    }
-
-    // Dispatch to the same message queue used by other behavioral events
-    if (!driverData->AddIrpMessage(newEntry)) {
-        delete newEntry;
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return STATUS_SUCCESS;
+    return cmd::fltport::sendRawEvent(serializer);
 }
-
-
-
-
-
-

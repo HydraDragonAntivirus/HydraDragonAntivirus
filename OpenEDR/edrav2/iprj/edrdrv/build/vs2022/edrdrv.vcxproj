@@ -53,7 +53,6 @@
     <ClCompile Include="..\..\src\owly\OwlyCompatIoctl.cpp" />
     <ClCompile Include="..\..\src\owly\OwlyFeatureHost.cpp" />
     <ClCompile Include="..\..\src\owly\OwlyGlobals.cpp" />
-    <ClCompile Include="..\..\src\owly\OwlyOpenEdrBridge.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\common.h" />
@@ -102,7 +101,6 @@
     <ClInclude Include="..\..\src\HashTable.h" />
     <ClInclude Include="..\..\src\owly\OwlyCompatIoctl.h" />
     <ClInclude Include="..\..\src\owly\OwlyFeatureHost.h" />
-    <ClInclude Include="..\..\src\owly\OwlyOpenEdrBridge.h" />
     <ClInclude Include="..\..\src\UserModeHookEngine.h" />
     <ClInclude Include="..\..\src\RootkitDetector.h" />
     <ClInclude Include="..\..\src\AmsiProtection.h" />

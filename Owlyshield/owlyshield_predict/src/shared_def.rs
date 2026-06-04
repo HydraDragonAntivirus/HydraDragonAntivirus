@@ -204,6 +204,9 @@ pub enum IrpMajorOp {
 
 impl IrpMajorOp {
     /// Map a raw SysmonEvent u32 (`IOMessage.irp_op`) to a semantic classification bucket.
+    /// Map a raw SysmonEvent u32 (`IOMessage.irp_op`) to a semantic classification bucket.
+    /// Only handles OpenEDR LBVS SysmonEvent IDs (0x0000–0x0010).
+    /// For legacy ProcessProtection.cpp kernel-API hook opcodes (13–29), use [`IrpMajorOp::from_byte`].
     pub fn from_sysmonevent(v: u32) -> IrpMajorOp {
         match v {
             0x0000 => IrpMajorOp::IrpProcessCreate,

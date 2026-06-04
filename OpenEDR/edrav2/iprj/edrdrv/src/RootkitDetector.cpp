@@ -25,14 +25,12 @@ Environment:
 --*/
 
 #include "RootkitDetector.h"
-#include "DriverData.h"
+#include "fltport.h"
 #include <ntimage.h>
 #include <ntstrsafe.h>
 
-// ---------------------------------------------------------------------------
-// External
-// ---------------------------------------------------------------------------
-extern DriverData *driverData;
+namespace EvFld   = cmd::edrdrv::EventField;
+namespace SysmonEv = cmd::edrdrv::SysmonEvent;
 
 // ---------------------------------------------------------------------------
 // Dynamic imports
@@ -510,60 +508,45 @@ _LOGINFO_RAW("RootkitDetector: scan complete - %lu anomalies\n", total);
 // ===========================================================================
 // Helpers
 // ===========================================================================
-#define RK_ROOTKIT_GLOBAL_GID      ((ULONGLONG)0xFFFFFFFFFFFFFFFEULL)
-#define RK_ROOTKIT_PSEUDO_GID_MASK ((ULONGLONG)0x8000000000000000ULL)
-
-static ULONGLONG
-RkResolveFindingGid(_In_ ULONG SourcePid)
-{
-    BOOLEAN found = FALSE;
-    ULONGLONG gid = 0;
-
-    if (SourcePid == 0 || driverData == NULL) {
-        return RK_ROOTKIT_GLOBAL_GID;
-    }
-
-    gid = driverData->GetProcessGid(SourcePid, &found);
-    if (found && gid != 0) {
-        return gid;
-    }
-
-    return RK_ROOTKIT_PSEUDO_GID_MASK | (ULONGLONG)SourcePid;
-}
-
 static VOID
 RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
               _In_opt_ PCWSTR ObjectName,
               _In_opt_ PVOID  MemoryAddress, _In_ SIZE_T MemSize,
               _In_ ULONG_PTR Extra1, _In_ ULONG_PTR Extra2)
 {
-    if (!driverData) return;
+    if (!cmd::fltport::isClientConnected()) return;
 
-    IRP_ENTRY *entry = new IRP_ENTRY();
-    if (!entry) return;
+    // Rootkit findings are delivered as OwlyHookEvent (DeviceIoControl carrier, 0x000E).
+    // OwlyHookEventType carries the IRP_ROOTKIT_* opcode so Rust can dispatch them.
+    cmd::variant::NonPagedLbvsSerializer<cmd::edrdrv::EventField> serializer;
 
-    PDRIVER_MESSAGE msg = &entry->data;
-    RtlZeroMemory(msg, sizeof(*msg));
+    if (!serializer.write(EvFld::RawEventId,
+            uint16_t(SysmonEv::DeviceIoControl)))          return;
+    if (!serializer.write(EvFld::TickTime,
+            getTickCount64()))                             return;
+    if (!serializer.write(EvFld::ProcessPid,
+            (uint32_t)SourcePid))                         return;
+    if (!serializer.write(EvFld::OwlyHookEventType,
+            (uint32_t)IrpOpCode))                         return;
+    if (!serializer.write(EvFld::OwlyHookSourcePid,
+            (uint32_t)SourcePid))                         return;
+    if (!serializer.write(EvFld::OwlyHookArg1,
+            (uint64_t)(ULONG_PTR)MemoryAddress))          return;
+    if (!serializer.write(EvFld::OwlyHookArg2,
+            (uint64_t)MemSize))                           return;
+    if (!serializer.write(EvFld::OwlyHookArg3,
+            (uint64_t)Extra1))                            return;
+    if (!serializer.write(EvFld::OwlyHookArg4,
+            (uint64_t)Extra2))                            return;
 
-    msg->IRP_OP                              = (UCHAR)IrpOpCode;
-    msg->PID                                 = SourcePid;
-    msg->Gid                                 = RkResolveFindingGid(SourcePid);
-    msg->KernelEventInfo.EventType           = IrpOpCode;
-    msg->KernelEventInfo.SourceProcessId     = SourcePid;
-    msg->KernelEventInfo.MemoryAddress       = MemoryAddress;
-    msg->KernelEventInfo.MemorySize          = MemSize;
-    msg->KernelEventInfo.RawArgument1        = Extra1;
-    msg->KernelEventInfo.RawArgument2        = Extra2;
-
-    if (ObjectName) {
-        (VOID)RtlStringCchCopyW(msg->KernelEventInfo.ObjectName,
-                                RTL_NUMBER_OF(msg->KernelEventInfo.ObjectName),
-                                ObjectName);
+    if (ObjectName != NULL) {
+        UNICODE_STRING objUs;
+        RtlInitUnicodeString(&objUs, ObjectName);
+        if (!serializer.write(EvFld::OwlyHookFunctionName, objUs))
+            return;
     }
 
-    if (!driverData->AddIrpMessage(entry)) {
-        delete entry;
-    }
+    (VOID)cmd::fltport::sendRawEvent(serializer);
 }
 
 static BOOLEAN

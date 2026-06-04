@@ -119,6 +119,14 @@ enum class EventField : variant::lbvs::FieldId
 	AccessMask = 25, ///< int
 	OwlyEntropy = 100, ///< float
 	OwlyIsEntropyCalc = 101, ///< int
+	// Owlyshield kernel API hook event fields (ProcessProtection.cpp → LBVS path)
+	OwlyHookEventType = 102,     ///< uint32 - raw kernel event type (IRP_KERNEL_* / IRP_USERMODE_HOOK_EVENT)
+	OwlyHookFunctionName = 103,  ///< str (wide) - API function name or label
+	OwlyHookArg1 = 104,          ///< uint64 - raw hook argument 1
+	OwlyHookArg2 = 105,          ///< uint64 - raw hook argument 2
+	OwlyHookArg3 = 106,          ///< uint64 - raw hook argument 3
+	OwlyHookArg4 = 107,          ///< uint64 - raw hook argument 4
+	OwlyHookSourcePid = 108,     ///< uint32 - source (attacker) PID
 };
 
 ///
