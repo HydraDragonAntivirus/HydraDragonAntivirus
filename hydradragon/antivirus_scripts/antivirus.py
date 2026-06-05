@@ -465,9 +465,7 @@ from .utils_and_helpers import (  # noqa: E402
 logger.debug(f"utils_and_helpers functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .pyinstaller_mod_extractor_ng import (
-    PyInstArchive,  # noqa: E402
-)
+from .pyinstaller_mod_extractor_ng import PyInstArchive  # noqa: E402
 
 logger.debug(f"pyinstaller_mod_extractor_ng imported in {time.time() - start_time:.6f} seconds")
 
