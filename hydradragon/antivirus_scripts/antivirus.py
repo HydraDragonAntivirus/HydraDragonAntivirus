@@ -519,10 +519,7 @@ from .notify_user import (  # noqa: E402
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .pipe_events import (  # noqa: E402
-    normalize_nt_path,
-    _sync_close_handle,
-)
+from .pipe_events import normalize_nt_path # noqa: E402
 
 logger.debug(f"pipe_events functions loaded in {time.time() - start_time:.6f} seconds")
 
