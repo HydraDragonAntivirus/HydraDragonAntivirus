@@ -2788,14 +2788,6 @@ pub mod worker_instance {
 
         /// Process kernel I/O event - this is the main event handler
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
-            let irp_op = iomsg.irp_op;
-            let is_process_create =
-                IrpMajorOp::from_sysmonevent(irp_op) == IrpMajorOp::IrpProcessCreate;
-            let is_process_terminate =
-                IrpMajorOp::from_sysmonevent(irp_op) == IrpMajorOp::IrpProcessTerminate;
-            let _ = is_process_create;
-            let _ = is_process_terminate;
-
             self.normalize_tracking_gid(iomsg);
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

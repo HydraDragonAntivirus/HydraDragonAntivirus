@@ -460,12 +460,11 @@ impl ApiTracker {
                 self.process_operations.threads_created += 1;
             }
             _ => {
-                // Track any other kernel ops as generic kernel operations.
-                // SysmonEvent 0x000E (DeviceIoControl=14) and above are kernel/hypervisor
-                // events in the legacy Communication.cpp path (event_types 12-29).
-                if msg.irp_op >= 0x000E {
-                    self.kernel_operations.total_kernel_events += 1;
-                }
+                // Any remaining variant (e.g. IrpNamedPipeWrite, IrpRootkitGeneric,
+                // IrpRootkitSsdtHook, etc.) counts toward the generic kernel event
+                // total. All hypervisor/hook variants (IrpHypervisorEvent,
+                // IrpUserModeHookEvent) are already handled above and never reach here.
+                self.kernel_operations.total_kernel_events += 1;
             }
         }
 
