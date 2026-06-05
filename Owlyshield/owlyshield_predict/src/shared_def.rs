@@ -323,6 +323,61 @@ mod tests {
         assert_eq!(IrpMajorOp::from_sysmonevent(0x0007), IrpMajorOp::IrpCreate);
         assert_eq!(IrpMajorOp::from_sysmonevent(0x000B), IrpMajorOp::IrpRead);
         assert_eq!(IrpMajorOp::from_sysmonevent(0x000F), IrpMajorOp::IrpNamedPipeCreate);
+        // Registry range: multiple wire IDs collapse to one variant
+        assert_eq!(IrpMajorOp::from_sysmonevent(0x0002), IrpMajorOp::IrpRegistry);
+        assert_eq!(IrpMajorOp::from_sysmonevent(0x0005), IrpMajorOp::IrpRegistry);
+        // IrpWrite alias: 0x000C also maps to IrpWrite
+        assert_eq!(IrpMajorOp::from_sysmonevent(0x000A), IrpMajorOp::IrpWrite);
+        assert_eq!(IrpMajorOp::from_sysmonevent(0x000C), IrpMajorOp::IrpWrite);
+        // Unknown → IrpNone
+        assert_eq!(IrpMajorOp::from_sysmonevent(0xDEAD), IrpMajorOp::IrpNone);
+    }
+
+    #[test]
+    fn to_sysmonevent_roundtrip() {
+        // Every variant must round-trip: from_sysmonevent(v.to_sysmonevent_u32()) == v
+        // (except IrpNone which maps to 0xFFFF_FFFF sentinel)
+        let variants = [
+            IrpMajorOp::IrpRead,
+            IrpMajorOp::IrpWrite,
+            IrpMajorOp::IrpSetInfo,
+            IrpMajorOp::IrpCreate,
+            IrpMajorOp::_IrpCleanUp,
+            IrpMajorOp::IrpRegistry,
+            IrpMajorOp::IrpProcessCreate,
+            IrpMajorOp::IrpProcessTerminate,
+            IrpMajorOp::IrpProcessHandleOpen,
+            IrpMajorOp::IrpHypervisorEvent,
+            IrpMajorOp::IrpUserModeHookEvent,
+            IrpMajorOp::IrpNamedPipeCreate,
+            IrpMajorOp::IrpProcessTerminateAttempt,
+            IrpMajorOp::IrpProcessExit,
+            IrpMajorOp::IrpKernelRemoteThread,
+            IrpMajorOp::IrpKernelWriteMemory,
+            IrpMajorOp::IrpKernelProtectMemory,
+            IrpMajorOp::IrpKernelCreateThread,
+            IrpMajorOp::IrpKernelQueueApc,
+            IrpMajorOp::IrpKernelCreateSection,
+            IrpMajorOp::IrpKernelMapSection,
+            IrpMajorOp::IrpRootkitSsdtHook,
+            IrpMajorOp::IrpRootkitHiddenProcess,
+            IrpMajorOp::IrpRootkitHiddenDriver,
+            IrpMajorOp::IrpRootkitKernelHook,
+            IrpMajorOp::IrpRootkitTerminateProcess,
+            IrpMajorOp::IrpRootkitFileMove,
+            IrpMajorOp::IrpRootkitGeneric,
+            IrpMajorOp::IrpNamedPipeWrite,
+        ];
+        for variant in &variants {
+            let encoded = variant.to_sysmonevent_u32();
+            let decoded = IrpMajorOp::from_sysmonevent(encoded);
+            assert_eq!(
+                &decoded, variant,
+                "round-trip failed for {variant:?}: encoded={encoded:#06X}, decoded={decoded:?}"
+            );
+        }
+        // IrpNone sentinel must not accidentally map to a real variant
+        assert_eq!(IrpMajorOp::from_sysmonevent(0xFFFF_FFFF), IrpMajorOp::IrpNone);
     }
 }
 
