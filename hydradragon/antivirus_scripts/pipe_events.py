@@ -3,7 +3,6 @@
 
 import json
 import os
-import ctypes
 import asyncio
 import threading
 import win32file
@@ -86,21 +85,6 @@ async def normalize_nt_path(nt_path: str) -> str:
 # Existing helper functions
 # ============================================================================#
 
-# Constant special item ID list value for desktop folder
-CSIDL_DESKTOPDIRECTORY = 0x0010
-SHGFP_TYPE_CURRENT = 0
-SHGetFolderPathW = ctypes.windll.shell32.SHGetFolderPathW
-
-
-# -------------------------
-# Synchronous low-level helpers (kept sync and invoked via to_thread)
-# -------------------------
-def _sync_get_folder_path(csidl):
-    buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
-    SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
-    return str(buf.value)
-
-
 def _sync_normalize_path_for_compare(p: str) -> str:
     try:
         abs_p = os.path.abspath(p)
@@ -108,34 +92,9 @@ def _sync_normalize_path_for_compare(p: str) -> str:
         abs_p = p
     return os.path.normcase(os.path.normpath(abs_p))
 
-
-def _sync_path_is_under(prefix: str, candidate: str) -> bool:
-    prefix_n = _sync_normalize_path_for_compare(prefix)
-    candidate_n = _sync_normalize_path_for_compare(candidate)
-    if candidate_n == prefix_n:
-        return True
-    return candidate_n.startswith(prefix_n + os.sep)
-
-
-def _sync_close_handle(handle):
-    if handle:
-        try:
-            win32file.CloseHandle(handle)
-        except Exception as e:
-            logger.debug(f"Error closing handle: {e}")
-
-# -------------------------
-# Async wrappers for helpers (every top-level function is async)
-# -------------------------
-async def get_desktop() -> str:
-    return await asyncio.to_thread(_sync_get_folder_path, CSIDL_DESKTOPDIRECTORY)
-
-
-
 # ============================================================================#
 # Threat event processing (AV -> EDR)
 # ============================================================================#
-
 
 async def _process_threat_event(event: Any) -> None:
     """

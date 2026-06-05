@@ -19,11 +19,6 @@ program_data = "C:\\ProgramData"
 system_root = "C:\\Windows"
 system32_dir = "C:\\Windows\\System32"
 
-# --- CSIDL Constants for User Paths ---
-CSIDL_DESKTOP = 0x0000
-CSIDL_APPDATA = 0x001A  # Roaming
-CSIDL_LOCAL_APPDATA = 0x001C  # Local
-
 # Hydra Dragon Antivirus base folder path (read-only installation files)
 hydra_dragon_antivirus_dir = os.path.join(program_files, "HydraDragonAntivirus")
 
@@ -185,6 +180,9 @@ scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
 # Unified cache for all PE feature extractions
 unified_pe_cache = {}
+
+# HydraDragon Firewall executable path
+firewall_exe_path = os.path.join(program_files, "HydraDragonAntivirus", "hydradragon", "HydraDragonFirewall", "hydradragonfirewall.exe")
 
 # 7-Zip base folder path
 seven_zip_folder = os.path.join(program_files, "7-Zip")

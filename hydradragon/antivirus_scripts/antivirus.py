@@ -8417,42 +8417,6 @@ def _sync_read_scan_request_from_edr(timeout_ms: int = _WAIT_TIMEOUT_MS):
             except Exception:
                 pass
 
-
-def _sync_write_and_close(handle, data_bytes: bytes) -> bool:
-    """
-    Write to the given handle synchronously and ensure the handle is closed via
-    the centralized _sync_close_handle helper whether write succeeds or fails.
-    Intended to be called via asyncio.to_thread().
-    """
-    try:
-        win32file.WriteFile(handle, data_bytes)
-        try:
-            win32file.FlushFileBuffers(handle)
-        except Exception:
-            pass
-        # always attempt centralized close
-        try:
-            _sync_close_handle(handle)
-        except Exception:
-            # fallback: try handle.close
-            try:
-                handle.close()
-            except Exception:
-                pass
-        return True
-    except Exception as e:
-        # ensure handle closed on error
-        try:
-            _sync_close_handle(handle)
-        except Exception:
-            try:
-                handle.close()
-            except Exception:
-                pass
-        logger.debug(f"[EDR->AV] _sync_write_and_close: write error: {e}")
-        return False
-
-
 async def _handle_edr_scan_request(request_obj: dict) -> None:
     file_path = request_obj.get("file_path")
     if not file_path:
