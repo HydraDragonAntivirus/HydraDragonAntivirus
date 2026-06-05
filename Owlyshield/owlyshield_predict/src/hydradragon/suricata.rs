@@ -29,10 +29,12 @@ use crate::logging::Logging;
 const LOG_POLL_INTERVAL_MS: u64 = 500;
 const INTERFACE_CHECK_INTERVAL_SECS: u64 = 30;
 
-const SURICATA_EXE_DEFAULT: &str = r"C:\Program Files\Suricata\suricata.exe";
+const SURICATA_EXE_DEFAULT: &str =
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Suricata\suricata.exe";
 const SURICATA_CONFIG_DEFAULT: &str =
     r"C:\Program Files\HydraDragonAntivirus\hydradragon\hipsconfig\suricata.yaml";
-const SURICATA_LOG_DIR_DEFAULT: &str = r"C:\Program Files\Suricata\log";
+const SURICATA_LOG_DIR_DEFAULT: &str =
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Suricata\log";
 
 /// Path of the Sanctum shared config file.
 const SANCTUM_CONFIG_PATH: &str =

@@ -99,7 +99,7 @@ async def _send_av_event_to_edr(
     Args:
         file_path: Path to the threat file
         virus_name: Name of the detected threat
-        detection_type: Type of detection (e.g., "malware", "pua", "hayabusa")
+        detection_type: Type of detection (e.g., "malware", "pua")
         action: Action to take (e.g., "kill_and_quarantine", "kill_only", "monitor")
         pid: Optional process ID
         main_file_path: Optional main file path context
@@ -259,21 +259,6 @@ async def notify_user_pua(
         )
     except Exception as e:
         logger.exception(f"notify_user_pua failed: {e}")
-
-
-async def notify_user_hayabusa_critical(event_log, rule_title, details, computer) -> None:
-    try:
-        notification_message = f"CRITICAL event detected by Hayabusa:\nComputer: {computer}\nEvent Log: {event_log}\nRule: {rule_title}\nDetails: {details}"
-        logger.critical(notification_message)
-        threat_name = f"Hayabusa Critical: {rule_title}"
-        await _send_to_edr(
-            event_log,
-            threat_name,
-            detection_type="hayabusa",  # MODIFIED
-            action="kill_and_quarantine",
-        )
-    except Exception as e:
-        logger.exception(f"notify_user_hayabusa_critical failed: {e}")
 
 
 async def notify_user_for_malicious_source_code(file_path, virus_name, main_file_path: Optional[str] = None) -> None:

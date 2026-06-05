@@ -36,19 +36,14 @@ script_dir = os.path.join(hydra_dragon_antivirus_dir, "hydradragon")
 # Data directory for runtime-generated files
 data_dir = os.path.join(hydra_dragon_data_dir, "hydradragon")
 
-# Suricata base folder path
-suricata_dir = os.path.join(script_dir, "Suricata")
-
 # Define the paths for read-only tools (remain in Program Files)
 jadx_decompiler_dir = os.path.join(script_dir, "jadx-1.5.5")
 jadx_decompiler_path = os.path.join(jadx_decompiler_dir, "jadx.bat")
 unlicense_dir = os.path.join(script_dir, "unlicense")
 unlicense_path = os.path.join(unlicense_dir, "unlicense.exe")
 unlicense_x64_path = os.path.join(unlicense_dir, "unlicense-x64.exe")
-hayabusa_dir = os.path.join(script_dir, "hayabusa")
 pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
 nodejs_dir = os.path.join(hydra_dragon_antivirus_dir, "nodejs")
-
 
 def _resolve_nodejs_bin_dir():
     direct_node = os.path.join(nodejs_dir, "node.exe")
@@ -63,7 +58,6 @@ def _resolve_nodejs_bin_dir():
 
     return nodejs_dir
 
-
 nodejs_bin_dir = _resolve_nodejs_bin_dir()
 node_exe_path = os.path.join(nodejs_bin_dir, "node.exe")
 npm_cmd_path = os.path.join(nodejs_bin_dir, "npm.cmd")
@@ -71,7 +65,6 @@ asar_cli_path = os.path.join(nodejs_bin_dir, "asar.cmd")
 webcrack_cli_path = os.path.join(nodejs_bin_dir, "webcrack.cmd")
 nexe_unpacker_cli_path = os.path.join(nodejs_bin_dir, "nexe_unpacker.cmd")
 pkg_unpacker_main_path = os.path.join(pkg_unpacker_dir, "dist", "main.js")
-hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.9.0-win-x64.exe")
 inno_unpack_dir = os.path.join(script_dir, "innounp-2")
 upx_dir = os.path.join(script_dir, "upx-5.1.1-win64")
 upx_path = os.path.join(upx_dir, "upx.exe")
@@ -193,26 +186,6 @@ scanned_ipv6_addresses_general = []
 # Unified cache for all PE feature extractions
 unified_pe_cache = {}
 
-# List to keep track of existing project names
-existing_projects = []
-
-# Dictionary to track running Suricata processes per interface
-running_processes = {}
-
-started_interfaces = []  # using list instead of set
-
-APP_NAME = "HydraDragon Antivirus"
-APP_VERSION = "v0.1 (pre-release)"
-WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"
-
-# File paths and configurations
-suricata_log_dir = os.path.join(suricata_dir, "log")
-# Suricata typically uses eve.json for structured logging
-eve_log_path = os.path.join(suricata_log_dir, "eve.json")
-suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
-suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
-firewall_exe_path = os.path.join(program_files, "HydraDragonAntivirus", "hydradragon", "HydraDragonFirewall", "hydradragonfirewall.exe")
-
 # 7-Zip base folder path
 seven_zip_folder = os.path.join(program_files, "7-Zip")
 
@@ -244,11 +217,6 @@ uefi_paths = [r"EFI\Microsoft\Boot\bootmgfw.efi", r"EFI\Microsoft\Boot\bootmgr.e
 # tuning knobs
 RAW_PREVIEW_LEN = 128  # how many raw bytes to log for inspection
 READ_BUFFER_SIZE = 65536
-
-# Config
-_WAIT_TIMEOUT_MS = 5000  # WaitNamedPipe timeout when opening (ms)
-_OPEN_RETRIES = 10  # retries for opening the pipe
-_RETRY_DELAY = 0.5  # seconds between open retries
 
 # Path to the bundled radare2 binary shipped with HydraDragonAntivirus
 _R2_DIR = os.path.join(script_dir, "radare2")
