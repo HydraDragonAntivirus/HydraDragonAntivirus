@@ -204,9 +204,8 @@ pub enum IrpMajorOp {
 
 impl IrpMajorOp {
     /// Map a raw SysmonEvent u32 (`IOMessage.irp_op`) to a semantic classification bucket.
-    /// Map a raw SysmonEvent u32 (`IOMessage.irp_op`) to a semantic classification bucket.
-    /// Only handles OpenEDR LBVS SysmonEvent IDs (0x0000–0x0010).
-    /// For legacy ProcessProtection.cpp kernel-API hook opcodes (13–29), use [`IrpMajorOp::from_byte`].
+    /// OpenEDR LBVS wire uses 0x0000–0x0010. Kernel sub-event types that are identified
+    /// by unique sub-IDs in the 0x1000+ range round-trip correctly through to_sysmonevent_u32.
     pub fn from_sysmonevent(v: u32) -> IrpMajorOp {
         match v {
             0x0000 => IrpMajorOp::IrpProcessCreate,
@@ -221,46 +220,64 @@ impl IrpMajorOp {
             0x000E => IrpMajorOp::IrpHypervisorEvent,
             0x000F => IrpMajorOp::IrpNamedPipeCreate,
             0x0010 => IrpMajorOp::IrpUserModeHookEvent,
+            // Sub-event type IDs used by to_sysmonevent_u32 for round-trip (not on LBVS wire)
+            0x1009 => IrpMajorOp::IrpProcessTerminateAttempt,
+            0x100A => IrpMajorOp::IrpProcessExit,
+            0x100D => IrpMajorOp::IrpKernelRemoteThread,
+            0x100E => IrpMajorOp::IrpKernelWriteMemory,
+            0x100F => IrpMajorOp::IrpKernelProtectMemory,
+            0x1010 => IrpMajorOp::IrpKernelCreateThread,
+            0x1011 => IrpMajorOp::IrpKernelQueueApc,
+            0x1012 => IrpMajorOp::IrpKernelCreateSection,
+            0x1013 => IrpMajorOp::IrpKernelMapSection,
+            0x1015 => IrpMajorOp::IrpRootkitSsdtHook,
+            0x1016 => IrpMajorOp::IrpRootkitHiddenProcess,
+            0x1017 => IrpMajorOp::IrpRootkitHiddenDriver,
+            0x1018 => IrpMajorOp::IrpRootkitKernelHook,
+            0x1019 => IrpMajorOp::IrpRootkitTerminateProcess,
+            0x101A => IrpMajorOp::IrpRootkitFileMove,
+            0x101B => IrpMajorOp::IrpRootkitGeneric,
+            0x101D => IrpMajorOp::IrpNamedPipeWrite,
             _ => IrpMajorOp::IrpNone,
         }
     }
 
-    /// Legacy adapter for Linux eBPF path (small int opcodes: 1=read, 2=write, etc).
-    /// Returns a representative SysmonEvent u32 for this semantic op.
-    /// Used only for test fixtures and serialization — not for wire parsing.
+    /// Returns a stable u32 identifier for this op suitable for test fixtures and
+    /// local dispatch. Wire events from LBVS use 0x0000–0x0010; kernel sub-types
+    /// use 0x1000+ range to avoid collisions and round-trip correctly.
     pub fn to_sysmonevent_u32(&self) -> u32 {
         match self {
             IrpMajorOp::IrpNone => 0xFFFF_FFFF,
-            IrpMajorOp::IrpRead => 0x000B,        // FileDataReadFull
-            IrpMajorOp::IrpWrite => 0x000A,       // FileDataChange
-            IrpMajorOp::IrpSetInfo => 0x0008,     // FileDelete (representative)
-            IrpMajorOp::IrpCreate => 0x0007,      // FileCreate
-            IrpMajorOp::_IrpCleanUp => 0x0009,   // FileClose
-            IrpMajorOp::IrpRegistry => 0x0005,    // RegistryValueSet (representative)
+            IrpMajorOp::IrpRead => 0x000B,
+            IrpMajorOp::IrpWrite => 0x000A,
+            IrpMajorOp::IrpSetInfo => 0x0008,
+            IrpMajorOp::IrpCreate => 0x0007,
+            IrpMajorOp::_IrpCleanUp => 0x0009,
+            IrpMajorOp::IrpRegistry => 0x0005,
             IrpMajorOp::IrpProcessCreate => 0x0000,
             IrpMajorOp::IrpProcessTerminate => 0x0001,
             IrpMajorOp::IrpProcessHandleOpen => 0x000D,
             IrpMajorOp::IrpHypervisorEvent => 0x000E,
             IrpMajorOp::IrpUserModeHookEvent => 0x0010,
             IrpMajorOp::IrpNamedPipeCreate => 0x000F,
-            // Legacy Communication.cpp sub-types (12-29 range)
-            IrpMajorOp::IrpProcessTerminateAttempt => 9,
-            IrpMajorOp::IrpProcessExit => 10,
-            IrpMajorOp::IrpKernelRemoteThread => 13,
-            IrpMajorOp::IrpKernelWriteMemory => 14,
-            IrpMajorOp::IrpKernelProtectMemory => 15,
-            IrpMajorOp::IrpKernelCreateThread => 16,
-            IrpMajorOp::IrpKernelQueueApc => 17,
-            IrpMajorOp::IrpKernelCreateSection => 18,
-            IrpMajorOp::IrpKernelMapSection => 19,
-            IrpMajorOp::IrpRootkitSsdtHook => 21,
-            IrpMajorOp::IrpRootkitHiddenProcess => 22,
-            IrpMajorOp::IrpRootkitHiddenDriver => 23,
-            IrpMajorOp::IrpRootkitKernelHook => 24,
-            IrpMajorOp::IrpRootkitTerminateProcess => 25,
-            IrpMajorOp::IrpRootkitFileMove => 26,
-            IrpMajorOp::IrpRootkitGeneric => 27,
-            IrpMajorOp::IrpNamedPipeWrite => 29,
+            // 0x1000+ range: unique sub-type IDs for round-trip, not LBVS wire values
+            IrpMajorOp::IrpProcessTerminateAttempt => 0x1009,
+            IrpMajorOp::IrpProcessExit => 0x100A,
+            IrpMajorOp::IrpKernelRemoteThread => 0x100D,
+            IrpMajorOp::IrpKernelWriteMemory => 0x100E,
+            IrpMajorOp::IrpKernelProtectMemory => 0x100F,
+            IrpMajorOp::IrpKernelCreateThread => 0x1010,
+            IrpMajorOp::IrpKernelQueueApc => 0x1011,
+            IrpMajorOp::IrpKernelCreateSection => 0x1012,
+            IrpMajorOp::IrpKernelMapSection => 0x1013,
+            IrpMajorOp::IrpRootkitSsdtHook => 0x1015,
+            IrpMajorOp::IrpRootkitHiddenProcess => 0x1016,
+            IrpMajorOp::IrpRootkitHiddenDriver => 0x1017,
+            IrpMajorOp::IrpRootkitKernelHook => 0x1018,
+            IrpMajorOp::IrpRootkitTerminateProcess => 0x1019,
+            IrpMajorOp::IrpRootkitFileMove => 0x101A,
+            IrpMajorOp::IrpRootkitGeneric => 0x101B,
+            IrpMajorOp::IrpNamedPipeWrite => 0x101D,
         }
     }
 
