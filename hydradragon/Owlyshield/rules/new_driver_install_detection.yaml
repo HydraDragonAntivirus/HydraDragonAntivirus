@@ -177,12 +177,12 @@
   # The high-severity suspicious-location rules handle blocking/quarantine.
   detection_logic:
     any_of:
-      - condition: "driver_service_key_created"
-      - condition: "driver_imagepath_sys"
-      - condition: "driver_type_value_set"
-      - condition: "sc_kernel_driver_register"
-      - condition: "powershell_driver_register"
-      - condition: "ntloaddriver_call"
+      - "driver_service_key_created"
+      - "driver_imagepath_sys"
+      - "driver_type_value_set"
+      - "sc_kernel_driver_register"
+      - "powershell_driver_register"
+      - "ntloaddriver_call"
 
   response:
     notify_user: true

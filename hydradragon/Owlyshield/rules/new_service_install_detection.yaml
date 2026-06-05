@@ -138,8 +138,8 @@
 
   detection_logic:
     any_of:
-      - condition: "new_service_key_create"
-      - condition: "new_service_imagepath_set"
+      - "new_service_key_create"
+      - "new_service_imagepath_set"
 
   response:
     notify_user: true
@@ -234,7 +234,7 @@
 
   detection_logic:
     any_of:
-      - condition: "driver_service_type_write"
+      - "driver_service_type_write"
 
   response:
     notify_user: true
