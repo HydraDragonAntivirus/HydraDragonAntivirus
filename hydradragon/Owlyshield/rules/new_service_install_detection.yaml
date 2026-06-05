@@ -1,0 +1,262 @@
+---
+# New Windows Service Installation Detection
+# Detects new service creation via registry writes to HKLM\SYSTEM\CurrentControlSet\Services
+# MITRE ATT&CK: T1543.003 - Create or Modify System Process: Windows Service
+# Coverage: CreateServiceW (SCM), sc.exe, PowerShell New-Service, direct registry (NtLoadDriver path)
+
+- name: "New Windows Service Installation (Registry)"
+  status: stable
+  level: medium
+  severity: 72
+  description: |
+    Detects the installation of a new Windows service by monitoring registry key creation
+    under HKLM\SYSTEM\CurrentControlSet\Services. A new service key is written whenever
+    a service is registered via CreateServiceW(), sc.exe create, PowerShell New-Service,
+    or direct NtLoadDriver registry fallback. Malware commonly installs services for
+    persistence with SYSTEM privileges or to load kernel drivers.
+    MITRE ATT&CK: T1543.003 (Create or Modify System Process: Windows Service).
+  tags:
+    - registry
+    - persistence
+    - service
+    - new_service
+  mitre_attack:
+    - T1543.003
+  debug: false
+
+  named_conditions:
+    new_service_key_create:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services\*
+        - HKLM\SYSTEM\ControlSet001\Services\*
+        - HKLM\SYSTEM\ControlSet002\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services\*
+      registry_keys_exclude:
+        # Background Activity Moderator / Desktop Activity Moderator - OS internal
+        - "*/services/bam/*"
+        - "*/services/bam"
+        - "*/services/dam/*"
+        - "*/services/dam"
+        # Volatile OS runtime subkeys - not a new install, just runtime writes
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/*/security"
+        - "*/services/*/parameters"
+        # Known high-noise benign service subkeys
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/dnscache/*"
+        - "*/services/eventlog/*"
+        - "*/services/eventlog"
+        - "*/services/wuauserv/*"
+        - "*/services/bits/*"
+        - "*/services/rpcss/*"
+        - "*/services/nsi/*"
+        - "*/services/w32tm/*"
+      registry_operations:
+        - reg_create_key
+      min_matches: 1
+
+    new_service_imagepath_set:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services\*
+        - HKLM\SYSTEM\ControlSet001\Services\*
+        - HKLM\SYSTEM\ControlSet002\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services\*
+      registry_keys_exclude:
+        - "*/services/bam/*"
+        - "*/services/bam"
+        - "*/services/dam/*"
+        - "*/services/dam"
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/*/security"
+        - "*/services/*/parameters"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/dnscache/*"
+        - "*/services/eventlog/*"
+        - "*/services/eventlog"
+        - "*/services/wuauserv/*"
+        - "*/services/bits/*"
+        - "*/services/rpcss/*"
+        - "*/services/nsi/*"
+        - "*/services/w32tm/*"
+      registry_values:
+        - ImagePath
+        - ServiceDll
+      registry_operations:
+        - reg_set_value
+      min_matches: 1
+
+    new_driver_service_key_create:
+      # Kernel driver service: Type=1 (SERVICE_KERNEL_DRIVER), elevated severity handled by rule below
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services\*
+        - HKLM\SYSTEM\ControlSet001\Services\*
+        - HKLM\SYSTEM\ControlSet002\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services\*
+      registry_keys_exclude:
+        - "*/services/bam/*"
+        - "*/services/bam"
+        - "*/services/dam/*"
+        - "*/services/dam"
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/*/security"
+        - "*/services/*/parameters"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/dnscache/*"
+        - "*/services/eventlog/*"
+        - "*/services/eventlog"
+      registry_values:
+        - ImagePath
+        - Type
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+      min_matches: 2
+
+  detection_logic:
+    any_of:
+      - condition: "new_service_key_create"
+      - condition: "new_service_imagepath_set"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "drvinst.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "trustedinstaller.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "svchost.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "services.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+      must_be_signed: false
+      is_absolute: true
+    - pattern: "C:/Windows/System32/DriverStore/*"
+      must_be_signed: true
+
+- name: "Suspicious Kernel Driver Service Registration"
+  status: stable
+  level: high
+  severity: 88
+  description: |
+    Detects kernel driver service registration (Type=1 SERVICE_KERNEL_DRIVER or
+    Type=2 SERVICE_FILE_SYSTEM_DRIVER) via direct registry writes. Rootkits and
+    bootkits use this pattern to load unsigned or malicious kernel modules.
+    Unlike legitimate driver installations which go through INF/DrpInst,
+    this fires on raw registry creation of driver-type services.
+    MITRE ATT&CK: T1543.003, T1014 (Rootkit).
+  tags:
+    - registry
+    - persistence
+    - driver
+    - rootkit
+    - kernel
+  mitre_attack:
+    - T1543.003
+    - T1014
+  debug: false
+
+  named_conditions:
+    driver_service_type_write:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services\*
+        - HKLM\SYSTEM\ControlSet001\Services\*
+        - HKLM\SYSTEM\ControlSet002\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services\*
+      registry_keys_exclude:
+        - "*/services/bam/*"
+        - "*/services/bam"
+        - "*/services/dam/*"
+        - "*/services/dam"
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/*/security"
+        - "*/services/*/parameters"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/dnscache/*"
+        - "*/services/eventlog/*"
+        - "*/services/eventlog"
+      registry_values:
+        - ImagePath
+        - Type
+        - Start
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+      min_matches: 3
+
+  detection_logic:
+    any_of:
+      - condition: "driver_service_type_write"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "drvinst.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "trustedinstaller.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+      must_be_signed: false
+      is_absolute: true
+    - pattern: "C:/Windows/System32/DriverStore/*"
+      must_be_signed: true
