@@ -53,11 +53,11 @@ use windows::Win32::Storage::InstallableFileSystems::{
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::core::{Error, PCWSTR};
 
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::shared_def::KernelEventInfo;
 use crate::shared_def::{
     DriverComMessageType, FileChangeInfo, FileId, IOMessage, RuntimeFeatures, SysmonEvent,
 };
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::shared_def::KernelEventInfo;
 
 pub type BufPath = [wchar_t; 520];
 

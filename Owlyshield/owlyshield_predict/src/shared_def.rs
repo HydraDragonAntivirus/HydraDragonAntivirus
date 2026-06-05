@@ -319,13 +319,25 @@ mod tests {
 
     #[test]
     fn from_sysmonevent_maps_correctly() {
-        assert_eq!(IrpMajorOp::from_sysmonevent(0x0000), IrpMajorOp::IrpProcessCreate);
+        assert_eq!(
+            IrpMajorOp::from_sysmonevent(0x0000),
+            IrpMajorOp::IrpProcessCreate
+        );
         assert_eq!(IrpMajorOp::from_sysmonevent(0x0007), IrpMajorOp::IrpCreate);
         assert_eq!(IrpMajorOp::from_sysmonevent(0x000B), IrpMajorOp::IrpRead);
-        assert_eq!(IrpMajorOp::from_sysmonevent(0x000F), IrpMajorOp::IrpNamedPipeCreate);
+        assert_eq!(
+            IrpMajorOp::from_sysmonevent(0x000F),
+            IrpMajorOp::IrpNamedPipeCreate
+        );
         // Registry range: multiple wire IDs collapse to one variant
-        assert_eq!(IrpMajorOp::from_sysmonevent(0x0002), IrpMajorOp::IrpRegistry);
-        assert_eq!(IrpMajorOp::from_sysmonevent(0x0005), IrpMajorOp::IrpRegistry);
+        assert_eq!(
+            IrpMajorOp::from_sysmonevent(0x0002),
+            IrpMajorOp::IrpRegistry
+        );
+        assert_eq!(
+            IrpMajorOp::from_sysmonevent(0x0005),
+            IrpMajorOp::IrpRegistry
+        );
         // IrpWrite alias: 0x000C also maps to IrpWrite
         assert_eq!(IrpMajorOp::from_sysmonevent(0x000A), IrpMajorOp::IrpWrite);
         assert_eq!(IrpMajorOp::from_sysmonevent(0x000C), IrpMajorOp::IrpWrite);
@@ -377,7 +389,10 @@ mod tests {
             );
         }
         // IrpNone sentinel must not accidentally map to a real variant
-        assert_eq!(IrpMajorOp::from_sysmonevent(0xFFFF_FFFF), IrpMajorOp::IrpNone);
+        assert_eq!(
+            IrpMajorOp::from_sysmonevent(0xFFFF_FFFF),
+            IrpMajorOp::IrpNone
+        );
     }
 }
 

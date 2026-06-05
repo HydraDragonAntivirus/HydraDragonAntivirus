@@ -460,13 +460,13 @@ impl ApiTracker {
                 self.process_operations.threads_created += 1;
             }
             _ => {
-                    // Track any other kernel ops as generic kernel operations.
-                    // SysmonEvent 0x000E (DeviceIoControl=14) and above are kernel/hypervisor
-                    // events in the legacy Communication.cpp path (event_types 12-29).
-                    if msg.irp_op >= 0x000E {
-                        self.kernel_operations.total_kernel_events += 1;
-                    }
+                // Track any other kernel ops as generic kernel operations.
+                // SysmonEvent 0x000E (DeviceIoControl=14) and above are kernel/hypervisor
+                // events in the legacy Communication.cpp path (event_types 12-29).
+                if msg.irp_op >= 0x000E {
+                    self.kernel_operations.total_kernel_events += 1;
                 }
+            }
         }
 
         if self.file_operations.files_written + self.file_operations.files_deleted > 100 {
@@ -521,15 +521,7 @@ impl ApiTracker {
             };
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let (source_pid, target_pid, mem_size, status, raw_event_type, arg1, arg2, arg3, arg4) = (
-            msg.pid,
-            msg.pid,
-            0u64,
-            0i32,
-            msg.irp_op,
-            0u64,
-            0u64,
-            0u64,
-            0u64,
+            msg.pid, msg.pid, 0u64, 0i32, msg.irp_op, 0u64, 0u64, 0u64, 0u64,
         );
 
         self.operation_sequence.push(OperationType::KernelApi {
