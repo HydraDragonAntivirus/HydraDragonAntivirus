@@ -31,12 +31,10 @@ const DEFAULT_TIME_OFFSET: &str = "60s";
 
 const HAYABUSA_PREFERRED_PATH: &str =
     r"C:\Program Files\HydraDragonAntivirus\hydradragon\hayabusa\hayabusa-3.9.0-win-x64.exe";
-const HAYABUSA_DIR_DEFAULT: &str =
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\hayabusa";
+const HAYABUSA_DIR_DEFAULT: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\hayabusa";
 
 /// Output base directory — deliberately inside ProgramData, not Program Files.
-const HAYABUSA_OUTPUT_BASE: &str =
-    r"C:\ProgramData\HydraDragonAntivirus\hydradragon\logs\hayabusa";
+const HAYABUSA_OUTPUT_BASE: &str = r"C:\ProgramData\HydraDragonAntivirus\hydradragon\logs\hayabusa";
 
 /// Path of the Sanctum shared config file.
 const SANCTUM_CONFIG_PATH: &str =
@@ -181,9 +179,8 @@ fn parse_hayabusa_csv(csv_path: &Path, min_level: &str) -> Vec<HayabusaCriticalA
             Err(_) => continue,
         };
 
-        let get = |idx: Option<usize>| -> &str {
-            idx.and_then(|i| record.get(i)).unwrap_or("").trim()
-        };
+        let get =
+            |idx: Option<usize>| -> &str { idx.and_then(|i| record.get(i)).unwrap_or("").trim() };
 
         let level = get(idx_level).to_ascii_lowercase();
         if !accepted_levels.iter().any(|&l| level == l) {
@@ -299,8 +296,7 @@ fn run_single_scan(hayabusa_exe: &Path, min_level: &str, time_offset: &str) {
         .unwrap_or_default()
         .as_secs();
 
-    let output_dir =
-        PathBuf::from(HAYABUSA_OUTPUT_BASE).join(format!("hayabusa_scan_{}", ts));
+    let output_dir = PathBuf::from(HAYABUSA_OUTPUT_BASE).join(format!("hayabusa_scan_{}", ts));
 
     if let Err(e) = fs::create_dir_all(&output_dir) {
         Logging::error(&format!(
@@ -451,9 +447,7 @@ pub fn start_hayabusa_monitor() {
     let hayabusa_exe = match resolve_hayabusa_exe(exe_path_cfg.as_deref()) {
         Some(p) => p,
         None => {
-            Logging::warning(
-                "[Hayabusa] Executable not found; periodic scanning disabled",
-            );
+            Logging::warning("[Hayabusa] Executable not found; periodic scanning disabled");
             return;
         }
     };

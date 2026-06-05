@@ -419,8 +419,7 @@ fn spawn_interface_monitor(
     thread::Builder::new()
         .name("suricata_iface_monitor".into())
         .spawn(move || {
-            let running: Arc<Mutex<HashMap<String, Child>>> =
-                Arc::new(Mutex::new(HashMap::new()));
+            let running: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
 
             spawn_eve_log_monitor(eve_log);
 
@@ -489,15 +488,12 @@ pub fn start_suricata_monitor() {
         return;
     }
 
-    let suricata_exe = PathBuf::from(
-        non_empty(&cfg.suricata_exe_path).unwrap_or(SURICATA_EXE_DEFAULT),
-    );
-    let suricata_cfg = PathBuf::from(
-        non_empty(&cfg.suricata_config_path).unwrap_or(SURICATA_CONFIG_DEFAULT),
-    );
-    let log_dir = PathBuf::from(
-        non_empty(&cfg.suricata_log_dir).unwrap_or(SURICATA_LOG_DIR_DEFAULT),
-    );
+    let suricata_exe =
+        PathBuf::from(non_empty(&cfg.suricata_exe_path).unwrap_or(SURICATA_EXE_DEFAULT));
+    let suricata_cfg =
+        PathBuf::from(non_empty(&cfg.suricata_config_path).unwrap_or(SURICATA_CONFIG_DEFAULT));
+    let log_dir =
+        PathBuf::from(non_empty(&cfg.suricata_log_dir).unwrap_or(SURICATA_LOG_DIR_DEFAULT));
     let eve_log = log_dir.join("eve.json");
 
     if !suricata_exe.exists() {
