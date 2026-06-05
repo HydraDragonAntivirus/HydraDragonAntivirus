@@ -1723,7 +1723,10 @@ async fn start_openedr() -> Result<()> {
     info!("Starting OpenEDR...");
     let openedr_path = openedr_exe_path();
     if !openedr_path.exists() {
-        warn!("[OpenEDR] edrsvc.exe not found at {}", openedr_path.display());
+        warn!(
+            "[OpenEDR] edrsvc.exe not found at {}",
+            openedr_path.display()
+        );
         return Ok(());
     }
 
@@ -1742,7 +1745,10 @@ async fn start_openedr() -> Result<()> {
                         for line in stdout.lines() {
                             let trimmed = line.trim();
                             if !trimmed.is_empty() {
-                                if trimmed.contains("[ERR]") || trimmed.contains("Error") || trimmed.contains("Exception") {
+                                if trimmed.contains("[ERR]")
+                                    || trimmed.contains("Error")
+                                    || trimmed.contains("Exception")
+                                {
                                     error!("[OpenEDR] {}", trimmed);
                                 } else {
                                     info!("[OpenEDR] {}", trimmed);
