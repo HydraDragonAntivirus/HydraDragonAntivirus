@@ -13,9 +13,7 @@ Abstract:
 
     Header file for comprehensive process protection using ObRegisterCallbacks
     and kernel-level API hooks. Detects all process-related events:
-    - Process creation
     - Process termination attempts
-    - Process exit events
     - Process handle operations
     - Kernel API hooking for injection detection
 
