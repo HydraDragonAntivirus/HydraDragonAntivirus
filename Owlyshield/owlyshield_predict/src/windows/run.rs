@@ -271,6 +271,10 @@ pub fn run() {
                 let hydra_dragon_integration =
                     crate::init_hydra_dragon(&thread_config, thread_driver.clone());
                 worker = worker.av_integration(hydra_dragon_integration);
+
+                // Start Suricata NIDS and Hayabusa EVTX scanner in Rust
+                crate::hydradragon::suricata::start_suricata_monitor();
+                crate::hydradragon::hayabusa::start_hayabusa_monitor();
             }
 
             worker = worker.exepath_handler(Box::new(ExepathLive));

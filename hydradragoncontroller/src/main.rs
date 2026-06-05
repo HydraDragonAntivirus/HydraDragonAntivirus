@@ -1722,13 +1722,58 @@ async fn start_firewall_visible() -> Result<Option<Child>> {
 async fn start_openedr() -> Result<()> {
     info!("Starting OpenEDR...");
     let openedr_path = openedr_exe_path();
-    if openedr_path.exists() {
-        let _ = hidden_command(openedr_path.as_os_str())
-            .arg("start")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+    if !openedr_path.exists() {
+        warn!("[OpenEDR] edrsvc.exe not found at {}", openedr_path.display());
+        return Ok(());
     }
+
+    match hidden_command(openedr_path.as_os_str())
+        .arg("start")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => {
+            // Collect output in background so it doesn't block startup
+            tauri::async_runtime::spawn(async move {
+                match child.wait_with_output() {
+                    Ok(out) => {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        for line in stdout.lines() {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                if trimmed.contains("[ERR]") || trimmed.contains("Error") || trimmed.contains("Exception") {
+                                    error!("[OpenEDR] {}", trimmed);
+                                } else {
+                                    info!("[OpenEDR] {}", trimmed);
+                                }
+                            }
+                        }
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        for line in stderr.lines() {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                warn!("[OpenEDR stderr] {}", trimmed);
+                            }
+                        }
+                        if !out.status.success() {
+                            error!(
+                                "[OpenEDR] edrsvc start exited with code {:?}",
+                                out.status.code()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!("[OpenEDR] Failed to collect edrsvc output: {}", e);
+                    }
+                }
+            });
+        }
+        Err(e) => {
+            error!("[OpenEDR] Failed to spawn edrsvc start: {}", e);
+        }
+    }
+
     Ok(())
 }
 

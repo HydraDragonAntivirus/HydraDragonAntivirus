@@ -70,7 +70,6 @@ from .path_and_variables import (
     OWLYSHIELD_RANSOM_EXE,
     _WAIT_TIMEOUT_MS,
     _RETRY_DELAY,
-    hayabusa_path,
     python_path,
     jadx_decompiled_dir,
     nexe_javascript_unpacked_dir,
@@ -155,8 +154,6 @@ from .path_and_variables import (
     html_extracted_dir,
     unified_pe_cache,
     existing_projects,
-    running_processes,
-    started_interfaces,
     system32_dir,
     file_md5_cache,
     detectiteasy_cache,
@@ -169,10 +166,6 @@ from .path_and_variables import (
     uefi_100kb_paths,
     uefi_paths,
     get_startup_paths,
-    eve_log_path,
-    suricata_log_dir,
-    suricata_config_path,
-    suricata_exe_path,
     seven_zip_path,
     antivirus_list_path,
 )
@@ -310,28 +303,9 @@ import win32serviceutil
 logger.debug(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from wmi import WMI
-
-logger.debug(f"wmi.WMI module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import pythoncom
-
-logger.debug(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
-start_time = time.time()
 import ast
 
 logger.debug(f"ast module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import ctypes
-
-logger.debug(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from ctypes import wintypes
-
-logger.debug(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
@@ -537,10 +511,8 @@ from .notify_user import (  # noqa: E402
     notify_user_invalid,
     notify_user_fake_size,
     notify_user_startup,
-    notify_user_for_detected_hips_file,
     notify_user_duplicate,
     notify_user_for_uefi,
-    notify_user_hayabusa_critical,
     _sync_write_pipe,
 )
 
@@ -605,31 +577,6 @@ def is_service_running(service_name):
         return status == win32service.SERVICE_RUNNING
     except win32service.error:
         return False
-
-
-# Regex for Suricata EVE JSON alerts (assuming EVE JSON format)
-# This will parse the JSON structure instead of text-based alerts
-def parse_suricata_alert(json_line):
-    """Parse Suricata EVE JSON alert format"""
-    try:
-        alert_data = json.loads(json_line)
-        if alert_data.get("event_type") == "alert":
-            # Suricata uses severity levels, convert to priority (lower number = higher priority)
-            severity = alert_data.get("alert", {}).get("severity", 3)
-            priority = severity  # Use severity as priority directly
-
-            src_ip = alert_data.get("src_ip", "")
-            dest_ip = alert_data.get("dest_ip", "")
-
-            # Additional data that might be useful
-            signature = alert_data.get("alert", {}).get("signature", "")
-            category = alert_data.get("alert", {}).get("category", "")
-
-            return priority, src_ip, dest_ip, signature, category
-    except (json.JSONDecodeError, KeyError) as ex:
-        logger.debug(f"Error parsing JSON alert: {ex}")
-        return None, None, None, None, None
-    return None, None, None, None, None
 
 
 drivers_path = os.path.join(system32_dir, "drivers")
@@ -2406,616 +2353,6 @@ async def ml_fastpath_should_continue(norm_path, signature_check, pe_file, benig
 
     # Otherwise (ML said Clean or gave no opinion) -> continue to full scan
     return True
-
-
-# --- Synchronous helper to run in a thread ---
-
-
-def _sync_find_files_for_ips(src_ip, dst_ip):
-    """
-    Synchronous helper to run in a thread.
-    Iterates over processes and connections to find associated files.
-    """
-    if not psutil:
-        logger.warning("psutil is not loaded, cannot find files for IPs.")
-        return []
-
-    found_files = []
-    # Iterate over all running processes
-    for proc in psutil.process_iter(["pid", "name", "exe"]):
-        try:
-            # Get network connections for the process
-            connections = proc.net_connections()
-            if connections:
-                for conn in connections:
-                    # Check if the remote address matches src_ip or dst_ip
-                    if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
-                        file_path = proc.info.get("exe")
-                        if file_path:
-                            found_files.append(file_path)
-                            # We found a match for this process, break inner loop
-                            break
-        except psutil.ZombieProcess:
-            logger.debug(f"Zombie process encountered: {proc.info.get('pid')}")
-        except psutil.NoSuchProcess:
-            logger.debug(f"Process no longer exists: {proc.info.get('pid')}")
-        except psutil.AccessDenied:
-            logger.debug(f"Access denied to process: {proc.info.get('pid')}")
-        except Exception as ex:
-            # Log other potential errors during connection checking
-            logger.error(f"Error processing process {proc.info.get('pid')}: {ex}")
-
-    # Return a list of unique file paths
-    return list(set(found_files))
-
-
-# --- Asynchronous Public Functions ---
-
-
-async def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
-    """
-    Convert IP addresses to associated file paths asynchronously.
-    This function will log the status and trigger notifications for detected files.
-    """
-    try:
-        # Run the blocking psutil scan in a separate thread
-        # asyncio.to_thread is the modern way (Python 3.9+)
-        file_paths = await asyncio.to_thread(_sync_find_files_for_ips, src_ip, dst_ip)
-
-        # Iterate over the results and notify
-        for file_path in file_paths:
-            logger.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
-            # Only send critical alerts for non-info statuses
-            if not status.startswith("Info"):
-                logger.critical(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}. Alert Line: {alert_line}")
-                # Await the asynchronous notification
-                await notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
-
-    except Exception as ex:
-        logger.error(f"Unexpected error in convert_ip_to_file: {ex}")
-
-
-async def process_alert_data(priority, src_ip, dest_ip):
-    try:
-        return False
-    except Exception as ex:
-        logger.error(f"Error processing alert data: {ex}")
-        return False
-
-
-def validate_paths():
-    for path, desc in [(suricata_exe_path, "Suricata executable"), (suricata_config_path, "Suricata config")]:
-        if not os.path.exists(path):
-            logger.error(f"{desc} not found at: {path}")
-            return False
-        if not os.access(path, os.R_OK):
-            logger.error(f"{desc} is not readable: {path}")
-            return False
-    os.makedirs(suricata_log_dir, exist_ok=True)
-    if not os.access(suricata_log_dir, os.W_OK):
-        logger.error(f"Suricata log directory is not writable: {suricata_log_dir}")
-        return False
-    return True
-
-
-# ============================================================================#
-# Windows Suricata-compatible interface detection (Async)
-# ============================================================================#
-
-# Constants for GetAdaptersAddresses
-AF_UNSPEC = 0
-GAA_FLAG_INCLUDE_PREFIX = 0x00000010
-
-iphlpapi = ctypes.WinDLL("Iphlpapi.dll")
-GetAdaptersAddresses = iphlpapi.GetAdaptersAddresses
-GetAdaptersAddresses.argtypes = [wintypes.ULONG, wintypes.ULONG, wintypes.LPVOID, wintypes.LPVOID, ctypes.POINTER(wintypes.ULONG)]
-# We'll use a minimal adapters structure parsing approach: read the AdapterName and IfIndex fields.
-# This structure is large; to avoid crafting full struct we call the function twice to get needed buffer,
-# then parse the buffer using a simplified adapter structure only for necessary offsets.
-
-GetIfEntry = iphlpapi.GetIfEntry
-
-
-# MIB_IFROW struct
-class MIB_IFROW(ctypes.Structure):
-    _fields_ = [
-        ("wszName", ctypes.c_char * 256),
-        ("dwIndex", wintypes.DWORD),
-        ("dwType", wintypes.DWORD),
-        ("dwMtu", wintypes.DWORD),
-        ("dwSpeed", wintypes.DWORD),
-        ("dwPhysAddrLen", wintypes.DWORD),
-        ("bPhysAddr", ctypes.c_ubyte * 8),
-        ("dwAdminStatus", wintypes.DWORD),
-        ("dwOperStatus", wintypes.DWORD),
-        ("dwLastChange", wintypes.DWORD),
-        ("dwInOctets", wintypes.DWORD),
-        ("dwInUcastPkts", wintypes.DWORD),
-        ("dwInNUcastPkts", wintypes.DWORD),
-        ("dwInDiscards", wintypes.DWORD),
-        ("dwInErrors", wintypes.DWORD),
-        ("dwInUnknownProtos", wintypes.DWORD),
-        ("dwOutOctets", wintypes.DWORD),
-        ("dwOutUcastPkts", wintypes.DWORD),
-        ("dwOutNUcastPkts", wintypes.DWORD),
-        ("dwOutDiscards", wintypes.DWORD),
-        ("dwOutErrors", wintypes.DWORD),
-        ("dwOutQLen", wintypes.DWORD),
-        ("dwDescrLen", wintypes.DWORD),
-        ("bDescr", ctypes.c_ubyte * 256),
-    ]
-
-
-GetIfEntry.argtypes = [ctypes.POINTER(MIB_IFROW)]
-GetIfEntry.restype = wintypes.DWORD
-
-
-# Helper: build mapping GUID -> IfIndex using GetAdaptersAddresses via ctypes.
-def _build_guid_to_index_map():
-    # Call GetAdaptersAddresses to get buffer size, then call again.
-    size = wintypes.ULONG(0)
-    rv = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, None, None, ctypes.byref(size))
-    # Accept both ERROR_BUFFER_OVERFLOW (111) and ERROR_INSUFFICIENT_BUFFER (122)
-    if rv not in (0, 111, 122):
-        logger.error("GetAdaptersAddresses initial call failed with error code %s", rv)
-        return {}
-
-    if rv == 0:
-        logger.debug("GetAdaptersAddresses returned success on initial call (unexpected, no adapters?)")
-        return {}
-
-    logger.debug("GetAdaptersAddresses buffer size needed: %s bytes", size.value)
-
-    buf = ctypes.create_string_buffer(size.value)
-    rv = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, None, ctypes.byref(buf), ctypes.byref(size))
-    if rv != 0:
-        logger.error("GetAdaptersAddresses second call failed with error code %s", rv)
-        return {}
-
-    logger.debug("GetAdaptersAddresses succeeded, parsing buffer...")
-
-    # Simple parser: search for adapter GUID string patterns in the buffer and nearby IfIndex.
-    # The full structure parsing is verbose — this heuristic is robust enough for mapping GUIDs ->
-    # IfIndex because GetAdaptersAddresses returns ASCII adapter names (AdapterName) and
-    # friendly names (which often contain the GUID in some cases). We'll fall back to WMI IfIndex if needed.
-
-    data = buf.raw
-    mapping = {}
-    # GUIDs have pattern like '{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}' or 'XXXXXXXX-XXXX-...'
-    # find GUID-style occurrences in buffer
-    guid_count = 0
-    for m in re.finditer(rb"\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?", data):
-        guid_count += 1
-        # try to find a nearby IfIndex (DWORD) by scanning ±200 bytes for a 4-byte little-endian value
-        guid_bytes = m.group(0)
-        # decode GUID in the common forms to normalized GUID without braces
-        guid = guid_bytes.decode(errors="ignore").strip("{}").upper()
-        # crude attempt to find IfIndex in the next 200 bytes
-        start = max(0, m.start() - 16)
-        end = min(len(data), m.end() + 200)
-        window = data[start:end]
-        # search for a little-endian DWORD that looks like a reasonable IfIndex (1..1000)
-        for i in range(0, max(0, len(window) - 4)):
-            val = int.from_bytes(window[i : i + 4], "little")
-            if 0 < val < 2000:
-                mapping[guid] = val
-                logger.debug("Mapped GUID %s -> IfIndex %s", guid, val)
-                break
-
-    logger.debug("Found %s GUIDs in buffer, successfully mapped %s", guid_count, len(mapping))
-    return mapping
-
-
-# Fallback helper using WMI: get mapping from NIC GUID -> IfIndex property (Win32_NetworkAdapter has InterfaceIndex or Index)
-def _wmi_guid_to_index_map():
-    try:
-        logger.debug("Attempting WMI GUID to IfIndex mapping...")
-        w = WMI()
-        m = {}
-        adapter_count = 0
-        for nic in w.Win32_NetworkAdapter():
-            adapter_count += 1
-            # InterfaceIndex or NetConnectionID or Index
-            # Some WMI instances provide 'InterfaceIndex'
-            idx = getattr(nic, "InterfaceIndex", None) or getattr(nic, "Index", None)
-            guid_raw = getattr(nic, "GUID", None)
-            if idx and guid_raw:
-                guid = str(guid_raw).strip("{}").upper()
-                m[guid] = int(idx)
-                logger.debug("WMI mapped GUID %s -> IfIndex %s", guid, idx)
-        logger.debug("WMI processed %s adapters, mapped %s with GUID+IfIndex", adapter_count, len(m))
-        return m
-    except Exception as ex:
-        logger.error("WMI GUID mapping failed: %s", ex, exc_info=True)
-        return {}
-
-
-# Helper to get MTU for a given IfIndex using GetIfEntry
-def get_mtu_for_ifindex(ifindex: int):
-    row = MIB_IFROW()
-    row.dwIndex = int(ifindex)
-    rv = GetIfEntry(ctypes.byref(row))
-    if rv == 0:
-        mtu = int(row.dwMtu)
-        logger.debug("GetIfEntry succeeded for IfIndex %s: MTU=%s", ifindex, mtu)
-        return mtu
-    else:
-        # non-zero means failure; return None to indicate MTU couldn't be read
-        logger.debug("GetIfEntry failed for IfIndex %s (error code=%s)", ifindex, rv)
-        return None
-
-
-# ------------------ main async function ---------------------------------------------------
-async def get_suricata_interfaces():
-    """
-    Return list of dicts with fields:
-      - npf_name: like r"\\Device\\NPF_{GUID}"
-      - guid: GUID string (upper, no braces)
-      - mtu: integer MTU or None if unavailable
-      - reason: optional text why MTU unavailable
-      - wmi_name: adapter friendly name
-    Runs WMI and any ctypes helpers in executor to avoid blocking event loop.
-    """
-    loop = asyncio.get_running_loop()
-
-    def _worker():
-        try:
-            # Each thread must initialize COM
-            try:
-                pythoncom.CoInitialize()
-            except Exception:
-                pass
-
-            interfaces = []
-
-            try:
-                logger.debug("Initializing WMI...")
-                w = WMI()
-                logger.debug("WMI initialized successfully")
-            except Exception as e:
-                logger.exception("WMI instantiation failed: %s", e)
-                return []
-
-            # Try fast GUID->IfIndex map then WMI fallback
-            try:
-                logger.debug("Building GUID->IfIndex map using GetAdaptersAddresses...")
-                guid_ifindex_map = _build_guid_to_index_map()
-                logger.debug("GetAdaptersAddresses map result: %s entries", len(guid_ifindex_map))
-            except Exception as ex:
-                logger.error("GetAdaptersAddresses mapping failed: %s", ex, exc_info=True)
-                guid_ifindex_map = {}
-
-            if not guid_ifindex_map:
-                logger.info("GetAdaptersAddresses mapping empty, trying WMI fallback...")
-                try:
-                    guid_ifindex_map = _wmi_guid_to_index_map()
-                    logger.debug("WMI fallback map result: %s entries", len(guid_ifindex_map))
-                except Exception as ex:
-                    logger.error("WMI fallback mapping failed: %s", ex, exc_info=True)
-                    guid_ifindex_map = {}
-
-            if not guid_ifindex_map:
-                logger.warning("No GUID->IfIndex mappings available from either method")
-
-            adapter_count = 0
-            for nic in w.Win32_NetworkAdapter():
-                adapter_count += 1
-                try:
-                    net_enabled = getattr(nic, "NetEnabled", None)
-                    # Prefer explicit GUID; fallback to regex
-                    guid_raw = getattr(nic, "GUID", None)
-                    if not guid_raw:
-                        src = str(getattr(nic, "PNPDeviceID", "") or getattr(nic, "Name", ""))
-                        m = re.search(r"\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?", src)
-                        if m:
-                            guid_raw = m.group(0)
-                    if not guid_raw:
-                        # skip adapters without GUID
-                        logger.debug("Skipping adapter without GUID: %s", getattr(nic, "Name", "<unknown>"))
-                        continue
-
-                    guid = str(guid_raw).strip("{}").upper()
-                    npf_name = rf"\\Device\\NPF_{{{guid}}}"
-
-                    if net_enabled is False:
-                        logger.debug("Skipping adapter (disabled): %s (GUID: %s)", getattr(nic, "Name", "<unknown>"), guid)
-                        continue
-
-                    mtu = None
-                    reason = None
-
-                    ifindex = guid_ifindex_map.get(guid)
-                    if ifindex is None:
-                        logger.debug("No mapping found for GUID %s, trying WMI Index properties...", guid)
-                        # try WMI properties Index or InterfaceIndex
-                        if_index = getattr(nic, "InterfaceIndex", None) or getattr(nic, "Index", None)
-                        if if_index:
-                            try:
-                                mtu_val = get_mtu_for_ifindex(int(if_index))
-                                if mtu_val:
-                                    mtu = int(mtu_val)
-                                else:
-                                    reason = f"GetIfEntry failed for WMI Index {if_index}"
-                            except Exception as e:
-                                reason = f"MTU lookup exception via WMI index: {e!r}"
-                                logger.debug(reason)
-                        else:
-                            reason = "No IfIndex mapping available"
-                            logger.debug("No IfIndex available for GUID %s", guid)
-                    else:
-                        logger.debug("Using mapped IfIndex %s for GUID %s", ifindex, guid)
-                        try:
-                            mtu_val = get_mtu_for_ifindex(int(ifindex))
-                            if mtu_val:
-                                mtu = int(mtu_val)
-                            else:
-                                reason = f"GetIfEntry failed for IfIndex {ifindex}"
-                        except Exception as e:
-                            reason = f"MTU lookup exception: {e!r}"
-                            logger.debug(reason)
-
-                    interface_info = {
-                        "npf_name": npf_name,
-                        "guid": guid,
-                        "mtu": mtu,
-                        "reason": reason,
-                        "wmi_name": getattr(nic, "Name", None),
-                    }
-                    interfaces.append(interface_info)
-                    logger.debug("Added interface: %s | MTU=%s", guid, mtu)
-
-                except Exception as ex:
-                    logger.exception("Error while processing adapter: %s", ex)
-                    continue
-
-            logger.info("Processed %s WMI adapters, found %s usable interfaces", adapter_count, len(interfaces))
-            return interfaces
-        finally:
-            try:
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
-
-    return await loop.run_in_executor(None, _worker)
-
-
-# ============================================================================#
-# Start Suricata on interface (Async)
-# ============================================================================#
-# On Windows, use CREATE_NEW_PROCESS_GROUP so terminate() works more predictably.
-CREATE_NEW_PROCESS_GROUP = 0x00000200
-CREATE_NO_WINDOW = 0x08000000
-
-
-async def start_suricata_on_interface(iface):
-    if iface in running_processes:
-        logger.debug("Suricata already running on %s", iface)
-        return running_processes[iface]
-
-    # Note: outputs and pcap are YAML lists in suricata.yaml.
-    # Use numeric index to override values inside list items.
-    cmd = [
-        suricata_exe_path,
-        "-c",
-        suricata_config_path,
-        "-i",
-        iface,
-        "--set",
-        f"pcap.0.interface={iface}",  # pcap is a list; set the first entry's interface
-        "--set",
-        "runmode=autofp",  # top-level scalar is fine
-        "--set",
-        "outputs.0.fast.enabled=yes",  # outputs[0] contains 'fast' in default suricata.yaml
-        "--set",
-        "outputs.1.eve-log.enabled=yes",  # outputs[1] contains 'eve-log' in default suricata.yaml
-    ]
-
-    logger.info("Starting Suricata on interface: %s", iface)
-    logger.debug("Command: %s", " ".join(cmd))
-
-    async def _log_stream(stream, prefix):
-        try:
-            while True:
-                line = await stream.readline()
-                if not line:
-                    break
-                logger.info("%s %s", prefix, line.decode(errors="replace").rstrip())
-        except Exception as ex:
-            logger.exception("Stream reader error for %s: %s", prefix, ex)
-
-    try:
-        proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, creationflags=CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
-
-        # Pump stdout/stderr into logger so Suricata's own errors are visible.
-        asyncio.create_task(_log_stream(proc.stdout, f"[suricata:{iface}][OUT]"))
-        asyncio.create_task(_log_stream(proc.stderr, f"[suricata:{iface}][ERR]"))
-
-        # Use the npf device name key consistently in running_processes
-        running_processes[iface] = proc
-        if iface not in started_interfaces:
-            started_interfaces.append(iface)
-
-        logger.info("Suricata PID %s started for %s", proc.pid, iface)
-        return proc
-
-    except Exception as e:
-        logger.exception("Failed to start Suricata on %s: %s", iface, e)
-        return None
-
-
-# ============================================================================#
-# Monitor interfaces (Async)
-# ============================================================================#
-async def monitor_interfaces():
-    """
-    Monitor all network interfaces and ensure Suricata runs on each usable one.
-    - Starts Suricata on new interfaces.
-    - Keeps existing Suricata processes running.
-    - Restarts Suricata if it exits unexpectedly.
-    - Never stops running instances automatically.
-    """
-    logger.info("Starting Suricata interface monitor (keep all interfaces)...")
-
-    # Track state across loops
-    last_known_npf_name = {}  # { guid: npf_name }
-
-    while True:
-        try:
-            logger.debug("Polling for network interfaces...")
-            interfaces = await get_suricata_interfaces()
-            if not interfaces:
-                logger.warning("No network interfaces found, will retry in 10 seconds")
-                await asyncio.sleep(10)
-                continue
-
-            logger.debug("Found %s interfaces", len(interfaces))
-
-            # Log detected interfaces (debug-level)
-            for iface in interfaces:
-                logger.debug(f"Detected interface: {iface['guid']} | {iface.get('wmi_name')} | MTU={iface.get('mtu')} | Reason={iface.get('reason')}")
-
-            # Start Suricata on new interfaces
-            for iface in interfaces:
-                guid = iface["guid"]
-                npf_name = iface["npf_name"]
-
-                last_known_npf_name[guid] = npf_name
-
-                if guid not in started_interfaces:
-                    logger.info(f"Starting Suricata for new interface: {guid} ({iface.get('wmi_name')})")
-                    proc = await start_suricata_on_interface(npf_name)
-                    if proc:
-                        started_interfaces.append(guid)
-                        running_processes[npf_name] = proc
-                        logger.info(f"Started Suricata (PID {proc.pid}) for {guid}")
-                    else:
-                        logger.error(f"Failed to start Suricata on {guid}")
-
-            # Restart Suricata if any process exited unexpectedly
-            for guid in list(started_interfaces):
-                npf_name = last_known_npf_name.get(guid)
-                if not npf_name:
-                    logger.debug(f"No NPF name known for GUID {guid}, skipping restart check")
-                    continue
-
-                proc = running_processes.get(npf_name)
-                if not proc:
-                    logger.debug(f"No process found for {npf_name}, skipping restart check")
-                    continue
-
-                if proc.returncode is not None:  # process exited
-                    logger.warning(f"Suricata for {guid} exited with code {proc.returncode}; restarting...")
-                    new_proc = await start_suricata_on_interface(npf_name)
-                    if new_proc:
-                        running_processes[npf_name] = new_proc
-                        logger.info(f"Restarted Suricata for {guid} (PID {new_proc.pid})")
-                    else:
-                        logger.error(f"Failed to restart Suricata for {guid}")
-
-            # Keep log-only behavior for inactive interfaces
-            current_guids = {iface["guid"] for iface in interfaces}
-            inactive = [guid for guid in started_interfaces if guid not in current_guids]
-            for guid in inactive:
-                logger.debug(f"Interface {guid} not currently detected, but Suricata process will remain running.")
-
-            await asyncio.sleep(5)
-
-        except asyncio.CancelledError:
-            logger.info("Suricata monitor cancelled, stopping all Suricata processes...")
-            for npf_name, proc in list(running_processes.items()):
-                try:
-                    logger.info(f"Terminating Suricata PID {proc.pid} for {npf_name}")
-                    proc.terminate()
-                    await asyncio.wait_for(proc.wait(), timeout=5.0)
-                    logger.info(f"Suricata process {proc.pid} terminated gracefully")
-                except asyncio.TimeoutError:
-                    logger.warning(f"Forcing kill for {npf_name} (PID {proc.pid})")
-                    proc.kill()
-                except Exception as ex:
-                    logger.error(f"Error stopping Suricata for {npf_name}: {ex}")
-            raise
-
-        except Exception as e:
-            logger.error(f"Monitor interfaces error: {e}", exc_info=True)
-            await asyncio.sleep(5)
-
-
-# ============================================================================#
-# Suricata callback (Async entry point)
-# ============================================================================#
-async def suricata_callback():
-    """
-    Start Suricata interface monitoring asynchronously.
-    Returns immediately, monitoring runs in background task.
-    """
-    try:
-        # Validate paths
-        import os
-
-        if not os.path.exists(suricata_exe_path):
-            logger.error(f"Suricata executable not found: {suricata_exe_path}")
-            return False
-
-        if not os.path.exists(suricata_config_path):
-            logger.error(f"Suricata config not found: {suricata_config_path}")
-            return False
-
-        logger.info("Starting Suricata interface monitor (async)...")
-
-        # Start monitoring in background task
-        asyncio.create_task(monitor_interfaces(), name="SuricataMonitorTask")
-
-        logger.info("Suricata monitor started successfully")
-        return True
-
-    except Exception as ex:
-        logger.error(f"Unexpected error starting Suricata: {ex}", exc_info=True)
-        return False
-
-
-# ========== ASYNC SURICATA MONITORING ==========
-
-
-async def monitor_suricata_log_async():
-    log_path = eve_log_path
-
-    # wait for file
-    while not os.path.exists(log_path):
-        logger.info("Waiting for log file to be created: %s", log_path)
-        await asyncio.sleep(1)
-
-    logger.info("Log file found: %s", log_path)
-
-    async with aiofiles.open(log_path, "r") as log_file:
-        await log_file.seek(0, os.SEEK_END)
-        while True:
-            try:
-                line = await log_file.readline()
-
-                if line.strip():
-                    # parse_suricata_alert should return (priority, src_ip, dest_ip, signature, category)
-                    try:
-                        priority, src_ip, dest_ip, signature, category = parse_suricata_alert(line)
-                    except Exception as ex:
-                        logger.debug("Failed to parse alert line: %s (%s)", line.strip(), ex)
-                        continue
-
-                    if priority is not None:
-                        full_line = f"[Priority: {priority}] [{category}] {signature} {src_ip} -> {dest_ip}"
-                        logger.debug(full_line)
-                        await process_alert_data(priority, src_ip, dest_ip)
-
-            except asyncio.CancelledError:
-                logger.info("Log monitoring cancelled")
-                raise
-            except Exception as ex:
-                logger.exception("Error while monitoring Suricata log: %s", ex)
-                await asyncio.sleep(1)
-
-
-# ---------------------------
-# Helper functions
-# ---------------------------
 def to_float(x, default=0.0):
     try:
         if x is None:
@@ -9290,10 +8627,6 @@ async def load_all_resources_async():
             return None
 
     # Example loader wrappers (adapt to your actual loader names/paths)
-    async def load_suricata():
-        # pass the callable (not the result). If suricata_callback is an async function,
-        # pass the function object and let load_resource_safe call it.
-        return await load_resource_safe("Suricata", suricata_callback, run_in_thread_for_sync=False, timeout=30)
 
     async def load_antivirus_list():
         global antivirus_domains_data
@@ -9310,7 +8643,6 @@ async def load_all_resources_async():
         await asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_malicious_path, machine_learning_pickle_benign_path)
 
     # Fire and forget available tasks
-    asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
     asyncio.create_task(load_ml(), name="load_ml")
 
@@ -9319,104 +8651,6 @@ async def load_all_resources_async():
 
     # Return immediately without waiting
     return {}
-
-
-async def parse_hayabusa_results(csv_file):
-    """
-    Parse Hayabusa CSV results and send notifications for critical alerts.
-    """
-    try:
-        import csv as csv_module
-
-        async with aiofiles.open(csv_file, "r", encoding="utf-8", errors="ignore") as f:
-            content = await f.read()
-
-        reader = csv_module.DictReader(content.splitlines())
-        critical_count = 0
-
-        for row in reader:
-            level = (row.get("Level") or "").lower()
-            if level in ("critical", "crit"):
-                critical_count += 1
-                rule = row.get("RuleTitle", "N/A")
-                details = row.get("Details", "N/A")
-                computer = row.get("Computer", "N/A")
-                channel = row.get("Channel", "N/A")
-
-                logger.warning(f"[!] CRITICAL: {rule} | {details[:100]}")
-
-                try:
-                    await notify_user_hayabusa_critical(event_log=channel, rule_title=rule, details=details, computer=computer)
-                except Exception:
-                    logger.exception("notify_user_hayabusa_critical failed")
-
-        if critical_count > 0:
-            logger.warning(f"Found {critical_count} critical alerts in this scan")
-        else:
-            logger.info("No critical alerts found in this scan")
-
-    except Exception:
-        logger.exception(f"Error parsing Hayabusa results from {csv_file}")
-
-
-async def run_hayabusa_live_async():
-    """
-    Periodic Hayabusa scanning loop - runs every 30 seconds to detect threats.
-    """
-    scan_interval = 30  # Run scan every 30 seconds
-
-    while True:
-        try:
-            if not os.path.exists(hayabusa_path):
-                logger.warning(f"Hayabusa executable not found at: {hayabusa_path}")
-                continue
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(log_directory, f"hayabusa_scan_{timestamp}")
-            os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"hayabusa_{timestamp}.csv")
-
-            # Scan with time offset to only check recent events
-            cmd = [
-                hayabusa_path,
-                "csv-timeline",
-                "--no-wizard",
-                "--output",
-                output_file,
-                "--profile",
-                "standard",
-                "--min-level",
-                "critical",
-                "--live-analysis",
-                "--time-offset",
-                "60s",  # Only scan events from last 60 seconds
-                "--quiet",  # Reduce output noise
-            ]
-            logger.info(f"Starting Hayabusa scan: {' '.join(cmd)}")
-
-            # Run Hayabusa and let output go to redirected stdout/stderr
-            process = await asyncio.create_subprocess_exec(*cmd, cwd=os.path.dirname(hayabusa_path))
-
-            # Wait for scan to complete
-            rc = await process.wait()
-            logger.info(f"Hayabusa scan completed with returncode {rc}")
-
-            # Parse the results file for critical alerts
-            if rc == 0 and os.path.exists(output_file):
-                try:
-                    await parse_hayabusa_results(output_file)
-                except Exception:
-                    logger.exception("Failed to parse Hayabusa results")
-
-            # Wait before next scan
-            logger.info(f"Next Hayabusa scan in {scan_interval} seconds")
-            await asyncio.sleep(scan_interval)
-
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Unhandled exception in Hayabusa scan loop, restarting after short delay...")
-
 
 # --- start_real_time_protection_async ---
 async def start_real_time_protection_async():
@@ -9433,20 +8667,11 @@ async def start_real_time_protection_async():
         except Exception as e:
             logger.exception(f"Error in {name}: {e}")
 
-    async def run_hayabusa_live_task():
-        try:
-            await run_hayabusa_live_async()
-        except Exception:
-            logger.exception("Hayabusa live task failed.")
-
     # Fire-and-forget tasks
     asyncio.create_task(wrap_async_function("EDRMonitor", monitor_scan_requests_from_edr))
-    asyncio.create_task(wrap_async_function("SuricataMonitor", monitor_suricata_log_async))
     asyncio.create_task(wrap_async_function("ResourceLoader", load_all_resources_async))
-    asyncio.create_task(wrap_async_function("HayabusaLive", run_hayabusa_live_task))
 
-
-    logger.info("All protection, resource, and Hayabusa tasks launched (fire-and-forget).")
+    logger.info("All protection, resource tasks launched (fire-and-forget).")
 
 
 def run_de4dot(file_path):
