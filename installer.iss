@@ -78,7 +78,7 @@ Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\setup.py"; DestDir: "
 Source: "C:\Users\semae\OneDrive\Belgeler\hydratempinstall\openedr.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
-Name: "{commonappdata}\HydraDragonAntivirus\debug"; Flags: uninsneveruninstall
+Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\debug"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\utils"
 Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\log"; Flags: uninsneveruninstall
 Name: "{commonappdata}\HydraDragonAntivirus\Owlyshield\config"; Flags: uninsneveruninstall
@@ -99,9 +99,9 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeFile}\SupportedTypes
 
 ; Owlyshield Registry Settings
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NUM_VERSION"; ValueData: {#OwlyshieldVersion}; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\debug"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\Owlyshield\debug"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "UTILS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\utils"; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "CONFIG_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\config"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "CONFIG_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\Owlyshield\config"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NOVELTY_PATH"; ValueData: "{app}\hydradragon\Owlyshield\novelty"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_PATH"; ValueData: "{commonappdata}\HydraDragonAntivirus\Owlyshield\log"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "RULES_PATH"; ValueData: "{app}\hydradragon\Owlyshield\rules"; Flags: uninsdeletekey
