@@ -1,4 +1,5 @@
 !include driver_load_suspicious_location_rule.yaml
+!include new_driver_install_detection.yaml
 !include safemode_abuse_loader_rule.yaml
 !include av_killer_remake_rule.yaml
 !include ransomware_whitelist_importer.yaml

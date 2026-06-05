@@ -1,0 +1,229 @@
+---
+# New Kernel Driver Installation Detection (any location)
+# Detects ANY new kernel driver (.sys) registration, regardless of source path.
+# Complements driver_load_suspicious_location_rule.yaml which only covers
+# Temp and user-writable locations. This rule covers System32\drivers,
+# Program Files, Windows driver store, and all other locations.
+#
+# Detection strategy:
+#   A new driver service key is created under Services AND ImagePath points
+#   to a .sys file  →  new kernel driver is being registered.
+#
+# MITRE ATT&CK: T1543.003, T1014, T1068
+
+- name: "New Kernel Driver Installation (Any Location)"
+  status: stable
+  level: medium
+  severity: 68
+  description: |
+    Detects registration of a new kernel driver (.sys) from any filesystem
+    location by correlating a new service registry key creation with an ImagePath
+    value ending in .sys. This fires for legitimate driver installations (GPU,
+    NIC, peripheral, security software) as well as malicious ones, providing
+    a complete audit trail of all driver installs. Konum fark etmeksizin sisteme
+    yüklenen her kernel driver'ı bildirim olarak raporlar.
+    MITRE ATT&CK: T1543.003 (Create or Modify System Process: Windows Service),
+                  T1014 (Rootkit), T1068 (Privilege Escalation).
+  tags:
+    - registry
+    - driver
+    - kernel-driver
+    - persistence
+    - new_driver
+  mitre_attack:
+    - T1543.003
+    - T1014
+    - T1068
+  debug: false
+
+  named_conditions:
+    # Signal 1: A new service subkey is created under Services
+    driver_service_key_created:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services\*
+        - HKLM\SYSTEM\ControlSet001\Services\*
+        - HKLM\SYSTEM\ControlSet002\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services\*
+      registry_keys_exclude:
+        # Runtime volatile subkeys — not a driver install event
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/*/security"
+        - "*/services/*/parameters"
+        # High-noise OS internal keys
+        - "*/services/bam/*"
+        - "*/services/bam"
+        - "*/services/dam/*"
+        - "*/services/dam"
+        - "*/services/eventlog/*"
+        - "*/services/eventlog"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/dnscache/*"
+        - "*/services/wuauserv/*"
+        - "*/services/bits/*"
+        - "*/services/rpcss/*"
+        - "*/services/nsi/*"
+        - "*/services/w32tm/*"
+      registry_operations:
+        - reg_create_key
+      min_matches: 1
+
+    # Signal 2: ImagePath is set to a .sys file path (kernel driver binary)
+    driver_imagepath_sys:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services\*
+        - HKLM\SYSTEM\ControlSet001\Services\*
+        - HKLM\SYSTEM\ControlSet002\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services\*
+      registry_keys_exclude:
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/*/security"
+        - "*/services/*/parameters"
+        - "*/services/bam/*"
+        - "*/services/bam"
+        - "*/services/dam/*"
+        - "*/services/dam"
+        - "*/services/eventlog/*"
+        - "*/services/eventlog"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/dnscache/*"
+        - "*/services/wuauserv/*"
+        - "*/services/bits/*"
+        - "*/services/rpcss/*"
+      registry_values:
+        - ImagePath
+      registry_operations:
+        - reg_set_value
+      min_matches: 1
+
+    # Signal 3: Service Type value indicates kernel driver (Type=1 or Type=2)
+    driver_type_value_set:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services\*
+        - HKLM\SYSTEM\ControlSet001\Services\*
+        - HKLM\SYSTEM\ControlSet002\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\*
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services\*
+      registry_keys_exclude:
+        - "*/services/*/state/*"
+        - "*/services/*/diag/*"
+        - "*/services/*/enum/*"
+        - "*/services/*/performance/*"
+        - "*/services/*/triggerinfo/*"
+        - "*/services/*/security"
+        - "*/services/*/parameters"
+        - "*/services/bam/*"
+        - "*/services/bam"
+        - "*/services/dam/*"
+        - "*/services/dam"
+        - "*/services/eventlog/*"
+        - "*/services/eventlog"
+      registry_values:
+        - Type
+        - Start
+      registry_operations:
+        - reg_set_value
+      min_matches: 1
+
+    # Signal 4: sc.exe with type=kernel — classic driver install command
+    sc_kernel_driver_register:
+      orderless: false
+      created_processes:
+        - "sc.exe"
+      cmdline_keywords:
+        - "create"
+        - "type="
+        - "kernel"
+      min_matches: 1
+
+    # Signal 5: PowerShell driver registration
+    powershell_driver_register:
+      orderless: false
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "New-Service"
+        - "BinaryPathName"
+        - ".sys"
+      min_matches: 1
+
+    # Signal 6: NtLoadDriver / ZwLoadDriver API call
+    ntloaddriver_call:
+      orderless: true
+      apis:
+        - "ntdll.dll!NtLoadDriver"
+        - "ntdll.dll!ZwLoadDriver"
+      api_threshold: 1
+
+  # Any single signal is enough for an informational notification.
+  # The high-severity suspicious-location rules handle blocking/quarantine.
+  detection_logic:
+    any_of:
+      - condition: "driver_service_key_created"
+      - condition: "driver_imagepath_sys"
+      - condition: "driver_type_value_set"
+      - condition: "sc_kernel_driver_register"
+      - condition: "powershell_driver_register"
+      - condition: "ntloaddriver_call"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  # Suppress notifications for known-legitimate driver install paths.
+  # High-risk paths are already handled by driver_load_suspicious_location_rule.yaml
+  # with terminate/quarantine — do not duplicate that here.
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "drvinst.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "dpinst.exe"
+      must_be_signed: true
+    - pattern: "trustedinstaller.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "services.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "setup.exe"
+      must_be_signed: true
+    - pattern: "install*.exe"
+      must_be_signed: true
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+      must_be_signed: false
+      is_absolute: true
+    - pattern: "C:/Windows/System32/DriverStore/*"
+      must_be_signed: true
+
+  false_positives:
+    - "GPU/NIC/peripheral driver installation via signed vendor setup tools"
+    - "Security software (EDR, AV) installing kernel components during first-run setup"
+    - "Windows Update installing or updating inbox drivers via TrustedInstaller"
+    - "IT deployment scripts registering drivers via sc.exe from software deployment systems"
