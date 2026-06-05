@@ -8,9 +8,7 @@ Abstract:
 
     Comprehensive process protection implementation using ObRegisterCallbacks and
     kernel-level API hooks. Detects all process-related events:
-    - Process creation
     - Process termination attempts
-    - Process exit/cleanup
     - Process handle operations
     - Kernel API injection attempts
 
@@ -24,8 +22,12 @@ Environment:
 #include "Communication.h"
 #include "DriverData.h"
 #include "common.h"
+#include "osutils.h"   // cmd::getTickCount64, cmd::g_pCommonData (via common.h chain)
 #include "fltport.h"
 #include <ntstrsafe.h>
+
+// All cmd:: symbols used in the LBVS blocks below are fully-qualified.
+// getTickCount64 and g_pCommonData live in namespace cmd (osutils.h / common.h).
 
 // PROCESS_TERMINATE is defined in ntddk.h but may need explicit definition
 #ifndef PROCESS_TERMINATE
@@ -293,30 +295,30 @@ static NTSTATUS InitializeProcessProtectionRules(VOID)
     ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
 
     // Dynamic hook exclude rules (normalized/contains match, case-insensitive)
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\smss.exe", 27);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\csrss.exe", 28);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\wininit.exe", 30);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\winlogon.exe", 31);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\lsass.exe", 28);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\services.exe", 31);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\svchost.exe", 30);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\fontdrvhost.exe", 34);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\sihost.exe", 29);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\dwm.exe", 26);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\smss.exe", 27);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\csrss.exe", 28);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\wininit.exe", 30);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\winlogon.exe", 31);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\lsass.exe", 28);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\services.exe", 31);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\svchost.exe", 30);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\fontdrvhost.exe", 34);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\sihost.exe", 29);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\dwm.exe", 26);
 
     // HydraDragonAntivirus-specific examples
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm32.dll", 29);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrmm.dll", 27);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 41);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
-    (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus", 38);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\ProgramData\\edrsvc", 22);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\tasks\\hydradragonantivirus", 45);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm64.dll", 29);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrpm32.dll", 29);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\edrmm.dll", 27);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\sanctum.sys", 39);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\edrdrv.sys", 38);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\OwlyshieldRansomFilter.sys", 55);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\RedDbgDrv.sys", 41);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Windows\\System32\\drivers\\hyperhv.sys", 39);
+    // (VOID) AddProcessProtectionExcludeRuleNormalizedUnlocked(L"C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\sanctum", 56);
 
     g_ProcessProtectionExcludeRules.Loaded = TRUE;
 
@@ -489,29 +491,6 @@ static BOOLEAN CopyProcessPathByPidBestEffort(_In_ ULONG ProcessId, _Out_writes_
     }
 
     return TRUE;
-}
-
-static VOID PopulateIrpProcessPath(_Inout_ PIRP_ENTRY Entry, _In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup)
-{
-    if (Entry == NULL)
-    {
-        return;
-    }
-
-    Entry->Buffer[0] = L'\0';
-    Entry->filePath.Buffer = Entry->Buffer;
-    Entry->filePath.Length = 0;
-    Entry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-
-    if (ProcessId == 0)
-    {
-        return;
-    }
-
-    if (CopyProcessPathByPidBestEffort(ProcessId, Entry->Buffer, RTL_NUMBER_OF(Entry->Buffer), AllowSlowLookup))
-    {
-        Entry->filePath.Length = (USHORT)(wcslen(Entry->Buffer) * sizeof(WCHAR));
-    }
 }
 
 static VOID AppendProcessPathSuffix(_Inout_updates_z_(OutCch) PWCHAR OutBuffer, _In_ SIZE_T OutCch,
@@ -737,8 +716,6 @@ static BOOLEAN g_RemoteThreadCandidateLockInitialized = FALSE;
 OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(_In_ PVOID RegistrationContext,
                                                   _In_ POB_PRE_OPERATION_INFORMATION pOperationInformation);
 
-NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS TargetProcess);
-
 BOOLEAN IsSystemProcessPP(PEPROCESS Process);
 VOID NoteRemoteThreadCandidate(_In_ ULONG SourcePid, _In_ ULONG TargetPid);
 BOOLEAN ResolveRemoteThreadCandidate(_In_ ULONG TargetPid, _Out_ PULONG SourcePid);
@@ -934,12 +911,12 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(_In_ PVOID RegistrationContext
     // DesiredAccess is NEVER modified -- this is pure telemetry.
     if (desiredAccess & PROCESS_TERMINATE)
     {
-        QueueTerminationAttemptToUserMode(currentProc, targetProc);
+        cmd::QueueTerminationAttemptToUserMode(currentProc, targetProc);
     }
     else
     {
-        OnProcessHandleOperation((HANDLE)(ULONG_PTR)callerPid, (HANDLE)(ULONG_PTR)targetPid, desiredAccess,
-                                 (UCHAR)pOperationInformation->Operation);
+        cmd::OnProcessHandleOperation((HANDLE)(ULONG_PTR)callerPid, (HANDLE)(ULONG_PTR)targetPid, desiredAccess,
+                                     (UCHAR)pOperationInformation->Operation);
     }
 
     if ((desiredAccess & PROCESS_CREATE_THREAD) != 0 && callerPid != targetPid)
@@ -1088,12 +1065,14 @@ static BOOLEAN IsSystemProcessPP(PEPROCESS Process)
     return FALSE;
 }
 
+namespace cmd {
+
 NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS TargetProcess)
 {
     ULONG attackerPid = (ULONG)(ULONG_PTR)PsGetProcessId(AttackerProcess);
     ULONG targetPid   = (ULONG)(ULONG_PTR)PsGetProcessId(TargetProcess);
 
-    if (ShouldSkipProcessProtectionPair(attackerPid, targetPid, FALSE))
+    if (::ShouldSkipProcessProtectionPair(attackerPid, targetPid, FALSE))
         return STATUS_SUCCESS;
 
     LOGINFO2("QueueTerminationAttempt LBVS: AttackerPid=%lu -> TargetPid=%lu\r\n", attackerPid, targetPid);
@@ -1101,15 +1080,21 @@ NTSTATUS QueueTerminationAttemptToUserMode(PEPROCESS AttackerProcess, PEPROCESS 
     // Send via LBVS as ProcessOpen with PROCESS_TERMINATE access mask.
     // OpenEDR SysmonEvent::ProcessOpen (0x000D) carries process handle ops;
     // PROCESS_TERMINATE (0x0001) in AccessMask signals the termination intent.
-    NonPagedLbvsSerializer<EventField> serializer;
-    if (!serializer.write(EvFld::RawEventId, uint16_t(SysmonEvent::ProcessOpen))) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::TickTime, getTickCount64())) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::ProcessPid, (uint32_t)attackerPid)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::TargetProcessPid, (uint32_t)targetPid)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::AccessMask, (uint32_t)PROCESS_TERMINATE)) return STATUS_NO_MEMORY;
+    NonPagedLbvsSerializer<edrdrv::EventField> serializer;
+    if (!serializer.write(edrdrv::EventField::RawEventId,
+            uint16_t(edrdrv::SysmonEvent::ProcessOpen)))               return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::TickTime,
+            (uint64_t)getTickCount64()))                               return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::ProcessPid,
+            (uint32_t)attackerPid))                                    return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::TargetProcessPid,
+            (uint32_t)targetPid))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::AccessMask,
+            (uint32_t)PROCESS_TERMINATE))                              return STATUS_NO_MEMORY;
 
     return fltport::sendRawEvent(serializer);
 }
+
 //
 // --- Process Handle Open: LBVS path (OpenEDR ProcessOpen / SysmonEvent 0x000D) ---
 //
@@ -1122,19 +1107,24 @@ NTSTATUS OnProcessHandleOperation(_In_ HANDLE CallerProcessId, _In_ HANDLE Targe
     ULONG callerPid = (ULONG)(ULONG_PTR)CallerProcessId;
     ULONG targetPid = (ULONG)(ULONG_PTR)TargetProcessId;
 
-    if (ShouldSkipProcessProtectionPair(callerPid, targetPid, FALSE))
+    if (::ShouldSkipProcessProtectionPair(callerPid, targetPid, FALSE))
         return STATUS_SUCCESS;
 
     LOGINFO2("OnProcessHandleOperation LBVS: CallerPid=%lu, TargetPid=%lu, Access=0x%X\r\n",
         callerPid, targetPid, DesiredAccess);
 
     // Send via OpenEDR LBVS fltport — mirrors SysmonEvent::ProcessOpen (0x000D)
-    NonPagedLbvsSerializer<EventField> serializer;
-    if (!serializer.write(EvFld::RawEventId, uint16_t(SysmonEvent::ProcessOpen))) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::TickTime, getTickCount64())) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::ProcessPid, (uint32_t)callerPid)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::TargetProcessPid, (uint32_t)targetPid)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::AccessMask, (uint32_t)DesiredAccess)) return STATUS_NO_MEMORY;
+    NonPagedLbvsSerializer<edrdrv::EventField> serializer;
+    if (!serializer.write(edrdrv::EventField::RawEventId,
+            uint16_t(edrdrv::SysmonEvent::ProcessOpen)))               return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::TickTime,
+            (uint64_t)getTickCount64()))                               return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::ProcessPid,
+            (uint32_t)callerPid))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::TargetProcessPid,
+            (uint32_t)targetPid))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::AccessMask,
+            (uint32_t)DesiredAccess))                                  return STATUS_NO_MEMORY;
 
     return fltport::sendRawEvent(serializer);
 }
@@ -1147,37 +1137,49 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
                           _In_opt_ PCWSTR FunctionName, _In_opt_ ULONG_PTR EventArg1, _In_opt_ ULONG_PTR EventArg2,
                           _In_opt_ ULONG_PTR EventArg3, _In_opt_ ULONG_PTR EventArg4)
 {
-    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
+    if (::ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
         return STATUS_SUCCESS;
 
     // Resolve effective name and IRP opcode for this event type
     PCWSTR effectiveName =
-        (FunctionName != NULL && FunctionName[0] != L'\0') ? FunctionName : KernelEventDefaultLabel(EventType);
-    UCHAR effectiveIrpOp = ResolveHookIrpOpcode(IrpOp, EventType, effectiveName);
+        (FunctionName != NULL && FunctionName[0] != L'\0') ? FunctionName : ::KernelEventDefaultLabel(EventType);
+    UCHAR effectiveIrpOp = ::ResolveHookIrpOpcode(IrpOp, EventType, effectiveName);
     if ((effectiveName == NULL || effectiveName[0] == L'\0') && effectiveIrpOp != (UCHAR)IrpOp)
-        effectiveName = KernelEventDefaultLabel(effectiveIrpOp);
+        effectiveName = ::KernelEventDefaultLabel(effectiveIrpOp);
 
     LOGINFO2("OnKernelApiEvent LBVS: EventType=%lu, IrpOp=%u, EffIrpOp=%u, SourcePid=%lu, TargetPid=%lu\r\n",
         EventType, IrpOp, (ULONG)effectiveIrpOp, SourcePid, TargetPid);
 
     // Serialize via OpenEDR LBVS fltport — this is what Rust usermode reads.
     // SysmonEvent::DeviceIoControl (0x000E) is the carrier event for kernel API hook events.
-    NonPagedLbvsSerializer<EventField> serializer;
-    if (!serializer.write(EvFld::RawEventId, uint16_t(SysmonEvent::DeviceIoControl))) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::TickTime, getTickCount64())) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::ProcessPid, (uint32_t)TargetPid)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::OwlyHookEventType, (uint32_t)EventType)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::OwlyHookSourcePid, (uint32_t)SourcePid)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::OwlyHookArg1, (uint64_t)EventArg1)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::OwlyHookArg2, (uint64_t)EventArg2)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::OwlyHookArg3, (uint64_t)EventArg3)) return STATUS_NO_MEMORY;
-    if (!serializer.write(EvFld::OwlyHookArg4, (uint64_t)EventArg4)) return STATUS_NO_MEMORY;
+    NonPagedLbvsSerializer<edrdrv::EventField> serializer;
+    if (!serializer.write(edrdrv::EventField::RawEventId,
+            uint16_t(edrdrv::SysmonEvent::DeviceIoControl)))           return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::TickTime,
+            (uint64_t)getTickCount64()))                               return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::ProcessPid,
+            (uint32_t)TargetPid))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::OwlyHookEventType,
+            (uint32_t)EventType))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::OwlyHookSourcePid,
+            (uint32_t)SourcePid))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::OwlyHookArg1,
+            (uint64_t)EventArg1))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::OwlyHookArg2,
+            (uint64_t)EventArg2))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::OwlyHookArg3,
+            (uint64_t)EventArg3))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::OwlyHookArg4,
+            (uint64_t)EventArg4))                                      return STATUS_NO_MEMORY;
     if (effectiveName != NULL && effectiveName[0] != L'\0')
     {
         UNICODE_STRING usName;
         RtlInitUnicodeString(&usName, effectiveName);
-        if (!serializer.write(EvFld::OwlyHookFunctionName, &usName)) return STATUS_NO_MEMORY;
+        if (!serializer.write(edrdrv::EventField::OwlyHookFunctionName,
+                &usName))                                              return STATUS_NO_MEMORY;
     }
 
     return fltport::sendRawEvent(serializer);
 }
+
+} // namespace cmd

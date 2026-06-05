@@ -240,12 +240,12 @@ __drv_maxIRQL(APC_LEVEL)
 __checkReturn
 NTSTATUS
 seGetCachedSigningLevel(
-	__in PFILE_OBJECT FileObject,
-	__out PULONG Flags,
-	__out PSE_SIGNING_LEVEL SigningLevel,
-	__reserved __out_ecount_full_opt(*ThumbprintSize) PUCHAR Thumbprint = nullptr,
-	__reserved __out_opt PULONG ThumbprintSize = nullptr,
-	__reserved __out_opt PULONG ThumbprintAlgorithm = nullptr
+	_In_  PFILE_OBJECT      FileObject,
+	_Out_ PULONG            Flags,
+	_Out_ PSE_SIGNING_LEVEL SigningLevel,
+	_Out_writes_bytes_opt_(*ThumbprintSize) PUCHAR Thumbprint = nullptr,
+	_Inout_opt_ PULONG      ThumbprintSize = nullptr,
+	_Out_opt_   PULONG      ThumbprintAlgorithm = nullptr
 );
 
 // 

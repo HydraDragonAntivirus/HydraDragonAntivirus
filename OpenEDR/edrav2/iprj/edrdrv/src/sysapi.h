@@ -225,14 +225,14 @@ SE_SIGNING_LEVEL
 typedef
 __drv_maxIRQL(APC_LEVEL)
 __checkReturn
-NTSTATUS 
+NTSTATUS
 (NTAPI* PSeGetCachedSigningLevel)(
-	__in PFILE_OBJECT FileObject,
-	__out PULONG Flags,
-	__out PSE_SIGNING_LEVEL SigningLevel,
-	__reserved __out_ecount_full_opt(*ThumbprintSize) PUCHAR Thumbprint,
-	__reserved __out_opt PULONG ThumbprintSize,
-	__reserved __out_opt PULONG ThumbprintAlgorithm
+	_In_  PFILE_OBJECT       FileObject,
+	_Out_ PULONG             Flags,
+	_Out_ PSE_SIGNING_LEVEL  SigningLevel,
+	_Out_writes_bytes_opt_(*ThumbprintSize) PUCHAR Thumbprint,
+	_Inout_opt_ PULONG       ThumbprintSize,
+	_Out_opt_   PULONG       ThumbprintAlgorithm
 );
 
 #define UNPROTECTED_FLAG (1 << 2)

@@ -25,12 +25,14 @@ Environment:
 --*/
 
 #include "RootkitDetector.h"
+#include "common.h"
+#include "osutils.h"   // cmd::getTickCount64
 #include "fltport.h"
 #include <ntimage.h>
 #include <ntstrsafe.h>
 
-namespace EvFld   = cmd::edrdrv::EventField;
-namespace SysmonEv = cmd::edrdrv::SysmonEvent;
+using EvFld    = cmd::edrdrv::EventField;
+using SysmonEv = cmd::edrdrv::SysmonEvent;
 
 // ---------------------------------------------------------------------------
 // Dynamic imports
@@ -518,12 +520,12 @@ RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
 
     // Rootkit findings are delivered as OwlyHookEvent (DeviceIoControl carrier, 0x000E).
     // OwlyHookEventType carries the IRP_ROOTKIT_* opcode so Rust can dispatch them.
-    cmd::variant::NonPagedLbvsSerializer<cmd::edrdrv::EventField> serializer;
+    cmd::NonPagedLbvsSerializer<cmd::edrdrv::EventField> serializer;
 
     if (!serializer.write(EvFld::RawEventId,
             uint16_t(SysmonEv::DeviceIoControl)))          return;
     if (!serializer.write(EvFld::TickTime,
-            getTickCount64()))                             return;
+            (uint64_t)cmd::getTickCount64()))              return;
     if (!serializer.write(EvFld::ProcessPid,
             (uint32_t)SourcePid))                         return;
     if (!serializer.write(EvFld::OwlyHookEventType,
@@ -542,7 +544,7 @@ RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
     if (ObjectName != NULL) {
         UNICODE_STRING objUs;
         RtlInitUnicodeString(&objUs, ObjectName);
-        if (!serializer.write(EvFld::OwlyHookFunctionName, objUs))
+        if (!serializer.write(EvFld::OwlyHookFunctionName, &objUs))
             return;
     }
 

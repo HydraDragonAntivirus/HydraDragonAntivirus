@@ -40,8 +40,16 @@ NTSTATUS SetProcessProtectionExcludeRulesFromBuffer(
     _In_ ULONG BytesRead);
 
 // ===================================================================
-// Process Event Functions (LBVS path)
+// Process Event Functions (LBVS path) — implemented in namespace cmd
 // ===================================================================
+
+namespace cmd {
+
+// Process termination attempt → SysmonEvent::ProcessOpen (0x000D) with PROCESS_TERMINATE
+NTSTATUS QueueTerminationAttemptToUserMode(
+    _In_ PEPROCESS AttackerProcess,
+    _In_ PEPROCESS TargetProcess
+);
 
 // Cross-process handle open/duplicate telemetry → SysmonEvent::ProcessOpen (0x000D)
 NTSTATUS OnProcessHandleOperation(
@@ -50,10 +58,6 @@ NTSTATUS OnProcessHandleOperation(
     _In_ ACCESS_MASK DesiredAccess,
     _In_ UCHAR OperationType
 );
-
-// ===================================================================
-// Kernel API Hook Integration Functions
-// ===================================================================
 
 // Kernel/usermode hook events → SysmonEvent::DeviceIoControl (0x000E) via LBVS
 NTSTATUS OnKernelApiEvent(
@@ -67,6 +71,8 @@ NTSTATUS OnKernelApiEvent(
     _In_opt_ ULONG_PTR EventArg3,
     _In_opt_ ULONG_PTR EventArg4
 );
+
+} // namespace cmd
 
 // Format a diagnostic process descriptor as "pid:path" when the image path
 // can be resolved at PASSIVE_LEVEL, otherwise "pid:<path_unavailable>".

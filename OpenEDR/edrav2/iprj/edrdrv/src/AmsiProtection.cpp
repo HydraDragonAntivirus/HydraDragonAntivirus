@@ -1,10 +1,11 @@
 #include "AmsiProtection.h"
 #include "common.h"
+#include "osutils.h"   // cmd::getTickCount64
 #include "fltport.h"
 #include <ntstrsafe.h>
 
-namespace EvFld = cmd::edrdrv::EventField;
-namespace SysmonEv = cmd::edrdrv::SysmonEvent;
+using EvFld   = cmd::edrdrv::EventField;
+using SysmonEv = cmd::edrdrv::SysmonEvent;
 
 // Heuristic signatures for AMSI bypass detection (lower-case)
 static const PCWSTR g_AmsiBypassPatterns[] = {
@@ -71,12 +72,12 @@ NTSTATUS AmsiReportEvent(
     // AMSI events are delivered as OwlyHookEvent (DeviceIoControl carrier, 0x000E).
     // OwlyHookEventType = IRP_USERMODE_HOOK_EVENT (20) identifies it on the Rust side.
     // OwlyHookFunctionName carries the label ("AmsiBypassHeuristic" etc.).
-    cmd::variant::NonPagedLbvsSerializer<cmd::edrdrv::EventField> serializer;
+    cmd::NonPagedLbvsSerializer<cmd::edrdrv::EventField> serializer;
 
     if (!serializer.write(EvFld::RawEventId,
             uint16_t(SysmonEv::DeviceIoControl)))         return STATUS_NO_MEMORY;
     if (!serializer.write(EvFld::TickTime,
-            getTickCount64()))                             return STATUS_NO_MEMORY;
+            (uint64_t)cmd::getTickCount64()))              return STATUS_NO_MEMORY;
     if (!serializer.write(EvFld::ProcessPid,
             (uint32_t)SourcePid))                         return STATUS_NO_MEMORY;
     if (!serializer.write(EvFld::OwlyHookEventType,
@@ -88,7 +89,7 @@ NTSTATUS AmsiReportEvent(
     if (FunctionName != NULL) {
         UNICODE_STRING fnUs;
         RtlInitUnicodeString(&fnUs, FunctionName);
-        if (!serializer.write(EvFld::OwlyHookFunctionName, fnUs))
+        if (!serializer.write(EvFld::OwlyHookFunctionName, &fnUs))
             return STATUS_NO_MEMORY;
     }
 

@@ -685,7 +685,7 @@ static NTSTATUS HookDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Ir
 
     // Deliver to the classification pipeline (ProcessProtection.cpp).
     // Also enqueue for user-mode delivery via MESSAGE_GET_OPS.
-    OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, processId, targetProcessId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
+    cmd::OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, processId, targetProcessId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
 
     return CompleteIrpInline(Irp, STATUS_SUCCESS, 0);
 }
@@ -1156,8 +1156,8 @@ static VOID DrainUserModeHookRingEvents(VOID)
                          (PVOID)rawArg3, (PVOID)rawArg4);
 #endif
 
-                (VOID)OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, sourcePid, targetPid, functionName,
-                                       rawArg1, rawArg2, rawArg3, rawArg4);
+                (VOID)cmd::OnKernelApiEvent(IRP_USERMODE_HOOK_EVENT, eventType, sourcePid, targetPid, functionName,
+                                            rawArg1, rawArg2, rawArg3, rawArg4);
             }
         }
     }
