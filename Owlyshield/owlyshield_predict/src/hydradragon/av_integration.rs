@@ -1425,14 +1425,79 @@ fn apply_fast_driver_action(event: &AVThreatEvent) {
         }
     };
 
+    // KillAndQuarantine: use WindowsThreatHandler which creates a proper .hqf quarantine
+    // container and logs to quarantine_log.json. The kernel IOCTL_KILL_AND_REMOVE only
+    // deletes the file without creating a quarantine container — wrong for this action.
+    if matches!(event.action_required, ThreatAction::KillAndQuarantine) {
+        use crate::windows::edrsvc_client::with_shared_driver;
+        let file_path = Path::new(&event.file_path);
+        let metadata = quarantine_metadata(&event.detection_type, &event.virus_name);
+
+        let success = with_shared_driver(|driver| {
+            let threat_handler = WindowsThreatHandler::from(driver.clone());
+            threat_handler.kill_and_quarantine(gid, file_path, &metadata);
+        })
+        .is_some();
+
+        if !success {
+            // Driver unavailable — attempt user-mode-only quarantine without driver kill.
+            // Do NOT open a new Driver connection here to avoid hitting the kernel
+            // FltPort connection limit (ERROR_CONNECTION_COUNT_LIMIT).
+            Logging::warning(&format!(
+                "[AV->EDR] Shared driver unavailable for KillAndQuarantine gid={} path={}; \
+                 attempting quarantine without driver kill",
+                gid, event.file_path
+            ));
+            let quarantine_dir = std::path::Path::new(crate::shared_def::QUARANTINE_PATH);
+            if let Ok(()) = std::fs::create_dir_all(quarantine_dir) {
+                use crate::windows::quarantine::{compute_sha256, quarantine_file};
+                let source = std::path::PathBuf::from(&event.file_path);
+                let dest = {
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    let ts = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default();
+                    let fname = source
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("quarantined");
+                    quarantine_dir.join(format!("{}_{}.hqf", ts.as_secs(), fname))
+                };
+                let sha256 = compute_sha256(&source).unwrap_or_else(|_| "unknown".to_string());
+                let detection = format!("{}: {}", event.detection_type, event.virus_name);
+                match quarantine_file(&source, &dest, &detection, &sha256) {
+                    Ok(_) => Logging::alert(&format!(
+                        "[AV->EDR] Fallback quarantine container created: {}",
+                        dest.display()
+                    )),
+                    Err(e) => Logging::error(&format!(
+                        "[AV->EDR] Fallback quarantine failed for {}: {}",
+                        event.file_path, e
+                    )),
+                }
+            }
+        }
+
+        // Log the quarantine event to the quarantine events log file.
+        log_quarantine_event(
+            &event.file_path,
+            &event.virus_name,
+            ThreatAction::KillAndQuarantine.as_str(),
+            success,
+            &format!("Quarantined by Owlyshield: gid={} virus={}", gid, event.virus_name),
+        );
+        return;
+    }
+
     use crate::windows::edrsvc_client::with_shared_driver;
     let outcome = with_shared_driver(|driver| {
         let file_path = Path::new(&event.file_path);
         match event.action_required {
             ThreatAction::Kill => driver.try_kill(gid),
-            ThreatAction::KillAndQuarantine => driver.kill_and_remove_driver(gid, file_path),
             ThreatAction::KillAndRemove => driver.kill_and_remove_driver(gid, file_path),
-            ThreatAction::Monitor => unreachable!("Monitor case handled above"),
+            ThreatAction::KillAndQuarantine | ThreatAction::Monitor => {
+                unreachable!("KillAndQuarantine and Monitor cases handled above")
+            }
         }
     });
 
@@ -1454,6 +1519,73 @@ fn apply_fast_driver_action(event: &AVThreatEvent) {
             event.action_required.as_str(),
             gid,
             event.file_path,
+            e
+        )),
+    }
+}
+
+/// Writes a quarantine event to `QUARANTINE_PATH\quarantine_events.log` in JSONL format.
+///
+/// This is the correct mechanism for Owlyshield to record quarantine activity.
+/// The previous approach of writing back to `HydraDragonOpenEdrTelemetry` was wrong:
+/// that pipe is Owlyshield's own INBOUND server pipe — writing to it from the same
+/// process is a no-op.
+fn log_quarantine_event(
+    file_path: &str,
+    virus_name: &str,
+    action: &str,
+    success: bool,
+    detail: &str,
+) {
+    let log_path =
+        std::path::Path::new(crate::shared_def::QUARANTINE_PATH).join("quarantine_events.log");
+
+    if let Some(parent) = log_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            Logging::error(&format!(
+                "[Quarantine] Failed to create quarantine dir for event log: {}",
+                e
+            ));
+            return;
+        }
+    }
+
+    let entry = serde_json::json!({
+        "type": "quarantine_result",
+        "source": "owlyshield",
+        "file_path": file_path,
+        "virus_name": virus_name,
+        "action": action,
+        "success": success,
+        "detail": detail,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+
+    let mut line = entry.to_string();
+    line.push('\n');
+
+    use std::io::Write;
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        Ok(mut f) => {
+            if let Err(e) = f.write_all(line.as_bytes()) {
+                Logging::error(&format!(
+                    "[Quarantine] Failed to write quarantine event log: {}",
+                    e
+                ));
+            } else {
+                Logging::info(&format!(
+                    "[Quarantine] Event logged: path={} action={} success={}",
+                    file_path, action, success
+                ));
+            }
+        }
+        Err(e) => Logging::error(&format!(
+            "[Quarantine] Failed to open quarantine event log {}: {}",
+            log_path.display(),
             e
         )),
     }

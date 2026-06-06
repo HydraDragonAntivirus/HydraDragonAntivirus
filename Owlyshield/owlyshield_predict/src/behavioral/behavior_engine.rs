@@ -3369,7 +3369,8 @@ impl BehaviorEngine {
                 }
 
                 {
-                    let mut pkt_map = shared_firewall_full_packets().write().unwrap();
+                    let full_packets_arc = shared_firewall_full_packets();
+                    let mut pkt_map = full_packets_arc.write().unwrap();
                     let history = pkt_map
                         .entry(pid)
                         .or_insert_with(|| VecDeque::with_capacity(500));
@@ -3400,7 +3401,8 @@ impl BehaviorEngine {
                                 || rule.response.kill_and_remove
                                 || rule.response.terminate_process)
                         {
-                            let mut blocked = shared_firewall_blocked_exes().write().unwrap();
+                            let blocked_exes_arc = shared_firewall_blocked_exes();
+                            let mut blocked = blocked_exes_arc.write().unwrap();
 
                             let reason =
                                 if rule.response.change_request_body.is_some()
