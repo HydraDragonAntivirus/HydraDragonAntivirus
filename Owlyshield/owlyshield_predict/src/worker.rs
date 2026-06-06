@@ -1322,9 +1322,24 @@ pub mod worker_instance {
                                     continue;
                                 }
 
+                                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                                if let Some(json) = line.strip_prefix("FULL_PACKED_DATA:") {
+                                    behavior_engine.ingest_firewall_packed_data(json);
+                                } else {
+                                    match serde_json::from_str::<serde_json::Value>(&line) {
+                                        Ok(event) => {
+                                            // Always process for behavioral analysis
+                                            behavior_engine.ingest_openedr_event(&event);
+                                        }
+                                        Err(err) => Logging::warning(&format!(
+                                            "[OpenEDRTelemetry] Failed to parse direct event JSON: {}",
+                                            err
+                                        )),
+                                    }
+                                }
+                                #[cfg(not(all(target_os = "windows", feature = "firewall")))]
                                 match serde_json::from_str::<serde_json::Value>(&line) {
                                     Ok(event) => {
-                                        // Always process for behavioral analysis
                                         behavior_engine.ingest_openedr_event(&event);
                                     }
                                     Err(err) => Logging::warning(&format!(

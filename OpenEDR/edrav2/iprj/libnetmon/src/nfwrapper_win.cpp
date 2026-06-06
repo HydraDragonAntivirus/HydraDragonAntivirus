@@ -40,6 +40,44 @@ AddressFamily detectAddressFamily(const std::string& sIp)
 	return sIp.find(':') == std::string::npos ? AddressFamily::Inet : AddressFamily::Inet6;
 }
 
+/// Forward a raw firewall telemetry line to Owlyshield's OpenEDR telemetry pipe.
+/// Uses a per-call connect/write/close to avoid holding a persistent handle.
+void forwardRawTelemetryToOwlyshield(const std::string& sLine)
+{
+	if (sLine.empty())
+		return;
+
+	std::string sPayload = sLine + "\n";
+
+	constexpr wchar_t c_sPipeName[] = LR"(\\.\pipe\Global\HydraDragonOpenEdrTelemetry)";
+	constexpr DWORD c_nPipeWaitMs = 250;
+
+	if (!::WaitNamedPipeW(c_sPipeName, c_nPipeWaitMs))
+		return;
+
+	HANDLE hPipe = ::CreateFileW(
+		c_sPipeName,
+		GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		nullptr,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		nullptr);
+	if (hPipe == INVALID_HANDLE_VALUE)
+		return;
+
+	DWORD nWritten = 0;
+	::WriteFile(
+		hPipe,
+		sPayload.data(),
+		static_cast<DWORD>(sPayload.size()),
+		&nWritten,
+		nullptr);
+
+	::FlushFileBuffers(hPipe);
+	::CloseHandle(hPipe);
+}
+
 IpProtocol convertProtocol(const Variant& vProtocol)
 {
 	if (!vProtocol.isString())
@@ -286,6 +324,10 @@ void NetFilterWrapper::processNetEventLine(const std::string& sPayload)
 
 void NetFilterWrapper::processFullPacketLine(const std::string& sPayload)
 {
+	// Forward the full raw line to Owlyshield via the shared OpenEDR telemetry pipe
+	// so it can run its own behavior rule matching on the packet.
+	forwardRawTelemetryToOwlyshield("FULL_PACKED_DATA:" + sPayload);
+
 	try
 	{
 		const auto vPacket = variant::deserializeFromJson(sPayload);

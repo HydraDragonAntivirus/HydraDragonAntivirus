@@ -59,12 +59,7 @@ pub struct ProxyHttpEvent {
     pub response_body_truncated: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
-struct FirewallPackedDataMessage {
-    packet: PacketInfo,
-    request_body: Option<String>,
-    response_body: Option<String>,
-}
+
 
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
@@ -902,22 +897,7 @@ async fn handle_proxy_request<R: Runtime>(
         );
     }
 
-    if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
-        let mut telemetry_packet = mock_packet.clone();
-        telemetry_packet.size = raw_request_body_len + raw_response_body_len;
-        telemetry_packet.http_request_body = request_body.clone();
-        telemetry_packet.http_response_body = response_body.clone();
 
-        let packed = FirewallPackedDataMessage {
-            packet: telemetry_packet,
-            request_body: request_body.clone(),
-            response_body: response_body.clone(),
-        };
-
-        if let Ok(json) = serde_json::to_string(&packed) {
-            engine.send_hydranet_message(format!("FULL_PACKED_DATA:{}\n", json));
-        }
-    }
 
     let _ = app.emit(
         "proxy_http",

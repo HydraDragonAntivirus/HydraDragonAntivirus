@@ -3330,6 +3330,154 @@ impl BehaviorEngine {
             .collect()
     }
 
+    /// Process a single `FULL_PACKED_DATA:<json>` line forwarded by OpenEDR.
+    /// Updates the same shared state as the HydraNetEvent pipe handler so that
+    /// behavior-rule matching and HTTP-body analysis work regardless of which
+    /// path delivers the packet.
+    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    pub fn ingest_firewall_packed_data(&self, json: &str) {
+        match serde_json::from_str::<FirewallPackedDataMessage>(json) {
+            Ok(packed) => {
+                let mut pkt = packed.packet;
+                let pid = pkt.process_id;
+
+                let req_body = packed
+                    .request_body
+                    .or_else(|| pkt.http_request_body.clone())
+                    .unwrap_or_default();
+                let resp_body = packed
+                    .response_body
+                    .or_else(|| pkt.http_response_body.clone())
+                    .unwrap_or_default();
+
+                if pkt.http_request_body.is_none() && !req_body.is_empty() {
+                    pkt.http_request_body = Some(req_body.clone());
+                }
+                if pkt.http_response_body.is_none() && !resp_body.is_empty() {
+                    pkt.http_response_body = Some(resp_body.clone());
+                }
+
+                shared_firewall_net_pids().write().unwrap().insert(pid);
+
+                if !req_body.is_empty() || !resp_body.is_empty() {
+                    shared_firewall_http_body_map()
+                        .write()
+                        .unwrap()
+                        .entry(pid)
+                        .or_default()
+                        .push((req_body, resp_body));
+                }
+
+                {
+                    let mut pkt_map = shared_firewall_full_packets().write().unwrap();
+                    let history = pkt_map
+                        .entry(pid)
+                        .or_insert_with(|| VecDeque::with_capacity(500));
+                    if history.len() >= 500 {
+                        history.pop_front();
+                    }
+                    history.push_back(pkt.clone());
+                }
+
+                // Behavior rule matching — identical logic to the HydraNetEvent handler.
+                let mut matched_any = false;
+                for rule in self.rules.iter() {
+                    if rule.matches_packet(&self.regex_cache, &pkt, &[]) {
+                        matched_any = true;
+
+                        if rule.is_private {
+                            continue;
+                        }
+
+                        Logging::alert(&format!(
+                            "[BEHAVIOR RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
+                            pid, rule.name, pkt.src_ip, pkt.dst_ip
+                        ));
+
+                        if !rule.response.ask_user
+                            && (rule.response.status_access_denied
+                                || rule.response.quarantine
+                                || rule.response.kill_and_remove
+                                || rule.response.terminate_process)
+                        {
+                            let mut blocked = shared_firewall_blocked_exes().write().unwrap();
+
+                            let reason =
+                                if rule.response.change_request_body.is_some()
+                                    || rule.response.change_response_body.is_some()
+                                {
+                                    format!("Rule [{}] matched (Replacement suggested)", rule.name)
+                                } else {
+                                    format!("Rule [{}] matched", rule.name)
+                                };
+
+                            let (detected_domain, detected_subdomain) =
+                                if let Some(ref hostname) = pkt.hostname {
+                                    let parts: Vec<&str> = hostname.split('.').collect();
+                                    if parts.len() >= 2 {
+                                        let domain = format!(
+                                            "{}.{}",
+                                            parts[parts.len() - 2],
+                                            parts[parts.len() - 1]
+                                        );
+                                        let subdomain = if parts.len() > 2 {
+                                            Some(hostname.clone())
+                                        } else {
+                                            None
+                                        };
+                                        (Some(domain), subdomain)
+                                    } else {
+                                        (None, None)
+                                    }
+                                } else {
+                                    (None, None)
+                                };
+
+                            blocked.insert(
+                                pkt.image_path.clone(),
+                                FirewallDetection {
+                                    dst_ip: pkt.dst_ip.to_string(),
+                                    dst_port: pkt.dst_port,
+                                    hostname: pkt.hostname.clone().unwrap_or_default(),
+                                    reason,
+                                    is_private_rule_match: rule.is_private,
+                                    detected_subdomain,
+                                    detected_domain,
+                                    used_public_suffix_list: false,
+                                    matched_private_rules: if rule.is_private {
+                                        vec![rule.name.clone()]
+                                    } else {
+                                        Vec::new()
+                                    },
+                                },
+                            );
+                        }
+
+                        if let Some(ref hostname) = pkt.hostname {
+                            let _replaced = rule.apply_replacement(hostname);
+                        }
+                    }
+                }
+
+                if !matched_any {
+                    Logging::info(&format!(
+                        "[FirewallEvent] Full packed data recorded for PID {}: {} -> {} ({})",
+                        pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
+                    ));
+                }
+            }
+            Err(error) => {
+                let preview: String = json.chars().take(240).collect();
+                Logging::warning(&format!(
+                    "[FirewallEvent] Failed to parse FULL_PACKED_DATA JSON: {}; len={}; preview={}",
+                    error,
+                    json.len(),
+                    preview
+                ));
+            }
+        }
+    }
+
     /// Spawn the \\.\pipe\HydraNetEvent named pipe server thread.
     /// Firewall sends activity telemetry such as NET_EVENT and HTTP body data.
     /// Legacy BLOCK_EXE messages are still accepted defensively, but firewall
@@ -3542,139 +3690,6 @@ impl BehaviorEngine {
                             } else if line == "GENERATE_REPORT" {
                                 generate_report_flag.store(true, Ordering::SeqCst);
                                 Logging::info("[HydraNetPipe] Received on-demand report request");
-                            } else if let Some(json) = line.strip_prefix("FULL_PACKED_DATA:") {
-                                // Single JSON-only firewall telemetry envelope.
-                                // No pipe-delimited HTTP_BODY and no old FULL_PACKET format:
-                                // bodies can contain CR/LF, quotes, pipes and binary-looking text.
-                                match serde_json::from_str::<FirewallPackedDataMessage>(json) {
-                                    Ok(packed) => {
-                                        let mut pkt = packed.packet;
-                                        let pid = pkt.process_id;
-
-                                        let req_body = packed
-                                            .request_body
-                                            .or_else(|| pkt.http_request_body.clone())
-                                            .unwrap_or_default();
-                                        let resp_body = packed
-                                            .response_body
-                                            .or_else(|| pkt.http_response_body.clone())
-                                            .unwrap_or_default();
-
-                                        if pkt.http_request_body.is_none() && !req_body.is_empty() {
-                                            pkt.http_request_body = Some(req_body.clone());
-                                        }
-                                        if pkt.http_response_body.is_none() && !resp_body.is_empty() {
-                                            pkt.http_response_body = Some(resp_body.clone());
-                                        }
-
-                                        net_pids.write().unwrap().insert(pid);
-
-                                        if !req_body.is_empty() || !resp_body.is_empty() {
-                                            http_body_map.write().unwrap()
-                                                .entry(pid)
-                                                .or_default()
-                                                .push((req_body, resp_body));
-                                        }
-
-                                        let mut pkt_map = full_packets.write().unwrap();
-                                        let history = pkt_map.entry(pid).or_insert_with(|| VecDeque::with_capacity(500));
-                                        if history.len() >= 500 {
-                                            history.pop_front();
-                                        }
-                                        history.push_back(pkt.clone());
-                                        drop(pkt_map);
-
-                                        // BEHAVIOR RULE MATCHING
-                                        let mut matched_any = false;
-                                        {
-                                            for rule in rules_clone.iter() {
-                                                if rule.matches_packet(&regex_cache, &pkt, &[]) {
-                                                    matched_any = true;
-
-                                                    // Private rules don't generate detections (YARA-style behavior)
-                                                    // They are evaluated and can be used by other rules, but don't produce alerts
-                                                    if rule.is_private {
-                                                        continue;
-                                                    }
-
-                                                    Logging::alert(&format!(
-                                                        "[BEHAVIOR RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
-                                                        pid, rule.name, pkt.src_ip, pkt.dst_ip
-                                                    ));
-
-                                                    if !rule.response.ask_user
-                                                        && (rule.response.status_access_denied
-                                                            || rule.response.quarantine
-                                                            || rule.response.kill_and_remove
-                                                            || rule.response.terminate_process)
-                                                    {
-                                                        let mut blocked = blocked_exes.write().unwrap();
-
-                                                        let reason = if rule.response.change_request_body.is_some() || rule.response.change_response_body.is_some() {
-                                                            format!("Rule [{}] matched (Replacement suggested)", rule.name)
-                                                        } else {
-                                                            format!("Rule [{}] matched", rule.name)
-                                                        };
-
-                                                        // Extract domain information from packet hostname
-                                                        let (detected_domain, detected_subdomain) = if let Some(ref hostname) = pkt.hostname {
-                                                            let parts: Vec<&str> = hostname.split('.').collect();
-                                                            if parts.len() >= 2 {
-                                                                let domain = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
-                                                                let subdomain = if parts.len() > 2 {
-                                                                    Some(hostname.clone())
-                                                                } else {
-                                                                    None
-                                                                };
-                                                                (Some(domain), subdomain)
-                                                            } else {
-                                                                (None, None)
-                                                            }
-                                                        } else {
-                                                            (None, None)
-                                                        };
-
-                                                        blocked.insert(pkt.image_path.clone(), FirewallDetection {
-                                                            dst_ip: pkt.dst_ip.to_string(),
-                                                            dst_port: pkt.dst_port,
-                                                            hostname: pkt.hostname.clone().unwrap_or_default(),
-                                                            reason,
-                                                            is_private_rule_match: rule.is_private,
-                                                            detected_subdomain,
-                                                            detected_domain,
-                                                            used_public_suffix_list: false,
-                                                            matched_private_rules: if rule.is_private {
-                                                                vec![rule.name.clone()]
-                                                            } else {
-                                                                Vec::new()
-                                                            },
-                                                        });
-                                                    }
-
-                                                    if let Some(ref hostname) = pkt.hostname {
-                                                        let _replaced = rule.apply_replacement(hostname);
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        if !matched_any {
-                                            Logging::info(&format!(
-                                                "[FirewallEvent] Full packed data recorded for PID {}: {} -> {} ({})",
-                                                pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
-                                            ));
-                                        }
-                                    }
-                                    Err(error) => {
-                                        let preview: String = json.chars().take(240).collect();
-                                        Logging::warning(&format!(
-                                            "[FirewallEvent] Failed to parse FULL_PACKED_DATA JSON: {}; len={}; preview={}",
-                                            error,
-                                            json.len(),
-                                            preview
-                                        ));
-                                    }
-                                }
                             } else if let Some(rest) = line.strip_prefix("VERDICT:") {
                                 // VERDICT:<file_path>|<sha256>|<verdict_code>|<verdict_label>
                                 // OpenEDR FLS: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
