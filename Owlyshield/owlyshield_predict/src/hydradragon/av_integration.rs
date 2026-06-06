@@ -1484,7 +1484,10 @@ fn apply_fast_driver_action(event: &AVThreatEvent) {
             &event.virus_name,
             ThreatAction::KillAndQuarantine.as_str(),
             success,
-            &format!("Quarantined by Owlyshield: gid={} virus={}", gid, event.virus_name),
+            &format!(
+                "Quarantined by Owlyshield: gid={} virus={}",
+                gid, event.virus_name
+            ),
         );
         return;
     }
