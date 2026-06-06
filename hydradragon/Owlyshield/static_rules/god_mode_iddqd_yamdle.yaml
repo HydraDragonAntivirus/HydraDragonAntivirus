@@ -163,11 +163,6 @@ rules:
           - id: comsvcs_minidump
             kind: regex
             value: 'comsvcs(\.dll)?[, ]{1,2}(MiniDump|#24)'
-          - id: amsi_scan_buffer_base64
-            kind: text
-            value: 'AmsiScanBuffer'
-            base64: true
-            base64wide: true
           - id: amsi_scan_buffer_xor
             kind: text
             value: 'AmsiScanBuffer'
