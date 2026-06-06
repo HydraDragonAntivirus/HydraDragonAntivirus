@@ -1,8 +1,6 @@
 pub use super::rule_types::*;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::config::Config;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
-use crate::windows::edrsvc_client::with_shared_driver;
 use crate::extensions::ExtensionList;
 use crate::logging::Logging;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
@@ -20,12 +18,14 @@ use crate::shared_def::{
 };
 use crate::signature_verification::verify_signature;
 use crate::threat_handler::ThreatHandler;
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+use crate::utils::validate_pipe_client;
 use crate::utils::{
     format_process_descriptor_with_fallback, resolve_process_path,
     suspicious_critical_process_reason,
 };
 #[cfg(all(target_os = "windows", feature = "firewall"))]
-use crate::utils::validate_pipe_client;
+use crate::windows::edrsvc_client::with_shared_driver;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml;
@@ -4973,11 +4973,12 @@ impl BehaviorEngine {
                 };
 
                 // Pipe name / payload for LLE_NAMED_PIPE_CREATE / IRP_NAMED_PIPE_WRITE
-                let pipe_name = if matches!(event_type, "LLE_NAMED_PIPE_CREATE" | "IRP_NAMED_PIPE_WRITE") {
-                    protected_path.to_string()
-                } else {
-                    String::new()
-                };
+                let pipe_name =
+                    if matches!(event_type, "LLE_NAMED_PIPE_CREATE" | "IRP_NAMED_PIPE_WRITE") {
+                        protected_path.to_string()
+                    } else {
+                        String::new()
+                    };
 
                 let rec = IrpOperationRecord {
                     timestamp: std::time::SystemTime::now(),
