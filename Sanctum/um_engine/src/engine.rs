@@ -114,22 +114,18 @@ impl Engine {
 fn get_ppl_svc_pid() -> Result<u32, ()> {
     let logger = Log::new();
 
-    let snapshot = match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0) } {
-        Ok(s) => {
-            if s.is_invalid() {
-                logger.panic(&format!(
-                    "Unable to create snapshot of all processes. GLE: {}",
-                    unsafe { GetLastError().0 }
-                ));
-            } else {
-                s
-            }
-        }
-        Err(_) => {
-            // not really bothered about the error at this stage
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0) };
+    let snapshot = match snapshot {
+        Ok(h) if h.is_invalid() => {
             logger.panic(&format!(
-                "Unable to create snapshot of all processes. GLE: {}",
+                "Unable to create snapshot of all processes. Handle is invalid. GLE: {}",
                 unsafe { GetLastError().0 }
+            ));
+        }
+        Ok(h) => h,
+        Err(e) => {
+            logger.panic(&format!(
+                "Unable to create snapshot of all processes. Error: {e}"
             ));
         }
     };

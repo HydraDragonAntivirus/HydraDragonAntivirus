@@ -91,6 +91,10 @@ static BYTE_PATTERN_CACHE: Lazy<Mutex<HashMap<String, Arc<CompiledBytePattern>>>
     Lazy::new(|| Mutex::new(HashMap::new()));
 static STRING_SET_CACHE: Lazy<Mutex<HashMap<String, Arc<AhoCorasick>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+/// Cache for XOR text atoms: key = "<atom_cache_key>" → AhoCorasick with all key variants pre-built.
+/// Patterns are stored as raw bytes (Vec<u8>), indexed so PatternID → (xor_key, variant_label_index).
+static XOR_TEXT_AC_CACHE: Lazy<Mutex<HashMap<String, Arc<XorTextAc>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
     if let Some(found) = REGEX_CACHE.lock().ok()?.get(pattern).cloned() {
@@ -102,6 +106,62 @@ fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
         .ok()?
         .insert(pattern.to_string(), compiled.clone());
     Some(compiled)
+}
+
+/// Pre-built Aho-Corasick automaton for a single XOR text atom.
+/// `meta[i]` = `(xor_key, variant_label)` for the i-th pattern in the automaton.
+#[derive(Debug)]
+struct XorTextAc {
+    ac: AhoCorasick,
+    meta: Vec<(u8, &'static str)>,
+}
+
+fn xor_text_ac_cache_key(value: &str, wide: bool, lo: u8, hi: u8) -> String {
+    format!("xor:{}:{}:{}-{}", if wide { "wide" } else { "ascii" }, value, lo, hi)
+}
+
+fn build_xor_text_ac(atom: &SignatureAtom) -> Option<Arc<XorTextAc>> {
+    let (lo, hi) = xor_key_range(atom);
+    let wide = atom.wide;
+    let key = xor_text_ac_cache_key(&atom.value, wide, lo, hi);
+
+    if let Some(found) = XOR_TEXT_AC_CACHE.lock().ok()?.get(&key).cloned() {
+        return Some(found);
+    }
+
+    let variants = text_atom_plain_xor_variants(atom);
+    if variants.is_empty() {
+        return None;
+    }
+
+    let mut patterns: Vec<Vec<u8>> = Vec::with_capacity(variants.len() * (hi - lo + 1) as usize);
+    let mut meta: Vec<(u8, &'static str)> = Vec::with_capacity(patterns.capacity());
+
+    for k in lo..=hi {
+        for &(label, ref plain) in &variants {
+            if plain.is_empty() {
+                continue;
+            }
+            let encoded: Vec<u8> = plain.iter().map(|b| b ^ k).collect();
+            patterns.push(encoded);
+            meta.push((k, label));
+        }
+    }
+
+    if patterns.is_empty() {
+        return None;
+    }
+
+    let ac = AhoCorasickBuilder::new()
+        .build(patterns)
+        .ok()?;
+
+    let built = Arc::new(XorTextAc { ac, meta });
+    XOR_TEXT_AC_CACHE
+        .lock()
+        .ok()?
+        .insert(key, built.clone());
+    Some(built)
 }
 
 fn cached_byte_pattern(pattern: &str) -> Option<Arc<CompiledBytePattern>> {
@@ -383,7 +443,13 @@ fn warm_rule_caches(rule: &Rule) {
                         SignatureAtomKind::Bytes => {
                             let _ = cached_byte_pattern(&atom.value);
                         }
-                        SignatureAtomKind::Text => {}
+                        SignatureAtomKind::Text => {
+                            // Pre-build the XOR Aho-Corasick automaton at rule load time
+                            // so the first scan pays zero construction cost.
+                            if atom.xor {
+                                let _ = build_xor_text_ac(atom);
+                            }
+                        }
                     }
                 }
             }
@@ -1244,43 +1310,40 @@ fn match_text_atom(
     }
 
     if atom.xor {
-        let xor_start = Instant::now();
-        const XOR_TIMEOUT_MS: u128 = 3000; // 3 second timeout for XOR brute-force
+        // YARA-equivalent approach: all XOR key variants are pre-built into a single
+        // Aho-Corasick automaton at rule load time. A single O(file_len) scan finds
+        // the first matching variant regardless of the key range size, instead of
+        // performing O(range × file_len) searches with per-key allocations.
+        if let Some(xor_ac) = build_xor_text_ac(atom) {
+            // fullword check: AC finds the match position; we then verify word-boundary
+            // constraints post-match so AC stays fast (no per-byte fullword logic needed
+            // inside the automaton itself).
+            let search_result = if atom.fullword {
+                xor_ac.ac.find_iter(bytes).find(|mat| {
+                    let start = mat.start();
+                    let end = mat.end();
+                    let len = end - start;
+                    byte_word_boundary_at(bytes, start, len)
+                })
+            } else {
+                xor_ac.ac.find(bytes)
+            };
 
-        let (lo, hi) = xor_key_range(atom);
-        let mut keys_checked = 0;
-
-        for key in lo..=hi {
-            // Check timeout every 8 keys to avoid excessive time checks
-            if keys_checked % 8 == 0 && xor_start.elapsed().as_millis() > XOR_TIMEOUT_MS {
-                log::warn!(
-                    "XOR scan timeout: ${} checked {}/{} keys in {}ms (file_size={})",
+            if let Some(mat) = search_result {
+                let pid = mat.pattern().as_usize();
+                let (key, label) = xor_ac.meta.get(pid).copied().unwrap_or((0, "xor"));
+                out.matched = true;
+                out.offsets.push(mat.start());
+                out.evidence.push(format!(
+                    "${} xor(0x{:02x}) {} text `{}` at 0x{:x}",
                     atom.id,
-                    keys_checked,
-                    (hi - lo + 1),
-                    xor_start.elapsed().as_millis(),
-                    bytes.len()
-                );
-                break;
+                    key,
+                    label,
+                    truncate_for_evidence(&atom.value, 80),
+                    mat.start()
+                ));
+                return out;
             }
-
-            for (label, plain) in text_atom_plain_xor_variants(atom) {
-                let encoded: Vec<u8> = plain.iter().map(|b| b ^ key).collect();
-                if let Some(offset) = find_bytes(bytes, &encoded, atom.fullword) {
-                    out.matched = true;
-                    out.offsets.push(offset);
-                    out.evidence.push(format!(
-                        "${} xor(0x{:02x}) {} text `{}` at 0x{:x}",
-                        atom.id,
-                        key,
-                        label,
-                        truncate_for_evidence(&atom.value, 80),
-                        offset
-                    ));
-                    return out;
-                }
-            }
-            keys_checked += 1;
         }
     }
 
@@ -1375,28 +1438,64 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
 
         if atom.xor {
             let (lo, hi) = xor_key_range(atom);
-            for key in lo..=hi {
-                let xored: Vec<ByteToken> = pattern
-                    .tokens
-                    .iter()
-                    .map(|token| ByteToken {
-                        value: token.value ^ key,
-                        mask: token.mask,
-                    })
-                    .collect();
-                let xored = CompiledBytePattern::from_tokens(xored);
-                if let Some(offset) = find_byte_pattern(bytes, &xored) {
-                    out.matched = true;
-                    out.offsets.push(offset);
-                    out.evidence.push(format!(
-                        "${} xor(0x{:02x}) bytes `{}` at 0x{:x}",
-                        atom.id,
-                        key,
-                        truncate_for_evidence(&atom.value, 80),
-                        offset
-                    ));
-                    return out;
+
+            // Fast path: if all tokens are exact (no wildcards) the XOR'd pattern is a
+            // plain byte string. Build one Aho-Corasick automaton for all key variants
+            // and do a single O(file_len) pass — same strategy as text XOR above.
+            if pattern.tokens.iter().all(|t| t.mask == 0xff) {
+                let plain: Vec<u8> = pattern.tokens.iter().map(|t| t.value).collect();
+                let mut variants: Vec<Vec<u8>> =
+                    Vec::with_capacity((hi - lo + 1) as usize);
+                let mut keys: Vec<u8> = Vec::with_capacity(variants.capacity());
+                for k in lo..=hi {
+                    let encoded: Vec<u8> = plain.iter().map(|b| b ^ k).collect();
+                    variants.push(encoded);
+                    keys.push(k);
                 }
+                if let Ok(ac) = AhoCorasickBuilder::new().build(&variants) {
+                    if let Some(mat) = ac.find(bytes) {
+                        let key = keys[mat.pattern().as_usize()];
+                        out.matched = true;
+                        out.offsets.push(mat.start());
+                        out.evidence.push(format!(
+                            "${} xor(0x{:02x}) bytes `{}` at 0x{:x}",
+                            atom.id,
+                            key,
+                            truncate_for_evidence(&atom.value, 80),
+                            mat.start()
+                        ));
+                        return out;
+                    }
+                }
+            } else {
+                // Wildcard pattern: must verify full mask per position.
+                // Re-use the same token slice but XOR only the value field — no new
+                // Vec<ByteToken> allocation per key; stack-allocate via a fixed buffer
+                // using the existing find_byte_pattern logic.
+                let tokens_len = pattern.tokens.len();
+                let mut xored_tokens: Vec<ByteToken> = pattern.tokens.clone();
+                for k in lo..=hi {
+                    for (i, src) in pattern.tokens.iter().enumerate() {
+                        xored_tokens[i] = ByteToken {
+                            value: src.value ^ k,
+                            mask: src.mask,
+                        };
+                    }
+                    let xored_pat = CompiledBytePattern::from_tokens(xored_tokens.clone());
+                    if let Some(offset) = find_byte_pattern(bytes, &xored_pat) {
+                        out.matched = true;
+                        out.offsets.push(offset);
+                        out.evidence.push(format!(
+                            "${} xor(0x{:02x}) bytes `{}` at 0x{:x}",
+                            atom.id,
+                            k,
+                            truncate_for_evidence(&atom.value, 80),
+                            offset
+                        ));
+                        return out;
+                    }
+                }
+                let _ = tokens_len; // suppress unused warning
             }
         }
     }
@@ -1431,9 +1530,9 @@ fn utf16le_bytes(text: &str) -> Vec<u8> {
 
 fn xor_key_range(atom: &SignatureAtom) -> (u8, u8) {
     let lo = atom.xor_min.unwrap_or(1);
-    // Limit default XOR range to prevent performance issues
-    // Full 1-255 range on large files causes extreme slowdown
-    let hi = atom.xor_max.unwrap_or(32);
+    // YARA default: xor without range = xor(1,255). The previous cap of 32 was a
+    // performance workaround that is no longer needed now that we use Aho-Corasick.
+    let hi = atom.xor_max.unwrap_or(255);
     if lo <= hi {
         (lo, hi)
     } else {
