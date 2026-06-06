@@ -1,0 +1,587 @@
+name: HydraDragonStatic Stealer Static Signatures
+version: "1"
+
+# ─── STEALER STATIC SIGNATURES ───────────────────────────────────────────────
+# Static string/byte/import signatures for info-stealer detection.
+# These complement the dynamic behavior rules in malware_rules.yaml
+# (HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen) and are evaluated at
+# file-scan time (not runtime hook-based).
+#
+# Sources for string/path coverage:
+#   - malware_rules.yaml: browser_profile_access, discord_token_access,
+#     credential_file_access, crypto_wallet_access, decryption_apis,
+#     exfiltration_apis, exfiltration_pattern
+#   - Real-world stealer families: Redline, Vidar, Raccoon, StealC,
+#     Lumma, Aurora, Titan, MetaStealer, Mystic, Rhadamanthys
+# ─────────────────────────────────────────────────────────────────────────────
+
+rules:
+
+  # ── Rule 1: Browser Profile & Credential Path Strings ─────────────────────
+  - id: HDS-STEALER-BROWSER-PATHS
+    title: "HEUR:Win.PSW.BrowserProfilePaths.gen (Static)"
+    description: >
+      Detects PE files or scripts containing hardcoded browser profile and credential
+      file paths used by info-stealers. Stealers embed these paths to directly
+      locate SQLite credential databases (Login Data, Cookies, Web Data, Local State)
+      and session token stores across Chrome, Edge, Brave, Opera, Firefox, and Vivaldi.
+      Matches paths from malware_rules.yaml browser_profile_access +
+      credential_file_access named conditions.
+    severity: High
+    verdict: malware
+    confidence: 82
+    score: 50
+    family: stealer.browser
+    tags: [stealer, browser, credential_theft, chrome, edge, brave, opera, firefox, static_string]
+    logic: threshold
+    threshold: 2
+    conditions:
+      # Browser profile root paths (matches malware_rules.yaml browser_profile_access)
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "Google\\Chrome\\User Data"
+          - "Google/Chrome/User Data"
+          - "AppData\\Local\\Google\\Chrome\\User Data"
+          - "AppData/Local/Google/Chrome/User Data"
+          - "BraveSoftware\\Brave-Browser\\User Data"
+          - "BraveSoftware/Brave-Browser/User Data"
+          - "Microsoft\\Edge\\User Data"
+          - "Microsoft/Edge/User Data"
+          - "Opera Software\\Opera Stable"
+          - "Opera Software/Opera Stable"
+          - "Opera Software\\Opera GX Stable"
+          - "Opera Software/Opera GX Stable"
+          - "Yandex\\YandexBrowser\\User Data"
+          - "Vivaldi\\User Data"
+          - "Chromium\\User Data"
+          - "CocCoc\\Browser\\User Data"
+          - "UCBrowser\\User Data"
+          - "360Browser\\Browser\\User Data"
+      # Credential file names (matches malware_rules.yaml credential_file_access)
+      - type: string_set
+        min: 1
+        nocase: false
+        decoded: true
+        values:
+          - "Login Data"
+          - "Cookies"
+          - "Web Data"
+          - "Local State"
+          - "Network\\Cookies"
+          - "Secure Preferences"
+          - "Extension Cookies"
+          - "History"
+          - "Bookmarks"
+          - "Shortcuts"
+          - "Login Data For Account"
+      # Firefox specific
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "Mozilla\\Firefox\\Profiles"
+          - "Mozilla/Firefox/Profiles"
+          - "logins.json"
+          - "key4.db"
+          - "signons.sqlite"
+          - "cookies.sqlite"
+          - "formhistory.sqlite"
+          - "places.sqlite"
+          - "cert9.db"
+
+  # ── Rule 2: Credential Decryption API Imports ─────────────────────────────
+  - id: HDS-STEALER-DECRYPTION-IMPORTS
+    title: "HEUR:Win.PSW.DecryptionAPIImports.gen (Static)"
+    description: >
+      Detects PE files importing credential decryption APIs used by info-stealers.
+      CryptUnprotectData (DPAPI) is used to decrypt Chrome/Edge saved passwords.
+      BCryptDecrypt, NCryptDecrypt are used for custom AES/RSA schemes.
+      CredReadW/CredEnumerateW access Windows Credential Manager.
+      Mirrors decryption_apis from malware_rules.yaml.
+    severity: High
+    verdict: suspicious
+    confidence: 60
+    score: 25
+    family: stealer.decryption
+    tags: [stealer, dpapi, credential_decryption, import_based, static_pe]
+    logic: all
+    conditions:
+      - type: file_type
+        values: [pe, pe64, pe32]
+      - type: import_set
+        min: 2
+        names:
+          - "CryptUnprotectData"
+          - "CryptUnprotectMemory"
+          - "BCryptDecrypt"
+          - "NCryptDecrypt"
+          - "CredReadW"
+          - "CredEnumerateW"
+          - "CredReadDomainCredentialsW"
+          - "PFXExportCertStoreEx"
+          - "CryptAcquireContextA"
+          - "CryptAcquireContextW"
+          - "BCryptOpenAlgorithmProvider"
+
+  # ── Rule 3: Discord Token & Messaging App Paths ───────────────────────────
+  - id: HDS-STEALER-DISCORD-MESSENGER-PATHS
+    title: "HEUR:Win.PSW.DiscordTokenPaths.gen (Static)"
+    description: >
+      Detects PE files or scripts containing hardcoded paths to Discord, Telegram,
+      and other messaging app token stores. Info-stealers extract Discord tokens
+      from LevelDB stores and inject them for account takeover.
+      Matches discord_token_access from malware_rules.yaml.
+    severity: High
+    verdict: malware
+    confidence: 80
+    score: 45
+    family: stealer.messenger
+    tags: [stealer, discord, telegram, token_theft, static_string]
+    logic: threshold
+    threshold: 2
+    conditions:
+      # Discord paths (matches malware_rules.yaml discord_token_access)
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "Discord\\Local Storage"
+          - "Discord/Local Storage"
+          - "Discord\\leveldb"
+          - "Discord/leveldb"
+          - "discordcanary\\Local Storage"
+          - "discordptb\\Local Storage"
+          - "AppData\\Roaming\\Discord"
+          - "AppData/Roaming/Discord"
+          - "discord\\Local Storage\\leveldb"
+      # Token extraction patterns
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "mfa."
+          - "dQw4w9WgXcQ"
+          - "Authorization: "
+          - "encryptedToken"
+          - "encrypted_key"
+          - "os_crypt"
+          - ".log"
+          - "LDBCOMPAR"
+      # Telegram / other messengers
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "Telegram Desktop\\tdata"
+          - "Telegram Desktop/tdata"
+          - "tdata\\D877F783D5D3EF8C"
+          - "Signal\\config.json"
+          - "AppData\\Roaming\\Slack\\storage"
+
+  # ── Rule 4: Crypto Wallet Path Strings ────────────────────────────────────
+  - id: HDS-STEALER-CRYPTO-WALLET-PATHS
+    title: "HEUR:Win.PSW.CryptoWalletPaths.gen (Static)"
+    description: >
+      Detects PE files embedding paths to desktop crypto wallet data stores.
+      Info-stealers target wallet.dat, keystore files, seed phrase files, and
+      browser extension wallet stores for Electrum, Bitcoin Core, Ethereum,
+      MetaMask, Exodus, Atomic, and similar wallets.
+      Mirrors crypto_wallet_access from malware_rules.yaml.
+    severity: Critical
+    verdict: malware
+    confidence: 85
+    score: 55
+    family: stealer.crypto_wallet
+    tags: [stealer, crypto, wallet, bitcoin, ethereum, metamask, exodus, static_string]
+    logic: threshold
+    threshold: 2
+    conditions:
+      # Desktop wallet paths (matches malware_rules.yaml crypto_wallet_access)
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "Electrum\\wallets"
+          - "Electrum/wallets"
+          - "Bitcoin\\wallets"
+          - "Bitcoin/wallets"
+          - "Ethereum\\keystore"
+          - "Ethereum/keystore"
+          - "Litecoin\\wallets"
+          - "Dogecoin\\wallets"
+          - "Monero\\wallets"
+          - "Zcash\\blocks"
+          - "Exodus\\exodus.wallet"
+          - "Exodus/exodus.wallet"
+          - "Atomic\\Local Storage"
+          - "Atomic/Local Storage"
+          - "Coinomi\\Coinomi\\wallets"
+          - "Guarda\\Local Storage"
+          - "Jaxx Liberty\\Local Storage"
+          - "wallet.dat"
+          - "keystore"
+          - "seed.seco"
+      # Browser extension wallet IDs (MetaMask, Coinbase Wallet, etc.)
+      - type: string_set
+        min: 1
+        nocase: false
+        decoded: true
+        values:
+          - "nkbihfbeogaeaoehlefnkodbefgpgknn"
+          - "ejbalbakoplchlghecdalmeeeajnimhm"
+          - "fhbohimaelbohpjbbldcngcnapndodjp"
+          - "ibnejdfjmmkpcnlpebklmnkoeoihofec"
+          - "bfnaelmomeimhlpmgjnjophhpkkoljpa"
+          - "aeachknmefphepccionboohckonoeemg"
+          - "hifafgmccdpekplomjjkcfgodnhcellj"
+          - "jnlgamecbpmbajjfhmmmlhejkemejdma"
+          - "afbcbjpbpfadlkmhmclhkeeodmamcflc"
+          - "dlcobpjiigpikoobohmabehhmhfoodbb"
+      # Wallet file names
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "wallet.dat"
+          - "keystore.json"
+          - "mnemonic.txt"
+          - "seed.txt"
+          - "recovery.txt"
+          - "backup.txt"
+          - "phrase.txt"
+
+  # ── Rule 5: Exfiltration & Network Sending API Strings ────────────────────
+  - id: HDS-STEALER-EXFIL-API-STRINGS
+    title: "HEUR:Win.PSW.ExfiltrationStrings.gen (Static)"
+    description: >
+      Detects PE files containing hardcoded exfiltration infrastructure strings
+      combined with credential-related keywords. Info-stealers embed Telegram bot
+      API endpoints, Discord webhook URLs, C2 panel paths, and multipart form-data
+      boundaries used to POST stolen data. Mirrors exfiltration_apis and
+      network_exfiltration from malware_rules.yaml.
+    severity: High
+    verdict: malware
+    confidence: 85
+    score: 55
+    family: stealer.exfiltration
+    tags: [stealer, exfiltration, telegram_bot, c2, webhook, static_string]
+    logic: threshold
+    threshold: 2
+    conditions:
+      # Telegram bot exfil (full API endpoint — not just sendMessage alone)
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "api.telegram.org/bot"
+          - "t.me/bot"
+      # Discord webhook exfil
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "discord.com/api/webhooks/"
+          - "discordapp.com/api/webhooks/"
+      # Stealer C2 panel paths (specific PHP gate patterns only, no short tokens)
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "/gate.php"
+          - "/panel/gate.php"
+          - "/index.php?gate"
+          - "/stealer/gate"
+          - "/stealer/index.php"
+          - "/panel/index.php?newlog"
+      # Credential-named output files (stealer-specific filenames)
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "passwords.txt"
+          - "cookies.txt"
+          - "autofill.txt"
+          - "tokens.txt"
+          - "wallets.txt"
+          - "cards.txt"
+          - "system_info.txt"
+          - "All Passwords.txt"
+          - "CreditCards.txt"
+
+  # ── Rule 6: Known Stealer Family String Markers ───────────────────────────
+  - id: HDS-STEALER-FAMILY-MARKERS
+    title: "HEUR:Win.PSW.FamilyMarkers.gen (Static)"
+    description: >
+      Detects strings unique to known info-stealer families: Redline, Vidar, Raccoon,
+      StealC, Lumma, Aurora, Titan, MetaStealer, Mystic, Rhadamanthys, AZORult,
+      Agent Tesla, FormBook, and Snake Keylogger. These are PDB paths, mutex names,
+      panel paths, internal class names, and obfuscation artifact strings.
+    severity: Critical
+    verdict: malware
+    confidence: 93
+    score: 80
+    family: stealer.known_family
+    tags: [stealer, family_detection, redline, vidar, raccoon, lumma, azorult, static_string]
+    logic: any
+    conditions:
+      # Redline Stealer
+      - type: native_signature
+        expression: "$redline_namespace or $redline_pdb"
+        atoms:
+          - id: redline_namespace
+            kind: text
+            value: "RedLine"
+            ascii: true
+            wide: true
+            fullword: true
+          - id: redline_pdb
+            kind: regex
+            value: '(RedLine|Redline|redline)[_\.\-]?(Stealer|stealer|Client|client)?.*\.pdb'
+            ascii: true
+      # Vidar Stealer
+      - type: native_signature
+        expression: "any of ($vidar*)"
+        atoms:
+          - id: vidar_string
+            kind: text
+            value: "Vidar"
+            ascii: true
+            wide: true
+            fullword: true
+          - id: vidar_profile_id
+            kind: regex
+            value: '"profile_id"\s*:\s*"\d+'
+            ascii: true
+      # Raccoon Stealer
+      - type: native_signature
+        expression: "any of ($raccoon*)"
+        atoms:
+          - id: raccoon_gate_path
+            kind: text
+            value: "raccoonstealer"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: raccoon_config_key
+            kind: regex
+            value: '"(machineId|userId|botId)"\s*:\s*"[a-f0-9\-]{8,}'
+            ascii: true
+      # Lumma Stealer
+      - type: native_signature
+        expression: "any of ($lumma*)"
+        atoms:
+          - id: lumma_string
+            kind: text
+            value: "LummaC"
+            ascii: true
+            wide: true
+          - id: lumma_c2_path
+            kind: regex
+            value: '/api/get\.php\?pid='
+            ascii: true
+          - id: lumma_user_agent
+            kind: text
+            value: "LummaC2"
+            ascii: true
+            wide: true
+      # AZORult
+      - type: native_signature
+        expression: "any of ($azorult*)"
+        atoms:
+          - id: azorult_gate
+            kind: text
+            value: "AZORult"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: azorult_index_path
+            kind: regex
+            value: '/index\.php\?new_log'
+            ascii: true
+      # Agent Tesla
+      - type: native_signature
+        expression: "any of ($agenttesla*)"
+        atoms:
+          - id: agenttesla_keylogger_class
+            kind: text
+            value: "AgentTesla"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: agenttesla_smtp_config
+            kind: regex
+            value: 'smtp\.[a-z0-9\-\.]+\.[a-z]{2,4}:\d{2,5}'
+            nocase: true
+          - id: agenttesla_screenshot
+            kind: text
+            value: "ScreenCapture"
+            ascii: true
+            wide: true
+      # FormBook / XLoader
+      - type: native_signature
+        expression: "2 of ($formbook*)"
+        atoms:
+          - id: formbook_mutex
+            kind: regex
+            value: '(Global|Local)\\FORMBOOK_[A-Z0-9]{4,}'
+            ascii: true
+            wide: true
+          - id: formbook_xloader_string
+            kind: regex
+            value: 'xloader\.(exe|dll)|XLoader\s+[Ss]tealer'
+            ascii: true
+            nocase: true
+          - id: formbook_c2_path
+            kind: regex
+            value: '/[a-z0-9]{4,8}/[a-z0-9]{4,8}/\s*(Content-Type|application/x-www-form-urlencoded)'
+            ascii: true
+      # StealC
+      - type: native_signature
+        expression: "any of ($stealc*)"
+        atoms:
+          - id: stealc_string
+            kind: text
+            value: "StealC"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: stealc_api_path
+            kind: regex
+            value: '/api/checkin|/api/logs|/api/config'
+            ascii: true
+            nocase: true
+      # Rhadamanthys
+      - type: native_signature
+        expression: "any of ($rhada*)"
+        atoms:
+          - id: rhada_string
+            kind: text
+            value: "Rhadamanthys"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: rhada_pdb
+            kind: regex
+            value: 'Rhadamanthys.*\.pdb'
+            ascii: true
+            nocase: true
+
+  # ── Rule 7: Staging and Archive Creation with Credential Keywords ─────────
+  - id: HDS-STEALER-STAGING-KEYWORDS
+    title: "HEUR:Win.PSW.StagingKeywords.gen (Static)"
+    description: >
+      Detects executables embedding both temp-staging paths and credential-related
+      directory or file keywords in the same binary. Stealers collect stolen data
+      into a temp folder, create a ZIP/RAR archive, and exfiltrate it. The presence
+      of both staging paths (%TEMP%, AppData) and credential keywords in one file
+      is a strong static indicator.
+      Mirrors temp_staging + exfiltration_pattern from malware_rules.yaml.
+    severity: High
+    verdict: suspicious
+    confidence: 68
+    score: 35
+    family: stealer.staging
+    tags: [stealer, staging, temp_folder, archive, credential_keywords, static_string]
+    logic: all
+    conditions:
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "%TEMP%"
+          - "%APPDATA%"
+          - "\\AppData\\Local\\Temp"
+          - "/AppData/Local/Temp"
+          - "\\AppData\\Roaming\\Temp"
+          - "GetTempPath"
+          - "GetTempFileName"
+      - type: string_set
+        min: 3
+        nocase: true
+        decoded: true
+        values:
+          - "Passwords"
+          - "Tokens"
+          - "Screenshot"
+          - "Wallets"
+          - "AutoFill"
+          - "CreditCards"
+          - "FileZilla"
+          - "WinSCP"
+          - "NordVPN"
+          - "OpenVPN"
+          - "ProtonVPN"
+          - "StealC"
+          - "Lumma"
+          - "RedLine"
+          - "raccoonstealer"
+
+  # ── Rule 8: System Fingerprinting API Imports (Stealer Recon Phase) ────────
+  - id: HDS-STEALER-SYSINFO-IMPORTS
+    title: "HEUR:Win.PSW.SysInfoReconImports.gen (Static)"
+    description: >
+      Detects PE files importing system enumeration APIs that stealers use during
+      the reconnaissance phase to collect machine ID, OS version, hardware info,
+      installed AV/EDR products, geolocation, and running processes before exfil.
+      Requires combination with credential-path strings to reduce false positives.
+    severity: Medium
+    verdict: suspicious
+    confidence: 55
+    score: 20
+    family: stealer.recon
+    tags: [stealer, recon, sysinfo, fingerprinting, import_based, static_pe]
+    logic: all
+    conditions:
+      - type: file_type
+        values: [pe, pe64, pe32]
+      - type: import_set
+        min: 3
+        names:
+          - "GetComputerNameW"
+          - "GetComputerNameExW"
+          - "GetUserNameW"
+          - "GetUserNameExW"
+          - "GlobalMemoryStatusEx"
+          - "GetSystemInfo"
+          - "GetVolumeInformationW"
+          - "GetDriveTypeW"
+          - "EnumDisplayDevicesW"
+          - "GetAdaptersInfo"
+          - "GetAdaptersAddresses"
+          - "GetTcpTable"
+          - "EnumProcesses"
+          - "CreateToolhelp32Snapshot"
+          - "Process32FirstW"
+          - "Process32NextW"
+          - "RegOpenKeyExW"
+          - "RegQueryValueExW"
+          - "GetSystemFirmwareTable"
+      # Must also contain credential-related strings to reduce FP
+      - type: string_set
+        min: 1
+        nocase: true
+        decoded: true
+        values:
+          - "Login Data"
+          - "Google\\Chrome"
+          - "Microsoft\\Edge"
+          - "wallet.dat"
+          - "Discord"
+          - "Telegram"
+          - "passwords"
+          - "Cookies"
+          - "CryptUnprotectData"

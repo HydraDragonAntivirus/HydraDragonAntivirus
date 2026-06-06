@@ -1,0 +1,390 @@
+name: HydraDragonStatic Ransomware Static Signatures
+version: "1"
+
+# ─── RANSOMWARE STATIC SIGNATURES ────────────────────────────────────────────
+# Static string/byte/API-name signatures for ransomware detection.
+# These complement the dynamic behavior rules in ransomware_whitelist_importer.yaml
+# and are evaluated at file-scan time (not runtime hook-based).
+# Covers: ransom notes, shadow copy deletion, encryption API imports,
+#         known ransomware family strings, encrypted-extension markers,
+#         and C2/onion communication artifacts.
+# ─────────────────────────────────────────────────────────────────────────────
+
+rules:
+
+  # ── Rule 1: Shadow Copy / Backup Deletion Strings ─────────────────────────
+  - id: HDS-RANSOM-SHADOWCOPY-DELETE
+    title: "HEUR:Win.Ransom.ShadowCopyDeletion.gen (Static)"
+    description: >
+      Detects executables embedding shadow copy or backup deletion commands.
+      Ransomware almost universally deletes VSS snapshots and backup catalogs
+      to prevent recovery. These strings embedded in a PE are a near-certain
+      indicator of ransomware pre-attack preparation.
+    severity: Critical
+    verdict: malware
+    confidence: 90
+    score: 65
+    family: ransom.anti_recovery
+    tags: [ransomware, shadow_copy, backup_deletion, anti_recovery, static_string]
+    logic: any
+    conditions:
+      - type: native_signature
+        expression: "any of them"
+        atoms:
+          - id: vssadmin_delete_shadows
+            kind: text
+            value: "vssadmin delete shadows"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: vssadmin_delete_shadows_all
+            kind: text
+            value: "delete shadows /all"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: wmic_shadowcopy_delete
+            kind: text
+            value: "shadowcopy delete"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: wbadmin_delete_catalog
+            kind: text
+            value: "delete catalog -quiet"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: wbadmin_delete_catalog_noquiet
+            kind: text
+            value: "delete catalog /quiet"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: bcdedit_recovery_off
+            kind: text
+            value: "bcdedit /set {default} recoveryenabled no"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: bcdedit_bootstatuspolicy
+            kind: text
+            value: "bootstatuspolicy ignoreallfailures"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: diskshadow_delete
+            kind: text
+            value: "diskshadow /s"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: powershell_wmi_shadowcopy
+            kind: text
+            value: "Win32_ShadowCopy"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: powershell_vss_delete
+            kind: regex
+            value: 'Get-WmiObject\s+(Win32_ShadowCopy|gwmi).*Delete\(\)'
+            ascii: true
+          - id: net_stop_backup
+            kind: regex
+            value: 'net\s+stop\s+(vss|backup|SQLAgent\$|MSSQL\$|MsDtsServer|MSSQLSERVER|SQLSERVERAGENT)'
+            ascii: true
+            nocase: true
+          - id: sc_delete_vss
+            kind: regex
+            value: 'sc\s+(stop|delete|config)\s+(vss|SQLAgent|MSSQLSERVER)'
+            ascii: true
+            nocase: true
+
+  # ── Rule 2: Ransomware API Imports ────────────────────────────────────────
+  - id: HDS-RANSOM-CRYPTO-IMPORTS
+    title: "HEUR:Win.Ransom.CryptoAPIImports.gen (Static)"
+    description: >
+      Detects PE files importing multiple Windows encryption APIs from the
+      CryptAPI (advapi32), BCrypt (bcrypt.dll), and NCrypt (ncrypt.dll) families.
+      Ransomware assembles a full encryption pipeline requiring key generation,
+      encryption, and export — producing at least 2 distinct API imports from
+      this set. A single crypto import is benign (TLS, DPAPI, .NET runtime);
+      multiple distinct API categories confirm encryption intent.
+      Mirrors the api_threshold:2 from ransomware_whitelist_importer.yaml.
+    severity: High
+    verdict: suspicious
+    confidence: 65
+    score: 30
+    family: ransom.crypto
+    tags: [ransomware, crypto_api, import_based, static_pe]
+    logic: all
+    conditions:
+      - type: file_type
+        values: [pe, pe64, pe32]
+      - type: import_set
+        min: 5
+        names:
+          - "CryptAcquireContextA"
+          - "CryptAcquireContextW"
+          - "CryptGenKey"
+          - "CryptEncrypt"
+          - "CryptDecrypt"
+          - "CryptHashData"
+          - "CryptCreateHash"
+          - "CryptSetKeyParam"
+          - "CryptGetKeyParam"
+          - "CryptDeriveKey"
+          - "CryptImportKey"
+          - "CryptExportKey"
+          - "CryptDestroyKey"
+          - "BCryptOpenAlgorithmProvider"
+          - "BCryptGenerateKeyPair"
+          - "BCryptGenerateSymmetricKey"
+          - "BCryptEncrypt"
+          - "BCryptDecrypt"
+          - "BCryptImportKey"
+          - "BCryptImportKeyPair"
+          - "BCryptExportKey"
+          - "BCryptFinalizeKeyPair"
+          - "BCryptDeriveKey"
+          - "BCryptSecretAgreement"
+          - "NCryptEncrypt"
+          - "NCryptImportKey"
+          - "NCryptCreatePersistedKey"
+          - "NCryptExportKey"
+          - "NCryptFinalizeKey"
+          - "NCryptDeriveKey"
+          - "RtlEncryptMemory"
+          - "SystemFunction036"
+
+  # ── Rule 3: Known Ransomware Family String Markers ────────────────────────
+  - id: HDS-RANSOM-FAMILY-MARKERS
+    title: "HEUR:Win.Ransom.FamilyMarkers.gen (Static)"
+    description: >
+      Detects strings unique to known ransomware families: LockBit, REvil/Sodinokibi,
+      BlackCat/ALPHV, Conti, BlackMatter, Hive, Royal, Cl0p, Dharma, Phobos,
+      WannaCry, NotPetya, and others. These are PDB paths, mutex names, ransom
+      note filenames, and internal variable names that are family-specific.
+    severity: Critical
+    verdict: malware
+    confidence: 92
+    score: 75
+    family: ransom.known_family
+    tags: [ransomware, family_detection, lockbit, revil, blackcat, conti, wannacry, static_string]
+    logic: any
+    conditions:
+      # LockBit
+      - type: native_signature
+        expression: "any of ($lockbit*)"
+        atoms:
+          - id: lockbit_restore_note
+            kind: text
+            value: "Restore-My-Files.txt"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: lockbit_note_filename
+            kind: regex
+            value: '(LockBit|lockbit)[_\-]?(2\.0|3\.0|Black|Green|Red)?[_\-]?Readme'
+            ascii: true
+            nocase: true
+          - id: lockbit_mutex
+            kind: text
+            value: "Global\\{8F6F00C4-B901-45fd-08CF-72FDEFF}"
+            ascii: true
+            wide: true
+      # REvil / Sodinokibi
+      - type: native_signature
+        expression: "any of ($revil*)"
+        atoms:
+          - id: revil_note_filename
+            kind: regex
+            value: '\[A-Z0-9\]{6,8}-readme\.txt'
+            ascii: true
+          - id: revil_sodinokibi_string
+            kind: text
+            value: "sodinokibi"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: revil_pk_key
+            kind: text
+            value: "pk_key"
+            ascii: true
+            nocase: true
+      # BlackCat / ALPHV
+      - type: native_signature
+        expression: "any of ($blackcat*)"
+        atoms:
+          - id: blackcat_alphv_string
+            kind: text
+            value: "ALPHV"
+            ascii: true
+            wide: true
+          - id: blackcat_recover_note
+            kind: text
+            value: "RECOVER-FILES.txt"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: blackcat_onion_leak
+            kind: regex
+            value: 'alphv[a-z0-9]{4,20}\.onion'
+            nocase: true
+      # Conti
+      - type: native_signature
+        expression: "any of ($conti*)"
+        atoms:
+          - id: conti_readme
+            kind: text
+            value: "CONTI_README.txt"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: conti_decrypt_string
+            kind: text
+            value: "How To Restore Your Files.txt"
+            ascii: true
+            wide: true
+            nocase: true
+      # WannaCry / WannaCrypt
+      - type: native_signature
+        expression: "any of ($wannacry*)"
+        atoms:
+          - id: wannacry_mssecsvc
+            kind: text
+            value: "mssecsvc2.0"
+            ascii: true
+            wide: true
+          - id: wannacry_tasksche
+            kind: text
+            value: "tasksche.exe"
+            ascii: true
+            wide: true
+          - id: wannacry_wncry_ext
+            kind: text
+            value: ".WNCRY"
+            ascii: true
+            wide: true
+          - id: wannacry_kill_switch
+            kind: text
+            value: "iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com"
+            ascii: true
+      # Cl0p
+      - type: native_signature
+        expression: "any of ($clop*)"
+        atoms:
+          - id: clop_readme_note
+            kind: text
+            value: "ClopReadMe.txt"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: clop_ext_marker
+            kind: text
+            value: ".Clop"
+            ascii: true
+            wide: true
+      # Dharma / Phobos
+      - type: native_signature
+        expression: "any of ($dharma*)"
+        atoms:
+          - id: dharma_info_hta
+            kind: text
+            value: "FILES ENCRYPTED.txt"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: dharma_bip_ext
+            kind: regex
+            value: '\.(dharma|bip|cezar|phobos|boop)\b'
+            nocase: true
+      # Hive
+      - type: native_signature
+        expression: "any of ($hive*)"
+        atoms:
+          - id: hive_readme_note
+            kind: text
+            value: "HOW_TO_DECRYPT.txt"
+            ascii: true
+            wide: true
+            nocase: true
+          - id: hive_onion_prefix
+            kind: regex
+            value: 'hive[a-z0-9]{6,16}\.onion'
+            nocase: true
+      # Royal
+      - type: native_signature
+        expression: "any of ($royal*)"
+        atoms:
+          - id: royal_readme_note
+            kind: text
+            value: "README.TXT"
+            ascii: true
+            wide: true
+          - id: royal_string_marker
+            kind: text
+            value: "Royal"
+            ascii: true
+            wide: true
+            fullword: true
+      # BlackMatter / DarkSide
+      - type: native_signature
+        expression: "any of ($blackmatter*)"
+        atoms:
+          - id: blackmatter_readme
+            kind: text
+            value: "!README!.txt"
+            ascii: true
+            wide: true
+          - id: darkside_string
+            kind: text
+            value: "DarkSide"
+            ascii: true
+            wide: true
+            fullword: true
+
+  # ── Rule 4: Ransom + High Entropy (Packed/Encrypted Payload) ─────────────
+  - id: HDS-RANSOM-PACKED-HIGH-ENTROPY
+    title: "HEUR:Win.Ransom.PackedHighEntropy.gen (Static)"
+    description: >
+      Detects PE files with very high entropy (>= 7.4) that also contain at least
+      one ransom-related string. High entropy indicates a packed or encrypted payload,
+      combined with ransom strings this is a strong indicator of a packed ransomware
+      sample attempting to evade signature detection.
+    severity: High
+    verdict: malware
+    confidence: 70
+    score: 40
+    family: ransom.packed
+    tags: [ransomware, packed, high_entropy, evasion, static_pe]
+    logic: all
+    conditions:
+      - type: file_type
+        values: [pe, pe64, pe32]
+      - type: file_entropy
+        min: 7.4
+      - type: string_set
+        min: 2
+        nocase: true
+        decoded: true
+        values:
+          - "your files have been encrypted"
+          - "your files are encrypted"
+          - "files have been locked"
+          - "your data has been encrypted"
+          - "how to recover"
+          - "how_to_decrypt"
+          - "ReadMe_Decrypt"
+          - "restore your files"
+          - "recover your files"
+          - ".onion"
+          - "tor browser"
+          - "bitcoin"
+          - "monero"
+          - "cryptocurrency"
+          - "vssadmin delete shadows"
+          - "shadowcopy delete"
+          - "decrypt"
+          - "decryptor"
+          - "ransom"

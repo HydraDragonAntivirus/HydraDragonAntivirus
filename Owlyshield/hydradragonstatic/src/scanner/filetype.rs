@@ -481,26 +481,32 @@ fn inspect_binary_formats(data: &[u8]) -> BinaryFormatValidation {
         Ok(Object::Mach(_)) => {
             validation.macho = FormatValidation::Valid;
         }
-        Ok(_) | Err(_) => mark_broken_executable_magic(data, &mut validation),
+        Ok(_) | Err(_) => {
+            // goblin parse failed — use magic-based fallback.
+            // ELF files that goblin cannot fully parse (stripped, unusual headers,
+            // non-standard section counts) are still valid ELF binaries from the
+            // OS perspective. Mark them Valid so they don't receive broken_executable
+            // tags that confuse detection rules.
+            // Only PE and Mach-O stay as Broken since truncated/corrupt PE/Mach-O
+            // is genuinely anomalous.
+            if has_pe_magic(data) {
+                validation.pe = FormatValidation::Broken;
+                validation.broken_type = Some("PE".to_string());
+                validation.pe_type = pe_file_type(data);
+            } else if has_elf_magic(data) {
+                // Treat as valid ELF — goblin may not support all ELF variants
+                // (RISC-V, LoongArch, custom e_type values, etc.)
+                validation.elf = FormatValidation::Valid;
+                validation.elf_type = elf_file_type(data).or_else(|| Some("ELF".to_string()));
+            } else if has_macho_magic(data) {
+                validation.macho = FormatValidation::Broken;
+                validation.broken_type = Some("Mach-O".to_string());
+            }
+        }
     }
 
     validation.apk = inspect_apk_bytes(data);
     validation
-}
-
-fn mark_broken_executable_magic(data: &[u8], validation: &mut BinaryFormatValidation) {
-    if has_pe_magic(data) {
-        validation.pe = FormatValidation::Broken;
-        validation.broken_type = Some("PE".to_string());
-        validation.pe_type = pe_file_type(data);
-    } else if has_elf_magic(data) {
-        validation.elf = FormatValidation::Broken;
-        validation.broken_type = Some("ELF".to_string());
-        validation.elf_type = elf_file_type(data);
-    } else if has_macho_magic(data) {
-        validation.macho = FormatValidation::Broken;
-        validation.broken_type = Some("Mach-O".to_string());
-    }
 }
 
 fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
@@ -685,11 +691,11 @@ fn has_macho_magic(data: &[u8]) -> bool {
 }
 
 fn looks_like_zip(data: &[u8]) -> bool {
-    data.len() >= 4
-        && (data.starts_with(b"PK\x03\x04")
-            || data.starts_with(b"PK\x05\x06")
-            || data.starts_with(b"PK\x07\x08")
-            || contains_bytes(data, b"PK\x05\x06"))
+    // Only match on the local-file-header magic at the very start of the file.
+    // PK\x05\x06 (end-of-central-directory) and PK\x07\x08 (data-descriptor)
+    // can appear anywhere inside a PE or other binary and must NOT be used as
+    // a zip indicator unless the file actually starts with a ZIP local header.
+    data.len() >= 4 && data.starts_with(b"PK\x03\x04")
 }
 
 fn read_u16_le(data: &[u8], offset: usize) -> Option<u16> {

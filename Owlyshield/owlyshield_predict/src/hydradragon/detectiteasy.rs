@@ -986,10 +986,10 @@ fn mark_broken_executable_magic(data: &[u8], validation: &mut BinaryFormatValida
         validation.pe = FormatValidation::Broken;
         validation.file_type.get_or_insert_with(|| "PE".to_string());
     } else if has_elf_magic(data) {
-        validation.elf = FormatValidation::Broken;
-        validation
-            .file_type
-            .get_or_insert_with(|| "ELF".to_string());
+        // Treat as valid ELF — goblin may not support all ELF variants
+        // (RISC-V, LoongArch, custom e_type values, stripped binaries, etc.)
+        validation.elf = FormatValidation::Valid;
+        validation.file_type = elf_file_type(data).or_else(|| Some("ELF".to_string()));
     } else if has_macho_magic(data) {
         validation.macho = FormatValidation::Broken;
         validation
@@ -1099,11 +1099,11 @@ fn has_macho_magic(data: &[u8]) -> bool {
 }
 
 fn looks_like_zip(data: &[u8]) -> bool {
-    data.len() >= 4
-        && (data.starts_with(b"PK\x03\x04")
-            || data.starts_with(b"PK\x05\x06")
-            || data.starts_with(b"PK\x07\x08")
-            || contains_bytes(data, b"PK\x05\x06"))
+    // Only match on the local-file-header magic at the very start of the file.
+    // PK\x05\x06 (end-of-central-directory) and PK\x07\x08 (data-descriptor)
+    // can appear anywhere inside a PE or other binary and must NOT be used as
+    // a zip indicator unless the file actually starts with a ZIP local header.
+    data.len() >= 4 && data.starts_with(b"PK\x03\x04")
 }
 
 fn read_u16_le(data: &[u8], offset: usize) -> Option<u16> {
