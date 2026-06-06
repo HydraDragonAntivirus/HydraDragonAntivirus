@@ -127,14 +127,6 @@ rules:
             kind: regex
             value: '(Dropper|Bypass|Injection|Potato)\.pdb'
             nocase: true
-          - id: xored_mozilla_useragent
-            kind: text
-            value: 'Mozilla/5.0'
-            ascii: true
-            wide: true
-            xor: true
-            xor_min: 1
-            xor_max: 255
           - id: havoc_amsi_dll_xor
             kind: text
             value: 'amsi.dllATVSH'
