@@ -1594,14 +1594,13 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
         .stderr(Stdio::null())
         .spawn();
 
-    let (firewall_result, openedr_result, av_result, python_result, sanctum_result) =
-        tokio::join!(
-            start_firewall(),
-            start_openedr(),
-            start_av_engine(),
-            start_python_engine(),
-            start_sanctum_sequence()
-        );
+    let (firewall_result, openedr_result, av_result, python_result, sanctum_result) = tokio::join!(
+        start_firewall(),
+        start_openedr(),
+        start_av_engine(),
+        start_python_engine(),
+        start_sanctum_sequence()
+    );
 
     let mut comps = components.lock().await;
     if let Ok(child) = firewall_result {
