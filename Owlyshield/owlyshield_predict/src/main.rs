@@ -106,8 +106,6 @@ mod connectors;
 #[cfg(feature = "realtime_learning")]
 mod correlation;
 mod csvwriter;
-#[cfg(target_os = "windows")]
-mod windows;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
 pub(crate) mod driver_com;
@@ -118,6 +116,8 @@ mod jsonrpc;
 mod logging;
 #[cfg(feature = "realtime_learning")]
 mod mitre_attack;
+#[cfg(target_os = "windows")]
+mod windows;
 #[cfg(target_os = "windows")]
 pub(crate) use windows::notifications;
 #[cfg(target_os = "linux")]

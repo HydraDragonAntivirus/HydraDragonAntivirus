@@ -1,4 +1,3 @@
-use crate::windows::edrsvc_client::Driver;
 use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::quarantine::{compute_sha256, quarantine_file};
@@ -8,6 +7,7 @@ use crate::utils::{
     protected_process_reason, protected_process_record_reason,
     suspicious_critical_process_record_reason,
 };
+use crate::windows::edrsvc_client::Driver;
 use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError};
 use windows::Win32::Storage::FileSystem::{MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW};

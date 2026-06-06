@@ -105,7 +105,9 @@ struct DriverHandle(HANDLE);
 impl Drop for DriverHandle {
     fn drop(&mut self) {
         if self.0 != INVALID_HANDLE_VALUE {
-            unsafe { let _ = CloseHandle(self.0); }
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
         }
     }
 }
@@ -138,9 +140,9 @@ impl Driver {
         };
 
         match handle {
-            Ok(h) if h != INVALID_HANDLE_VALUE => {
-                Ok(Driver { handle: Arc::new(DriverHandle(h)) })
-            }
+            Ok(h) if h != INVALID_HANDLE_VALUE => Ok(Driver {
+                handle: Arc::new(DriverHandle(h)),
+            }),
             Ok(_) | Err(_) => Err(format!(
                 "Failed to open edrdrv IOCTL device '{}': GetLastError={}",
                 IOCTL_DEVICE_WIN32_NAME,
@@ -191,10 +193,7 @@ impl Driver {
 
     /// Register a file path in the minifilter block list.
     pub fn add_block_path(&self, path: &str) -> Result<(), String> {
-        let wide: Vec<u16> = path
-            .encode_utf16()
-            .chain(std::iter::once(0u16))
-            .collect();
+        let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0u16)).collect();
         let bytes: Vec<u8> = wide.iter().flat_map(|w| w.to_le_bytes()).collect();
         self.ioctl_no_output(IOCTL_BLOCK_PATH, &bytes)
             .map_err(|e| format!("add_block_path('{path}') failed: {e}"))
@@ -250,12 +249,7 @@ impl Driver {
 
     // ── private helpers ──────────────────────────────────────────────────────
 
-    fn ioctl(
-        &self,
-        code: u32,
-        input: &[u8],
-        output: &mut [u8],
-    ) -> Result<u32, String> {
+    fn ioctl(&self, code: u32, input: &[u8], output: &mut [u8]) -> Result<u32, String> {
         let mut bytes_returned = 0u32;
         let result = unsafe {
             DeviceIoControl(
