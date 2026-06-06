@@ -1,6 +1,19 @@
 use crate::models::{Severity, Verdict};
 use serde::{Deserialize, Serialize};
 
+/// Lightweight MITRE ATT&CK reference embedded in a YAML rule.
+/// Engine converts these into full [`crate::models::MitreTechnique`] entries
+/// using the rule's evidence when a finding is produced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MitreMapping {
+    /// Technique or sub-technique ID, e.g. "T1055" or "T1555.003"
+    pub id: String,
+    /// Technique name, e.g. "Credentials from Password Stores"
+    pub name: String,
+    /// ATT&CK tactic, e.g. "Credential Access"
+    pub tactic: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlRulesFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -32,6 +45,11 @@ pub struct Rule {
     pub score: u32,
     #[serde(default)]
     pub tags: Vec<String>,
+
+    /// MITRE ATT&CK technique mappings for this rule.
+    /// When the rule matches, these are emitted as [`crate::models::MitreTechnique`] entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mitre: Vec<MitreMapping>,
 
     /// Private rule flag (YARA-style). When true, this rule is evaluated but doesn't generate findings.
     /// Private rules can be used by other rules for detection logic but won't trigger alerts themselves.

@@ -433,6 +433,9 @@ pub struct Finding {
     pub tags: Vec<String>,
     pub family: Option<String>,
     pub evidence: Vec<String>,
+    /// MITRE ATT&CK techniques triggered by this specific finding.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mitre: Vec<MitreTechnique>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

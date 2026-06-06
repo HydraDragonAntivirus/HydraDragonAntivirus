@@ -1,5 +1,5 @@
 use super::types::*;
-use crate::models::{Finding, RulePerformance, ScanReport, Verdict};
+use crate::models::{Finding, MitreTechnique, RulePerformance, ScanReport, Verdict};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
@@ -496,17 +496,34 @@ fn evaluate_one_rule(
     let finding = if rule.private {
         None
     } else {
-        result.map(|evidence| Finding {
-            rule_id: rule.id.clone(),
-            title: rule.title.clone(),
-            description: rule.description.clone(),
-            severity: rule.severity,
-            verdict: rule.verdict,
-            confidence: rule.confidence.min(100),
-            score: rule.score,
-            tags: rule.tags.clone(),
-            family: rule.family.clone(),
-            evidence,
+        result.map(|evidence| {
+            // Convert lightweight MitreMapping entries from the rule definition into
+            // full MitreTechnique structs, using the first evidence line as context.
+            let evidence_summary = evidence.first().cloned().unwrap_or_default();
+            let mitre = rule
+                .mitre
+                .iter()
+                .map(|m| MitreTechnique {
+                    id: m.id.clone(),
+                    name: m.name.clone(),
+                    tactic: m.tactic.clone(),
+                    evidence: evidence_summary.clone(),
+                    confidence: rule.confidence.min(100),
+                })
+                .collect::<Vec<_>>();
+            Finding {
+                rule_id: rule.id.clone(),
+                title: rule.title.clone(),
+                description: rule.description.clone(),
+                severity: rule.severity,
+                verdict: rule.verdict,
+                confidence: rule.confidence.min(100),
+                score: rule.score,
+                tags: rule.tags.clone(),
+                family: rule.family.clone(),
+                evidence,
+                mitre,
+            }
         })
     };
 
@@ -522,6 +539,16 @@ fn push_rule_eval_result(report: &mut ScanReport, result: RuleEvalResult) {
         report.rule_performance.push(performance);
     }
     if let Some(finding) = result.finding {
+        // Propagate MITRE techniques to the top-level report, deduplicating by technique ID.
+        for technique in &finding.mitre {
+            if !report
+                .mitre_techniques
+                .iter()
+                .any(|t| t.id == technique.id)
+            {
+                report.mitre_techniques.push(technique.clone());
+            }
+        }
         report.findings.push(finding);
     }
 }
