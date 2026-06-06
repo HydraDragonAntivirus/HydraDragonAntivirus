@@ -117,7 +117,13 @@ struct XorTextAc {
 }
 
 fn xor_text_ac_cache_key(value: &str, wide: bool, lo: u8, hi: u8) -> String {
-    format!("xor:{}:{}:{}-{}", if wide { "wide" } else { "ascii" }, value, lo, hi)
+    format!(
+        "xor:{}:{}:{}-{}",
+        if wide { "wide" } else { "ascii" },
+        value,
+        lo,
+        hi
+    )
 }
 
 fn build_xor_text_ac(atom: &SignatureAtom) -> Option<Arc<XorTextAc>> {
@@ -152,15 +158,10 @@ fn build_xor_text_ac(atom: &SignatureAtom) -> Option<Arc<XorTextAc>> {
         return None;
     }
 
-    let ac = AhoCorasickBuilder::new()
-        .build(patterns)
-        .ok()?;
+    let ac = AhoCorasickBuilder::new().build(patterns).ok()?;
 
     let built = Arc::new(XorTextAc { ac, meta });
-    XOR_TEXT_AC_CACHE
-        .lock()
-        .ok()?
-        .insert(key, built.clone());
+    XOR_TEXT_AC_CACHE.lock().ok()?.insert(key, built.clone());
     Some(built)
 }
 
@@ -1444,8 +1445,7 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
             // and do a single O(file_len) pass — same strategy as text XOR above.
             if pattern.tokens.iter().all(|t| t.mask == 0xff) {
                 let plain: Vec<u8> = pattern.tokens.iter().map(|t| t.value).collect();
-                let mut variants: Vec<Vec<u8>> =
-                    Vec::with_capacity((hi - lo + 1) as usize);
+                let mut variants: Vec<Vec<u8>> = Vec::with_capacity((hi - lo + 1) as usize);
                 let mut keys: Vec<u8> = Vec::with_capacity(variants.capacity());
                 for k in lo..=hi {
                     let encoded: Vec<u8> = plain.iter().map(|b| b ^ k).collect();
