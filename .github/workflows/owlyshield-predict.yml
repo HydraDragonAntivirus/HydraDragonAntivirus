@@ -9,11 +9,16 @@ on:
       - '!Owlyshield/owlyshield_predict/**/*.dll'
       - 'Owlyshield/owlyshield_predict/moonfire-tflite/lib/tensorflowlite_c.dll'
       - 'Owlyshield/hydradragonstatic/**'
+      - 'hydradragon/Owlyshield/static_rules/**'
+      - 'hydradragon/Owlyshield/rules/**'
       - '.github/workflows/owlyshield-predict.yml'
   pull_request:
     branches: ["**"]
     paths:
       - 'Owlyshield/owlyshield_predict/**'
+      - 'Owlyshield/hydradragonstatic/**'
+      - 'hydradragon/Owlyshield/static_rules/**'
+      - 'hydradragon/Owlyshield/rules/**'
       - '.github/workflows/owlyshield-predict.yml'
   workflow_dispatch:
 
@@ -115,6 +120,7 @@ jobs:
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/win-pe-inspection/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/ring-patch/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/vfs-kprobes/Cargo.toml --all
+          cargo fmt --manifest-path Owlyshield/hydradragonstatic/Cargo.toml --all
       - name: Build Predict Service
         working-directory: Owlyshield/owlyshield_predict
         run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum,service
