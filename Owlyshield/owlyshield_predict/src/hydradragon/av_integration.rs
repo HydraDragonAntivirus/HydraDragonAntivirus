@@ -924,7 +924,7 @@ fn is_protected_path(candidate_path: &str) -> bool {
     false
 }
 
-fn is_openedr_cloud_safe(_file_path: &str) -> bool {
+fn is_openedr_cloud_safe(file_path: &str) -> bool {
     #[cfg(all(
         target_os = "windows",
         feature = "firewall",

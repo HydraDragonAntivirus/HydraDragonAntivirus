@@ -1559,7 +1559,7 @@ pub mod worker_instance {
             learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
             api_trackers: &mut HashMap<u64, ApiTracker>,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            _behavior_engine: &crate::behavioral::behavior_engine::BehaviorEngine,
+            behavior_engine: &crate::behavioral::behavior_engine::BehaviorEngine,
             gid: u64,
             iomsg: &IOMessage,
             precord: &ProcessRecord,

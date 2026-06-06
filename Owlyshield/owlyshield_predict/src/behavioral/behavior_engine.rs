@@ -3524,17 +3524,12 @@ impl BehaviorEngine {
                                 if !block_path.is_empty() && !block_path.eq_ignore_ascii_case("unknown") {
                                     let applied = with_shared_driver(|driver| driver.add_block_path(&block_path));
                                     match applied {
-                                        Some(Ok(hr)) if hr.is_ok() => Logging::warning(&format!(
+                                        Some(Ok(())) => Logging::warning(&format!(
                                             "[HydraNetPipe] Installed kernel block path: {}",
                                             block_path
                                         )),
-                                        Some(Ok(hr)) => Logging::warning(&format!(
-                                            "[HydraNetPipe] Kernel block path returned non-success HRESULT 0x{:08X} for {}",
-                                            hr.0 as u32,
-                                            block_path
-                                        )),
-                                        Some(Err(err)) => Logging::error(&format!(
-                                            "[HydraNetPipe] Failed to install kernel block path {}: {:?}",
+                                        Some(Err(ref err)) => Logging::error(&format!(
+                                            "[HydraNetPipe] Failed to install kernel block path {}: {}",
                                             block_path,
                                             err
                                         )),
