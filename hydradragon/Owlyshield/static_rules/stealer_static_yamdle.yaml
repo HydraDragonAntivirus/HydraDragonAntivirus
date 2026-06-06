@@ -413,21 +413,21 @@ rules:
             ascii: true
       # Agent Tesla
       - type: native_signature
-        expression: "any of ($agenttesla*)"
+        expression: "$agenttesla_class or $agenttesla_pdb or $agenttesla_keylog_ns"
         atoms:
-          - id: agenttesla_keylogger_class
+          - id: agenttesla_class
             kind: text
             value: "AgentTesla"
             ascii: true
             wide: true
-            nocase: true
-          - id: agenttesla_smtp_config
+            fullword: true
+          - id: agenttesla_pdb
             kind: regex
-            value: 'smtp\.[a-z0-9\-\.]+\.[a-z]{2,4}:\d{2,5}'
-            nocase: true
-          - id: agenttesla_screenshot
-            kind: text
-            value: "ScreenCapture"
+            value: 'AgentTesla[_\.\-]?(Keylogger|Client|Stealer)?.*\.pdb'
+            ascii: true
+          - id: agenttesla_keylog_ns
+            kind: regex
+            value: 'Agent_Tesla\.(Keylogger|FTPClient|EmailClient|Helper)'
             ascii: true
             wide: true
       # FormBook / XLoader
