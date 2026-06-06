@@ -24,9 +24,6 @@ namespace win {
 
 namespace {
 
-constexpr wchar_t c_sOwlyshieldOpenEdrPipe[] = LR"(\\.\pipe\Global\HydraDragonOpenEdrTelemetry)";
-constexpr DWORD c_nOwlyshieldOpenEdrPipeWaitMs = 250;
-
 const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventType)
 {
 	switch (rawEvent)
@@ -40,96 +37,6 @@ const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventTyp
 		default:
 			return getEventTypeString(eventType);
 	}
-}
-
-bool isOpenEdrRegistryRawEvent(edrdrv::SysmonEvent rawEvent)
-{
-	switch (rawEvent)
-	{
-		case edrdrv::SysmonEvent::RegistryKeyNameChange:
-		case edrdrv::SysmonEvent::RegistryKeyCreate:
-		case edrdrv::SysmonEvent::RegistryKeyDelete:
-		case edrdrv::SysmonEvent::RegistryValueSet:
-		case edrdrv::SysmonEvent::RegistryValueDelete:
-			return true;
-		default:
-			return false;
-	}
-}
-
-void moveVariantPathIfPresent(Variant& vEvent, std::string_view sSourcePath, std::string_view sTargetPath)
-{
-	auto optValue = variant::getByPathSafe(vEvent, sSourcePath);
-	if (!optValue.has_value() || optValue->isNull())
-		return;
-
-	variant::putByPath(vEvent, sTargetPath, *optValue, true);
-}
-
-void sanitizeOpenEdrTelemetryForOwlyshield(Variant& vEvent, edrdrv::SysmonEvent rawEvent)
-{
-	if (isOpenEdrRegistryRawEvent(rawEvent))
-		return;
-
-	if (!variant::getByPathSafe(vEvent, "registry").has_value())
-		return;
-
-	moveVariantPathIfPresent(vEvent, "registry.rawPath", "owly.loadedDllPath");
-	moveVariantPathIfPresent(vEvent, "registry.data", "owly.details");
-	variant::deleteByPath(vEvent, "registry");
-}
-
-void sendOpenEdrTelemetryToOwlyshield(const Variant& vEvent)
-{
-	static std::mutex s_mtxPipeSend;
-
-	std::string sPayload;
-	CMD_TRY
-	{
-		sPayload = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
-	}
-	CMD_PREPARE_CATCH
-	catch (error::Exception& e)
-	{
-		e.log(SL, "Failed to serialize OpenEDR telemetry for Owlyshield");
-		return;
-	}
-
-	if (sPayload.empty())
-		return;
-
-	sPayload.push_back('\n');
-
-	std::scoped_lock lock(s_mtxPipeSend);
-
-	if (!::WaitNamedPipeW(c_sOwlyshieldOpenEdrPipe, c_nOwlyshieldOpenEdrPipeWaitMs))
-		return;
-
-	HANDLE hPipe = ::CreateFileW(
-		c_sOwlyshieldOpenEdrPipe,
-		GENERIC_WRITE,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		nullptr,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		nullptr);
-	if (hPipe == INVALID_HANDLE_VALUE)
-		return;
-
-	DWORD nWritten = 0;
-	const BOOL fOk = ::WriteFile(
-		hPipe,
-		sPayload.data(),
-		static_cast<DWORD>(sPayload.size()),
-		&nWritten,
-		nullptr);
-	if (!fOk || nWritten != sPayload.size())
-	{
-		LOGLVL(Trace, "Failed to send OpenEDR telemetry to Owlyshield pipe");
-	}
-
-	::FlushFileBuffers(hPipe);
-	::CloseHandle(hPipe);
 }
 
 } // namespace
@@ -592,13 +499,58 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 
 		// Add LLE type
 		auto eEvent = mEventMap[nRawEventId];
+
+		// DeviceIoControl is the LBVS carrier for both kernel hook events and
+		// hypervisor events.  If owlyHv.* fields are present this is a hypervisor
+		// event — promote baseType to LLE_DEVICE_IOCTL so EventEnricher routes it
+		// correctly.  Hook events carry owlyHook.* fields instead.
+		if (nRawEventId == edrdrv::SysmonEvent::DeviceIoControl)
+		{
+			// Build the owlyHook sub-dict from owlyHook.* LBVS fields
+			if (vEvent.has("owlyHookEventType"))
+			{
+				Dictionary vHook;
+				vHook.put("eventType",    vEvent.get("owlyHookEventType", 0));
+				vHook.put("functionName", vEvent.get("owlyHookFunctionName", L""));
+				vHook.put("arg1",         vEvent.get("owlyHookArg1", uint64_t(0)));
+				vHook.put("arg2",         vEvent.get("owlyHookArg2", uint64_t(0)));
+				vHook.put("arg3",         vEvent.get("owlyHookArg3", uint64_t(0)));
+				vHook.put("arg4",         vEvent.get("owlyHookArg4", uint64_t(0)));
+				vHook.put("sourcePid",    vEvent.get("owlyHookSourcePid", uint32_t(0)));
+				vEvent.put("owlyHook", vHook);
+			}
+
+			// Build the owlyHv sub-dict from owlyHv.* LBVS fields (hypervisor path)
+			if (vEvent.has("owlyHv.memoryAddress"))
+			{
+				Dictionary vHv;
+				vHv.put("memoryAddress",      vEvent.get("owlyHv.memoryAddress",      uint64_t(0)));
+				vHv.put("memorySize",         vEvent.get("owlyHv.memorySize",         uint64_t(0)));
+				vHv.put("memoryProtection",   vEvent.get("owlyHv.memoryProtection",   uint32_t(0)));
+				vHv.put("isExecutableMemory", vEvent.get("owlyHv.isExecutableMemory", uint32_t(0)));
+				vHv.put("threadHandle",       vEvent.get("owlyHv.threadHandle",       uint64_t(0)));
+				vHv.put("threadStartRoutine", vEvent.get("owlyHv.threadStartRoutine", uint64_t(0)));
+				vHv.put("accessMask",         vEvent.get("owlyHv.accessMask",         uint32_t(0)));
+				vHv.put("operationStatus",    vEvent.get("owlyHv.operationStatus",    uint32_t(0)));
+				vHv.put("coreId",             vEvent.get("owlyHv.coreId",             uint32_t(0)));
+				vHv.put("threadId",           vEvent.get("owlyHv.threadId",           uint32_t(0)));
+				vHv.put("isDllLoad",          vEvent.get("owlyHv.isDllLoad",          uint32_t(0)));
+				vHv.put("isApiBasedLoad",     vEvent.get("owlyHv.isApiBasedLoad",     uint32_t(0)));
+				vHv.put("loadedDllPath",      vEvent.get("owlyHv.loadedDllPath",      L""));
+				vHv.put("isAcgEnabled",       vEvent.get("owlyHv.isAcgEnabled",       uint32_t(0)));
+				vHv.put("timestamp",          vEvent.get("owlyHv.timestamp",          uint64_t(0)));
+				vHv.put("targetPid",          vEvent.get("owlyHv.targetPid",          uint32_t(0)));
+				vEvent.put("owlyHv", vHv);
+				// Hypervisor events get a distinct baseType
+				eEvent = Event::LLE_DEVICE_IOCTL;
+			}
+		}
+
 		vEvent.put("baseType", eEvent);
 		vEvent.put("rawEventId", createRaw(c_nClassId, (uint32_t)nRawEventId));
 		vEvent.put("type", getOpenEdrWireEventType(nRawEventId, eEvent));
 		vEvent.put("source", "openedr");
-		Variant vOwlyEvent = vEvent.clone();
-		sanitizeOpenEdrTelemetryForOwlyshield(vOwlyEvent, nRawEventId);
-		sendOpenEdrTelemetryToOwlyshield(vOwlyEvent);
+		// Telemetry is forwarded to Owlyshield after enrichment in EventEnricher::put()
 
 		if (m_eInjection == InjectionMode::Controller && eEvent == Event::LLE_PROCESS_CREATE)
 		{

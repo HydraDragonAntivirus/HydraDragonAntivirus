@@ -30,11 +30,11 @@ const LOG_POLL_INTERVAL_MS: u64 = 500;
 const INTERFACE_CHECK_INTERVAL_SECS: u64 = 30;
 
 const SURICATA_EXE_DEFAULT: &str =
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Suricata\suricata.exe";
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\suricata\suricata.exe";
 const SURICATA_CONFIG_DEFAULT: &str =
     r"C:\Program Files\HydraDragonAntivirus\hydradragon\hipsconfig\suricata.yaml";
 const SURICATA_LOG_DIR_DEFAULT: &str =
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Suricata\log";
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\suricata\log";
 
 /// Path of the Sanctum shared config file.
 const SANCTUM_CONFIG_PATH: &str =
@@ -283,7 +283,7 @@ fn send_suricata_hips_notification(
     signature: &str,
     category: &str,
 ) {
-    use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Storage::FileSystem::{
         CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE, FlushFileBuffers,
         OPEN_EXISTING, WriteFile,

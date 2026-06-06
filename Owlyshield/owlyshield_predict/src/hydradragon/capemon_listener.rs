@@ -26,7 +26,7 @@ use crate::logging::Logging;
 
 /// Spawns a dedicated thread that listens on `\\.\pipe\HydraDragonCapemon`
 /// and dynamically spawns readers for `\\.\pipe\HydraDragonLog_<PID>`
-pub fn start_capemon_telemetry_pipe(mut behavior_engine: BehaviorEngine) {
+pub fn start_capemon_telemetry_pipe(_behavior_engine: BehaviorEngine) {
     thread::Builder::new()
         .name("capemon_telemetry_pipe".to_string())
         .spawn(move || {
@@ -88,7 +88,7 @@ pub fn start_capemon_telemetry_pipe(mut behavior_engine: BehaviorEngine) {
 
                 if ok.as_bool() && bytes_read > 0 {
                     // Capemon initial check-in data processing
-                    let data = &buf[..bytes_read as usize];
+                    let _data = &buf[..bytes_read as usize];
                     Logging::info(&format!(
                         "[CapemonPipe] Received checkin of {} bytes",
                         bytes_read

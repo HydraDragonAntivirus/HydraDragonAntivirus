@@ -70,14 +70,6 @@ fn configure_hidden_command(command: &mut Command) -> &mut Command {
     command
 }
 
-fn owlyshield_exe_path() -> PathBuf {
-    PathBuf::from(BASE_DIR)
-        .join("hydradragon")
-        .join("Owlyshield")
-        .join("Owlyshield Service")
-        .join("owlyshield_ransom.exe")
-}
-
 fn firewall_exe_path() -> PathBuf {
     PathBuf::from(BASE_DIR)
         .join("hydradragon")
@@ -322,7 +314,6 @@ fn set_processes_suspended_by_exact_paths(paths: &[PathBuf], suspend: bool) -> u
 
 fn component_process_paths(name: &str) -> Result<Vec<PathBuf>, String> {
     match name {
-        "Owlyshield" => Ok(vec![owlyshield_exe_path()]),
         "Firewall" => Ok(vec![firewall_exe_path()]),
         "AV Engine" => Ok(vec![av_engine_exe_path()]),
         "Python Engine" => Ok(python_engine_exe_paths().to_vec()),
@@ -338,7 +329,6 @@ fn component_process_paths(name: &str) -> Result<Vec<PathBuf>, String> {
 
 fn all_component_process_paths() -> Vec<PathBuf> {
     let mut paths = vec![
-        owlyshield_exe_path(),
         firewall_exe_path(),
         openedr_exe_path(),
         av_engine_exe_path(),
@@ -468,7 +458,6 @@ fn terminate_controller_started_processes() {
 }
 
 pub struct Components {
-    owlyshield: Option<Child>,
     firewall: Option<Child>,
     av_engine: Option<Child>,
     python_engine: Option<Child>,
@@ -477,7 +466,6 @@ pub struct Components {
 impl Components {
     fn new() -> Self {
         Self {
-            owlyshield: None,
             firewall: None,
             av_engine: None,
             python_engine: None,
@@ -486,7 +474,6 @@ impl Components {
 
     fn kill_all(&mut self) {
         for (name, child) in [
-            ("Owlyshield", &mut self.owlyshield),
             ("Firewall", &mut self.firewall),
             ("AV Engine", &mut self.av_engine),
             ("Python Engine", &mut self.python_engine),
@@ -765,17 +752,20 @@ fn write_owlyshield_verbose_logging(enabled: bool) -> Result<()> {
 async fn get_components_status() -> Result<Vec<ComponentStatus>, String> {
     let mut statuses = Vec::new();
 
-    // Owlyshield
-    let owlyshield_path = owlyshield_exe_path();
-    let owlyshield_running = is_process_running_by_exact_path(&owlyshield_path);
+    // Owlyshield (runs as Windows service — status via sc.exe)
+    let owlyshield_running = hidden_command("sc")
+        .args(["query", "OwlyShield Service"])
+        .output()
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .to_ascii_lowercase()
+                .contains("running")
+        })
+        .unwrap_or(false);
     statuses.push(ComponentStatus {
         name: "Owlyshield".to_string(),
         running: owlyshield_running,
-        gui_visible: if owlyshield_running {
-            Some(false)
-        } else {
-            None
-        },
+        gui_visible: None,
     });
 
     // Firewall
@@ -860,14 +850,11 @@ async fn start_component(
     let mut comps = state.lock().await;
     match name.as_str() {
         "Owlyshield" => {
-            if comps.owlyshield.is_none()
-                && !is_process_running_by_exact_path(&owlyshield_exe_path())
-            {
-                match start_owlyshield().await {
-                    Ok(child) => comps.owlyshield = child,
-                    Err(e) => return Err(e.to_string()),
-                }
-            }
+            let _ = hidden_command("sc")
+                .args(["start", "OwlyShield Service"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
         }
         "Firewall" => {
             if comps.firewall.is_none() && !is_process_running_by_exact_path(&firewall_exe_path()) {
@@ -915,11 +902,11 @@ async fn stop_component(
     let mut comps = state.lock().await;
     match name.as_str() {
         "Owlyshield" => {
-            if let Some(mut child) = comps.owlyshield.take() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            terminate_processes_by_exact_path(&owlyshield_exe_path());
+            let _ = hidden_command("sc")
+                .args(["stop", "OwlyShield Service"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
         }
         "Firewall" => {
             if let Some(mut child) = comps.firewall.take() {
@@ -1012,28 +999,9 @@ async fn set_non_gui_component_console_visibility(
     state: Arc<Mutex<Components>>,
 ) -> Result<(), String> {
     match component {
-        "Owlyshield" => {
-            {
-                let mut comps = state.lock().await;
-                if let Some(mut child) = comps.owlyshield.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-            }
-            terminate_processes_by_exact_path(&owlyshield_exe_path());
-            sleep(Duration::from_millis(300)).await;
-
-            let restarted = if show {
-                start_owlyshield_visible().await
-            } else {
-                start_owlyshield().await
-            }
-            .map_err(|e| e.to_string())?;
-
-            let mut comps = state.lock().await;
-            comps.owlyshield = restarted;
-            Ok(())
-        }
+        "Owlyshield" => Err(
+            "Owlyshield runs as a Windows service and does not have a console window.".to_string(),
+        ),
         "AV Engine" => {
             {
                 let mut comps = state.lock().await;
@@ -1154,25 +1122,23 @@ async fn get_launcher_settings() -> Result<LauncherSettings, String> {
 #[tauri::command]
 async fn set_owlyshield_verbose_logging(
     enabled: bool,
-    state: tauri::State<'_, Arc<Mutex<Components>>>,
+    _state: tauri::State<'_, Arc<Mutex<Components>>>,
 ) -> Result<(), String> {
     write_owlyshield_verbose_logging(enabled).map_err(|e| e.to_string())?;
 
-    if is_process_running_by_exact_path(&owlyshield_exe_path()) {
-        {
-            let mut comps = state.lock().await;
-            if let Some(mut child) = comps.owlyshield.take() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            terminate_processes_by_exact_path(&owlyshield_exe_path());
-        }
-
-        sleep(Duration::from_millis(500)).await;
-        let restarted = start_owlyshield().await.map_err(|e| e.to_string())?;
-        let mut comps = state.lock().await;
-        comps.owlyshield = restarted;
-    }
+    // Owlyshield now runs as a Windows service; restart the service so the
+    // new verbose-logging registry value takes effect.
+    let _ = hidden_command("sc")
+        .args(["stop", "OwlyShield Service"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    sleep(Duration::from_millis(500)).await;
+    let _ = hidden_command("sc")
+        .args(["start", "OwlyShield Service"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
 
     Ok(())
 }
@@ -1286,22 +1252,6 @@ fn main() -> Result<()> {
                 app,
                 "hide_sanctum",
                 "Hide Sanctum GUI",
-                true,
-                None::<&str>,
-            )
-            .unwrap();
-            let show_owlyshield_console_i = tauri::menu::MenuItem::with_id(
-                app,
-                "show_owlyshield_console",
-                "Show Owlyshield Terminal",
-                true,
-                None::<&str>,
-            )
-            .unwrap();
-            let hide_owlyshield_console_i = tauri::menu::MenuItem::with_id(
-                app,
-                "hide_owlyshield_console",
-                "Hide Owlyshield Terminal",
                 true,
                 None::<&str>,
             )
@@ -1426,8 +1376,6 @@ fn main() -> Result<()> {
                     &show_sanctum_i,
                     &hide_sanctum_i,
                     &gui_separator,
-                    &show_owlyshield_console_i,
-                    &hide_owlyshield_console_i,
                     &show_av_console_i,
                     &hide_av_console_i,
                     &show_python_console_i,
@@ -1489,15 +1437,11 @@ fn main() -> Result<()> {
                             }
                         });
                     }
-                    "show_owlyshield_console"
-                    | "hide_owlyshield_console"
-                    | "show_av_console"
+                    "show_av_console"
                     | "hide_av_console"
                     | "show_python_console"
                     | "hide_python_console" => {
                         let (component, show) = match event.id.as_ref() {
-                            "show_owlyshield_console" => ("Owlyshield", true),
-                            "hide_owlyshield_console" => ("Owlyshield", false),
                             "show_av_console" => ("AV Engine", true),
                             "hide_av_console" => ("AV Engine", false),
                             "show_python_console" => ("Python Engine", true),
@@ -1643,26 +1587,23 @@ fn main() -> Result<()> {
 async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
     info!("Starting HydraDragon components...");
 
-    let (
-        owlyshield_result,
-        firewall_result,
-        openedr_result,
-        av_result,
-        python_result,
-        sanctum_result,
-    ) = tokio::join!(
-        start_owlyshield(),
-        start_firewall(),
-        start_openedr(),
-        start_av_engine(),
-        start_python_engine(),
-        start_sanctum_sequence()
-    );
+    // Start OwlyShield as a Windows service (fire-and-forget)
+    let _ = hidden_command("sc")
+        .args(["start", "OwlyShield Service"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    let (firewall_result, openedr_result, av_result, python_result, sanctum_result) =
+        tokio::join!(
+            start_firewall(),
+            start_openedr(),
+            start_av_engine(),
+            start_python_engine(),
+            start_sanctum_sequence()
+        );
 
     let mut comps = components.lock().await;
-    if let Ok(child) = owlyshield_result {
-        comps.owlyshield = child;
-    }
     if let Ok(child) = firewall_result {
         comps.firewall = child;
     }
@@ -1679,26 +1620,6 @@ async fn start_components(components: Arc<Mutex<Components>>) -> Result<()> {
 
     info!("✓ All components started successfully");
     Ok(())
-}
-
-async fn start_owlyshield() -> Result<Option<Child>> {
-    info!("Starting Owlyshield Service...");
-    let owlyshield_path = owlyshield_exe_path();
-
-    match start_process(&owlyshield_path, None) {
-        Ok(child) => Ok(Some(child)),
-        Err(_) => Ok(None),
-    }
-}
-
-async fn start_owlyshield_visible() -> Result<Option<Child>> {
-    info!("Starting Owlyshield Service with visible console...");
-    let owlyshield_path = owlyshield_exe_path();
-
-    match start_process_visible_console(&owlyshield_path, None) {
-        Ok(child) => Ok(Some(child)),
-        Err(_) => Ok(None),
-    }
 }
 
 async fn start_firewall() -> Result<Option<Child>> {

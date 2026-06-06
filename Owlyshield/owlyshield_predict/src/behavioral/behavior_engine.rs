@@ -2,16 +2,17 @@ pub use super::rule_types::*;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::config::Config;
 #[cfg(all(target_os = "windows", feature = "firewall"))]
-use crate::driver_com::with_shared_driver;
+use crate::windows::edrsvc_client::with_shared_driver;
 use crate::extensions::ExtensionList;
 use crate::logging::Logging;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
-use crate::process::{ProcessRecord, ProcessState};
+use crate::process::ProcessRecord;
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+use crate::process::ProcessState;
 use crate::shared_def::{
     FileChangeInfo, IOMessage, IrpMajorOp, irp_major_op_label, is_hypervisor_raw_event_type,
     known_raw_event_name,
 };
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::shared_def::{
     effective_hypervisor_irp_byte, effective_hypervisor_raw_event_type, is_kernel_api_irp,
     is_kernel_process_protection_irp, is_real_hypervisor_irp, normalize_hypervisor_label,
@@ -21,16 +22,19 @@ use crate::signature_verification::verify_signature;
 use crate::threat_handler::ThreatHandler;
 use crate::utils::{
     format_process_descriptor_with_fallback, resolve_process_path,
-    suspicious_critical_process_reason, validate_pipe_client,
+    suspicious_critical_process_reason,
 };
+#[cfg(all(target_os = "windows", feature = "firewall"))]
+use crate::utils::validate_pipe_client;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml;
 use std::collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+#[cfg(all(target_os = "windows", feature = "firewall"))]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use num::FromPrimitive;
@@ -2314,13 +2318,10 @@ pub struct ProcessBehaviorState {
     pub static_file_type: Option<String>,
 
     /// MITRE ATT&CK Integration (only available with behavior_engine feature)
-    #[cfg(feature = "behavior_engine")]
     /// Mapped MITRE ATT&CK techniques observed for this process
     pub mitre_techniques: HashSet<String>,
-    #[cfg(feature = "behavior_engine")]
     /// MITRE ATT&CK timeline events
     pub mitre_timeline_events: Vec<MitreTimelineEvent>,
-    #[cfg(feature = "behavior_engine")]
     /// MITRE ATT&CK threat score
     pub mitre_threat_score: f64,
 }
@@ -2370,7 +2371,6 @@ pub struct DetectItEasyResult {
 }
 
 /// MITRE ATT&CK timeline event for behavior tracking
-#[cfg(feature = "behavior_engine")]
 #[derive(Debug, Clone)]
 pub struct MitreTimelineEvent {
     pub technique_id: String,
@@ -2382,7 +2382,6 @@ pub struct MitreTimelineEvent {
 }
 
 /// Severity level for MITRE ATT&CK events
-#[cfg(feature = "behavior_engine")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MitreSeverity {
     Low,
@@ -2495,7 +2494,6 @@ impl ProcessBehaviorState {
         state.static_file_type = None;
 
         // Initialize MITRE ATT&CK fields (only with behavior_engine feature)
-        #[cfg(feature = "behavior_engine")]
         {
             state.mitre_techniques = HashSet::new();
             state.mitre_timeline_events = Vec::new();
@@ -3079,7 +3077,6 @@ impl ProcessBehaviorState {
     }
 
     /// Record a MITRE ATT&CK technique observation
-    #[cfg(feature = "behavior_engine")]
     pub fn record_mitre_technique(
         &mut self,
         technique_id: String,
@@ -3117,19 +3114,16 @@ impl ProcessBehaviorState {
     }
 
     /// Get all MITRE ATT&CK techniques observed for this process
-    #[cfg(feature = "behavior_engine")]
     pub fn get_mitre_techniques(&self) -> &HashSet<String> {
         &self.mitre_techniques
     }
 
     /// Get MITRE ATT&CK timeline events
-    #[cfg(feature = "behavior_engine")]
     pub fn get_mitre_timeline(&self) -> &[MitreTimelineEvent] {
         &self.mitre_timeline_events
     }
 
     /// Get MITRE ATT&CK threat score
-    #[cfg(feature = "behavior_engine")]
     pub fn get_mitre_threat_score(&self) -> f64 {
         self.mitre_threat_score
     }
@@ -3154,6 +3148,12 @@ pub struct BehaviorEngine {
     pub openedr_stats: OpenEdrTelemetryStatsMap,
     /// Per-PID self-defense telemetry emitted by OpenEDR/Owlyshield sensors.
     pub self_defense_telemetry: SelfDefenseTelemetryMap,
+    /// Cross-thread IRP record queue: pipe/telemetry threads push (pid, record) here.
+    /// The main Worker thread drains this queue in `scan_processes` and applies records
+    /// to `process_states` via `ProcessBehaviorState::record_irp_operation`.
+    /// `Arc<Mutex<_>>` so the cloned `BehaviorEngine` in the pipe thread shares the
+    /// same underlying queue with the main-thread `BehaviorEngine`.
+    pub pending_irp_records: Arc<Mutex<std::collections::VecDeque<(u32, IrpOperationRecord)>>>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub firewall_net_pids: FirewallNetPids,
@@ -3244,6 +3244,7 @@ impl BehaviorEngine {
             openedr_net_details: shared_openedr_net_details(),
             openedr_stats: shared_openedr_stats(),
             self_defense_telemetry: shared_self_defense_telemetry(),
+            pending_irp_records: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             firewall_net_pids: shared_firewall_net_pids(),
             #[cfg(all(target_os = "windows", feature = "firewall"))]
@@ -4303,7 +4304,7 @@ impl BehaviorEngine {
                     | "LLE_DEVICE_LINK_CREATE"
             ) {
                 "Device"
-            } else if event_type == "LLE_NAMED_PIPE_CREATE" {
+            } else if matches!(event_type, "LLE_NAMED_PIPE_CREATE" | "IRP_NAMED_PIPE_WRITE") {
                 "Pipe"
             } else if matches!(
                 event_type,
@@ -4324,6 +4325,31 @@ impl BehaviorEngine {
                 "User"
             } else if event_type == "LLE_SELF_DEFENSE" {
                 "SelfDefense"
+            } else if matches!(
+                event_type,
+                "IRP_USERMODE_HOOK_EVENT"
+                    | "IRP_KERNEL_REMOTE_THREAD"
+                    | "IRP_KERNEL_WRITE_MEMORY"
+                    | "IRP_KERNEL_PROTECT_MEMORY"
+                    | "IRP_KERNEL_CREATE_THREAD"
+                    | "IRP_KERNEL_QUEUE_APC"
+                    | "IRP_KERNEL_CREATE_SECTION"
+                    | "IRP_KERNEL_MAP_SECTION"
+            ) {
+                "KernelHook"
+            } else if matches!(
+                event_type,
+                "IRP_ROOTKIT_SSDT_HOOK"
+                    | "IRP_ROOTKIT_HIDDEN_PROCESS"
+                    | "IRP_ROOTKIT_HIDDEN_DRIVER"
+                    | "IRP_ROOTKIT_KERNEL_HOOK"
+                    | "IRP_ROOTKIT_TERMINATE_PROCESS"
+                    | "IRP_ROOTKIT_FILE_MOVE"
+                    | "IRP_ROOTKIT_GENERIC"
+            ) {
+                "Rootkit"
+            } else if matches!(event_type, "IRP_HYPERVISOR_EVENT") {
+                "Hypervisor"
             } else {
                 "Other"
             }
@@ -4488,6 +4514,139 @@ impl BehaviorEngine {
             }
             "LLE_SELF_DEFENSE" => {
                 aliases.push("OpenEDR::SelfDefense".to_string());
+            }
+            // --- Input / surveillance events (events.hpp 0x11–0x26) ---
+            "LLE_WINDOW_PROC_GLOBAL_HOOK" => {
+                aliases.push("OpenEDR::WindowProcHook".to_string());
+                aliases.push("OpenEDR::InputHook".to_string());
+            }
+            "LLE_KEYBOARD_GLOBAL_READ" => {
+                aliases.push("OpenEDR::KeyboardRead".to_string());
+                aliases.push("OpenEDR::Keylogger".to_string());
+                aliases.push("OpenEDR::InputHook".to_string());
+            }
+            "LLE_KEYBOARD_GLOBAL_WRITE" => {
+                aliases.push("OpenEDR::KeyboardWrite".to_string());
+                aliases.push("OpenEDR::InputHook".to_string());
+            }
+            "LLE_KEYBOARD_BLOCK" => {
+                aliases.push("OpenEDR::KeyboardBlock".to_string());
+                aliases.push("OpenEDR::InputBlock".to_string());
+            }
+            "LLE_CLIPBOARD_READ" => {
+                aliases.push("OpenEDR::ClipboardRead".to_string());
+                aliases.push("OpenEDR::DataTheft".to_string());
+            }
+            "LLE_MICROPHONE_ENUM" => {
+                aliases.push("OpenEDR::MicrophoneEnum".to_string());
+                aliases.push("OpenEDR::AudioAccess".to_string());
+            }
+            "LLE_MICROPHONE_READ" => {
+                aliases.push("OpenEDR::MicrophoneRead".to_string());
+                aliases.push("OpenEDR::AudioAccess".to_string());
+                aliases.push("OpenEDR::DataTheft".to_string());
+            }
+            "LLE_MOUSE_GLOBAL_WRITE" => {
+                aliases.push("OpenEDR::MouseWrite".to_string());
+                aliases.push("OpenEDR::InputHook".to_string());
+            }
+            "LLE_MOUSE_BLOCK" => {
+                aliases.push("OpenEDR::MouseBlock".to_string());
+                aliases.push("OpenEDR::InputBlock".to_string());
+            }
+            "LLE_WINDOW_DATA_READ" => {
+                aliases.push("OpenEDR::WindowDataRead".to_string());
+                aliases.push("OpenEDR::DataTheft".to_string());
+            }
+            "LLE_DESKTOP_WALLPAPER_SET" => {
+                aliases.push("OpenEDR::DesktopWallpaperSet".to_string());
+                aliases.push("OpenEDR::UiTamper".to_string());
+            }
+            // --- Communication.cpp hook / hypervisor / rootkit events ---
+            // These arrive via the edrsvc enrichment pipe (post-EventEnricher)
+            // as JSON with "type" set to the IRP_ string directly.
+            "IRP_USERMODE_HOOK_EVENT" => {
+                aliases.push("KernelHook::UserModeHook".to_string());
+                aliases.push("KernelHook::Hook".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_KERNEL_REMOTE_THREAD" => {
+                aliases.push("KernelHook::RemoteThread".to_string());
+                aliases.push("KernelHook::Injection".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_KERNEL_WRITE_MEMORY" => {
+                aliases.push("KernelHook::WriteMemory".to_string());
+                aliases.push("KernelHook::Injection".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_KERNEL_PROTECT_MEMORY" => {
+                aliases.push("KernelHook::ProtectMemory".to_string());
+                aliases.push("KernelHook::Injection".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_KERNEL_CREATE_THREAD" => {
+                aliases.push("KernelHook::CreateThread".to_string());
+                aliases.push("KernelHook::Injection".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_KERNEL_QUEUE_APC" => {
+                aliases.push("KernelHook::QueueApc".to_string());
+                aliases.push("KernelHook::Injection".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_KERNEL_CREATE_SECTION" => {
+                aliases.push("KernelHook::CreateSection".to_string());
+                aliases.push("KernelHook::Injection".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_KERNEL_MAP_SECTION" => {
+                aliases.push("KernelHook::MapSection".to_string());
+                aliases.push("KernelHook::Injection".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_ROOTKIT_SSDT_HOOK" => {
+                aliases.push("KernelHook::SsdtHook".to_string());
+                aliases.push("KernelHook::Rootkit".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_ROOTKIT_HIDDEN_PROCESS" => {
+                aliases.push("KernelHook::HiddenProcess".to_string());
+                aliases.push("KernelHook::Rootkit".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_ROOTKIT_HIDDEN_DRIVER" => {
+                aliases.push("KernelHook::HiddenDriver".to_string());
+                aliases.push("KernelHook::Rootkit".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_ROOTKIT_KERNEL_HOOK" => {
+                aliases.push("KernelHook::KernelHookDetected".to_string());
+                aliases.push("KernelHook::Rootkit".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_ROOTKIT_TERMINATE_PROCESS" => {
+                aliases.push("KernelHook::TerminateProcess".to_string());
+                aliases.push("KernelHook::Rootkit".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_ROOTKIT_FILE_MOVE" => {
+                aliases.push("KernelHook::FileMove".to_string());
+                aliases.push("KernelHook::Rootkit".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_ROOTKIT_GENERIC" => {
+                aliases.push("KernelHook::RootkitGeneric".to_string());
+                aliases.push("KernelHook::Rootkit".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_HYPERVISOR_EVENT" => {
+                aliases.push("KernelHook::HypervisorEvent".to_string());
+                aliases.push("KernelHook::Any".to_string());
+            }
+            "IRP_NAMED_PIPE_WRITE" => {
+                aliases.push("KernelHook::NamedPipeWrite".to_string());
+                aliases.push("KernelHook::Any".to_string());
             }
             _ => {}
         }
@@ -4701,6 +4860,8 @@ impl BehaviorEngine {
             "Input" => stats.input_event_count += 1,
             "User" => stats.user_event_count += 1,
             "SelfDefense" => stats.self_defense_event_count += 1,
+            // Communication.cpp kernel hook / rootkit / hypervisor families
+            "KernelHook" | "Rootkit" | "Hypervisor" => stats.memory_event_count += 1,
             _ => {}
         }
 
@@ -4721,6 +4882,151 @@ impl BehaviorEngine {
             | "LLE_NETWORK_REQUEST_DNS"
             | "LLE_NETWORK_REQUEST_DATA" => stats.network_connect_count += 1,
             _ => {}
+        }
+
+        // ── owlyHook / owlyHv → pending IrpOperationRecord ──────────────────────
+        // These fields are populated by controller.cpp parseEvent for
+        // DeviceIoControl (hook) and hypervisor events.  We convert them into
+        // IrpOperationRecord entries and push them into the shared pending queue so
+        // the main Worker thread can apply them to ProcessBehaviorState via
+        // record_irp_operation without needing &mut self here.
+        {
+            // Helper to read a sub-dict string field
+            fn hv_str<'a>(event: &'a serde_json::Value, dict: &str, key: &str) -> &'a str {
+                event
+                    .get(dict)
+                    .and_then(|d| d.get(key))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            }
+            fn hv_u64(event: &serde_json::Value, dict: &str, key: &str) -> u64 {
+                event
+                    .get(dict)
+                    .and_then(|d| d.get(key))
+                    .and_then(|v| v.as_u64().or_else(|| v.as_str()?.trim().parse().ok()))
+                    .unwrap_or(0)
+            }
+            fn hv_u32(event: &serde_json::Value, dict: &str, key: &str) -> u32 {
+                hv_u64(event, dict, key).min(u32::MAX as u64) as u32
+            }
+
+            // Determine SysmonEvent id for this OpenEDR event type
+            use crate::shared_def::SysmonEvent as SE;
+            let irp_type_opt: Option<u32> = match event_type {
+                // LLE_ events that map to a SysmonEvent
+                "LLE_FILE_CREATE" => Some(SE::FileCreate as u32),
+                "LLE_FILE_DELETE" => Some(SE::FileDelete as u32),
+                "LLE_FILE_CLOSE" => Some(SE::FileClose as u32),
+                "LLE_FILE_DATA_CHANGE" => Some(SE::FileDataChange as u32),
+                "LLE_FILE_DATA_READ_FULL" => Some(SE::FileDataReadFull as u32),
+                "LLE_FILE_DATA_WRITE_FULL" => Some(SE::FileDataWriteFull as u32),
+                "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
+                    Some(SE::RegistryKeyCreate as u32)
+                }
+                "LLE_REGISTRY_KEY_DELETE" => Some(SE::RegistryKeyDelete as u32),
+                "LLE_REGISTRY_VALUE_SET" => Some(SE::RegistryValueSet as u32),
+                "LLE_REGISTRY_VALUE_DELETE" => Some(SE::RegistryValueDelete as u32),
+                "LLE_PROCESS_CREATE" => Some(SE::ProcessCreate as u32),
+                "LLE_PROCESS_DELETE" => Some(SE::ProcessDelete as u32),
+                "LLE_PROCESS_OPEN" => Some(SE::ProcessOpen as u32),
+                "LLE_NAMED_PIPE_CREATE" => Some(SE::NamedPipeCreate as u32),
+                // IRP_ hook/hypervisor/rootkit events carried as DeviceIoControl
+                "IRP_USERMODE_HOOK_EVENT" | "IRP_HYPERVISOR_EVENT" | "LLE_DEVICE_IOCTL" => {
+                    Some(SE::DeviceIoControl as u32)
+                }
+                "IRP_KERNEL_REMOTE_THREAD" => Some(SE::DeviceIoControl as u32),
+                "IRP_KERNEL_WRITE_MEMORY" => Some(SE::DeviceIoControl as u32),
+                "IRP_KERNEL_PROTECT_MEMORY" => Some(SE::DeviceIoControl as u32),
+                "IRP_KERNEL_CREATE_THREAD" => Some(SE::DeviceIoControl as u32),
+                "IRP_KERNEL_QUEUE_APC" => Some(SE::DeviceIoControl as u32),
+                "IRP_KERNEL_CREATE_SECTION" => Some(SE::DeviceIoControl as u32),
+                "IRP_KERNEL_MAP_SECTION" => Some(SE::DeviceIoControl as u32),
+                "IRP_ROOTKIT_SSDT_HOOK"
+                | "IRP_ROOTKIT_HIDDEN_PROCESS"
+                | "IRP_ROOTKIT_HIDDEN_DRIVER"
+                | "IRP_ROOTKIT_KERNEL_HOOK"
+                | "IRP_ROOTKIT_TERMINATE_PROCESS"
+                | "IRP_ROOTKIT_FILE_MOVE"
+                | "IRP_ROOTKIT_GENERIC" => Some(SE::DeviceIoControl as u32),
+                "IRP_NAMED_PIPE_WRITE" => Some(SE::NamedPipeCreate as u32),
+                _ => None,
+            };
+
+            if let Some(irp_type) = irp_type_opt {
+                // Build the IrpOperationRecord from available JSON sub-dicts.
+                // owlyHv.* fields come from hypervisor events (LLE_DEVICE_IOCTL).
+                // owlyHook.* fields come from kernel hook events (IRP_*).
+                let hook_event_type = hv_u32(event, "owlyHook", "eventType");
+                let hook_fn = hv_str(event, "owlyHook", "functionName").to_string();
+                let hook_src_pid = hv_u32(event, "owlyHook", "sourcePid");
+                let hv_target_pid = hv_u32(event, "owlyHv", "targetPid");
+
+                let effective_target_pid = if hv_target_pid != 0 {
+                    hv_target_pid
+                } else if hook_src_pid != 0 && hook_src_pid != pid {
+                    hook_src_pid
+                } else {
+                    target_pid
+                };
+
+                // Resolve the concrete IRP SysmonEvent byte for hook events.
+                // If owlyHook.eventType is non-zero, it is a more specific IRP opcode.
+                let effective_irp_type = if hook_event_type != 0 {
+                    hook_event_type
+                } else {
+                    irp_type
+                };
+
+                // Pipe name / payload for LLE_NAMED_PIPE_CREATE / IRP_NAMED_PIPE_WRITE
+                let pipe_name = if matches!(event_type, "LLE_NAMED_PIPE_CREATE" | "IRP_NAMED_PIPE_WRITE") {
+                    protected_path.to_string()
+                } else {
+                    String::new()
+                };
+
+                let rec = IrpOperationRecord {
+                    timestamp: std::time::SystemTime::now(),
+                    irp_type: effective_irp_type,
+                    file_path: if pipe_name.is_empty() {
+                        protected_path.to_string()
+                    } else {
+                        pipe_name.clone()
+                    },
+                    file_change: 0,
+                    extension: {
+                        let p = protected_path;
+                        if let Some(pos) = p.rfind('.') {
+                            p[pos + 1..].to_ascii_lowercase()
+                        } else {
+                            String::new()
+                        }
+                    },
+                    entropy: 0.0,
+                    bytes_transferred: hv_u64(event, "owlyHv", "memorySize"),
+                    target_pid: effective_target_pid,
+                    function_name: if hook_fn.is_empty() {
+                        event_type.to_string()
+                    } else {
+                        hook_fn
+                    },
+                    pipe_name,
+                    pipe_payload: Vec::new(),
+                    raw_arguments: [
+                        hv_u64(event, "owlyHook", "arg1"),
+                        hv_u64(event, "owlyHook", "arg2"),
+                        hv_u64(event, "owlyHook", "arg3"),
+                        hv_u64(event, "owlyHook", "arg4"),
+                    ],
+                };
+
+                if let Ok(mut q) = self.pending_irp_records.lock() {
+                    // Cap queue at 4096 entries to bound memory under high event rates.
+                    let q: &mut std::collections::VecDeque<(u32, IrpOperationRecord)> = &mut *q;
+                    if q.len() < 4096 {
+                        q.push_back((pid, rec));
+                    }
+                }
+            }
         }
 
         // Extract OpenEDR/Valkyrie cloud analysis.
@@ -5066,7 +5372,6 @@ impl BehaviorEngine {
             IrpMajorOp::IrpKernelCreateSection => "kernel_create_section".to_string(),
             IrpMajorOp::IrpKernelMapSection => "kernel_map_section".to_string(),
             _ => {
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if let Some(name) = known_raw_event_name(effective_hypervisor_raw_event_type(msg)) {
                     return name.to_string();
                 }
@@ -5235,7 +5540,6 @@ impl BehaviorEngine {
                     Self::truncate_detail_value(&msg.filepathstr, 260)
                 ));
             } else {
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if !msg.kernel_event_info.object_name.trim().is_empty() {
                     parts.push(format!(
                         "Object={}",
@@ -6975,6 +7279,70 @@ impl BehaviorEngine {
             )
             && Self::matches_u32_list(&cond_group.hypervisor_access_masks, access_mask)
             && Self::matches_i32_list(&cond_group.hypervisor_operation_statuses, operation_status)
+    }
+
+    /// Drain the cross-thread pending IRP record queue and apply each entry to
+    /// the corresponding `ProcessBehaviorState` via `record_irp_operation`.
+    ///
+    /// Called from the main Worker thread (which owns `&mut self`) so that the
+    /// pipe thread — which only holds a cloned `BehaviorEngine` with `&self` access
+    /// — can still feed IRP telemetry into `IrpStatistics` without race conditions.
+    pub fn drain_pending_irp_records(&mut self) {
+        let records: Vec<(u32, IrpOperationRecord)> = {
+            match self.pending_irp_records.lock() {
+                Ok(mut q) => {
+                    let v: Vec<(u32, IrpOperationRecord)> = q.drain(..).collect();
+                    v
+                }
+                Err(_) => return,
+            }
+        };
+
+        if records.is_empty() {
+            return;
+        }
+
+        for (pid, rec) in records {
+            // Find the GID for this PID
+            let gid_opt = self.find_gid_by_pid(pid);
+            let gid = match gid_opt {
+                Some(g) => g,
+                None => continue, // Process not yet tracked — drop the record
+            };
+
+            if let Some(state) = self.process_states.get_mut(&gid) {
+                let irp_op = rec.irp_type;
+                state.record_irp_operation(
+                    // record_irp_operation expects &IOMessage — build a minimal one
+                    &{
+                        use crate::shared_def::{
+                            FileId, IOMessage, KernelEventInfo, RuntimeFeatures,
+                        };
+                        IOMessage {
+                            extension: rec.extension.clone(),
+                            file_id_id: FileId::default(),
+                            mem_sized_used: 0,
+                            entropy: rec.entropy,
+                            pid,
+                            irp_op,
+                            is_entropy_calc: 0,
+                            file_change: rec.file_change,
+                            file_location_info: 0,
+                            filepathstr: rec.file_path.clone(),
+                            gid,
+                            parent_pid: 0,
+                            attacker_pid: 0,
+                            attacker_gid: 0,
+                            kernel_event_info: KernelEventInfo::default(),
+                            runtime_features: RuntimeFeatures::default(),
+                            file_size: rec.bytes_transferred as i64,
+                            time: rec.timestamp,
+                        }
+                    },
+                    irp_op,
+                );
+            }
+        }
     }
 
     pub fn register_process(&mut self, gid: u64, pid: u32, exe_path: PathBuf, app_name: String) {
@@ -10225,8 +10593,20 @@ impl BehaviorEngine {
                     legacy_ratio
                 };
 
+                #[cfg_attr(
+                    not(all(target_os = "windows", feature = "firewall")),
+                    allow(unused_mut)
+                )]
                 let mut prompted_deny = false;
+                #[cfg_attr(
+                    not(all(target_os = "windows", feature = "firewall")),
+                    allow(unused_mut)
+                )]
                 let mut prompted_block = false;
+                #[cfg_attr(
+                    not(all(target_os = "windows", feature = "firewall")),
+                    allow(unused_mut)
+                )]
                 let mut prompted_quarantine = false;
                 #[cfg(all(target_os = "windows", feature = "firewall"))]
                 if rule.response.ask_user {
@@ -10953,6 +11333,140 @@ impl BehaviorEngine {
                     Comparison::Eq => (value - threshold).abs() < 0.001,
                     Comparison::Ne => (value - threshold).abs() >= 0.001,
                 }
+            }
+            RuleCondition::KernelHook {
+                event_types,
+                function_pattern,
+                source_pattern,
+                target_pattern,
+                min_count,
+            } => {
+                // Canonical IRP event-type token → IrpMajorOp mapping.
+                // Covers IRP_USERMODE_HOOK_EVENT, IRP_KERNEL_*, and IRP_ROOTKIT_*.
+                fn irp_type_for_token(token: &str) -> Option<u32> {
+                    let t = token.trim().to_ascii_uppercase();
+                    // Values mirror Communication.cpp OwlyHypervisorEventDefaultLabel ordering
+                    // and the IrpMajorOp::from_sysmonevent() mapping in shared_def.rs.
+                    match t.as_str() {
+                        "IRP_USERMODE_HOOK_EVENT" => Some(0x13), // 19
+                        "IRP_KERNEL_REMOTE_THREAD" => Some(0x14),
+                        "IRP_KERNEL_WRITE_MEMORY" => Some(0x15),
+                        "IRP_KERNEL_PROTECT_MEMORY" => Some(0x16),
+                        "IRP_KERNEL_CREATE_THREAD" => Some(0x17),
+                        "IRP_KERNEL_QUEUE_APC" => Some(0x18),
+                        "IRP_KERNEL_CREATE_SECTION" => Some(0x19),
+                        "IRP_KERNEL_MAP_SECTION" => Some(0x1A),
+                        "IRP_ROOTKIT_SSDT_HOOK" => Some(0x1B),
+                        "IRP_ROOTKIT_HIDDEN_PROCESS" => Some(0x1C),
+                        "IRP_ROOTKIT_HIDDEN_DRIVER" => Some(0x1D),
+                        "IRP_ROOTKIT_KERNEL_HOOK" => Some(0x1E),
+                        "IRP_ROOTKIT_TERMINATE_PROCESS" => Some(0x1F),
+                        "IRP_ROOTKIT_FILE_MOVE" => Some(0x20),
+                        "IRP_ROOTKIT_GENERIC" => Some(0x21),
+                        _ => None,
+                    }
+                }
+
+                // Build the set of irp_type values we accept (empty = any hook event).
+                let accepted_types: Vec<u32> = event_types
+                    .iter()
+                    .filter_map(|t| irp_type_for_token(t))
+                    .collect();
+
+                // Determine whether an IrpMajorOp corresponds to any hook/rootkit category.
+                fn is_kernel_hook_or_rootkit_op(irp_type: u32) -> bool {
+                    matches!(
+                        irp_type,
+                        0x13..=0x21 // IRP_USERMODE_HOOK_EVENT through IRP_ROOTKIT_GENERIC
+                    )
+                }
+
+                let required = (*min_count).max(1);
+                let mut match_count = 0usize;
+
+                for rec in &state.irp_operations {
+                    // Type gate: accepted_types empty ⇒ any kernel-hook/rootkit event.
+                    let type_ok = if accepted_types.is_empty() {
+                        is_kernel_hook_or_rootkit_op(rec.irp_type)
+                    } else {
+                        accepted_types.contains(&rec.irp_type)
+                    };
+                    if !type_ok {
+                        continue;
+                    }
+
+                    // Optional function name pattern.
+                    let func_ok = match function_pattern {
+                        Some(pat) if !pat.is_empty() => {
+                            !rec.function_name.is_empty()
+                                && Self::matches_pattern_internal(
+                                    &self.regex_cache,
+                                    pat,
+                                    &rec.function_name,
+                                )
+                        }
+                        _ => true,
+                    };
+                    if !func_ok {
+                        continue;
+                    }
+
+                    // Optional source process pattern (matched against file_path which
+                    // carries the attacker exe path for kernel hook events).
+                    let src_ok = match source_pattern {
+                        Some(pat) if !pat.is_empty() => {
+                            let src_name = rec
+                                .file_path
+                                .split(['\\', '/'])
+                                .filter(|s| !s.is_empty())
+                                .last()
+                                .unwrap_or(rec.file_path.as_str());
+                            Self::matches_pattern_internal(&self.regex_cache, pat, src_name)
+                                || Self::matches_pattern_internal(
+                                    &self.regex_cache,
+                                    pat,
+                                    &rec.file_path,
+                                )
+                        }
+                        _ => true,
+                    };
+                    if !src_ok {
+                        continue;
+                    }
+
+                    // Optional target process pattern (matched against
+                    // the process image for the target PID if available).
+                    let tgt_ok = match target_pattern {
+                        Some(pat) if !pat.is_empty() => {
+                            // target_pid 0 or equal to source = self-targeting event
+                            if rec.target_pid == 0 || rec.target_pid == state.pid {
+                                false
+                            } else {
+                                // Best-effort: compare against app_name / exe_path when the
+                                // target happens to be the tracked process, otherwise skip.
+                                let target_name = state.app_name.to_lowercase();
+                                let target_path =
+                                    canonical_behavior_path(&state.exe_path.to_string_lossy());
+                                Self::matches_pattern_internal(&self.regex_cache, pat, &target_name)
+                                    || Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        pat,
+                                        &target_path,
+                                    )
+                            }
+                        }
+                        _ => true,
+                    };
+                    if !tgt_ok {
+                        continue;
+                    }
+
+                    match_count += 1;
+                    if match_count >= required {
+                        return true;
+                    }
+                }
+                false
             }
             _ => false,
         }

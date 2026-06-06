@@ -12,84 +12,49 @@ pub mod predictor {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32>;
     }
 
-    pub trait PredictorHandlerBehavioral: PredictorHandler {
-        fn is_prediction_required(
-            &self,
-            _threshold_drivermsgs: usize,
-            _predictions_count: usize,
-            _precord: &ProcessRecord,
-        ) -> bool {
-            // ALWAYS TRUE: Evaluates every single event immediately.
-            // No more waiting for message counts or thresholds.
-            true
-        }
-    }
+    #[allow(dead_code)]
+    pub trait PredictorHandlerBehavioral: PredictorHandler {}
 
-    pub struct PredictionHandlerBehavioralXGBoost<'a> {
-        config: &'a Config,
-        predictions_count: usize,
-    }
+    pub struct PredictionHandlerBehavioralXGBoost;
 
-    impl PredictorHandlerBehavioral for PredictionHandlerBehavioralXGBoost<'_> {}
+    impl PredictorHandlerBehavioral for PredictionHandlerBehavioralXGBoost {}
 
-    impl PredictorHandler for PredictionHandlerBehavioralXGBoost<'_> {
+    impl PredictorHandler for PredictionHandlerBehavioralXGBoost {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
-            if self.is_prediction_required(
-                self.config.threshold_drivermsgs,
-                self.predictions_count,
-                precord,
-            ) {
-                let timestep = Timestep::from(precord);
-                self.predictions_count += 1;
-                return Some(score(timestep.to_vec_f32())[1]);
-            }
-            None
+            let timestep = Timestep::from(precord);
+            Some(score(timestep.to_vec_f32())[1])
         }
     }
 
-    impl PredictionHandlerBehavioralXGBoost<'_> {
-        pub fn new(config: &Config) -> PredictionHandlerBehavioralXGBoost<'_> {
-            PredictionHandlerBehavioralXGBoost {
-                config,
-                predictions_count: 0,
-            }
+    impl PredictionHandlerBehavioralXGBoost {
+        pub fn new(_config: &Config) -> PredictionHandlerBehavioralXGBoost {
+            PredictionHandlerBehavioralXGBoost
         }
     }
 
-    pub struct PredictorHandlerBehavioralMLP<'a> {
-        config: &'a Config,
+    pub struct PredictorHandlerBehavioralMLP {
         pub timesteps: VecvecCappedF32,
-        predictions_count: usize,
         tflite_malware: TfLiteMalware,
     }
 
-    impl PredictorHandlerBehavioral for PredictorHandlerBehavioralMLP<'_> {}
+    impl PredictorHandlerBehavioral for PredictorHandlerBehavioralMLP {}
 
-    impl PredictorHandler for PredictorHandlerBehavioralMLP<'_> {
+    impl PredictorHandler for PredictorHandlerBehavioralMLP {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             let timestep = Timestep::from(precord);
             self.timesteps.push_row(timestep.to_vec_f32()).unwrap();
             if self.timesteps.rows_len() > 0 {
-                if self.is_prediction_required(
-                    self.config.threshold_drivermsgs,
-                    self.predictions_count,
-                    precord,
-                ) {
-                    let prediction = self.tflite_malware.make_prediction(&self.timesteps);
-                    return Some(prediction);
-                }
-                self.predictions_count += 1;
+                let prediction = self.tflite_malware.make_prediction(&self.timesteps);
+                return Some(prediction);
             }
             None
         }
     }
 
-    impl PredictorHandlerBehavioralMLP<'_> {
-        pub fn new(config: &Config) -> PredictorHandlerBehavioralMLP<'_> {
+    impl PredictorHandlerBehavioralMLP {
+        pub fn new(config: &Config) -> PredictorHandlerBehavioralMLP {
             PredictorHandlerBehavioralMLP {
-                config,
                 timesteps: VecvecCappedF32::new(PREDMTRXCOLS, PREDMTRXROWS),
-                predictions_count: 0,
                 tflite_malware: TfLiteMalware::new(config),
             }
         }
@@ -129,21 +94,21 @@ pub mod predictor {
         }
     }
 
-    pub struct PredictorMalwareBehavioral<'a> {
-        pub mlp: PredictorHandlerBehavioralMLP<'a>,
-        pub xgboost: PredictionHandlerBehavioralXGBoost<'a>,
+    pub struct PredictorMalwareBehavioral {
+        pub mlp: PredictorHandlerBehavioralMLP,
+        pub xgboost: PredictionHandlerBehavioralXGBoost,
     }
 
-    impl PredictorHandlerBehavioral for PredictorMalwareBehavioral<'_> {}
+    impl PredictorHandlerBehavioral for PredictorMalwareBehavioral {}
 
-    impl PredictorHandler for PredictorMalwareBehavioral<'_> {
+    impl PredictorHandler for PredictorMalwareBehavioral {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             self.xgboost.predict(precord)
         }
     }
 
-    impl PredictorMalwareBehavioral<'_> {
-        pub fn new(config: &Config) -> PredictorMalwareBehavioral<'_> {
+    impl PredictorMalwareBehavioral {
+        pub fn new(config: &Config) -> PredictorMalwareBehavioral {
             PredictorMalwareBehavioral {
                 mlp: PredictorHandlerBehavioralMLP::new(config),
                 xgboost: PredictionHandlerBehavioralXGBoost::new(config),
@@ -151,12 +116,12 @@ pub mod predictor {
         }
     }
 
-    pub struct PredictorMalware<'a> {
-        pub predictor_behavioral: PredictorMalwareBehavioral<'a>,
+    pub struct PredictorMalware {
+        pub predictor_behavioral: PredictorMalwareBehavioral,
         pub predictor_static: PredictorHandlerStatic,
     }
 
-    impl PredictorHandler for PredictorMalware<'_> {
+    impl PredictorHandler for PredictorMalware {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             let opt_pred_b = self.predictor_behavioral.predict(precord);
             let opt_pred_s = self.predictor_static.predict(precord);
@@ -172,8 +137,8 @@ pub mod predictor {
         }
     }
 
-    impl PredictorMalware<'_> {
-        pub fn new(config: &Config) -> PredictorMalware<'_> {
+    impl PredictorMalware {
+        pub fn new(config: &Config) -> PredictorMalware {
             PredictorMalware {
                 predictor_behavioral: PredictorMalwareBehavioral::new(config),
                 predictor_static: PredictorHandlerStatic::new(config),
@@ -275,17 +240,12 @@ pub mod process_record_handling {
     pub struct ProcessRecordHandlerLive<'a> {
         config: &'a Config,
         threat_handler: Box<dyn ThreatHandler>,
-        predictor_malware: PredictorMalware<'a>,
+        predictor_malware: PredictorMalware,
     }
 
     impl ProcessRecordIOHandler for ProcessRecordHandlerLive<'_> {
         #[cfg(target_os = "windows")]
         fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            // OPTIMIZATION: Don't re-process killed processes
-            if precord.process_state == ProcessState::Killed {
-                return;
-            }
-
             if let Some(prediction_behavioral) = self.predictor_malware.predict(precord)
                 && (prediction_behavioral > self.config.threshold_prediction
                     || precord.appname.contains("TEST-OLRANSOM"))
@@ -371,11 +331,6 @@ pub mod process_record_handling {
 
         #[cfg(target_os = "linux")]
         fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            // OPTIMIZATION: Don't re-process killed processes
-            if precord.process_state == ProcessState::Killed {
-                return;
-            }
-
             if let Some(prediction_behavioral) = self.predictor_malware.predict(precord) {
                 if prediction_behavioral > self.config.threshold_prediction
                     || precord.appname.contains("TEST-OLRANSOM")
@@ -1604,7 +1559,7 @@ pub mod worker_instance {
             learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
             api_trackers: &mut HashMap<u64, ApiTracker>,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            behavior_engine: &crate::behavioral::behavior_engine::BehaviorEngine,
+            _behavior_engine: &crate::behavioral::behavior_engine::BehaviorEngine,
             gid: u64,
             iomsg: &IOMessage,
             precord: &ProcessRecord,
@@ -1620,7 +1575,11 @@ pub mod worker_instance {
                 tracker.process_name = precord.appname.clone();
             }
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            #[cfg(all(
+                target_os = "windows",
+                feature = "behavior_engine",
+                any(feature = "firewall", feature = "sanctum")
+            ))]
             {
                 if let Some(state) = behavior_engine.process_states.get(&gid) {
                     #[cfg(all(target_os = "windows", feature = "firewall"))]
@@ -2140,7 +2099,7 @@ pub mod worker_instance {
         #[cfg(target_os = "windows")]
         pub fn driver(mut self, driver: crate::Driver) -> Worker<'a> {
             #[cfg(target_os = "windows")]
-            crate::driver_com::register_shared_driver(driver.clone());
+            crate::windows::edrsvc_client::register_shared_driver(driver.clone());
             self.driver = Some(driver);
             self
         }
@@ -2376,6 +2335,13 @@ pub mod worker_instance {
                         self.cleanup_process(gid, "Dead process");
                     }
                 }
+
+                // Drain IRP records queued by the OpenEDR telemetry pipe thread
+                // and apply them to ProcessBehaviorState::irp_statistics.
+                // This is the only &mut self call site, so no locking needed beyond
+                // the Arc<Mutex<_>> inside drain_pending_irp_records itself.
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                self.behavior_engine.drain_pending_irp_records();
 
                 // --- SECOND: Discover any new processes that started since last scan ---
                 let mut discovered_new = 0;

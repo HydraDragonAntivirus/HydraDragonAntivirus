@@ -27,7 +27,7 @@ use windows_service::service_control_handler::ServiceControlHandlerResult;
 use windows_service::{define_windows_service, service_control_handler, service_dispatcher};
 
 #[cfg(target_os = "windows")]
-use crate::driver_com::Driver;
+use crate::windows::edrsvc_client::Driver;
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use std::{env, path::Path, sync::OnceLock};
 
@@ -70,7 +70,7 @@ pub fn is_hydra_dragon_enabled() -> bool {
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub fn init_hydra_dragon(
     config: &crate::config::Config,
-    driver: crate::driver_com::Driver,
+    driver: crate::windows::edrsvc_client::Driver,
 ) -> Option<hydradragon::av_integration::AVIntegration<'_>> {
     if !is_hydra_dragon_enabled() {
         crate::logging::Logging::warning(
@@ -108,8 +108,6 @@ mod correlation;
 mod csvwriter;
 #[cfg(target_os = "windows")]
 mod windows;
-#[cfg(target_os = "windows")]
-pub(crate) use windows::openedr_lbvs as driver_com;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
 pub(crate) mod driver_com;

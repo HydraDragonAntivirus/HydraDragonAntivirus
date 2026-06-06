@@ -9,7 +9,69 @@
 #include "pch.h"
 #include "eventenricher.h"
 #include <fstream>
+#include <mutex>
+
 namespace cmd {
+
+namespace {
+
+constexpr wchar_t c_sOwlyshieldOpenEdrPipeEnricher[] = LR"(\\.\pipe\Global\HydraDragonOpenEdrTelemetry)";
+constexpr DWORD c_nOwlyshieldOpenEdrPipeWaitMsEnricher = 250;
+
+void sendEnrichedTelemetryToOwlyshield(const Variant& vEvent)
+{
+	static std::mutex s_mtxPipeSend;
+
+	std::string sPayload;
+	CMD_TRY
+	{
+		sPayload = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+	}
+	CMD_PREPARE_CATCH
+	catch (error::Exception& e)
+	{
+		e.log(SL, "Failed to serialize enriched telemetry for Owlyshield");
+		return;
+	}
+
+	if (sPayload.empty())
+		return;
+
+	sPayload.push_back('\n');
+
+	std::scoped_lock lock(s_mtxPipeSend);
+
+	if (!::WaitNamedPipeW(c_sOwlyshieldOpenEdrPipeEnricher, c_nOwlyshieldOpenEdrPipeWaitMsEnricher))
+		return;
+
+	HANDLE hPipe = ::CreateFileW(
+		c_sOwlyshieldOpenEdrPipeEnricher,
+		GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		nullptr,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		nullptr);
+	if (hPipe == INVALID_HANDLE_VALUE)
+		return;
+
+	DWORD nWritten = 0;
+	const BOOL fOk = ::WriteFile(
+		hPipe,
+		sPayload.data(),
+		static_cast<DWORD>(sPayload.size()),
+		&nWritten,
+		nullptr);
+	if (!fOk || nWritten != sPayload.size())
+	{
+		LOGLVL(Trace, "Failed to send enriched telemetry to Owlyshield pipe");
+	}
+
+	::FlushFileBuffers(hPipe);
+	::CloseHandle(hPipe);
+}
+
+} // anonymous namespace
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "enricher"
@@ -247,8 +309,11 @@ void EventEnricher::put(const Variant& vEventRef)
 	auto vProcess = m_pProcProvider->enrichProcessInfo(vRawProcess);
 	if (vProcess.isEmpty())
 	{
-		LOGLVL(Detailed, "Process <" << vRawProcess["pid"] << "> not found, skip event <" <<
-			Enum(eEventType) << ">");
+		LOGLVL(Detailed, "Process <" << vRawProcess["pid"] << "> not found for event <" <<
+			Enum(eEventType) << ">, forwarding to Owlyshield with raw process info");
+		// Forward to Owlyshield even if process context is missing —
+		// input/injection/network events may arrive after process exit.
+		sendEnrichedTelemetryToOwlyshield(vEvent);
 		return;
 	}
 	vEvent.put("process", vProcess);
@@ -396,8 +461,11 @@ void EventEnricher::put(const Variant& vEventRef)
 			auto vTargetInfo = m_pProcProvider->enrichProcessInfo(vTarget);
 			if (vTargetInfo.isEmpty())
 			{
-				LOGLVL(Detailed, "Process <" << vTarget["pid"] << "> not found, skip event <" <<
-					Enum(eEventType) << ">");
+				LOGLVL(Detailed, "Process <" << vTarget["pid"] << "> not found for target in event <" <<
+					Enum(eEventType) << ">, forwarding to Owlyshield with raw target info");
+				// Forward to Owlyshield anyway — process/memory injection events must
+				// not be silently dropped just because the target has already exited.
+				sendEnrichedTelemetryToOwlyshield(vEvent);
 				return;
 			}
 			vEvent.put("target", vTargetInfo);
@@ -462,7 +530,7 @@ void EventEnricher::put(const Variant& vEventRef)
 	case Event::LLE_USER_IMPERSONATION:
 	{
 		auto pUserDP = queryInterface<sys::win::IUserInformation>(queryService("userDataProvider"));
-		auto vTheadToken = pUserDP->getTokenInfo(vEvent.get("user", {})); 
+		auto vTheadToken = pUserDP->getTokenInfo(vEvent.get("user", {}));
 		if (!vTheadToken.isEmpty())
 		{
 			auto vThread = vEvent["thread"];
@@ -477,8 +545,28 @@ void EventEnricher::put(const Variant& vEventRef)
 */
 		break;
 	}
+	case Event::LLE_DEVICE_IOCTL:
+	{
+		// Kernel hook / hypervisor event carrier.
+		// owlyHook and owlyHv sub-dicts are already built by controller.cpp::parseEvent.
+		// No additional enrichment needed here — pass through to Owlyshield as-is.
+		break;
+	}
+	case Event::LLE_SELF_DEFENSE:
+	{
+		// Self-defense telemetry forwarded from the kernel.
+		// Pass through without further enrichment.
+		break;
+	}
+	case Event::LLE_NAMED_PIPE_CREATE:
+	{
+		// Named-pipe creation event forwarded from the kernel.
+		// Pass through without further enrichment.
+		break;
+	}
 	}
 
+	sendEnrichedTelemetryToOwlyshield(vEvent);
 	return pReceiver->put(vEvent);
 	TRACE_END(FMT("Fail to parse event <" << vEvent.get("baseType", 0) << ">"))
 }

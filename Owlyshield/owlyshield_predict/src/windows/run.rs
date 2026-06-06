@@ -13,13 +13,7 @@ use crate::behavioral::app_settings::AppSettings;
 use crate::config::Param;
 use crate::connectors::register::Connectors;
 use crate::shared_def::IOMessage;
-use crate::shared_def::IrpMajorOp;
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::shared_def::effective_hypervisor_irp_byte;
-use crate::shared_def::irp_major_op_label;
 use crate::threathandling::WindowsThreatHandler;
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::utils::format_process_descriptor_with_fallback;
 use crate::watchlist::WatchList;
 use crate::worker::process_record_handling::{
     ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty,
@@ -130,8 +124,6 @@ pub fn run() {
     driver
         .driver_set_app_pid()
         .expect("Cannot set driver app pid");
-
-    let mut vecnew: Vec<u8> = vec![0u8; 65536];
 
     // Load config and app settings once and reuse
     let config = config::Config::new();
@@ -245,7 +237,11 @@ pub fn run() {
         }
         println!("Interactive - can also work as a service.\n");
 
-        let (tx_iomsgs, rx_iomsgs) = channel::<IOMessage>();
+        // tx_iomsgs is intentionally unused in the current pipe-driven architecture.
+        // IOMessages from edrdrv flow via edrsvc → HydraDragonOpenEdrTelemetry pipe →
+        // ingest_openedr_event → pending_irp_records → drain_pending_irp_records.
+        // The rx_iomsgs worker loop below is retained for future direct IOCTL feed.
+        let (_tx_iomsgs, rx_iomsgs) = channel::<IOMessage>();
 
         // Run connectors and the worker thread
         Connectors::on_startup(&config);
@@ -366,309 +362,14 @@ pub fn run() {
             }
         });
 
-        // Main thread: read driver messages and forward to worker thread
-        // DIAGNOSTIC: Track which opcodes actually arrive from kernel
-        let mut opcode_counts: [u64; 32] = [0; 32];
-        let mut total_msgs: u64 = 0;
-        let mut last_diag = std::time::Instant::now();
-        let diag_started_at = std::time::Instant::now();
-        let mut saw_any_hypervisor_event_since_start = false;
-        let mut total_hypervisor_events_since_start: u64 = 0;
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let mut hyper_api_counts: std::collections::HashMap<String, u64> =
-            std::collections::HashMap::new();
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let mut hyper_raw_counts: std::collections::HashMap<u32, u64> =
-            std::collections::HashMap::new();
-
+        // Main thread: kernel telemetry is received via edrsvc named pipe.
+        // edrsvc.exe reads from edrdrv and forwards all events (opcodes 0-30+)
+        // to Owlyshield over \\.\pipe\Global\HydraDragonOpenEdrTelemetry.
+        // Worker thread above consumes IOMessages from rx_iomsgs channel.
+        // This thread parks itself — all work is pipe-driven.
+        Logging::info("[Owlyshield] Main thread parked. Telemetry via edrsvc pipe.");
         loop {
-            match driver.get_iomsg(&mut vecnew[..]) {
-                Ok(Some(mut iomsg)) => {
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                    if (12..=29).contains(&iomsg.irp_op) {
-                        iomsg.normalize_hypervisor_event();
-                    }
-
-                    // DIAGNOSTIC: Count by effective opcode. Older kernel paths can
-                    // transport a specific kernel event as IRP_OP=12 with EventType=14+.
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                    let op_byte = effective_hypervisor_irp_byte(&iomsg);
-                    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                    let op_byte = iomsg.irp_op;
-                    let op = op_byte as usize;
-                    if op < 32 {
-                        opcode_counts[op] += 1;
-                    }
-                    total_msgs += 1;
-                    if iomsg.irp_op == 12 {
-                        saw_any_hypervisor_event_since_start = true;
-                        total_hypervisor_events_since_start += 1;
-                    }
-
-                    // Log every event from the driver.
-                    let irp = IrpMajorOp::from_byte(op_byte);
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                    {
-                        let hyper_event = iomsg.resolved_hypervisor_event();
-                        let diag_irp = hyper_event
-                            .as_ref()
-                            .map(|event| event.irp_op.clone())
-                            .unwrap_or_else(|| irp.clone());
-                        let raw_ty = hyper_event
-                            .as_ref()
-                            .map(|event| event.raw_event_type)
-                            .unwrap_or(iomsg.irp_op);
-                        let api_name = hyper_event
-                            .as_ref()
-                            .map(|event| event.event_name.clone())
-                            .filter(|name| !name.trim().is_empty())
-                            .unwrap_or_else(|| {
-                                let from_payload = iomsg.kernel_event_info.object_name.trim();
-                                if from_payload.is_empty() {
-                                    iomsg.filepathstr.clone()
-                                } else {
-                                    from_payload.to_string()
-                                }
-                            });
-                        let is_hypervisor_event =
-                            matches!(diag_irp.clone(), IrpMajorOp::IrpHypervisorEvent);
-                        let is_usermode_hook_event =
-                            matches!(diag_irp.clone(), IrpMajorOp::IrpUserModeHookEvent);
-                        let is_kernel_telemetry_event = hyper_event.is_some()
-                            && !is_hypervisor_event
-                            && !is_usermode_hook_event;
-                        let source_pid = hyper_event
-                            .as_ref()
-                            .map(|event| event.source_process_id)
-                            .unwrap_or(iomsg.pid);
-                        let target_pid = hyper_event
-                            .as_ref()
-                            .map(|event| event.target_process_id)
-                            .unwrap_or(iomsg.pid);
-                        let source_process =
-                            format_process_descriptor_with_fallback(source_pid, None);
-                        let target_process =
-                            format_process_descriptor_with_fallback(target_pid, None);
-                        let arg1 = hyper_event
-                            .as_ref()
-                            .map(|event| event.raw_argument1)
-                            .unwrap_or(iomsg.kernel_event_info.raw_argument1);
-                        let arg2 = hyper_event
-                            .as_ref()
-                            .map(|event| event.raw_argument2)
-                            .unwrap_or(iomsg.kernel_event_info.raw_argument2);
-                        let arg3 = hyper_event
-                            .as_ref()
-                            .map(|event| event.raw_argument3)
-                            .unwrap_or(iomsg.kernel_event_info.raw_argument3);
-                        let arg4 = hyper_event
-                            .as_ref()
-                            .map(|event| event.raw_argument4)
-                            .unwrap_or(iomsg.kernel_event_info.raw_argument4);
-                        let memory_address = hyper_event
-                            .as_ref()
-                            .map(|event| event.memory_address)
-                            .unwrap_or(iomsg.kernel_event_info.memory_address);
-                        let memory_size = hyper_event
-                            .as_ref()
-                            .map(|event| event.memory_size)
-                            .unwrap_or(iomsg.kernel_event_info.memory_size as u64);
-                        let operation_status = hyper_event
-                            .as_ref()
-                            .map(|event| event.operation_status)
-                            .unwrap_or(iomsg.kernel_event_info.operation_status);
-                        let core_id = hyper_event
-                            .as_ref()
-                            .map(|event| event.core_id)
-                            .unwrap_or(iomsg.kernel_event_info.core_id);
-                        let thread_id = hyper_event
-                            .as_ref()
-                            .map(|event| event.thread_id)
-                            .unwrap_or(iomsg.kernel_event_info.thread_id);
-                        let context = hyper_event
-                            .as_ref()
-                            .map(|event| event.context)
-                            .unwrap_or(iomsg.kernel_event_info.context);
-
-                        if is_usermode_hook_event {
-                            Logging::info(&format!(
-                                "[DIAG] USERMODE HOOK EVENT: op={:?} opcode={} raw_event_type={} gid={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
-                                diag_irp,
-                                op,
-                                raw_ty,
-                                iomsg.gid,
-                                core_id,
-                                thread_id,
-                                context,
-                                source_process,
-                                target_process,
-                                arg1,
-                                arg2,
-                                arg3,
-                                arg4,
-                                memory_address,
-                                memory_size,
-                                operation_status as u32,
-                                api_name,
-                                iomsg.runtime_features.command_line
-                            ));
-                        } else if is_hypervisor_event {
-                            *hyper_api_counts.entry(api_name.clone()).or_insert(0) += 1;
-                            *hyper_raw_counts.entry(raw_ty).or_insert(0) += 1;
-                            Logging::info(&format!(
-                                "[DIAG] VMM HOOK EVENT: op={:?} opcode={} raw_event_type={} gid={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
-                                diag_irp,
-                                op,
-                                raw_ty,
-                                iomsg.gid,
-                                core_id,
-                                thread_id,
-                                context,
-                                source_process,
-                                target_process,
-                                arg1,
-                                arg2,
-                                arg3,
-                                arg4,
-                                memory_address,
-                                memory_size,
-                                operation_status as u32,
-                                api_name,
-                                iomsg.runtime_features.command_line
-                            ));
-                        } else if is_kernel_telemetry_event {
-                            Logging::info(&format!(
-                                "[DIAG] KERNEL EVENT: op={:?} opcode={} raw_event_type={} gid={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} event=\"{}\" cmd=\"{}\"",
-                                diag_irp,
-                                op,
-                                raw_ty,
-                                iomsg.gid,
-                                core_id,
-                                thread_id,
-                                context,
-                                source_process,
-                                target_process,
-                                arg1,
-                                arg2,
-                                arg3,
-                                arg4,
-                                memory_address,
-                                memory_size,
-                                operation_status as u32,
-                                api_name,
-                                iomsg.runtime_features.command_line
-                            ));
-                        } else {
-                            Logging::info(&format!(
-                                "[DIAG] EVENT RECEIVED: op={:?} opcode={} pid={} gid={} path={} cmd=\"{}\"",
-                                irp,
-                                op,
-                                iomsg.pid,
-                                iomsg.gid,
-                                &iomsg.filepathstr,
-                                iomsg.runtime_features.command_line
-                            ));
-                        }
-                    }
-
-                    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                    Logging::info(&format!(
-                        "[DIAG] EVENT RECEIVED: op={:?} opcode={} pid={} gid={} path={} cmd=\"{}\"",
-                        irp,
-                        op,
-                        iomsg.pid,
-                        iomsg.gid,
-                        &iomsg.filepathstr,
-                        iomsg.runtime_features.command_line
-                    ));
-
-                    if tx_iomsgs.send(iomsg).is_err() {
-                        println!("Cannot send iomsg");
-                        Logging::error("Cannot send iomsg");
-                    }
-                }
-                Ok(None) => {
-                    // No messages available or an unparseable event was skipped.
-                    thread::sleep(std::time::Duration::from_millis(1));
-                }
-                Err(e) => {
-                    // Don't panic, log and wait before retry
-                    Logging::error(&format!(
-                        "OpenEDR driver communication error (HRESULT: 0x{:X})",
-                        e.code().0
-                    ));
-                    thread::sleep(std::time::Duration::from_millis(100));
-                }
-            }
-
-            // DIAGNOSTIC: Print opcode distribution every 10 seconds
-            if last_diag.elapsed() >= std::time::Duration::from_secs(10) {
-                let mut summary = format!("[DIAG] {} total msgs in 10s. Opcodes: ", total_msgs);
-                for i in 0..30 {
-                    if opcode_counts[i] > 0 {
-                        summary.push_str(&format!(
-                            "{}={} ",
-                            irp_major_op_label(i as u32),
-                            opcode_counts[i]
-                        ));
-                    }
-                }
-                if saw_any_hypervisor_event_since_start {
-                    summary.push_str(&format!(
-                        "HypervisorSinceStart={} ",
-                        total_hypervisor_events_since_start
-                    ));
-                }
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if opcode_counts[12] > 0 {
-                    let mut top_raw: Vec<(u32, u64)> =
-                        hyper_raw_counts.iter().map(|(k, v)| (*k, *v)).collect();
-                    top_raw.sort_by(|a, b| b.1.cmp(&a.1));
-                    if !top_raw.is_empty() {
-                        let raw_text = top_raw
-                            .iter()
-                            .take(5)
-                            .map(|(raw, count)| format!("{}={}", raw, count))
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        summary.push_str(&format!("RawTop=[{}] ", raw_text));
-                    }
-
-                    let mut top_api: Vec<(String, u64)> = hyper_api_counts
-                        .iter()
-                        .map(|(k, v)| (k.clone(), *v))
-                        .collect();
-                    top_api.sort_by(|a, b| b.1.cmp(&a.1));
-                    if !top_api.is_empty() {
-                        let api_text = top_api
-                            .iter()
-                            .take(5)
-                            .map(|(api, count)| format!("{}={}", api, count))
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        summary.push_str(&format!("ApiTop=[{}] ", api_text));
-                    }
-                }
-                Logging::info(&summary);
-
-                // Check specifically for the API-hooking opcode stream.
-                if !saw_any_hypervisor_event_since_start
-                    && diag_started_at.elapsed() >= std::time::Duration::from_secs(30)
-                {
-                    Logging::warning(
-                        "[DIAG] ZERO HYPERVISOR EVENTS (opcode 12) received from driver!",
-                    );
-                }
-
-                opcode_counts = [0; 32];
-                total_msgs = 0;
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    hyper_api_counts.clear();
-                    hyper_raw_counts.clear();
-                }
-                last_diag = std::time::Instant::now();
-            }
+            thread::sleep(std::time::Duration::from_secs(60));
         }
     }
 }

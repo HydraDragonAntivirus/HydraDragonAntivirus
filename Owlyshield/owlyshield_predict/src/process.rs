@@ -1028,7 +1028,6 @@ impl ProcessRecord {
 pub enum ProcessState {
     Running,
     Suspended,
-    Killed,
     Terminated,
     RestartCleanupPending,
 }
@@ -1038,7 +1037,6 @@ impl fmt::Display for ProcessState {
         match &self {
             ProcessState::Running => write!(f, "RUNNING"),
             ProcessState::Suspended => write!(f, "SUSPENDED"),
-            ProcessState::Killed => write!(f, "KILLED"),
             ProcessState::Terminated => write!(f, "TERMINATED"),
             ProcessState::RestartCleanupPending => write!(f, "RESTART_CLEANUP_PENDING"),
         }

@@ -36,7 +36,6 @@ use windows::Win32::System::Threading::{HIGH_PRIORITY_CLASS, SetPriorityClass};
 
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::config::{Config, Param};
-use crate::driver_com::Driver;
 use crate::hydradragon::threat_response_settings::{
     DetectionEngine, ThreatAction as SettingsThreatAction, ThreatResponseSettings,
 };
@@ -925,7 +924,7 @@ fn is_protected_path(candidate_path: &str) -> bool {
     false
 }
 
-fn is_openedr_cloud_safe(file_path: &str) -> bool {
+fn is_openedr_cloud_safe(_file_path: &str) -> bool {
     #[cfg(all(
         target_os = "windows",
         feature = "firewall",
@@ -1280,7 +1279,7 @@ fn quarantine_detectiteasy_malware(
     normalized_file_path: &str,
     detection_name: &str,
 ) -> &'static str {
-    use crate::driver_com::with_shared_driver;
+    use crate::windows::edrsvc_client::with_shared_driver;
     with_shared_driver(|driver| {
         let threat_handler = WindowsThreatHandler::from(driver.clone());
         quarantine_detectiteasy_malware_with_handler(
@@ -1426,12 +1425,12 @@ fn apply_fast_driver_action(event: &AVThreatEvent) {
         }
     };
 
-    use crate::driver_com::with_shared_driver;
+    use crate::windows::edrsvc_client::with_shared_driver;
     let outcome = with_shared_driver(|driver| {
         let file_path = Path::new(&event.file_path);
         match event.action_required {
             ThreatAction::Kill => driver.try_kill(gid),
-            ThreatAction::KillAndQuarantine => driver.kill_and_quarantine_driver(gid, file_path),
+            ThreatAction::KillAndQuarantine => driver.kill_and_remove_driver(gid, file_path),
             ThreatAction::KillAndRemove => driver.kill_and_remove_driver(gid, file_path),
             ThreatAction::Monitor => unreachable!("Monitor case handled above"),
         }
@@ -1768,7 +1767,7 @@ fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
 /// Integration struct — keeps internal channel & listener thread
 pub struct AVIntegration<'a> {
     config: &'a Config, // <-- MODIFIED: Now a borrow
-    predictor_malware: PredictorMalware<'a>,
+    predictor_malware: PredictorMalware,
     internal_scan_tx: Sender<EDRScanRequest>,
     signature_cache: HashMap<FileIdentity, FileSignatureStatus>,
     scan_metadata_cache: HashMap<FileIdentity, ScanMetadata>,
@@ -2316,7 +2315,7 @@ fn spawn_manual_scan_listener(
     internal_scan_tx: Sender<EDRScanRequest>,
     hydradragon_static_rules_dir: PathBuf,
     hydradragon_static_detection_mode: StaticDetectionMode,
-    driver: crate::driver_com::Driver,
+    driver: crate::windows::edrsvc_client::Driver,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || unsafe {
         let pipe_name_c = match CString::new(r"\\.\pipe\Global\owlyshield_manual_scan") {
@@ -2771,8 +2770,8 @@ impl<'a> AVIntegration<'a> {
     /// Create new AVIntegration instance
     pub fn new(
         config: &'a Config,
-        predictor_malware: PredictorMalware<'a>,
-        driver: crate::driver_com::Driver,
+        predictor_malware: PredictorMalware,
+        driver: crate::windows::edrsvc_client::Driver,
     ) -> Self {
         let (internal_scan_tx, internal_scan_rx) = channel::<EDRScanRequest>();
 

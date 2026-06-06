@@ -1728,6 +1728,47 @@ pub enum RuleCondition {
         #[serde(default)]
         min_matches: usize,
     },
+    /// Matches kernel-level hook, injection, and rootkit events from the
+    /// Owlyshield driver (Communication.cpp). Covers IRP_USERMODE_HOOK_EVENT,
+    /// IRP_KERNEL_* (remote thread, write/protect/create memory, queue APC,
+    /// create/map section) and IRP_ROOTKIT_* categories.
+    ///
+    /// YAML example:
+    /// ```yaml
+    /// - type: KernelHook
+    ///   event_types: ["IRP_KERNEL_WRITE_MEMORY", "IRP_KERNEL_PROTECT_MEMORY"]
+    ///   target_pattern: "lsass.exe"
+    /// ```
+    KernelHook {
+        /// One or more IRP event type strings to match, e.g.
+        /// "IRP_USERMODE_HOOK_EVENT", "IRP_KERNEL_REMOTE_THREAD",
+        /// "IRP_KERNEL_WRITE_MEMORY", "IRP_KERNEL_PROTECT_MEMORY",
+        /// "IRP_KERNEL_CREATE_THREAD", "IRP_KERNEL_QUEUE_APC",
+        /// "IRP_KERNEL_CREATE_SECTION", "IRP_KERNEL_MAP_SECTION",
+        /// "IRP_ROOTKIT_SSDT_HOOK", "IRP_ROOTKIT_HIDDEN_PROCESS",
+        /// "IRP_ROOTKIT_HIDDEN_DRIVER", "IRP_ROOTKIT_KERNEL_HOOK",
+        /// "IRP_ROOTKIT_TERMINATE_PROCESS", "IRP_ROOTKIT_FILE_MOVE",
+        /// "IRP_ROOTKIT_GENERIC".
+        /// Empty list matches any of the above categories.
+        #[serde(default)]
+        event_types: Vec<String>,
+        /// Wildcard/regex pattern matched against the API or event function
+        /// name (e.g. "NtWriteVirtualMemory"). Empty = any.
+        #[serde(default)]
+        function_pattern: Option<String>,
+        /// Wildcard/regex pattern matched against the source process image
+        /// name or path. Empty = any.
+        #[serde(default)]
+        source_pattern: Option<String>,
+        /// Wildcard/regex pattern matched against the target process image
+        /// name or path. Empty = any.
+        #[serde(default)]
+        target_pattern: Option<String>,
+        /// Minimum number of matching events required to satisfy the condition.
+        /// Defaults to 1.
+        #[serde(default)]
+        min_count: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

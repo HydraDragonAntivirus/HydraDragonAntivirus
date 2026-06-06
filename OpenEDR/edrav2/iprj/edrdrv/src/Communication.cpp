@@ -948,21 +948,13 @@ static VOID OwlyTriggerRootkitDetectorForHypervisorEvent(_In_ UCHAR EffectiveIrp
 BOOLEAN
 QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
 {
-    KIRQL oldIrql;
     ULONG currentPid = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
     ULONG sourcePid;
     ULONG targetPid;
     ULONG ownerPid;
-    POWLY_HV_EVENT_ENTRY newEntry;
     LARGE_INTEGER timestamp;
-    BOOLEAN ownerFound = FALSE;
-    BOOLEAN attackerFound = FALSE;
-    ULONGLONG ownerGid = 0;
-    ULONGLONG attackerGid = 0;
     UCHAR effectiveIrpOp;
     PCWSTR eventName;
-
-    EnsureQueuedHypervisorEventsInitialized();
 
     if (EventDetails == NULL)
     {
@@ -973,25 +965,6 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     targetPid = (EventDetails->TargetProcessId != 0) ? EventDetails->TargetProcessId : sourcePid;
     ownerPid = (targetPid != 0) ? targetPid : sourcePid;
 
-    newEntry = (POWLY_HV_EVENT_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(OWLY_HV_EVENT_ENTRY),
-                                                     OWLY_HV_EVENT_QUEUE_TAG);
-    if (newEntry == NULL)
-    {
-        return FALSE;
-    }
-
-    RtlZeroMemory(newEntry, sizeof(OWLY_HV_EVENT_ENTRY));
-
-    if (driverData != NULL)
-    {
-        ownerGid = driverData->GetProcessGid(ownerPid, &ownerFound);
-        attackerGid = driverData->GetProcessGid(sourcePid, &attackerFound);
-    }
-
-    newEntry->Message.PID = ownerPid;
-    newEntry->Message.Gid = ownerFound ? ownerGid : 0;
-    newEntry->Message.AttackerPID = sourcePid;
-    newEntry->Message.AttackerGid = attackerFound ? attackerGid : 0;
     if (EventDetails->RawEventType <= IRP_NAMED_PIPE_WRITE)
     {
         effectiveIrpOp = (UCHAR)EventDetails->RawEventType;
@@ -1000,61 +973,85 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     {
         effectiveIrpOp = IRP_HYPERVISOR_EVENT;
     }
-    newEntry->Message.IRP_OP = effectiveIrpOp;
 
     KeQuerySystemTime(&timestamp);
-    newEntry->Message.KernelEventInfo.EventType = EventDetails->RawEventType;
-    newEntry->Message.KernelEventInfo.Timestamp = (ULONGLONG)timestamp.QuadPart;
-    newEntry->Message.KernelEventInfo.SourceProcessId = sourcePid;
-    newEntry->Message.KernelEventInfo.TargetProcessId = targetPid;
-    newEntry->Message.KernelEventInfo.MemoryAddress = EventDetails->MemoryAddress;
-    newEntry->Message.KernelEventInfo.MemorySize = EventDetails->MemorySize;
-    newEntry->Message.KernelEventInfo.MemoryProtection = EventDetails->MemoryProtection;
-    newEntry->Message.KernelEventInfo.IsExecutableMemory = EventDetails->IsExecutableMemory;
-    newEntry->Message.KernelEventInfo.ThreadHandle = EventDetails->ThreadHandle;
-    newEntry->Message.KernelEventInfo.ThreadStartRoutine = EventDetails->ThreadStartRoutine;
-    newEntry->Message.KernelEventInfo.RawArgument1 = EventDetails->RawArgument1;
-    newEntry->Message.KernelEventInfo.RawArgument2 = EventDetails->RawArgument2;
-    newEntry->Message.KernelEventInfo.RawArgument3 = EventDetails->RawArgument3;
-    newEntry->Message.KernelEventInfo.RawArgument4 = EventDetails->RawArgument4;
-    newEntry->Message.KernelEventInfo.AccessMask = EventDetails->AccessMask;
-    newEntry->Message.KernelEventInfo.OperationStatus = EventDetails->OperationStatus;
-    
-    newEntry->Message.KernelEventInfo.CoreId = EventDetails->CoreId;
-    newEntry->Message.KernelEventInfo.ThreadId = EventDetails->ThreadId;
-    newEntry->Message.KernelEventInfo.Context = EventDetails->Context;
-    
-    // DLL Load Detection
-    newEntry->Message.KernelEventInfo.IsDllLoad = EventDetails->IsDllLoad;
-    newEntry->Message.KernelEventInfo.IsApiBasedLoad = EventDetails->IsApiBasedLoad;
-    if (EventDetails->IsDllLoad && EventDetails->LoadedDllPath != NULL && EventDetails->LoadedDllPath[0] != L'\0')
-    {
-        (VOID)RtlStringCchCopyW(newEntry->Message.KernelEventInfo.LoadedDllPath,
-                                RTL_NUMBER_OF(newEntry->Message.KernelEventInfo.LoadedDllPath),
-                                EventDetails->LoadedDllPath);
-    }
-    else
-    {
-        newEntry->Message.KernelEventInfo.LoadedDllPath[0] = L'\0';
-    }
-    
-    // Chromium Detection
-    newEntry->Message.KernelEventInfo.IsAcgEnabled = EventDetails->IsAcgEnabled;
 
     eventName = (EventDetails->EventName != NULL && EventDetails->EventName[0] != L'\0')
                     ? EventDetails->EventName
                     : OwlyHypervisorEventDefaultLabel(EventDetails->RawEventType);
+
+    // Deliver hypervisor event through OpenEDR fltport (same LBVS path as hook events).
+    // SysmonEvent::DeviceIoControl (0x000E) is the carrier; owlyHv.* fields carry the
+    // hypervisor-specific payload so EventEnricher / controller.cpp can reconstruct them.
+    NonPagedLbvsSerializer<edrdrv::EventField> serializer;
+    if (!serializer.write(edrdrv::EventField::RawEventId,
+            uint16_t(edrdrv::SysmonEvent::DeviceIoControl)))           goto send_done;
+    if (!serializer.write(edrdrv::EventField::TickTime,
+            (uint64_t)getTickCount64()))                               goto send_done;
+    if (!serializer.write(edrdrv::EventField::ProcessPid,
+            (uint32_t)ownerPid))                                       goto send_done;
+    // Hook-compatible fields (reuse existing IDs so controller.cpp needs no changes)
+    if (!serializer.write(edrdrv::EventField::OwlyHookEventType,
+            (uint32_t)EventDetails->RawEventType))                     goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHookSourcePid,
+            (uint32_t)sourcePid))                                      goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHookArg1,
+            (uint64_t)EventDetails->RawArgument1))                     goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHookArg2,
+            (uint64_t)EventDetails->RawArgument2))                     goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHookArg3,
+            (uint64_t)EventDetails->RawArgument3))                     goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHookArg4,
+            (uint64_t)EventDetails->RawArgument4))                     goto send_done;
     if (eventName != NULL && eventName[0] != L'\0')
     {
-        (VOID)RtlStringCchCopyW(newEntry->Message.KernelEventInfo.ObjectName,
-                                RTL_NUMBER_OF(newEntry->Message.KernelEventInfo.ObjectName),
-                                eventName);
+        UNICODE_STRING usName;
+        RtlInitUnicodeString(&usName, eventName);
+        if (!serializer.write(edrdrv::EventField::OwlyHookFunctionName, &usName))
+            goto send_done;
     }
+    // Hypervisor-specific fields
+    if (!serializer.write(edrdrv::EventField::OwlyHvMemoryAddress,
+            (uint64_t)EventDetails->MemoryAddress))                    goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvMemorySize,
+            (uint64_t)EventDetails->MemorySize))                       goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvMemoryProtection,
+            (uint32_t)EventDetails->MemoryProtection))                 goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvIsExecutableMemory,
+            (uint32_t)EventDetails->IsExecutableMemory))               goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvThreadHandle,
+            (uint64_t)(ULONG_PTR)EventDetails->ThreadHandle))          goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvThreadStartRoutine,
+            (uint64_t)(ULONG_PTR)EventDetails->ThreadStartRoutine))    goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvAccessMask,
+            (uint32_t)EventDetails->AccessMask))                       goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvOperationStatus,
+            (uint32_t)(ULONG)EventDetails->OperationStatus))           goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvCoreId,
+            (uint32_t)EventDetails->CoreId))                           goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvThreadId,
+            (uint32_t)EventDetails->ThreadId))                         goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvIsDllLoad,
+            (uint32_t)EventDetails->IsDllLoad))                        goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvIsApiBasedLoad,
+            (uint32_t)EventDetails->IsApiBasedLoad))                   goto send_done;
+    if (EventDetails->IsDllLoad && EventDetails->LoadedDllPath != NULL
+            && EventDetails->LoadedDllPath[0] != L'\0')
+    {
+        UNICODE_STRING usDll;
+        RtlInitUnicodeString(&usDll, EventDetails->LoadedDllPath);
+        if (!serializer.write(edrdrv::EventField::OwlyHvLoadedDllPath, &usDll))
+            goto send_done;
+    }
+    if (!serializer.write(edrdrv::EventField::OwlyHvIsAcgEnabled,
+            (uint32_t)EventDetails->IsAcgEnabled))                     goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvTimestamp,
+            (uint64_t)timestamp.QuadPart))                             goto send_done;
+    if (!serializer.write(edrdrv::EventField::OwlyHvTargetPid,
+            (uint32_t)targetPid))                                      goto send_done;
 
-    KeAcquireSpinLock(&g_OwlyHvEventQueueLock, &oldIrql);
-    InsertTailList(&g_OwlyHvEventQueue, &newEntry->Entry);
-    g_OwlyHvEventQueueSize++;
-    KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
+send_done:
+    fltport::sendRawEvent(serializer);
 
     OwlyTriggerRootkitDetectorForHypervisorEvent(effectiveIrpOp);
 

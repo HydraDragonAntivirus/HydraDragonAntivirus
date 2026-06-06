@@ -58,8 +58,9 @@ constexpr char c_sLleUserLogon[] = "LLE_USER_LOGON";
 constexpr char c_sLleUserImpersonation[] = "LLE_USER_IMPERSONATION";
 constexpr char c_sLleNetworkRequestDns[] = "LLE_NETWORK_REQUEST_DNS";
 constexpr char c_sLleNetworkRequestData[] = "LLE_NETWORK_REQUEST_DATA";
-
-
+constexpr char c_sLleDeviceIoctl[] = "LLE_DEVICE_IOCTL";
+constexpr char c_sLleSelfDefense[] = "LLE_SELF_DEFENSE";
+constexpr char c_sLleNamedPipeCreate[] = "LLE_NAMED_PIPE_CREATE";
 
 } // namespace eventtype
 
@@ -117,6 +118,9 @@ const char* getEventTypeString(Event eventType)
 		case Event::LLE_USER_IMPERSONATION: return eventtype::c_sLleUserImpersonation;
 		case Event::LLE_NETWORK_REQUEST_DNS: return eventtype::c_sLleNetworkRequestDns;
 		case Event::LLE_NETWORK_REQUEST_DATA: return eventtype::c_sLleNetworkRequestData;
+		case Event::LLE_DEVICE_IOCTL: return eventtype::c_sLleDeviceIoctl;
+		case Event::LLE_SELF_DEFENSE: return eventtype::c_sLleSelfDefense;
+		case Event::LLE_NAMED_PIPE_CREATE: return eventtype::c_sLleNamedPipeCreate;
 	}
 	error::InvalidArgument(SL, FMT("Event type <" << (uint64_t)eventType <<
 		"> has no text string")).throwException();

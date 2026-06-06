@@ -79,7 +79,7 @@ pub fn is_hydra_dragon_enabled() -> bool {
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 pub fn init_hydra_dragon(
     config: &crate::config::Config,
-    driver: crate::driver_com::Driver,
+    driver: crate::windows::edrsvc_client::Driver,
 ) -> Option<hydradragon::av_integration::AVIntegration<'_>> {
     if !is_hydra_dragon_enabled() {
         crate::logging::Logging::warning(
@@ -115,9 +115,7 @@ pub use crate::worker::worker_instance::{
 #[cfg(target_os = "windows")]
 pub use crate::windows::notifications;
 #[cfg(target_os = "windows")]
-pub use crate::windows::openedr_lbvs as driver_com;
-#[cfg(target_os = "windows")]
-pub use crate::windows::openedr_lbvs::Driver;
+pub use crate::windows::edrsvc_client::Driver;
 #[cfg(target_os = "windows")]
 pub use crate::windows::quarantine;
 #[cfg(target_os = "windows")]

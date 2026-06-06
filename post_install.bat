@@ -192,7 +192,36 @@ if not errorlevel 1 (
 :after_openedr
 
 :: --------------------------------------------------------
-:: 11) Disable Code Integrity for OpenEDR DLL injection
+:: 11) Install OwlyShield anti-ransomware service
+:: --------------------------------------------------------
+set "OWLY_TARGET_EXE=%APP_DIR%\hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
+set "OWLY_SERVICE_NAME=OwlyShield Service"
+
+if not exist "%OWLY_TARGET_EXE%" (
+    call :log [!] OwlyShield executable not found at "%OWLY_TARGET_EXE%".
+    call :log [*] Skipping OwlyShield service installation.
+    goto :after_owlyshield
+)
+
+call :log [*] Installing OwlyShield anti-ransomware service...
+sc query "%OWLY_SERVICE_NAME%" >nul 2>&1
+if %errorlevel% equ 0 (
+    call :log [*] Existing OwlyShield service found, removing...
+    sc delete "%OWLY_SERVICE_NAME%" >nul 2>&1
+    timeout /t 2 >nul
+)
+call :run_and_log sc create "%OWLY_SERVICE_NAME%" binPath= "\"%OWLY_TARGET_EXE%\"" start= auto
+if errorlevel 1 (
+    call :log [!] OwlyShield service creation failed.
+) else (
+    sc description "%OWLY_SERVICE_NAME%" "OwlyShield anti-ransom service (HydraDragon)" >nul 2>&1
+    call :log [+] OwlyShield service installed successfully.
+)
+
+:after_owlyshield
+
+:: --------------------------------------------------------
+:: 12) Disable Code Integrity for OpenEDR DLL injection
 :: --------------------------------------------------------
 call :log [*] Configuring system for OpenEDR DLL injection...
 call :log [*] Disabling Code Integrity checks to allow edrpm DLL injection...

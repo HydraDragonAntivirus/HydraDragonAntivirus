@@ -1,4 +1,4 @@
-use crate::driver_com::Driver;
+use crate::windows::edrsvc_client::Driver;
 use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::quarantine::{compute_sha256, quarantine_file};

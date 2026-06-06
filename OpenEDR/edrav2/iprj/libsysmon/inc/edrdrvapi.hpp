@@ -127,6 +127,23 @@ enum class EventField : variant::lbvs::FieldId
 	OwlyHookArg3 = 106,          ///< uint64 - raw hook argument 3
 	OwlyHookArg4 = 107,          ///< uint64 - raw hook argument 4
 	OwlyHookSourcePid = 108,     ///< uint32 - source (attacker) PID
+	// Owlyshield hypervisor/rootkit event fields (Communication.cpp → LBVS path)
+	OwlyHvMemoryAddress = 109,      ///< uint64 - target memory address
+	OwlyHvMemorySize = 110,         ///< uint64 - memory region size
+	OwlyHvMemoryProtection = 111,   ///< uint32 - memory protection flags
+	OwlyHvIsExecutableMemory = 112, ///< uint32 - non-zero if executable
+	OwlyHvThreadHandle = 113,       ///< uint64 - thread handle (remote thread events)
+	OwlyHvThreadStartRoutine = 114, ///< uint64 - thread start address
+	OwlyHvAccessMask = 115,         ///< uint32 - access mask
+	OwlyHvOperationStatus = 116,    ///< int32 - NTSTATUS of the operation
+	OwlyHvCoreId = 117,             ///< uint32 - CPU core ID (hypervisor events)
+	OwlyHvThreadId = 118,           ///< uint32 - thread ID
+	OwlyHvIsDllLoad = 119,          ///< uint32 - non-zero for DLL load events
+	OwlyHvIsApiBasedLoad = 120,     ///< uint32 - non-zero if loaded via API
+	OwlyHvLoadedDllPath = 121,      ///< str (wide) - loaded DLL path
+	OwlyHvIsAcgEnabled = 122,       ///< uint32 - non-zero if ACG (Arbitrary Code Guard) active
+	OwlyHvTimestamp = 123,          ///< uint64 - kernel FILETIME timestamp
+	OwlyHvTargetPid = 124,          ///< uint32 - target process PID
 };
 
 ///
@@ -160,7 +177,23 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "process.deletionTime" },
 	{ "name": "process.creatorPid" },
 	{ "name": "target.pid" },
-	{ "name": "accessMask" }
+	{ "name": "accessMask" },
+	{ "name": "owlyHv.memoryAddress" },
+	{ "name": "owlyHv.memorySize" },
+	{ "name": "owlyHv.memoryProtection" },
+	{ "name": "owlyHv.isExecutableMemory" },
+	{ "name": "owlyHv.threadHandle" },
+	{ "name": "owlyHv.threadStartRoutine" },
+	{ "name": "owlyHv.accessMask" },
+	{ "name": "owlyHv.operationStatus" },
+	{ "name": "owlyHv.coreId" },
+	{ "name": "owlyHv.threadId" },
+	{ "name": "owlyHv.isDllLoad" },
+	{ "name": "owlyHv.isApiBasedLoad" },
+	{ "name": "owlyHv.loadedDllPath" },
+	{ "name": "owlyHv.isAcgEnabled" },
+	{ "name": "owlyHv.timestamp" },
+	{ "name": "owlyHv.targetPid" }
 ]})json";
 
 //////////////////////////////////////////////////////////////////////////
