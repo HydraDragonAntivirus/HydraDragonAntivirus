@@ -1953,62 +1953,6 @@ inline bool hasFileWriteAccess(ACCESS_MASK access)
 //
 bool isSelfProtected(PCUNICODE_STRING pusFileName, ACCESS_MASK desiredAccess)
 {
-	// ========================================================================
-	// HYDRADRAGON CA KEY PROTECTION - HIGHEST PRIORITY
-	// Protect: hydradragon_ca.key.der and hydradragon_ca.der files
-	// ========================================================================
-	if (pusFileName != nullptr && pusFileName->Buffer != nullptr && pusFileName->Length > 0)
-	{
-		// Convert to lowercase for case-insensitive matching
-		WCHAR lowerPath[512];
-		SIZE_T pathLen = min(pusFileName->Length / sizeof(WCHAR), 511);
-		
-		for (SIZE_T i = 0; i < pathLen; i++)
-		{
-			WCHAR ch = pusFileName->Buffer[i];
-			lowerPath[i] = (ch >= L'A' && ch <= L'Z') ? (ch + 32) : ch;
-		}
-		lowerPath[pathLen] = L'\0';
-
-		// CA key/cert filenames to protect (stored in HydraDragonFirewall executable directory)
-		static const WCHAR* caKeyFiles[] = {
-			L"hydradragon_ca.key.der",  // Private key
-			L"hydradragon_ca.der",      // Certificate
-			nullptr
-		};
-		
-		// Check if path ends with any of the CA key/cert filenames
-		for (int i = 0; caKeyFiles[i] != nullptr; i++)
-		{
-			const WCHAR* filename = caKeyFiles[i];
-			SIZE_T filenameLen = wcslen(filename);
-			
-			if (pathLen >= filenameLen)
-			{
-				bool match = true;
-				for (SIZE_T k = 0; k < filenameLen; k++)
-				{
-					WCHAR filenameChar = filename[k];
-					if (filenameChar >= L'A' && filenameChar <= L'Z')
-						filenameChar += 32;
-					
-					if (lowerPath[pathLen - filenameLen + k] != filenameChar)
-					{
-						match = false;
-						break;
-					}
-				}
-				
-				if (match)
-				{
-					LOGINFO1("HydraDragon CA Key Protection: BLOCKED access to CA file '%ws': <%wZ>, access: 0x%08X\r\n",
-						filename, pusFileName, (ULONG)desiredAccess);
-					return true; // DENY ACCESS
-				}
-			}
-		}
-	}
-
 	// apply rules
 	SharedLock lock(g_pCommonData->mtxFileRules);
 	for (auto& rule : g_pCommonData->fileRules)
