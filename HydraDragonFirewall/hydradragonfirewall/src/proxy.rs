@@ -59,8 +59,6 @@ pub struct ProxyHttpEvent {
     pub response_body_truncated: bool,
 }
 
-
-
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
 /// Directory-relative filenames used to persist the CA across restarts.
@@ -896,8 +894,6 @@ async fn handle_proxy_request<R: Runtime>(
             },
         );
     }
-
-
 
     let _ = app.emit(
         "proxy_http",
