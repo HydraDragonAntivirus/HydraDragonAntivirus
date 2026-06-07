@@ -41,6 +41,62 @@ MARSHAL_VERSION_HINT_TAG_PATTERN = re.compile(b"[" + re.escape(b"\xf3" + bytes(M
 DISCOVERED_SECTION_PATTERN = re.compile(r"^discovered_(.+?)_at_(\d+)$")
 MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
 
+# =============================================================================
+# NUITKA COMMERCIAL MODULE-NAME DECODER  (mirrors nuitka_decompiler.py)
+# Nuitka Commercial encodes blob chunk names with a substitution cipher seeded
+# at 27 (mapping2). The table is fully deterministic — no key material needed.
+# =============================================================================
+def _build_mapping2_decode_table() -> list:
+    """Build the inverse mapping2 decode table (seed=27, deterministic)."""
+    import random as _random
+    r = _random.Random(27)
+    fwd = list(range(1, 256))
+    r.shuffle(fwd)
+    fwd.insert(0, 0)
+    decode = [0] * 256
+    for i, v in enumerate(fwd):
+        decode[v] = i
+    return decode
+
+_MAPPING2_DECODE: list = _build_mapping2_decode_table()
+
+
+def _decode_mapping2_name(raw: bytes) -> str:
+    """Decode a Nuitka Commercial chunk name encoded with mapping2."""
+    return bytearray(_MAPPING2_DECODE[b] for b in raw).decode('utf-8', errors='replace')
+
+
+def _is_plausible_module_name(name: str) -> bool:
+    """Return True when *name* looks like a real Nuitka blob chunk name."""
+    if name in ("", ".bytecode", ".files"):
+        return True
+    if len(name) > 4096 or any(ord(c) < 32 for c in name):
+        return False
+    return all(c.isalnum() or c in "._-+/\\:" for c in name)
+
+
+def _decode_blob_module_name(raw_name: bytes) -> str:
+    """Decode a DataComposer chunk name, trying plain UTF-8 first then mapping2.
+
+    This mirrors nuitka_decompiler.py's _decode_blob_module_name so that
+    commercial blobs with encoded module names produce readable output.
+    """
+    try:
+        plain = raw_name.decode('utf-8', errors='strict')
+        if _is_plausible_module_name(plain):
+            return plain
+    except UnicodeDecodeError:
+        plain = None
+
+    try:
+        decoded = _decode_mapping2_name(raw_name)
+        if _is_plausible_module_name(decoded):
+            return decoded
+    except Exception:
+        pass
+
+    return plain if plain is not None else raw_name.decode('utf-8', errors='replace')
+
 
 def _is_live_code_object(value) -> bool:
     return type(value).__name__ == "code" or type(value).__name__.startswith("Code") or hasattr(value, "co_code") or hasattr(value, "co_code_adaptive")
@@ -498,6 +554,151 @@ def _discovered_alias_matches(discovered_name: str, plain_name: str) -> bool:
     if len(discovered_name) > 2 and discovered_name[2:] == plain_name:
         return True
     return False
+
+
+def parse_blob_modules(blob_data: bytes):
+    """Parse the Nuitka constants blob into named modules.
+
+    Format: [CRC32(4)][size(4)][name\0 chunk_size(4) chunk_data]...
+    """
+    if not blob_data or len(blob_data) < 8:
+        return []
+
+    size_stored = struct.unpack('<I', blob_data[4:8])[0]
+    data_end = len(blob_data)
+    if 8 + size_stored <= len(blob_data):
+        data_end = 8 + size_stored
+
+    data = blob_data[8:data_end]
+    offset = 0
+    modules = []
+
+    while offset < len(data) - 5:
+        name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
+        if name_end == -1:
+            break
+
+        raw_name = data[offset:name_end]
+        module_name = _decode_blob_module_name(raw_name)
+
+        offset = name_end + 1
+
+        if offset + 4 > len(data):
+            break
+
+        chunk_size = struct.unpack('<I', data[offset:offset + 4])[0]
+        offset += 4
+
+        if chunk_size > 100 * 1024 * 1024 or offset + chunk_size > len(data):
+            break
+
+        chunk_data = data[offset:offset + chunk_size]
+        offset += chunk_size
+
+        modules.append((module_name, chunk_data))
+
+    return modules
+
+
+def extract_bytecode_modules(bytecode_chunk: bytes, output_dir: Path, python_version: str) -> tuple[int, list[str]]:
+    """Extract .pyc modules from the .bytecode chunk (Nuitka constants blob)."""
+    if len(bytecode_chunk) < 4:
+        return 0, []
+
+    count = struct.unpack('<H', bytecode_chunk[0:2])[0]
+    print(f"[*] .bytecode chunk: {count} compiled modules (target Python {python_version})")
+
+    pos = 2
+    extracted = 0
+    pyc_dir = output_dir / "pyc"
+    pyc_dir.mkdir(parents=True, exist_ok=True)
+
+    header = get_pyc_header(python_version)
+    used_paths = {}
+    manifest_entries = []
+    recovered_file_paths = []
+
+    for i in range(count):
+        if pos >= len(bytecode_chunk):
+            break
+
+        if bytecode_chunk[pos] != 0x58:
+            resync = None
+            for skip in range(1, 64):
+                if pos + skip < len(bytecode_chunk) and bytecode_chunk[pos + skip] == 0x58:
+                    resync = pos + skip
+                    break
+            if resync is None:
+                print(f"[!] Warning: Lost bytecode stream alignment at index {i} (offset 0x{pos:X})")
+                break
+            pos = resync
+
+        pos += 1  # skip 'X'
+        try:
+            marshal_size = 0
+            shift = 0
+            while True:
+                b = bytecode_chunk[pos]
+                pos += 1
+                marshal_size |= (b & 0x7F) << shift
+                if b < 0x80:
+                    break
+                shift += 7
+                if shift > 63:
+                    raise ValueError("VLQ overflow")
+        except (IndexError, ValueError) as e:
+            print(f"[!] Warning: VLQ decode error at index {i}: {e}")
+            break
+
+        if marshal_size <= 0 or pos + marshal_size > len(bytecode_chunk):
+            print(f"[!] Warning: Bad size {marshal_size} at index {i} (offset 0x{pos:X})")
+            break
+
+        marshal_data = bytecode_chunk[pos:pos + marshal_size]
+        pos += marshal_size
+
+        co_filename = extract_path_from_marshaled_bytes(marshal_data)
+        if not co_filename:
+            co_filename = f"module_{i:04d}.py"
+
+        rel_path = _safe_pyc_relpath(co_filename)
+
+        path_str = str(rel_path)
+        if path_str in used_paths:
+            used_paths[path_str] += 1
+            rel_path = rel_path.parent / f"{rel_path.stem}__dup{used_paths[path_str]}{rel_path.suffix}"
+        else:
+            used_paths[path_str] = 0
+
+        dest = pyc_dir / rel_path
+        try:
+            written_path = _write_bytes_unique(dest, header + marshal_data)
+            extracted += 1
+            path_written_str = str(written_path)
+            recovered_file_paths.append(path_written_str)
+            manifest_entries.append({
+                "index": i,
+                "co_filename": co_filename,
+                "marshal_size": marshal_size,
+                "pyc_path": os.path.relpath(written_path, output_dir).replace(os.sep, "/")
+            })
+        except Exception as exc:
+            print(f"[!] Warning: failed to write bytecode module {i}: {exc}")
+
+    try:
+        manifest_path = output_dir / "BYTECODE_MANIFEST.json"
+        manifest_data = {
+            "target_python": python_version,
+            "total_modules": extracted,
+            "entries": manifest_entries
+        }
+        manifest_path.write_text(json.dumps(manifest_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"[*] Manifest written to {manifest_path}")
+        recovered_file_paths.append(str(manifest_path))
+    except Exception as exc:
+        print(f"[!] Warning: failed to write manifest: {exc}")
+
+    return extracted, recovered_file_paths
 
 
 def _load_module_metadata(raw: bytes) -> list[dict]:
@@ -1097,8 +1298,21 @@ def extract_blob(
     # Decode sections
     # -------------------------------------------------------------------------
     print("[*] Starting extraction sequence...")
+    modules = parse_blob_modules(raw)
+    constants_modules = []
+    bytecode_chunk = None
+    for name, chunk_data in modules:
+        if name == ".bytecode":
+            bytecode_chunk = chunk_data
+        else:
+            constants_modules.append((name, chunk_data))
+
+    pseudo_blob = b"\x00" * 8
+    for name, chunk_data in constants_modules:
+        pseudo_blob += name.encode() + b"\x00" + struct.pack("<I", len(chunk_data) - 2) + chunk_data
+
     try:
-        sections = nuitka_deobfuscate.decode_blob(raw)
+        sections = nuitka_deobfuscate.decode_blob(pseudo_blob)
     except Exception as e:
         print(f"[!] Fatal error during C decoding: {e}")
         return None
@@ -1131,6 +1345,13 @@ def extract_blob(
 
     count_pyc = 0
     count_other = 0
+
+    # Extract bytecode modules from the .bytecode chunk if present
+    if bytecode_chunk and emit_pyc:
+        print("[*] Extracting bytecode modules from .bytecode chunk...")
+        extracted_bc, bc_paths = extract_bytecode_modules(bytecode_chunk, out_dir, target_ver_str)
+        count_pyc += extracted_bc
+        recovered_file_paths.extend(bc_paths)
 
     # =========================================================================
     # PASS 2: SECTION-BASED SCAN + OMNI DECOMPILATION
@@ -1168,6 +1389,47 @@ def extract_blob(
                 sc += section_sc
                 recovered_file_paths.extend(section_files)
 
+
+    # =========================================================================
+    # PASS 3: PER-MODULE CONSTANTS DUMP (mirrors nuitka_decompiler Phase 6)
+    # Calls parse_module_constants + extract_all_strings directly on each raw
+    # blob chunk — this is the step that surfaces strings like "tropical" that
+    # live in Nuitka constant streams but are NOT marshal bytecode objects.
+    # =========================================================================
+    try:
+        from nuitka_decompiler import parse_module_constants, extract_all_strings
+        constants_dir = out_dir / "module_constants"
+        constants_dir.mkdir(parents=True, exist_ok=True)
+        print("[*] Pass 3: per-module constants string extraction...")
+        dumped_constants = 0
+        for mod_name, chunk_data in constants_modules:
+            try:
+                constants = parse_module_constants(chunk_data, python_version=target_ver_tuple)
+                strings = extract_all_strings(constants)
+                strings = list(dict.fromkeys(strings))  # deduplicate, preserve order
+
+                safe_name = re.sub(r"[<>:\"|?*\\]", "_", mod_name.replace(".", "_")).strip("_") or "module"
+                safe_name = re.sub(r"_+", "_", safe_name)[:80]
+                const_file = constants_dir / f"{safe_name}_constants.txt"
+
+                with const_file.open("w", encoding="utf-8", errors="replace") as fh:
+                    fh.write(f"# Module: {mod_name}\n")
+                    fh.write(f"# Constants count: {len(constants)}\n\n")
+                    for idx, val in enumerate(constants):
+                        fh.write(f"[{idx}] {type(val).__name__}: {repr(val)[:300]}\n")
+                    fh.write("\n" + "=" * 70 + "\n")
+                    fh.write(f"# Strings extracted (recursive): {len(strings)}\n")
+                    fh.write("=" * 70 + "\n\n")
+                    for s in strings:
+                        fh.write(s.replace("\r\n", "\n"))
+                        fh.write("\n")
+                dumped_constants += 1
+            except Exception as exc:
+                print(f"[!] Warning: constants dump failed for {mod_name}: {exc}")
+        print(f"[*]   Written {dumped_constants} module constants files -> {constants_dir}")
+    except ImportError:
+        print("[!] Warning: nuitka_decompiler.py not found — skipping Pass 3 constants dump.")
+
     # =========================================================================
     # SUMMARY
     # =========================================================================
@@ -1180,3 +1442,4 @@ def extract_blob(
     print(f"    Output          : {out_dir.absolute()}")
 
     return ExtractionResult(pyc_count=count_pyc, omni_recon_count=sc if OmniDecompiler else 0, metadata_count=count_other, output_dir=out_dir, recovered_files=recovered_file_paths)
+
