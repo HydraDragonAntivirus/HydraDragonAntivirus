@@ -6580,8 +6580,11 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
         if not source.strip():
             continue
 
-        # Clean name for filesystem
-        safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name).strip("._") or "section"
+        # Sanitize section_name for filesystem: replace all Windows-invalid and
+        # non-ASCII / control characters, then cap length to avoid path errors.
+        _sn = section_name if isinstance(section_name, str) else section_name.decode("ascii", errors="replace")
+        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f-\xff]', "_", _sn)
+        safe_name = re.sub(r"_+", "_", safe_name).strip("._")[:80] or "section"
         out_file = out_dir / f"{safe_name}.py"
 
         # Ensure subdirectories exist for package names like 'numpy.core'

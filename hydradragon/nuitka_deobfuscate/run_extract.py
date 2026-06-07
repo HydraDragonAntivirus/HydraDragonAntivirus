@@ -399,15 +399,44 @@ def detect_version_from_marshal(data: bytes) -> str | None:
 # ============================================================================
 
 
+# Characters invalid on Windows paths + non-ASCII / control characters
+_INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f-\xff]')
+
+
 def sanitize_filename(filepath: str) -> str:
+    """
+    Convert a source-path string into a valid, relative Windows-safe path.
+
+    - Normalises backslashes to forward slashes
+    - Strips drive-letter prefix (e.g. 'C:')
+    - Removes known Nuitka prefixes ('module.', 'nuitka_build/')
+    - Replaces all Windows-invalid characters (control, upper-ASCII, special) with '_'
+    - Collapses consecutive underscores into one
+    - Strips leading/trailing '_' and '.' from each path component
+    """
+    # If the input is bytes (binary garbage from a blob), decode safely
+    if isinstance(filepath, (bytes, bytearray)):
+        filepath = filepath.decode("ascii", errors="replace")
+
     filepath = filepath.replace("\\", "/")
     if ":" in filepath:
         filepath = filepath.split(":", 1)[1]
     filepath = filepath.lstrip("/")
     for p in ["module.", "nuitka_build/"]:
         if filepath.startswith(p):
-            filepath = filepath[len(p) :]
-    return filepath
+            filepath = filepath[len(p):]
+
+    # Replace every invalid character with underscore
+    filepath = _INVALID_PATH_CHARS_RE.sub("_", filepath)
+    # Collapse runs of underscores
+    filepath = re.sub(r"_+", "_", filepath)
+    # Clean each path component: drop empty parts and trim edge underscores/dots
+    parts = []
+    for part in filepath.split("/"):
+        part = part.strip("_.")
+        if part:
+            parts.append(part)
+    return "/".join(parts) if parts else "unknown"
 
 
 def extract_path_from_code(code_obj) -> str | None:
@@ -783,7 +812,9 @@ def process_section(
     generate_omni_nbc,
     emit_pyc: bool = True,
 ) -> tuple[int, int, int, list[str]]:
-    clean_section = section_name.replace(".", "_").strip("_") or "section"
+    clean_section = sanitize_filename(section_name).replace("/", "_").replace(".", "_").strip("_") or "section"
+    # Cap at 80 characters — safe ceiling for long binary-garbage section names
+    clean_section = clean_section[:80]
     root_items = _normalize_section_items(items)
     recovered_file_paths = []
     count_pyc = 0
@@ -828,7 +859,7 @@ def process_section(
                     )
                     source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
 
-                safe_name = re.sub(r'[<>:"/\\|?*\x00]', "_", section_name)[:80]
+                safe_name = sanitize_filename(section_name).replace("/", "_")[:80] or "section"
                 omni_out = out_dir / "omni_reconstructed"
                 target_py_path = _write_bytes_unique(
                     omni_out / f"{safe_name}.py", source.encode("utf-8")
