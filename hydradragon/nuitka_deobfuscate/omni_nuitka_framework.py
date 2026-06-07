@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import ast
 import functools
+import hashlib
 import importlib
 import keyword
 import re
@@ -3500,15 +3501,99 @@ def _generate_heuristic_omni_source(decompiler: OmniDecompiler, section_name: st
         lines.extend(cls_node.render(0).rstrip().splitlines())
         lines.append("")
 
-    # --- unclaimed raw data from blob ---
+    # --- unclaimed metadata from blob ---
     if decompiler.unclaimed_items:
         lines.append("")
         lines.append("# ===========================================================================")
-        lines.append("# UNCLAIMED RAW DATA — items not assigned to any class or function")
+        lines.append("# UNCLAIMED METADATA — items not assigned to any class or function")
         lines.append("# ===========================================================================")
-        for idx, item in enumerate(decompiler.unclaimed_items):
-            safe_item = _redact_marshaled_bytecode_constants(item)
-            lines.append(f"_raw_{idx} = {repr(safe_item)}")
+        _unc_strings: list[str] = []
+        _unc_hints: list[str] = []
+        _unc_bytes: list[tuple[int, str]] = []  # (length, hex_preview)
+        _unc_dicts: list[str] = []
+        _unc_tuples: list[str] = []
+        _unc_literals: list[str] = []
+        _unc_other: list[str] = []
+
+        for item in decompiler.unclaimed_items:
+            if isinstance(item, str):
+                text = item.strip()
+                if not text:
+                    continue
+                if is_probable_docstring(text) or "\n" in text:
+                    # Multi-line or docstring-like text → quoted hint block
+                    first_line = text.splitlines()[0][:120]
+                    _unc_hints.append(first_line)
+                else:
+                    # Single-line string: identifier hint or message
+                    _unc_strings.append(text[:200])
+            elif isinstance(item, (bytes, bytearray)):
+                raw = bytes(item)
+                if _looks_like_marshaled_bytecode_bytes(raw):
+                    _unc_bytes.append((len(raw), f"<marshal bytecode payload: {len(raw)} bytes>"))
+                else:
+                    preview = raw[:64].hex()
+                    suffix = "..." if len(raw) > 64 else ""
+                    _unc_bytes.append((len(raw), f"{preview}{suffix}"))
+            elif isinstance(item, dict):
+                safe_d = _redact_marshaled_bytecode_constants(item)
+                trimmed = {k: v for k, v in list(safe_d.items())[:8]}
+                _unc_dicts.append(repr(trimmed)[:300])
+            elif isinstance(item, (tuple, list)):
+                safe_t = _redact_marshaled_bytecode_constants(item)
+                _unc_tuples.append(repr(safe_t)[:300])
+            elif isinstance(item, (int, float, bool)):
+                _unc_literals.append(repr(item))
+            else:
+                safe_v = _redact_marshaled_bytecode_constants(item)
+                _unc_other.append(repr(safe_v)[:200])
+
+        if _unc_strings:
+            lines.append("#")
+            lines.append("# -- string hints --")
+            seen_str: set[str] = set()
+            for s in _unc_strings:
+                if s not in seen_str:
+                    seen_str.add(s)
+                    lines.append(f"# str: {s}")
+        if _unc_hints:
+            lines.append("#")
+            lines.append("# -- docstring / multi-line hints --")
+            seen_h: set[str] = set()
+            for h in _unc_hints:
+                if h not in seen_h:
+                    seen_h.add(h)
+                    lines.append(f"# doc: {h}")
+        if _unc_bytes:
+            lines.append("#")
+            lines.append("# -- binary blobs --")
+            for length, preview in _unc_bytes:
+                lines.append(f"# bytes[{length}]: {preview}")
+        if _unc_dicts:
+            lines.append("#")
+            lines.append("# -- dict hints --")
+            seen_dct: set[str] = set()
+            for d in _unc_dicts:
+                if d not in seen_dct:
+                    seen_dct.add(d)
+                    lines.append(f"# dict: {d}")
+        if _unc_tuples:
+            lines.append("#")
+            lines.append("# -- tuple hints --")
+            seen_tup: set[str] = set()
+            for t in _unc_tuples:
+                if t not in seen_tup:
+                    seen_tup.add(t)
+                    lines.append(f"# tuple: {t}")
+        if _unc_literals:
+            lines.append("#")
+            lines.append("# -- numeric literals --")
+            lines.append(f"# literals: {', '.join(_unc_literals[:50])}")
+        if _unc_other:
+            lines.append("#")
+            lines.append("# -- other --")
+            for o in _unc_other:
+                lines.append(f"# raw: {o}")
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -6580,11 +6665,15 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
         if not source.strip():
             continue
 
-        # Sanitize section_name for filesystem: replace all Windows-invalid and
-        # non-ASCII / control characters, then cap length to avoid path errors.
-        _sn = section_name if isinstance(section_name, str) else section_name.decode("ascii", errors="replace")
-        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f-\xff]', "_", _sn)
-        safe_name = re.sub(r"_+", "_", safe_name).strip("._")[:80] or "section"
+        # Build a guaranteed-safe filename from section_name.
+        # Strategy: keep printable ASCII word characters; if the result is too
+        # short (binary-garbage names collapse to almost nothing) append a short
+        # SHA-1 hash of the raw bytes so files remain unique and collision-free.
+        _raw_bytes = section_name.encode("utf-8", errors="replace") if isinstance(section_name, str) else bytes(section_name)
+        _ascii_part = re.sub(r"[^A-Za-z0-9._-]", "_", section_name if isinstance(section_name, str) else section_name.decode("ascii", errors="replace"))
+        _ascii_part = re.sub(r"_+", "_", _ascii_part).strip("_.")[:48]
+        _hash_suffix = hashlib.sha1(_raw_bytes).hexdigest()[:8]
+        safe_name = f"{_ascii_part}_{_hash_suffix}" if _ascii_part else f"section_{_hash_suffix}"
         out_file = out_dir / f"{safe_name}.py"
 
         # Ensure subdirectories exist for package names like 'numpy.core'
@@ -6594,6 +6683,7 @@ def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
             source += "\n\n" + '"""' + "\n" + artifact.nbc_text + "\n" + '"""'
 
         out_file.write_text(source, encoding="utf-8")
+
         count += 1
         print(f"  [{count:4d}] {section_name:<50}  ({source.count(chr(10))} lines, strategy={artifact.strategy})")
 

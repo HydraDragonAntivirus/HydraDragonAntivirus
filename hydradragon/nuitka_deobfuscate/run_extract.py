@@ -11,6 +11,7 @@ run_extract.py
 """
 
 from __future__ import annotations
+import hashlib
 import os
 import sys
 import struct
@@ -859,7 +860,11 @@ def process_section(
                     )
                     source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
 
-                safe_name = sanitize_filename(section_name).replace("/", "_")[:80] or "section"
+                _raw_sn = section_name.encode("utf-8", errors="replace") if isinstance(section_name, str) else bytes(section_name)
+                _ascii_sn = re.sub(r"[^A-Za-z0-9._-]", "_", section_name if isinstance(section_name, str) else section_name.decode("ascii", errors="replace"))
+                _ascii_sn = re.sub(r"_+", "_", _ascii_sn).strip("_.")[:48]
+                _hash_sn = hashlib.sha1(_raw_sn).hexdigest()[:8]
+                safe_name = f"{_ascii_sn}_{_hash_sn}" if _ascii_sn else f"section_{_hash_sn}"
                 omni_out = out_dir / "omni_reconstructed"
                 target_py_path = _write_bytes_unique(
                     omni_out / f"{safe_name}.py", source.encode("utf-8")
