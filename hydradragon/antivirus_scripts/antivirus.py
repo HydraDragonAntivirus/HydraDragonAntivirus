@@ -2748,119 +2748,27 @@ def extract_original_norm_path_from_decompiled(file_path):
         logger.error(f"An error occurred while extracting the original file path: {ex}")
         return None
 
-
-def clean_text(input_text):
-    """
-    Remove non-logger.infoable ASCII control characters from the input text.
-
-    :param input_text: The string to clean.
-    :return: Cleaned text with control characters removed.
-    """
-    # Remove non-logger.infoable characters (ASCII 0-31 and 127)
-    cleaned_text = re.sub(r"[\x00-\x1F\x7F]+", "", input_text)
-    return cleaned_text
-
-
-def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path=None, main_file_path=None):
-    """
-    Stage 2 reconstruction of Nuitka-decompiled Python code.
-    Parses the source for unicode ('u') strings, preserved URLs/tokens/IPs, and reconstructs modules.
-    """
-    if file_path:
-        logger.info(f"Reconstructing Nuitka source code (Stage 2) for file: {file_path}")
-    else:
-        logger.info("Reconstructing Nuitka source code (Stage 2)...")
-
-    combined_preserve = re.compile(r"$^")
-
-    import_pattern = re.compile(r"^\s*(import\s+[\w.,\s]+|from\s+[\w.]+\s+import\s+[\w.,\s*]+)", re.MULTILINE)
-
-    imports_top = []  # <--- store imports separately
-    tokens = []
-    extracted_links = []
-
-    for line in source_code.splitlines():
-        if import_pattern.match(line):
-            imports_top.append(line.strip())
-            continue
-
-        start = 0
-        for m in combined_preserve.finditer(line):
-            unprotected = line[start : m.start()]
-            if "u" in unprotected:
-                parts = re.split(r"(u)", unprotected)
-                tokens.extend([p for p in parts if p])
-            elif unprotected:
-                tokens.append(unprotected)
-
-            protected_content = m.group(0)
-            tokens.append(protected_content)
-            extracted_links.append(protected_content)
-            start = m.end()
-
-        tail = line[start:]
-        if "u" in tail:
-            parts = re.split(r"(u)", tail)
-            tokens.extend([p for p in parts if p])
-        elif tail:
-            tokens.append(tail)
-
-    merged_tokens = []
-    i, n = 0, len(tokens)
-    while i < n:
-        t = tokens[i]
-        if t == "u":
-            if i + 1 < n:
-                next_token = tokens[i + 1]
-                if next_token.startswith(('"', "'", "http")):
-                    merged_tokens.append("u" + next_token)
-                    i += 2
-                else:
-                    merged_tokens.append("u")
-                    i += 1
-            else:
-                merged_tokens.append("u")
-                i += 1
-        else:
-            merged_tokens.append(t)
-            i += 1
-
-    # Place imports at the top
-    final_lines = []
-    if imports_top:
-        final_lines.append("# --- Auto-collected imports ---")
-        final_lines.extend(sorted(set(imports_top)))  # deduplicate + sorted for neatness
-        final_lines.append("\n")
-
-    final_lines.extend(t.strip() for t in merged_tokens if t.strip())
-
-    final_code_content = "\n".join(final_lines)
-
-    # --- Save reconstructed code ---
-    full_path = None
-    if file_path:
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
-        save_filename = f"{base_name}_stage2_reconstructed.py"
-        full_path = os.path.join(nuitka_source_code_dir, save_filename)
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-
-        with open(full_path, "w", encoding="utf-8") as f:
-            f.write(final_code_content)
-
-        logger.info(f"Stage 2 reconstruction saved: {full_path}")
-
-    # --- Auto link scanning ---
+def detect_python_version_from_pe(pe_path: str) -> tuple:
+    """Detect Python version from a PE file path by scanning python3XX.dll in imports and sections."""
+    import re as _re_pe
+    import sys as _sys_ver
     try:
-        if "scan_code_for_links" in globals():
-            logger.info("Running post-reconstruction link scan (nuitka_flag=True)...")
-            scan_code_for_links(final_code_content, full_path or file_path or base_name, nuitka_flag=True, main_file_path=main_file_path or file_path)
-        else:
-            logger.warning("scan_code_for_links() not defined, skipping link scan.")
-    except Exception as ex:
-        logger.error(f"Error during scan_code_for_links: {ex}")
-
-    return final_code_content
-
+        with open(pe_path, 'rb') as _fh:
+            _pe_data = _fh.read()
+        _pe = pefile.PE(data=_pe_data)
+        if hasattr(_pe, 'DIRECTORY_ENTRY_IMPORT'):
+            for _entry in _pe.DIRECTORY_ENTRY_IMPORT:
+                _dll = _entry.dll.decode('ascii', errors='replace').lower()
+                _m = _re_pe.match(r'python(\d)(\d+)\.dll', _dll)
+                if _m:
+                    return (int(_m.group(1)), int(_m.group(2)))
+        for _section in _pe.sections:
+            _sec = _section.get_data()
+            for _match in _re_pe.finditer(rb'python(\d)(\d+)\.dll', _sec):
+                return (int(_match.group(1)), int(_match.group(2)))
+    except Exception:
+        pass
+    return _sys_ver.version_info[:2]
 
 def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None) -> List[str]:
     """
@@ -2882,9 +2790,16 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
         Path(f"{sanitize_filename(blob_file.stem)}_decoded"),
     )
 
+    detected_version = None
+    if main_file_path:
+        try:
+            detected_version = detect_python_version_from_pe(str(main_file_path))
+        except Exception:
+            detected_version = None
+
     try:
         logger.info(f"[NuitkaDeobfuscate] Running python native decoder for {blob_file} -> {output_dir}")
-        result = extract_blob(blob_path=str(blob_file), output_dir=str(output_dir), target_version=None, list_only=False)
+        result = extract_blob(blob_path=str(blob_file), output_dir=str(output_dir), target_version=detected_version, list_only=False)
     except Exception as ex:
         logger.error(f"[NuitkaDeobfuscate] Failed during native extraction: {ex}")
         return []
@@ -2901,165 +2816,40 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
 
     logger.info(f"[NuitkaDeobfuscate] Recovered {len(recovered_files)} Python artifact(s) from {blob_file}")
 
-    for recovered_path in recovered_files:
-        if not recovered_path.lower().endswith(".py"):
-            continue
-
-        try:
-            with open(recovered_path, "r", encoding="utf-8", errors="ignore") as f:
-                recovered_source = f.read()
-            if recovered_source.strip():
-                scan_code_for_links(
-                    recovered_source,
-                    recovered_path,
-                    nuitka_flag=True,
-                    main_file_path=main_file_path or blob_path,
-                )
-        except Exception as ex:
-            logger.error(f"[NuitkaDeobfuscate] Failed to scan recovered source {recovered_path}: {ex}")
+    # Collect .py files from omni_reconstructed subdir and scan for links
+    omni_dir = result.output_dir / "omni_reconstructed"
+    if omni_dir.is_dir():
+        for py_file in omni_dir.rglob("*.py"):
+            try:
+                source = py_file.read_text(encoding="utf-8", errors="ignore")
+                if source.strip():
+                    scan_code_for_links(
+                        source,
+                        str(py_file),
+                        nuitka_flag=True,
+                        main_file_path=main_file_path or blob_path,
+                    )
+            except Exception as ex:
+                logger.error(f"[NuitkaDeobfuscate] Failed to scan omni source {py_file}: {ex}")
 
     return recovered_files
 
 
 def scan_rsrc_files(file_paths, main_file_path=None):
-    """
-    Given a list of file paths for RCDATA resources, this function scans each file.
-
-    It first tries the bundled nuitka_deobfuscate pipeline. If that succeeds,
-    recovered .py / .pyc files are returned and the legacy text scraping path
-    is skipped.
-
-    If 'upython.exe' or '\\python.exe' is found in a file:
-        - Extract and clean code from that file.
-        - Save to disk.
-        - Perform Stage 2 reconstruction with split_source_by_u_delimiter().
-        - Do NOT scan for links.
-
-    If neither marker is found:
-        - Find the largest file.
-        - Extract and clean its code.
-        - Scan for links with nuitka_flag=True.
-    """
+    """Scan RCDATA resource files using the nuitka_deobfuscate pipeline."""
     if isinstance(file_paths, str):
         file_paths = [file_paths]
 
-    valid_files = [f for f in file_paths if os.path.isfile(f)]
-    for file_path in valid_files:
-        decoded_outputs = run_nuitka_deobfuscator(
-            file_path,
-            main_file_path=main_file_path,
-        )
-        if decoded_outputs:
-            return decoded_outputs
+    all_outputs: list[str] = []
+    for file_path in file_paths:
+        if not os.path.isfile(file_path):
+            logger.warning(f"[scan_rsrc_files] Skipping invalid path: {file_path}")
+            continue
+        outputs = run_nuitka_deobfuscator(file_path, main_file_path=main_file_path)
+        if outputs:
+            all_outputs.extend(outputs)
 
-    executable_file = None
-    found_marker = None
-
-    # --- Stage 1: Detect which resource likely contains Python code ---
-    for file_path in valid_files:
-        if os.path.isfile(file_path):
-            try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                    if "upython.exe" in content:
-                        executable_file = file_path
-                        found_marker = "upython.exe"
-                        logger.info(f"Found 'upython.exe' marker in: {file_path}")
-                        break
-                    elif "\\python.exe" in content and executable_file is None:
-                        executable_file = file_path
-                        found_marker = "\\python.exe"
-                        logger.info(f"Found '\\python.exe' marker in: {file_path}")
-            except Exception as ex:
-                logger.error(f"Error reading file {file_path}: {ex}")
-        else:
-            logger.warning(f"Skipping invalid file path: {file_path}")
-
-    # --- Stage 2: Handle case with no Python marker ---
-    if executable_file is None:
-        logger.info("No file containing Python EXE markers was found.")
-        # Find largest file to assume it’s the main Nuitka resource
-        valid_files = [f for f in file_paths if os.path.isfile(f)]
-        if not valid_files:
-            logger.error("No valid files to process in RCDATA extraction.")
-            return []
-
-        largest_file = max(valid_files, key=os.path.getsize)
-        logger.info(f"Selected largest file for analysis: {largest_file}")
-
-        try:
-            with open(largest_file, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-
-            cleaned_code = "\n".join(clean_text(line.rstrip()) for line in content.splitlines())
-
-            base_name = os.path.splitext(os.path.basename(largest_file))[0]
-            save_filename = f"{base_name}_source_code.txt"
-            save_path = os.path.join(nuitka_source_code_dir, save_filename)
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-            with open(save_path, "w", encoding="utf-8") as save_file:
-                save_file.write(cleaned_code)
-            logger.info(f"Saved extracted source code (no python.exe marker) to: {save_path}")
-
-            # Perform Stage 2 reconstruction
-            stage2_output = split_source_by_u_delimiter(cleaned_code, file_path=largest_file)
-
-            # Scan for URLs/tokens with Nuitka flag + main file context
-            scan_code_for_links(stage2_output, largest_file, nuitka_flag=True, main_file_path=main_file_path)
-
-        except Exception as ex:
-            logger.error(f"Error during fallback scanning of {largest_file}: {ex}")
-            return []
-        return [save_path]
-
-    # --- Stage 3: Process the resource containing python.exe marker ---
-    try:
-        logger.info(f"Processing embedded Python source from: {executable_file}")
-        with open(executable_file, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-
-        if not lines:
-            logger.warning(f"File {executable_file} is empty.")
-            return []
-
-        source_index = next((i for i, line in enumerate(lines) if found_marker in line), None)
-        if source_index is None:
-            logger.warning(f"No line containing '{found_marker}' found in {executable_file}.")
-            return []
-
-        # Extract source content after marker
-        line_with_marker = lines[source_index]
-        marker_index = line_with_marker.find(found_marker)
-        remainder = line_with_marker[marker_index + len(found_marker) :].lstrip()
-
-        source_code_lines = ([remainder] if remainder else []) + lines[source_index + 1 :]
-        cleaned_source_code = [clean_text(line.rstrip()) for line in source_code_lines]
-        decompiled_code = "\n".join(cleaned_source_code)
-
-        # Save the decompiled text
-        base_name = os.path.splitext(os.path.basename(executable_file))[0]
-        save_filename = f"{base_name}_source_code.txt"
-        save_path = os.path.join(nuitka_source_code_dir, save_filename)
-
-        counter = 1
-        while os.path.exists(save_path):
-            save_filename = f"{base_name}_source_code_{counter}.txt"
-            save_path = os.path.join(nuitka_source_code_dir, save_filename)
-            counter += 1
-
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path, "w", encoding="utf-8") as save_file:
-            save_file.write(decompiled_code)
-        logger.info(f"Saved extracted source code from {executable_file} to {save_path}")
-
-        # Perform Stage 2 reconstruction (no link scan for python.exe marker)
-        split_source_by_u_delimiter(decompiled_code, file_path=executable_file)
-        return [save_path]
-
-    except Exception as ex:
-        logger.error(f"Error during file scanning of {executable_file}: {ex}")
-        return []
+    return all_outputs
 
 
 def scan_directory_for_executables(directory):
@@ -3956,7 +3746,6 @@ def prune_ifs_and_write(output_path: Path, source_code: str) -> None:
         logger.error(f"[PRUNE_IFS] Failed to parse or transform: {e}")
         # Optional: write cleaned original as fallback
         output_path.write_text(cleaned, encoding="utf-8")
-
 
 def process_pyarmor7(target_path: str, timeout: int = 600) -> List[str]:
     """
