@@ -178,18 +178,6 @@ class CommercialBypass:
         except Exception:
             return False
 
-    def extract_key_material_from_pe(self, pe_data: bytes):
-        """Extract _mapping[] and d0-d7 from the PE binary."""
-        import pefile
-        pe = pefile.PE(data=pe_data)
-        mapping_candidates = self._find_all_mapping_candidates(pe)
-        if not mapping_candidates:
-            return None, None
-        all_d_candidates = self._find_all_digest_candidates(pe, pe_data, mapping_candidates)
-        if not all_d_candidates:
-            all_d_candidates = [[0] * 8]
-        return mapping_candidates, all_d_candidates
-
     def decrypt_blob_auto(self, encrypted_blob: bytes, mapping_candidates: list, d_candidates: list) -> bytes:
         """Try all mapping x d0-d7 combinations with quick validation."""
         filtered = [m for m in mapping_candidates if m != self.expected_binary_mapping2]
