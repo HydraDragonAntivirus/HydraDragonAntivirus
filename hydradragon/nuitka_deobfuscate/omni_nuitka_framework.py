@@ -3626,8 +3626,108 @@ def _has_python_structure(source: str) -> bool:
 _MARSHAL_CODE_TAG_BYTES = (b"\xf3", b"\xe3", b"c")
 
 
-
 _MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
+
+
+# ---------------------------------------------------------------------------
+# Nuitka commercial iconda PBKDF2+AES-CBC encrypted payload detection
+# ---------------------------------------------------------------------------
+
+# Minimum size for a plausible AES-CBC encrypted marshal payload (128 bytes)
+_ICONDA_MIN_CIPHER_LEN: int = 128
+# Exact size of PBKDF2 salt used by Nuitka commercial iconda modules
+_ICONDA_SALT_LEN: int = 32
+# Strings that indicate PBKDF2-HMAC key derivation in the module constants
+_ICONDA_KDF_MARKERS: frozenset[str] = frozenset({"pbkdf2_hmac", "sha256"})
+# Strings that confirm AES-CBC decryption + marshal execution
+_ICONDA_CRYPTO_MARKERS: frozenset[str] = frozenset({"marshal", "loads", "<I", "struct"})
+
+
+def _detect_nuitka_commercial_encrypted_payload(
+    constants: list[Any],
+) -> dict[str, Any] | None:
+    """Detect a Nuitka commercial iconda PBKDF2+AES-CBC encrypted marshal payload.
+
+    Pattern (from RCData iconda_* modules):
+      - constants contain 'pbkdf2_hmac' and 'sha256' strings (PBKDF2-HMAC-SHA256)
+      - constants contain {'dklen': 32} dict (AES-256 key length)
+      - constants contain '<I' string (struct.unpack IV extraction)
+      - constants contain 'marshal' and 'loads' strings (exec payload)
+      - constants contain one large bytes value (>= 128 bytes) — ciphertext
+      - constants contain one 32-byte bytes value — salt / key material
+
+    Returns a dict with:
+      - 'idx_cipher'  : int  — index of ciphertext in constants
+      - 'idx_salt'    : int  — index of salt in constants
+      - 'ciphertext'  : bytes
+      - 'salt'        : bytes
+      - 'iterations'  : int  — PBKDF2 iteration count (default 100000)
+    or None if pattern not matched.
+    """
+    if not isinstance(constants, list) or len(constants) < 4:
+        return None
+
+    strings_in_constants: set[str] = set()
+    for val in constants:
+        if isinstance(val, str):
+            strings_in_constants.add(val)
+        elif isinstance(val, (bytes, bytearray)):
+            try:
+                strings_in_constants.add(val.decode("utf-8", errors="strict"))
+            except Exception:
+                pass
+
+    # Must have PBKDF2 and crypto execution markers
+    if not _ICONDA_KDF_MARKERS.issubset(strings_in_constants):
+        return None
+    if not _ICONDA_CRYPTO_MARKERS.issubset(strings_in_constants):
+        return None
+
+    # Find ciphertext candidate (large bytes, not marshal tag) and salt (32 bytes)
+    idx_cipher: int | None = None
+    idx_salt: int | None = None
+    ciphertext: bytes | None = None
+    salt: bytes | None = None
+    iterations: int = 100000
+
+    for idx, val in enumerate(constants):
+        if isinstance(val, (bytes, bytearray)):
+            raw = bytes(val)
+            if len(raw) >= _ICONDA_MIN_CIPHER_LEN and raw[:1] not in _MARSHAL_CODE_TAG_BYTES:
+                # Prefer the largest bytes blob as ciphertext
+                if ciphertext is None or len(raw) > len(ciphertext):
+                    idx_cipher = idx
+                    ciphertext = raw
+            elif len(raw) == _ICONDA_SALT_LEN and raw[:1] not in _MARSHAL_CODE_TAG_BYTES:
+                idx_salt = idx
+                salt = raw
+        elif isinstance(val, int) and val >= 1000 and val <= 10_000_000:
+            # Likely PBKDF2 iteration count
+            if val in (10000, 100000, 200000, 500000, 1000000):
+                iterations = val
+
+    if idx_cipher is None or idx_salt is None:
+        return None
+
+    return {
+        "idx_cipher": idx_cipher,
+        "idx_salt": idx_salt,
+        "ciphertext": ciphertext,
+        "salt": salt,
+        "iterations": iterations,
+    }
+
+
+def _annotate_encrypted_payload_constants(
+    constants: list[Any],
+    payload_info: dict[str, Any],
+) -> list[Any]:
+    """Return a copy of constants with the ciphertext replaced by an annotation string."""
+    result = list(constants)
+    idx = payload_info["idx_cipher"]
+    n = len(payload_info["ciphertext"])
+    result[idx] = f"<ENCRYPTED_PAYLOAD[PBKDF2+AES-CBC]: {n} bytes>"
+    return result
 
 
 def _looks_like_marshaled_bytecode_bytes(value: Any) -> bool:
@@ -3970,13 +4070,32 @@ class OmniNuitkaCompactEmitter:
             f"@VER {version[0]}.{version[1]}",
             "",
         ]
-        display_constants = _redact_marshaled_bytecode_list(raw_constants)
+        # Detect Nuitka commercial iconda PBKDF2+AES encrypted payload before redacting
+        _enc_info = _detect_nuitka_commercial_encrypted_payload(raw_constants)
+        if _enc_info is not None:
+            _annotated = _annotate_encrypted_payload_constants(raw_constants, _enc_info)
+            display_constants = _redact_marshaled_bytecode_list(_annotated)
+        else:
+            display_constants = _redact_marshaled_bytecode_list(raw_constants)
         cls._emit_constants(display_constants, out)
         out.append("")
         cls._emit_imports(decompiler, raw_constants, out)
         out.append("")
         cls._emit_funcs_detected(decompiler, raw_constants, out)
         out.append("")
+        if _enc_info is not None:
+            n_bytes = len(_enc_info["ciphertext"])
+            salt_hex = _enc_info["salt"].hex()
+            out.append("@ENCRYPTED_PAYLOAD")
+            out.append(f"  scheme: PBKDF2-HMAC-SHA256 + AES-CBC")
+            out.append(f"  ciphertext_size: {n_bytes} bytes (constant index {_enc_info['idx_cipher']})")
+            out.append(f"  salt_hex: {salt_hex} (constant index {_enc_info['idx_salt']})")
+            out.append(f"  pbkdf2_iterations: {_enc_info['iterations']}")
+            out.append(f"  dklen: 32")
+            out.append(f"  iv_offset: first 4 bytes of ciphertext as uint32-LE (struct.unpack '<I')")
+            out.append(f"  payload_offset: 4 bytes; decrypt → marshal.loads → exec")
+            out.append(f"  note: key is unknown; static decryption not possible without runtime key material")
+            out.append("")
         out.append("@NO_OPS")
         out.append("  reason: omni_nuitka_framework only had decoded constants for this module;")
         out.append("          no PE/module-table/native disassembly context was supplied.")
@@ -4002,7 +4121,13 @@ def reconstruct_module_artifacts(
             smart_source=None,
         )
 
-    constants_for_render = _redact_marshaled_bytecode_list(constants)
+    # Detect Nuitka commercial iconda PBKDF2+AES encrypted payload before redacting
+    _enc_payload_info = _detect_nuitka_commercial_encrypted_payload(constants)
+    if _enc_payload_info is not None:
+        _annotated_constants = _annotate_encrypted_payload_constants(constants, _enc_payload_info)
+        constants_for_render = _redact_marshaled_bytecode_list(_annotated_constants)
+    else:
+        constants_for_render = _redact_marshaled_bytecode_list(constants)
     code_objects: list[dict[str, Any]] = []
     for item in constants_for_render:
         _collect_code_object_specs(item, code_objects)
@@ -4057,6 +4182,29 @@ def reconstruct_module_artifacts(
         strategy = f"merged+{strategy}"
     except Exception:
         pass
+
+    # If encrypted payload was detected, prepend a comment block to the source
+    if _enc_payload_info is not None:
+        n_bytes = len(_enc_payload_info["ciphertext"])
+        salt_hex = _enc_payload_info["salt"].hex()
+        _enc_header = (
+            "# ============================================================\n"
+            "# NUITKA COMMERCIAL ENCRYPTED PAYLOAD DETECTED\n"
+            "# scheme      : PBKDF2-HMAC-SHA256 + AES-CBC\n"
+            f"# ciphertext  : {n_bytes} bytes (constant[{_enc_payload_info['idx_cipher']}])\n"
+            f"# salt        : {salt_hex} (constant[{_enc_payload_info['idx_salt']}])\n"
+            f"# iterations  : {_enc_payload_info['iterations']}\n"
+            "# dklen       : 32 bytes (AES-256)\n"
+            "# iv          : first 4 bytes of ciphertext as uint32-LE\n"
+            "# decrypt     : AES-CBC(key, iv, ciphertext[4:]) -> marshal.loads -> exec\n"
+            "# note        : static decryption not possible without runtime key material\n"
+            "# ============================================================\n\n"
+        )
+        source = _enc_header + source if source else _enc_header.rstrip()
+        heuristic_source = _enc_header + heuristic_source if heuristic_source else _enc_header.rstrip()
+        if smart_source:
+            smart_source = _enc_header + smart_source
+        strategy = f"encrypted-payload+{strategy}"
 
     return OmniModuleArtifact(
         source=source,
@@ -4258,6 +4406,10 @@ def parse_nbc_text(text: str) -> ParsedNbcModule:
                 state = "ops"
             else:
                 state = None
+            continue
+        if stripped.startswith("@ENCRYPTED_PAYLOAD"):
+            # Nuitka commercial iconda PBKDF2+AES payload annotation — skip sub-lines
+            state = "encrypted_payload"
             continue
         if stripped.startswith("@NO_OPS"):
             suffix = stripped[len("@NO_OPS") :].strip()

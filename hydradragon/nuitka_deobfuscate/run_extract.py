@@ -12,13 +12,17 @@ run_extract.py
 
 from __future__ import annotations
 import hashlib
-import os
-import sys
-import struct
 import json
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+import os
 import re
+import struct
+import sys
+import threading
+import zlib
+import random
+from concurrent.futures import ThreadPoolExecutor
+from math import copysign as _copysign
+from pathlib import Path
 
 # ============================================================================
 # SAFE MARSHAL — ONLY XDIS, NO C-MARSHAL (avoids SegFaults on 3.12 blobs)
@@ -26,10 +30,6 @@ import re
 import xdis.marsh as marshal
 from xdis.magics import by_version, magic2int, magic_int2tuple
 from xdis.unmarshal import FLAG_REF, TYPE_STRING, load_code as xdis_load_code
-
-
-import zlib
-import random
 
 class CommercialBypass:
     """Research implementation for Nuitka Commercial data-hiding metadata.
@@ -426,7 +426,7 @@ class CommercialBypass:
             c = c ^ temp
             c = mapping[c]
             d[k] = c
-            last = (c + c) & 0xFF
+            last = (c + d[k]) & 0xFF  # FIX: c + d[k], not c + c
         return d
 
     def decrypt_blob(self, encrypted_blob: bytes, mapping: list, d_values: list) -> bytes:
@@ -461,37 +461,35 @@ def _is_plausible_module_name(name: str) -> bool:
 # Verbatim port of the VLQ reader, tag dispatcher, CodeObject tag parser,
 # stream decoder, and string extractor. No external imports required.
 # =============================================================================
-import sys as _sys
-from math import copysign as _copysign
-
 _NBC_END_OF_STREAM = object()
 _NBC_PARSE_ERROR = object()
-_nbc_last_unpacked = None
-_NBC_TARGET_PYTHON = _sys.version_info[:2]
+_nbc_tls = threading.local()
+_nbc_tls.last_unpacked = None
+_nbc_tls.target_python = sys.version_info[:2]
 
 
 def _nbc_normalize_python_version(version):
+    tgt = getattr(_nbc_tls, "target_python", None) or sys.version_info[:2]
     if version is None:
-        return tuple(_NBC_TARGET_PYTHON[:2])
+        return tuple(tgt[:2])
     if isinstance(version, (list, tuple)):
         if not version:
-            return tuple(_NBC_TARGET_PYTHON[:2])
+            return tuple(tgt[:2])
         return (int(version[0]), int(version[1]))
     if isinstance(version, str):
         import re as _re_nbc
         m = _re_nbc.match(r"^\s*(\d+)\.(\d+)", version)
         if m:
             return (int(m.group(1)), int(m.group(2)))
-        return tuple(_NBC_TARGET_PYTHON[:2])
+        return tuple(tgt[:2])
     try:
         return (int(version[0]), int(version[1]))
     except Exception:
-        return tuple(_NBC_TARGET_PYTHON[:2])
+        return tuple(tgt[:2])
 
 
 def _nbc_set_target(version):
-    global _NBC_TARGET_PYTHON
-    _NBC_TARGET_PYTHON = _nbc_normalize_python_version(version)
+    _nbc_tls.target_python = _nbc_normalize_python_version(version)
 
 
 def _nbc_target_hex(version=None):
@@ -819,29 +817,27 @@ def _nbc_unpack_constant_inner(data, pos, ch, marker):
 
 
 def _nbc_unpack_single(data, pos):
-    global _nbc_last_unpacked
     if pos >= len(data):
         return _NBC_PARSE_ERROR, pos
     marker = data[pos]
     ch = chr(marker) if 32 <= marker < 127 else None
     pos += 1
     if ch == 'p':
-        return _nbc_last_unpacked, pos
+        return getattr(_nbc_tls, "last_unpacked", None), pos
     if ch == '.':
         return _NBC_END_OF_STREAM, pos
     result = _nbc_unpack_constant_inner(data, pos, ch, marker)
     if result is not None:
         val, pos = result
-        _nbc_last_unpacked = val
+        _nbc_tls.last_unpacked = val
         return val, pos
-    _nbc_last_unpacked = None
+    _nbc_tls.last_unpacked = None
     return _NBC_PARSE_ERROR, pos
 
 
 def _nbc_decode_constants_stream(stream_data: bytes, count: int, *, python_version=None, start_pos: int = 0):
-    global _nbc_last_unpacked
-    _nbc_last_unpacked = None
-    old_target = _NBC_TARGET_PYTHON
+    _nbc_tls.last_unpacked = None
+    old_target = getattr(_nbc_tls, "target_python", None) or sys.version_info[:2]
     _nbc_set_target(python_version or old_target)
     constants = []
     pos = start_pos
@@ -859,7 +855,7 @@ def _nbc_decode_constants_stream(stream_data: bytes, count: int, *, python_versi
                 break
             constants.append(val)
     finally:
-        _nbc_last_unpacked = None
+        _nbc_tls.last_unpacked = None
         _nbc_set_target(old_target)
     return constants, pos
 
@@ -1111,23 +1107,35 @@ def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
     )
 
     runtime_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    runtime_key = _xdis_version_sort_key(runtime_version)
+
+    if version_hint is not None and version_hint.endswith("+"):
+        # "X.Y+" means minimum version is X.Y, exact unknown.
+        # Start probing from X.(Y+1) ascending — probe scoring picks the best match.
+        lower_bound = _xdis_version_sort_key(version_hint[:-1])
+        next_minor = (lower_bound[0], lower_bound[1] + 1)
+        # Versions >= X.(Y+1), sorted ascending (lowest first so probe tries nearest match)
+        above_next = sorted(
+            [v for v in versions if _xdis_version_sort_key(v) >= next_minor],
+            key=_xdis_version_sort_key,
+        )
+        # Exact lower bound version (X.Y itself)
+        at_lower = [v for v in versions if _xdis_version_sort_key(v) == lower_bound]
+        # Versions below lower bound as last resort
+        below_lower = [v for v in versions if _xdis_version_sort_key(v) < lower_bound]
+        return above_next + at_lower + below_lower
+
+    if version_hint is not None:
+        # Exact version hint from blob — honour it, no runtime override
+        if version_hint in versions:
+            return [version_hint] + [version for version in versions if version != version_hint]
+        return versions
+
+    # No hint — prefer runtime version
     if runtime_version in versions:
-        runtime_key = _xdis_version_sort_key(runtime_version)
         lower_or_equal = [version for version in versions if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key]
         higher = [version for version in versions if _xdis_version_sort_key(version) > runtime_key]
         versions = [runtime_version] + lower_or_equal + higher
-
-    if version_hint is None:
-        return versions
-
-    if version_hint.endswith("+"):
-        lower_bound = _xdis_version_sort_key(version_hint[:-1])
-        prioritized = [version for version in versions if _xdis_version_sort_key(version) >= lower_bound]
-        fallback = [version for version in versions if _xdis_version_sort_key(version) < lower_bound]
-        return prioritized + fallback
-
-    if version_hint in versions:
-        return [version_hint] + [version for version in versions if version != version_hint]
 
     return versions
 
@@ -1156,12 +1164,42 @@ class MemoryReader:
         return chunk
 
 
-def score_code_object(code_obj) -> int:
+def score_code_object(code_obj, expected_ver_tuple=None) -> int:
     score = 3
     score += len(getattr(code_obj, "co_consts", ()))
     score += len(getattr(code_obj, "co_varnames", ()))
-    score += int(bool(getattr(code_obj, "co_filename", None)))
-    return score
+    # co_filename bonus: only if it looks like a real Python path, not garbage
+    fname = getattr(code_obj, "co_filename", None)
+    if fname and isinstance(fname, str):
+        stripped = fname.strip()
+        if stripped and stripped not in ("<string>", "<stdin>", "<frozen>", "<module>"):
+            score += 2 if ("." in stripped and any(stripped.endswith(ext) for ext in (".py", ".pyc", ".pyo"))) else 1
+    # co_name bonus: a valid Python identifier suggests correct parse
+    co_name = getattr(code_obj, "co_name", None)
+    if co_name and isinstance(co_name, str) and co_name.replace("_", "").replace(".", "").isalnum():
+        score += 1
+    # Penalty: garbage constants (non-encodable bytes) suggest wrong version
+    for c in getattr(code_obj, "co_consts", ()):
+        if isinstance(c, bytes):
+            try:
+                c.decode("utf-8")
+            except UnicodeDecodeError:
+                score -= 1
+                break
+    # Version-structural bonus: code object attributes must match expected version
+    if expected_ver_tuple is not None:
+        has_posonlyargcount = hasattr(code_obj, "co_posonlyargcount")
+        has_linetable = hasattr(code_obj, "co_linetable")
+        minor = expected_ver_tuple[1] if len(expected_ver_tuple) >= 2 else 0
+        if minor >= 8 and has_posonlyargcount:
+            score += 2
+        elif minor < 8 and not has_posonlyargcount:
+            score += 2
+        if minor >= 11 and has_linetable:
+            score += 2
+        elif minor < 11 and not has_linetable:
+            score += 2
+    return max(score, 0)
 
 
 def try_detect_code_object(
@@ -1270,12 +1308,13 @@ def detect_version_from_marshal(data: bytes) -> str | None:
 
     for ver in candidates:
         magic_int = get_magic_int(ver)
+        ver_tuple = tuple(int(x) for x in ver.split("."))
         best_score = 0
         for offset in probe_offsets[:128]:
             obj = try_detect_code_object(data, offset, magic_int)
             if obj is None:
                 continue
-            best_score = max(best_score, score_code_object(obj))
+            best_score = max(best_score, score_code_object(obj, expected_ver_tuple=ver_tuple))
             if best_score >= 4:
                 break
 
@@ -1284,14 +1323,26 @@ def detect_version_from_marshal(data: bytes) -> str | None:
 
     if not scores:
         if version_hint:
-            fallback_versions = _marshal_candidate_versions(version_hint)
-            if fallback_versions:
-                print(f"[*] Version structural hint: {version_hint} -> {fallback_versions[0]}")
-                return fallback_versions[0]
+            if version_hint.endswith("+"):
+                # "X.Y+" → use X.(Y+1) directly
+                base = version_hint[:-1]
+                parts = base.split(".")
+                try:
+                    fallback_ver = f"{parts[0]}.{int(parts[1]) + 1}"
+                except (IndexError, ValueError):
+                    fallback_ver = base
+                print(f"[*] Version structural hint: {version_hint} -> {fallback_ver}")
+                return fallback_ver
+            else:
+                print(f"[*] Version structural hint: {version_hint} -> {version_hint}")
+                return version_hint
         return None
 
-    best = max(scores, key=lambda v: scores[v])
-    top5 = sorted(scores.items(), key=lambda x: -x[1])[:5]
+    # Tie-break: highest score wins; when scores are equal prefer the LOWEST
+    # version (conservative) to avoid false-positive promotion to 3.11+ for
+    # blobs that have identical co_consts/co_varnames counts across versions.
+    best = max(scores, key=lambda v: (scores[v], tuple(-x for x in _xdis_version_sort_key(v))))
+    top5 = sorted(scores.items(), key=lambda x: (-x[1], _xdis_version_sort_key(x[0])))[:5]
     print(f"[*] Version probe scores (top 5): {top5}")
     return best
 
@@ -1394,19 +1445,62 @@ def extract_code_label(code_obj) -> str | None:
     return None
 
 
-def extract_path_from_marshaled_bytes(data: bytes | bytearray) -> str | None:
+def extract_path_from_marshaled_bytes(
+    data: bytes | bytearray,
+    magic_int: int | None = None,
+) -> str | None:
+    """Extract co_filename from a marshal code object.
+
+    Strategy 1 (preferred): xdis_load_code with magic_int → co_filename.
+    Strategy 2 (last resort): regex scan for .py paths in raw bytes.
+    """
+    import io
+    raw = bytes(data)
+
+    # Strategy 1: parse via xdis using provided magic_int, or probe candidates
+    _magic_candidates: list[int] = []
+    if magic_int is not None:
+        _magic_candidates = [magic_int]
+    else:
+        _hint = guess_version_from_marshal_bytes(raw)
+        _candidates = _marshal_candidate_versions(_hint)
+        for _ver in _candidates[:8]:
+            _mi = get_magic_int(_ver)
+            if _mi is not None:
+                _magic_candidates.append(_mi)
+
+    for _mi in _magic_candidates:
+        try:
+            co = xdis_load_code(io.BytesIO(raw), _mi)
+            fname = getattr(co, "co_filename", None)
+            if fname and isinstance(fname, str) and fname.strip():
+                candidate = fname.strip().replace("\\", "/").lstrip("./")
+                if candidate and candidate not in ("<string>", "<stdin>", "<frozen>", "<module>"):
+                    return candidate
+        except Exception:
+            pass
+
+    # Strategy 2: regex scan — widen the prefix byte range to cover all marshal string lengths
     try:
         candidates = []
-        for match in MARSHAL_PYC_PATH_PATTERN.finditer(bytes(data)[:65536]):
+        # Match any single byte prefix (length byte) followed by .py path ending in \0
+        for match in re.finditer(rb"[\x01-\xff]([A-Za-z0-9_.\\/:]{3,256}\.py[co]?)\x00", raw[:65536]):
             candidate = match.group(1).decode("utf-8", errors="ignore").replace("\\", "/")
             candidate = candidate.lstrip("./")
             if candidate:
                 candidates.append(candidate)
-        if not candidates:
-            return None
-        return max(candidates, key=lambda value: (value.count("/"), len(value)))
+        # Also try the original MARSHAL_PYC_PATH_PATTERN as additional coverage
+        for match in MARSHAL_PYC_PATH_PATTERN.finditer(raw[:65536]):
+            candidate = match.group(1).decode("utf-8", errors="ignore").replace("\\", "/")
+            candidate = candidate.lstrip("./")
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+        if candidates:
+            return max(candidates, key=lambda value: (value.count("/"), len(value)))
     except Exception:
-        return None
+        pass
+
+    return None
 
 
 def _discovered_alias_matches(discovered_name: str, plain_name: str) -> bool:
@@ -1520,7 +1614,7 @@ def extract_bytecode_modules(bytecode_chunk: bytes, output_dir: Path, python_ver
         marshal_data = bytecode_chunk[pos:pos + marshal_size]
         pos += marshal_size
 
-        co_filename = extract_path_from_marshaled_bytes(marshal_data)
+        co_filename = extract_path_from_marshaled_bytes(marshal_data, magic_int=get_magic_int(python_version))
         if not co_filename:
             co_filename = f"module_{i:04d}.py"
 
@@ -1969,7 +2063,7 @@ def process_section(
             item_info["errors"] = []
 
             for j, payload in enumerate(raw_payloads):
-                guessed_path = extract_path_from_marshaled_bytes(payload)
+                guessed_path = extract_path_from_marshaled_bytes(payload, magic_int=magic_int)
                 if guessed_path:
                     item_info["detected_code_paths"].append(guessed_path)
                     dest = out_dir / "pyc" / _safe_pyc_relpath(guessed_path)
@@ -2110,14 +2204,28 @@ def extract_blob(
         print("[*] No target version specified, probing for Python version...")
         probe_detected = None
 
-        # Strategy 1: marshal code object probe inside blob
+        # Strategy 1: marshal code object probe — try ALL tag offsets, pick best
         if not probe_detected:
+            _best_probe_ver: str | None = None
+            _best_probe_score: int = -1
             for tag in MARSHAL_VERSION_HINT_TAGS:
-                offset = raw.find(tag)
-                if offset != -1:
-                    probe_detected = detect_version_from_marshal(raw[offset : offset + 65536])
-                    if probe_detected:
+                _start = 0
+                while True:
+                    _off = raw.find(tag, _start)
+                    if _off == -1:
                         break
+                    _ver = detect_version_from_marshal(raw[_off : _off + 65536])
+                    if _ver:
+                        # detect_version_from_marshal returns the best-scored version
+                        # for this window; keep the one from the highest-confidence window
+                        # (first successful match is already the best within the window)
+                        if _best_probe_ver is None:
+                            _best_probe_ver = _ver
+                            _best_probe_score = 1
+                        _start = _off + 1
+                        break  # one good match per tag is enough
+                    _start = _off + 1
+            probe_detected = _best_probe_ver
 
         if probe_detected and probe_detected in by_version:
             target_ver_str = probe_detected
@@ -2153,8 +2261,9 @@ def extract_blob(
     print("[*] Starting extraction sequence...")
 
     blob_for_parse = raw
-    _is_blob_encrypted = CommercialBypass().is_blob_encrypted(raw)
-    _edition = ("commercial" if CommercialBypass().has_commercial_digest(raw) else "unknown")
+    _bypass_instance = CommercialBypass()
+    _is_blob_encrypted = _bypass_instance.is_blob_encrypted(raw)
+    _edition = ("commercial" if _bypass_instance.has_commercial_digest(raw) else "unknown")
 
     _use_bypass = _is_blob_encrypted or _edition == "commercial"
 
