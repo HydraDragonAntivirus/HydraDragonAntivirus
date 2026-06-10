@@ -597,8 +597,17 @@ class PBKDF2AESBypass:
             if len(blob_data) >= 16:
                 candidates.add(blob_data[:16])
 
+        def _priority(pw: bytes) -> tuple:
+            if module_name and pw == module_name.encode('utf-8'):
+                return (0, pw)
+            if module_name and pw == module_name.split('.')[-1].encode('utf-8'):
+                return (1, pw)
+            if module_name and pw == module_name.encode('utf-8').lower():
+                return (2, pw)
+            return (3, pw)
+
         result = list(candidates)
-        result.sort(key=lambda x: (len(x), x))
+        result.sort(key=_priority)
         return result
 
     def try_decrypt(self, encrypted_payload: bytes, password: bytes,
@@ -2639,12 +2648,9 @@ def main(argv=None) -> int:
                                         break
                             except Exception:
                                 pass
-                            # Last resort: store raw bytes and let process_section
-                            # handle them as best it can.
-                            _pbkdf2_recovered.setdefault(mod_name, []).append(decrypted)
-                            print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                  f"(password: {pw!r}), stored raw bytes (NBC parse failed)")
-                            break
+                            # Password wrong — PKCS7 passed by chance on garbage.
+                            # Try next candidate instead of storing corrupt data.
+                            continue
         except Exception:
             pass
     if _pbkdf2_recovered:
