@@ -2696,63 +2696,44 @@ def extract_blob(
                         if not decrypted or len(decrypted) <= 16:
                             continue
 
-                        # Always try to load as a real code object first and
-                        # re-marshal it through xdis.  Storing raw AES output
-                        # bytes is wrong in both success branches:
-                        #   - Branch A: decrypted[:1] matches \xe3/\x63/\xf3 by
-                        #     coincidence (it's the NBC stream's first tag byte,
-                        #     not a marshal tag).  Writing those bytes verbatim
-                        #     produces a structurally corrupt .pyc.
-                        #   - Branch B: even a real marshal code object still has
-                        #     co_consts populated with the Nuitka stub constants
-                        #     (encrypted blob, 'pbkdf2_hmac' string, etc.).
-                        #     Re-marshaling through xdis rebuilds co_consts from
-                        #     the live object, which by this point only contains
-                        #     the real module constants.
-                        obj = try_load_code_object(decrypted, 0, magic_int)
-                        if obj is not None:
-                            try:
-                                clean_bytes = _dump_code_object(obj, target_ver_tuple)
-                                _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
+                        # Try to parse the decrypted output as an NBC constant stream.
+                        # Nuitka encrypts the module's NBC-serialized constants, not
+                        # a naked marshal code object.  _nbc_parse_module_constants
+                        # quickly rejects garbage (invalid count in first 2 bytes)
+                        # and returns a valid constants list for the correct password.
+                        # From those constants we recursively extract code objects
+                        # and re-marshal them cleanly through xdis.
+                        try:
+                            nbc_consts = _nbc_parse_module_constants(
+                                decrypted, python_version=target_ver_tuple
+                            )
+                        except Exception:
+                            nbc_consts = []
+                        if len(nbc_consts) > 0:
+                            nbc_code_objs = []
+                            _rcf_seen: set = set()
+                            for _c in nbc_consts:
+                                recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
+                            if nbc_code_objs:
+                                for _co in nbc_code_objs:
+                                    try:
+                                        clean_bytes = _dump_code_object(_co, target_ver_tuple)
+                                        _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
+                                    except Exception:
+                                        pass
+                                if mod_name in _pbkdf2_recovered:
+                                    print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
+                                          f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
+                                          f"code object(s) from NBC stream")
+                                    break
+                            else:
+                                # Valid NBC constants but no code objects found — store
+                                # the parsed constants as a section item for OMNI.
+                                _pbkdf2_recovered.setdefault(mod_name, []).extend(nbc_consts)
                                 print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                      f"(password: {pw!r}), re-marshaled {len(clean_bytes)} bytes")
+                                      f"(password: {pw!r}), recovered {len(nbc_consts)} "
+                                      f"NBC constants")
                                 break
-                            except Exception as _re_marshal_err:
-                                print(f"[!] Warning: re-marshal failed for {mod_name} "
-                                      f"({_re_marshal_err}), storing raw bytes as fallback")
-                                _pbkdf2_recovered.setdefault(mod_name, []).append(decrypted)
-                                break
-
-                        # Fallback: decrypted content may be an NBC constant stream
-                        # (Nuitka stores the stub module's constants, not a naked
-                        # marshal object).  Parse it and extract any embedded code
-                        # objects, then re-marshal each one individually.
-                        if decrypted[:1] in MARSHAL_VERSION_HINT_TAGS:
-                            try:
-                                nbc_consts = _nbc_parse_module_constants(
-                                    decrypted, python_version=target_ver_tuple
-                                )
-                                nbc_code_objs = []
-                                _rcf_seen: set = set()
-                                for _c in nbc_consts:
-                                    recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
-                                if nbc_code_objs:
-                                    for _co in nbc_code_objs:
-                                        try:
-                                            clean_bytes = _dump_code_object(_co, target_ver_tuple)
-                                            _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
-                                        except Exception:
-                                            pass
-                                    if mod_name in _pbkdf2_recovered:
-                                        print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                              f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
-                                              f"code object(s) from NBC stream")
-                                        break
-                            except Exception:
-                                pass
-                            # Password wrong — PKCS7 passed by chance on garbage.
-                            # Try next candidate instead of storing corrupt data.
-                            continue
         except Exception:
             pass
     if _pbkdf2_recovered:
