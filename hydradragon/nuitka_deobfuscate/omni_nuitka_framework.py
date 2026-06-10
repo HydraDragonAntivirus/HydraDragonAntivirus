@@ -3677,86 +3677,84 @@ def _has_python_structure(source: str) -> bool:
 
 _MARSHAL_CODE_TAG_BYTES = (b"\xf3", b"\xe3", b"c")
 
+# ===========================================================================
+# Fixed Nuitka commercial iconda PBKDF2+AES-CBC encrypted payload detection
+# ===========================================================================
 
-_MARSHAL_PYC_PATH_PATTERN = re.compile(rb"([A-Za-z0-9_./\\-]{1,260}\.py)")
-
-
-# ---------------------------------------------------------------------------
-# Nuitka commercial iconda PBKDF2+AES-CBC encrypted payload detection
-# ---------------------------------------------------------------------------
-
-# Minimum size for a plausible AES-CBC encrypted marshal payload (128 bytes)
 _ICONDA_MIN_CIPHER_LEN: int = 128
-# Exact size of PBKDF2 salt used by Nuitka commercial iconda modules
 _ICONDA_SALT_LEN: int = 32
-# Strings that indicate PBKDF2-HMAC key derivation in the module constants
 _ICONDA_KDF_MARKERS: frozenset[str] = frozenset({"pbkdf2_hmac", "sha256"})
-# Strings that confirm AES-CBC decryption + marshal execution
 _ICONDA_CRYPTO_MARKERS: frozenset[str] = frozenset({"marshal", "loads", "<I", "struct"})
-
 
 def _detect_nuitka_commercial_encrypted_payload(
     constants: list[Any],
 ) -> dict[str, Any] | None:
     """Detect a Nuitka commercial iconda PBKDF2+AES-CBC encrypted marshal payload.
-
-    Pattern (from RCData iconda_* modules):
-      - constants contain 'pbkdf2_hmac' and 'sha256' strings (PBKDF2-HMAC-SHA256)
-      - constants contain {'dklen': 32} dict (AES-256 key length)
-      - constants contain '<I' string (struct.unpack IV extraction)
-      - constants contain 'marshal' and 'loads' strings (exec payload)
-      - constants contain one large bytes value (>= 128 bytes) — ciphertext
-      - constants contain one 32-byte bytes value — salt / key material
-
-    Returns a dict with:
-      - 'idx_cipher'  : int  — index of ciphertext in constants
-      - 'idx_salt'    : int  — index of salt in constants
-      - 'ciphertext'  : bytes
-      - 'salt'        : bytes
-      - 'iterations'  : int  — PBKDF2 iteration count (default 100000)
-    or None if pattern not matched.
+    Supports deeply nested constant structures and uses robust substring matching.
     """
-    if not isinstance(constants, list) or len(constants) < 4:
+    if not isinstance(constants, list) or len(constants) == 0:
         return None
 
-    strings_in_constants: set[str] = set()
-    for val in constants:
-        if isinstance(val, str):
-            strings_in_constants.add(val)
-        elif isinstance(val, (bytes, bytearray)):
+    collected_strings: set[str] = set()
+    collected_bytes: list[tuple[int, bytes]] = []
+    collected_ints: list[int] = []
+
+    def _deep_flatten(element: Any, top_idx: int) -> None:
+        """Recursively extract elements while tracking their top-level root index."""
+        if isinstance(element, str):
+            collected_strings.add(element.lower())
+        elif isinstance(element, (bytes, bytearray)):
+            raw_b = bytes(element)
+            collected_bytes.append((top_idx, raw_b))
+            # Use 'ignore' to safely extract indicators from messy or partial binary streams
             try:
-                strings_in_constants.add(val.decode("utf-8", errors="strict"))
+                collected_strings.add(raw_b.decode("utf-8", errors="ignore").lower())
             except Exception:
                 pass
+        elif isinstance(element, int) and not isinstance(element, bool):
+            collected_ints.append(element)
+        elif isinstance(element, (list, tuple, set)):
+            for item in element:
+                _deep_flatten(item, top_idx)
+        elif isinstance(element, dict):
+            for k, v in element.items():
+                _deep_flatten(k, top_idx)
+                _deep_flatten(v, top_idx)
 
-    # Must have PBKDF2 and crypto execution markers
-    if not _ICONDA_KDF_MARKERS.issubset(strings_in_constants):
+    # Flatten all constants to make sure nested metadata isn't skipped
+    for idx, root_val in enumerate(constants):
+        _deep_flatten(root_val, idx)
+
+    # Check markers using substring matching inside the aggregated text pool
+    combined_text_pool = " ".join(collected_strings)
+    
+    if not all(marker in combined_text_pool for marker in _ICONDA_KDF_MARKERS):
         return None
-    if not _ICONDA_CRYPTO_MARKERS.issubset(strings_in_constants):
+    if not all(marker in combined_text_pool for marker in _ICONDA_CRYPTO_MARKERS):
         return None
 
-    # Find ciphertext candidate (large bytes, not marshal tag) and salt (32 bytes)
     idx_cipher: int | None = None
     idx_salt: int | None = None
     ciphertext: bytes | None = None
     salt: bytes | None = None
     iterations: int = 100000
 
-    for idx, val in enumerate(constants):
-        if isinstance(val, (bytes, bytearray)):
-            raw = bytes(val)
-            if len(raw) >= _ICONDA_MIN_CIPHER_LEN and raw[:1] not in _MARSHAL_CODE_TAG_BYTES:
-                # Prefer the largest bytes blob as ciphertext
-                if ciphertext is None or len(raw) > len(ciphertext):
-                    idx_cipher = idx
-                    ciphertext = raw
-            elif len(raw) == _ICONDA_SALT_LEN and raw[:1] not in _MARSHAL_CODE_TAG_BYTES:
-                idx_salt = idx
+    # Extract ciphertext and salt from the flattened pool
+    for top_idx, raw in collected_bytes:
+        if len(raw) >= _ICONDA_MIN_CIPHER_LEN:
+            # Select the absolute largest blob as ciphertext (ignoring accidental marshal tag collisions)
+            if ciphertext is None or len(raw) > len(ciphertext):
+                idx_cipher = top_idx
+                ciphertext = raw
+        elif len(raw) == _ICONDA_SALT_LEN:
+            if salt is None:
+                idx_salt = top_idx
                 salt = raw
-        elif isinstance(val, int) and val >= 1000 and val <= 10_000_000:
-            # Likely PBKDF2 iteration count
-            if val in (10000, 100000, 200000, 500000, 1000000):
-                iterations = val
+
+    # Look for iteration count indicators
+    for val in collected_ints:
+        if val in (1000, 10000, 100000, 200000, 500000, 1000000):
+            iterations = val
 
     if idx_cipher is None or idx_salt is None:
         return None
@@ -3768,7 +3766,6 @@ def _detect_nuitka_commercial_encrypted_payload(
         "salt": salt,
         "iterations": iterations,
     }
-
 
 def _annotate_encrypted_payload_constants(
     constants: list[Any],
