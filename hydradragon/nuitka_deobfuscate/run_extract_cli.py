@@ -1818,7 +1818,7 @@ def parse_blob_modules(blob_data: bytes, commercial_bypass=None):
     return modules
 
 
-def extract_bytecode_modules(bytecode_chunk: bytes, output_dir: Path, python_version: str):
+def extract_bytecode_modules(bytecode_chunk: bytes, output_dir: Path, python_version: str, magic_int: int | None = None):
     """Extract .pyc modules from the .bytecode chunk (Nuitka constants blob)."""
     if len(bytecode_chunk) < 4:
         return 0
@@ -2447,10 +2447,10 @@ def main(argv=None) -> int:
         target_ver_str = f"{target_ver_tuple[0]}.{target_ver_tuple[1]}"
         print(f"[*] Target Python version : {target_ver_str} (from -v flag)")
     else:
-        print("[*] No -v specified, probing blob for Python version...")
-        # Try to find a marshal code object in the first 64KB for version probe
+        print("[*] No -v specified, detecting Python version from marshal code objects...")
         probe_detected = None
-        for tag in MARSHAL_VERSION_HINT_TAGS:
+        # Explicit priority — tuple, not frozenset (avoids hash-seed randomization)
+        for tag in (b"\xf3", b"\xe3", b"\x63"):
             offset = raw.find(tag)
             if offset != -1:
                 probe_detected = detect_version_from_marshal(raw[offset : offset + 65536])
@@ -2590,8 +2590,11 @@ def main(argv=None) -> int:
                         module_name=mod_name, blob_data=raw
                     )
                     for pw in pw_candidates:
+                        print(f"    [-] Trying password {pw!r} for {mod_name}...")
                         decrypted = _pbkdf2_bypass.try_decrypt(enc_payload, pw)
+                        print(f"    [.] decrypt result: {len(decrypted) if decrypted else 'None'} bytes")
                         if not decrypted or len(decrypted) <= 16:
+                            print(f"    [x] too short or None")
                             continue
 
                         # Try to parse the decrypted output as an NBC constant stream.
@@ -2605,32 +2608,26 @@ def main(argv=None) -> int:
                             nbc_consts = _nbc_parse_module_constants(
                                 decrypted, python_version=target_ver_tuple
                             )
+                            print(f"    [.] NBC parse: {len(nbc_consts)} constants")
                         except Exception:
                             nbc_consts = []
-                        if len(nbc_consts) > 0:
-                            nbc_code_objs = []
-                            _rcf_seen: set = set()
-                            for _c in nbc_consts:
-                                recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
-                            if nbc_code_objs:
-                                for _co in nbc_code_objs:
-                                    try:
-                                        clean_bytes = _dump_code_object(_co, target_ver_tuple)
-                                        _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
-                                    except Exception:
-                                        pass
-                                if mod_name in _pbkdf2_recovered:
-                                    print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                          f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
-                                          f"code object(s) from NBC stream")
-                                    break
-                            else:
-                                # Valid NBC constants but no code objects found — store
-                                # the parsed constants as a section item for OMNI.
-                                _pbkdf2_recovered.setdefault(mod_name, []).extend(nbc_consts)
+                            print(f"    [x] NBC parse exception")
+                        nbc_code_objs = []
+                        _rcf_seen: set = set()
+                        for _c in nbc_consts:
+                            recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
+                        print(f"    [.] recursive_find_code: {len(nbc_code_objs)} code objs")
+                        if nbc_code_objs:
+                            for i_co, _co in enumerate(nbc_code_objs):
+                                try:
+                                    clean_bytes = _dump_code_object(_co, target_ver_tuple)
+                                    _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
+                                except Exception:
+                                    print(f"    [x] _dump_code_object failed for code obj {i_co}")
+                            if mod_name in _pbkdf2_recovered:
                                 print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                      f"(password: {pw!r}), recovered {len(nbc_consts)} "
-                                      f"NBC constants")
+                                      f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
+                                      f"code object(s) from NBC stream")
                                 break
         except Exception:
             pass
@@ -2646,7 +2643,7 @@ def main(argv=None) -> int:
     # Extract bytecode modules from the .bytecode chunk if present
     if bytecode_chunk and emit_pyc:
         print("[*] Extracting bytecode modules from .bytecode chunk...")
-        count_pyc += extract_bytecode_modules(bytecode_chunk, out_dir, target_ver_str)
+        count_pyc += extract_bytecode_modules(bytecode_chunk, out_dir, target_ver_str, magic_int)
 
     # =========================================================================
     # PASS 2: SECTION-BASED SCAN + OMNI DECOMPILATION
