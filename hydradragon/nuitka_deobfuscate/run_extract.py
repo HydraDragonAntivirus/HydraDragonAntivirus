@@ -1891,7 +1891,7 @@ def parse_blob_modules(blob_data: bytes):
     return modules
 
 
-def extract_bytecode_modules(bytecode_chunk: bytes, output_dir: Path, python_version: str, magic_int: int | None = None) -> tuple[int, list[str]]:
+def extract_bytecode_modules(bytecode_chunk: bytes, output_dir: Path, python_version: str) -> tuple[int, list[str]]:
     """Extract .pyc modules from the .bytecode chunk (Nuitka constants blob)."""
     if len(bytecode_chunk) < 4:
         return 0, []
@@ -2544,14 +2544,17 @@ def extract_blob(
             target_ver_str = f"{target_ver_tuple[0]}.{target_ver_tuple[1]}"
         print(f"[*] Target Python version : {target_ver_str} (from args)")
     else:
-        print("[*] No target version specified, detecting Python version from marshal code objects...")
+        print("[*] No target version specified, probing for Python version...")
         probe_detected = None
-        for tag in (b"\xf3", b"\xe3", b"\x63"):
-            offset = raw.find(tag)
-            if offset != -1:
-                probe_detected = detect_version_from_marshal(raw[offset : offset + 65536])
-                if probe_detected:
-                    break
+
+        # Strategy 1: marshal code object probe inside blob
+        if not probe_detected:
+            for tag in MARSHAL_VERSION_HINT_TAGS:
+                offset = raw.find(tag)
+                if offset != -1:
+                    probe_detected = detect_version_from_marshal(raw[offset : offset + 65536])
+                    if probe_detected:
+                        break
 
         if probe_detected and probe_detected in by_version:
             target_ver_str = probe_detected
@@ -2706,21 +2709,30 @@ def extract_blob(
                             )
                         except Exception:
                             nbc_consts = []
-                        nbc_code_objs = []
-                        _rcf_seen: set = set()
-                        for _c in nbc_consts:
-                            recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
-                        if nbc_code_objs:
-                            for _co in nbc_code_objs:
-                                try:
-                                    clean_bytes = _dump_code_object(_co, target_ver_tuple)
-                                    _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
-                                except Exception:
-                                    pass
-                            if mod_name in _pbkdf2_recovered:
+                        if len(nbc_consts) > 0:
+                            nbc_code_objs = []
+                            _rcf_seen: set = set()
+                            for _c in nbc_consts:
+                                recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
+                            if nbc_code_objs:
+                                for _co in nbc_code_objs:
+                                    try:
+                                        clean_bytes = _dump_code_object(_co, target_ver_tuple)
+                                        _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
+                                    except Exception:
+                                        pass
+                                if mod_name in _pbkdf2_recovered:
+                                    print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
+                                          f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
+                                          f"code object(s) from NBC stream")
+                                    break
+                            else:
+                                # Valid NBC constants but no code objects found — store
+                                # the parsed constants as a section item for OMNI.
+                                _pbkdf2_recovered.setdefault(mod_name, []).extend(nbc_consts)
                                 print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                      f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
-                                      f"code object(s) from NBC stream")
+                                      f"(password: {pw!r}), recovered {len(nbc_consts)} "
+                                      f"NBC constants")
                                 break
         except Exception:
             pass
@@ -2738,7 +2750,7 @@ def extract_blob(
     # Extract bytecode modules from the .bytecode chunk if present
     if bytecode_chunk and emit_pyc:
         print("[*] Extracting bytecode modules from .bytecode chunk...")
-        extracted_bc, bc_paths = extract_bytecode_modules(bytecode_chunk, out_dir, target_ver_str, magic_int)
+        extracted_bc, bc_paths = extract_bytecode_modules(bytecode_chunk, out_dir, target_ver_str)
         count_pyc += extracted_bc
         recovered_file_paths.extend(bc_paths)
 
