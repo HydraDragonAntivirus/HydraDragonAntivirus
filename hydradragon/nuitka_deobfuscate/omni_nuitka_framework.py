@@ -2674,6 +2674,7 @@ class BodySynthesizer:
             )
         )
 
+
 # ---------------------------------------------------------------------------
 # Property-setter synthesizer
 # ---------------------------------------------------------------------------
@@ -3891,10 +3892,13 @@ def _try_decompile_plain_bytes_constants(
                 import xdis.load as _xdis_load
                 
                 # Extract basic metadata without evaluating the bytecode
+                # Cross-version safety hook: safely unpack tuple regardless of elements
                 try:
-                    _version, _ts, _magic, _code, _is_pypy, _sz = _xdis_load.load_module(_tmp.name)
-                    co_name = getattr(_code, "co_name", None)
-                    co_filename = getattr(_code, "co_filename", None)
+                    _loaded = _xdis_load.load_module(_tmp.name)
+                    _code = next((x for x in _loaded if hasattr(x, "co_code") or type(x).__name__ == "code"), None)
+                    if _code:
+                        co_name = getattr(_code, "co_name", None)
+                        co_filename = getattr(_code, "co_filename", None)
                 except Exception:
                     pass
                 
