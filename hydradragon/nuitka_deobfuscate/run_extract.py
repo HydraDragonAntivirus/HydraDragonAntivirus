@@ -1941,15 +1941,6 @@ def extract_bytecode_modules(bytecode_chunk: bytes, output_dir: Path, python_ver
 
         co_filename = extract_path_from_marshaled_bytes(marshal_data)
         if not co_filename:
-            # Try loading the code object so we can pull co_filename / co_name
-            # before falling back to the generic module_NNNN placeholder.
-            try:
-                _co = try_load_code_object(marshal_data, 0, magic_int)
-                if _co is not None:
-                    co_filename = extract_path_from_code(_co) or extract_code_label(_co)
-            except Exception:
-                pass
-        if not co_filename:
             co_filename = f"module_{i:04d}.py"
 
         rel_path = _safe_pyc_relpath(co_filename)
@@ -2684,69 +2675,18 @@ def extract_blob(
                     )
                     for pw in pw_candidates:
                         decrypted = _pbkdf2_bypass.try_decrypt(enc_payload, pw)
-                        if not decrypted or len(decrypted) <= 16:
-                            continue
-
-                        # Always try to load as a real code object first and
-                        # re-marshal it through xdis.  Storing raw AES output
-                        # bytes is wrong in both success branches:
-                        #   - Branch A: decrypted[:1] matches \xe3/\x63/\xf3 by
-                        #     coincidence (it's the NBC stream's first tag byte,
-                        #     not a marshal tag).  Writing those bytes verbatim
-                        #     produces a structurally corrupt .pyc.
-                        #   - Branch B: even a real marshal code object still has
-                        #     co_consts populated with the Nuitka stub constants
-                        #     (encrypted blob, 'pbkdf2_hmac' string, etc.).
-                        #     Re-marshaling through xdis rebuilds co_consts from
-                        #     the live object, which by this point only contains
-                        #     the real module constants.
-                        obj = try_load_code_object(decrypted, 0, magic_int)
-                        if obj is not None:
-                            try:
-                                clean_bytes = _dump_code_object(obj, target_ver_tuple)
-                                _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
-                                print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                      f"(password: {pw!r}), re-marshaled {len(clean_bytes)} bytes")
-                                break
-                            except Exception as _re_marshal_err:
-                                print(f"[!] Warning: re-marshal failed for {mod_name} "
-                                      f"({_re_marshal_err}), storing raw bytes as fallback")
+                        if decrypted and len(decrypted) > 16:
+                            if decrypted[:1] in MARSHAL_VERSION_HINT_TAGS:
                                 _pbkdf2_recovered.setdefault(mod_name, []).append(decrypted)
+                                print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
+                                      f"(password: {pw!r}), recovered {len(decrypted)} bytes")
                                 break
-
-                        # Fallback: decrypted content may be an NBC constant stream
-                        # (Nuitka stores the stub module's constants, not a naked
-                        # marshal object).  Parse it and extract any embedded code
-                        # objects, then re-marshal each one individually.
-                        if decrypted[:1] in MARSHAL_VERSION_HINT_TAGS:
-                            try:
-                                nbc_consts = _nbc_parse_module_constants(
-                                    decrypted, python_version=target_ver_tuple
-                                )
-                                nbc_code_objs = []
-                                _rcf_seen: set = set()
-                                for _c in nbc_consts:
-                                    recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
-                                if nbc_code_objs:
-                                    for _co in nbc_code_objs:
-                                        try:
-                                            clean_bytes = _dump_code_object(_co, target_ver_tuple)
-                                            _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
-                                        except Exception:
-                                            pass
-                                    if mod_name in _pbkdf2_recovered:
-                                        print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                              f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
-                                              f"code object(s) from NBC stream")
-                                        break
-                            except Exception:
-                                pass
-                            # Last resort: store raw bytes and let process_section
-                            # handle them as best it can.
-                            _pbkdf2_recovered.setdefault(mod_name, []).append(decrypted)
-                            print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                  f"(password: {pw!r}), stored raw bytes (NBC parse failed)")
-                            break
+                            obj = try_load_code_object(decrypted, 0, magic_int)
+                            if obj is not None:
+                                _pbkdf2_recovered.setdefault(mod_name, []).append(decrypted)
+                                print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
+                                      f"(password: {pw!r}), recovered code object")
+                                break
         except Exception:
             pass
     if _pbkdf2_recovered:
