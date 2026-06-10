@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 import struct
 from Crypto.Cipher import AES
-import nuitka_deobfuscate  # type: ignore[import-untyped]
 
 
 # ---------------------------------------------------------------------------
@@ -7072,6 +7071,12 @@ def decompile_nbc_path(input_path: str | Path, output_path: str | Path | None = 
 
 
 def reconstruct_blob_file(blob_path: str | Path, output_dir: str | Path) -> int:
+    try:
+        import nuitka_deobfuscate  # type: ignore[import-untyped]
+    except ImportError:
+        print("[-] Nuitka deobfuscate extension missing.")
+        return 1
+
     # Local import to avoid circular dependencies if any
     try:
         import list_modules
