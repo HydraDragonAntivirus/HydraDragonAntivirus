@@ -465,8 +465,7 @@ def _nbc_normalize_python_version(version):
             return tuple(_NBC_TARGET_PYTHON[:2])
         return (int(version[0]), int(version[1]))
     if isinstance(version, str):
-        import re as _re_nbc
-        m = _re_nbc.match(r"^\s*(\d+)\.(\d+)", version)
+        m = _re.match(r"^\s*(\d+)\.(\d+)", version)
         if m:
             return (int(m.group(1)), int(m.group(2)))
         return tuple(_NBC_TARGET_PYTHON[:2])
@@ -1122,8 +1121,7 @@ def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
 # Marshal code object first-byte tags (Python 3.x)
 MARSHAL_CODE_TAGS: frozenset[bytes] = frozenset({b"\xe3", b"\x63", b"\xf3"})
 MARSHAL_VERSION_HINT_TAGS: frozenset[bytes] = frozenset({b"\xe3", b"\x63", b"\xf3"})
-import re as _re_mvht
-MARSHAL_VERSION_HINT_TAG_PATTERN = _re_mvht.compile(rb"[\xe3\x63\xf3]")
+MARSHAL_VERSION_HINT_TAG_PATTERN = _re.compile(rb"[\xe3\x63\xf3]")
 
 
 class MemoryReader:
