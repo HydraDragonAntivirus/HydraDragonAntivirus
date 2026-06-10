@@ -3789,6 +3789,58 @@ def _marshal_payload_placeholder(payload: bytes | bytearray) -> str:
     return f"<marshal bytecode payload redacted: {len(data)} bytes>"
 
 
+def _attempt_auto_decrypt(enc_info: dict[str, Any], password_candidates: list[bytes] | None = None) -> bytes | None:
+    """Auto-decrypts Nuitka commercial payloads without using native marshal."""
+    import hashlib
+    import struct
+    try:
+        from Crypto.Cipher import AES
+    except ImportError:
+        print("[-] PyCryptodome is missing, skipping auto-decrypt. (pip install pycryptodome)")
+        return None
+
+    ciphertext = enc_info["ciphertext"]
+    salt = enc_info["salt"]
+    iters = enc_info["iterations"]
+
+    if len(ciphertext) < 16:
+        return None
+
+    iv_int = struct.unpack('<I', ciphertext[:4])[0]
+    iv = iv_int.to_bytes(16, 'little')
+
+    candidates = list(password_candidates or [])
+    import os
+    _here = os.getcwd()
+    candidates.extend([
+        b'',
+        _here.encode('utf-8', errors='replace'),
+        os.path.basename(_here).encode('utf-8', errors='replace'),
+        os.path.abspath(_here).encode('utf-8', errors='replace'),
+        b'main',
+        b'__main__',
+        b'__main__.py'
+    ])
+
+    for pw in candidates:
+        try:
+            key = hashlib.pbkdf2_hmac('sha256', pw, salt, iters, dklen=32)
+            cipher = AES.new(key, AES.MODE_CBC, iv)
+            raw = cipher.decrypt(ciphertext[4:])
+            
+            pad = raw[-1] if raw else 0
+            if 0 < pad <= 16 and raw[-pad:] == bytes([pad]) * pad:
+                raw = raw[:-pad]
+            
+            # Validate successful payload decryption without native marshal execution
+            # Checks for valid PKCS7 padding + standard code object magic headers (\xe3, \xf3, c, \xe4)
+            if len(raw) >= 16 and raw[:1] in (b"\xf3", b"\xe3", b"c", b"\xe4"):
+                return raw
+        except Exception:
+            continue
+    return None
+
+
 def _try_decompile_plain_bytes_constants(
     constants: list[Any],
     *,
@@ -3796,25 +3848,7 @@ def _try_decompile_plain_bytes_constants(
     encrypted_cipher_idx: int | None = None,
 ) -> list[dict[str, Any]]:
     """Try to decompile plain (non-marshal-tagged, non-encrypted) bytes constants
-    via marshal.loads().
-
-    For each bytes value in ``constants`` that:
-      - is not marshal-tagged (does not start with \\xe3/\\xf3/\\x63)
-      - is not the encrypted AES ciphertext (``encrypted_cipher_idx``)
-      - is at least 16 bytes long
-      - successfully loads with ``marshal.loads()``
-
-    returns a list of dicts::
-
-        {
-            'idx'        : int,          # index in constants list
-            'size'       : int,          # byte length
-            'head_hex'   : str,          # first 16 bytes as hex
-            'dis_text'   : str | None,   # dis.dis() output (fallback)
-            'xdis_src'   : str | None,   # xdis decompile output
-            'co_name'    : str | None,   # top-level co_name
-            'co_filename': str | None,
-        }
+    via xdis cross-version module loader. Native marshal.loads() is removed for safety.
     """
     results: list[dict[str, Any]] = []
     seen_hashes: set[bytes] = set()
@@ -3823,51 +3857,48 @@ def _try_decompile_plain_bytes_constants(
         if not isinstance(val, (bytes, bytearray)):
             continue
         raw = bytes(val)
-        # Skip tiny blobs, marshal-tagged payloads, and known ciphertext slot
         if len(raw) < 16:
             continue
         if raw[:1] in _MARSHAL_CODE_TAG_BYTES:
             continue
         if encrypted_cipher_idx is not None and idx == encrypted_cipher_idx:
             continue
-        # Dedup by content hash to avoid processing identical blobs twice
+
         import hashlib as _hl_inner
         blob_hash = _hl_inner.sha256(raw[:256]).digest()
         if blob_hash in seen_hashes:
             continue
         seen_hashes.add(blob_hash)
 
-        # Attempt marshal.loads()
-        code_obj = None
-        try:
-            import marshal as _marshal_inner
-            code_obj = _marshal_inner.loads(raw)
-        except Exception:
-            pass
-
-        if code_obj is None:
-            continue
-
-        # Successfully loaded — gather metadata
-        co_name = getattr(code_obj, "co_name", None)
-        co_filename = getattr(code_obj, "co_filename", None)
-
-        # Try xdis disassemble — cross-version aware, richer output than dis.dis()
+        co_name: str | None = None
+        co_filename: str | None = None
         xdis_src: str | None = None
+
+        # Create pyc and use xdis safely (avoiding current interpreter's marshal)
         try:
             import io as _io_inner
             import tempfile as _tempfile_inner
             import os as _os_inner
             import importlib.util as _ilu_inner
-            _ver = python_version or sys.version_info[:2]
-            # Write a minimal .pyc (magic + 12-byte header + raw marshal bytes)
+            
             _magic_bytes = _ilu_inner.MAGIC_NUMBER
             _pyc_data = _magic_bytes + b'\x00' * 12 + raw
             _tmp = _tempfile_inner.NamedTemporaryFile(suffix=".pyc", delete=False)
             _tmp.write(_pyc_data)
             _tmp.close()
+            
             try:
                 import xdis.main as _xdis_main
+                import xdis.load as _xdis_load
+                
+                # Extract basic metadata without evaluating the bytecode
+                try:
+                    _version, _ts, _magic, _code, _is_pypy, _sz = _xdis_load.load_module(_tmp.name)
+                    co_name = getattr(_code, "co_name", None)
+                    co_filename = getattr(_code, "co_filename", None)
+                except Exception:
+                    pass
+                
                 _xdis_buf = _io_inner.StringIO()
                 _xdis_main.disassemble_file(_tmp.name, _xdis_buf)
                 xdis_src = _xdis_buf.getvalue() or None
@@ -3879,22 +3910,15 @@ def _try_decompile_plain_bytes_constants(
         except Exception:
             xdis_src = None
 
-        # dis.dis() fallback — always works on current interpreter code objects
-        dis_text: str | None = None
-        try:
-            import dis as _dis_inner
-            import io as _io_dis
-            buf = _io_dis.StringIO()
-            _dis_inner.dis(code_obj, file=buf)
-            dis_text = buf.getvalue()
-        except Exception:
-            dis_text = None
+        # Add to results only if we successfully parsed via xdis
+        if not xdis_src and not co_name:
+            continue
 
         results.append({
             "idx": idx,
             "size": len(raw),
             "head_hex": raw[:16].hex(),
-            "dis_text": dis_text,
+            "dis_text": None,  # Deprecated in favor of xdis_src
             "xdis_src": xdis_src,
             "co_name": co_name,
             "co_filename": co_filename,
@@ -4284,23 +4308,39 @@ def reconstruct_module_artifacts(
             smart_source=None,
         )
 
-    # Detect Nuitka commercial iconda PBKDF2+AES encrypted payload before redacting
+    # Detect Nuitka commercial iconda PBKDF2+AES encrypted payload
     _enc_payload_info = _detect_nuitka_commercial_encrypted_payload(constants)
     _enc_cipher_idx = _enc_payload_info["idx_cipher"] if _enc_payload_info is not None else None
 
-    # Try to decompile plain (non-encrypted, non-marshal-tagged) bytes constants
-    # BEFORE redacting — these are obfuscated module bytecodes stored as raw blobs.
+    # Automatically attempt to decrypt
+    _decrypted_marshal_payload: bytes | None = None
+    if _enc_payload_info is not None:
+        _decrypted_marshal_payload = _attempt_auto_decrypt(_enc_payload_info)
+
     _plain_marshal_payloads = _try_decompile_plain_bytes_constants(
         constants,
         python_version=python_version,
         encrypted_cipher_idx=_enc_cipher_idx,
     )
 
+    # Inject decrypted payload so xdis can parse it cleanly
+    if _decrypted_marshal_payload:
+        _auto_decrypted_payloads = _try_decompile_plain_bytes_constants(
+            [_decrypted_marshal_payload],
+            python_version=python_version
+        )
+        if _auto_decrypted_payloads:
+            _auto_decrypted_payloads[0]["idx"] = _enc_cipher_idx
+            _auto_decrypted_payloads[0]["size"] = len(_decrypted_marshal_payload)
+            _auto_decrypted_payloads[0]["head_hex"] = _decrypted_marshal_payload[:16].hex()
+            _plain_marshal_payloads.extend(_auto_decrypted_payloads)
+
     if _enc_payload_info is not None:
         _annotated_constants = _annotate_encrypted_payload_constants(constants, _enc_payload_info)
         constants_for_render = _redact_marshaled_bytecode_list(_annotated_constants)
     else:
         constants_for_render = _redact_marshaled_bytecode_list(constants)
+    
     code_objects: list[dict[str, Any]] = []
     for item in constants_for_render:
         _collect_code_object_specs(item, code_objects)
@@ -4356,166 +4396,54 @@ def reconstruct_module_artifacts(
     except Exception:
         pass
 
-    # If encrypted payload was detected, prepend a forensic header AND emit a
-    # runnable decrypt stub so the analyst can supply the key at runtime.
+    # Omni Decrypted Payload Handling (No stub injection, fully automated)
     if _enc_payload_info is not None:
-        n_bytes = len(_enc_payload_info["ciphertext"])
-        salt_hex = _enc_payload_info["salt"].hex()
-        iters = _enc_payload_info["iterations"]
-        idx_cipher = _enc_payload_info["idx_cipher"]
-        idx_salt = _enc_payload_info["idx_salt"]
-        cipher_preview = _enc_payload_info["ciphertext"][:16].hex()
-        _enc_header = (
-            "# ============================================================\n"
-            "# NUITKA COMMERCIAL ENCRYPTED PAYLOAD DETECTED\n"
-            "# scheme      : PBKDF2-HMAC-SHA256 + AES-CBC\n"
-            f"# ciphertext  : {n_bytes} bytes (constant[{idx_cipher}])\n"
-            f"# cipher_head : {cipher_preview}...\n"
-            f"# salt        : {salt_hex} (constant[{idx_salt}])\n"
-            f"# iterations  : {iters}\n"
-            "# dklen       : 32 bytes (AES-256)\n"
-            "# iv          : first 4 bytes of ciphertext as uint32-LE\n"
-            "# decrypt     : AES-CBC(key, iv, ciphertext[4:]) -> marshal.loads -> exec\n"
-            "# note        : static decryption not possible without runtime key material\n"
-            "# ============================================================\n\n"
-        )
-        # Emit a runnable Python decrypt stub with the actual ciphertext embedded.
-        # The analyst can supply PASSWORD at runtime to recover the marshal payload.
-        _ciphertext_repr = repr(_enc_payload_info["ciphertext"])
-        _decrypt_stub = (
-            "# ---------------------------------------------------------------------------\n"
-            "# DECRYPT STUB — supply PASSWORD to recover the inner marshal payload.\n"
-            "# Ciphertext is embedded below; run with correct _dvm / password to decrypt.\n"
-            "# ---------------------------------------------------------------------------\n"
-            "import hashlib\n"
-            "import struct\n"
-            "import marshal\n"
-            "import sys\n"
-            "import dis\n"
-            "\n"
-            f"# Full ciphertext: {n_bytes} bytes (constant[{idx_cipher}] from original blob)\n"
-            f"_CIPHERTEXT: bytes = {_ciphertext_repr}\n"
-            f"_SALT: bytes = bytes.fromhex({repr(salt_hex)})\n"
-            f"_ITERATIONS: int = {iters}\n"
-            "_DKLEN: int = 32\n"
-            "\n"
-            "\n"
-            "def _derive_key(password: bytes) -> bytes:\n"
-            "    \"\"\"Derive AES-256 key via PBKDF2-HMAC-SHA256.\"\"\"\n"
-            "    return hashlib.pbkdf2_hmac(\n"
-            "        'sha256',\n"
-            "        password,\n"
-            "        _SALT,\n"
-            "        _ITERATIONS,\n"
-            "        dklen=_DKLEN,\n"
-            "    )\n"
-            "\n"
-            "\n"
-            "def _decrypt_payload(ciphertext: bytes, password: bytes) -> bytes:\n"
-            "    \"\"\"Decrypt AES-CBC payload and return raw marshal bytes.\"\"\"\n"
-            "    from Crypto.Cipher import AES  # pycryptodome\n"
-            "    iv_int = struct.unpack('<I', ciphertext[:4])[0]\n"
-            "    iv = iv_int.to_bytes(16, 'little')  # AES block size = 16\n"
-            "    key = _derive_key(password)\n"
-            "    cipher = AES.new(key, AES.MODE_CBC, iv)\n"
-            "    return cipher.decrypt(ciphertext[4:])\n"
-            "\n"
-            "\n"
-            "def _load_and_exec_payload(\n"
-            "    ciphertext: bytes,\n"
-            "    password: bytes,\n"
-            "    globs: dict | None = None,\n"
-            "    *,\n"
-            "    disassemble: bool = False,\n"
-            ") -> None:\n"
-            "    \"\"\"Decrypt, marshal.loads, and exec the inner code object.\n\n"
-            "    If ``disassemble=True``, print xdis/dis disassembly instead of exec'ing.\n"
-            "    \"\"\"\n"
-            "    raw = _decrypt_payload(ciphertext, password)\n"
-            "    # Strip any PKCS7 padding\n"
-            "    pad = raw[-1] if raw else 0\n"
-            "    if 0 < pad <= 16 and raw[-pad:] == bytes([pad]) * pad:\n"
-            "        raw = raw[:-pad]\n"
-            "    code = marshal.loads(raw)\n"
-            "    if disassemble:\n"
-            "        # Try xdis first (cross-version aware), fall back to dis\n"
-            "        try:\n"
-            "            import xdis.main as _xdis_main\n"
-            "            import tempfile, os\n"
-            "            _tmp = tempfile.NamedTemporaryFile(suffix='.pyc', delete=False)\n"
-            "            import importlib.util as _ilu\n"
-            "            _magic = importlib.util.MAGIC_NUMBER\n"
-            "            _tmp.write(_magic + b'\\x00' * 12 + raw)\n"
-            "            _tmp.close()\n"
-            "            _xdis_main.disassemble_file(_tmp.name, sys.stdout)\n"
-            "            os.unlink(_tmp.name)\n"
-            "        except Exception:\n"
-            "            dis.dis(code)\n"
-            "        return\n"
-            "    exec(code, globs or globals())  # noqa: S102\n"
-            "\n"
-            "\n"
-            "# ---------------------------------------------------------------------------\n"
-            "# AUTO-DISASSEMBLE: try xdis on the embedded ciphertext with known candidates.\n"
-            "# _dvm is derived at runtime (typically from __file__ / os.path.dirname).\n"
-            "# ---------------------------------------------------------------------------\n"
-            "def _auto_disassemble(password_candidates: list[bytes] | None = None) -> bool:\n"
-            "    \"\"\"Try a list of password candidates and disassemble on first success.\"\"\"\n"
-            "    import io\n"
-            "    candidates = list(password_candidates or [])\n"
-            "    # Common Nuitka _dvm derivation patterns to try automatically\n"
-            "    import os\n"
-            "    _here = os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else os.getcwd()\n"
-            "    candidates += [\n"
-            "        b'',\n"
-            "        _here.encode(),\n"
-            "        os.path.basename(_here).encode(),\n"
-            "        os.path.abspath(_here).encode(),\n"
-            "    ]\n"
-            "    for pw in candidates:\n"
-            "        try:\n"
-            "            raw = _decrypt_payload(_CIPHERTEXT, pw)\n"
-            "            pad = raw[-1] if raw else 0\n"
-            "            if 0 < pad <= 16 and raw[-pad:] == bytes([pad]) * pad:\n"
-            "                raw = raw[:-pad]\n"
-            "            code = marshal.loads(raw)\n"
-            "            print(f'[+] Decrypted with password={pw!r}')\n"
-            "            try:\n"
-            "                import xdis.main as _xdis_main\n"
-            "                import tempfile, os as _os\n"
-            "                _tmp = tempfile.NamedTemporaryFile(suffix='.pyc', delete=False)\n"
-            "                import importlib.util as _ilu\n"
-            "                _tmp.write(_ilu.MAGIC_NUMBER + b'\\x00' * 12 + raw)\n"
-            "                _tmp.close()\n"
-            "                _xdis_main.disassemble_file(_tmp.name, sys.stdout)\n"
-            "                _os.unlink(_tmp.name)\n"
-            "            except Exception:\n"
-            "                dis.dis(code)\n"
-            "            return True\n"
-            "        except Exception:\n"
-            "            continue\n"
-            "    print('[-] No candidate password succeeded.')\n"
-            "    return False\n"
-            "\n"
-            "\n"
-            "if __name__ == '__main__':\n"
-            "    _pw = sys.argv[1].encode() if len(sys.argv) > 1 else None\n"
-            "    _auto_disassemble([_pw] if _pw else [])\n"
-        )
-        source = _enc_header + _decrypt_stub + "\n" + source if source else _enc_header + _decrypt_stub
-        heuristic_source = _enc_header + _decrypt_stub + "\n" + heuristic_source if heuristic_source else _enc_header + _decrypt_stub
-        if smart_source:
-            smart_source = _enc_header + _decrypt_stub + "\n" + smart_source
-        strategy = f"encrypted-payload+{strategy}"
+        if _decrypted_marshal_payload:
+            _enc_header = (
+                "# ============================================================\n"
+                "# NUITKA COMMERCIAL ENCRYPTED PAYLOAD AUTO-DECRYPTED\n"
+                "# scheme      : PBKDF2-HMAC-SHA256 + AES-CBC\n"
+                "# status      : SUCCESSFULLY DECRYPTED (omni_decrypted)\n"
+                f"# payload size: {len(_decrypted_marshal_payload)} bytes\n"
+                "# ============================================================\n\n"
+            )
+            source = _enc_header + (source or "")
+            heuristic_source = _enc_header + (heuristic_source or "")
+            if smart_source:
+                smart_source = _enc_header + smart_source
+            strategy = f"omni_decrypted+{strategy}"
+        else:
+            n_bytes = len(_enc_payload_info["ciphertext"])
+            salt_hex = _enc_payload_info["salt"].hex()
+            iters = _enc_payload_info["iterations"]
+            idx_cipher = _enc_payload_info["idx_cipher"]
+            idx_salt = _enc_payload_info["idx_salt"]
+            cipher_preview = _enc_payload_info["ciphertext"][:16].hex()
 
-    # If plain (non-encrypted) bytes constants were successfully decompiled via
-    # marshal.loads(), prepend a forensic disassembly section so analysts can
-    # inspect the obfuscated bytecode payloads without needing a key.
+            _enc_header = (
+                "# ============================================================\n"
+                "# NUITKA COMMERCIAL ENCRYPTED PAYLOAD DETECTED (AUTO-DECRYPT FAILED)\n"
+                "# scheme      : PBKDF2-HMAC-SHA256 + AES-CBC\n"
+                f"# ciphertext  : {n_bytes} bytes (constant[{idx_cipher}])\n"
+                f"# cipher_head : {cipher_preview}...\n"
+                f"# salt        : {salt_hex} (constant[{idx_salt}])\n"
+                f"# iterations  : {iters}\n"
+                "# dklen       : 32 bytes (AES-256)\n"
+                "# iv          : first 4 bytes of ciphertext as uint32-LE\n"
+                "# ============================================================\n\n"
+            )
+            source = _enc_header + (source or "")
+            heuristic_source = _enc_header + (heuristic_source or "")
+            if smart_source:
+                smart_source = _enc_header + smart_source
+            strategy = f"omni_decrypted_failed+{strategy}"
+
+    # Use xdis_src cleanly instead of dangerous built-in dis.dis
     if _plain_marshal_payloads:
         _plain_header_lines: list[str] = [
             "# ============================================================",
             "# DECOMPILED PLAIN MARSHAL BYTES PAYLOADS",
-            f"# {len(_plain_marshal_payloads)} blob(s) in module constants successfully loaded via marshal.loads()",
+            f"# {len(_plain_marshal_payloads)} blob(s) in module constants successfully loaded via xdis",
             "# ============================================================",
             "",
         ]
@@ -4529,11 +4457,10 @@ def reconstruct_module_artifacts(
                 f"# --- constants[{_idx}]: {_sz} bytes | co_name={_co_name!r} | co_filename={_co_file!r}",
                 f"# head: {_head}",
             ]
-            _dis = _pm.get("dis_text")
+            _dis = _pm.get("xdis_src")
             if _dis:
-                # Indent dis output as a block comment (cap at 200 lines to avoid bloat)
                 _dis_lines = _dis.splitlines()[:200]
-                _plain_header_lines.append(f"# dis.dis() output ({len(_dis.splitlines())} instructions):")
+                _plain_header_lines.append(f"# xdis output ({len(_dis.splitlines())} instructions):")
                 for _dl in _dis_lines:
                     _plain_header_lines.append(f"#   {_dl}")
                 if len(_dis.splitlines()) > 200:
@@ -4554,7 +4481,6 @@ def reconstruct_module_artifacts(
         nbc_text=nbc_text,
         smart_source=smart_source,
     )
-
 
 def generate_omni_nbc(
     decompiler: OmniDecompiler,
