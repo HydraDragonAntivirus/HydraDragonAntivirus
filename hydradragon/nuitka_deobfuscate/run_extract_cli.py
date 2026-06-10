@@ -20,6 +20,20 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
+from .marshal_detector import (
+    get_magic_int,
+    looks_like_code_header,
+    try_detect_code_object,
+    try_load_code_object,
+    score_code_object,
+    detect_version_from_marshal,
+    detect_version_from_bytecode_chunk,
+    _extract_first_marshal_payloads_from_bytecode_chunk,
+    guess_version_from_marshal_bytes,
+    MARSHAL_VERSION_HINT_TAGS,
+    MARSHAL_CODE_TAGS,
+    MARSHAL_VERSION_HINT_TAG_PATTERN,
+)
 
 # ============================================================================
 # SAFE MARSHAL — ONLY XDIS, NO C-MARSHAL (avoids SegFaults on 3.12 blobs)
@@ -924,39 +938,10 @@ def _is_plausible_module_name(name: str) -> bool:
 def _is_live_code_object(value) -> bool:
     return type(value).__name__ == "code" or type(value).__name__.startswith("Code") or hasattr(value, "co_code") or hasattr(value, "co_code_adaptive")
 
+# Version detection helpers moved to marshal_detector.py
 # ============================================================================
 # HEURISTIC HINT (NO AUTHORITY)
 # ============================================================================
-
-def guess_version_from_marshal_bytes(data: bytes) -> str | None:
-    if not data or data[0:1] not in (b"\xe3", b"\x63", b"\xf3"):
-        return None
-
-    if data[0:1] == b"\xf3":
-        return "3.11+"
-
-    if len(data) < 25:
-        return None
-
-    try:
-        argcount = struct.unpack_from("<I", data, 1)[0]
-        kwonlycount = struct.unpack_from("<I", data, 9)[0]
-        stacksize = struct.unpack_from("<I", data, 17)[0]
-        flags = struct.unpack_from("<I", data, 21)[0]
-
-        if argcount > 255 or kwonlycount > 255 or stacksize > 65535:
-            return "3.7"
-
-        if flags & 0x0200:
-            return "3.6"
-
-        if flags & 0x0100 and not (flags & 0x0200):
-            return "3.8"
-
-        return "3.8+"
-
-    except Exception:
-        return None
 
 def _iter_marshaled_bytecode_payloads(
     value,
@@ -1063,206 +1048,7 @@ def parse_version(ver_str: str) -> tuple:
         raise argparse.ArgumentTypeError(f"Invalid version '{ver_str}'. Expected MAJOR.MINOR e.g. 3.13")
 
 
-def get_magic_int(version: str | tuple[int, int]) -> int | None:
-    """Resolve a stable xdis magic integer for a MAJOR.MINOR version."""
-    if isinstance(version, tuple):
-        version = f"{version[0]}.{version[1]}"
-    magic = by_version.get(version)
-    if not magic:
-        return None
-    return magic2int(bytes(magic))
-
-
-def _xdis_version_sort_key(version: str) -> tuple[int, int]:
-    major, minor = version.split(".", 1)
-    return int(major), int(minor)
-
-
-# ============================================================================
-# VERSION UNIVERSE (ORDERED, PURE)
-# ============================================================================
-
-def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
-    versions = sorted(
-        {
-            v for v in by_version
-            if re.fullmatch(r"\d+\.\d+", v)
-            and _xdis_version_sort_key(v) >= (3, 5)
-        },
-        key=_xdis_version_sort_key,
-        reverse=True,
-    )
-
-    # runtime artık ORDERING değiştirmez
-    # sadece debug/trace amaçlı tutulur
-    return versions
-
-
-# Marshal code object first-byte tags (Python 3.x)
-MARSHAL_CODE_TAGS: frozenset[bytes] = frozenset({b"\xe3", b"\x63", b"\xf3"})
-MARSHAL_VERSION_HINT_TAGS: frozenset[bytes] = frozenset({b"\xe3", b"\x63", b"\xf3"})
-MARSHAL_VERSION_HINT_TAG_PATTERN = re.compile(rb"[\xe3\x63\xf3]")
-
-
-class MemoryReader:
-    """Minimal file-like reader over a bytes buffer without slicing the suffix."""
-
-    def __init__(self, data: bytes | bytearray | memoryview, start: int = 0):
-        self._data = data if isinstance(data, memoryview) else memoryview(data)
-        self._pos = start
-
-    def read(self, n: int = -1) -> bytes:
-        if n < 0:
-            n = len(self._data) - self._pos
-        end = min(len(self._data), self._pos + n)
-        chunk = self._data[self._pos : end].tobytes()
-        self._pos = end
-        return chunk
-
-
-def score_code_object(code_obj) -> int:
-    score = 3
-    score += len(getattr(code_obj, "co_consts", ()))
-    score += len(getattr(code_obj, "co_varnames", ()))
-    score += int(bool(getattr(code_obj, "co_filename", None)))
-    return score
-
-
-def try_detect_code_object(
-    data: bytes | bytearray | memoryview,
-    offset: int,
-    magic_int: int | None,
-):
-    if magic_int is None or len(data) - offset < 32:
-        return None
-
-    try:
-        reader = MemoryReader(data, offset)
-        obj = xdis_load_code(reader, magic_int)
-    except Exception:
-        return None
-
-    name = type(obj).__name__
-    if name == "code" or name.startswith("Code"):
-        return obj
-    return None
-
-
-def looks_like_code_header(
-    data: bytes | bytearray | memoryview,
-    offset: int,
-    magic_int: int | None,
-) -> bool:
-    if magic_int is None:
-        return False
-
-    version = magic_int2tuple(magic_int)
-    field_count = 1  # argcount
-    if version >= (3, 8):
-        field_count += 1  # posonlyargcount
-    if version >= (3, 0):
-        field_count += 1  # kwonlyargcount
-    if version < (3, 11):
-        field_count += 1  # nlocals
-    field_count += 2  # stacksize, flags
-
-    header_end = offset + 1 + (field_count * 4)
-    if len(data) < header_end + 1:
-        return False
-
-    fields = struct.unpack_from("<" + ("I" * field_count), data, offset + 1)
-    cursor = 0
-
-    argcount = fields[cursor]
-    cursor += 1
-    if argcount > 4096:
-        return False
-
-    if version >= (3, 8):
-        posonlyargcount = fields[cursor]
-        cursor += 1
-        if posonlyargcount > 4096:
-            return False
-
-    if version >= (3, 0):
-        kwonlyargcount = fields[cursor]
-        cursor += 1
-        if kwonlyargcount > 4096:
-            return False
-
-    if version < (3, 11):
-        nlocals = fields[cursor]
-        cursor += 1
-        if nlocals > 65536:
-            return False
-
-    stacksize = fields[cursor]
-    flags = fields[cursor + 1]
-    if stacksize == 0 or stacksize > 65536:
-        return False
-    if flags > 0x3FFFFFFF:
-        return False
-
-    next_tag = data[header_end]
-    return next_tag in (ord(TYPE_STRING), FLAG_REF | ord(TYPE_STRING))
-
-
-def try_load_code_object(
-    data: bytes | bytearray | memoryview,
-    offset: int,
-    magic_int: int | None,
-):
-    if not looks_like_code_header(data, offset, magic_int):
-        return None
-    return try_detect_code_object(data, offset, magic_int)
-
-
-# ============================================================================
-# FINAL DECISION ENGINE (ARGMAX ONLY)
-# ============================================================================
-
-def detect_version_from_marshal(data: bytes) -> str | None:
-    version_hint = guess_version_from_marshal_bytes(data)
-
-    candidates = _marshal_candidate_versions(version_hint)
-
-    probe_offsets = [
-        match.start()
-        for match in MARSHAL_VERSION_HINT_TAG_PATTERN.finditer(data)
-    ]
-
-    if not probe_offsets and data[:1] in MARSHAL_VERSION_HINT_TAGS:
-        probe_offsets = [0]
-
-    if not probe_offsets:
-        return version_hint  # last resort only
-
-    scores = {}
-
-    for ver in candidates:
-        magic_int = get_magic_int(ver)
-        best_score = 0
-
-        for offset in probe_offsets[:128]:
-            obj = try_detect_code_object(data, offset, magic_int)
-            if obj is None:
-                continue
-
-            best_score = max(best_score, score_code_object(obj))
-
-        if best_score > 0:
-            # soft hint bias ONLY (no structural change)
-            if version_hint:
-                if ver == version_hint:
-                    best_score += 0.25
-
-            scores[ver] = best_score
-
-    if not scores:
-        return version_hint
-
-    return max(scores, key=scores.get)
-
+# Version detection logic moved to marshal_detector.py
 
 # ============================================================================
 # FILENAME HELPERS
@@ -1369,18 +1155,78 @@ def extract_code_label(code_obj) -> str | None:
 
 
 def extract_path_from_marshaled_bytes(data: bytes | bytearray) -> str | None:
+    # 1. Try native marshal.loads first (safest and most accurate if running version matches)
     try:
+        import marshal as builtin_marshal
+        obj = builtin_marshal.loads(data)
+        if hasattr(obj, "co_filename"):
+            fn = obj.co_filename
+            if isinstance(fn, str) and fn.endswith((".py", ".pyc", ".pyw")):
+                fn = fn.replace("\\", "/").lstrip("./")
+                if fn:
+                    return fn
+    except Exception:
+        pass
+
+    # 2. Binary scanner for ASCII strings in marshal format (including FLAG_REF)
+    try:
+        raw = bytes(data)
         candidates = []
+        i = 0
+        while i < len(raw):
+            tag = raw[i]
+            # 0x7a, 0xfa: TYPE_SHORT_ASCII
+            # 0x5a, 0xda: TYPE_SHORT_ASCII_INTERNED
+            if tag in (0x7a, 0x5a, 0xfa, 0xda):
+                if i + 1 < len(raw):
+                    length = raw[i+1]
+                    if length >= 4 and i + 2 + length <= len(raw):
+                        try:
+                            s = raw[i+2 : i+2+length].decode('utf-8', errors='strict')
+                            if s.endswith(('.py', '.pyc', '.pyw')) and all(32 <= ord(c) < 127 for c in s):
+                                candidate = s.replace("\\", "/").lstrip("./")
+                                if candidate:
+                                    candidates.append(candidate)
+                        except Exception:
+                            pass
+                i += 2
+            # 0x61, 0xe1: TYPE_ASCII
+            # 0x41, 0xc1: TYPE_ASCII_INTERNED
+            elif tag in (0x61, 0x41, 0xe1, 0xc1):
+                if i + 4 < len(raw):
+                    length = struct.unpack('<I', raw[i+1:i+5])[0]
+                    if 4 <= length <= 1000 and i + 5 + length <= len(raw):
+                        try:
+                            s = raw[i+5 : i+5+length].decode('utf-8', errors='strict')
+                            if s.endswith(('.py', '.pyc', '.pyw')) and all(32 <= ord(c) < 127 for c in s):
+                                candidate = s.replace("\\", "/").lstrip("./")
+                                if candidate:
+                                    candidates.append(candidate)
+                        except Exception:
+                            pass
+                i += 5
+            else:
+                i += 1
+
+        if candidates:
+            return max(candidates, key=lambda value: (value.count("/"), len(value)))
+    except Exception:
+        pass
+
+    # 3. Final legacy fallback regex just in case
+    try:
+        legacy_candidates = []
         for match in MARSHAL_PYC_PATH_PATTERN.finditer(bytes(data)[:65536]):
             candidate = match.group(1).decode("utf-8", errors="ignore").replace("\\", "/")
             candidate = candidate.lstrip("./")
             if candidate:
-                candidates.append(candidate)
-        if not candidates:
-            return None
-        return max(candidates, key=lambda value: (value.count("/"), len(value)))
+                legacy_candidates.append(candidate)
+        if legacy_candidates:
+            return max(legacy_candidates, key=lambda value: (value.count("/"), len(value)))
     except Exception:
-        return None
+        pass
+
+    return None
 
 
 def _discovered_alias_matches(discovered_name: str, plain_name: str) -> bool:
@@ -2058,14 +1904,66 @@ def main(argv=None) -> int:
         print(f"[*] Target Python version : {target_ver_str} (from -v flag)")
     else:
         print("[*] No -v specified, probing blob for Python version...")
-        # Try to find a marshal code object in the first 64KB for version probe
         probe_detected = None
-        for tag in MARSHAL_VERSION_HINT_TAGS:
-            offset = raw.find(tag)
-            if offset != -1:
-                probe_detected = detect_version_from_marshal(raw[offset : offset + 65536])
-                if probe_detected:
-                    break
+
+        # ── Strategy 0: parse the .bytecode chunk first (most reliable) ──────
+        # Uses CommercialBypass-aware inline parser to extract the .bytecode
+        # chunk early.  Marshal entries inside carry the real Python version
+        # (3.11/3.12/3.13/3.14/3.15) without ambiguity.
+        if not probe_detected:
+            try:
+                _cb0 = CommercialBypass()
+                _is_enc0 = _cb0.is_blob_encrypted(raw) or _cb0.has_commercial_digest(raw)
+
+                def _quick_parse_bytecode_chunk(blob_data: bytes):
+                    if not blob_data or len(blob_data) < 8:
+                        return None
+                    size_stored = struct.unpack('<I', blob_data[4:8])[0]
+                    data_end = min(len(blob_data), 8 + size_stored)
+                    data = blob_data[8:data_end]
+                    offset = 0
+                    while offset < len(data) - 5:
+                        name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
+                        if name_end == -1:
+                            break
+                        raw_name = data[offset:name_end]
+                        try:
+                            plain = raw_name.decode('utf-8', errors='strict')
+                            module_name = plain if _is_plausible_module_name(plain) else \
+                                _cb0.decode_module_name(raw_name) if _is_enc0 else \
+                                raw_name.decode('utf-8', errors='replace')
+                        except Exception:
+                            module_name = _cb0.decode_module_name(raw_name) if _is_enc0 else \
+                                raw_name.decode('utf-8', errors='replace')
+                        offset = name_end + 1
+                        if offset + 4 > len(data):
+                            break
+                        chunk_size = struct.unpack('<I', data[offset:offset + 4])[0]
+                        offset += 4
+                        if chunk_size > 100 * 1024 * 1024 or offset + chunk_size > len(data):
+                            break
+                        chunk_data = data[offset:offset + chunk_size]
+                        offset += chunk_size
+                        if module_name == ".bytecode":
+                            return chunk_data
+                    return None
+
+                _bc_chunk0 = _quick_parse_bytecode_chunk(raw)
+                if _bc_chunk0:
+                    probe_detected = detect_version_from_bytecode_chunk(_bc_chunk0)
+                    if probe_detected:
+                        print(f"[*] Strategy 0 (.bytecode chunk probe) detected : {probe_detected}")
+            except Exception:
+                pass  # Strategy 0 failed, continue to Strategy 1
+
+        # ── Strategy 1: marshal code object probe in raw blob ───────────────
+        if not probe_detected:
+            for tag in MARSHAL_VERSION_HINT_TAGS:
+                offset = raw.find(tag)
+                if offset != -1:
+                    probe_detected = detect_version_from_marshal(raw[offset : offset + 65536])
+                    if probe_detected:
+                        break
 
         if probe_detected and probe_detected in by_version:
             target_ver_str = probe_detected

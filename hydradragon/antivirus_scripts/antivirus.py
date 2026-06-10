@@ -436,6 +436,17 @@ from xdis.unmarshal import load_code as xdis_load_code
 logger.debug(f"xdis.magics.by_version, magic2int and xdis.unmarshal.load_code modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from hydradragon.nuitka_deobfuscate.marshal_detector import (
+    _xdis_version_sort_key,
+    _marshal_candidate_versions,
+    guess_version_from_marshal_bytes,
+)
+from hydradragon.nuitka_deobfuscate import detect_nuitka_version
+
+logger.debug(f"hydradragon.nuitka_deobfuscate.marshal_detector helpers loaded in {time.time() - start_time:.6f} seconds")
+
+
+start_time = time.time()
 from oneshot.shot import run_oneshot_python
 
 logger.debug(f"oneshot.shot.run_oneshot_python module loaded in {time.time() - start_time:.6f} seconds")
@@ -471,7 +482,7 @@ logger.debug(f"pyinstaller_mod_extractor_ng imported in {time.time() - start_tim
 
 start_time = time.time()
 try:
-    from hydradragon.nuitka_deobfuscate.run_extract import extract_blob
+    from hydradragon.nuitka_deobfuscate import extract_blob
 except Exception as e:
     logger.error(f"Failed to import nuitka_deobfuscate library API: {e}")
     extract_blob = None
@@ -2797,6 +2808,13 @@ def run_nuitka_deobfuscator(blob_path: str, main_file_path: Optional[str] = None
         except Exception:
             detected_version = None
 
+    if detected_version is None:
+        try:
+            detected_version = detect_nuitka_version(str(blob_file))
+        except Exception as e:
+            logger.debug(f"[NuitkaDeobfuscate] Failed to auto-detect version from blob: {e}")
+            detected_version = None
+
     try:
         logger.info(f"[NuitkaDeobfuscate] Running python native decoder for {blob_file} -> {output_dir}")
         result = extract_blob(blob_path=str(blob_file), output_dir=str(output_dir), target_version=detected_version, list_only=False)
@@ -3061,91 +3079,6 @@ def clean_source(src: str) -> str:
     return src
 
 
-def _xdis_version_sort_key(version: str) -> tuple[int, int]:
-    major, minor = version.split(".", 1)
-    return int(major), int(minor)
-
-
-def guess_version_from_marshal_bytes(data: bytes) -> str | None:
-    """
-    Guess Python version from raw marshal code object bytes
-    by reading structural fields directly, without full parsing.
-    """
-    # Must start with a known code object tag
-    if not data or data[0:1] not in (b"\xe3", b"\x63", b"\xf3"):
-        return None
-
-    # \xf3 tag only exists in 3.11+
-    if data[0:1] == b"\xf3":
-        return "3.11+"
-
-    if len(data) < 25:
-        return None
-
-    try:
-        # Read first few 4-byte fields after the tag byte
-        argcount = struct.unpack_from("<I", data, 1)[0]
-        posonlycount = struct.unpack_from("<I", data, 5)[0]
-        kwonlycount = struct.unpack_from("<I", data, 9)[0]
-        stacksize = struct.unpack_from("<I", data, 17)[0]
-        flags = struct.unpack_from("<I", data, 21)[0]
-
-        # Sanity checks — garbage values mean wrong layout (i.e. pre-3.8)
-        if argcount > 255 or kwonlycount > 255 or stacksize > 65535:
-            # Likely pre-3.8 layout where posonlycount field doesn't exist
-            # Re-read without posonlycount offset
-            kwonlycount2 = struct.unpack_from("<I", data, 5)[0]
-            nlocals2 = struct.unpack_from("<I", data, 9)[0]
-            if kwonlycount2 <= 255 and nlocals2 <= 65535:
-                return "3.7"  # pre-3.8 layout
-
-        # CO_ASYNC_GENERATOR added in 3.6
-        if flags & 0x0200:
-            lower_bound = "3.6"
-        else:
-            lower_bound = "3.5"
-
-        # posonlycount field only exists in 3.8+
-        # If it reads as a sane value AND the rest of the layout is consistent
-        if posonlycount <= argcount and stacksize <= 65535:
-            # \xf3 = 3.11+, otherwise use flags to narrow down
-            if flags & 0x0100 and not (flags & 0x0200):
-                return "3.8"
-            return "3.8+"  # best we can say without full parse
-
-        return lower_bound
-
-    except Exception:
-        return None
-
-
-def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
-    versions = sorted(
-        {version for version in by_version if re.fullmatch(r"\d+\.\d+", version) and _xdis_version_sort_key(version) >= (3, 5)},
-        key=_xdis_version_sort_key,
-        reverse=True,
-    )
-
-    runtime_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    if runtime_version in versions:
-        runtime_key = _xdis_version_sort_key(runtime_version)
-        lower_or_equal = [version for version in versions if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key]
-        higher = [version for version in versions if _xdis_version_sort_key(version) > runtime_key]
-        versions = [runtime_version] + lower_or_equal + higher
-
-    if version_hint is None:
-        return versions
-
-    if version_hint.endswith("+"):
-        lower_bound = _xdis_version_sort_key(version_hint[:-1])
-        prioritized = [version for version in versions if _xdis_version_sort_key(version) >= lower_bound]
-        fallback = [version for version in versions if _xdis_version_sort_key(version) < lower_bound]
-        return prioritized + fallback
-
-    if version_hint in versions:
-        return [version_hint] + [version for version in versions if version != version_hint]
-
-    return versions
 
 
 def _is_reasonably_printable_text(value: object, max_length: int) -> bool:
