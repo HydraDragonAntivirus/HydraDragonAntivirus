@@ -591,6 +591,51 @@ class PBKDF2AESBypass:
         return candidates[0] if candidates else None
 
     @staticmethod
+    def generate_password_candidates(module_name: str = "", blob_data: bytes = b"") -> list[bytes]:
+        """Generate likely password candidates for PBKDF2 key derivation.
+
+        Password sources:
+        - Module name (with various transformations)
+        - Empty string
+        - Known Nuitka Commercial fixed strings
+        - Derived from blob metadata
+        """
+        candidates = set()
+
+        candidates.add(b"")
+        candidates.add(b"Nuitka")
+        candidates.add(b"nuitka")
+        candidates.add(b"NuitkaCommercial")
+
+        if module_name:
+            candidates.add(module_name.encode('utf-8'))
+            candidates.add(module_name.encode('utf-8').lower())
+            candidates.add(module_name.split('.')[-1].encode('utf-8'))
+
+        if blob_data:
+            if len(blob_data) >= 4:
+                candidates.add(blob_data[:4])
+
+            if len(blob_data) >= 8:
+                candidates.add(blob_data[4:8])
+
+            if len(blob_data) >= 16:
+                candidates.add(blob_data[:16])
+
+        def _priority(pw: bytes) -> tuple:
+            if module_name and pw == module_name.encode('utf-8'):
+                return (0, pw)
+            if module_name and pw == module_name.split('.')[-1].encode('utf-8'):
+                return (1, pw)
+            if module_name and pw == module_name.encode('utf-8').lower():
+                return (2, pw)
+            return (3, pw)
+
+        result = list(candidates)
+        result.sort(key=_priority)
+        return result
+
+    @staticmethod
     def is_pbkdf2_encrypted_blob(blob_data: bytes) -> bool:
         """Check if a raw blob appears to be PBKDF2+AES-CBC encrypted.
 
@@ -2640,11 +2685,43 @@ def extract_blob(
                 print(f"[*] PBKDF2+AES-CBC pattern detected in module: {mod_name}")
                 enc_payload = PBKDF2AESBypass.find_encrypted_payload(constants)
                 if enc_payload:
-                    # PBKDF2+AES-CBC cannot be brute-forced — password guessing is futile.
-                    # The key material must be extracted from the PE binary.
-                    # Skip this module; it will remain in its encrypted form.
-                    print(f"    [!] Module {mod_name} is PBKDF2+AES-CBC encrypted. "
-                          f"Cannot decrypt without the PE binary key material. Skipping.")
+                    pw_candidates = PBKDF2AESBypass.generate_password_candidates(
+                        module_name=mod_name, blob_data=raw
+                    )
+                    for pw in pw_candidates:
+                        decrypted = _pbkdf2_bypass.try_decrypt(enc_payload, pw)
+                        if not decrypted or len(decrypted) <= 16:
+                            continue
+
+                        # Try to parse the decrypted output as an NBC constant stream.
+                        # Nuitka encrypts the module's NBC-serialized constants, not
+                        # a naked marshal code object.  _nbc_parse_module_constants
+                        # quickly rejects garbage (invalid count in first 2 bytes)
+                        # and returns a valid constants list for the correct password.
+                        # From those constants we recursively extract code objects
+                        # and re-marshal them cleanly through xdis.
+                        try:
+                            nbc_consts = _nbc_parse_module_constants(
+                                decrypted, python_version=target_ver_tuple
+                            )
+                        except Exception:
+                            nbc_consts = []
+                        nbc_code_objs = []
+                        _rcf_seen: set = set()
+                        for _c in nbc_consts:
+                            recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
+                        if nbc_code_objs:
+                            for _co in nbc_code_objs:
+                                try:
+                                    clean_bytes = _dump_code_object(_co, target_ver_tuple)
+                                    _pbkdf2_recovered.setdefault(mod_name, []).append(clean_bytes)
+                                except Exception:
+                                    pass
+                            if mod_name in _pbkdf2_recovered:
+                                print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
+                                      f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
+                                      f"code object(s) from NBC stream")
+                                break
         except Exception:
             pass
     if _pbkdf2_recovered:
