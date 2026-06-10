@@ -836,12 +836,8 @@ def _nbc_unpack_single(data, pos):
 
 
 def _nbc_decode_constants_stream(stream_data: bytes, count: int, *, python_version=None, start_pos: int = 0):
-    # Save and restore both last_unpacked and target_python so that nested
-    # calls (e.g. from _nbc_parse_code_object_tag which itself calls
-    # _nbc_unpack_single) do not corrupt the outer call's TLS state.
-    old_last_unpacked = getattr(_nbc_tls, "last_unpacked", None)
-    old_target = getattr(_nbc_tls, "target_python", None) or sys.version_info[:2]
     _nbc_tls.last_unpacked = None
+    old_target = getattr(_nbc_tls, "target_python", None) or sys.version_info[:2]
     _nbc_set_target(python_version or old_target)
     constants = []
     pos = start_pos
@@ -859,7 +855,7 @@ def _nbc_decode_constants_stream(stream_data: bytes, count: int, *, python_versi
                 break
             constants.append(val)
     finally:
-        _nbc_tls.last_unpacked = old_last_unpacked
+        _nbc_tls.last_unpacked = None
         _nbc_set_target(old_target)
     return constants, pos
 
@@ -1115,21 +1111,19 @@ def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
 
     if version_hint is not None and version_hint.endswith("+"):
         # "X.Y+" means minimum version is X.Y, exact unknown.
-        # Probe order: runtime Python first (most reliable — xdis parses its own
-        # version best), then other versions >= X.(Y+1) sorted closest-to-runtime
-        # first, then X.Y itself, then anything below as last resort.
+        # Start probing from X.(Y+1) ascending — probe scoring picks the best match.
         lower_bound = _xdis_version_sort_key(version_hint[:-1])
         next_minor = (lower_bound[0], lower_bound[1] + 1)
-        above_next = [v for v in versions if _xdis_version_sort_key(v) >= next_minor]
-        at_lower = [v for v in versions if _xdis_version_sort_key(v) == lower_bound]
-        below_lower = [v for v in versions if _xdis_version_sort_key(v) < lower_bound]
-        # Sort above_next by distance to runtime, ascending — runtime first
-        above_next_sorted = sorted(
-            above_next,
-            key=lambda v: (abs(_xdis_version_sort_key(v)[1] - runtime_key[1]),
-                           _xdis_version_sort_key(v)),
+        # Versions >= X.(Y+1), sorted ascending (lowest first so probe tries nearest match)
+        above_next = sorted(
+            [v for v in versions if _xdis_version_sort_key(v) >= next_minor],
+            key=_xdis_version_sort_key,
         )
-        return above_next_sorted + at_lower + below_lower
+        # Exact lower bound version (X.Y itself)
+        at_lower = [v for v in versions if _xdis_version_sort_key(v) == lower_bound]
+        # Versions below lower bound as last resort
+        below_lower = [v for v in versions if _xdis_version_sort_key(v) < lower_bound]
+        return above_next + at_lower + below_lower
 
     if version_hint is not None:
         # Exact version hint from blob — honour it, no runtime override
@@ -1297,13 +1291,10 @@ def try_load_code_object(
     return try_detect_code_object(data, offset, magic_int)
 
 
-def detect_version_from_marshal(data: bytes, *, verbose: bool = False) -> str | None:
+def detect_version_from_marshal(data: bytes) -> str | None:
     """
     Probe stable MAJOR.MINOR xdis versions against likely code-object offsets.
     Scores successful parses by richness to avoid false positives.
-
-    Pass verbose=True to print per-call diagnostics (used by the final probe call
-    only - not during the multi-window scan loop).
     """
     version_hint = guess_version_from_marshal_bytes(data)
     candidates = _marshal_candidate_versions(version_hint)
@@ -1333,45 +1324,29 @@ def detect_version_from_marshal(data: bytes, *, verbose: bool = False) -> str | 
     if not scores:
         if version_hint:
             if version_hint.endswith("+"):
-                # "X.Y+" -> use the highest xdis-known version at or above X.(Y+1)
+                # "X.Y+" → use X.(Y+1) directly
                 base = version_hint[:-1]
                 parts = base.split(".")
                 try:
-                    min_minor = int(parts[1]) + 1
-                    higher = [
-                        v for v in by_version
-                        if re.fullmatch(r"\d+\.\d+", v)
-                        and _xdis_version_sort_key(v) >= (int(parts[0]), min_minor)
-                    ]
-                    # Prefer runtime Python version when it is in the valid range —
-                    # avoids picking an unsupported future version (e.g. 3.15) when
-                    # 3.12 (the running interpreter) is perfectly fine.
-                    runtime_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
-                    if runtime_ver in higher:
-                        fallback_ver = runtime_ver
-                    elif higher:
-                        # Closest to runtime
-                        fallback_ver = min(higher, key=lambda v: abs(_xdis_version_sort_key(v)[1] - sys.version_info.minor))
-                    else:
-                        fallback_ver = f"{parts[0]}.{min_minor}"
+                    fallback_ver = f"{parts[0]}.{int(parts[1]) + 1}"
                 except (IndexError, ValueError):
                     fallback_ver = base
-                if verbose:
-                    print(f"[*] Version structural hint: {version_hint} -> {fallback_ver}")
+                print(f"[*] Version structural hint: {version_hint} -> {fallback_ver}")
                 return fallback_ver
             else:
-                if verbose:
-                    print(f"[*] Version structural hint: {version_hint} -> {version_hint}")
+                print(f"[*] Version structural hint: {version_hint} -> {version_hint}")
                 return version_hint
         return None
 
-    # Tie-break: highest score wins; when equal prefer HIGHEST version.
-    # Blobs tagged with \xf3 are 3.11+ and must not be demoted to 3.9.
-    best = max(scores, key=lambda v: (scores[v], _xdis_version_sort_key(v)))
-    if verbose:
-        top5 = sorted(scores.items(), key=lambda x: (-x[1], _xdis_version_sort_key(x[0])))[:5]
-        print(f"[*] Version probe scores (top 5): {top5}")
+    # Tie-break: highest score wins; when scores are equal prefer the LOWEST
+    # version (conservative) to avoid false-positive promotion to 3.11+ for
+    # blobs that have identical co_consts/co_varnames counts across versions.
+    best = max(scores, key=lambda v: (scores[v], tuple(-x for x in _xdis_version_sort_key(v))))
+    top5 = sorted(scores.items(), key=lambda x: (-x[1], _xdis_version_sort_key(x[0])))[:5]
+    print(f"[*] Version probe scores (top 5): {top5}")
     return best
+
+
 # ============================================================================
 # FILENAME HELPERS
 # ============================================================================
@@ -1995,7 +1970,6 @@ def process_section(
     generate_omni_source,
     generate_omni_nbc,
     emit_pyc: bool = True,
-    generate_omni_artifact=None,
 ) -> tuple[int, int, int, list[str]]:
     clean_section = sanitize_filename(section_name).replace("/", "_").replace(".", "_").strip("_") or "section"
     # Cap at 80 characters — safe ceiling for long binary-garbage section names
@@ -2031,27 +2005,12 @@ def process_section(
             omp = OmniDecompiler()
             omp.run_pass_1_structural_mapping(omni_items)
             omp.run_pass_2_ast_synthesis()
-
-            # Prefer generate_omni_artifact (returns OmniModuleArtifact with strategy)
-            # so we can route encrypted-payload modules to omni_decryptable/.
-            if generate_omni_artifact is not None:
-                artifact = generate_omni_artifact(
-                    omp,
-                    section_name,
-                    raw_constants=list(omni_items),
-                    python_version=target_ver_tuple,
-                )
-                source = artifact.source
-                _strategy = artifact.strategy or ""
-            else:
-                source = generate_omni_source(
-                    omp,
-                    section_name,
-                    raw_constants=list(omni_items),
-                    python_version=target_ver_tuple,
-                )
-                _strategy = ""
-
+            source = generate_omni_source(
+                omp,
+                section_name,
+                raw_constants=list(omni_items),
+                python_version=target_ver_tuple,
+            )
             if source.strip():
                 if generate_omni_nbc:
                     nbc_text = generate_omni_nbc(
@@ -2064,14 +2023,7 @@ def process_section(
                 _ascii_sn = re.sub(r"_+", "_", _ascii_sn).strip("_.")[:48]
                 _hash_sn = hashlib.sha1(_raw_sn).hexdigest()[:8]
                 safe_name = f"{_ascii_sn}_{_hash_sn}" if _ascii_sn else f"section_{_hash_sn}"
-
-                # Route encrypted-payload modules to a dedicated subdirectory so
-                # analysts can quickly find all stubs with embedded ciphertexts.
-                if "encrypted-payload" in _strategy:
-                    omni_out = out_dir / "omni_decryptable"
-                else:
-                    omni_out = out_dir / "omni_reconstructed"
-
+                omni_out = out_dir / "omni_reconstructed"
                 target_py_path = _write_bytes_unique(
                     omni_out / f"{safe_name}.py", source.encode("utf-8")
                 )
@@ -2250,35 +2202,30 @@ def extract_blob(
         print(f"[*] Target Python version : {target_ver_str} (from args)")
     else:
         print("[*] No target version specified, probing for Python version...")
-        # Phase 1: fast structural hints from up to 512 tag offsets
-        # (no xdis parse — just byte-level struct inspection, very cheap).
-        _hint_vers: list[str] = []
-        _hint_offsets: list[int] = []
-        _scan_pos = 0
-        _scan_limit = 512
-        while len(_hint_offsets) < _scan_limit:
-            _off = MARSHAL_VERSION_HINT_TAG_PATTERN.search(raw, _scan_pos)
-            if _off is None:
-                break
-            _hint = guess_version_from_marshal_bytes(raw[_off.start():_off.start() + 256])
-            if _hint:
-                _hint_vers.append(_hint)
-                _hint_offsets.append(_off.start())
-            _scan_pos = _off.start() + 1
-
-        # Phase 2: pick the window with the highest structural hint and run a
-        # single full xdis probe on it.
         probe_detected = None
-        if _hint_offsets:
-            _best_hint = max(_hint_vers, key=lambda h: _xdis_version_sort_key(h.rstrip("+")) if h else (0, 0))
-            _best_off = _hint_offsets[_hint_vers.index(_best_hint)]
-            probe_detected = detect_version_from_marshal(raw[_best_off : _best_off + 65536], verbose=True)
-            if probe_detected not in by_version:
-                probe_detected = None
-            unique_hints = sorted(set(_hint_vers))
-            print(f"[*] Structural hints found : {unique_hints}  (best: {_best_hint})")
 
-        _all_probe_vers = [probe_detected] if probe_detected else []
+        # Strategy 1: marshal code object probe — try ALL tag offsets, pick best
+        if not probe_detected:
+            _best_probe_ver: str | None = None
+            _best_probe_score: int = -1
+            for tag in MARSHAL_VERSION_HINT_TAGS:
+                _start = 0
+                while True:
+                    _off = raw.find(tag, _start)
+                    if _off == -1:
+                        break
+                    _ver = detect_version_from_marshal(raw[_off : _off + 65536])
+                    if _ver:
+                        # detect_version_from_marshal returns the best-scored version
+                        # for this window; keep the one from the highest-confidence window
+                        # (first successful match is already the best within the window)
+                        if _best_probe_ver is None:
+                            _best_probe_ver = _ver
+                            _best_probe_score = 1
+                        _start = _off + 1
+                        break  # one good match per tag is enough
+                    _start = _off + 1
+            probe_detected = _best_probe_ver
 
         if probe_detected and probe_detected in by_version:
             target_ver_str = probe_detected
@@ -2298,21 +2245,15 @@ def extract_blob(
     print(f"[*] Running Python        : {sys.version_info.major}.{sys.version_info.minor}")
 
     try:
-        from .omni_nuitka_framework import OmniDecompiler, generate_omni_source, generate_omni_nbc, generate_omni_artifact, _nbc_set_target as _omni_set_target
+        from .omni_nuitka_framework import OmniDecompiler, generate_omni_source, generate_omni_nbc
     except ImportError:
         try:
-            from omni_nuitka_framework import OmniDecompiler, generate_omni_source, generate_omni_nbc, generate_omni_artifact, _nbc_set_target as _omni_set_target
+            from omni_nuitka_framework import OmniDecompiler, generate_omni_source, generate_omni_nbc
         except ImportError:
             print("[!] Warning: omni_nuitka_framework.py missing. Bytecode extraction only.")
             OmniDecompiler = None
             generate_omni_source = None
             generate_omni_nbc = None
-            generate_omni_artifact = None
-            _omni_set_target = None
-
-    if _omni_set_target is not None:
-        _omni_set_target(target_ver_tuple)
-        print(f"[*] OMNI target version   : {target_ver_str}")
 
     # -------------------------------------------------------------------------
     # Decode sections
@@ -2444,7 +2385,6 @@ def extract_blob(
                     generate_omni_source,
                     generate_omni_nbc,
                     emit_pyc,
-                    generate_omni_artifact,
                 )
                 for section_name, items in work_items
             ]
