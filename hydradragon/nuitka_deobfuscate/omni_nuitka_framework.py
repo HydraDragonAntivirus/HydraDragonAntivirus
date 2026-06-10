@@ -24,6 +24,7 @@ from typing import Any, Iterable, Iterator
 import struct
 from Crypto.Cipher import AES
 
+
 # ---------------------------------------------------------------------------
 # Nuitka packed-signature tags
 # ---------------------------------------------------------------------------
