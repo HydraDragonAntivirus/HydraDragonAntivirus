@@ -937,6 +937,39 @@ def _nbc_extract_all_strings(constants: list, *, max_depth: int = 25) -> list:
 def _is_live_code_object(value) -> bool:
     return type(value).__name__ == "code" or type(value).__name__.startswith("Code") or hasattr(value, "co_code") or hasattr(value, "co_code_adaptive")
 
+# ============================================================================
+# HEURISTIC HINT (NO AUTHORITY)
+# ============================================================================
+
+def guess_version_from_marshal_bytes(data: bytes) -> str | None:
+    if not data or data[0:1] not in (b"\xe3", b"\x63", b"\xf3"):
+        return None
+
+    if data[0:1] == b"\xf3":
+        return "3.11+"
+
+    if len(data) < 25:
+        return None
+
+    try:
+        argcount = struct.unpack_from("<I", data, 1)[0]
+        kwonlycount = struct.unpack_from("<I", data, 9)[0]
+        stacksize = struct.unpack_from("<I", data, 17)[0]
+        flags = struct.unpack_from("<I", data, 21)[0]
+
+        if argcount > 255 or kwonlycount > 255 or stacksize > 65535:
+            return "3.7"
+
+        if flags & 0x0200:
+            return "3.6"
+
+        if flags & 0x0100 and not (flags & 0x0200):
+            return "3.8"
+
+        return "3.8+"
+
+    except Exception:
+        return None
 
 def _iter_marshaled_bytecode_payloads(
     value,
@@ -1058,76 +1091,23 @@ def _xdis_version_sort_key(version: str) -> tuple[int, int]:
     return int(major), int(minor)
 
 
-def guess_version_from_marshal_bytes(data: bytes) -> str | None:
-    """
-    Guess Python version from raw marshal code object bytes
-    by reading structural fields directly, without full parsing.
-    """
-    if not data or data[0:1] not in (b"\xe3", b"\x63", b"\xf3"):
-        return None
-
-    if data[0:1] == b"\xf3":
-        return "3.11+"
-
-    if len(data) < 25:
-        return None
-
-    try:
-        argcount = struct.unpack_from("<I", data, 1)[0]
-        posonlycount = struct.unpack_from("<I", data, 5)[0]
-        kwonlycount = struct.unpack_from("<I", data, 9)[0]
-        nlocals = struct.unpack_from("<I", data, 13)[0]
-        stacksize = struct.unpack_from("<I", data, 17)[0]
-        flags = struct.unpack_from("<I", data, 21)[0]
-
-        if argcount > 255 or kwonlycount > 255 or stacksize > 65535:
-            kwonlycount2 = struct.unpack_from("<I", data, 5)[0]
-            nlocals2 = struct.unpack_from("<I", data, 9)[0]
-            flags2 = struct.unpack_from("<I", data, 17)[0]
-            if kwonlycount2 <= 255 and nlocals2 <= 65535 and flags2 >= 0:
-                return "3.7"
-
-        if flags & 0x0200:
-            lower_bound = "3.6"
-        else:
-            lower_bound = "3.5"
-
-        if posonlycount <= argcount and stacksize <= 65535 and nlocals <= 65535:
-            if flags & 0x0100 and not (flags & 0x0200):
-                return "3.8"
-            return "3.8+"
-
-        return lower_bound
-    except Exception:
-        return None
-
+# ============================================================================
+# VERSION UNIVERSE (ORDERED, PURE)
+# ============================================================================
 
 def _marshal_candidate_versions(version_hint: str | None) -> list[str]:
     versions = sorted(
-        {version for version in by_version if re.fullmatch(r"\d+\.\d+", version) and _xdis_version_sort_key(version) >= (3, 5)},
+        {
+            v for v in by_version
+            if re.fullmatch(r"\d+\.\d+", v)
+            and _xdis_version_sort_key(v) >= (3, 5)
+        },
         key=_xdis_version_sort_key,
         reverse=True,
     )
 
-    runtime_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    if runtime_version in versions:
-        runtime_key = _xdis_version_sort_key(runtime_version)
-        lower_or_equal = [version for version in versions if version != runtime_version and _xdis_version_sort_key(version) <= runtime_key]
-        higher = [version for version in versions if _xdis_version_sort_key(version) > runtime_key]
-        versions = [runtime_version] + lower_or_equal + higher
-
-    if version_hint is None:
-        return versions
-
-    if version_hint.endswith("+"):
-        lower_bound = _xdis_version_sort_key(version_hint[:-1])
-        prioritized = [version for version in versions if _xdis_version_sort_key(version) >= lower_bound]
-        fallback = [version for version in versions if _xdis_version_sort_key(version) < lower_bound]
-        return prioritized + fallback
-
-    if version_hint in versions:
-        return [version_hint] + [version for version in versions if version != version_hint]
-
+    # runtime artık ORDERING değiştirmez
+    # sadece debug/trace amaçlı tutulur
     return versions
 
 
@@ -1250,48 +1230,51 @@ def try_load_code_object(
         return None
     return try_detect_code_object(data, offset, magic_int)
 
+# ============================================================================
+# FINAL DECISION ENGINE (ARGMAX ONLY)
+# ============================================================================
 
 def detect_version_from_marshal(data: bytes) -> str | None:
-    """
-    Probe stable MAJOR.MINOR xdis versions against likely code-object offsets.
-    Scores successful parses by richness to avoid false positives.
-    """
     version_hint = guess_version_from_marshal_bytes(data)
+
     candidates = _marshal_candidate_versions(version_hint)
-    probe_offsets = [match.start() for match in MARSHAL_VERSION_HINT_TAG_PATTERN.finditer(data)]
+
+    probe_offsets = [
+        match.start()
+        for match in MARSHAL_VERSION_HINT_TAG_PATTERN.finditer(data)
+    ]
+
     if not probe_offsets and data[:1] in MARSHAL_VERSION_HINT_TAGS:
         probe_offsets = [0]
+
     if not probe_offsets:
-        return None
+        return version_hint  # last resort only
 
     scores = {}
 
     for ver in candidates:
         magic_int = get_magic_int(ver)
         best_score = 0
+
         for offset in probe_offsets[:128]:
             obj = try_detect_code_object(data, offset, magic_int)
             if obj is None:
                 continue
+
             best_score = max(best_score, score_code_object(obj))
-            if best_score >= 4:
-                break
 
         if best_score > 0:
+            # soft hint bias ONLY (no structural change)
+            if version_hint:
+                if ver == version_hint:
+                    best_score += 0.25
+
             scores[ver] = best_score
 
     if not scores:
-        if version_hint:
-            fallback_versions = _marshal_candidate_versions(version_hint)
-            if fallback_versions:
-                print(f"[*] Version structural hint: {version_hint} -> {fallback_versions[0]}")
-                return fallback_versions[0]
-        return None
+        return version_hint
 
-    best = max(scores, key=lambda v: scores[v])
-    top5 = sorted(scores.items(), key=lambda x: -x[1])[:5]
-    print(f"[*] Version probe scores (top 5): {top5}")
-    return best
+    return max(scores, key=scores.get)
 
 
 # ============================================================================
