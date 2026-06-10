@@ -3858,6 +3858,7 @@ def _try_decompile_plain_bytes_constants(
             import io as _io_inner
             import tempfile as _tempfile_inner
             import os as _os_inner
+            import marshal as _marshal_write
             import importlib.util as _ilu_inner
             _ver = python_version or sys.version_info[:2]
             # Write a minimal .pyc (magic + 12-byte header + raw marshal bytes)
@@ -3901,6 +3902,7 @@ def _try_decompile_plain_bytes_constants(
         })
 
     return results
+
 
 
 def _redact_marshaled_bytecode_constants(
