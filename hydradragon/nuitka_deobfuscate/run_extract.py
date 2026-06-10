@@ -473,6 +473,20 @@ class PBKDF2AESBypass:
     # (The 4-byte size prefix appears only in the DECRYPTED data, not the encrypted blob)
     ENC_HEADER_SIZE = 16 + 16
 
+    def __init__(self):
+        self._aes_available = self._check_aes()
+
+    def _check_aes(self):
+        """Check if AES is available via pycryptodome."""
+        try:
+            from Crypto.Cipher import AES
+            return True
+        except ImportError:
+            return False
+
+    def has_aes(self) -> bool:
+        return self._aes_available
+
     @staticmethod
     def detect_pbkdf2_pattern(constants: list) -> bool:
         """Scan decoded NBC constants for the PBKDF2+AES-CBC signature.
@@ -577,141 +591,6 @@ class PBKDF2AESBypass:
         return candidates[0] if candidates else None
 
     @staticmethod
-    def find_salt_in_constants(constants: list,
-                                exclude: bytes | None = None) -> bytes | None:
-        """Find the PBKDF2 salt bytes within the decoded NBC constants.
-
-        The salt is stored as a separate bytes value (typically 16-64 bytes)
-        alongside the encrypted payload in Nuitka Commercial modules.
-        Excludes the large ciphertext payload via the `exclude` parameter.
-        """
-        candidates: list[bytes] = []
-
-        def _walk(v, depth=0):
-            if depth > 20:
-                return
-            if isinstance(v, (bytes, bytearray)):
-                b = bytes(v)
-                if exclude is not None and b == exclude:
-                    return
-                if 16 <= len(b) <= 64:
-                    candidates.append(b)
-                return
-            if isinstance(v, (list, tuple)):
-                for item in v:
-                    _walk(item, depth + 1)
-                return
-            if isinstance(v, dict):
-                for val in v.values():
-                    _walk(val, depth + 1)
-                return
-            if isinstance(v, (set, frozenset)):
-                for item in v:
-                    _walk(item, depth + 1)
-
-        for c in constants:
-            _walk(c, 0)
-
-        candidates.sort(key=lambda x: -len(x))
-        return candidates[0] if candidates else None
-
-    @staticmethod
-    def extract_password_candidates_from_constants(constants: list) -> list[bytes]:
-        """Extract likely password candidates from module constants.
-
-        In Nuitka Commercial, the PBKDF2 password is stored as a string or
-        bytes literal in the same module's NBC constant stream (the
-        decryption stub module). Walk all constants and collect printable
-        strings and bytes values that could be the password.
-        """
-        candidates: list[bytes] = []
-        seen = set()
-
-        def _walk(v, depth=0):
-            if depth > 20:
-                return
-            if isinstance(v, str):
-                if 4 <= len(v) <= 128 and v.isprintable():
-                    b = v.encode('utf-8')
-                    if b not in seen:
-                        seen.add(b)
-                        candidates.append(b)
-                return
-            if isinstance(v, bytes):
-                if 4 <= len(v) <= 128 and v not in seen:
-                    seen.add(v)
-                    candidates.append(v)
-                return
-            if isinstance(v, (list, tuple)):
-                for item in v:
-                    _walk(item, depth + 1)
-                return
-            if isinstance(v, dict):
-                for val in v.values():
-                    _walk(val, depth + 1)
-                return
-            if isinstance(v, (set, frozenset)):
-                for item in v:
-                    _walk(item, depth + 1)
-                return
-
-        for c in constants:
-            _walk(c, 0)
-
-        return candidates
-
-    @staticmethod
-    def generate_path_based_candidates(mod_name: str) -> list[bytes]:
-        """Generate password candidates from the module's dotted name hierarchy.
-
-        Nuitka Commercial derives the PBKDF2 password from the module file's
-        directory path (_here = dirname(abspath(__file__))). The auto_disassemble
-        logic tries several derivations: b'', _here.encode(),
-        basename(_here).encode(), abspath(_here).encode().
-
-        By splitting the dotted module name (e.g. "Features.Aimbot") into path
-        components, we can reconstruct likely _here and basename values.
-        """
-        candidates: list[bytes] = []
-        seen: set[bytes] = set()
-
-        # The empty password is one of the auto_disassemble candidates
-        candidates.append(b'')
-        seen.add(b'')
-
-        parts = mod_name.split('.')
-        # Each component as a standalone candidate (possible basename)
-        for part in parts:
-            b = part.encode('utf-8')
-            if b not in seen and 1 <= len(b) <= 128:
-                seen.add(b)
-                candidates.append(b)
-
-        # Full dotted name
-        full_dotted = mod_name.encode('utf-8')
-        if full_dotted not in seen and len(full_dotted) <= 128:
-            seen.add(full_dotted)
-            candidates.append(full_dotted)
-
-        # Path-like: parts joined by backslash (e.g. Features\Aimbot)
-        for i in range(len(parts)):
-            sub_path = '\\'.join(parts[i:])
-            b = sub_path.encode('utf-8')
-            if b not in seen and len(b) <= 128:
-                seen.add(b)
-                candidates.append(b)
-
-        # For each prefix of the path (parent directories)
-        for i in range(1, len(parts)):
-            prefix = '\\'.join(parts[:i])
-            b = prefix.encode('utf-8')
-            if b not in seen and len(b) <= 128:
-                seen.add(b)
-                candidates.append(b)
-
-        return candidates
-
-    @staticmethod
     def is_pbkdf2_encrypted_blob(blob_data: bytes) -> bool:
         """Check if a raw blob appears to be PBKDF2+AES-CBC encrypted.
 
@@ -734,76 +613,218 @@ class PBKDF2AESBypass:
             return False
 
     def try_decrypt(self, encrypted_payload: bytes, password: bytes,
-                    salt: bytes | None = None,
                     iterations: int = DEFAULT_ITERATIONS,
                     dklen: int = DEFAULT_DKLEN) -> bytes | None:
         """Attempt PBKDF2 key derivation + AES-CBC decryption.
 
-        Salt is stored as a separate bytes constant in the module.
-        Tries multiple payload layouts since the exact internal structure
-        of the ciphertext blob depends on the Nuitka version.
+        Expected payload format (recovered from NBC constants):
+            [16 bytes: AES IV]
+            [16 bytes: PBKDF2 salt]
+            [rest: AES-CBC encrypted data (aligned to 16)]
+
+        Also supports:
+            [4 bytes LE: size of decrypted data]
+            [16 bytes: AES IV]
+            [16 bytes: PBKDF2 salt]
+            [rest: AES-CBC encrypted data (aligned to 16)]
 
         Returns decrypted bytes on success, None on failure.
         """
-        if len(encrypted_payload) < 4:
-            return None
-        if salt is None:
+        if len(encrypted_payload) < self.ENC_HEADER_SIZE:
             return None
 
         data = encrypted_payload
 
-        # Try several possible layouts for the payload blob.
-        # Each layout is (iv_offset, enc_offset, use_seed):
-        #   iv_offset   – bytes to read for IV (or IV seed)
-        #   enc_offset  – byte offset where encrypted data starts
-        #   use_seed    – if True, first 4 bytes at iv_offset are uint32-LE seed
-        layouts = [
-            (0, 4, True),    # new format: [4 seed][metadata][enc] from stub
-            (0, 16, False),  # old format: [16 IV][enc] (enc aligned if %16==0)
-            (0, 0, False),   # entire blob is enc data (zero IV)
-        ]
+        # Try format without 4-byte size prefix first (IV + salt + enc)
+        iv = data[:16]
+        salt = data[16:32]
+        enc_data = data[32:]
 
-        for iv_off, enc_off, use_seed in layouts:
-            if enc_off > len(data):
-                continue
-            enc_data = data[enc_off:]
-            if len(enc_data) == 0:
-                continue
-            if len(enc_data) % self.AES_BLOCK_SIZE != 0:
-                continue
-            if use_seed:
-                if iv_off + 4 > len(data):
-                    continue
-                iv_seed = struct.unpack('<I', data[iv_off:iv_off + 4])[0]
-                iv = iv_seed.to_bytes(16, 'little')
-            else:
-                if iv_off + 16 > len(data):
-                    continue
-                iv = data[iv_off:iv_off + 16]
-            result = self._do_decrypt(enc_data, iv, salt, password, iterations, dklen)
-            if result is not None and len(result) > 16:
-                return result
+        # Check if this looks like it has a 4-byte size prefix
+        # (data[0:4] could be a size field, data[4:20] is IV, data[20:36] is salt)
+        if len(data) >= 36 and len(enc_data) % self.AES_BLOCK_SIZE != 0:
+            # Try with 4-byte size prefix
+            dec_size_hint = struct.unpack('<I', data[:4])[0]
+            alt_iv = data[4:20]
+            alt_salt = data[20:36]
+            alt_enc = data[36:]
+            if len(alt_enc) > 0 and len(alt_enc) % self.AES_BLOCK_SIZE == 0:
+                result = self._do_decrypt(alt_enc, alt_iv, alt_salt, password, iterations, dklen)
+                if result is not None:
+                    return result
 
-        return None
+        if len(enc_data) == 0 or len(enc_data) % self.AES_BLOCK_SIZE != 0:
+            return None
+
+        return self._do_decrypt(enc_data, iv, salt, password, iterations, dklen)
 
     def _do_decrypt(self, enc_data: bytes, iv: bytes, salt: bytes,
                      password: bytes, iterations: int, dklen: int) -> bytes | None:
-        """Internal: PBKDF2 + AES-CBC decryption via pycryptodome."""
+        """Internal: PBKDF2 + AES-CBC decryption with PKCS7 unpadding."""
         try:
-            from Crypto.Cipher import AES
             key = hashlib.pbkdf2_hmac(
                 self.DEFAULT_HASH, password, salt, iterations, dklen=dklen
             )
-            cipher = AES.new(key, AES.MODE_CBC, iv)
-            plain = bytearray(cipher.decrypt(enc_data))
-            if len(plain) > 0:
-                pad_len = plain[-1]
-                if 1 <= pad_len <= self.AES_BLOCK_SIZE:
-                    if all(b == pad_len for b in plain[-pad_len:]):
-                        return bytes(plain[:-pad_len])
-            return bytes(plain)
+            if self._aes_available:
+                from Crypto.Cipher import AES
+                cipher = AES.new(key, AES.MODE_CBC, iv)
+                plain = cipher.decrypt(enc_data)
+            else:
+                plain = self._aes_cbc_decrypt(enc_data, key, iv)
+
+            pad_len = plain[-1]
+            if 1 <= pad_len <= self.AES_BLOCK_SIZE:
+                if all(b == pad_len for b in plain[-pad_len:]):
+                    plain = plain[:-pad_len]
+            return plain
         except Exception:
             return None
+
+    def _aes_cbc_decrypt(self, data: bytes, key: bytes, iv: bytes) -> bytes:
+        """Pure-Python AES-CBC decryption (fallback when pycryptodome is absent)."""
+        expanded_key = self._aes_key_expansion(key)
+        plain = bytearray()
+        prev = iv
+        for i in range(0, len(data), 16):
+            block = data[i:i + 16]
+            decrypted = self._aes_decrypt_block(block, expanded_key)
+            xored = bytes(a ^ b for a, b in zip(decrypted, prev))
+            plain.extend(xored)
+            prev = block
+        return bytes(plain)
+
+    @staticmethod
+    def _aes_key_expansion(key: bytes) -> list[list[int]]:
+        """AES-128 key expansion (10 rounds, 4 words each)."""
+        s_box = (
+            0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+            0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+            0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
+            0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
+            0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
+            0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+            0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
+            0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
+            0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
+            0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+            0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
+            0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
+            0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+            0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
+            0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
+            0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
+        )
+        rcon = (0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36)
+
+        nk = 4
+        nr = 10
+        nb = 4
+
+        w = [[0] * 4 for _ in range(nb * (nr + 1))]
+        for i in range(nk):
+            w[i] = [key[4 * i], key[4 * i + 1], key[4 * i + 2], key[4 * i + 3]]
+
+        for i in range(nk, nb * (nr + 1)):
+            temp = list(w[i - 1])
+            if i % nk == 0:
+                temp = temp[1:] + temp[:1]
+                temp = [s_box[b] for b in temp]
+                temp[0] ^= rcon[i // nk - 1]
+            elif nk > 6 and i % nk == 4:
+                temp = [s_box[b] for b in temp]
+            w[i] = [w[i - nk][j] ^ temp[j] for j in range(4)]
+
+        return w
+
+    @staticmethod
+    def _aes_decrypt_block(block: bytes, w: list[list[int]]) -> bytes:
+        """AES-128 decrypt a single 16-byte block (pure Python)."""
+        inv_s_box = (
+            0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
+            0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
+            0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
+            0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25,
+            0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92,
+            0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84,
+            0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06,
+            0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b,
+            0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73,
+            0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e,
+            0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b,
+            0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4,
+            0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f,
+            0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef,
+            0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
+            0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d,
+        )
+
+        state = [[0] * 4 for _ in range(4)]
+        for r in range(4):
+            for c in range(4):
+                state[r][c] = block[r + 4 * c]
+
+        def xor_state(s, rk):
+            for r in range(4):
+                for c in range(4):
+                    s[r][c] ^= rk[r][c]
+
+        def get_round_key(round_idx):
+            base = round_idx * 4
+            return [
+                [w[base + c][r] for c in range(4)]
+                for r in range(4)
+            ]
+
+        def inv_sub_bytes(s):
+            for r in range(4):
+                for c in range(4):
+                    s[r][c] = inv_s_box[s[r][c]]
+
+        def inv_shift_rows(s):
+            s[1] = [s[1][3], s[1][0], s[1][1], s[1][2]]
+            s[2] = [s[2][2], s[2][3], s[2][0], s[2][1]]
+            s[3] = [s[3][1], s[3][2], s[3][3], s[3][0]]
+
+        def inv_mix_columns(s):
+            for c in range(4):
+                a = [s[i][c] for i in range(4)]
+                s[0][c] = mul(a[0], 14) ^ mul(a[1], 11) ^ mul(a[2], 13) ^ mul(a[3], 9)
+                s[1][c] = mul(a[0], 9) ^ mul(a[1], 14) ^ mul(a[2], 11) ^ mul(a[3], 13)
+                s[2][c] = mul(a[0], 13) ^ mul(a[1], 9) ^ mul(a[2], 14) ^ mul(a[3], 11)
+                s[3][c] = mul(a[0], 11) ^ mul(a[1], 13) ^ mul(a[2], 9) ^ mul(a[3], 14)
+
+        nr = 10
+        xor_state(state, get_round_key(nr))
+
+        for rnd in range(nr - 1, 0, -1):
+            inv_shift_rows(state)
+            inv_sub_bytes(state)
+            xor_state(state, get_round_key(rnd))
+            inv_mix_columns(state)
+
+        inv_shift_rows(state)
+        inv_sub_bytes(state)
+        xor_state(state, get_round_key(0))
+
+        result = bytearray(16)
+        for r in range(4):
+            for c in range(4):
+                result[r + 4 * c] = state[r][c]
+        return bytes(result)
+
+
+def mul(a, b):
+    """Galois Field (2^8) multiplication used by AES MixColumns."""
+    p = 0
+    for _ in range(8):
+        if b & 1:
+            p ^= a
+        hi = a & 0x80
+        a = (a << 1) & 0xFF
+        if hi:
+            a ^= 0x1b
+        b >>= 1
+    return p
 
 
 def _is_plausible_module_name(name: str) -> bool:
@@ -2619,90 +2640,11 @@ def extract_blob(
                 print(f"[*] PBKDF2+AES-CBC pattern detected in module: {mod_name}")
                 enc_payload = PBKDF2AESBypass.find_encrypted_payload(constants)
                 if enc_payload:
-                    # Extract the PBKDF2 salt from the module's constants.
-                    # Nuitka Commercial stores the salt as a separate bytes
-                    # value (typically 32 bytes) alongside the ciphertext.
-                    salt = PBKDF2AESBypass.find_salt_in_constants(constants, exclude=enc_payload)
-                    if salt:
-                        print(f"    [*] Found salt: {salt.hex()[:32]}... ({len(salt)} bytes)")
-                    else:
-                        print(f"    [!] No salt found in constants, will try embedded fallback")
-                    # Extract candidate passwords from the module's own constants.
-                    pw_candidates = PBKDF2AESBypass.extract_password_candidates_from_constants(constants)
-                    print(f"    [*] Extracted {len(pw_candidates)} password candidate(s) from module constants")
-                    for pw in pw_candidates:
-                        decrypted = _pbkdf2_bypass.try_decrypt(enc_payload, pw, salt=salt)
-                        if not decrypted or len(decrypted) <= 16:
-                            continue
-
-                        # Verify: parse decrypted output and look for code objects.
-                        # NBC parse alone can false-positive on garbage (first 2 bytes
-                        # as constant count is ~76% likely to pass). Only accept when
-                        # actual code objects are found.
-                        try:
-                            nbc_consts = _nbc_parse_module_constants(
-                                decrypted, python_version=target_ver_tuple
-                            )
-                        except Exception:
-                            nbc_consts = []
-                        if not nbc_consts:
-                            continue
-
-                        nbc_code_objs = []
-                        _rcf_seen: set = set()
-                        for _c in nbc_consts:
-                            recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
-
-                        if not nbc_code_objs:
-                            continue  # false positive from NBC parse on garbage
-
-                        payloads: list[bytes] = []
-                        for _co in nbc_code_objs:
-                            try:
-                                payloads.append(_dump_code_object(_co, target_ver_tuple))
-                            except Exception:
-                                pass
-                        if payloads:
-                            _pbkdf2_recovered[mod_name] = payloads
-                            print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                  f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
-                                  f"code object(s) from NBC stream")
-                            break
-
-                    if mod_name not in _pbkdf2_recovered:
-                        # Path-based candidates derived from module name hierarchy
-                        path_pw_candidates = PBKDF2AESBypass.generate_path_based_candidates(mod_name)
-                        print(f"    [*] Trying {len(path_pw_candidates)} path-based password candidate(s)")
-                        for pw in path_pw_candidates:
-                            decrypted = _pbkdf2_bypass.try_decrypt(enc_payload, pw, salt=salt)
-                            if not decrypted or len(decrypted) <= 16:
-                                continue
-                            try:
-                                nbc_consts = _nbc_parse_module_constants(
-                                    decrypted, python_version=target_ver_tuple
-                                )
-                            except Exception:
-                                nbc_consts = []
-                            if not nbc_consts:
-                                continue
-                            nbc_code_objs = []
-                            _rcf_seen: set = set()
-                            for _c in nbc_consts:
-                                recursive_find_code(_c, nbc_code_objs, _rcf_seen, magic_int)
-                            if not nbc_code_objs:
-                                continue
-                            payloads: list[bytes] = []
-                            for _co in nbc_code_objs:
-                                try:
-                                    payloads.append(_dump_code_object(_co, target_ver_tuple))
-                                except Exception:
-                                    pass
-                            if payloads:
-                                _pbkdf2_recovered[mod_name] = payloads
-                                print(f"[+] PBKDF2 decryption succeeded for {mod_name} "
-                                      f"(password: {pw!r}), extracted {len(nbc_code_objs)} "
-                                      f"code object(s) from NBC stream")
-                                break
+                    # PBKDF2+AES-CBC cannot be brute-forced — password guessing is futile.
+                    # The key material must be extracted from the PE binary.
+                    # Skip this module; it will remain in its encrypted form.
+                    print(f"    [!] Module {mod_name} is PBKDF2+AES-CBC encrypted. "
+                          f"Cannot decrypt without the PE binary key material. Skipping.")
         except Exception:
             pass
     if _pbkdf2_recovered:
