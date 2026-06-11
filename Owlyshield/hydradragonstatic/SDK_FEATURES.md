@@ -213,7 +213,7 @@ SDK-style threat naming from matched signatures:
 use hydradragonstatic::{scan_path, ScanOptions, models::*};
 
 let options = ScanOptions {
-    max_file_size: Some(128 * 1024 * 1024),
+    max_file_size: Some(2048 * 1024 * 1024),
     core_options: CoreInitOptions {
         enable_heuristics: true,
         enable_behavioral: true,

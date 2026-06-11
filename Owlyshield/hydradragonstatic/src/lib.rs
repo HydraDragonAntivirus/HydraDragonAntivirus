@@ -34,7 +34,7 @@ pub struct ScanOptions {
 impl Default for ScanOptions {
     fn default() -> Self {
         Self {
-            max_file_size: Some(128 * 1024 * 1024),
+            max_file_size: Some(2048 * 1024 * 1024),
             profile_rules: false,
             parallel_rules: false,
             stop_on_detection: false,

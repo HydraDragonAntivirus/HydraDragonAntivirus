@@ -27,7 +27,6 @@ dependencies = [
     "debloat",
     "cryptography",
     "capstone",
-    "r2pipe",
     "pyzipper",
     "evbunpack",
     "unicorn",

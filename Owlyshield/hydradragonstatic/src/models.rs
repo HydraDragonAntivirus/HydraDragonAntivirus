@@ -133,7 +133,7 @@ pub struct UnpackConfig {
 impl Default for UnpackConfig {
     fn default() -> Self {
         Self {
-            max_archive_size: 100 * 1024 * 1024, // 100 MB
+            max_archive_size: 2048 * 1024 * 1024, // 2 GB
             max_archive_depth: 5,
             enable_archives: true,
             enable_installers: false,
