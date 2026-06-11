@@ -219,7 +219,7 @@ fn finalize_report_metadata(report: &mut ScanReport, rules: &RuleSet) {
     report.statistics.infections_found = report
         .findings
         .iter()
-        .filter(|finding| finding.verdict == Verdict::Malware)
+        .filter(|finding| finding.verdict == Verdict::Malware || finding.verdict == Verdict::Pua)
         .count() as u32;
     report.statistics.suspicious_found = report
         .findings

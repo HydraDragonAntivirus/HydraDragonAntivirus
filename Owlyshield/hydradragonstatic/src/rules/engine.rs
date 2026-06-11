@@ -2380,6 +2380,12 @@ pub fn aggregate_verdict(report: &mut ScanReport) {
     } else if report
         .findings
         .iter()
+        .any(|f| f.verdict == Verdict::Pua)
+    {
+        Verdict::Pua
+    } else if report
+        .findings
+        .iter()
         .any(|f| f.verdict == Verdict::Suspicious)
     {
         Verdict::Suspicious

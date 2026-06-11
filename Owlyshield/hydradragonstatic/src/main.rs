@@ -66,15 +66,18 @@ impl FpRemoveSelector {
                 "suspicious" | "sus" => {
                     verdicts.insert(Verdict::Suspicious);
                 }
+                "pua" | "unwanted" => {
+                    verdicts.insert(Verdict::Pua);
+                }
                 "malware" | "virus" | "malicious" => {
                     verdicts.insert(Verdict::Malware);
                 }
                 "all" | "any" => {
                     severities.extend([Severity::Info, Severity::Low, Severity::Medium, Severity::High, Severity::Critical]);
-                    verdicts.extend([Verdict::Clean, Verdict::Suspicious, Verdict::Malware]);
+                    verdicts.extend([Verdict::Clean, Verdict::Suspicious, Verdict::Pua, Verdict::Malware]);
                 }
                 _ => anyhow::bail!(
-                    "unknown --fp-remove-levels value `{}`; use severity levels info,low,medium,high,critical or verdict levels clean,suspicious,malware",
+                    "unknown --fp-remove-levels value `{}`; use severity levels info,low,medium,high,critical or verdict levels clean,suspicious,pua,malware",
                     token
                 ),
             }
@@ -99,7 +102,7 @@ impl FpRemoveSelector {
             ]
             .into_iter()
             .collect(),
-            verdicts: [Verdict::Clean, Verdict::Suspicious, Verdict::Malware]
+            verdicts: [Verdict::Clean, Verdict::Suspicious, Verdict::Pua, Verdict::Malware]
                 .into_iter()
                 .collect(),
         }
@@ -500,9 +503,12 @@ fn main() -> Result<()> {
     }
 
     let malware = reports.iter().any(|r| r.verdict == Verdict::Malware);
+    let pua = reports.iter().any(|r| r.verdict == Verdict::Pua);
     let detected = reports.iter().any(|r| !r.findings.is_empty());
     if malware {
         std::process::exit(3);
+    } else if pua {
+        std::process::exit(4);
     } else if detected {
         std::process::exit(2);
     }
@@ -1175,6 +1181,7 @@ fn print_pretty(reports: &[hydradragonstatic::models::ScanReport]) {
     for report in reports {
         let badge = match report.verdict {
             Verdict::Malware => "[MALWARE]".red().bold(),
+            Verdict::Pua => "[PUA]".yellow(),
             Verdict::Suspicious => "[SUSPICIOUS]".yellow().bold(),
             Verdict::Clean => "[CLEAN]".green().bold(),
         };

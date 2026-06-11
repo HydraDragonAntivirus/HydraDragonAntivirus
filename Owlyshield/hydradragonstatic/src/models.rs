@@ -19,6 +19,7 @@ pub enum Severity {
 pub enum Verdict {
     Clean,
     Suspicious,
+    Pua,
     Malware,
 }
 
@@ -31,6 +32,8 @@ pub enum ScanResultCode {
     Heuristic = 1,
     /// Malicious code is detected (infected file)
     Malicious = 2,
+    /// Potentially Unwanted Application detected
+    Unwanted = 3,
     /// General error of the scan engine
     GeneralError = -1,
     /// Incorrect scan/core handle range
@@ -57,6 +60,7 @@ impl ScanResultCode {
             0 => Some(Self::Ok),
             1 => Some(Self::Heuristic),
             2 => Some(Self::Malicious),
+            3 => Some(Self::Unwanted),
             -1 => Some(Self::GeneralError),
             -2 => Some(Self::WrongHandle),
             -3 => Some(Self::UnknownHandle),
@@ -73,7 +77,7 @@ impl ScanResultCode {
     }
 
     pub fn is_infected(self) -> bool {
-        matches!(self, Self::Heuristic | Self::Malicious)
+        matches!(self, Self::Heuristic | Self::Malicious | Self::Unwanted)
     }
 
     pub fn is_error(self) -> bool {
@@ -84,6 +88,7 @@ impl ScanResultCode {
         match verdict {
             Verdict::Clean => Self::Ok,
             Verdict::Suspicious => Self::Heuristic,
+            Verdict::Pua => Self::Unwanted,
             Verdict::Malware => Self::Malicious,
         }
     }
@@ -215,6 +220,7 @@ impl Verdict {
         match self {
             Self::Clean => "CLEAN",
             Self::Suspicious => "SUSPICIOUS",
+            Self::Pua => "PUA",
             Self::Malware => "MALWARE",
         }
     }
