@@ -139,8 +139,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)libyara\include;$(ProjectDir)libyara;$(SolutionDir)..\Xvirus\NativeSDK-Windows\example;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;HAVE_STRLCPY=0;HAVE_STRLCAT=0;HAVE_MEMMEM=0;HAVE_WINCRYPT_H;HASH_MODULE;DOTNET_MODULE;MACHO_MODULE;DEX_MODULE;BUCKETS_128;USE_WINDOWS_PROC;YR_DEBUG_VERBOSITY=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\Xvirus\NativeSDK-Windows\example;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <DisableSpecificWarnings>4146;%(DisableSpecificWarnings)</DisableSpecificWarnings>
@@ -160,25 +160,6 @@
   <ItemGroup>
     <ClCompile Include="HydraDragonAV.cpp" />
     <ClCompile Include="ClamAVScanner.cpp" />
-    <ClCompile Include="libyara\*.c" />
-    <ClCompile Include="libyara\proc\windows.c" />
-    <ClCompile Include="libyara\modules\console\console.c" />
-    <ClCompile Include="libyara\modules\dex\dex.c" />
-    <ClCompile Include="libyara\modules\dotnet\dotnet.c" />
-    <ClCompile Include="libyara\modules\elf\elf.c" />
-    <ClCompile Include="libyara\modules\hash\hash.c">
-      <ObjectFileName>$(IntDir)libyara_modules_hash.obj</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="libyara\modules\macho\macho.c" />
-    <ClCompile Include="libyara\modules\math\math.c" />
-    <ClCompile Include="libyara\modules\pe\pe.c" />
-    <ClCompile Include="libyara\modules\pe\pe_utils.c" />
-    <ClCompile Include="libyara\modules\string\string.c" />
-    <ClCompile Include="libyara\modules\tests\tests.c" />
-    <ClCompile Include="libyara\modules\time\time.c" />
-    <ClCompile Include="libyara\tlshc\tlsh.c" />
-    <ClCompile Include="libyara\tlshc\tlsh_impl.c" />
-    <ClCompile Include="libyara\tlshc\tlsh_util.c" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="HydraDragonAV.rc" />

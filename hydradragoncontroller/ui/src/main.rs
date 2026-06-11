@@ -168,7 +168,7 @@ fn App() -> impl IntoView {
         match name {
             "Owlyshield" => "Behavioral ransomware blocking & filesystem interceptor service.",
             "Firewall" => "Real-time network traffic packet inspection and filter engine.",
-            "AV Engine" => "High-performance static threat signature analysis scanner.",
+            "AV Engine" => "ClamAV wrapper (libclamav.dll) for signature-based malware detection.",
             "Python Engine" => "AI model & advanced heuristics execution server.",
             "OpenEDR" => "Endpoint Event Detection and telemetry collection agent.",
             "Sanctum" => "Kernel-mode PPL protection and system integrity monitor.",

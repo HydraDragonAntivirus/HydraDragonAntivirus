@@ -22,9 +22,6 @@
 #include <unordered_set>
 #include <vector>
 
-// YARA Headers
-#include <yara.h>
-
 #pragma comment(lib, "Psapi.lib")
 
 namespace fs = std::filesystem;
@@ -34,27 +31,23 @@ namespace fs = std::filesystem;
 // ---------------------------------------------------------------------------
 #define PIPE_NAME           L"\\\\.\\pipe\\HydraDragonAV"
 #define CLAMAV_DIR          L"C:\\Program Files\\ClamAV\\"
-#define HYDRADRAGON_DIR     L"C:\\Program Files\\HydraDragonAntivirus\\"
 #define CLAMAV_DLL          CLAMAV_DIR  L"libclamav.dll"
 #define CLAMAV_DB           CLAMAV_DIR  L"database"
 #define FRESHCLAM_EXE       CLAMAV_DIR  L"freshclam.exe"
-#define YARA_RULES_FOLDER   HYDRADRAGON_DIR L"hydradragon\\yara\\"
+
 
 // ---------------------------------------------------------------------------
 // Scanner globals
 // ---------------------------------------------------------------------------
 static std::unique_ptr<clamav::Scanner> g_clamavScanner;
-static std::vector<YR_RULES*> g_yaraRulesets;
 constexpr auto  CLAMAV_UPDATE_INTERVAL        = std::chrono::hours(2);
 constexpr auto  CLAMAV_DEFINITION_MAX_AGE     = std::chrono::hours(12);
 constexpr DWORD FRESHCLAM_TIMEOUT_MS          = 1000u * 1000u;
 
-static std::unordered_set<std::string> g_excludedRules;
-
 // ---------------------------------------------------------------------------
 // Memory guard.
 // Signature databases can legitimately make HydraDragonAV.exe large at startup.
-// Do not use a low fixed process-memory cap for ClamAV/YARA. Instead:
+// Do not use a low fixed process-memory cap for ClamAV. Instead:
 //   1) warm up while engines/signatures settle,
 //   2) capture a baseline after warm-up,
 //   3) recycle only if memory grows far beyond that baseline.
@@ -80,11 +73,10 @@ static std::atomic<std::uint64_t> g_scansSinceEngineRecycle{0};
 static std::mutex g_engineRecycleMutex; // one recycle at a time
 
 // ---------------------------------------------------------------------------
-// Hard file-size caps for YARA and ClamAV.
+// Hard file-size cap for ClamAV.
 // Unbounded scans on multi-hundred-MB files (installers, ISOs) can cause
-// enormous transient allocations inside both engines.
+// enormous transient allocations inside the engine.
 // ---------------------------------------------------------------------------
-constexpr std::uintmax_t YARA_MAX_SCAN_BYTES   = 64ull  * 1024ull * 1024ull; //  64 MiB
 constexpr std::uintmax_t CLAMAV_MAX_SCAN_BYTES = 256ull * 1024ull * 1024ull; // 256 MiB
 
 // ---------------------------------------------------------------------------
@@ -110,7 +102,7 @@ static std::atomic<std::uint64_t> g_totalScanRequests{0};
 // Thread-pool pipe server.
 // The original design serialised every scan: accept → read → scan → write
 // on a single thread. Under burst load, clients pile up waiting behind a
-// slow YARA/ClamAV scan. This pool allows N concurrent scan threads while
+// slow ClamAV scan. This pool allows N concurrent scan threads while
 // the accept loop keeps accepting new connections immediately.
 // ---------------------------------------------------------------------------
 static constexpr std::size_t PIPE_WORKER_THREADS = 4; // tune to core count
@@ -134,7 +126,7 @@ std::string JsonEscapeString(const std::string& value) {
 
     std::string escaped;
     // Reserve 2x: worst-case each char escapes to 2 chars (\\, \", etc.)
-    // \uXXXX is 6 chars but extremely rare in YARA/ClamAV names.
+    // \uXXXX is 6 chars but extremely rare in ClamAV names.
     escaped.reserve(value.size() * 2);
 
     for (unsigned char ch : value) {
@@ -230,7 +222,7 @@ void StartMemoryGuardThread() {
 
             const auto elapsed = std::chrono::steady_clock::now() - guardStartedAt;
 
-            // During warm-up, ClamAV/YARA signatures and caches can still be
+            // During warm-up, ClamAV signatures and caches can still be
             // loading. Treat the highest observed value as the startup baseline.
             if (elapsed < MEMORY_GUARD_WARMUP_TIME) {
                 if (privateBytes > warmupHighWaterPrivateBytes) {
@@ -321,26 +313,6 @@ static void MaybeRecycleClamAvEngine() {
     } else {
         std::cerr << "[ClamAV] Engine recycle (ReloadDatabase) failed." << std::endl;
     }
-}
-
-// ---------------------------------------------------------------------------
-// Excluded rules loader
-// ---------------------------------------------------------------------------
-void LoadExcludedRules() {
-    const std::string path =
-        "C:\\Program Files\\HydraDragonAntivirus\\hydradragon"
-        "\\excluded_yara_rules\\excluded_yara_rules.txt";
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        std::cerr << "[YARA] Excluded rules file not found at " << path << std::endl;
-        return;
-    }
-    std::string line;
-    while (std::getline(file, line)) {
-        if (!line.empty()) g_excludedRules.insert(line);
-    }
-    std::cout << "[YARA] Loaded " << g_excludedRules.size()
-              << " excluded rules." << std::endl;
 }
 
 // ---------------------------------------------------------------------------
@@ -543,102 +515,6 @@ void StartClamAvDefinitionUpdateThread() {
 }
 
 // ---------------------------------------------------------------------------
-// YARA callback
-// ---------------------------------------------------------------------------
-int yara_callback(YR_SCAN_CONTEXT* context, int message, void* message_data,
-                  void* user_data) {
-    if (message == CALLBACK_MSG_RULE_MATCHING) {
-        auto* matches   = static_cast<std::vector<std::string>*>(user_data);
-        auto* rule      = static_cast<YR_RULE*>(message_data);
-        std::string rule_name = rule->identifier;
-
-        std::string lowerMatch = rule_name;
-        std::transform(lowerMatch.begin(), lowerMatch.end(),
-                       lowerMatch.begin(), ::tolower);
-
-        if (g_excludedRules.find(rule_name) == g_excludedRules.end()) {
-            matches->push_back(rule_name);
-        } else if (lowerMatch.find("vmprotect") != std::string::npos) {
-            matches->push_back("VMPROTECT_ONLY:" + rule_name);
-        }
-    }
-    return CALLBACK_CONTINUE;
-}
-
-// ---------------------------------------------------------------------------
-// YARA compiled rules loader
-// ---------------------------------------------------------------------------
-bool LoadYaraRules() {
-    g_yaraRulesets.clear();
-
-    std::error_code ec;
-    const fs::path rulesFolder(YARA_RULES_FOLDER);
-
-    if (!fs::exists(rulesFolder, ec) || !fs::is_directory(rulesFolder, ec)) {
-        std::cerr << "[YARA] Compiled rules folder not found: "
-                  << rulesFolder.string() << std::endl;
-        return false;
-    }
-
-    std::size_t loadedRulesets = 0;
-
-    for (const auto& entry : fs::directory_iterator(rulesFolder, ec)) {
-        if (ec) {
-            std::cerr << "[YARA] Failed to enumerate rules folder: "
-                      << ec.message() << std::endl;
-            break;
-        }
-
-        std::error_code entryEc;
-        if (!entry.is_regular_file(entryEc) || entryEc) {
-            continue;
-        }
-
-        std::wstring extension = entry.path().extension().wstring();
-        std::transform(extension.begin(), extension.end(), extension.begin(),
-                       [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
-
-        // HydraDragon ships compiled YARA rules. Source .yar files are not
-        // compiled at runtime. .yrc is the compiled ruleset format.
-        if (extension != L".yrc") {
-            continue;
-        }
-
-        const std::string compiledPath = entry.path().string();
-        YR_RULES* rules = nullptr;
-        const int loadResult = yr_rules_load(compiledPath.c_str(), &rules);
-
-        if (loadResult != ERROR_SUCCESS || rules == nullptr) {
-            std::cerr << "[YARA] Failed to load compiled ruleset: "
-                      << compiledPath << " error=" << loadResult << std::endl;
-            if (rules != nullptr) {
-                yr_rules_destroy(rules);
-            }
-            continue;
-        }
-
-        g_yaraRulesets.push_back(rules);
-        ++loadedRulesets;
-
-#if defined(_DEBUG) || defined(HYDRADRAGON_DEBUG)
-        std::cout << "[YARA] Loaded compiled ruleset: "
-                  << compiledPath << std::endl;
-#endif
-    }
-
-    std::cout << "[YARA] Loaded " << loadedRulesets
-              << " compiled .yrc ruleset(s)." << std::endl;
-
-    if (loadedRulesets == 0) {
-        std::cerr << "[YARA] No compiled .yrc rulesets were loaded from: "
-                  << rulesFolder.string() << std::endl;
-        return false;
-    }
-
-    return true;
-}
-
-// ---------------------------------------------------------------------------
 // ProcessRequest — core scan logic
 // ---------------------------------------------------------------------------
 void ProcessRequest(const std::string& request, std::string& response) {
@@ -744,49 +620,10 @@ void ProcessRequest(const std::string& request, std::string& response) {
         }
     }
 
-    std::vector<std::string> yaraMatches;
-    std::string              clamavVirusName;
-    bool                     isMalicious  = false;
-    bool                     is_vmprotect = false;
+    std::string  clamavVirusName;
+    bool         isMalicious = false;
 
-    // YARA: scan with compiled .yrc rulesets. Skip oversized files and
-    // keep a timeout so a problematic rule cannot stall the pipe worker.
-    if (!g_yaraRulesets.empty() && fs::exists(wFilePath)) {
-        std::error_code ec;
-        const auto fileBytes = fs::file_size(wFilePath, ec);
-
-        if (!ec && fileBytes <= YARA_MAX_SCAN_BYTES) {
-            std::vector<std::string> rawMatches;
-
-            for (YR_RULES* ruleset : g_yaraRulesets) {
-                if (ruleset == nullptr) {
-                    continue;
-                }
-
-                yr_rules_scan_file(ruleset, cleanPath.c_str(), 0,
-                                   yara_callback, &rawMatches, 60);
-            }
-
-            for (const auto& match : rawMatches) {
-                std::string lowerMatch = match;
-                std::transform(lowerMatch.begin(), lowerMatch.end(),
-                               lowerMatch.begin(), ::tolower);
-
-                if (lowerMatch.find("vmprotect") != std::string::npos)
-                    is_vmprotect = true;
-
-                if (match.find("VMPROTECT_ONLY:") == 0) continue;
-
-                isMalicious = true;
-                yaraMatches.push_back(match);
-            }
-        } else if (!ec) {
-            std::cout << "[YARA] Skipping oversized file ("
-                      << fileBytes << " bytes): " << cleanPath << std::endl;
-        }
-    }
-
-    // [FIX 3 — ClamAV] Skip oversized files.
+    // Scan with ClamAV. Skip oversized files.
     if (g_clamavScanner && g_clamavScanner->IsReady() && fs::exists(wFilePath)) {
         std::error_code ec;
         const auto fileBytes = fs::file_size(wFilePath, ec);
@@ -807,19 +644,13 @@ void ProcessRequest(const std::string& request, std::string& response) {
     MaybeRecycleClamAvEngine();
 
     // Build JSON response.
-    // Never concatenate unescaped YARA/ClamAV strings directly into JSON:
-    // rule names and signatures may contain quotes, backslashes, newlines or
+    // Never concatenate unescaped ClamAV strings directly into JSON:
+    // virus names may contain quotes, backslashes, newlines or
     // control characters, which would break Owlyshield's serde_json parser.
     std::stringstream ss;
     ss << "{\"status\":\"success\",\"malicious\":"
        << (isMalicious ? "true" : "false")
-       << ",\"is_vmprotect\":" << (is_vmprotect ? "true" : "false")
-       << ",\"yara\":[";
-    for (size_t i = 0; i < yaraMatches.size(); ++i) {
-        ss << "\"" << JsonEscapeString(yaraMatches[i]) << "\""
-           << (i + 1 == yaraMatches.size() ? "" : ",");
-    }
-    ss << "],\"clamav\":\"" << JsonEscapeString(clamavVirusName) << "\"}";
+       << ",\"clamav\":\"" << JsonEscapeString(clamavVirusName) << "\"}";
     response = ss.str();
 
     if (fs::exists(wFilePath))
@@ -873,7 +704,7 @@ int main() {
 
     // Enable Low Fragmentation Heap for the process heap.
     // LFH dramatically reduces heap fragmentation from thousands of small
-    // alloc/free cycles (cache strings, YARA match vectors, etc.).
+    // alloc/free cycles (cache strings, etc.).
     {
         ULONG heapType = 2; // HeapCompatibilityInformation — enable LFH
         ::HeapSetInformation(::GetProcessHeap(),
@@ -883,17 +714,6 @@ int main() {
 
     StartMemoryGuardThread();
     StartHeapTrimThread();
-
-    // Initialize YARA
-    if (yr_initialize() != 0) {
-        std::cerr << "[YARA] Failed to initialize YARA library." << std::endl;
-        return 1;
-    }
-    if (!LoadYaraRules()) {
-        std::cerr << "[YARA] Warning: Failed to load YARA rules or folder empty."
-                  << std::endl;
-    }
-    LoadExcludedRules();
 
     // Initialize ClamAV. Do not run freshclam synchronously before the
     // pipe server starts; a slow update must not make the engine look dead.
@@ -950,14 +770,6 @@ int main() {
     for (auto& t : workers) {
         if (t.joinable()) t.join();
     }
-
-    for (YR_RULES* ruleset : g_yaraRulesets) {
-        if (ruleset != nullptr) {
-            yr_rules_destroy(ruleset);
-        }
-    }
-    g_yaraRulesets.clear();
-    yr_finalize();
 
     return 0;
 }
