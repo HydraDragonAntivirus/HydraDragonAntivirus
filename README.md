@@ -66,8 +66,6 @@ It contains low-level system components and experimental security drivers that r
 > 1. **Manual Deletion**: The antivirus **WILL NOT** stop you from running commands like `rd C: /s /q` or manually deleting your own files. It recognizes that if you (the Administrator) are explicitly deleting something, it is a **real user mistake** rather than a malware intrusion. The system is designed to permit intentional administrative decisions without interference.
 > 2. **Driver/System Misconfiguration**: The software does not protect against manual installation of incompatible drivers or incorrect system settings. A "Inaccessible Boot Device" or other system failures caused by manual registry edits or driver experiments are **NOT** considered malware behavior and are not blocked.
 > 3. **Experimental Nature**: You are responsible for any data loss or system instability caused by using this experimental software. **Always test in a Virtual Machine (VM) first.**
-> 4. **May Contain Proprietary Source Code**: Like COMODO, HydraDragoAntivirus may contain properietary software source code. **Don't change proprietary license with open source license.**
-
 
 ## One Man Project
 
