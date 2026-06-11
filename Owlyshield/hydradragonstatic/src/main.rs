@@ -329,6 +329,13 @@ fn main() -> Result<()> {
         anyhow::bail!("--fp-remove requires --fp-remove-levels, for example: --fp-remove-levels suspicious,malware");
     }
 
+    if cli.rules.is_empty() {
+        anyhow::bail!("--rules <YAMDLE> is required for scan mode; pass at least one rule file or directory");
+    }
+    if cli.paths.is_empty() && cli.scan_paths.is_empty() && cli.path_lists.is_empty() {
+        anyhow::bail!("at least one scan PATH is required; pass a file or directory to scan");
+    }
+
     let rule_files = collect_rule_files_from_sources(&cli.rules)?;
     let rules = load_external_rules_from_files(&rule_files)?;
     if rules.rules().is_empty() {
@@ -1166,10 +1173,6 @@ fn avg_micros(stat: &SlowRuleAggregate) -> u64 {
 fn print_pretty(reports: &[hydradragonstatic::models::ScanReport]) {
     let mut detections = 0usize;
     for report in reports {
-        if report.findings.is_empty() {
-            continue;
-        }
-        detections += 1;
         let badge = match report.verdict {
             Verdict::Malware => "[MALWARE]".red().bold(),
             Verdict::Suspicious => "[SUSPICIOUS]".yellow().bold(),
@@ -1211,19 +1214,22 @@ fn print_pretty(reports: &[hydradragonstatic::models::ScanReport]) {
                 pe.suspicious_imports.len()
             );
         }
-        for finding in &report.findings {
-            let sev = format!("{:?}", finding.severity).to_uppercase();
-            println!(
-                "  - {} {} verdict={} confidence={} (+{})",
-                sev.yellow().bold(),
-                finding.title,
-                finding.verdict.label(),
-                finding.confidence,
-                finding.score
-            );
-            println!("      rule_id={}", finding.rule_id);
-            for ev in finding.evidence.iter().take(8) {
-                println!("      {}", ev);
+        if !report.findings.is_empty() {
+            detections += 1;
+            for finding in &report.findings {
+                let sev = format!("{:?}", finding.severity).to_uppercase();
+                println!(
+                    "  - {} {} verdict={} confidence={} (+{})",
+                    sev.yellow().bold(),
+                    finding.title,
+                    finding.verdict.label(),
+                    finding.confidence,
+                    finding.score
+                );
+                println!("      rule_id={}", finding.rule_id);
+                for ev in finding.evidence.iter().take(8) {
+                    println!("      {}", ev);
+                }
             }
         }
         if !report.archive_members.is_empty() {

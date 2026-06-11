@@ -1,88 +1,7 @@
 use crate::models::{PeInfo, PeSectionInfo};
 use crate::utils::entropy::byte_entropy;
 use goblin::Object;
-use once_cell::sync::Lazy;
 use std::collections::HashSet;
-
-static SUSPICIOUS_IMPORTS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-    [
-        "VirtualAlloc",
-        "VirtualAllocEx",
-        "VirtualProtect",
-        "VirtualProtectEx",
-        "WriteProcessMemory",
-        "ReadProcessMemory",
-        "CreateRemoteThread",
-        "NtCreateThreadEx",
-        "RtlCreateUserThread",
-        "QueueUserAPC",
-        "SetWindowsHookExA",
-        "SetWindowsHookExW",
-        "OpenProcess",
-        "OpenThread",
-        "SuspendThread",
-        "ResumeThread",
-        "GetThreadContext",
-        "SetThreadContext",
-        "NtMapViewOfSection",
-        "MapViewOfFile",
-        "CreateFileMappingA",
-        "CreateFileMappingW",
-        "LoadLibraryA",
-        "LoadLibraryW",
-        "GetProcAddress",
-        "LdrLoadDll",
-        "NtQueryInformationProcess",
-        "IsDebuggerPresent",
-        "CheckRemoteDebuggerPresent",
-        "OutputDebugStringA",
-        "OutputDebugStringW",
-        "GetTickCount",
-        "QueryPerformanceCounter",
-        "RegOpenKeyExA",
-        "RegOpenKeyExW",
-        "RegSetValueExA",
-        "RegSetValueExW",
-        "RegCreateKeyExA",
-        "RegCreateKeyExW",
-        "RegDeleteValueA",
-        "RegDeleteValueW",
-        "WinExec",
-        "ShellExecuteA",
-        "ShellExecuteW",
-        "CreateProcessA",
-        "CreateProcessW",
-        "URLDownloadToFileA",
-        "URLDownloadToFileW",
-        "InternetOpenA",
-        "InternetOpenW",
-        "InternetConnectA",
-        "InternetConnectW",
-        "HttpOpenRequestA",
-        "HttpOpenRequestW",
-        "WSAStartup",
-        "connect",
-        "send",
-        "recv",
-        "CryptAcquireContextA",
-        "CryptAcquireContextW",
-        "CryptEncrypt",
-        "CryptDecrypt",
-        "BCryptEncrypt",
-        "BCryptDecrypt",
-        "AdjustTokenPrivileges",
-        "OpenProcessToken",
-        "LookupPrivilegeValueA",
-        "LookupPrivilegeValueW",
-        "CreateServiceA",
-        "CreateServiceW",
-        "StartServiceA",
-        "StartServiceW",
-        "ControlService",
-    ]
-    .into_iter()
-    .collect()
-});
 
 pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
     let obj = Object::parse(bytes).ok()?;
@@ -104,16 +23,7 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
         .into_iter()
         .collect();
 
-    let suspicious_imports = imports
-        .iter()
-        .filter(|name| {
-            name.split('!')
-                .last()
-                .map(|api| SUSPICIOUS_IMPORTS.contains(api))
-                .unwrap_or(false)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let suspicious_imports: Vec<String> = Vec::new();
 
     let mut sections = Vec::new();
     let mut suspicious_sections = Vec::new();
@@ -151,16 +61,26 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
         || sections.iter().any(|s| s.name.starts_with("UPX"))
         || (sections.len() <= 3 && sections.iter().any(|s| s.entropy >= 7.40));
 
+    let time_date_stamp = pe.header.coff_header.time_date_stamp;
+
+    let exports: Vec<String> = pe
+        .exports
+        .iter()
+        .filter_map(|exp| exp.name.map(|n| n.to_string()))
+        .collect();
+
     Some(PeInfo {
         arch: if pe.is_64 { "x64".into() } else { "x86".into() },
         is_64: pe.is_64,
         entry: pe.entry as u64,
         image_base: pe.image_base as u64,
         imports,
+        exports,
         dlls,
         suspicious_imports,
         sections,
         suspicious_sections,
         likely_packed,
+        time_date_stamp,
     })
 }

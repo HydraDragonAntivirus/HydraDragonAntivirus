@@ -883,6 +883,49 @@ fn evaluate_condition(
                 )
             })
         }
+        RuleCondition::SignatureIsSigned { value } => {
+            let sig = report.signature.as_ref()?;
+            (sig.is_signed == *value).then(|| {
+                format!("signature_is_signed={} matched", sig.is_signed)
+            })
+        }
+        RuleCondition::SignatureInvalid => {
+            let sig = report.signature.as_ref()?;
+            sig.invalid_signature.then(|| {
+                format!(
+                    "signature_invalid: is_signed={} invalid_signature=true HRESULT=0x{:08X}",
+                    sig.is_signed, sig.raw_hresult
+                )
+            })
+        }
+        RuleCondition::SignatureVerificationFailed => {
+            let sig = report.signature.as_ref()?;
+            sig.verification_failed.then(|| {
+                format!(
+                    "signature_verification_failed: is_signed={} HRESULT=0x{:08X}",
+                    sig.is_signed, sig.raw_hresult
+                )
+            })
+        }
+        RuleCondition::SignatureAnyIssue => {
+            let sig = report.signature.as_ref()?;
+            let bad = sig.invalid_signature || sig.verification_failed || sig.signature_status_issues;
+            bad.then(|| {
+                format!(
+                    "signature_any_issue: invalid={} verification_failed={} status_issues={} HRESULT=0x{:08X}",
+                    sig.invalid_signature, sig.verification_failed, sig.signature_status_issues, sig.raw_hresult
+                )
+            })
+        }
+        RuleCondition::SignatureHresultIn { values } => {
+            let sig = report.signature.as_ref()?;
+            values.contains(&sig.raw_hresult).then(|| {
+                format!(
+                    "signature_hresult_in: HRESULT=0x{:08X} matched rule list",
+                    sig.raw_hresult
+                )
+            })
+        }
         RuleCondition::FileType { values } => values
             .iter()
             .find(|value| report.file_type.matches_type(value))

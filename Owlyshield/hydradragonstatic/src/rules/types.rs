@@ -231,6 +231,31 @@ pub enum RuleCondition {
         nocase: bool,
     },
 
+    /// Fires when the file has a digital signature present (`is_signed = true`).
+    /// Use `value: false` to detect unsigned files.
+    SignatureIsSigned {
+        value: bool,
+    },
+
+    /// Fires when WinVerifyTrust returns a hard failure for the embedded signature
+    /// (authenticode hash mismatch, revoked cert, tampered binary).
+    SignatureInvalid,
+
+    /// Fires when WinVerifyTrust returns a soft verification failure
+    /// (expired timestamp counter-signature, chain build error, etc.).
+    SignatureVerificationFailed,
+
+    /// Fires when any of the three bad-signature flags is set:
+    /// `invalid_signature || verification_failed || signature_status_issues`.
+    SignatureAnyIssue,
+
+    /// Fires when the raw WinVerifyTrust HRESULT matches one of the given hex values.
+    /// Use to target specific failure codes such as 0x800B0101 (CERT_E_EXPIRED),
+    /// 0x800B010A (CERT_E_CHAINING), 0x800B0109 (CERT_E_UNTRUSTEDROOT), etc.
+    SignatureHresultIn {
+        values: Vec<u32>,
+    },
+
     /// Match file type tags produced by the native DetectItEasy-style classifier.
     /// Example values: pe, pe64, elf, macho, apk, zip, jar, text, script, powershell, office, broken_executable.
     FileType {

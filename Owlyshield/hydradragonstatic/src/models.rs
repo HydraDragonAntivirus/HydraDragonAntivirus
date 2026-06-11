@@ -387,11 +387,15 @@ pub struct PeInfo {
     pub entry: u64,
     pub image_base: u64,
     pub imports: Vec<String>,
+    pub exports: Vec<String>,
     pub dlls: Vec<String>,
     pub suspicious_imports: Vec<String>,
     pub sections: Vec<PeSectionInfo>,
     pub suspicious_sections: Vec<String>,
     pub likely_packed: bool,
+    /// Raw value of IMAGE_FILE_HEADER.TimeDateStamp (Unix seconds, little-endian u32).
+    /// 0 means the field was absent or the file is not a PE.
+    pub time_date_stamp: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
