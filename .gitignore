@@ -80,14 +80,14 @@ hydradragon/website/SubDomainsPopularityWhiteList.csv
 # Website cleaned
 hydradragon/website/cleaned
 # Big Yara Rule files
-hydradragon/yara/clean_rules.yar
-hydradragon/yara/veryoldcompiled_rule.yar
-hydradragon/yara/nocomments.yar
+hydradragon/yara-x/clean_rules.yar
+hydradragon/yara-x/veryoldcompiled_rule.yar
+hydradragon/yara-x/nocomments.yar
 # Yara Compiled Files
 *.yrc
-# Yara Rule Executables
-hydradragon/yara/yara64.exe
-hydradragon/yara/yarac64.exe
+# Old Yara Rule Executables
+hydradragon/yara-x/yara64.exe
+hydradragon/yara-x/yarac64.exe
 
 # Detect-It-Easy
 hydradragon/detectiteasy
