@@ -216,9 +216,6 @@ uefi_paths = [r"EFI\Microsoft\Boot\bootmgfw.efi", r"EFI\Microsoft\Boot\bootmgr.e
 RAW_PREVIEW_LEN = 128  # how many raw bytes to log for inspection
 READ_BUFFER_SIZE = 65536
 
-# Path to the bundled radare2 binary shipped with HydraDragonAntivirus
-_R2_DIR = os.path.join(script_dir, "radare2")
-
 # Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\Global\hydradragon_to_owlyshield"
 

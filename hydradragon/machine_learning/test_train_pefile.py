@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 test_train_pefile.py
---------------------
+-------------------
 Tests for train_pefile.py covering:
-  - PEFeatureExtractor  (entropy, disassembly, radare2, feature extraction)
+  - PEFeatureExtractor  (entropy, disassembly, feature extraction)
   - DataProcessor       (MD5 pre-filter, worker, move, vector store, dataset run)
   - features_to_numeric (vector shape, dtype, index correctness)
-  - analyze_with_radare2 (PATH injection/restore, all fallback paths)
 
 Run with:
     pytest test_train_pefile.py -v
@@ -37,7 +36,7 @@ def _make_stub(name: str) -> types.ModuleType:
     return m
 
 
-for _dep in ("hydra_logger", "tqdm", "capstone", "pefile", "r2pipe"):
+for _dep in ("hydra_logger", "tqdm", "capstone", "pefile"):
     if _dep not in sys.modules:
         sys.modules[_dep] = _make_stub(_dep)
 
@@ -128,15 +127,6 @@ def _minimal_features(is_malicious: bool = True) -> dict:
         "debug": [],
         "certificates": {},
         "rich_header": {},
-        "radare2": {
-            "function_count": 5,
-            "basic_block_count": 20,
-            "avg_basic_blocks_per_function": 4.0,
-            "cyclomatic_complexity_mean": 3.0,
-            "xref_count": 12,
-            "r2_string_count": 8,
-            "r2_analysis_success": True,
-        },
         "file_info": {
             "filename": "sample.exe",
             "path": "/tmp/sample.exe",
@@ -289,198 +279,12 @@ class TestDisassembleAllSections:
 
 
 # ===========================================================================
-# 3. PEFeatureExtractor.analyze_with_radare2
-# ===========================================================================
-
-
-class TestAnalyzeWithRadare2:
-    """All r2pipe interaction is fully mocked."""
-
-    def _make_r2(self):
-        r2 = MagicMock()
-        r2.cmd.side_effect = lambda c: {
-            "aa": "",
-            "aflc": "3",
-            "axl": "xref1\nxref2\n",
-        }.get(c, "")
-        r2.cmdj.side_effect = lambda c: {
-            "aflj": [
-                {"nbbs": 4, "cc": 2},
-                {"nbbs": 6, "cc": 3},
-                {"nbbs": 2, "cc": 1},
-            ],
-            "izj": [{"string": "hello"}, {"string": "world"}],
-        }.get(c, [])
-        return r2
-
-
-    # --- size guard ---
-
-    def test_file_too_large_skipped(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path, size=512)
-        with patch("os.path.getsize", return_value=11 * 1024 * 1024):
-            result = extractor.analyze_with_radare2(str(f))
-        assert result["error"] == "file_too_large"
-        assert result["r2_analysis_success"] is False
-
-    def test_file_at_exactly_10mb_not_skipped(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        with patch("os.path.getsize", return_value=10 * 1024 * 1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            result = extractor.analyze_with_radare2(str(f))
-        # Should proceed (10 MB is not > 10 MB)
-        assert result["error"] is None
-        assert result["r2_analysis_success"] is True
-
-    # --- happy path ---
-
-    def test_success_all_fields_populated(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            result = extractor.analyze_with_radare2(str(f))
-
-        assert result["r2_analysis_success"] is True
-        assert result["function_count"] == 3
-        assert result["basic_block_count"] == 12  # 4+6+2
-        assert abs(result["avg_basic_blocks_per_function"] - 4.0) < 0.01
-        assert abs(result["cyclomatic_complexity_mean"] - 2.0) < 0.01
-        assert result["xref_count"] == 2
-        assert result["r2_string_count"] == 2
-        assert result["error"] is None
-
-    def test_invalid_aflc_response_defaults_to_zero(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        r2.cmd.side_effect = lambda c: "" if c == "aflc" else {"aa": "", "axl": ""}.get(c, "")
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            result = extractor.analyze_with_radare2(str(f))
-        assert result["function_count"] == 0
-
-    def test_empty_function_list(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        r2.cmdj.side_effect = lambda c: [] if c == "aflj" else [{"string": "s"}] if c == "izj" else []
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            result = extractor.analyze_with_radare2(str(f))
-        assert result["basic_block_count"] == 0
-        assert result["avg_basic_blocks_per_function"] == 0.0
-        assert result["cyclomatic_complexity_mean"] == 0.0
-
-    def test_empty_xrefs_returns_zero(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        r2.cmd.side_effect = lambda c: {"aa": "", "aflc": "1", "axl": ""}.get(c, "")
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            result = extractor.analyze_with_radare2(str(f))
-        assert result["xref_count"] == 0
-
-    def test_r2pipe_open_exception_caught(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.side_effect = OSError("radare2 not found")
-            result = extractor.analyze_with_radare2(str(f))
-        assert result["r2_analysis_success"] is False
-        assert "radare2 not found" in result["error"]
-
-    def test_r2_cmd_exception_caught(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = MagicMock()
-        r2.cmd.side_effect = RuntimeError("pipe broke")
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            result = extractor.analyze_with_radare2(str(f))
-        assert result["r2_analysis_success"] is False
-        assert result["error"] is not None
-
-    def test_r2_quit_failure_does_not_raise(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        r2.quit.side_effect = Exception("quit failed")
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            result = extractor.analyze_with_radare2(str(f))
-        # Should still succeed despite quit() raising
-        assert result["r2_analysis_success"] is True
-
-    # --- PATH injection ---
-
-    def test_path_prepended_before_open(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        captured_path_at_open = []
-
-        def fake_open(fp, flags):
-            captured_path_at_open.append(os.environ.get("PATH", ""))
-            return r2
-
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.side_effect = fake_open
-            extractor.analyze_with_radare2(str(f))
-
-        assert len(captured_path_at_open) == 1
-        assert str(tp._R2_DIR) in captured_path_at_open[0]
-        # _R2_DIR should be FIRST entry
-        assert captured_path_at_open[0].startswith(str(tp._R2_DIR))
-
-    def test_path_restored_after_success(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        original_path = os.environ.get("PATH", "")
-
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            extractor.analyze_with_radare2(str(f))
-
-        assert os.environ.get("PATH", "") == original_path
-
-    def test_path_restored_when_open_raises(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        original_path = os.environ.get("PATH", "")
-
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.side_effect = OSError("no r2")
-            extractor.analyze_with_radare2(str(f))
-
-        assert os.environ.get("PATH", "") == original_path
-
-    def test_path_restored_when_cmd_raises(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = MagicMock()
-        r2.cmd.side_effect = RuntimeError("dead pipe")
-        original_path = os.environ.get("PATH", "")
-
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            extractor.analyze_with_radare2(str(f))
-
-        assert os.environ.get("PATH", "") == original_path
-
-    def test_path_restored_when_quit_raises(self, extractor, tmp_path):
-        f = _make_temp_mz(tmp_path)
-        r2 = self._make_r2()
-        r2.quit.side_effect = Exception("quit error")
-        original_path = os.environ.get("PATH", "")
-
-        with patch("os.path.getsize", return_value=1024), patch.object(tp, "r2pipe") as mock_r2pipe:
-            mock_r2pipe.open.return_value = r2
-            extractor.analyze_with_radare2(str(f))
-
-        assert os.environ.get("PATH", "") == original_path
-
-
-# ===========================================================================
 # 4. features_to_numeric — vector contract
 # ===========================================================================
 
 
 class TestFeaturesToNumeric:
-    EXPECTED_LEN = 45  # 38 PE + 7 r2
+    EXPECTED_LEN = 38
 
     def test_vector_length(self, data_processor):
         vec = data_processor.features_to_numeric(_minimal_features())
@@ -499,62 +303,6 @@ class TestFeaturesToNumeric:
         vec = data_processor.features_to_numeric(None)
         assert len(vec) == self.EXPECTED_LEN
         assert np.all(vec == 0.0)
-
-    def test_r2_success_flag_at_last_index(self, data_processor):
-        feat = _minimal_features()
-        feat["radare2"]["r2_analysis_success"] = True
-        vec = data_processor.features_to_numeric(feat)
-        assert vec[-1] == 1.0  # r2_success is last
-
-    def test_r2_success_false_gives_zero(self, data_processor):
-        feat = _minimal_features()
-        feat["radare2"]["r2_analysis_success"] = False
-        vec = data_processor.features_to_numeric(feat)
-        assert vec[-1] == 0.0
-
-    def test_r2_function_count_in_vector(self, data_processor):
-        feat = _minimal_features()
-        feat["radare2"]["function_count"] = 42
-        vec = data_processor.features_to_numeric(feat)
-        # r2 block starts at index 38
-        assert vec[38] == 42.0
-
-    def test_r2_basic_block_count_in_vector(self, data_processor):
-        feat = _minimal_features()
-        feat["radare2"]["basic_block_count"] = 77
-        vec = data_processor.features_to_numeric(feat)
-        assert vec[39] == 77.0
-
-    def test_r2_avg_bb_per_func_in_vector(self, data_processor):
-        feat = _minimal_features()
-        feat["radare2"]["avg_basic_blocks_per_function"] = 3.5
-        vec = data_processor.features_to_numeric(feat)
-        assert abs(vec[40] - 3.5) < 1e-5
-
-    def test_r2_cc_mean_in_vector(self, data_processor):
-        feat = _minimal_features()
-        feat["radare2"]["cyclomatic_complexity_mean"] = 2.75
-        vec = data_processor.features_to_numeric(feat)
-        assert abs(vec[41] - 2.75) < 1e-5
-
-    def test_r2_xref_count_in_vector(self, data_processor):
-        feat = _minimal_features()
-        feat["radare2"]["xref_count"] = 99
-        vec = data_processor.features_to_numeric(feat)
-        assert vec[42] == 99.0
-
-    def test_r2_string_count_in_vector(self, data_processor):
-        feat = _minimal_features()
-        feat["radare2"]["r2_string_count"] = 15
-        vec = data_processor.features_to_numeric(feat)
-        assert vec[43] == 15.0
-
-    def test_missing_radare2_key_fills_zeros(self, data_processor):
-        feat = _minimal_features()
-        del feat["radare2"]
-        vec = data_processor.features_to_numeric(feat)
-        # indices 38..44 should all be 0
-        assert np.all(vec[38:] == 0.0)
 
     def test_imports_count_at_index_15(self, data_processor):
         feat = _minimal_features()

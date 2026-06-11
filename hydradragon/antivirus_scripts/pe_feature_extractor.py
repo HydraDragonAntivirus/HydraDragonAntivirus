@@ -4,8 +4,7 @@ import pefile
 import numpy as np
 from typing import Dict, Any, List, Optional
 from .hydra_logger import logger
-import r2pipe
-from .path_and_variables import _R2_DIR
+
 
 class PEFeatureExtractor:
     def __init__(self):
@@ -480,87 +479,6 @@ class PEFeatureExtractor:
             logger.error(f"Error analyzing overlay: {e}")
             return {}
 
-    def analyze_with_radare2(self, file_path: str) -> Dict[str, Any]:
-        """
-        Analyze the PE file using radare2 (via r2pipe) to extract deeper
-        static analysis features that complement pefile and Capstone:
-
-          - function_count               : total functions detected by r2
-          - basic_block_count            : total basic blocks across all functions
-          - avg_basic_blocks_per_function: mean BBs per function
-          - cyclomatic_complexity_mean   : mean cyclomatic complexity per function
-          - xref_count                   : total cross-references (calls + jumps)
-          - r2_string_count              : strings found in data sections
-
-        Files over 50 MB are skipped to avoid analysis timeouts.
-        Degrades gracefully if r2pipe / radare2 is not installed.
-        """
-        r2_features = {
-            "function_count": 0,
-            "basic_block_count": 0,
-            "avg_basic_blocks_per_function": 0.0,
-            "cyclomatic_complexity_mean": 0.0,
-            "xref_count": 0,
-            "r2_string_count": 0,
-            "r2_analysis_success": False,
-            "error": None,
-        }
-
-
-        try:
-            if os.path.getsize(file_path) > 50 * 1024 * 1024:  # 50 MB cap
-                r2_features["error"] = "file_too_large"
-                return r2_features
-
-            # Inject bundled r2.exe dir into PATH so r2pipe finds it
-            _saved_path = os.environ.get("PATH", "")
-            os.environ["PATH"] = str(_R2_DIR) + os.pathsep + _saved_path
-            try:
-                r2 = r2pipe.open(file_path, flags=["-2", "-e", "anal.timeout=60"])
-            except Exception:
-                os.environ["PATH"] = _saved_path
-                raise
-            try:
-                r2.cmd("aa")  # fast auto-analysis (signatures + call refs)
-
-                # ── Function count ─────────────────────────────────────────
-                raw_count = r2.cmd("aflc").strip()
-                try:
-                    r2_features["function_count"] = int(raw_count)
-                except ValueError:
-                    r2_features["function_count"] = 0
-
-                # ── Per-function data (basic blocks + cyclomatic complexity) ─
-                funcs = r2.cmdj("aflj") or []
-                total_bbs = sum(f.get("nbbs", 0) for f in funcs)
-                r2_features["basic_block_count"] = total_bbs
-                r2_features["avg_basic_blocks_per_function"] = float(total_bbs) / len(funcs) if funcs else 0.0
-                cc_values = [f.get("cc", 0) for f in funcs if f.get("cc") is not None]
-                r2_features["cyclomatic_complexity_mean"] = float(np.mean(cc_values)) if cc_values else 0.0
-
-                # ── Cross-reference count ───────────────────────────────────
-                xrefs_raw = r2.cmd("axl").strip()
-                r2_features["xref_count"] = len([ln for ln in xrefs_raw.splitlines() if ln.strip()]) if xrefs_raw else 0
-
-                # ── Strings in data sections ────────────────────────────────
-                strings = r2.cmdj("izj") or []
-                r2_features["r2_string_count"] = len(strings)
-
-                r2_features["r2_analysis_success"] = True
-
-            finally:
-                try:
-                    r2.quit()
-                except Exception:
-                    pass
-                os.environ["PATH"] = _saved_path
-
-        except Exception as e:
-            logger.error(f"[r2] Analysis failed for {file_path}: {e}")
-            r2_features["error"] = str(e)
-
-        return r2_features
-
     def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Extract numeric features of a file using pefile.
@@ -683,8 +601,6 @@ class PEFeatureExtractor:
                 "overlay": self.analyze_overlay(pe, file_path),  # Overlay analysis here
                 # Relocations
                 "relocations": self.analyze_relocations(pe),  # Relocations analysis here
-                # radare2 deep static analysis (function graph, xrefs, CC, strings)
-                "radare2": self.analyze_with_radare2(file_path),
             }
 
             # Add numeric tag if provided

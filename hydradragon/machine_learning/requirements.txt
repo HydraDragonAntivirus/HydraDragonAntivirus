@@ -2,5 +2,4 @@ pefile
 numpy
 esprima
 tqdm
-r2pipe
 logly

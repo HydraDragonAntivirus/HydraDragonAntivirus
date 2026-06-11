@@ -18,12 +18,6 @@ import capstone
 import time
 from hydra_logger import logger
 
-import r2pipe
-
-# Path to the bundled radare2 binary shipped with HydraDragonAntivirus
-_R2_DIR = Path(r"C:\Program Files\HydraDragonAntivirus\hydradragon\radare2\bin")
-_R2_EXECUTABLE = _R2_DIR / "r2.exe"
-
 
 class PEFeatureExtractor:
     def __init__(self):
@@ -503,84 +497,6 @@ class PEFeatureExtractor:
             logger.error(f"Error analyzing overlay: {e}")
             return {}
 
-    def analyze_with_radare2(self, file_path: str) -> Dict[str, Any]:
-        """
-        Analyze the PE file using radare2 (via r2pipe) to extract deeper
-        static analysis features: function graph metrics, cross-references,
-        cyclomatic complexity and string inventory.
-
-        Falls back gracefully if r2pipe is not installed or radare2 is absent.
-        Files larger than 50 MB are skipped to avoid analysis timeouts.
-        """
-        r2_features = {
-            "function_count": 0,
-            "basic_block_count": 0,
-            "avg_basic_blocks_per_function": 0.0,
-            "cyclomatic_complexity_mean": 0.0,
-            "xref_count": 0,
-            "r2_string_count": 0,
-            "r2_analysis_success": False,
-            "error": None,
-        }
-
-
-        try:
-            # Skip very large files — r2 analysis can take minutes on them
-            if os.path.getsize(file_path) > 10 * 1024 * 1024:
-                r2_features["error"] = "file_too_large"
-                return r2_features
-
-            # -2 suppresses the radare2 banner; anal.timeout limits runaway analysis
-            # Inject bundled r2.exe dir into PATH so r2pipe finds it
-            _saved_path = os.environ.get("PATH", "")
-            os.environ["PATH"] = str(_R2_DIR) + os.pathsep + _saved_path
-            try:
-                r2 = r2pipe.open(file_path, flags=["-2", "-e", "anal.timeout=60"])
-            except Exception:
-                os.environ["PATH"] = _saved_path
-                raise
-            try:
-                r2.cmd("aa")  # fast auto-analysis (signatures + call refs)
-
-                # ── Function count ─────────────────────────────────────────
-                raw_count = r2.cmd("aflc").strip()
-                try:
-                    r2_features["function_count"] = int(raw_count)
-                except ValueError:
-                    r2_features["function_count"] = 0
-
-                # ── Per-function data (basic blocks + cyclomatic complexity) ─
-                funcs = r2.cmdj("aflj") or []
-                total_bbs = sum(f.get("nbbs", 0) for f in funcs)
-                r2_features["basic_block_count"] = total_bbs
-                r2_features["avg_basic_blocks_per_function"] = float(total_bbs) / len(funcs) if funcs else 0.0
-                cc_values = [f.get("cc", 0) for f in funcs if f.get("cc") is not None]
-                r2_features["cyclomatic_complexity_mean"] = float(np.mean(cc_values)) if cc_values else 0.0
-
-                # ── Cross-reference count ───────────────────────────────────
-                xrefs_raw = r2.cmd("axl").strip()
-                r2_features["xref_count"] = len([ln for ln in xrefs_raw.splitlines() if ln.strip()]) if xrefs_raw else 0
-
-                # ── Strings in data sections ────────────────────────────────
-                strings = r2.cmdj("izj") or []
-                r2_features["r2_string_count"] = len(strings)
-
-                r2_features["r2_analysis_success"] = True
-
-            finally:
-                try:
-                    r2.quit()
-                except Exception:
-                    pass
-                finally:
-                    os.environ["PATH"] = _saved_path
-
-        except Exception as e:
-            logger.error(f"[r2] Analysis failed for {file_path}: {e}")
-            r2_features["error"] = str(e)
-
-        return r2_features
-
     def extract_numeric_features(self, file_path: str, rank: Optional[int] = None, problematic_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
         """
         Extract numeric features of a file using pefile.
@@ -718,8 +634,6 @@ class PEFeatureExtractor:
                 "overlay": self.analyze_overlay(pe, file_path),  # Overlay analysis here
                 # Relocations
                 "relocations": self.analyze_relocations(pe),  # Relocations analysis here
-                # radare2 deep static analysis (function graph, xrefs, CC, strings)
-                "radare2": self.analyze_with_radare2(file_path),
             }
 
             # Add numeric tag if provided
@@ -966,16 +880,6 @@ class DataProcessor:
         rich_header = entry.get("rich_header", {}) or {}
         has_rich = int(bool(rich_header))
 
-        # ── radare2 features ────────────────────────────────────────────────
-        r2 = entry.get("radare2", {}) or {}
-        r2_func_count = to_float(r2.get("function_count", 0))
-        r2_bb_count = to_float(r2.get("basic_block_count", 0))
-        r2_avg_bb_per_func = to_float(r2.get("avg_basic_blocks_per_function", 0.0))
-        r2_cc_mean = to_float(r2.get("cyclomatic_complexity_mean", 0.0))
-        r2_xref_count = to_float(r2.get("xref_count", 0))
-        r2_string_count = to_float(r2.get("r2_string_count", 0))
-        r2_success = float(bool(r2.get("r2_analysis_success", False)))
-
         numeric = [
             size_of_optional_header,
             major_linker,
@@ -1015,14 +919,6 @@ class DataProcessor:
             float(num_debug_entries),
             float(cert_size),
             float(has_rich),
-            # ── radare2 features (7) ── vector grows from 38 → 45
-            float(r2_func_count),
-            float(r2_bb_count),
-            float(r2_avg_bb_per_func),
-            float(r2_cc_mean),
-            float(r2_xref_count),
-            float(r2_string_count),
-            float(r2_success),
         ]
         return np.asarray(numeric, dtype=np.float32)
 
