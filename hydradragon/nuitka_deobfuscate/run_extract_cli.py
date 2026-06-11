@@ -20,6 +20,20 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
+
+# ── Script-mode bootstrap ────────────────────────────────────────────────────
+# When invoked as `python run_extract_cli.py ...` Python sets __package__ to
+# None/empty and relative imports fail.  Inserting the repo root into sys.path
+# and fixing __package__ lets the relative imports below resolve correctly.
+if __package__ is None or __package__ == "":
+    _here = Path(__file__).resolve()
+    # Climb up: nuitka_deobfuscate → hydradragon → repo-root
+    _repo_root = _here.parent.parent.parent
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+    __package__ = "hydradragon.nuitka_deobfuscate"
+# ─────────────────────────────────────────────────────────────────────────────
+
 from .marshal_detector import (
     get_magic_int,
     looks_like_code_header,

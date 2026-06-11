@@ -441,9 +441,9 @@ from hydradragon.nuitka_deobfuscate.marshal_detector import (
     _marshal_candidate_versions,
     guess_version_from_marshal_bytes,
 )
-from hydradragon.nuitka_deobfuscate import detect_nuitka_version
+from hydradragon.nuitka_deobfuscate.run_extract import detect_nuitka_version
 
-logger.debug(f"hydradragon.nuitka_deobfuscate.marshal_detector helpers loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"hydradragon.nuitka_deobfuscate marshal_detector helpers loaded in {time.time() - start_time:.6f} seconds")
 
 
 start_time = time.time()
@@ -482,7 +482,7 @@ logger.debug(f"pyinstaller_mod_extractor_ng imported in {time.time() - start_tim
 
 start_time = time.time()
 try:
-    from hydradragon.nuitka_deobfuscate import extract_blob
+    from hydradragon.nuitka_deobfuscate.run_extract import extract_blob
 except Exception as e:
     logger.error(f"Failed to import nuitka_deobfuscate library API: {e}")
     extract_blob = None

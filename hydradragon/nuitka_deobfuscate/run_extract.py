@@ -19,6 +19,16 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
+
+# ── Script-mode bootstrap ────────────────────────────────────────────────────
+if __package__ is None or __package__ == "":
+    _here = Path(__file__).resolve()
+    _repo_root = _here.parent.parent.parent
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+    __package__ = "hydradragon.nuitka_deobfuscate"
+# ─────────────────────────────────────────────────────────────────────────────
+
 from .marshal_detector import (
     get_magic_int,
     looks_like_code_header,
@@ -2212,3 +2222,78 @@ def extract_blob(
     print(f"    Output          : {out_dir.absolute()}")
 
     return ExtractionResult(pyc_count=count_pyc, omni_recon_count=sc if OmniDecompiler else 0, metadata_count=count_other, output_dir=out_dir, recovered_files=recovered_file_paths)
+
+
+def detect_nuitka_version(blob_path: str) -> str | None:
+    """Return the Python version string embedded in a Nuitka constants blob.
+
+    Uses the Strategy-0 (.bytecode chunk) probe first, then falls back to the
+    raw-blob marshal scan. Returns a string like ``"3.13"`` on success, or
+    ``None`` if detection fails.
+    """
+    from pathlib import Path
+    from xdis.magics import by_version
+
+    try:
+        raw = Path(blob_path).read_bytes()
+    except OSError:
+        return None
+
+    # Strategy 0: .bytecode chunk probe
+    try:
+        cb = CommercialBypass()
+        is_commercial = cb.is_blob_encrypted(raw) or cb.has_commercial_digest(raw)
+
+        def _find_bytecode_chunk(blob_data: bytes) -> bytes | None:
+            import struct as _struct
+            if len(blob_data) < 8:
+                return None
+            size_stored = _struct.unpack("<I", blob_data[4:8])[0]
+            data = blob_data[8: 8 + min(size_stored, len(blob_data) - 8)]
+            offset = 0
+            while offset < len(data) - 5:
+                nul = data.find(b"\x00", offset, min(offset + 4096, len(data)))
+                if nul == -1:
+                    break
+                raw_name = data[offset:nul]
+                try:
+                    plain = raw_name.decode("utf-8", errors="strict")
+                    name = plain if _is_plausible_module_name(plain) else (
+                        cb.decode_module_name(raw_name) if is_commercial
+                        else raw_name.decode("utf-8", errors="replace")
+                    )
+                except Exception:
+                    name = (
+                        cb.decode_module_name(raw_name) if is_commercial
+                        else raw_name.decode("utf-8", errors="replace")
+                    )
+                offset = nul + 1
+                if offset + 4 > len(data):
+                    break
+                chunk_size = _struct.unpack("<I", data[offset: offset + 4])[0]
+                offset += 4
+                if chunk_size > 100 * 1024 * 1024 or offset + chunk_size > len(data):
+                    break
+                chunk_data = data[offset: offset + chunk_size]
+                offset += chunk_size
+                if name == ".bytecode":
+                    return chunk_data
+            return None
+
+        bc_chunk = _find_bytecode_chunk(raw)
+        if bc_chunk:
+            ver = detect_version_from_bytecode_chunk(bc_chunk)
+            if ver and ver in by_version:
+                return ver
+    except Exception:
+        pass
+
+    # Strategy 1: raw blob marshal scan
+    for tag in MARSHAL_VERSION_HINT_TAGS:
+        off = raw.find(tag)
+        if off != -1:
+            ver = detect_version_from_marshal(raw[off: off + 65536])
+            if ver and ver in by_version:
+                return ver
+
+    return None
