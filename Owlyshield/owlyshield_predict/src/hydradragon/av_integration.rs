@@ -420,8 +420,6 @@ struct HydraDragonAvPipeResponse {
     status: Option<String>,
     malicious: Option<bool>,
     clamav: Option<String>,
-    yara: Option<Vec<String>>,
-    is_vmprotect: Option<bool>,
 }
 
 fn clean_service_result(engine: &str) -> RustServiceScanResult {
@@ -625,35 +623,6 @@ fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
                         virus_name, file_path
                     )),
                     virus_name,
-                    is_vmprotect: response.is_vmprotect.unwrap_or(false),
-                    error: None,
-                });
-            }
-
-            if let Some(yara_matches) = response
-                .yara
-                .filter(|matches| matches.iter().any(|v| !v.trim().is_empty()))
-            {
-                let virus_name = yara_matches
-                    .iter()
-                    .find(|v| !v.trim().is_empty())
-                    .cloned()
-                    .unwrap_or_else(|| "LegacyYARA.Match".to_string());
-                return Ok(RustServiceScanResult {
-                    engine: "HydraDragonAV/LegacyYARA".to_string(),
-                    malicious: true,
-                    match_details: Some(format!(
-                        "HydraDragonAV/LegacyYARA matched rule(s) for {}: {}",
-                        file_path,
-                        yara_matches
-                            .iter()
-                            .filter(|v| !v.trim().is_empty())
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )),
-                    virus_name,
-                    is_vmprotect: response.is_vmprotect.unwrap_or(false),
                     error: None,
                 });
             }
@@ -666,14 +635,11 @@ fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
                     "HydraDragonAV pipe reported malicious=true for {} but did not return a specific signature name",
                     file_path
                 )),
-                is_vmprotect: response.is_vmprotect.unwrap_or(false),
                 error: None,
             });
         }
 
-        let mut clean = clean_service_result("HydraDragonAV");
-        clean.is_vmprotect = response.is_vmprotect.unwrap_or(false);
-        Ok(clean)
+        Ok(clean_service_result("HydraDragonAV"))
     })();
 
     let _ = unsafe { CloseHandle(pipe_handle) };
