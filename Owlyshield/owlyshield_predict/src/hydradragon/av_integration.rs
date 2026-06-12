@@ -615,28 +615,24 @@ fn scan_hydradragon_av_service(file_path: &str) -> RustServiceScanResult {
 
         if response.malicious.unwrap_or(false) {
             if let Some(virus_name) = response.clamav.filter(|v| !v.trim().is_empty()) {
-                return Ok(RustServiceScanResult {
-                    engine: "HydraDragonAV/ClamAV".to_string(),
-                    malicious: true,
-                    match_details: Some(format!(
-                        "HydraDragonAV/ClamAV matched signature '{}' for {}",
-                        virus_name, file_path
-                    )),
-                    virus_name,
-                    error: None,
-                });
+                let mut r = clean_service_result("HydraDragonAV/ClamAV");
+                r.malicious = true;
+                r.virus_name = virus_name.clone();
+                r.match_details = Some(format!(
+                    "HydraDragonAV/ClamAV matched signature '{}' for {}",
+                    virus_name, file_path
+                ));
+                return Ok(r);
             }
 
-            return Ok(RustServiceScanResult {
-                engine: "HydraDragonAV".to_string(),
-                malicious: true,
-                virus_name: "HydraDragonAV.Detection".to_string(),
-                match_details: Some(format!(
-                    "HydraDragonAV pipe reported malicious=true for {} but did not return a specific signature name",
-                    file_path
-                )),
-                error: None,
-            });
+            let mut r = clean_service_result("HydraDragonAV");
+            r.malicious = true;
+            r.virus_name = "HydraDragonAV.Detection".to_string();
+            r.match_details = Some(format!(
+                "HydraDragonAV pipe reported malicious=true for {} but did not return a specific signature name",
+                file_path
+            ));
+            return Ok(r);
         }
 
         Ok(clean_service_result("HydraDragonAV"))
