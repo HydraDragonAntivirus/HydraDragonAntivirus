@@ -3146,7 +3146,7 @@ impl<'a> AVIntegration<'a> {
         // If a fast detector already found malware, report that detection and skip deep scan.
         let effective_scan_mode = if fast_detected { "minimal" } else { "deep" };
 
-        // Always scan with HydraDragonAV service (ClamAV/YARA)
+        // Always scan with HydraDragonAV service (ClamAV)
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
         append_yara_x_result(
             &mut rust_service_scan_results,
@@ -3293,7 +3293,7 @@ impl<'a> AVIntegration<'a> {
             normalized_scan_mode
         };
 
-        // Always scan with HydraDragonAV service (ClamAV/YARA)
+        // Always scan with HydraDragonAV service (ClamAV)
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
         append_yara_x_result(
             &mut rust_service_scan_results,
