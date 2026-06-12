@@ -104,7 +104,6 @@ from .path_and_variables import (
     jar_extracted_dir,
     dotnet_dir,
     obfuscar_dir,
-    androguard_dir,
     decompiled_jsc_dir,
     npm_pkg_extracted_dir,
     asar_dir,
@@ -614,7 +613,6 @@ MANAGED_DIRECTORIES = [
     dotnet_dir,
     npm_pkg_extracted_dir,
     ole2_dir,
-    androguard_dir,
     asar_dir,
     obfuscar_dir,
     de4dot_extracted_dir,
@@ -4406,42 +4404,9 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> Opti
         return None
 
 
-def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -> Optional[str]:
-    """
-    Attempt to decompile APK using Androguard.
-    Returns True if successful, False otherwise.
-    """
-    try:
-        # Find a free output folder number
-        folder_number = 1
-        while os.path.exists(os.path.join(androguard_dir, str(folder_number))):
-            folder_number += 1
-        output_dir = os.path.join(androguard_dir, str(folder_number))
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Build the command: androguard decompile -o <output_dir> <apk>
-        cmd = ["androguard", "decompile", "-o", output_dir, file_path]
-
-        logger.info(f"Running Androguard decompilation: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
-        logger.info(f"APK decompiled with Androguard to {output_dir}")
-
-        return output_dir
-
-    except subprocess.TimeoutExpired:
-        logger.error("Androguard decompilation timed out")
-        return None
-    except subprocess.CalledProcessError as cpe:
-        logger.error(f"Androguard subprocess failed: {cpe}")
-        return None
-    except Exception as ex:
-        logger.error(f"Androguard decompilation error: {ex}")
-        return None
-
-
 def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
     """
-    Decompile an Android APK using JADX first, falling back to Androguard if needed.
+    Decompile an Android APK using JADX.
     Web intelligence is handled by the firewall, so no URL/domain scanning occurs here.
     """
     try:
@@ -4451,11 +4416,7 @@ def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
         output_dir = _try_jadx_decompile(file_path, main_file_path)
 
         if not output_dir:
-            logger.warning("JADX decompilation failed, falling back to Androguard...")
-            output_dir = _try_androguard_decompile(file_path, main_file_path)
-
-        if output_dir:
-            dispatch_firewall_web_scan(_collect_files_under(output_dir), "apk_decompilation")
+            logger.warning("JADX decompilation failed.")
 
     except Exception as ex:
         logger.error(f"Error decompiling APK {file_path}: {ex}")

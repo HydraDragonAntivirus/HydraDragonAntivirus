@@ -21,7 +21,6 @@ async def get_signature(base_signature, **flags):
         "autohotkey_flag": "AutoHotkey",
         "nsis_flag": "NSIS",
         "pyc_flag": "PYC.Python",
-        "androguard_flag": "Android",
         "asar_flag": "Electron",
         "nexe_flag": "nexe",
     }
