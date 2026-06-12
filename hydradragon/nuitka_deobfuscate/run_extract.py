@@ -34,22 +34,18 @@ from .marshal_detector import (
     looks_like_code_header,
     try_detect_code_object,
     try_load_code_object,
-    score_code_object,
     detect_version_from_marshal,
     detect_version_from_bytecode_chunk,
-    _extract_first_marshal_payloads_from_bytecode_chunk,
     guess_version_from_marshal_bytes,
     MARSHAL_VERSION_HINT_TAGS,
     MARSHAL_CODE_TAGS,
-    MARSHAL_VERSION_HINT_TAG_PATTERN,
 )
 
 # ============================================================================
 # SAFE MARSHAL — ONLY XDIS, NO C-MARSHAL (avoids SegFaults on 3.12 blobs)
 # ============================================================================
 import xdis.marsh as marshal
-from xdis.magics import by_version, magic2int, magic_int2tuple
-from xdis.unmarshal import FLAG_REF, TYPE_STRING, load_code as xdis_load_code
+from xdis.magics import by_version
 
 
 import zlib
@@ -1996,7 +1992,7 @@ def extract_blob(
                     probe_detected = detect_version_from_bytecode_chunk(_bc_chunk0)
                     if probe_detected:
                         print(f"[*] Strategy 0 (.bytecode chunk probe) detected : {probe_detected}")
-            except Exception as _e0:
+            except Exception:
                 pass  # Strategy 0 failed, continue to Strategy 1
 
         # ── Strategy 1: marshal code object probe inside raw blob ─────────────

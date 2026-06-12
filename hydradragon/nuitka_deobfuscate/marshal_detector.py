@@ -8,7 +8,6 @@ from __future__ import annotations
 import struct
 import sys
 import re
-import xdis.marsh as marshal
 from xdis.magics import by_version, magic2int, magic_int2tuple
 from xdis.unmarshal import load_code as xdis_load_code
 
