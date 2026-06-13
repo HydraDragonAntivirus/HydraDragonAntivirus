@@ -41,6 +41,7 @@ sysinfo = "0.38.0"
 base64 = "0.21.0"
 bs58 = "0.4.0"
 goblin = "0.10.5"
+apk-info = "1.0.11"
 zip = { version = "8.6.0", default-features = false }
 yara-x = "1.17.0"
 bson = "2.9.0"

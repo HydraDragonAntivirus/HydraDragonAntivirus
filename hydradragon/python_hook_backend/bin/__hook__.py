@@ -30,6 +30,203 @@ MAX_WORKER_THREADS = 64
 HYDRADRAGON_DUMPER_PIPE = r"\\.\pipe\HydraDragonDumper"
 PYTHON_DUMPS_DIR = r"C:\ProgramData\HydraDragonAntivirus\hydradragon\python_dumps"
 
+# =============================================================================
+# UNIVERSAL marshal.loads hook — catches imports of ANY marshal module
+# (stdlib C marshal, Nuitka's bundled marshal.py, etc.)
+# =============================================================================
+import builtins as _builtins
+import importlib.util as _importlib_util
+import struct as _struct
+import threading as _threading
+import hashlib as _hashlib
+from pathlib import Path as _Path
+
+_orig_import = _builtins.__import__
+_real_marshal_loads = None
+_marshal_hook_installed = False
+
+# Try to get the real C-level marshal.loads for use as backend
+try:
+    import marshal as _stdlib_marshal
+    _real_marshal_loads = _stdlib_marshal.loads
+    _orig_marshal_loads = _stdlib_marshal.loads
+    _orig_marshal_load = _stdlib_marshal.load
+    _orig_marshal_dumps = _stdlib_marshal.dumps
+    _orig_marshal_dump = _stdlib_marshal.dump
+except Exception:
+    _orig_marshal_loads = None
+    _orig_marshal_load = None
+    _orig_marshal_dumps = None
+    _orig_marshal_dump = None
+
+_patched_marshal_loads_fn = None
+_patched_marshal_load_fn = None
+_patched_marshal_dumps_fn = None
+_patched_marshal_dump_fn = None
+
+# Dedup / lock state for _write_marshal_pyc — MUST be defined before
+# _patch_marshal_module so closures can call it immediately.
+_marshal_pyc_lock = _threading.Lock()
+_marshal_pyc_seen = set()
+
+def _create_next_pyc_dump_dir(base_dir, prefix="CPYTHON_PYC_DUMPS"):
+    d = _Path(base_dir)
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        max_n = 0
+        for _ed in d.iterdir():
+            if _ed.is_dir() and _ed.name.startswith(prefix + "_"):
+                try:
+                    n = int(_ed.name.rsplit("_", 1)[-1])
+                    if n > max_n:
+                        max_n = n
+                except ValueError:
+                    pass
+        target = d / f"{prefix}_{max_n + 1}"
+        target.mkdir(parents=False, exist_ok=False)
+        return target
+    except Exception:
+        return None
+
+_marshal_pyc_dir = _Path(PYTHON_DUMPS_DIR) / "PYC_DUMPS"
+try:
+    _marshal_pyc_dir.mkdir(parents=True, exist_ok=True)
+except Exception:
+    _marshal_pyc_dir = None
+
+def _write_marshal_pyc(data, result_obj=None):
+    if _marshal_pyc_dir is None:
+        return
+    try:
+        if not isinstance(data, (bytes, bytearray)):
+            return
+        dlen = len(data)
+        if dlen < 16:
+            _write_log(f"[MARSHAL] Skipped _write_marshal_pyc: data too short (len={dlen})")
+            return
+        _d = _hashlib.sha256(data).hexdigest()[:12]
+        with _marshal_pyc_lock:
+            if _d in _marshal_pyc_seen:
+                _write_log(f"[MARSHAL] Skipped _write_marshal_pyc: duplicate {_d}")
+                return
+            _marshal_pyc_seen.add(_d)
+        _ts = int(time.time() * 1000)
+        _cf = getattr(result_obj, 'co_filename', '') if result_obj is not None else ''
+        _cf_s = _cf.replace(".", "_").replace("<", "_").replace(">", "_").replace(":", "_").replace("\\", "_").replace("/", "_").replace("?", "_").replace("*", "_").replace("|", "_").strip("_")
+        _n = f"marshal_loads_{_cf_s}_{_ts}_{_d}.pyc" if _cf_s else f"marshal_loads_{_ts}_{_d}.pyc"
+        _p = _marshal_pyc_dir / _n
+        _hdr = _importlib_util.MAGIC_NUMBER + _struct.pack("<III", 0, int(time.time()), dlen)
+        _p.write_bytes(_hdr + data)
+        _write_log(f"[MARSHAL] Wrote {_n} ({dlen} bytes)")
+    except Exception as exc:
+        _write_log(f"[MARSHAL] Exception in _write_marshal_pyc: {exc}")
+
+def _patch_marshal_module(mod):
+    """Patch marshal.loads/load/dumps/dump to capture raw bytes."""
+    global _marshal_hook_installed, _patched_marshal_loads_fn, _patched_marshal_load_fn
+    global _patched_marshal_dumps_fn, _patched_marshal_dump_fn
+    if mod is None:
+        return
+    if getattr(mod, '__marshal_hook_patched', False):
+        return
+    if not hasattr(mod, 'loads'):
+        return
+    # Save ALL originals before any patching
+    _orig_loads = mod.loads
+    _orig_load = mod.load if hasattr(mod, 'load') else None
+    _orig_dumps = mod.dumps if hasattr(mod, 'dumps') else None
+    _orig_dump = mod.dump if hasattr(mod, 'dump') else None
+    # Patch loads(data, /) — raw bytes input
+    def _patched_ml(data, /):
+        r = _orig_loads(data)
+        _write_marshal_pyc(data, r)
+        return r
+    mod.loads = _patched_ml
+    _patched_marshal_loads_fn = _patched_ml
+    # Patch load(file, /) — file/stream input
+    if _orig_load is not None:
+        def _patched_mload(file, /):
+            try:
+                pos = file.tell() if hasattr(file, 'tell') else 0
+                raw_data = file.read()
+                file.seek(pos)
+                if isinstance(raw_data, (bytes, bytearray)) and len(raw_data) >= 16:
+                    _write_marshal_pyc(raw_data)
+            except Exception:
+                pass
+            return _orig_load(file)
+        mod.load = _patched_mload
+        _patched_marshal_load_fn = _patched_mload
+    # Patch dumps(value, version=4, /) — raw bytes output
+    if _orig_dumps is not None:
+        def _patched_mdumps(value, version=4, /):
+            result = _orig_dumps(value, version)
+            if isinstance(result, (bytes, bytearray)) and len(result) >= 16:
+                _write_marshal_pyc(result)
+            return result
+        mod.dumps = _patched_mdumps
+        _patched_marshal_dumps_fn = _patched_mdumps
+    # Patch dump(value, file, version=4, /) — file output (capture via dumps)
+    if _orig_dump is not None and _orig_dumps is not None:
+        def _patched_mdump(value, file, version=4, /):
+            data = _orig_dumps(value, version)
+            if isinstance(data, (bytes, bytearray)) and len(data) >= 16:
+                _write_marshal_pyc(data)
+            _orig_dump(value, file, version)
+        mod.dump = _patched_mdump
+        _patched_marshal_dump_fn = _patched_mdump
+    # Expose _write_marshal_pyc on the marshal module so decompilers
+    # resolve it from marshal's namespace (cleaner decompilation).
+    mod._write_marshal_pyc = _write_marshal_pyc
+    mod.__marshal_hook_patched = True
+    _marshal_hook_installed = True
+
+def _scan_and_patch_marshal_refs():
+    """Scan all modules and replace any attribute referencing the original
+    marshal.loads/load/dumps/dump with our patched versions."""
+    global _patched_marshal_loads_fn, _patched_marshal_load_fn
+    global _patched_marshal_dumps_fn, _patched_marshal_dump_fn
+    if _patched_marshal_loads_fn is None:
+        return
+    for _mod_name, _mod in list(sys.modules.items()):
+        try:
+            for _attr_name in dir(_mod):
+                try:
+                    _attr = getattr(_mod, _attr_name)
+                    if _attr is _orig_marshal_loads:
+                        setattr(_mod, _attr_name, _patched_marshal_loads_fn)
+                    elif _attr is _orig_marshal_load and _patched_marshal_load_fn is not None:
+                        setattr(_mod, _attr_name, _patched_marshal_load_fn)
+                    elif _attr is _orig_marshal_dumps and _patched_marshal_dumps_fn is not None:
+                        setattr(_mod, _attr_name, _patched_marshal_dumps_fn)
+                    elif _attr is _orig_marshal_dump and _patched_marshal_dump_fn is not None:
+                        setattr(_mod, _attr_name, _patched_marshal_dump_fn)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+def _hooked_import(name, globals=None, locals=None, fromlist=(), level=0):
+    mod = _orig_import(name, globals, locals, fromlist, level)
+    if name == 'marshal' or (isinstance(name, str) and 'marshal' in name.lower()):
+        _patch_marshal_module(mod)
+    if fromlist:
+        for subname in fromlist:
+            if subname in ('loads', 'load', 'dumps', 'dump', 'marshal') or 'marshal' in subname.lower():
+                submod = getattr(mod, subname, None)
+                if submod is not None and not isinstance(submod, type(ord)):
+                    _patch_marshal_module(submod)
+    return mod
+
+_builtins.__import__ = _hooked_import
+
+# Patch any existing marshal modules in sys.modules
+for _m_name, _m_mod in list(sys.modules.items()):
+    if _m_name == 'marshal' or ('marshal' in _m_name.lower() and hasattr(_m_mod, 'loads')):
+        _patch_marshal_module(_m_mod)
+
+
+
 
 def notify_hydradragon_dump_receiver_async(source_paths):
     """Best-effort notification to Owlyshield; never block the hooked process."""
@@ -87,7 +284,16 @@ class BytecodeDecompiler:
                 arg = instr.argval
 
                 if op == "LOAD_CONST":
-                    stack.append(repr(arg))
+                    if hasattr(arg, "co_code"):
+                        # Recursively decompile nested code object and dump it
+                        dump = BytecodeDecompiler.decompile_code(arg)
+                        lines.append(f"    # >>> nested code object: {arg.co_name}")
+                        for dl in dump.split("\n"):
+                            lines.append(f"    # | {dl}")
+                        lines.append(f"    # <<< end nested code object: {arg.co_name}")
+                        stack.append(f"<func {arg.co_name}>")
+                    else:
+                        stack.append(repr(arg))
                 elif op in ("LOAD_FAST", "LOAD_GLOBAL", "LOAD_NAME"):
                     stack.append(str(arg))
                 elif op == "LOAD_ATTR":
@@ -168,7 +374,9 @@ class BytecodeDecompiler:
             if hasattr(code_obj, "co_nlocals"):
                 lines.append(f"    # Local variables count: {code_obj.co_nlocals}")
 
-            lines.append("    pass  # AG: STUB_IDENTIFIED - Compiled code - no Python bytecode available")
+            lines.append("    # AG: STUB_IDENTIFIED - Compiled code - no Python bytecode available")
+            if len(lines) == 1:
+                lines.append("    pass")
         except Exception as e:
             lines.append(f"    # Metadata extraction error: {str(e)}")
             lines.append("    pass  # AG: STUB_IDENTIFIED")
@@ -186,45 +394,46 @@ class SignatureExtractor:
 
     @staticmethod
     def get_signature(func):
-        """Extract function signature using inspect.signature()"""
-        try:
-            sig = inspect.signature(func)
-            return str(sig)
-        except (ValueError, TypeError):
-            # Fallback for built-in/compiled functions
+        """Extract function signature — skip inspect.signature for C extensions (hangs on numpy ufuncs)."""
+
+        # Quick check: if func is a C extension builtin (no __code__, no Python
+        # source), skip inspect.signature entirely to avoid hangs in 3.12.
+        if not hasattr(func, '__code__') or func.__code__ is None:
             try:
-                # Try to get parameter names from code object
-                if hasattr(func, "__code__"):
+                # Fallback: try to get __text_signature__ directly
+                if hasattr(func, '__text_signature__') and func.__text_signature__:
+                    return func.__text_signature__
+            except Exception:
+                pass
+            try:
+                # Try co_varnames from underlying code if available on compiled
+                if hasattr(func, '__code__'):
                     code = func.__code__
                     argcount = code.co_argcount
                     kwonlyargcount = getattr(code, "co_kwonlyargcount", 0)
                     varnames = code.co_varnames
-
-                    # Build signature from code object
                     params = []
-
-                    # Regular arguments
                     for i in range(argcount):
                         params.append(varnames[i])
-
-                    # *args if present
-                    if code.co_flags & 0x04:  # CO_VARARGS
+                    if code.co_flags & 0x04:
                         params.append(f"*{varnames[argcount + kwonlyargcount]}")
-
-                    # Keyword-only arguments
                     for i in range(argcount, argcount + kwonlyargcount):
                         params.append(varnames[i])
-
-                    # **kwargs if present
-                    if code.co_flags & 0x08:  # CO_VARKEYWORDS
+                    if code.co_flags & 0x08:
                         kwarg_index = argcount + kwonlyargcount
                         if code.co_flags & 0x04:
                             kwarg_index += 1
                         params.append(f"**{varnames[kwarg_index]}")
-
                     return f"({', '.join(params)})"
-            except:
+            except Exception:
                 pass
+            return "(*args, **kwargs)"
+
+        # Python function — safe to use inspect.signature
+        try:
+            sig = inspect.signature(func)
+            return str(sig)
+        except (ValueError, TypeError):
             return "(*args, **kwargs)"
 
     @staticmethod
@@ -248,12 +457,13 @@ class SignatureExtractor:
 
     @staticmethod
     def get_source_info(obj):
-        """Try to get source file and line number"""
+        """Try to get source file — NO getsourcelines (hangs on C extensions)."""
         try:
             file = inspect.getfile(obj)
-            lines = inspect.getsourcelines(obj)
-            return f"    # Source: {file}:{lines[1]}"
-        except:
+            if file and file.endswith(('.py', '.pyw')):
+                return f"    # File: {file}"
+            return None
+        except Exception:
             return None
 
 
@@ -263,15 +473,17 @@ class SignatureExtractor:
 
 
 class ModuleReconstructor:
-    def __init__(self, backup_dir):
+    def __init__(self, backup_dir, log_func=None):
         self.backup_dir = backup_dir
         self.decompiler = BytecodeDecompiler()
         self.sig_extractor = SignatureExtractor()
         self.compiled_modules = []  # Track compiled modules
+        self._log = log_func or (lambda _: None)
 
     def process_module(self, name, mod, is_potential_main=False):
         safe_name = name.replace(".", "_")
         output_path = self.backup_dir / "RECONSTRUCTED_SOURCE" / f"{safe_name}.py"
+        self._log(f"[TRACE] process_module start: {name}\n")
 
         content = [f'"""\nModule: {name}\nType: {type(mod)}\n']
 
@@ -319,7 +531,9 @@ class ModuleReconstructor:
             # Method 1: Try __loader__.get_code()
             if hasattr(mod, "__loader__") and hasattr(mod.__loader__, "get_code"):
                 try:
+                    self._log(f"[TRACE] mod.__loader__.get_code({name})...\n")
                     module_code = mod.__loader__.get_code(name)
+                    self._log(f"[TRACE] mod.__loader__.get_code done\n")
                 except:
                     pass
 
@@ -377,7 +591,10 @@ class ModuleReconstructor:
         )
 
         # Hunt for every callable in the module
-        for attr_name in sorted(dir(mod)):
+        self._log(f"[TRACE] process_module attr iteration start: {name}\n")
+        for attr_count, attr_name in enumerate(sorted(dir(mod))):
+            if attr_count == 0 or (attr_count + 1) % 200 == 0:
+                self._log(f"[TRACE] {name}: processing attr {attr_count+1}/{len(dir(mod))}: {attr_name}\n")
             if attr_name.startswith("__") and attr_name != "__init__":
                 continue
 
@@ -636,6 +853,81 @@ class ModuleReconstructor:
                 continue
 
         output_path.write_text("\n".join(content), encoding="utf-8", errors="ignore")
+
+
+def dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads=None):
+    if _real_marshal_loads is None:
+        import marshal as _m
+        _real_marshal_loads = _m.loads
+
+    # Scan all modules for captured marshal references (deferred from module-level
+    # to avoid blocking hook startup).
+    try:
+        _scan_and_patch_marshal_refs()
+    except Exception:
+        pass
+
+    def safe_name(name):
+        return name.replace(".", "_").replace("<", "_").replace(">", "_").replace(":", "_").replace("\\", "_").replace("/", "_")
+
+    def load_pyc(path):
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            if len(data) < 16:
+                return None
+            return _real_marshal_loads(data[16:])
+        except Exception:
+            try:
+                hook_log(f"[PYC_ERR] failed to load {path}: marshal/header mismatch\n")
+            except Exception:
+                pass
+            return None
+
+    candidates = set()
+    if source_dir.is_dir():
+        for pyc in source_dir.rglob("*.pyc"):
+            candidates.add(pyc)
+
+    hook_log(f"[PYC] Found {len(candidates)} candidate .pyc files\n")
+
+    dumped = 0
+    for pyc_path in sorted(candidates):
+        try:
+            code_obj = load_pyc(pyc_path)
+            if code_obj is None or not hasattr(code_obj, "co_code"):
+                continue
+
+            safe = safe_name(pyc_path.stem)
+
+            content = []
+            content.append('"""')
+            content.append(f"PYC source: {pyc_path}")
+            content.append('"""')
+            content.append("")
+            content.append("# ===== PYC CODE OBJECT METADATA =====")
+            try:
+                content.append(f"# co_name={code_obj.co_name!r}")
+                content.append(f"# co_filename={code_obj.co_filename!r}")
+            except Exception:
+                pass
+            content.append("")
+            content.append("# ===== BEST-EFFORT PSEUDO SOURCE =====")
+            try:
+                content.append(recon.decompiler.decompile_code(code_obj))
+            except Exception as e:
+                content.append(f"# decompile failed: {e}")
+                content.append("pass")
+
+            out_path = source_dir / f"{safe}.py"
+            out_path.write_text("\n".join(content), encoding="utf-8", errors="replace")
+            dumped += 1
+            hook_log(f"[PYC OK] {pyc_path} -> {out_path}\n")
+        except Exception as e:
+            hook_log(f"[PYC_ERR] {pyc_path}: {e}\n")
+
+    hook_log(f"[PYC] Dumped {dumped} .pyc files\n")
+    return dumped
 
 
 # =============================================================================
@@ -1441,7 +1733,154 @@ def run_decompiler():
         hook_log(f"Created: {source_dir}\n")
         write_marker(progress_path, "phase=initializing\n")
 
-        recon = ModuleReconstructor(backup_dir)
+        # Move any module-level marshal .pyc captures into per-run numbered dir
+        per_run_pyc = _create_next_pyc_dump_dir(source_dir)
+        if per_run_pyc is not None:
+            try:
+                if _marshal_pyc_dir is not None and _marshal_pyc_dir.exists():
+                    for _mp in list(_marshal_pyc_dir.iterdir()):
+                        if _mp.suffix == ".pyc":
+                            _mp.rename(per_run_pyc / _mp.name)
+                            hook_log(f"[MARSHAL_MOVE] {_mp.name} -> {per_run_pyc.name}/\n")
+            except Exception:
+                pass
+
+        recon = ModuleReconstructor(backup_dir, log_func=hook_log)
+
+        # ---------------------------------------------------------------
+        # EXEC/COMPILE HOOKS — dump dynamically-executed code objects
+        # (e.g. exec("..."), exec(marshal.loads(...)), compile(...)) as
+        # soon as they're seen, independent of the module scan below.
+        # ---------------------------------------------------------------
+        exec_dir = source_dir / "EXEC_DUMPS"
+        try:
+            exec_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+        _exec_dump_lock = threading.Lock()
+        _exec_dump_seen = set()
+
+        _HOOK_PYTHON_HOME = os.path.normpath(
+            os.environ.get("PYTHONHOME")
+            or getattr(sys, "base_prefix", "")
+            or getattr(sys, "prefix", "")
+            or ""
+        )
+
+        def _is_infra_path(path):
+            if not path:
+                return True
+            p = os.path.normpath(path.replace("/", os.path.sep))
+            if p.startswith("<frozen "):
+                return True
+            if _HOOK_PYTHON_HOME and p.startswith(_HOOK_PYTHON_HOME):
+                return True
+            return False
+
+        def _dump_exec_code_obj(code_obj, tag):
+            try:
+                import hashlib
+
+                # Skip hook infrastructure paths
+                _cf = getattr(code_obj, "co_filename", "") or ""
+                if _is_infra_path(_cf):
+                    return
+
+                key = (id(code_obj), getattr(code_obj, "co_name", ""), _cf)
+                with _exec_dump_lock:
+                    if key in _exec_dump_seen:
+                        return
+                    _exec_dump_seen.add(key)
+
+                src = BytecodeDecompiler.decompile_code(code_obj)
+                if not src or not src.strip():
+                    return
+                non_comment = [
+                    ln for ln in src.splitlines()
+                    if ln.strip() and not ln.strip().startswith("#") and ln.strip() != "pass"
+                ]
+                if not non_comment:
+                    return
+                digest = hashlib.sha256(
+                    repr(getattr(code_obj, "co_consts", ())).encode("utf-8", "ignore")
+                ).hexdigest()[:12]
+                fname = f"{tag}_{int(time.time() * 1000)}_{digest}.py"
+                out_path = exec_dir / fname
+                cf = getattr(code_obj, 'co_filename', '') or '<unknown>'
+                cn = getattr(code_obj, 'co_name', '') or '<unknown>'
+                header = (
+                    f"# --- {tag.upper()} DUMP ---\n"
+                    f"# co_filename = {cf}\n"
+                    f"# co_name     = {cn}\n"
+                    f"# pid         = {os.getpid()}\n"
+                    f"# timestamp   = {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                )
+                out_path.write_text(header + src, encoding="utf-8", errors="replace")
+                hook_log(f"[EXEC_DUMP] {tag} -> {out_path}\n")
+
+                try:
+                    for const in getattr(code_obj, "co_consts", ()):
+                        if hasattr(const, "co_code"):
+                            _dump_exec_code_obj(const, f"{tag}_nested")
+                except Exception:
+                    pass
+            except Exception as e:
+                hook_log(f"[EXEC_DUMP_ERR] ({tag}): {e}\n")
+
+        try:
+            import builtins as _builtins
+
+            _real_exec = _builtins.exec
+            _real_eval = _builtins.eval
+            _real_compile = _builtins.compile
+
+            def _patched_exec(obj, *a, **kw):
+                try:
+                    if hasattr(obj, "co_code"):
+                        _dump_exec_code_obj(obj, "exec_code")
+                    elif isinstance(obj, (str, bytes)):
+                        try:
+                            src_str = obj.decode("utf-8", "ignore") if isinstance(obj, bytes) else obj
+                            c = _real_compile(src_str, "<dynamic_exec>", "exec")
+                            _dump_exec_code_obj(c, "exec_str")
+                        except Exception as e:
+                            hook_log(f"[EXEC_DUMP_ERR] (exec_str compile failed): {e}\n")
+                except Exception as e:
+                    hook_log(f"[EXEC_DUMP_ERR] (patched_exec): {e}\n")
+                return _real_exec(obj, *a, **kw)
+
+            def _patched_eval(obj, *a, **kw):
+                try:
+                    if hasattr(obj, "co_code"):
+                        _dump_exec_code_obj(obj, "eval_code")
+                    elif isinstance(obj, (str, bytes)):
+                        try:
+                            src_str = obj.decode("utf-8", "ignore") if isinstance(obj, bytes) else obj
+                            c = _real_compile(src_str, "<dynamic_eval>", "eval")
+                            _dump_exec_code_obj(c, "eval_str")
+                        except Exception as e:
+                            hook_log(f"[EXEC_DUMP_ERR] (eval_str compile failed): {e}\n")
+                except Exception as e:
+                    hook_log(f"[EXEC_DUMP_ERR] (patched_eval): {e}\n")
+                return _real_eval(obj, *a, **kw)
+
+            def _patched_compile(source, filename, mode, *a, **kw):
+                c = _real_compile(source, filename, mode, *a, **kw)
+                try:
+                    if mode in ("exec", "eval"):
+                        _dump_exec_code_obj(c, f"compile_{mode}")
+                except Exception as e:
+                    hook_log(f"[EXEC_DUMP_ERR] (patched_compile): {e}\n")
+                return c
+
+            _builtins.exec = _patched_exec
+            _builtins.eval = _patched_eval
+            _builtins.compile = _patched_compile
+            hook_log("[EXEC_HOOK] builtins.exec/eval/compile patched for dynamic code dumping\n")
+        except Exception as e:
+            hook_log(f"[EXEC_HOOK_ERR] failed to install exec/eval/compile hooks: {e}\n")
+
         # Snapshot sys.modules immediately — the set changes as imports happen.
         targets = list(sys.modules.items())
         total_targets = len(targets)
@@ -1525,6 +1964,13 @@ def run_decompiler():
         except Exception as e:
             error_count += 1
             hook_log(f"[FROZEN ERR] frozen scan crashed: {e}\n")
+
+        pyc_dumped = 0
+        try:
+            pyc_dumped = dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads)
+        except Exception as e:
+            error_count += 1
+            hook_log(f"[PYC ERR] pyc scan crashed: {e}\n")
 
         # Generic import-lock diagnostics and requested force-unlock pass.
         # No target-name matching, no waiting, no forced imports.

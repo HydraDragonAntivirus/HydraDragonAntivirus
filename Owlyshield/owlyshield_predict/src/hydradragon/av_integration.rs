@@ -736,6 +736,14 @@ fn die_result_is_fully_unknown(
     result.as_ref().is_some_and(|r| r.scan_ok && r.is_unknown)
 }
 
+fn die_result_is_broken_file(
+    result: &Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
+) -> bool {
+    result
+        .as_ref()
+        .is_some_and(|r| r.scan_ok && r.broken_executable_type.is_some())
+}
+
 fn die_result_has_supported_deep_scan_type(
     result: &Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
 ) -> bool {
@@ -3412,6 +3420,18 @@ impl<'a> AVIntegration<'a> {
             if die_result_is_unsupported_for_deep_scan(&metadata.detectiteasy_scan_result) {
                 Logging::debug(&format!(
                     "[DetectItEasy] Deep scan gate skipped unsupported DIE type: {}",
+                    file_path
+                ));
+                metadata.should_queue_scan = false;
+                return self.cache_scan_metadata(file_identity.clone(), metadata);
+            }
+
+            if die_result_is_broken_file(&metadata.detectiteasy_scan_result) {
+                Logging::debug(&format!(
+                    "[DetectItEasy] Deep scan gate skipped broken file ({}): {}",
+                    metadata.detectiteasy_scan_result.as_ref()
+                        .and_then(|r| r.broken_executable_type.as_deref())
+                        .unwrap_or("unknown"),
                     file_path
                 ));
                 metadata.should_queue_scan = false;

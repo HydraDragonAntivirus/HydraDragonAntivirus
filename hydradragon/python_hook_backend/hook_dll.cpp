@@ -827,34 +827,178 @@ static void LogImportedHookModulePath(PyRun_SimpleStringFunc func,
     SafePyRun_SimpleString(func, cmd);
 }
 
-// --- Unmasking Logic & Globals ---
-typedef char* (__fastcall* tPyUnicode_AsUTF8)(void*);
-tPyUnicode_AsUTF8 pPyUnicode_AsUTF8 = nullptr;
+// --- PyMarshal_ReadObjectFromString hook ---
+// Intercepts C-level marshal deserialization (used by Nuitka, Cython, etc.)
+// and forwards captured byte data to the Python-level _write_marshal_pyc.
 
-unsigned char g_originalBytes[14];
-void* g_targetAddr = nullptr;
+// Forward-declare Python C API function pointers (loaded at runtime)
+// Py_ssize_t == ptrdiff_t on all platforms Python supports.
+typedef void* (*PyMarshal_ReadObjectFromStringFunc)(const char*, ptrdiff_t);
+typedef void* (*PyBytes_FromStringAndSizeFunc)(const char*, ptrdiff_t);
+typedef void* (*PyObject_CallFunctionObjArgsFunc)(void*, ...);
+typedef void* (*PyObject_GetAttrStringFunc)(void*, const char*);
 
-// 2. The Hook Trampoline
-void PlaceTrampoline(void* target, void* detour) {
-    g_targetAddr = target;
-    DWORD oldProtect;
-    VirtualProtect(target, 14, PAGE_EXECUTE_READWRITE, &oldProtect);
-    memcpy(g_originalBytes, target, 14);
+// Globals — loaded in SetupMarshalHook / CacheMarshalWriteFunc
+static PyMarshal_ReadObjectFromStringFunc g_real_PyMarshal_ReadObjectFromString = nullptr;
+static void* g_marshal_trampoline = nullptr;
+static void* g_marshal_target = nullptr;
+static unsigned char g_marshal_original_bytes[16];
+static void* g_py_write_marshal_pyc = nullptr;
 
-    unsigned char jumpCode[] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-    uintptr_t addr = (uintptr_t)detour;
-    memcpy(&jumpCode[6], &addr, 8);
-    
-    memcpy(target, jumpCode, 14);
-    VirtualProtect(target, 14, oldProtect, &oldProtect);
+// Cached Python API function pointers
+static PyGILState_EnsureFunc g_PyGILState_Ensure = nullptr;
+static PyGILState_ReleaseFunc g_PyGILState_Release = nullptr;
+static PyObject_CallFunctionObjArgsFunc g_PyObject_CallFunctionObjArgs = nullptr;
+static PyBytes_FromStringAndSizeFunc g_PyBytes_FromStringAndSize = nullptr;
+static PyObject_GetAttrStringFunc g_PyObject_GetAttrString = nullptr;
+static Py_DecRefFunc g_Py_DecRef = nullptr;
+static PyImportModuleFunc g_PyImport_ImportModule = nullptr;
+
+// The hook — called instead of PyMarshal_ReadObjectFromString
+static __declspec(noinline) void* HookPyMarshal_ReadObjectFromString(const char* data, ptrdiff_t len) {
+    __try {
+        dbgPrintf("[HOOK_MARSHAL] HookPyMarshal_ReadObjectFromString(len=%lld, data[0..4]=0x%02x%02x%02x%02x%02x)\n",
+                  len,
+                  len>0 ? (unsigned char)data[0] : 0,
+                  len>1 ? (unsigned char)data[1] : 0,
+                  len>2 ? (unsigned char)data[2] : 0,
+                  len>3 ? (unsigned char)data[3] : 0,
+                  len>4 ? (unsigned char)data[4] : 0);
+        if (g_py_write_marshal_pyc != nullptr && data != nullptr && len > 16) {
+            int gstate = g_PyGILState_Ensure();
+            void* bytes = g_PyBytes_FromStringAndSize(data, len);
+            if (bytes) {
+                void* result = g_PyObject_CallFunctionObjArgs(g_py_write_marshal_pyc, bytes, NULL);
+                if (result) g_Py_DecRef(result);
+                g_Py_DecRef(bytes);
+            }
+            g_PyGILState_Release(gstate);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        dbgPrintf("[HOOK_MARSHAL] SEH exception in HookPyMarshal_ReadObjectFromString\n");
+    }
+    return g_real_PyMarshal_ReadObjectFromString(data, len);
 }
 
-void RemoveTrampoline() {
-    if (!g_targetAddr) return;
+// The PyMarshal_ReadObjectFromString prologue in CPython 3.8+ is exactly
+// 16 bytes (mov r11,rsp; push rbx; sub rsp,0x60; lea rax,[rcx+rdx];
+// mov [r11-0x30],rcx).  We must save/restore a full 16-byte instruction
+// boundary — using only 14 bytes splits the last instruction and crashes
+// with STATUS_STACK_BUFFER_OVERRUN (BEX64).
+#define MARSHAL_PROLOGUE_SIZE 16
+
+// Allocate a trampoline (original prologue + JMP to original+16) so the
+// hook can call the real function without re-entering itself.
+static bool SetupMarshalHook(HMODULE hPyDll) {
+    // Load Python C API function pointers needed by the hook
+    g_PyGILState_Ensure = (PyGILState_EnsureFunc)GetProcAddress(hPyDll, "PyGILState_Ensure");
+    g_PyGILState_Release = (PyGILState_ReleaseFunc)GetProcAddress(hPyDll, "PyGILState_Release");
+    g_PyBytes_FromStringAndSize = (PyBytes_FromStringAndSizeFunc)GetProcAddress(hPyDll, "PyBytes_FromStringAndSize");
+    g_PyObject_CallFunctionObjArgs = (PyObject_CallFunctionObjArgsFunc)GetProcAddress(hPyDll, "PyObject_CallFunctionObjArgs");
+    g_PyObject_GetAttrString = (PyObject_GetAttrStringFunc)GetProcAddress(hPyDll, "PyObject_GetAttrString");
+    g_Py_DecRef = (Py_DecRefFunc)GetProcAddress(hPyDll, "Py_DecRef");
+    g_PyImport_ImportModule = (PyImportModuleFunc)GetProcAddress(hPyDll, "PyImport_ImportModule");
+
+    if (!g_PyGILState_Ensure || !g_PyBytes_FromStringAndSize ||
+        !g_PyObject_CallFunctionObjArgs || !g_Py_DecRef || !g_PyImport_ImportModule) {
+        dbgPrintf("[HOOK] ERROR: Cannot load Python C API functions for marshal hook\n");
+        return false;
+    }
+
+    void* target = (void*)GetProcAddress(hPyDll, "PyMarshal_ReadObjectFromString");
+    if (!target) {
+        dbgPrintf("[HOOK] ERROR: PyMarshal_ReadObjectFromString not exported\n");
+        return false;
+    }
+    dbgPrintf("[HOOK] PyMarshal_ReadObjectFromString @ 0x%p\n", target);
+
+    // Save original prologue (full 16-byte instruction boundary)
+    DWORD oldProtect;
+    VirtualProtect(target, MARSHAL_PROLOGUE_SIZE, PAGE_EXECUTE_READWRITE, &oldProtect);
+    memcpy(g_marshal_original_bytes, target, MARSHAL_PROLOGUE_SIZE);
+    VirtualProtect(target, MARSHAL_PROLOGUE_SIZE, oldProtect, &oldProtect);
+
+    // Allocate executable trampoline memory
+    g_marshal_trampoline = VirtualAlloc(nullptr, 256, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    if (!g_marshal_trampoline) {
+        dbgPrintf("[HOOK] ERROR: VirtualAlloc for trampoline failed\n");
+        return false;
+    }
+
+    // Trampoline: original 16 bytes + JMP [rip+0] back to target+16
+    unsigned char tramp[256];
+    memcpy(tramp, g_marshal_original_bytes, MARSHAL_PROLOGUE_SIZE);
+    // FF 25 00 00 00 00 + 8-byte absolute address
+    tramp[MARSHAL_PROLOGUE_SIZE + 0] = 0xFF;
+    tramp[MARSHAL_PROLOGUE_SIZE + 1] = 0x25;
+    tramp[MARSHAL_PROLOGUE_SIZE + 2] = 0x00;
+    tramp[MARSHAL_PROLOGUE_SIZE + 3] = 0x00;
+    tramp[MARSHAL_PROLOGUE_SIZE + 4] = 0x00;
+    tramp[MARSHAL_PROLOGUE_SIZE + 5] = 0x00;
+    uintptr_t orig_body = (uintptr_t)target + MARSHAL_PROLOGUE_SIZE;
+    memcpy(&tramp[MARSHAL_PROLOGUE_SIZE + 6], &orig_body, 8);
+
+    DWORD trampOld;
+    VirtualProtect(g_marshal_trampoline, 256, PAGE_EXECUTE_READWRITE, &trampOld);
+    memcpy(g_marshal_trampoline, tramp, MARSHAL_PROLOGUE_SIZE + 14);
+    VirtualProtect(g_marshal_trampoline, 256, trampOld, &trampOld);
+
+    g_real_PyMarshal_ReadObjectFromString = (PyMarshal_ReadObjectFromStringFunc)g_marshal_trampoline;
+
+    // Write detour JMP at original address (14-byte FF 25 + 8-byte addr)
+    unsigned char detour[] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    uintptr_t hookFn = (uintptr_t)&HookPyMarshal_ReadObjectFromString;
+    memcpy(&detour[6], &hookFn, 8);
+
+    DWORD old2;
+    VirtualProtect(target, MARSHAL_PROLOGUE_SIZE, PAGE_EXECUTE_READWRITE, &old2);
+    memcpy(target, detour, 14);
+    VirtualProtect(target, MARSHAL_PROLOGUE_SIZE, old2, &old2);
+
+    g_marshal_target = target;
+    dbgPrintf("[HOOK] PyMarshal_ReadObjectFromString detour installed\n");
+    return true;
+}
+
+// Cache the Python _write_marshal_pyc function for use from the C hook.
+static bool CacheMarshalWriteFunc() {
+    if (!g_PyImport_ImportModule || !g_PyObject_GetAttrString || !g_Py_DecRef) {
+        dbgPrintf("[HOOK] ERROR: Python API pointers not loaded for CacheMarshalWriteFunc\n");
+        return false;
+    }
+    void* marshal_mod = g_PyImport_ImportModule("marshal");
+    if (!marshal_mod) {
+        dbgPrintf("[HOOK] WARNING: Cannot import marshal for hook caching\n");
+        return false;
+    }
+    g_py_write_marshal_pyc = g_PyObject_GetAttrString(marshal_mod, "_write_marshal_pyc");
+    g_Py_DecRef(marshal_mod);
+    if (!g_py_write_marshal_pyc) {
+        dbgPrintf("[HOOK] WARNING: marshal._write_marshal_pyc not found (Python hook "
+                  "hasn't patched marshal yet)\n");
+        return false;
+    }
+    dbgPrintf("[HOOK] Cached marshal._write_marshal_pyc OK\n");
+    return true;
+}
+
+// Restore the original prologue (call on cleanup).
+static void RemoveMarshalHook() {
+    if (!g_marshal_target) return;
     DWORD old;
-    VirtualProtect(g_targetAddr, 14, PAGE_EXECUTE_READWRITE, &old);
-    memcpy(g_targetAddr, g_originalBytes, 14);
-    VirtualProtect(g_targetAddr, 14, old, &old);
+    VirtualProtect(g_marshal_target, MARSHAL_PROLOGUE_SIZE, PAGE_EXECUTE_READWRITE, &old);
+    memcpy(g_marshal_target, g_marshal_original_bytes, MARSHAL_PROLOGUE_SIZE);
+    VirtualProtect(g_marshal_target, MARSHAL_PROLOGUE_SIZE, old, &old);
+    g_marshal_target = nullptr;
+    if (g_marshal_trampoline) {
+        VirtualFree(g_marshal_trampoline, 0, MEM_RELEASE);
+        g_marshal_trampoline = nullptr;
+    }
+    if (g_py_write_marshal_pyc && g_Py_DecRef) {
+        g_Py_DecRef(g_py_write_marshal_pyc);
+        g_py_write_marshal_pyc = nullptr;
+    }
+    dbgPrintf("[HOOK] PyMarshal_ReadObjectFromString hook removed\n");
 }
 
 static unsigned __stdcall hookImpl(void *lpParam) {
@@ -1144,6 +1288,12 @@ static unsigned __stdcall hookImpl(void *lpParam) {
     if (hook_module) {
       LogImportedHookModulePath(PyRun_SimpleString, PYMODULE_NAME);
       SafePy_DecRef(Py_DecRef, hook_module);
+
+      // Install C-level detour (loads API function pointers), then cache
+      // the Python _write_marshal_pyc for the hook callback.
+      SetupMarshalHook(hPyDll);
+      CacheMarshalWriteFunc();
+
       RestorePythonStdStreams(PyRun_SimpleString);
       SafePyGILState_Release(PyGILState_Release, gilState);
       dbgPrintf("[HOOK] Successfully imported %s\n", PYMODULE_NAME);
@@ -1242,6 +1392,8 @@ static unsigned __stdcall hookImpl(void *lpParam) {
           if (hook_module_retry) {
             LogImportedHookModulePath(PyRun_SimpleString, PYMODULE_NAME);
             SafePy_DecRef(Py_DecRef, hook_module_retry);
+            SetupMarshalHook(hPyDll);
+            CacheMarshalWriteFunc();
             RestorePythonStdStreams(PyRun_SimpleString);
             SafePyGILState_Release(PyGILState_Release, gilState);
             dbgPrintf("[HOOK] Successfully imported %s after adding path\n",
@@ -1342,6 +1494,8 @@ static unsigned __stdcall hookImpl(void *lpParam) {
 
           if (execRes == 0) {
             free(execCmd);
+            SetupMarshalHook(hPyDll);
+            CacheMarshalWriteFunc();
             RestorePythonStdStreams(PyRun_SimpleString);
             SafePyGILState_Release(PyGILState_Release, gilState);
             dbgPrintf("[HOOK] Hook executed successfully via direct exec\n");

@@ -4,6 +4,7 @@
 //! HydraDragon can consume the detection data without spawning DIE itself.
 
 use crate::logging::Logging;
+use apk_info::ZipEntry;
 use goblin::Object;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -448,6 +449,7 @@ impl DetectItEasyScanner {
             ("ELF", format_validation.elf, elf_result.as_deref()),
             ("Mach-O", format_validation.macho, macho_result.as_deref()),
             ("APK", format_validation.apk, apk_result.as_deref()),
+            ("ZIP", format_validation.zip, None),
         ]
         .iter()
         .find_map(|(name, status, result)| {
@@ -942,6 +944,7 @@ struct BinaryFormatValidation {
     elf: FormatValidation,
     macho: FormatValidation,
     apk: FormatValidation,
+    zip: FormatValidation,
     file_type: Option<String>,
 }
 
@@ -978,6 +981,13 @@ fn inspect_binary_formats(file_path: &Path) -> BinaryFormatValidation {
         validation.file_type = Some("APK".to_string());
     }
 
+    if validation.file_type.is_none() {
+        validation.zip = inspect_zip_bytes(&data);
+        if validation.zip == FormatValidation::Valid {
+            validation.file_type = Some("ZIP".to_string());
+        }
+    }
+
     validation
 }
 
@@ -1008,8 +1018,7 @@ fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
         return FormatValidation::NotDetected;
     }
 
-    let cursor = Cursor::new(data);
-    let Ok(mut archive) = ZipArchive::new(cursor) else {
+    let Ok(zip) = ZipEntry::new(data.to_vec()) else {
         return if has_apk_marker {
             FormatValidation::Broken
         } else {
@@ -1020,12 +1029,7 @@ fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
     let mut has_android_manifest = false;
     let mut has_dex = false;
 
-    for index in 0..archive.len() {
-        let Ok(file) = archive.by_index(index) else {
-            return FormatValidation::Broken;
-        };
-
-        let name = file.name();
+    for name in zip.namelist() {
         if name == "AndroidManifest.xml" {
             has_android_manifest = true;
         } else if name == "classes.dex" || (name.starts_with("classes") && name.ends_with(".dex")) {
@@ -1042,6 +1046,19 @@ fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
     }
 
     FormatValidation::NotDetected
+}
+
+fn inspect_zip_bytes(data: &[u8]) -> FormatValidation {
+    if !looks_like_zip(data) {
+        return FormatValidation::NotDetected;
+    }
+
+    let cursor = Cursor::new(data);
+    if ZipArchive::new(cursor).is_ok() {
+        FormatValidation::Valid
+    } else {
+        FormatValidation::Broken
+    }
 }
 
 fn pe_file_type(data: &[u8]) -> Option<String> {
