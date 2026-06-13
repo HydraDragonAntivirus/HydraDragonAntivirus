@@ -886,13 +886,43 @@ static __declspec(noinline) void* HookPyMarshal_ReadObjectFromString(const char*
         // Skip file I/O during shutdown
         if (g_marshal_dump_dir[0] != '\0' && data != nullptr && len > 16 &&
             InterlockedCompareExchange(&g_unloading, 0, 0) == 0) {
+            // Scan raw data for first null-terminated module name (Nuitka format)
+            char mod_name[128] = "unknown";
+            for (ptrdiff_t i = 5; i < len - 2 && i < 512; i++) {
+                if (data[i] == '\0' && i + 1 < len) {
+                    ptrdiff_t name_start = i + 1;
+                    ptrdiff_t name_end = name_start;
+                    while (name_end < len && name_end - name_start < 120 &&
+                           data[name_end] >= 32 && data[name_end] < 127)
+                        name_end++;
+                    if (name_end - name_start >= 4 &&
+                        name_end - name_start < 120 &&
+                        memchr(data + name_start, '.', name_end - name_start)) {
+                        char tmp[128];
+                        ptrdiff_t copy_sz = (name_end - name_start < 120) ? (name_end - name_start) : 119;
+                        memcpy(tmp, data + name_start, copy_sz);
+                        tmp[copy_sz] = '\0';
+                        // Validate: no spaces, has at least one dot
+                        int has_dot = 0, valid = 1;
+                        for (int c = 0; tmp[c]; c++) {
+                            if (tmp[c] == '.') has_dot = 1;
+                            else if (tmp[c] <= 32 || tmp[c] > 126) { valid = 0; break; }
+                        }
+                        if (valid && has_dot) {
+                            _snprintf_s(mod_name, _TRUNCATE, "%s", tmp);
+                            break;
+                        }
+                    }
+                }
+            }
+
             char path[MAX_PATH];
             unsigned long long seq = InterlockedIncrement64((volatile LONG64*)&g_marshal_seq);
-            _snprintf_s(path, MAX_PATH, _TRUNCATE, "%s\\marshal_%llu.bin",
-                        g_marshal_dump_dir, seq);
+            _snprintf_s(path, MAX_PATH, _TRUNCATE, "%s\\%s_%llu.bin",
+                        g_marshal_dump_dir, mod_name, seq);
             char pyc_path[MAX_PATH];
-            _snprintf_s(pyc_path, MAX_PATH, _TRUNCATE, "%s\\marshal_%llu.pyc",
-                        g_marshal_dump_dir, seq);
+            _snprintf_s(pyc_path, MAX_PATH, _TRUNCATE, "%s\\%s_%llu.pyc",
+                        g_marshal_dump_dir, mod_name, seq);
 
             HANDLE hRaw = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
                                       FILE_ATTRIBUTE_NORMAL, NULL);
@@ -906,7 +936,10 @@ static __declspec(noinline) void* HookPyMarshal_ReadObjectFromString(const char*
                                           FILE_ATTRIBUTE_NORMAL, NULL);
                 if (hPyc != INVALID_HANDLE_VALUE) {
                     DWORD written;
-                    WriteFile(hPyc, g_marshal_magic, g_marshal_magic_len, &written, NULL);
+                    // Write full 16-byte pyc header: magic(4) + flags(4) + hash(8)
+                    WriteFile(hPyc, g_marshal_magic, 4, &written, NULL);
+                    unsigned char pyc_header[12] = {0}; // flags=0 (hash mode), 8 zero bytes for hash
+                    WriteFile(hPyc, pyc_header, 12, &written, NULL);
                     WriteFile(hPyc, data, (DWORD)len, &written, NULL);
                     CloseHandle(hPyc);
                 }

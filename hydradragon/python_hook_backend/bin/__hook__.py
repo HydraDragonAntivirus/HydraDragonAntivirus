@@ -865,6 +865,7 @@ def dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads=None):
                 data = f.read()
             if len(data) < 16:
                 return None
+            # C hook writes 16-byte pyc header (magic+flags+hash) + raw marshal data
             return _real_marshal_loads(data[16:])
         except Exception:
             try:
