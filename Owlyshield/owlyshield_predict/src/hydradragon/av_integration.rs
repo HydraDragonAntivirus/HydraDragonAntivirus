@@ -3429,7 +3429,9 @@ impl<'a> AVIntegration<'a> {
             if die_result_is_broken_file(&metadata.detectiteasy_scan_result) {
                 Logging::debug(&format!(
                     "[DetectItEasy] Deep scan gate skipped broken file ({}): {}",
-                    metadata.detectiteasy_scan_result.as_ref()
+                    metadata
+                        .detectiteasy_scan_result
+                        .as_ref()
                         .and_then(|r| r.broken_executable_type.as_deref())
                         .unwrap_or("unknown"),
                     file_path
