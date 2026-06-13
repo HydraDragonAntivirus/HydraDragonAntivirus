@@ -83,6 +83,26 @@ if _marshal_pyc_dir is None:
     except Exception:
         _marshal_pyc_dir = None
 
+# Module-level log function used by marshal hooks before dump_pyc_files sets up
+# the real hook_log.  dump_pyc_files can override _marshal_log_fn later.
+_marshal_log_path = _Path(PYTHON_DUMPS_DIR) / "hook_dll.log"
+_marshal_log_fn = None
+
+def _write_log(msg):
+    global _marshal_log_fn
+    if _marshal_log_fn is not None:
+        _marshal_log_fn(msg)
+        return
+    try:
+        with open(str(_marshal_log_path), "a", encoding="utf-8", errors="replace") as f:
+            f.write(msg)
+    except Exception:
+        try:
+            import sys as _sys2
+            _sys2.stderr.write(msg)
+        except Exception:
+            pass
+
 def _write_marshal_pyc(data, result_obj=None):
     if _marshal_pyc_dir is None:
         return
@@ -462,12 +482,13 @@ class SignatureExtractor:
 
 
 class ModuleReconstructor:
-    def __init__(self, backup_dir, log_func=None):
+    def __init__(self, backup_dir, log_func=None, nuitka_func_metadata=None):
         self.backup_dir = backup_dir
         self.decompiler = BytecodeDecompiler()
         self.sig_extractor = SignatureExtractor()
         self.compiled_modules = []  # Track compiled modules
         self._log = log_func or (lambda _: None)
+        self.nuitka_func_metadata = nuitka_func_metadata or {}
 
     def process_module(self, name, mod, is_potential_main=False):
         safe_name = name.replace(".", "_")
@@ -663,64 +684,56 @@ class ModuleReconstructor:
 
                             # If no code_obj, do metadata extraction (fallback for compiled/builtin)
                             if not code_obj:
-                                # Extract what we can without code object
-                                content.append("        # Compiled/protected code - attempting metadata extraction")
-
-                                # Try multiple methods to get info
-                                metadata = []
-
-                                # Method 0: Show docstring again in metadata comments if available
-                                if m_doc:
-                                    doc_preview = m_doc.replace("\n", " ").replace('    """', "").replace('"""', "").strip()
-                                    metadata.append(f"        # Docstring: {doc_preview}")
-
-                                # Method 1: Try inspect.signature
-                                try:
-                                    sig = inspect.signature(m_attr)
-                                    metadata.append(f"        # Signature: {sig}")
-                                except:
-                                    pass
-
-                                # Method 2: Check for __annotations__
-                                try:
-                                    if hasattr(m_attr, "__annotations__") and m_attr.__annotations__:
-                                        metadata.append(f"        # Annotations: {m_attr.__annotations__}")
-                                except:
-                                    pass
-
-                                # Method 3: Check for __defaults__
-                                try:
-                                    if hasattr(m_attr, "__defaults__") and m_attr.__defaults__:
-                                        metadata.append(f"        # Defaults: {m_attr.__defaults__}")
-                                except:
-                                    pass
-
-                                # Method 4: Check for __kwdefaults__
-                                try:
-                                    if hasattr(m_attr, "__kwdefaults__") and m_attr.__kwdefaults__:
-                                        metadata.append(f"        # Keyword defaults: {m_attr.__kwdefaults__}")
-                                except:
-                                    pass
-
-                                # Method 5: Try __wrapped__ (for decorated functions)
-                                try:
-                                    if hasattr(m_attr, "__wrapped__"):
-                                        metadata.append("        # Has __wrapped__ attribute")
-                                except:
-                                    pass
-
-                                # Method 6: Try __doc__ directly as backup
-                                try:
-                                    if hasattr(m_attr, "__doc__") and m_attr.__doc__ and not m_doc:
-                                        doc_raw = str(m_attr.__doc__).strip()
-                                        metadata.append(f"        # Raw __doc__: {doc_raw}")
-                                except:
-                                    pass
-
-                                if metadata:
-                                    content.extend(metadata)
-
-                                content.append("        pass  # AG: STUB_IDENTIFIED - No bytecode accessible")
+                                nuitka_meta = self.nuitka_func_metadata.get(m_name)
+                                if nuitka_meta:
+                                    sig_args = [str(a) for a in nuitka_meta.get('args', [])]
+                                    qualname = nuitka_meta.get('qualname', m_name)
+                                    line_no = nuitka_meta.get('line', 0)
+                                    content.append(f"        # NBC decoded: {qualname} @ line {line_no}")
+                                    if sig_args:
+                                        content.append(f"        # Real signature: def {m_name}({', '.join(sig_args)})")
+                                    content.append(f"        # Arg count: {nuitka_meta.get('argcount', 0)}")
+                                    content.append("        pass  # Compiled method - bytecode not available")
+                                else:
+                                    content.append("        # Compiled/protected code - attempting metadata extraction")
+                                    metadata = []
+                                    if m_doc:
+                                        doc_preview = m_doc.replace("\n", " ").replace('    """', "").replace('"""', "").strip()
+                                        metadata.append(f"        # Docstring: {doc_preview}")
+                                    try:
+                                        sig = inspect.signature(m_attr)
+                                        metadata.append(f"        # Signature: {sig}")
+                                    except:
+                                        pass
+                                    try:
+                                        if hasattr(m_attr, "__annotations__") and m_attr.__annotations__:
+                                            metadata.append(f"        # Annotations: {m_attr.__annotations__}")
+                                    except:
+                                        pass
+                                    try:
+                                        if hasattr(m_attr, "__defaults__") and m_attr.__defaults__:
+                                            metadata.append(f"        # Defaults: {m_attr.__defaults__}")
+                                    except:
+                                        pass
+                                    try:
+                                        if hasattr(m_attr, "__kwdefaults__") and m_attr.__kwdefaults__:
+                                            metadata.append(f"        # Keyword defaults: {m_attr.__kwdefaults__}")
+                                    except:
+                                        pass
+                                    try:
+                                        if hasattr(m_attr, "__wrapped__"):
+                                            metadata.append("        # Has __wrapped__ attribute")
+                                    except:
+                                        pass
+                                    try:
+                                        if hasattr(m_attr, "__doc__") and m_attr.__doc__ and not m_doc:
+                                            doc_raw = str(m_attr.__doc__).strip()
+                                            metadata.append(f"        # Raw __doc__: {doc_raw}")
+                                    except:
+                                        pass
+                                    if metadata:
+                                        content.extend(metadata)
+                                    content.append("        pass  # AG: STUB_IDENTIFIED - No bytecode accessible")
                                 self.compiled_modules.append((name, attr_name, m_name))
 
                             content.append("")
@@ -768,64 +781,77 @@ class ModuleReconstructor:
 
                     # If no code_obj, do metadata extraction (fallback for compiled/builtin)
                     if not code_obj:
-                        # Extract what we can without code object
-                        content.append("    # Compiled/protected code - attempting metadata extraction")
-
-                        # Try multiple methods to get info
+                        nuitka_meta = self.nuitka_func_metadata.get(attr_name)
                         metadata = []
 
-                        # Method 0: Show docstring again in metadata comments if available
-                        if func_doc:
-                            doc_preview = func_doc.replace("\n", " ").replace('    """', "").replace('"""', "").strip()
-                            metadata.append(f"    # Docstring: {doc_preview}")
+                        if nuitka_meta:
+                            sig_args = [str(a) for a in nuitka_meta.get('args', [])]
+                            qualname = nuitka_meta.get('qualname', attr_name)
+                            line_no = nuitka_meta.get('line', 0)
+                            content.append(f"    # NBC decoded: {qualname} @ line {line_no}")
+                            if sig_args:
+                                sig_str = ", ".join(sig_args)
+                                content.append(f"    # Real signature: def {attr_name}({sig_str})")
+                            content.append(f"    # Arg count: {nuitka_meta.get('argcount', 0)}")
+                            content.append(f"    # Kwonly: {nuitka_meta.get('kwonly', 0)}")
+                            if nuitka_meta.get('freevars'):
+                                content.append(f"    # Free vars: {nuitka_meta.get('freevars', [])}")
+                            content.append("    pass  # Compiled function - bytecode not available")
+                        else:
+                            content.append("    # Compiled/protected code - attempting metadata extraction")
 
-                        # Method 1: Try inspect.signature
-                        try:
-                            sig = inspect.signature(attr)
-                            metadata.append(f"    # Signature: {sig}")
-                        except:
-                            pass
+                            # Method 0: Show docstring again in metadata comments if available
+                            if func_doc:
+                                doc_preview = func_doc.replace("\n", " ").replace('    """', "").replace('"""', "").strip()
+                                metadata.append(f"    # Docstring: {doc_preview}")
 
-                        # Method 2: Check for __annotations__
-                        try:
-                            if hasattr(attr, "__annotations__") and attr.__annotations__:
-                                metadata.append(f"    # Annotations: {attr.__annotations__}")
-                        except:
-                            pass
+                            # Method 1: Try inspect.signature
+                            try:
+                                sig = inspect.signature(attr)
+                                metadata.append(f"    # Signature: {sig}")
+                            except:
+                                pass
 
-                        # Method 3: Check for __defaults__
-                        try:
-                            if hasattr(attr, "__defaults__") and attr.__defaults__:
-                                metadata.append(f"    # Defaults: {attr.__defaults__}")
-                        except:
-                            pass
+                            # Method 2: Check for __annotations__
+                            try:
+                                if hasattr(attr, "__annotations__") and attr.__annotations__:
+                                    metadata.append(f"    # Annotations: {attr.__annotations__}")
+                            except:
+                                pass
 
-                        # Method 4: Check for __kwdefaults__
-                        try:
-                            if hasattr(attr, "__kwdefaults__") and attr.__kwdefaults__:
-                                metadata.append(f"    # Keyword defaults: {attr.__kwdefaults__}")
-                        except:
-                            pass
+                            # Method 3: Check for __defaults__
+                            try:
+                                if hasattr(attr, "__defaults__") and attr.__defaults__:
+                                    metadata.append(f"    # Defaults: {attr.__defaults__}")
+                            except:
+                                pass
 
-                        # Method 5: Try __wrapped__ (for decorated functions)
-                        try:
-                            if hasattr(attr, "__wrapped__"):
-                                metadata.append("    # Has __wrapped__ attribute")
-                        except:
-                            pass
+                            # Method 4: Check for __kwdefaults__
+                            try:
+                                if hasattr(attr, "__kwdefaults__") and attr.__kwdefaults__:
+                                    metadata.append(f"    # Keyword defaults: {attr.__kwdefaults__}")
+                            except:
+                                pass
 
-                        # Method 6: Try __doc__ directly as backup
-                        try:
-                            if hasattr(attr, "__doc__") and attr.__doc__ and not func_doc:
-                                doc_raw = str(attr.__doc__).strip()
-                                metadata.append(f"    # Raw __doc__: {doc_raw}")
-                        except:
-                            pass
+                            # Method 5: Try __wrapped__ (for decorated functions)
+                            try:
+                                if hasattr(attr, "__wrapped__"):
+                                    metadata.append("    # Has __wrapped__ attribute")
+                            except:
+                                pass
 
-                        if metadata:
-                            content.extend(metadata)
+                            # Method 6: Try __doc__ directly as backup
+                            try:
+                                if hasattr(attr, "__doc__") and attr.__doc__ and not func_doc:
+                                    doc_raw = str(attr.__doc__).strip()
+                                    metadata.append(f"    # Raw __doc__: {doc_raw}")
+                            except:
+                                pass
 
-                        content.append("    pass  # AG: STUB_IDENTIFIED - No bytecode accessible")
+                            if metadata:
+                                content.extend(metadata)
+
+                            content.append("    pass  # AG: STUB_IDENTIFIED - No bytecode accessible")
                         self.compiled_modules.append((name, attr_name, None))
                     content.append("")
 
@@ -842,6 +868,145 @@ class ModuleReconstructor:
                 continue
 
         output_path.write_text("\n".join(content), encoding="utf-8", errors="ignore")
+
+
+# ── Nuitka NBC decoder integration ─────────────────────────────────────────
+# Imports the NBC decoder from the hydradragon.nuitka_deobfuscate package
+# (available via site-packages which is in sys.path in the hooked process).
+
+_nbc_decoder_available = False
+_nbc_parse_module_constants = None
+_nbc_recursive_find = None
+
+def _init_nbc_decoder(hook_log=None):
+    global _nbc_decoder_available, _nbc_parse_module_constants, _nbc_recursive_find
+    if _nbc_decoder_available:
+        return True
+    import sys as _sys
+    _hd = os.path.dirname(os.path.abspath(__file__))
+    _repo_root = os.path.normpath(os.path.join(_hd, '..', '..', '..'))
+    if _repo_root not in _sys.path:
+        _sys.path.insert(0, _repo_root)
+    try:
+        from hydradragon.nuitka_deobfuscate.run_extract import (
+            _nbc_parse_module_constants as _npm,
+            recursive_find_code as _rfc,
+        )
+        _nbc_parse_module_constants = _npm
+        _nbc_recursive_find = _rfc
+        _nbc_decoder_available = True
+        return True
+    except Exception as e:
+        import traceback
+        _tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+        _msg = f"[NBC] Import failed: {e}\n[NBC] sys.path = {list(_sys.path)}\n[NBC] Trace:\n{_tb}\n"
+        if hook_log:
+            hook_log(_msg)
+        else:
+            import sys as _sys2
+            _sys2.stderr.write(_msg)
+        return False
+
+def _decode_nuitka_dumps(pyc_dumps_dir, hook_log):
+    if not _init_nbc_decoder(hook_log=hook_log):
+        hook_log("[NBC] hydradragon.nuitka_deobfuscate unavailable\n")
+        return {}
+
+    d = Path(pyc_dumps_dir)
+    if not d.is_dir():
+        return {}
+
+    magic_int = None
+    try:
+        from hydradragon.nuitka_deobfuscate.marshal_detector import get_magic_int
+        magic_int = get_magic_int("3.12")
+    except Exception:
+        pass
+
+    results = {}
+    for bin_path in sorted(d.glob("*.bin")):
+        try:
+            raw = bin_path.read_bytes()
+            if len(raw) < 4:
+                continue
+            constants = _nbc_parse_module_constants(raw)
+            if not constants:
+                continue
+
+            code_objects = []
+            if magic_int:
+                _nbc_recursive_find(constants, code_objects, set(), magic_int)
+            strings = _extract_strings(constants)
+            funcs = {}
+            _walk_constants_for_funcs(constants, funcs)
+            for co in code_objects:
+                try:
+                    name = co.co_name if hasattr(co, 'co_name') else '<unknown>'
+                    if name not in funcs:
+                        funcs[name] = {
+                            'name': name,
+                            'args': list(getattr(co, 'co_varnames', [])[:getattr(co, 'co_argcount', 0)]),
+                            'argcount': getattr(co, 'co_argcount', 0),
+                            'code_obj': co,
+                        }
+                except:
+                    pass
+
+            if funcs or strings or code_objects:
+                results[bin_path.name] = {
+                    "functions": funcs,
+                    "strings": strings,
+                    "code_objects": code_objects,
+                }
+                hook_log(f"[NBC] Decoded {bin_path.name}: {len(funcs)} funcs, "
+                         f"{len(code_objects)} real code objs, {len(strings)} strings\n")
+
+        except Exception as e:
+            hook_log(f"[NBC] Failed to decode {bin_path.name}: {e}\n")
+
+    return results
+
+
+def _walk_constants_for_funcs(items, out, depth=0):
+    if depth > 20:
+        return
+    if isinstance(items, dict):
+        if items.get('_type') == 'CodeObject':
+            name = items.get('name', '<unknown>')
+            if name not in out:
+                out[name] = items
+        for v in items.values():
+            _walk_constants_for_funcs(v, out, depth + 1)
+    elif isinstance(items, (list, tuple)):
+        for item in items:
+            _walk_constants_for_funcs(item, out, depth + 1)
+
+
+def _extract_strings(items, max_depth=25):
+    out = []
+    seen = set()
+    def _walk(v, d):
+        if d > max_depth:
+            return
+        if isinstance(v, str) and v not in seen and len(v) > 2:
+            seen.add(v)
+            out.append(v)
+        elif isinstance(v, (bytes, bytearray)):
+            try:
+                s = bytes(v).decode("utf-8", errors="replace")
+                if s not in seen and len(s) > 2:
+                    seen.add(s)
+                    out.append(s)
+            except Exception:
+                pass
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                _walk(x, d + 1)
+        elif isinstance(v, dict):
+            for kv in v.values():
+                _walk(kv, d + 1)
+    _walk(items, 0)
+    return out
 
 
 def dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads=None):
@@ -917,6 +1082,22 @@ def dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads=None):
             hook_log(f"[PYC_ERR] {pyc_path}: {e}\n")
 
     hook_log(f"[PYC] Dumped {dumped} .pyc files\n")
+
+    # ── Decode Nuitka .bin dumps from PYC_DUMPS ─────────────────────
+    pyc_dumps_dir = source_dir / "PYC_DUMPS"
+    nuitka_data = _decode_nuitka_dumps(str(pyc_dumps_dir), hook_log)
+    if nuitka_data:
+        hook_log(f"[NBC] Decoded {len(nuitka_data)} Nuitka dumps\n")
+        # Build function-name → metadata lookup from all decoded dumps
+        func_map = {}
+        for fname, entry in nuitka_data.items():
+            for func_name, meta in entry.get("functions", {}).items():
+                if func_name not in func_map:
+                    func_map[func_name] = meta
+        if func_map:
+            recon.nuitka_func_metadata = func_map
+            hook_log(f"[NBC] Mapped {len(func_map)} function signatures from Nuitka dumps\n")
+
     return dumped
 
 
@@ -1728,6 +1909,11 @@ def run_decompiler():
                 log_f.write(msg)
         except Exception:
             pass
+
+    # Route module-level _write_log to our hook_log so marshal hooks
+    # benefit from the same log file.
+    import __hook__ as _hook_mod
+    _hook_mod._marshal_log_fn = hook_log
 
     try:
         hook_log(f"Starting decompilation\nTarget Dir: {backup_dir}\n")

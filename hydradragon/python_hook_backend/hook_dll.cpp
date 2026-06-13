@@ -902,13 +902,32 @@ static __declspec(noinline) void* HookPyMarshal_ReadObjectFromString(const char*
                         ptrdiff_t copy_sz = (name_end - name_start < 120) ? (name_end - name_start) : 119;
                         memcpy(tmp, data + name_start, copy_sz);
                         tmp[copy_sz] = '\0';
-                        // Validate: no spaces, has at least one dot
-                        int has_dot = 0, valid = 1;
-                        for (int c = 0; tmp[c]; c++) {
-                            if (tmp[c] == '.') has_dot = 1;
-                            else if (tmp[c] <= 32 || tmp[c] > 126) { valid = 0; break; }
+                        // Validate as Python module path: starts with letter/underscore,
+                        // contains only [a-zA-Z0-9_.], no leading/trailing/consecutive dots
+                        int valid = 1;
+                        if (!((tmp[0] >= 'a' && tmp[0] <= 'z') ||
+                              (tmp[0] >= 'A' && tmp[0] <= 'Z') ||
+                              tmp[0] == '_'))
+                            valid = 0;
+                        if (valid && (tmp[copy_sz - 1] == '.'))
+                            valid = 0;
+                        if (valid) {
+                            int prev_dot = 0;
+                            for (int c = 0; tmp[c] && valid; c++) {
+                                if (tmp[c] == '.') {
+                                    if (prev_dot) { valid = 0; break; }
+                                    prev_dot = 1;
+                                } else {
+                                    prev_dot = 0;
+                                    if (!((tmp[c] >= 'a' && tmp[c] <= 'z') ||
+                                          (tmp[c] >= 'A' && tmp[c] <= 'Z') ||
+                                          (tmp[c] >= '0' && tmp[c] <= '9') ||
+                                          tmp[c] == '_'))
+                                        { valid = 0; break; }
+                                }
+                            }
                         }
-                        if (valid && has_dot) {
+                        if (valid) {
                             _snprintf_s(mod_name, _TRUNCATE, "%s", tmp);
                             break;
                         }
