@@ -236,6 +236,7 @@ class LiteInjector:
     log_queue: deque = deque(maxlen=500)
     _hb_count: int = 0
     _log_pending: bool = False
+    _last_auto_refresh: float = 0.0
 
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -253,12 +254,17 @@ class LiteInjector:
         d_dir = os.path.dirname(os.path.abspath(__file__))
         self.dll_var = tk.StringVar(value=os.path.join(d_dir, "hook64.dll" if platform.machine().endswith("64") else "hook32.dll"))
         self.hide_std = tk.BooleanVar(value=True)
+        self.auto_refresh = tk.BooleanVar(value=False)
         self._build_ui()
         self.refresh()
         self._heartbeat()
 
     def _heartbeat(self):
         self._hb_count += 1
+        now = time.time()
+        if self.auto_refresh.get() and now - self._last_auto_refresh > 3.0:
+            self._last_auto_refresh = now
+            self.refresh()
         self.root.title(f"Hydra Injector [HB:{self._hb_count}] [NINJA:{'ON' if self.ninja_on else 'OFF'}]")
         self.root.after(250, self._heartbeat)
 
@@ -303,7 +309,10 @@ class LiteInjector:
         self.search = tk.Entry(top)
         self.search.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
         self.search.bind("<KeyRelease>", self._trigger_refresh)
-        tk.Checkbutton(self.root, text="Hide System Pythons", variable=self.hide_std, command=self.refresh).pack(anchor="w", padx=10)
+        chk_frame = tk.Frame(self.root)
+        chk_frame.pack(fill=tk.X, padx=10)
+        tk.Checkbutton(chk_frame, text="Hide System Pythons", variable=self.hide_std, command=self.refresh).pack(side=tk.LEFT)
+        tk.Checkbutton(chk_frame, text="Auto Refresh", variable=self.auto_refresh).pack(side=tk.LEFT, padx=(15, 0))
         cols = ("PID", "Name", "Arch", "Path")
         self.tree = ttk.Treeview(self.root, columns=cols, show="headings", height=12)
         for c, w in zip(cols, (70, 150, 70, 450)):

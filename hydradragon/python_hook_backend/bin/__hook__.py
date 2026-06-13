@@ -69,30 +69,19 @@ _patched_marshal_dump_fn = None
 _marshal_pyc_lock = _threading.Lock()
 _marshal_pyc_seen = set()
 
-def _create_next_pyc_dump_dir(base_dir, prefix="CPYTHON_PYC_DUMPS"):
-    d = _Path(base_dir)
+_marshal_pyc_dir = None
+if hasattr(sys, '__marshal_target_dir__') and sys.__marshal_target_dir__:
     try:
-        d.mkdir(parents=True, exist_ok=True)
-        max_n = 0
-        for _ed in d.iterdir():
-            if _ed.is_dir() and _ed.name.startswith(prefix + "_"):
-                try:
-                    n = int(_ed.name.rsplit("_", 1)[-1])
-                    if n > max_n:
-                        max_n = n
-                except ValueError:
-                    pass
-        target = d / f"{prefix}_{max_n + 1}"
-        target.mkdir(parents=False, exist_ok=False)
-        return target
+        _marshal_pyc_dir = _Path(sys.__marshal_target_dir__)
+        _marshal_pyc_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
-        return None
-
-_marshal_pyc_dir = _Path(PYTHON_DUMPS_DIR) / "PYC_DUMPS"
-try:
-    _marshal_pyc_dir.mkdir(parents=True, exist_ok=True)
-except Exception:
-    _marshal_pyc_dir = None
+        _marshal_pyc_dir = None
+if _marshal_pyc_dir is None:
+    try:
+        _marshal_pyc_dir = _Path(PYTHON_DUMPS_DIR) / "PYC_DUMPS"
+        _marshal_pyc_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        _marshal_pyc_dir = None
 
 def _write_marshal_pyc(data, result_obj=None):
     if _marshal_pyc_dir is None:
@@ -1683,7 +1672,18 @@ def run_decompiler():
     sys.setrecursionlimit(15000)
 
     dump_root = Path(PYTHON_DUMPS_DIR)
-    backup_dir = get_next_dump_path(str(dump_root))
+
+    # Reuse the C++-created marshal target dir if available — avoids creating
+    # a second dump_N folder (dual dump dir bug).
+    # marshal_target_dir is .../dump_N/RECONSTRUCTED_SOURCE/PYC_DUMPS,
+    # so .parent = .../dump_N/RECONSTRUCTED_SOURCE, .parent.parent = .../dump_N.
+    if hasattr(sys, '__marshal_target_dir__') and sys.__marshal_target_dir__:
+        source_dir = Path(sys.__marshal_target_dir__).parent
+        backup_dir = source_dir.parent
+    else:
+        backup_dir = get_next_dump_path(str(dump_root))
+        source_dir = backup_dir / "RECONSTRUCTED_SOURCE"
+
     source_dir = backup_dir / "RECONSTRUCTED_SOURCE"
     started_path = backup_dir / "started.txt"
     progress_path = backup_dir / "progress.txt"
@@ -1733,17 +1733,8 @@ def run_decompiler():
         hook_log(f"Created: {source_dir}\n")
         write_marker(progress_path, "phase=initializing\n")
 
-        # Move any module-level marshal .pyc captures into per-run numbered dir
-        per_run_pyc = _create_next_pyc_dump_dir(source_dir)
-        if per_run_pyc is not None:
-            try:
-                if _marshal_pyc_dir is not None and _marshal_pyc_dir.exists():
-                    for _mp in list(_marshal_pyc_dir.iterdir()):
-                        if _mp.suffix == ".pyc":
-                            _mp.rename(per_run_pyc / _mp.name)
-                            hook_log(f"[MARSHAL_MOVE] {_mp.name} -> {per_run_pyc.name}/\n")
-            except Exception:
-                pass
+        # Marshal .pyc files are written directly to this dir by the C-level
+        # PyMarshal_ReadObjectFromString hook — no move step needed.
 
         recon = ModuleReconstructor(backup_dir, log_func=hook_log)
 
