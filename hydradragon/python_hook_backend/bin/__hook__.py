@@ -982,6 +982,109 @@ def _walk_constants_for_funcs(items, out, depth=0):
             _walk_constants_for_funcs(item, out, depth + 1)
 
 
+# ── Dynamic blob dump helpers ─────────────────────────────────────────────
+# Wait for the C hook DLL to write nuitka_blob.bin into DYNAMIC_BLOB/
+
+def _wait_dll_blob_dump(dynamic_dir, hook_log, max_wait=5):
+    import time
+    d = Path(dynamic_dir) / "DYNAMIC_BLOB"
+    d.mkdir(parents=True, exist_ok=True)
+    target = d / "nuitka_blob.bin"
+    for _ in range(max_wait * 10):
+        if target.is_file() and target.stat().st_size > 0:
+            hook_log(f"[BLOB] Found DLL-dumped blob: {target} ({target.stat().st_size} bytes)\n")
+            return str(target)
+        time.sleep(0.1)
+    hook_log("[BLOB] DLL did not dump blob (no Nuitka?)\n")
+    return None
+
+
+def _extract_blob_dynamic(blob_path, recon, source_dir, hook_log):
+    import struct
+    try:
+        raw = Path(blob_path).read_bytes()
+        if len(raw) < 12:
+            hook_log("[BLOBD] blob too small\n")
+            return
+        size_stored = struct.unpack('<I', raw[4:8])[0]
+        data = raw[8:8 + size_stored]
+        if len(data) < size_stored:
+            hook_log(f"[BLOBD] blob truncated: expected {size_stored}, got {len(data)}\n")
+            return
+        offset = 0
+        total = 0
+
+        def _choose_layout(d, header_pos):
+            """Try size_count (6 bytes) first, then size_only (4 bytes)."""
+            if header_pos + 4 > len(d):
+                return None
+            section_size = struct.unpack_from('<I', d, header_pos)[0]
+            # size_count layout: uint32 size + uint16 count
+            if header_pos + 6 <= len(d):
+                item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
+                data_start = header_pos + 6
+                if (0 < section_size <= 128 * 1024 * 1024 and
+                        data_start + section_size <= len(d) and
+                        0 < item_count < 65000):
+                    return data_start, section_size, 'size_count'
+            # size_only layout: uint32 size
+            data_start = header_pos + 4
+            if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
+                return data_start, section_size, 'size_only'
+            return None
+
+        while offset < len(data) - 5:
+            name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
+            if name_end == -1:
+                break
+            mod_name = data[offset:name_end].decode('utf-8', errors='replace')
+            layout = _choose_layout(data, name_end + 1)
+            if layout is None:
+                break
+            data_start, chunk_size, layout_name = layout
+            if chunk_size > 10 * 1024 * 1024 or data_start + chunk_size > len(data):
+                break
+            chunk_data = data[data_start:data_start + chunk_size]
+            offset = data_start + chunk_size
+
+            out_path = source_dir / "DYNAMIC_BLOB" / f"{mod_name.replace('.', '_')}.bin"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(chunk_data)
+            hook_log(f"[BLOBD] {layout_name}: {mod_name} -> {chunk_size} bytes\n")
+            total += 1
+
+            try:
+                if not _nbc_decoder_available:
+                    _init_nbc_decoder(hook_log)
+                if _nbc_parse_module_constants:
+                    constants = _nbc_parse_module_constants(chunk_data)
+                    if not constants:
+                        continue
+                    code_objs = []
+                    if _nbc_recursive_find:
+                        from hydradragon.nuitka_deobfuscate.marshal_detector import get_magic_int
+                        mi = get_magic_int(f"{__import__('sys').version_info.major}.{__import__('sys').version_info.minor}")
+                        _nbc_recursive_find(constants, code_objs, set(), mi)
+                    for co in code_objs:
+                        try:
+                            n = co.co_name
+                            if n and n not in getattr(recon, 'nuitka_func_metadata', {}):
+                                if not hasattr(recon, 'nuitka_func_metadata'):
+                                    recon.nuitka_func_metadata = {}
+                                recon.nuitka_func_metadata[n] = {
+                                    'name': n, 'code_obj': co,
+                                    'args': list(co.co_varnames[:co.co_argcount]),
+                                }
+                        except Exception:
+                            pass
+            except Exception as e:
+                hook_log(f"[BLOBD] {mod_name} constants parse error: {e}\n")
+
+        hook_log(f"[BLOBD] Extracted {total} module sections from dynamic blob\n")
+    except Exception as e:
+        hook_log(f"[BLOBD] Failed: {e}\n")
+
+
 def _extract_strings(items, max_depth=25):
     out = []
     seen = set()
@@ -2149,6 +2252,17 @@ def run_decompiler():
         except Exception as e:
             error_count += 1
             hook_log(f"[PYC ERR] pyc scan crashed: {e}\n")
+
+        # Nuitka dynamic blob extraction from DLL dump
+        try:
+            _blob_dir = PYTHON_DUMPS_DIR
+            blob_path = _wait_dll_blob_dump(_blob_dir, hook_log, max_wait=5)
+            if blob_path:
+                _init_nbc_decoder(hook_log)
+                _extract_blob_dynamic(blob_path, recon, source_dir, hook_log)
+        except Exception as e:
+            error_count += 1
+            hook_log(f"[BLOB ERR] dynamic blob extraction crashed: {e}\n")
 
         # Generic import-lock diagnostics and requested force-unlock pass.
         # No target-name matching, no waiting, no forced imports.

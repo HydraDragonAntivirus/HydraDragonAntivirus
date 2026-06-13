@@ -869,6 +869,248 @@ static HMODULE g_hPyDll = nullptr;
 // FF 25 [rip+0] + 8-byte addr = 14 bytes (full 64-bit, used in detour)
 #define MARSHAL_DETOUR_SIZE 14
 
+// Full Nuitka decrypted blob detection globals
+static void*  g_blob_start = nullptr;
+static size_t g_blob_size  = 0;
+static LONG   g_blob_found = 0;
+static LONG   g_blob_attempts = 0;
+
+// Returns layout type: 0 for invalid, 1 for size_only, 2 for size_count.
+static int ChooseSectionLayout(const unsigned char* end, const unsigned char* name_end, unsigned int* out_size, unsigned int* out_data_offset) {
+    if (name_end + 5 > end) return 0;
+
+    unsigned int section_size;
+    memcpy(&section_size, name_end + 1, 4);
+
+    if (name_end + 7 <= end) {
+        unsigned short item_count;
+        memcpy(&item_count, name_end + 5, 2);
+        const unsigned char* data_start = name_end + 7;
+        if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
+            data_start + section_size <= end &&
+            item_count > 0 && item_count < 65000 && section_size >= item_count) {
+            *out_size = section_size;
+            *out_data_offset = 7;
+            return 2; // size_count
+        }
+    }
+
+    const unsigned char* data_start = name_end + 5;
+    if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
+        data_start + section_size <= end) {
+        *out_size = section_size;
+        *out_data_offset = 5;
+        return 1; // size_only
+    }
+
+    return 0;
+}
+
+static bool ValidateBlobHeader(const unsigned char* hdr, const unsigned char* data_limit) {
+    __try {
+        // First 4 bytes: magic/version (anything non-zero)
+        uint32_t magic;
+        memcpy(&magic, hdr, 4);
+        if (magic == 0) return false;
+
+        uint32_t tsz;
+        memcpy(&tsz, hdr + 4, 4);
+        if (tsz < 64 || tsz > 60 * 1024 * 1024) return false;
+
+        const unsigned char* data_section = hdr + 8;
+        const unsigned char* end = data_section + tsz;
+        if (end > data_limit) return false;
+
+        // Walk entries — require at least 3 valid ones (lenient: stop on error, don't fail)
+        const unsigned char* ptr = data_section;
+        int entry_count = 0;
+
+        while (ptr < end && entry_count < 4096) {
+            if (ptr >= end - 5) break;
+            const unsigned char* name_end = (const unsigned char*)memchr(ptr, 0, (size_t)(end - ptr));
+            if (!name_end || name_end >= end - 4) break;
+            ptrdiff_t name_len = name_end - ptr;
+            if (name_len < 1 || name_len > 250) break;
+
+            // First char must be letter or underscore
+            unsigned char fc = *ptr;
+            if (!((fc >= 'a' && fc <= 'z') || (fc >= 'A' && fc <= 'Z') || fc == '_')) break;
+
+            unsigned int section_size = 0;
+            unsigned int data_offset = 0;
+            int layout = ChooseSectionLayout(end, name_end, &section_size, &data_offset);
+            if (layout == 0) break;
+
+            entry_count++;
+            ptr = name_end + data_offset + section_size;
+        }
+
+        return (entry_count >= 3);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// --- Blob entry storage for module name lookup ---
+#define MAX_BLOB_ENTRIES 2048
+struct BlobEntry {
+    const unsigned char* chunk_start;  // pointer to chunk data in memory
+    unsigned int chunk_size;
+    char name[256];  // module name
+};
+static BlobEntry g_blob_entries[MAX_BLOB_ENTRIES];
+static int g_blob_entry_count = 0;
+
+// Parse blob entries from the detected blob and store them for name lookup.
+static void ParseBlobEntries() {
+    if (!g_blob_start) return;
+    const unsigned char* data_section = (const unsigned char*)g_blob_start + 8;
+    unsigned int total_sz;
+    memcpy(&total_sz, (const char*)g_blob_start + 4, 4);
+    const unsigned char* end = data_section + total_sz;
+    const unsigned char* ptr = data_section;
+    g_blob_entry_count = 0;
+
+    while (ptr < end && g_blob_entry_count < MAX_BLOB_ENTRIES) {
+        if (ptr >= end - 5) break;
+        const unsigned char* name_end = (const unsigned char*)
+            memchr(ptr, 0, (size_t)(end - ptr));
+        if (!name_end || name_end >= end - 4) break;
+        ptrdiff_t name_len = name_end - ptr;
+        if (name_len < 1 || name_len > 250) break;
+
+        unsigned int section_size = 0;
+        unsigned int data_offset = 0;
+        int layout = ChooseSectionLayout(end, name_end, &section_size, &data_offset);
+        if (layout == 0) break;
+
+        BlobEntry* e = &g_blob_entries[g_blob_entry_count];
+        memcpy(e->name, ptr, name_len);
+        e->name[name_len] = '\0';
+
+        e->chunk_start = name_end + data_offset;
+        e->chunk_size = section_size;
+
+        g_blob_entry_count++;
+        ptr = e->chunk_start + section_size;
+    }
+}
+
+// Look up module name by marshal data pointer.
+static const char* LookupModuleName(const unsigned char* data) {
+    if (InterlockedCompareExchange(&g_blob_found, 1, 1) != 1) return NULL;
+    for (int i = 0; i < g_blob_entry_count; i++) {
+        const BlobEntry* e = &g_blob_entries[i];
+        if (data >= e->chunk_start &&
+            data < e->chunk_start + e->chunk_size) {
+            return e->name;
+        }
+    }
+    return NULL;
+}
+
+static bool IsRangeCommitted(const void* addr, size_t size) {
+    const unsigned char* ptr = (const unsigned char*)addr;
+    const unsigned char* end = ptr + size;
+    while (ptr < end) {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (!VirtualQuery(ptr, &mbi, sizeof(mbi))) return false;
+        if (mbi.State != MEM_COMMIT) return false;
+        ptr = (const unsigned char*)mbi.BaseAddress + mbi.RegionSize;
+    }
+    return true;
+}
+
+static void DumpNuitkaBlob();
+
+static void DetectNuitkaBlob(const char* data, ptrdiff_t len) {
+    if (InterlockedCompareExchange(&g_blob_found, 1, 1) == 1 || !data || len < 1) {
+        return;
+    }
+
+    if (g_marshal_dump_dir[0] == '\0') return;
+
+    if (InterlockedIncrement(&g_blob_attempts) > 20) {
+        InterlockedExchange(&g_blob_found, 1);
+        return;
+    }
+
+    const unsigned char* udata = (const unsigned char*)data;
+
+    __try {
+        const unsigned char* curr = udata;
+        const unsigned char* limit = (uintptr_t)udata > 64 * 1024 * 1024 ? udata - 64 * 1024 * 1024 : nullptr;
+
+        while (curr > limit) {
+            MEMORY_BASIC_INFORMATION mbi;
+            if (!VirtualQuery(curr, &mbi, sizeof(mbi))) break;
+            if (mbi.State != MEM_COMMIT) {
+                curr = (const unsigned char*)mbi.BaseAddress;
+                if (curr == 0) break;
+                curr--;
+                continue;
+            }
+
+            const unsigned char* region_base = (const unsigned char*)mbi.BaseAddress;
+            const unsigned char* scan_start = region_base > limit ? region_base : limit;
+            const unsigned char* scan_end = curr;
+
+            for (const unsigned char* hdr = scan_end - 1; hdr >= scan_start; hdr--) {
+                uint32_t candidate_sz;
+                memcpy(&candidate_sz, hdr + 4, 4);
+                if (candidate_sz < 1024 || candidate_sz > 60 * 1024 * 1024) continue;
+                if (hdr + 8 + (ptrdiff_t)candidate_sz < udata + len) continue;
+
+                if (!IsRangeCommitted(hdr, 8 + candidate_sz)) continue;
+
+                if (ValidateBlobHeader(hdr, hdr + 8 + candidate_sz + 64)) {
+                    g_blob_start = (void*)hdr;
+                    g_blob_size  = (size_t)(8 + candidate_sz);
+                    InterlockedExchange(&g_blob_found, 1);
+
+                    dbgPrintf("[BLOB] Detected Nuitka blob @ 0x%p, size=%zu\n",
+                              g_blob_start, g_blob_size);
+
+                    ParseBlobEntries();
+                    DumpNuitkaBlob();
+                    return;
+                }
+            }
+
+            curr = region_base;
+            if (curr == 0) break;
+            curr--;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        dbgPrintf("[BLOB] SEH exception in DetectNuitkaBlob\n");
+    }
+}
+
+static void DumpNuitkaBlob() {
+    if (InterlockedCompareExchange(&g_blob_found, 1, 1) != 1 || !g_blob_start || g_blob_size == 0) return;
+
+    // Write blob directly into PYTHON_DUMPS_DIR\DYNAMIC_BLOB\nuitka_blob.bin
+    char dir[MAX_PATH];
+    _snprintf_s(dir, _TRUNCATE, "%s\\DYNAMIC_BLOB", PYTHON_DUMPS_DIR);
+    CreateDirectoryA(dir, NULL);
+
+    char path[MAX_PATH];
+    _snprintf_s(path, MAX_PATH, _TRUNCATE, "%s\\nuitka_blob.bin", dir);
+    HANDLE hFile = CreateFileA(path, GENERIC_WRITE, 0, NULL,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        dbgPrintf("[BLOB] ERROR: CreateFileA failed for %s (err=%lu)\n", path, err);
+        return;
+    }
+
+    DWORD written;
+    WriteFile(hFile, g_blob_start, (DWORD)g_blob_size, &written, NULL);
+    CloseHandle(hFile);
+
+    dbgPrintf("[BLOB] Dumped Nuitka blob: %s (%zu bytes)\n", path, g_blob_size);
+}
+
 // The hook — called instead of PyMarshal_ReadObjectFromString.
 // Uses restore-call-rehook: temporarily restore original bytes, call the
 // real function directly, then re-install the FF 25 detour.
@@ -886,50 +1128,56 @@ static __declspec(noinline) void* HookPyMarshal_ReadObjectFromString(const char*
         // Skip file I/O during shutdown
         if (g_marshal_dump_dir[0] != '\0' && data != nullptr && len > 16 &&
             InterlockedCompareExchange(&g_unloading, 0, 0) == 0) {
-            // Scan raw data for first null-terminated module name (Nuitka format)
+            
+            DetectNuitkaBlob(data, len);
+            const char* name_from_blob = LookupModuleName((const unsigned char*)data);
+
             char mod_name[128] = "unknown";
-            for (ptrdiff_t i = 5; i < len - 2 && i < 512; i++) {
-                if (data[i] == '\0' && i + 1 < len) {
-                    ptrdiff_t name_start = i + 1;
-                    ptrdiff_t name_end = name_start;
-                    while (name_end < len && name_end - name_start < 120 &&
-                           data[name_end] >= 32 && data[name_end] < 127)
-                        name_end++;
-                    if (name_end - name_start >= 4 &&
-                        name_end - name_start < 120 &&
-                        memchr(data + name_start, '.', name_end - name_start)) {
-                        char tmp[128];
-                        ptrdiff_t copy_sz = (name_end - name_start < 120) ? (name_end - name_start) : 119;
-                        memcpy(tmp, data + name_start, copy_sz);
-                        tmp[copy_sz] = '\0';
-                        // Validate as Python module path: starts with letter/underscore,
-                        // contains only [a-zA-Z0-9_.], no leading/trailing/consecutive dots
-                        int valid = 1;
-                        if (!((tmp[0] >= 'a' && tmp[0] <= 'z') ||
-                              (tmp[0] >= 'A' && tmp[0] <= 'Z') ||
-                              tmp[0] == '_'))
-                            valid = 0;
-                        if (valid && (tmp[copy_sz - 1] == '.'))
-                            valid = 0;
-                        if (valid) {
-                            int prev_dot = 0;
-                            for (int c = 0; tmp[c] && valid; c++) {
-                                if (tmp[c] == '.') {
-                                    if (prev_dot) { valid = 0; break; }
-                                    prev_dot = 1;
-                                } else {
-                                    prev_dot = 0;
-                                    if (!((tmp[c] >= 'a' && tmp[c] <= 'z') ||
-                                          (tmp[c] >= 'A' && tmp[c] <= 'Z') ||
-                                          (tmp[c] >= '0' && tmp[c] <= '9') ||
-                                          tmp[c] == '_'))
-                                        { valid = 0; break; }
+            if (name_from_blob) {
+                _snprintf_s(mod_name, _TRUNCATE, "%s", name_from_blob);
+            } else {
+                // Scan raw data for first null-terminated module name (fallback Nuitka format)
+                for (ptrdiff_t i = 5; i < len - 2 && i < 512; i++) {
+                    if (data[i] == '\0' && i + 1 < len) {
+                        ptrdiff_t name_start = i + 1;
+                        ptrdiff_t name_end = name_start;
+                        while (name_end < len && name_end - name_start < 120 &&
+                               data[name_end] >= 32 && data[name_end] < 127)
+                            name_end++;
+                        if (name_end - name_start >= 4 &&
+                            name_end - name_start < 120 &&
+                            memchr(data + name_start, '.', name_end - name_start)) {
+                            char tmp[128];
+                            ptrdiff_t copy_sz = (name_end - name_start < 120) ? (name_end - name_start) : 119;
+                            memcpy(tmp, data + name_start, copy_sz);
+                            tmp[copy_sz] = '\0';
+                            int valid = 1;
+                            if (!((tmp[0] >= 'a' && tmp[0] <= 'z') ||
+                                  (tmp[0] >= 'A' && tmp[0] <= 'Z') ||
+                                  tmp[0] == '_'))
+                                valid = 0;
+                            if (valid && (tmp[copy_sz - 1] == '.'))
+                                valid = 0;
+                            if (valid) {
+                                int prev_dot = 0;
+                                for (int c = 0; tmp[c] && valid; c++) {
+                                    if (tmp[c] == '.') {
+                                        if (prev_dot) { valid = 0; break; }
+                                        prev_dot = 1;
+                                    } else {
+                                        prev_dot = 0;
+                                        if (!((tmp[c] >= 'a' && tmp[c] <= 'z') ||
+                                              (tmp[c] >= 'A' && tmp[c] <= 'Z') ||
+                                              (tmp[c] >= '0' && tmp[c] <= '9') ||
+                                              tmp[c] == '_'))
+                                            { valid = 0; break; }
+                                    }
                                 }
                             }
-                        }
-                        if (valid) {
-                            _snprintf_s(mod_name, _TRUNCATE, "%s", tmp);
-                            break;
+                            if (valid) {
+                                _snprintf_s(mod_name, _TRUNCATE, "%s", tmp);
+                                break;
+                            }
                         }
                     }
                 }
@@ -955,9 +1203,8 @@ static __declspec(noinline) void* HookPyMarshal_ReadObjectFromString(const char*
                                           FILE_ATTRIBUTE_NORMAL, NULL);
                 if (hPyc != INVALID_HANDLE_VALUE) {
                     DWORD written;
-                    // Write full 16-byte pyc header: magic(4) + flags(4) + hash(8)
                     WriteFile(hPyc, g_marshal_magic, 4, &written, NULL);
-                    unsigned char pyc_header[12] = {0}; // flags=0 (hash mode), 8 zero bytes for hash
+                    unsigned char pyc_header[12] = {0};
                     WriteFile(hPyc, pyc_header, 12, &written, NULL);
                     WriteFile(hPyc, data, (DWORD)len, &written, NULL);
                     CloseHandle(hPyc);
@@ -1771,6 +2018,16 @@ extern "C" __declspec(dllexport) DWORD WINAPI HydraStartHook() {
 
   if (InterlockedCompareExchange(&g_started, 1, 0) != 0)
     return ERROR_ALREADY_EXISTS;
+
+  // Reset blob detection for this injection session.
+  // Without this, g_blob_found stays 1 from a previous DLL load and
+  // DetectNuitkaBlob immediately returns "skipped, already found".
+  InterlockedExchange(&g_blob_found, 0);
+  InterlockedExchange(&g_blob_attempts, 0);
+  g_blob_start = nullptr;
+  g_blob_size  = 0;
+  g_blob_entry_count = 0;
+  g_marshal_dump_dir[0] = '\0';
 
   unsigned threadId = 0;
   uintptr_t workerHandle =
