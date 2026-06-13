@@ -882,6 +882,18 @@ static int ChooseSectionLayout(const unsigned char* end, const unsigned char* na
     unsigned int section_size;
     memcpy(&section_size, name_end + 1, 4);
 
+    auto is_valid_next = [&](const unsigned char* next_ptr) -> bool {
+        while (next_ptr < end && *next_ptr == 0) {
+            next_ptr++;
+        }
+        if (next_ptr == end) return true;
+        if (next_ptr < end) {
+            unsigned char c = *next_ptr;
+            return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_');
+        }
+        return false;
+    };
+
     if (name_end + 7 <= end) {
         unsigned short item_count;
         memcpy(&item_count, name_end + 5, 2);
@@ -889,18 +901,22 @@ static int ChooseSectionLayout(const unsigned char* end, const unsigned char* na
         if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
             data_start + section_size <= end &&
             item_count > 0 && item_count < 65000 && section_size >= item_count) {
-            *out_size = section_size;
-            *out_data_offset = 7;
-            return 2; // size_count
+            if (is_valid_next(data_start + section_size)) {
+                *out_size = section_size;
+                *out_data_offset = 7;
+                return 2; // size_count
+            }
         }
     }
 
     const unsigned char* data_start = name_end + 5;
     if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
         data_start + section_size <= end) {
-        *out_size = section_size;
-        *out_data_offset = 5;
-        return 1; // size_only
+        if (is_valid_next(data_start + section_size)) {
+            *out_size = section_size;
+            *out_data_offset = 5;
+            return 1; // size_only
+        }
     }
 
     return 0;
@@ -926,6 +942,9 @@ static bool ValidateBlobHeader(const unsigned char* hdr, const unsigned char* da
         int entry_count = 0;
 
         while (ptr < end && entry_count < 4096) {
+            while (ptr < end && *ptr == 0) {
+                ptr++;
+            }
             if (ptr >= end - 5) break;
             const unsigned char* name_end = (const unsigned char*)memchr(ptr, 0, (size_t)(end - ptr));
             if (!name_end || name_end >= end - 4) break;
@@ -972,6 +991,9 @@ static void ParseBlobEntries() {
     g_blob_entry_count = 0;
 
     while (ptr < end && g_blob_entry_count < MAX_BLOB_ENTRIES) {
+        while (ptr < end && *ptr == 0) {
+            ptr++;
+        }
         if (ptr >= end - 5) break;
         const unsigned char* name_end = (const unsigned char*)
             memchr(ptr, 0, (size_t)(end - ptr));

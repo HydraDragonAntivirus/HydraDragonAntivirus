@@ -1932,7 +1932,54 @@ def main(argv=None) -> int:
                     data_end = min(len(blob_data), 8 + size_stored)
                     data = blob_data[8:data_end]
                     offset = 0
+
+                    def _choose_layout(d, header_pos):
+                        """Try size_count (6 bytes) first, then size_only (4 bytes)."""
+                        if header_pos + 4 > len(d):
+                            return None
+                        section_size = struct.unpack_from('<I', d, header_pos)[0]
+
+                        def is_valid_next(next_pos):
+                            while next_pos < len(d) and d[next_pos] == 0:
+                                next_pos += 1
+                            if next_pos == len(d):
+                                return True
+                            if next_pos < len(d):
+                                b = d[next_pos]
+                                c_plain = chr(b)
+                                if c_plain.isalpha() or c_plain == '_':
+                                    return True
+                                if _is_enc0:
+                                    try:
+                                        dec_b = _cb0.name_decode_table[b]
+                                        c_dec = chr(dec_b)
+                                        if c_dec.isalpha() or c_dec == '_':
+                                            return True
+                                    except Exception:
+                                        pass
+                            return False
+
+                        # size_count layout: uint32 size + uint16 count
+                        if header_pos + 6 <= len(d):
+                            item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
+                            data_start = header_pos + 6
+                            if (0 < section_size <= 128 * 1024 * 1024 and
+                                    data_start + section_size <= len(d) and
+                                    0 < item_count < 65000):
+                                if is_valid_next(data_start + section_size):
+                                    return data_start, section_size
+                        # size_only layout: uint32 size
+                        data_start = header_pos + 4
+                        if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
+                            if is_valid_next(data_start + section_size):
+                                return data_start, section_size
+                        return None
+
                     while offset < len(data) - 5:
+                        while offset < len(data) and data[offset] == 0:
+                            offset += 1
+                        if offset >= len(data) - 5:
+                            break
                         name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
                         if name_end == -1:
                             break
@@ -1945,18 +1992,21 @@ def main(argv=None) -> int:
                         except Exception:
                             module_name = _cb0.decode_module_name(raw_name) if _is_enc0 else \
                                 raw_name.decode('utf-8', errors='replace')
-                        offset = name_end + 1
-                        if offset + 4 > len(data):
-                            break
-                        chunk_size = struct.unpack('<I', data[offset:offset + 4])[0]
-                        offset += 4
-                        if chunk_size > 100 * 1024 * 1024 or offset + chunk_size > len(data):
-                            break
-                        chunk_data = data[offset:offset + chunk_size]
-                        offset += chunk_size
+
+                        layout = _choose_layout(data, name_end + 1)
+                        if layout is None:
+                            offset = name_end + 1
+                            continue
+                        data_start, chunk_size = layout
+                        if chunk_size > 128 * 1024 * 1024 or data_start + chunk_size > len(data):
+                            offset = name_end + 1
+                            continue
+                        chunk_data = data[data_start:data_start + chunk_size]
+                        offset = data_start + chunk_size
                         if module_name == ".bytecode":
                             return chunk_data
                     return None
+
 
                 _bc_chunk0 = _quick_parse_bytecode_chunk(raw)
                 if _bc_chunk0:
@@ -2021,7 +2071,55 @@ def main(argv=None) -> int:
         data = blob_data[8:data_end]
         offset = 0
         modules = []
+        cb = CommercialBypass()
+
+        def _choose_layout(d, header_pos):
+            """Try size_count (6 bytes) first, then size_only (4 bytes)."""
+            if header_pos + 4 > len(d):
+                return None
+            section_size = struct.unpack_from('<I', d, header_pos)[0]
+
+            def is_valid_next(next_pos):
+                while next_pos < len(d) and d[next_pos] == 0:
+                    next_pos += 1
+                if next_pos == len(d):
+                    return True
+                if next_pos < len(d):
+                    b = d[next_pos]
+                    c_plain = chr(b)
+                    if c_plain.isalpha() or c_plain == '_':
+                        return True
+                    if _use_bypass:
+                        try:
+                            dec_b = cb.name_decode_table[b]
+                            c_dec = chr(dec_b)
+                            if c_dec.isalpha() or c_dec == '_':
+                                return True
+                        except Exception:
+                            pass
+                return False
+
+            # size_count layout: uint32 size + uint16 count
+            if header_pos + 6 <= len(d):
+                item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
+                data_start = header_pos + 6
+                if (0 < section_size <= 128 * 1024 * 1024 and
+                        data_start + section_size <= len(d) and
+                        0 < item_count < 65000):
+                    if is_valid_next(data_start + section_size):
+                        return data_start, section_size
+            # size_only layout: uint32 size
+            data_start = header_pos + 4
+            if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
+                if is_valid_next(data_start + section_size):
+                    return data_start, section_size
+            return None
+
         while offset < len(data) - 5:
+            while offset < len(data) and data[offset] == 0:
+                offset += 1
+            if offset >= len(data) - 5:
+                break
             name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
             if name_end == -1:
                 break
@@ -2035,19 +2133,21 @@ def main(argv=None) -> int:
                     raise ValueError
             except Exception:
                 if _use_bypass:
-                    decoded = CommercialBypass().decode_module_name(raw_name)
+                    decoded = cb.decode_module_name(raw_name)
                     module_name = decoded if _is_plausible_module_name(decoded) else (plain or raw_name.decode('utf-8', errors='replace'))
                 else:
                     module_name = plain if plain is not None else raw_name.decode('utf-8', errors='replace')
-            offset = name_end + 1
-            if offset + 4 > len(data):
-                break
-            chunk_size = struct.unpack('<I', data[offset:offset + 4])[0]
-            offset += 4
-            if chunk_size > 100 * 1024 * 1024 or offset + chunk_size > len(data):
-                break
-            chunk_data = data[offset:offset + chunk_size]
-            offset += chunk_size
+
+            layout = _choose_layout(data, name_end + 1)
+            if layout is None:
+                offset = name_end + 1
+                continue
+            data_start, chunk_size = layout
+            if chunk_size > 128 * 1024 * 1024 or data_start + chunk_size > len(data):
+                offset = name_end + 1
+                continue
+            chunk_data = data[data_start:data_start + chunk_size]
+            offset = data_start + chunk_size
             modules.append((module_name, chunk_data))
         return modules
 
@@ -2149,8 +2249,9 @@ def main(argv=None) -> int:
             strings = _nbc_extract_all_strings(constants)
             strings = list(dict.fromkeys(strings))
 
-            safe_name = re.sub(r"[<>:\"|?*\\]", "_", mod_name.replace(".", "_")).strip("_") or "module"
-            safe_name = re.sub(r"_+", "_", safe_name)[:80]
+            safe_name = "".join(c if (c.isalnum() or c in "._-") else "_" for c in mod_name)
+            safe_name = re.sub(r"_+", "_", safe_name).strip("_.") or "module"
+            safe_name = safe_name[:80]
             const_file = constants_dir / f"{safe_name}_constants.txt"
 
             with const_file.open("w", encoding="utf-8", errors="replace") as fh:
@@ -2166,7 +2267,7 @@ def main(argv=None) -> int:
                     fh.write("\n")
             dumped_constants += 1
         except Exception as exc:
-            print(f"[!] Warning: constants dump failed for {mod_name}: {exc}")
+            print(f"[!] Warning: constants dump failed for {mod_name!r}: {exc}")
     print(f"[*]   Written {dumped_constants} module constants files -> {constants_dir}")
 
     # =========================================================================

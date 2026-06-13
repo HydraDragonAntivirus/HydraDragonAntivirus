@@ -1019,6 +1019,17 @@ def _extract_blob_dynamic(blob_path, recon, source_dir, hook_log):
             if header_pos + 4 > len(d):
                 return None
             section_size = struct.unpack_from('<I', d, header_pos)[0]
+
+            def is_valid_next(next_pos):
+                while next_pos < len(d) and d[next_pos] == 0:
+                    next_pos += 1
+                if next_pos == len(d):
+                    return True
+                if next_pos < len(d):
+                    c = chr(d[next_pos])
+                    return c.isalpha() or c == '_'
+                return False
+
             # size_count layout: uint32 size + uint16 count
             if header_pos + 6 <= len(d):
                 item_count = struct.unpack_from('<H', d, header_pos + 4)[0]
@@ -1026,24 +1037,32 @@ def _extract_blob_dynamic(blob_path, recon, source_dir, hook_log):
                 if (0 < section_size <= 128 * 1024 * 1024 and
                         data_start + section_size <= len(d) and
                         0 < item_count < 65000):
-                    return data_start, section_size, 'size_count'
+                    if is_valid_next(data_start + section_size):
+                        return data_start, section_size, 'size_count'
             # size_only layout: uint32 size
             data_start = header_pos + 4
             if 0 < section_size <= 128 * 1024 * 1024 and data_start + section_size <= len(d):
-                return data_start, section_size, 'size_only'
+                if is_valid_next(data_start + section_size):
+                    return data_start, section_size, 'size_only'
             return None
 
         while offset < len(data) - 5:
+            while offset < len(data) and data[offset] == 0:
+                offset += 1
+            if offset >= len(data) - 5:
+                break
             name_end = data.find(b'\x00', offset, min(offset + 4096, len(data)))
             if name_end == -1:
                 break
             mod_name = data[offset:name_end].decode('utf-8', errors='replace')
             layout = _choose_layout(data, name_end + 1)
             if layout is None:
-                break
+                offset = name_end + 1
+                continue
             data_start, chunk_size, layout_name = layout
             if chunk_size > 10 * 1024 * 1024 or data_start + chunk_size > len(data):
-                break
+                offset = name_end + 1
+                continue
             chunk_data = data[data_start:data_start + chunk_size]
             offset = data_start + chunk_size
 
