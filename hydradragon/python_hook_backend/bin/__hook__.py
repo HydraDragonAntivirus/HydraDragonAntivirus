@@ -331,7 +331,7 @@ class BytecodeDecompiler:
                             lines.append(f"    return {val}")
 
             if not lines:
-                return "    # Complex logic detected.\n    pass"
+                return BytecodeDecompiler.extract_compiled_metadata(code_obj)
 
             return "\n".join(lines)
         except Exception:
@@ -907,6 +907,27 @@ def _init_nbc_decoder(hook_log=None):
             _sys2.stderr.write(_msg)
         return False
 
+def _find_nbc_bytes_in_code(code_obj, hook_log):
+    """Extract the NBC constant-stream bytes from a Nuitka module code object.
+    
+    The NBC bytes live inside co_consts (usually at index 0) as a large bytes
+    item.  We probe each bytes/bytearray item until one parses successfully.
+    """
+    import marshal as _m
+    consts = getattr(code_obj, 'co_consts', ())
+    for idx, c in enumerate(consts):
+        if isinstance(c, (bytes, bytearray)) and len(c) >= 6:
+            try:
+                test = _nbc_parse_module_constants(bytes(c))
+                if test:
+                    hook_log(f"[NBC] Found NBC stream at co_consts[{idx}] "
+                             f"({len(c)} bytes, {len(test)} constants)\n")
+                    return bytes(c), test
+            except Exception:
+                continue
+    return None, None
+
+
 def _decode_nuitka_dumps(pyc_dumps_dir, hook_log):
     if not _init_nbc_decoder(hook_log=hook_log):
         hook_log("[NBC] hydradragon.nuitka_deobfuscate unavailable\n")
@@ -915,6 +936,8 @@ def _decode_nuitka_dumps(pyc_dumps_dir, hook_log):
     d = Path(pyc_dumps_dir)
     if not d.is_dir():
         return {}
+
+    import marshal as _m
 
     magic_int = None
     try:
@@ -929,8 +952,34 @@ def _decode_nuitka_dumps(pyc_dumps_dir, hook_log):
             raw = bin_path.read_bytes()
             if len(raw) < 4:
                 continue
-            constants = _nbc_parse_module_constants(raw)
-            if not constants:
+
+            # .bin files are raw marshal data from PyMarshal_ReadObjectFromString.
+            # First, marshal-load to get the code object.
+            try:
+                obj = _m.loads(raw)
+            except Exception as e:
+                hook_log(f"[NBC] {bin_path.name}: marshal.loads failed ({e}), "
+                         f"trying raw NBC parse\n")
+                obj = None
+
+            nbc_bytes = None
+            constants = None
+
+            if obj is not None and hasattr(obj, 'co_consts'):
+                nbc_bytes, constants = _find_nbc_bytes_in_code(obj, hook_log)
+
+            if nbc_bytes is None:
+                # Fallback: maybe it's already a raw NBC stream
+                try:
+                    constants = _nbc_parse_module_constants(raw)
+                    if constants:
+                        nbc_bytes = raw
+                        hook_log(f"[NBC] {bin_path.name}: parsed as raw NBC stream "
+                                 f"({len(constants)} constants)\n")
+                except Exception:
+                    pass
+
+            if nbc_bytes is None or not constants:
                 continue
 
             code_objects = []
@@ -1256,13 +1305,82 @@ def dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads=None):
         hook_log(f"[NBC] Decoded {len(nuitka_data)} Nuitka dumps\n")
         # Build function-name → metadata lookup from all decoded dumps
         func_map = {}
+        nbc_dumped = 0
         for fname, entry in nuitka_data.items():
             for func_name, meta in entry.get("functions", {}).items():
                 if func_name not in func_map:
                     func_map[func_name] = meta
+                # Decompile each NBC-found code object to a .py file
+                co = meta.get('code_obj')
+                if co is not None:
+                    try:
+                        safe = safe_name(f"{fname}__nbc_{func_name}")
+                        content = []
+                        content.append('"""')
+                        content.append(f"NBC source from: {fname}")
+                        content.append(f"Function: {func_name}")
+                        if meta.get('args'):
+                            content.append(f"Args: {meta['args']}")
+                        content.append('"""')
+                        content.append("")
+                        content.append("# ===== NBC CODE OBJECT =====")
+                        try:
+                            content.append(f"# co_name={co.co_name!r}")
+                            content.append(f"# co_filename={getattr(co, 'co_filename', '')!r}")
+                        except Exception:
+                            pass
+                        content.append("")
+                        content.append("# ===== DECOMPILED SOURCE =====")
+                        try:
+                            content.append(recon.decompiler.decompile_code(co))
+                        except Exception as e:
+                            content.append(f"# decompile failed: {e}")
+                            content.append("pass")
+                        out_path = source_dir / f"{safe}.py"
+                        out_path.write_text("\n".join(content), encoding="utf-8", errors="replace")
+                        nbc_dumped += 1
+                        hook_log(f"[NBC OK] {fname}/{func_name} -> {out_path}\n")
+                    except Exception as e:
+                        hook_log(f"[NBC ERR] {fname}/{func_name}: {e}\n")
+            # Also try all code_objects directly (without named metadata)
+            for co_idx, co in enumerate(entry.get('code_objects', [])):
+                if co is None:
+                    continue
+                try:
+                    co_name = getattr(co, 'co_name', '<unknown>')
+                    if co_name in func_map:
+                        continue  # already dumped above via metadata
+                    safe = safe_name(f"{fname}__nbc_co{co_idx}_{co_name}")
+                    content = []
+                    content.append('"""')
+                    content.append(f"NBC raw code object from: {fname}")
+                    content.append(f"co_name={co_name!r}")
+                    content.append('"""')
+                    content.append("")
+                    content.append("# ===== NBC CODE OBJECT =====")
+                    try:
+                        content.append(f"# co_name={co.co_name!r}")
+                    except Exception:
+                        pass
+                    content.append("")
+                    content.append("# ===== DECOMPILED SOURCE =====")
+                    try:
+                        content.append(recon.decompiler.decompile_code(co))
+                    except Exception as e:
+                        content.append(f"# decompile failed: {e}")
+                        content.append("pass")
+                    out_path = source_dir / f"{safe}.py"
+                    out_path.write_text("\n".join(content), encoding="utf-8", errors="replace")
+                    nbc_dumped += 1
+                    hook_log(f"[NBC OK] {fname}/co{co_idx} -> {out_path}\n")
+                except Exception as e:
+                    hook_log(f"[NBC ERR] {fname}/co{co_idx}: {e}\n")
+
+        dumped += nbc_dumped
         if func_map:
             recon.nuitka_func_metadata = func_map
             hook_log(f"[NBC] Mapped {len(func_map)} function signatures from Nuitka dumps\n")
+            hook_log(f"[NBC] Dumped {nbc_dumped} decompiled NBC code objects\n")
 
     return dumped
 
