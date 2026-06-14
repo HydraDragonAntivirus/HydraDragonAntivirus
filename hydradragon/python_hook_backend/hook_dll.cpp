@@ -860,6 +860,13 @@ static void* g_marshal_file_target = nullptr;
 static unsigned char g_marshal_original_file_bytes[16];
 static void* g_py_marshal_dumps = nullptr;
 
+// PyEval_EvalCode globals
+typedef void* (*PyEvalEvalCodeFunc)(void*, void*, void*);
+static PyEvalEvalCodeFunc g_original_PyEval_EvalCode = nullptr;
+static void* g_eval_code_hook_fn = nullptr;
+static void* g_eval_code_target = nullptr;
+static unsigned char g_eval_code_original_bytes[16];
+
 // Cached Python C API function pointers
 static PyGILState_EnsureFunc g_PyGILState_Ensure = nullptr;
 static PyGILState_ReleaseFunc g_PyGILState_Release = nullptr;
@@ -1353,8 +1360,9 @@ static __declspec(noinline) void* HookPyMarshal_ReadObjectFromString(const char*
     return nullptr;
 }
 
-// Forward declaration for PyMarshal_ReadObjectFromFile hook (defined later)
+// Forward declarations for hooks defined later
 static __declspec(noinline) void* HookPyMarshal_ReadObjectFromFile(void* fp);
+static __declspec(noinline) void* HookPyEval_EvalCode(void* code, void* globals, void* locals);
 
 // Restore-call-rehook architecture:
 // 1. Save original prologue bytes and function pointer
@@ -1483,6 +1491,44 @@ static bool SetupMarshalHook(HMODULE hPyDll) {
     VirtualProtect(target_file, MARSHAL_DETOUR_SIZE, old3, &old3);
     dbgPrintf("[HOOK] PyMarshal_ReadObjectFromFile detour installed (FF 25)\n");
 
+    // ── PyEval_EvalCode hook ─────────────────────────────────────────
+    void* target_eval = (void*)GetProcAddress(hPyDll, "PyEval_EvalCode");
+    if (!target_eval) {
+        target_eval = (void*)GetProcAddress(hPyDll, "PyEval_EvalCodeEx");
+    }
+    if (target_eval) {
+        dbgPrintf("[HOOK] PyEval_EvalCode @ 0x%p\n", target_eval);
+
+        DWORD oldP;
+        if (VirtualProtect(target_eval, MARSHAL_PROLOGUE_SIZE, PAGE_EXECUTE_READWRITE, &oldP)) {
+            memcpy(g_eval_code_original_bytes, target_eval, MARSHAL_PROLOGUE_SIZE);
+            VirtualProtect(target_eval, MARSHAL_PROLOGUE_SIZE, oldP, &oldP);
+
+            g_original_PyEval_EvalCode = (PyEvalEvalCodeFunc)target_eval;
+            g_eval_code_hook_fn = (void*)&HookPyEval_EvalCode;
+            g_eval_code_target = target_eval;
+
+            uintptr_t hookFnEval = (uintptr_t)&HookPyEval_EvalCode;
+            DWORD old2;
+            if (VirtualProtect(target_eval, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old2)) {
+                InterlockedExchange64((volatile LONG64*)((unsigned char*)target_eval + 6), *(LONG64*)&hookFnEval);
+                MemoryBarrier();
+                unsigned char hdr[6] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };
+                memcpy(target_eval, hdr, 6);
+                FlushInstructionCache(GetCurrentProcess(), target_eval, MARSHAL_DETOUR_SIZE);
+                VirtualProtect(target_eval, MARSHAL_DETOUR_SIZE, old2, &old2);
+                dbgPrintf("[HOOK] PyEval_EvalCode detour installed (FF 25)\n");
+            } else {
+                dbgPrintf("[HOOK] WARNING: VirtualProtect(detour) for PyEval_EvalCode failed\n");
+                g_eval_code_target = nullptr;
+            }
+        } else {
+            dbgPrintf("[HOOK] WARNING: VirtualProtect(save) for PyEval_EvalCode failed\n");
+        }
+    } else {
+        dbgPrintf("[HOOK] WARNING: PyEval_EvalCode/PyEval_EvalCodeEx not exported, skipping\n");
+    }
+
     return true;
 }
 
@@ -1573,6 +1619,83 @@ static __declspec(noinline) void* HookPyMarshal_ReadObjectFromFile(void* fp) {
         VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, old, &old);
         return result;
     }
+    return nullptr;
+}
+
+// --- PyEval_EvalCode hook ---
+// Intercepts C-level code execution (exec(code_obj, globals, locals),
+// PyEval_EvalCodeEx, etc.) to capture dynamically executed code objects.
+// We call the original first, then dump the code object via Python-level
+// marshal.dumps so Python-side decompiler can process it.
+static __declspec(noinline) void* HookPyEval_EvalCode(void* code, void* globals, void* locals) {
+    __try {
+        if (code && g_marshal_dump_dir[0] != '\0' &&
+            InterlockedCompareExchange(&g_unloading, 0, 0) == 0) {
+
+            // Call original first, then dump via Python marshal.dumps
+            // The dump must happen outside the restore-call-rehook window
+            // because it uses Python C API.
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        dbgPrintf("[HOOK_EVAL] SEH exception in HookPyEval_EvalCode\n");
+    }
+
+    // Restore-call-rehook
+    if (g_eval_code_target && g_original_PyEval_EvalCode) {
+        DWORD old;
+        VirtualProtect(g_eval_code_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+        memcpy(g_eval_code_target, g_eval_code_original_bytes, MARSHAL_DETOUR_SIZE);
+        VirtualProtect(g_eval_code_target, MARSHAL_DETOUR_SIZE, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), g_eval_code_target, MARSHAL_DETOUR_SIZE);
+
+        void* result = g_original_PyEval_EvalCode(code, globals, locals);
+
+        // Re-install FF 25 detour
+        VirtualProtect(g_eval_code_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+        uintptr_t hookFn = (uintptr_t)g_eval_code_hook_fn;
+        InterlockedExchange64((volatile LONG64*)((unsigned char*)g_eval_code_target + 6),
+                              *(LONG64*)&hookFn);
+        MemoryBarrier();
+        unsigned char header[6] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };
+        memcpy(g_eval_code_target, header, 6);
+        FlushInstructionCache(GetCurrentProcess(), g_eval_code_target, MARSHAL_DETOUR_SIZE);
+        VirtualProtect(g_eval_code_target, MARSHAL_DETOUR_SIZE, old, &old);
+
+        // Dump the code object via Python marshal.dumps
+        if (code && result && g_PyMarshal_WriteObjectToString_local) {
+            int gilState = g_PyGILState_Ensure();
+            void* bytes_obj = g_PyMarshal_WriteObjectToString_local(code, 2);
+            if (bytes_obj) {
+                const char* buf = NULL;
+                ptrdiff_t buf_len = 0;
+                if (g_PyBytes_AsStringAndSize &&
+                    g_PyBytes_AsStringAndSize(bytes_obj, &buf, &buf_len) == 0 && buf && buf_len > 4) {
+                    unsigned long long seq = InterlockedIncrement64((volatile LONG64*)&g_marshal_seq);
+                    char pyc_path[MAX_PATH];
+                    _snprintf_s(pyc_path, MAX_PATH, _TRUNCATE, "%s\\evalcode_%llu.pyc",
+                                g_marshal_dump_dir, seq);
+                    HANDLE hPyc = CreateFileA(pyc_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                                              FILE_ATTRIBUTE_NORMAL, NULL);
+                    if (hPyc != INVALID_HANDLE_VALUE) {
+                        DWORD written;
+                        if (g_marshal_magic_len > 0) {
+                            WriteFile(hPyc, g_marshal_magic, 4, &written, NULL);
+                            unsigned char pyc_header[12] = {0};
+                            WriteFile(hPyc, pyc_header, 12, &written, NULL);
+                        }
+                        WriteFile(hPyc, buf, (DWORD)buf_len, &written, NULL);
+                        CloseHandle(hPyc);
+                        dbgPrintf("[HOOK_EVAL] Wrote %s (%lld bytes)\n", pyc_path, (long long)buf_len);
+                    }
+                }
+                g_Py_DecRef(bytes_obj);
+            }
+            g_PyGILState_Release(gilState);
+        }
+
+        return result;
+    }
+
     return nullptr;
 }
 
@@ -1687,13 +1810,21 @@ static void RemoveMarshalHook() {
         g_marshal_file_target = nullptr;
     }
 
+    if (g_eval_code_target) {
+        DWORD old;
+        VirtualProtect(g_eval_code_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+        memcpy(g_eval_code_target, g_eval_code_original_bytes, MARSHAL_DETOUR_SIZE);
+        VirtualProtect(g_eval_code_target, MARSHAL_DETOUR_SIZE, old, &old);
+        g_eval_code_target = nullptr;
+    }
+
     // Do NOT call g_Py_DecRef here: during DLL_PROCESS_DETACH the Python
     // DLL may already be unloaded. The reference will be cleaned up by
     // process exit.  Use OutputDebugStringA directly (safe from kernel32)
     // instead of dbgPrintf (which calls fprintf into the C runtime).
     g_py_write_marshal_pyc = nullptr;
     g_py_marshal_dumps = nullptr;
-    OutputDebugStringA("[HOOK] PyMarshal_ReadObjectFromString/FromFile hooks removed\n");
+    OutputDebugStringA("[HOOK] PyMarshal_ReadObjectFromString/FromFile/EvalCode hooks removed\n");
 }
 
 static unsigned __stdcall hookImpl(void *lpParam) {
