@@ -875,6 +875,39 @@ static size_t g_blob_size  = 0;
 static LONG   g_blob_found = 0;
 static LONG   g_blob_attempts = 0;
 
+static const unsigned char g_name_decode_table[256] = {
+    0, 134, 115, 9, 215, 6, 139, 62, 73, 128, 196, 100, 50, 38, 219, 153, 163, 247, 97, 248, 76, 226, 193, 27, 156, 129, 201, 78, 81, 49, 150, 140, 68, 10, 45, 54, 210, 202, 99, 189, 84, 169, 14, 107, 192, 185, 167, 237, 90, 131, 106, 249, 43, 125, 159, 126, 137, 60, 33, 205, 96, 70, 234, 86, 236, 242, 246, 19, 188, 83, 20, 252, 127, 142, 250, 35, 130, 145, 198, 175, 114, 18, 5, 56, 65, 87, 243, 208, 151, 180, 216, 172, 165, 170, 37, 122, 241, 40, 92, 47, 69, 200, 58, 64, 238, 101, 23, 221, 109, 223, 2, 55, 98, 217, 67, 119, 182, 144, 191, 143, 173, 24, 116, 254, 166, 42, 233, 21, 105, 113, 7, 111, 141, 164, 121, 203, 194, 80, 74, 244, 135, 124, 138, 157, 52, 91, 32, 228, 178, 95, 112, 48, 63, 133, 31, 1, 120, 225, 44, 39, 34, 59, 41, 71, 229, 213, 108, 255, 227, 218, 57, 88, 12, 102, 110, 195, 30, 75, 77, 51, 253, 204, 190, 171, 117, 104, 93, 230, 168, 181, 220, 82, 197, 199, 25, 46, 13, 160, 149, 222, 152, 61, 29, 8, 79, 123, 184, 147, 154, 239, 89, 232, 245, 72, 240, 224, 53, 174, 66, 186, 3, 177, 146, 118, 183, 209, 85, 4, 179, 162, 103, 16, 11, 235, 94, 158, 161, 28, 26, 214, 207, 132, 211, 155, 187, 136, 251, 176, 231, 15, 22, 148, 17, 36, 212, 206
+};
+
+static inline bool IsValidFirstModuleNameChar(unsigned char c) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '.') {
+        return true;
+    }
+    unsigned char dec = g_name_decode_table[c];
+    if ((dec >= 'a' && dec <= 'z') || (dec >= 'A' && dec <= 'Z') || dec == '_' || dec == '.') {
+        return true;
+    }
+    return false;
+}
+
+static inline bool MatchNuitkaStartName(const unsigned char* ptr, const unsigned char* end) {
+    char name[64];
+    size_t i = 0;
+    bool is_encoded = (ptr < end && ptr[0] == 195);
+    while (ptr < end && *ptr != 0 && i < 63) {
+        unsigned char c = *ptr;
+        name[i] = is_encoded ? g_name_decode_table[c] : c;
+        ptr++;
+        i++;
+    }
+    name[i] = '\0';
+
+    if (strcmp(name, ".bytecode") == 0) return true;
+    if (strcmp(name, ".files") == 0) return true;
+    if (strcmp(name, ".constants") == 0) return true;
+    return false;
+}
+
 // Returns layout type: 0 for invalid, 1 for size_only, 2 for size_count.
 static int ChooseSectionLayout(const unsigned char* end, const unsigned char* name_end, unsigned int* out_size, unsigned int* out_data_offset) {
     if (name_end + 5 > end) return 0;
@@ -889,7 +922,7 @@ static int ChooseSectionLayout(const unsigned char* end, const unsigned char* na
         if (next_ptr == end) return true;
         if (next_ptr < end) {
             unsigned char c = *next_ptr;
-            return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_');
+            return IsValidFirstModuleNameChar(c);
         }
         return false;
     };
@@ -939,8 +972,15 @@ static bool ValidateBlobHeader(const unsigned char* hdr, const unsigned char* da
 
         // Walk entries — require at least 3 valid ones (lenient: stop on error, don't fail)
         const unsigned char* ptr = data_section;
-        int entry_count = 0;
+        
+        // Ensure the first entry matches a valid Nuitka starting module name (.bytecode, .files, .constants)
+        while (ptr < end && *ptr == 0) {
+            ptr++;
+        }
+        if (ptr >= end - 5) return false;
+        if (!MatchNuitkaStartName(ptr, end)) return false;
 
+        int entry_count = 0;
         while (ptr < end && entry_count < 4096) {
             while (ptr < end && *ptr == 0) {
                 ptr++;
@@ -951,9 +991,9 @@ static bool ValidateBlobHeader(const unsigned char* hdr, const unsigned char* da
             ptrdiff_t name_len = name_end - ptr;
             if (name_len < 1 || name_len > 250) break;
 
-            // First char must be letter or underscore
+            // First char must be letter, underscore, or dot (plain or decoded)
             unsigned char fc = *ptr;
-            if (!((fc >= 'a' && fc <= 'z') || (fc >= 'A' && fc <= 'Z') || fc == '_')) break;
+            if (!IsValidFirstModuleNameChar(fc)) break;
 
             unsigned int section_size = 0;
             unsigned int data_offset = 0;
