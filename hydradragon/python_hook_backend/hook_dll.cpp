@@ -888,8 +888,11 @@ static int ChooseSectionLayout(const unsigned char* end, const unsigned char* na
         }
         if (next_ptr == end) return true;
         if (next_ptr < end) {
-            unsigned char c = *next_ptr;
-            return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_');
+            // Structurally check if next_ptr points to a valid null-terminated module name of reasonable length
+            const unsigned char* n_end = (const unsigned char*)memchr(next_ptr, 0, (size_t)(end - next_ptr));
+            if (n_end && n_end - next_ptr >= 1 && n_end - next_ptr <= 250) {
+                return true;
+            }
         }
         return false;
     };
@@ -931,7 +934,7 @@ static bool ValidateBlobHeader(const unsigned char* hdr, const unsigned char* da
 
         uint32_t tsz;
         memcpy(&tsz, hdr + 4, 4);
-        if (tsz < 64 || tsz > 60 * 1024 * 1024) return false;
+        if (tsz < 64 || tsz > 256 * 1024 * 1024) return false;
 
         const unsigned char* data_section = hdr + 8;
         const unsigned char* end = data_section + tsz;
@@ -950,10 +953,6 @@ static bool ValidateBlobHeader(const unsigned char* hdr, const unsigned char* da
             if (!name_end || name_end >= end - 4) break;
             ptrdiff_t name_len = name_end - ptr;
             if (name_len < 1 || name_len > 250) break;
-
-            // First char must be letter or underscore
-            unsigned char fc = *ptr;
-            if (!((fc >= 'a' && fc <= 'z') || (fc >= 'A' && fc <= 'Z') || fc == '_')) break;
 
             unsigned int section_size = 0;
             unsigned int data_offset = 0;
@@ -1031,17 +1030,6 @@ static const char* LookupModuleName(const unsigned char* data) {
     return NULL;
 }
 
-static bool IsRangeCommitted(const void* addr, size_t size) {
-    const unsigned char* ptr = (const unsigned char*)addr;
-    const unsigned char* end = ptr + size;
-    while (ptr < end) {
-        MEMORY_BASIC_INFORMATION mbi;
-        if (!VirtualQuery(ptr, &mbi, sizeof(mbi))) return false;
-        if (mbi.State != MEM_COMMIT) return false;
-        ptr = (const unsigned char*)mbi.BaseAddress + mbi.RegionSize;
-    }
-    return true;
-}
 
 static void DumpNuitkaBlob();
 
@@ -1060,48 +1048,79 @@ static void DetectNuitkaBlob(const char* data, ptrdiff_t len) {
     const unsigned char* udata = (const unsigned char*)data;
 
     __try {
-        const unsigned char* curr = udata;
-        const unsigned char* limit = (uintptr_t)udata > 64 * 1024 * 1024 ? udata - 64 * 1024 * 1024 : nullptr;
+        MEMORY_BASIC_INFORMATION mbi;
+        if (!VirtualQuery(udata, &mbi, sizeof(mbi))) return;
+        if (mbi.State != MEM_COMMIT) return;
 
-        while (curr > limit) {
-            MEMORY_BASIC_INFORMATION mbi;
-            if (!VirtualQuery(curr, &mbi, sizeof(mbi))) break;
-            if (mbi.State != MEM_COMMIT) {
-                curr = (const unsigned char*)mbi.BaseAddress;
-                if (curr == 0) break;
-                curr--;
-                continue;
-            }
+        const unsigned char* region_base = (const unsigned char*)mbi.BaseAddress;
+        const unsigned char* region_end = region_base + mbi.RegionSize;
 
-            const unsigned char* region_base = (const unsigned char*)mbi.BaseAddress;
-            const unsigned char* scan_start = region_base > limit ? region_base : limit;
-            const unsigned char* scan_end = curr;
+        // Try AllocationBase directly first (most common for VirtualAlloc/large heap)
+        const unsigned char* candidate = (const unsigned char*)mbi.AllocationBase;
+        if (candidate != nullptr) {
+            uint32_t candidate_sz = 0;
+            __try {
+                memcpy(&candidate_sz, candidate + 4, 4);
+                if (candidate_sz >= 1024 && candidate_sz <= 256 * 1024 * 1024) {
+                    if (ValidateBlobHeader(candidate, region_end)) {
+                        g_blob_start = (void*)candidate;
+                        g_blob_size  = (size_t)(region_end - candidate);
+                        InterlockedExchange(&g_blob_found, 1);
+                        dbgPrintf("[BLOB] Detected Nuitka blob @ 0x%p, size=%zu (via AllocationBase)\n",
+                                  g_blob_start, g_blob_size);
+                        ParseBlobEntries();
+                        DumpNuitkaBlob();
+                        return;
+                    }
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
 
-            for (const unsigned char* hdr = scan_end - 1; hdr >= scan_start; hdr--) {
-                uint32_t candidate_sz;
+        // Try BaseAddress (in case it differs)
+        candidate = (const unsigned char*)mbi.BaseAddress;
+        if (candidate != nullptr) {
+            uint32_t candidate_sz = 0;
+            __try {
+                memcpy(&candidate_sz, candidate + 4, 4);
+                if (candidate_sz >= 1024 && candidate_sz <= 256 * 1024 * 1024) {
+                    if (ValidateBlobHeader(candidate, region_end)) {
+                        g_blob_start = (void*)candidate;
+                        g_blob_size  = (size_t)(region_end - candidate);
+                        InterlockedExchange(&g_blob_found, 1);
+                        dbgPrintf("[BLOB] Detected Nuitka blob @ 0x%p, size=%zu (via BaseAddress)\n",
+                                  g_blob_start, g_blob_size);
+                        ParseBlobEntries();
+                        DumpNuitkaBlob();
+                        return;
+                    }
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+
+        // Fallback: fast page-aligned scan backwards within same allocation base
+        const unsigned char* scan_start = (const unsigned char*)mbi.AllocationBase;
+        if (!scan_start) {
+            scan_start = (uintptr_t)udata > 256 * 1024 * 1024 ? udata - 256 * 1024 * 1024 : nullptr;
+        }
+        const unsigned char* scan_end = udata;
+
+        for (const unsigned char* hdr = (const unsigned char*)((uintptr_t)scan_end & ~0xFFF); hdr >= scan_start; hdr -= 4096) {
+            uint32_t candidate_sz = 0;
+            __try {
                 memcpy(&candidate_sz, hdr + 4, 4);
-                if (candidate_sz < 1024 || candidate_sz > 60 * 1024 * 1024) continue;
-                if (hdr + 8 + (ptrdiff_t)candidate_sz < udata + len) continue;
+                if (candidate_sz < 1024 || candidate_sz > 256 * 1024 * 1024) continue;
 
-                if (!IsRangeCommitted(hdr, 8 + candidate_sz)) continue;
-
-                if (ValidateBlobHeader(hdr, hdr + 8 + candidate_sz + 64)) {
+                if (ValidateBlobHeader(hdr, region_end)) {
                     g_blob_start = (void*)hdr;
-                    g_blob_size  = (size_t)(8 + candidate_sz);
+                    g_blob_size  = (size_t)(region_end - hdr);
                     InterlockedExchange(&g_blob_found, 1);
-
-                    dbgPrintf("[BLOB] Detected Nuitka blob @ 0x%p, size=%zu\n",
+                    dbgPrintf("[BLOB] Detected Nuitka blob @ 0x%p, size=%zu (via PageScan)\n",
                               g_blob_start, g_blob_size);
-
                     ParseBlobEntries();
                     DumpNuitkaBlob();
                     return;
                 }
-            }
-
-            curr = region_base;
-            if (curr == 0) break;
-            curr--;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         dbgPrintf("[BLOB] SEH exception in DetectNuitkaBlob\n");
