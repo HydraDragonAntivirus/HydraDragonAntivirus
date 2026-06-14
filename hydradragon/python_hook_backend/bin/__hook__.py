@@ -2297,13 +2297,13 @@ def run_decompiler():
         # from DYNAMIC_BLOB/ so it does not persist on disk.
         try:
             _blob_path = None
-            _dynamic_blob_subdir = backup_dir / "DYNAMIC_BLOB"
-            # Primary: DLL writes into dump_N\DYNAMIC_BLOB\ (fixed in hook_dll.cpp)
+            _dynamic_blob_subdir = source_dir / "DYNAMIC_BLOB"
+            # Primary: DLL writes into dump_N\RECONSTRUCTED_SOURCE\DYNAMIC_BLOB\ (fixed in hook_dll.cpp)
             if (_dynamic_blob_subdir / "nuitka_blob.bin").is_file():
                 _blob_path = str(_dynamic_blob_subdir / "nuitka_blob.bin")
                 hook_log(f"[BLOB] Found blob in DYNAMIC_BLOB/: {_blob_path}\n")
             else:
-                # Fallback: wait for blob in backup_dir root (legacy path)
+                # Fallback: wait for blob in legacy paths
                 _blob_path = _wait_dll_blob_dump(str(backup_dir), hook_log, max_wait=5)
             if _blob_path:
                 # Raw chunk dump for per-module .bin files (source_dir/DYNAMIC_BLOB/)

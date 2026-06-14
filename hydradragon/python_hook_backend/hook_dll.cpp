@@ -1118,17 +1118,18 @@ static void DumpNuitkaBlob() {
     // Fall back to PYTHON_DUMPS_DIR\DYNAMIC_BLOB if the dir isn't set yet.
     char dir[MAX_PATH];
     if (g_marshal_dump_dir[0] != '\0') {
-        // Copy and strip the last two path components (PYC_DUMPS, RECONSTRUCTED_SOURCE)
+        // Copy and strip the last path component (PYC_DUMPS) to get to RECONSTRUCTED_SOURCE
         char tmp[MAX_PATH];
         strncpy_s(tmp, MAX_PATH, g_marshal_dump_dir, _TRUNCATE);
-        for (int strip = 0; strip < 2; ++strip) {
-            char* last = strrchr(tmp, '\\');
-            if (last) *last = '\0';
-        }
+        char* last_slash = strrchr(tmp, '/');
+        char* last_backslash = strrchr(tmp, '\\');
+        char* last = (last_slash > last_backslash) ? last_slash : last_backslash;
+        if (last) *last = '\0';
+        
         _snprintf_s(dir, MAX_PATH, _TRUNCATE, "%s\\DYNAMIC_BLOB", tmp);
     } else {
         // Fallback: marshal dir not yet resolved, use root dumps directory
-        _snprintf_s(dir, MAX_PATH, _TRUNCATE, "%s\\DYNAMIC_BLOB", PYTHON_DUMPS_DIR);
+        _snprintf_s(dir, MAX_PATH, _TRUNCATE, "%s\\RECONSTRUCTED_SOURCE\\DYNAMIC_BLOB", PYTHON_DUMPS_DIR);
     }
     CreateDirectoryA(dir, NULL);
 
