@@ -2344,22 +2344,6 @@ def run_decompiler():
                     except Exception as _sp_err:
                         hook_log(f"[BLOB] Subprocess run failed: {_sp_err}\n")
 
-                # Clean up the blob from DYNAMIC_BLOB/ after successful extraction
-                # so it does not persist at C:\ProgramData\...\python_dumps\DYNAMIC_BLOB\
-                if _blob_extracted:
-                    try:
-                        import shutil as _shutil
-                        _blob_file = Path(_blob_path)
-                        if _blob_file.is_file():
-                            _blob_file.unlink()
-                            hook_log(f"[BLOB] Deleted blob after extraction: {_blob_file}\n")
-                        # Remove DYNAMIC_BLOB dir if now empty
-                        _blob_dir = _blob_file.parent
-                        if _blob_dir.is_dir() and not any(_blob_dir.iterdir()):
-                            _blob_dir.rmdir()
-                            hook_log(f"[BLOB] Removed empty DYNAMIC_BLOB dir: {_blob_dir}\n")
-                    except Exception as _cl_err:
-                        hook_log(f"[BLOB] Cleanup warning: {_cl_err}\n")
         except Exception as e:
             error_count += 1
             hook_log(f"[BLOB ERR] dynamic blob extraction crashed: {e}\n")
