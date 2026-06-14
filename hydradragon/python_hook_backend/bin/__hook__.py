@@ -987,8 +987,7 @@ def _walk_constants_for_funcs(items, out, depth=0):
 
 def _wait_dll_blob_dump(dynamic_dir, hook_log, max_wait=5):
     import time
-    d = Path(dynamic_dir) / "DYNAMIC_BLOB"
-    d.mkdir(parents=True, exist_ok=True)
+    d = Path(dynamic_dir)
     target = d / "nuitka_blob.bin"
     for _ in range(max_wait * 10):
         if target.is_file() and target.stat().st_size > 0:
@@ -1001,7 +1000,17 @@ def _wait_dll_blob_dump(dynamic_dir, hook_log, max_wait=5):
 
 def _extract_blob_dynamic(blob_path, recon, source_dir, hook_log):
     import struct
+    import random
     try:
+        # Initialize static name decode table for commercial obfuscated module names
+        _r = random.Random(27)
+        _fwd = list(range(1, 256))
+        _r.shuffle(_fwd)
+        _fwd.insert(0, 0)
+        _name_decode_table = [0] * 256
+        for _i, _v in enumerate(_fwd):
+            _name_decode_table[_v] = _i
+
         raw = Path(blob_path).read_bytes()
         if len(raw) < 12:
             hook_log("[BLOBD] blob too small\n")
@@ -1026,8 +1035,17 @@ def _extract_blob_dynamic(blob_path, recon, source_dir, hook_log):
                 if next_pos == len(d):
                     return True
                 if next_pos < len(d):
-                    c = chr(d[next_pos])
-                    return c.isalpha() or c == '_'
+                    b = d[next_pos]
+                    c_plain = chr(b)
+                    if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
+                        return True
+                    try:
+                        dec_b = _name_decode_table[b]
+                        c_dec = chr(dec_b)
+                        if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
+                            return True
+                    except Exception:
+                        pass
                 return False
 
             # size_count layout: uint32 size + uint16 count
@@ -2273,12 +2291,60 @@ def run_decompiler():
             hook_log(f"[PYC ERR] pyc scan crashed: {e}\n")
 
         # Nuitka dynamic blob extraction from DLL dump
+        # The C DLL writes nuitka_blob.bin into backup_dir/DYNAMIC_BLOB/.
+        # We check that subfolder first, then fall back to backup_dir root
+        # for backwards compatibility with older DLL versions.
         try:
-            _blob_dir = PYTHON_DUMPS_DIR
-            blob_path = _wait_dll_blob_dump(_blob_dir, hook_log, max_wait=5)
-            if blob_path:
-                _init_nbc_decoder(hook_log)
-                _extract_blob_dynamic(blob_path, recon, source_dir, hook_log)
+            _blob_path = None
+            _dynamic_blob_subdir = backup_dir / "DYNAMIC_BLOB"
+            # Primary: DLL writes here
+            if (_dynamic_blob_subdir / "nuitka_blob.bin").is_file():
+                _blob_path = str(_dynamic_blob_subdir / "nuitka_blob.bin")
+                hook_log(f"[BLOB] Found blob in DYNAMIC_BLOB/: {_blob_path}\n")
+            else:
+                # Fallback: wait for blob in the backup_dir root (legacy path)
+                _blob_path = _wait_dll_blob_dump(str(backup_dir), hook_log, max_wait=5)
+            if _blob_path:
+                # Also copy blob into dump_N root so CLI extractor can find it
+                _blob_dest = backup_dir / "nuitka_blob.bin"
+                if not _blob_dest.exists():
+                    try:
+                        import shutil
+                        shutil.copy2(_blob_path, str(_blob_dest))
+                        hook_log(f"[BLOB] Copied blob to dump root: {_blob_dest}\n")
+                    except Exception as _ce:
+                        hook_log(f"[BLOB] Could not copy blob to dump root: {_ce}\n")
+                _extract_blob_dynamic(_blob_path, recon, source_dir, hook_log)
+                try:
+                    _sys_path_bak = sys.path[:]
+                    _hd = os.path.dirname(os.path.abspath(__file__))
+                    _repo_root = os.path.normpath(os.path.join(_hd, "..", "..", ".."))
+                    if _repo_root not in sys.path:
+                        sys.path.insert(0, _repo_root)
+                    from hydradragon.nuitka_deobfuscate.run_extract import extract_blob as _eb
+                    _omni_name = str(Path("RECONSTRUCTED_SOURCE") / "omni_reconstructed")
+                    _eb(
+                        blob_path=_blob_path,
+                        output_dir=backup_dir,
+                        use_stem=False,
+                        omni_dir_name=_omni_name,
+                        emit_pyc=False,
+                    )
+                    hook_log(f"[BLOB] Native extract_blob complete -> {backup_dir / _omni_name}\n")
+                except Exception as _eb_err:
+                    hook_log(f"[BLOB] Native extract_blob failed ({_eb_err}), trying py -3.12 subprocess...\n")
+                    try:
+                        import subprocess as _sp
+                        _cli = os.path.join(_repo_root, "hydradragon", "nuitka_deobfuscate", "run_extract_cli.py")
+                        _cmd = ["py", "-3.12", _cli, _blob_path, "-o", str(backup_dir), "--no-emit-pyc", "--no-stem", "--omni-dir-name", "RECONSTRUCTED_SOURCE/omni_reconstructed"]
+                        hook_log(f"[BLOB] Launching subprocess: {_cmd}\n")
+                        _proc = _sp.Popen(_cmd, stdout=_sp.PIPE, stderr=_sp.PIPE)
+                        _stdout, _stderr = _proc.communicate(timeout=15)
+                        hook_log(f"[BLOB] Subprocess stdout:\n{_stdout.decode('utf-8', errors='replace')}\n")
+                        if _proc.returncode != 0:
+                            hook_log(f"[BLOB] Subprocess error (code {_proc.returncode}):\n{_stderr.decode('utf-8', errors='replace')}\n")
+                    except Exception as _sp_err:
+                        hook_log(f"[BLOB] Subprocess run failed: {_sp_err}\n")
         except Exception as e:
             error_count += 1
             hook_log(f"[BLOB ERR] dynamic blob extraction crashed: {e}\n")

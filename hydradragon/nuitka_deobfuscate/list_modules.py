@@ -46,7 +46,10 @@ def _build_mapping2() -> list[int]:
     fwd = list(range(1, 256))
     r.shuffle(fwd)
     fwd.insert(0, 0)
-    return fwd
+    inv = [0] * 256
+    for i, v in enumerate(fwd):
+        inv[v] = i
+    return inv
 
 
 _MAPPING2 = _build_mapping2()
@@ -112,7 +115,7 @@ def _valid_section_layout(data_len: int, data_start: int, size: int, count: int 
     return 0 < count < 65000 and size >= count
 
 
-def _choose_section_layout(data: bytes, header_pos: int) -> tuple[int, int, int | None, str] | None:
+def _choose_section_layout(data: bytes, header_pos: int, is_commercial: bool) -> tuple[int, int, int | None, str] | None:
     """
     Return (data_start, section_size, item_count, layout_name).
 
@@ -130,15 +133,37 @@ def _choose_section_layout(data: bytes, header_pos: int) -> tuple[int, int, int 
 
     section_size = struct.unpack_from("<I", data, header_pos)[0]
 
+    def is_valid_next(next_pos: int) -> bool:
+        while next_pos < len(data) and data[next_pos] == 0:
+            next_pos += 1
+        if next_pos == len(data):
+            return True
+        if next_pos < len(data):
+            b = data[next_pos]
+            c_plain = chr(b)
+            if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
+                return True
+            if is_commercial:
+                try:
+                    dec_b = _MAPPING2[b]
+                    c_dec = chr(dec_b)
+                    if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
+                        return True
+                except Exception:
+                    pass
+        return False
+
     if header_pos + 6 <= len(data):
         item_count = struct.unpack_from("<H", data, header_pos + 4)[0]
         data_start = header_pos + 6
         if _valid_section_layout(len(data), data_start, section_size, item_count):
-            return data_start, section_size, item_count, "size_count"
+            if is_valid_next(data_start + section_size):
+                return data_start, section_size, item_count, "size_count"
 
     data_start = header_pos + 4
     if _valid_section_layout(len(data), data_start, section_size):
-        return data_start, section_size, None, "size_only"
+        if is_valid_next(data_start + section_size):
+            return data_start, section_size, None, "size_only"
 
     return None
 
@@ -148,6 +173,30 @@ def parse_module_names(blob: bytes) -> list[dict]:
     is_commercial = _is_likely_encrypted(blob)
     declared_size = struct.unpack_from("<I", blob, 4)[0] if len(blob) >= 8 else 0
     data = blob[8:8 + declared_size] if declared_size and 8 + declared_size <= len(blob) else blob[8:]
+    
+    # Auto-detect if names are commercial-obfuscated by probing the first module name
+    name_obfuscated = False
+    if len(data) > 0:
+        nul_idx = data.find(b"\x00", 0, min(1024, len(data)))
+        if nul_idx > 0:
+            first_raw = data[:nul_idx]
+            plain_ok = False
+            try:
+                first_plain = first_raw.decode("utf-8")
+                if first_plain.isprintable() and all(ch == "." or ch == "_" or ch == "-" or ch.isalnum() for ch in first_plain):
+                    plain_ok = True
+            except Exception:
+                pass
+            if not plain_ok:
+                try:
+                    first_dec = decode_module_name(first_raw)
+                    if all(ch == "." or ch == "_" or ch == "-" or ch.isalnum() for ch in first_dec):
+                        name_obfuscated = True
+                except Exception:
+                    pass
+    if name_obfuscated:
+        is_commercial = True
+
     offset = 0
     modules: list[dict] = []
 
@@ -161,7 +210,7 @@ def parse_module_names(blob: bytes) -> list[dict]:
 
         raw_name = data[offset:name_end]
         header_pos = name_end + 1
-        layout = _choose_section_layout(data, header_pos)
+        layout = _choose_section_layout(data, header_pos, is_commercial)
         if layout is None:
             offset = name_end + 1
             continue
@@ -184,7 +233,23 @@ def parse_module_names(blob: bytes) -> list[dict]:
             "is_bytecode": name == ".bytecode",
         })
 
-        offset = data_start + section_size
+        next_offset = data_start + section_size
+        best_offset = next_offset
+        for back in range(1, 8):
+            check_pos = next_offset - back
+            if check_pos <= data_start:
+                break
+            if data[check_pos] == 0:
+                cand_end = data.find(b"\x00", check_pos + 1, min(check_pos + 128, len(data)))
+                if cand_end != -1 and cand_end > check_pos + 1:
+                    cand_raw = data[check_pos + 1:cand_end]
+                    cand_name = _decode_blob_module_name(cand_raw, is_commercial)
+                    if cand_name and (cand_name[0].isalnum() or cand_name[0] in '._'):
+                        cand_layout = _choose_section_layout(data, cand_end + 1, is_commercial)
+                        if cand_layout is not None:
+                            best_offset = check_pos
+                            break
+        offset = best_offset
 
     return modules
 

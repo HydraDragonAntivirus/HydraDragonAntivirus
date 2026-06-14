@@ -1706,6 +1706,7 @@ def process_section(
     generate_omni_source,
     generate_omni_nbc,
     emit_pyc: bool = True,
+    omni_dir_name: str = "omni_reconstructed",
 ) -> tuple[int, int, int, list[str]]:
     clean_section = sanitize_filename(section_name).replace("/", "_").replace(".", "_").strip("_") or "section"
     # Cap at 80 characters — safe ceiling for long binary-garbage section names
@@ -1716,13 +1717,79 @@ def process_section(
     count_other = 0
     omni_count = 0
 
+    # ── Shared helpers ────────────────────────────────────────────────────────
+    def _safe_name_for(sn: str) -> tuple[str, str]:
+        """Return (ascii_name, hash8) for a section name."""
+        raw = sn.encode("utf-8", errors="replace") if isinstance(sn, str) else bytes(sn)
+        ascii_sn = re.sub(r"[^A-Za-z0-9._-]", "_",
+                          sn if isinstance(sn, str) else sn.decode("ascii", errors="replace"))
+        ascii_sn = re.sub(r"_+", "_", ascii_sn).strip("_.")[:48]
+        hash8 = hashlib.sha1(raw).hexdigest()[:8]
+        return ascii_sn, hash8
+
+    def _write_omni(source: str, sn: str) -> bool:
+        """Write OMNI source to the reconstruction dir. Returns True on success."""
+        if not source.strip():
+            return False
+        ascii_sn, hash8 = _safe_name_for(sn)
+        safe_name = f"{ascii_sn}_{hash8}" if ascii_sn else f"section_{hash8}"
+        omni_out = out_dir / omni_dir_name
+        target_py_path = _write_bytes_unique(
+            omni_out / f"{safe_name}.py", source.encode("utf-8")
+        )
+        recovered_file_paths.append(str(target_py_path))
+        return True
+
+    def _write_fallback_stub(all_items: tuple, sn: str) -> bool:
+        """Write a constants-stub .py when OMNI synthesis produced nothing."""
+        strings = _nbc_extract_all_strings(list(all_items))
+        strings = list(dict.fromkeys(strings))
+        
+        ascii_sn, hash8 = _safe_name_for(sn)
+        safe_name = f"{ascii_sn}_{hash8}" if ascii_sn else f"section_{hash8}"
+        
+        if not strings and not all_items:
+            lines = [
+                f"# Nuitka empty module placeholder — module: {sn}",
+                "# No bytecode or constants reconstructed",
+                "",
+                "# AG: STUB_IDENTIFIED — no OMNI reconstruction available",
+            ]
+        else:
+            lines = [
+                f"# Nuitka constants stub (OMNI synthesis produced no output) — module: {sn}",
+                f"# Items: {len(all_items)}   Strings extracted: {len(strings)}",
+                "",
+            ]
+            if strings:
+                lines.append("# ── Extracted string constants ──")
+                for s in strings:
+                    safe_repr = repr(s)[:300]
+                    lines.append(f"# {safe_repr}")
+                lines.append("")
+            type_counts: dict[str, int] = {}
+            for item in all_items:
+                t = type(item).__name__
+                type_counts[t] = type_counts.get(t, 0) + 1
+            if type_counts:
+                lines.append("# ── Constant type summary ──")
+                for tname, cnt in sorted(type_counts.items(), key=lambda x: -x[1]):
+                    lines.append(f"#   {tname}: {cnt}")
+                lines.append("")
+            lines.append("# AG: STUB_IDENTIFIED — no OMNI reconstruction available")
+            
+        stub_src = "\n".join(lines)
+        omni_out = out_dir / omni_dir_name
+        target_py_path = _write_bytes_unique(
+            omni_out / f"{safe_name}.py", stub_src.encode("utf-8")
+        )
+        recovered_file_paths.append(str(target_py_path))
+        return True
+
     # ── Per-item partition: classify before acting ────────────────────────────
     # A section can be mixed: some items are marshal bytecode blobs, others are
-    # plain Nuitka constants. Checking the whole section as a unit (the old
-    # is_marshaled_bytecode_section gate) caused OMNI to be skipped entirely
-    # whenever any item in the section contained bytecode. We now classify each
-    # item individually so that bytecode items are always dumped as .pyc and
-    # constant items are always passed to OMNI — nothing is lost either way.
+    # plain Nuitka constants. We classify each item individually so that bytecode
+    # items are always dumped as .pyc and constant items are always passed to OMNI.
     bytecode_item_indices: set[int] = set()
 
     for i, root_item in enumerate(root_items):
@@ -1734,8 +1801,7 @@ def process_section(
     )
 
     # ── OMNI on pure-constant items ───────────────────────────────────────────
-    # Always attempted when the framework is available. Bytecode items are
-    # excluded so OMNI never receives raw marshal bytes it cannot interpret.
+    omni_wrote = False
     if OmniDecompiler and omni_items:
         try:
             omp = OmniDecompiler()
@@ -1747,26 +1813,44 @@ def process_section(
                 raw_constants=list(omni_items),
                 python_version=target_ver_tuple,
             )
-            if source.strip():
-                if generate_omni_nbc:
-                    nbc_text = generate_omni_nbc(
-                        omp, section_name, list(omni_items), python_version=target_ver_tuple
-                    )
-                    source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
-
-                _raw_sn = section_name.encode("utf-8", errors="replace") if isinstance(section_name, str) else bytes(section_name)
-                _ascii_sn = re.sub(r"[^A-Za-z0-9._-]", "_", section_name if isinstance(section_name, str) else section_name.decode("ascii", errors="replace"))
-                _ascii_sn = re.sub(r"_+", "_", _ascii_sn).strip("_.")[:48]
-                _hash_sn = hashlib.sha1(_raw_sn).hexdigest()[:8]
-                safe_name = f"{_ascii_sn}_{_hash_sn}" if _ascii_sn else f"section_{_hash_sn}"
-                omni_out = out_dir / "omni_reconstructed"
-                target_py_path = _write_bytes_unique(
-                    omni_out / f"{safe_name}.py", source.encode("utf-8")
+            if source.strip() and generate_omni_nbc:
+                nbc_text = generate_omni_nbc(
+                    omp, section_name, list(omni_items), python_version=target_ver_tuple
                 )
-                recovered_file_paths.append(str(target_py_path))
+                source += "\n\n" + '"""' + "\n" + nbc_text + "\n" + '"""'
+            if _write_omni(source, section_name):
                 omni_count += 1
+                omni_wrote = True
         except Exception as exc:
             print(f"[!] Warning: OMNI reconstruction failed for {section_name}: {exc}")
+
+    # ── Fallback: try OMNI on ALL items (incl. bytecode sections) ────────────
+    if OmniDecompiler and not omni_wrote and root_items:
+        try:
+            omp2 = OmniDecompiler()
+            omp2.run_pass_1_structural_mapping(root_items)
+            omp2.run_pass_2_ast_synthesis()
+            source2 = generate_omni_source(
+                omp2,
+                section_name,
+                raw_constants=list(root_items),
+                python_version=target_ver_tuple,
+            )
+            if source2.strip() and generate_omni_nbc:
+                nbc_text2 = generate_omni_nbc(
+                    omp2, section_name, list(root_items), python_version=target_ver_tuple
+                )
+                source2 += "\n\n" + '"""' + "\n" + nbc_text2 + "\n" + '"""'
+            if _write_omni(source2, section_name):
+                omni_count += 1
+                omni_wrote = True
+        except Exception:
+            pass
+
+    # ── Last resort: write a constants-stub for every unhandled module ────────
+    if not omni_wrote:
+        if _write_fallback_stub(root_items, section_name):
+            omni_count += 1
 
     # ── Per-item pyc extraction ───────────────────────────────────────────────
     # Operates on ALL root_items (both bytecode and constant). Bytecode items
@@ -1915,6 +1999,8 @@ def extract_blob(
     target_version: str | tuple[int, int] | None = None,
     list_only: bool = False,
     emit_pyc: bool = True,
+    use_stem: bool = True,
+    omni_dir_name: str = "omni_reconstructed",
 ) -> ExtractionResult | None:
     blob_path = Path(blob_path)
     output_dir = Path(output_dir)
@@ -1977,13 +2063,13 @@ def extract_blob(
                             if next_pos < len(d):
                                 b = d[next_pos]
                                 c_plain = chr(b)
-                                if c_plain.isalpha() or c_plain == '_':
+                                if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
                                     return True
                                 if _is_enc0:
                                     try:
                                         dec_b = _cb0.name_decode_table[b]
                                         c_dec = chr(dec_b)
-                                        if c_dec.isalpha() or c_dec == '_':
+                                        if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
                                             return True
                                     except Exception:
                                         pass
@@ -2118,13 +2204,13 @@ def extract_blob(
                 if next_pos < len(d):
                     b = d[next_pos]
                     c_plain = chr(b)
-                    if c_plain.isalpha() or c_plain == '_':
+                    if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
                         return True
                     if _use_bypass:
                         try:
                             dec_b = cb.name_decode_table[b]
                             c_dec = chr(dec_b)
-                            if c_dec.isalpha() or c_dec == '_':
+                            if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
                                 return True
                         except Exception:
                             pass
@@ -2178,7 +2264,35 @@ def extract_blob(
                 offset = name_end + 1
                 continue
             chunk_data = data[data_start:data_start + chunk_size]
-            offset = data_start + chunk_size
+            next_offset = data_start + chunk_size
+            best_offset = next_offset
+            for back in range(1, 8):
+                check_pos = next_offset - back
+                if check_pos <= data_start:
+                    break
+                if data[check_pos] == 0:
+                    cand_end = data.find(b"\x00", check_pos + 1, min(check_pos + 128, len(data)))
+                    if cand_end != -1 and cand_end > check_pos + 1:
+                        cand_raw = data[check_pos + 1:cand_end]
+                        cand_plain = None
+                        try:
+                            cand_plain = cand_raw.decode('utf-8', errors='strict')
+                            if _is_plausible_module_name(cand_plain):
+                                cand_name = cand_plain
+                            else:
+                                raise ValueError
+                        except Exception:
+                            if _use_bypass:
+                                cand_dec = cb.decode_module_name(cand_raw)
+                                cand_name = cand_dec if _is_plausible_module_name(cand_dec) else (cand_plain or cand_raw.decode('utf-8', errors='replace'))
+                            else:
+                                cand_name = cand_plain if cand_plain is not None else cand_raw.decode('utf-8', errors='replace')
+                        if cand_name and (cand_name[0].isalnum() or cand_name[0] in '._'):
+                            cand_layout = _choose_layout(data, cand_end + 1)
+                            if cand_layout is not None:
+                                best_offset = check_pos
+                                break
+            offset = best_offset
             modules.append((module_name, chunk_data))
         return modules
 
@@ -2211,12 +2325,15 @@ def extract_blob(
             print(f"  {name}")
         return ExtractionResult(0, 0, 0, output_dir, [])
 
-    base_out = output_dir / blob_path.stem
-    out_dir = base_out
-    counter = 1
-    while out_dir.exists() and any(out_dir.iterdir()):
-        out_dir = output_dir / f"{blob_path.stem}_{counter}"
-        counter += 1
+    if use_stem:
+        base_out = output_dir / blob_path.stem
+        out_dir = base_out
+        counter = 1
+        while out_dir.exists() and any(out_dir.iterdir()):
+            out_dir = output_dir / f"{blob_path.stem}_{counter}"
+            counter += 1
+    else:
+        out_dir = output_dir
 
     print(f"[*] Output directory      : {out_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2243,7 +2360,7 @@ def extract_blob(
     print("[*] Pass 2: Section-based bytecode extraction & OMNI pipeline...")
 
     sc = 0
-    work_items = [(section_name, items) for section_name, items in sections.items() if items]
+    work_items = list(sections.items())
     if work_items:
         max_workers = max(1, min(len(work_items), os.cpu_count() or 1))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -2260,6 +2377,7 @@ def extract_blob(
                     generate_omni_source,
                     generate_omni_nbc,
                     emit_pyc,
+                    omni_dir_name,
                 )
                 for section_name, items in work_items
             ]
@@ -2309,12 +2427,17 @@ def extract_blob(
     # =========================================================================
     # SUMMARY
     # =========================================================================
+    omni_dir = out_dir / omni_dir_name
     print("\n[!] Orchestration Complete!")
     print(f"    Target version  : Python {target_ver_str}")
     print(f"    Bytecode (.pyc) : {count_pyc} modules extracted")
     print(f"    Metadata items  : {count_other}")
+    print(f"    Constants files : {dumped_constants} modules -> {constants_dir}")
     if OmniDecompiler:
-        print(f"    OMNI recon      : {sc} Python reconstructions")
+        print(f"    OMNI recon      : {sc} Python reconstructions -> {omni_dir}")
+        if sc < dumped_constants:
+            skipped = dumped_constants - sc
+            print(f"    [note] {skipped} modules had empty chunks (no constants to reconstruct)")
     print(f"    Output          : {out_dir.absolute()}")
 
     return ExtractionResult(pyc_count=count_pyc, omni_recon_count=sc if OmniDecompiler else 0, metadata_count=count_other, output_dir=out_dir, recovered_files=recovered_file_paths)
@@ -2362,13 +2485,13 @@ def detect_nuitka_version(blob_path: str) -> str | None:
                     if next_pos < len(d):
                         b = d[next_pos]
                         c_plain = chr(b)
-                        if c_plain.isalpha() or c_plain == '_':
+                        if c_plain.isalpha() or c_plain == '_' or c_plain == '.':
                             return True
                         if is_commercial:
                             try:
                                 dec_b = cb.name_decode_table[b]
                                 c_dec = chr(dec_b)
-                                if c_dec.isalpha() or c_dec == '_':
+                                if c_dec.isalpha() or c_dec == '_' or c_dec == '.':
                                     return True
                             except Exception:
                                 pass
