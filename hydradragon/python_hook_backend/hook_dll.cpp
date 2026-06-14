@@ -875,6 +875,19 @@ static size_t g_blob_size  = 0;
 static LONG   g_blob_found = 0;
 static LONG   g_blob_attempts = 0;
 
+static bool IsValidMarshalTag(unsigned char tag) {
+    switch (tag) {
+        case 'i': case 'I': case 'f': case 'g': case 'x': case 'y':
+        case 'l': case 's': case 't': case 'r': case '(': case '[':
+        case '{': case 'c': case 'u': case '?': case '<': case '>':
+        case 'N': case 'F': case 'T': case 'S': case '.': case 'a':
+        case 'A': case ')': case 'z': case 'Z':
+            return true;
+        default:
+            return false;
+    }
+}
+
 // Returns layout type: 0 for invalid, 1 for size_only, 2 for size_count.
 static int ChooseSectionLayout(const unsigned char* end, const unsigned char* name_end, unsigned int* out_size, unsigned int* out_data_offset) {
     if (name_end + 5 > end) return 0;
@@ -897,6 +910,33 @@ static int ChooseSectionLayout(const unsigned char* end, const unsigned char* na
         return false;
     };
 
+    // Pass 1: Strict check with marshal tag signature to accurately resolve layout
+    if (name_end + 7 <= end) {
+        unsigned short item_count;
+        memcpy(&item_count, name_end + 5, 2);
+        const unsigned char* data_start = name_end + 7;
+        if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
+            data_start + section_size <= end &&
+            item_count > 0 && item_count < 65000 && section_size >= item_count) {
+            if (IsValidMarshalTag(*data_start) && is_valid_next(data_start + section_size)) {
+                *out_size = section_size;
+                *out_data_offset = 7;
+                return 2; // size_count
+            }
+        }
+    }
+
+    const unsigned char* data_start = name_end + 5;
+    if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
+        data_start + section_size <= end) {
+        if (IsValidMarshalTag(*data_start) && is_valid_next(data_start + section_size)) {
+            *out_size = section_size;
+            *out_data_offset = 5;
+            return 1; // size_only
+        }
+    }
+
+    // Pass 2: Fallback to structural check only (in case of new/custom marshal tags)
     if (name_end + 7 <= end) {
         unsigned short item_count;
         memcpy(&item_count, name_end + 5, 2);
@@ -912,7 +952,6 @@ static int ChooseSectionLayout(const unsigned char* end, const unsigned char* na
         }
     }
 
-    const unsigned char* data_start = name_end + 5;
     if (section_size > 0 && section_size <= 128 * 1024 * 1024 &&
         data_start + section_size <= end) {
         if (is_valid_next(data_start + section_size)) {
