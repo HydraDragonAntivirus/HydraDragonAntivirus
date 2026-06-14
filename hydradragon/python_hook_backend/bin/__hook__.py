@@ -2291,30 +2291,25 @@ def run_decompiler():
             hook_log(f"[PYC ERR] pyc scan crashed: {e}\n")
 
         # Nuitka dynamic blob extraction from DLL dump
-        # The C DLL writes nuitka_blob.bin into backup_dir/DYNAMIC_BLOB/.
-        # We check that subfolder first, then fall back to backup_dir root
-        # for backwards compatibility with older DLL versions.
+        # The C DLL writes nuitka_blob.bin into dump_N\DYNAMIC_BLOB\
+        # (i.e. backup_dir / "DYNAMIC_BLOB" / "nuitka_blob.bin").
+        # After successful deobfuscation via run_extract, the blob is deleted
+        # from DYNAMIC_BLOB/ so it does not persist on disk.
         try:
             _blob_path = None
             _dynamic_blob_subdir = backup_dir / "DYNAMIC_BLOB"
-            # Primary: DLL writes here
+            # Primary: DLL writes into dump_N\DYNAMIC_BLOB\ (fixed in hook_dll.cpp)
             if (_dynamic_blob_subdir / "nuitka_blob.bin").is_file():
                 _blob_path = str(_dynamic_blob_subdir / "nuitka_blob.bin")
                 hook_log(f"[BLOB] Found blob in DYNAMIC_BLOB/: {_blob_path}\n")
             else:
-                # Fallback: wait for blob in the backup_dir root (legacy path)
+                # Fallback: wait for blob in backup_dir root (legacy path)
                 _blob_path = _wait_dll_blob_dump(str(backup_dir), hook_log, max_wait=5)
             if _blob_path:
-                # Also copy blob into dump_N root so CLI extractor can find it
-                _blob_dest = backup_dir / "nuitka_blob.bin"
-                if not _blob_dest.exists():
-                    try:
-                        import shutil
-                        shutil.copy2(_blob_path, str(_blob_dest))
-                        hook_log(f"[BLOB] Copied blob to dump root: {_blob_dest}\n")
-                    except Exception as _ce:
-                        hook_log(f"[BLOB] Could not copy blob to dump root: {_ce}\n")
+                # Raw chunk dump for per-module .bin files (source_dir/DYNAMIC_BLOB/)
                 _extract_blob_dynamic(_blob_path, recon, source_dir, hook_log)
+
+                _blob_extracted = False
                 try:
                     _sys_path_bak = sys.path[:]
                     _hd = os.path.dirname(os.path.abspath(__file__))
@@ -2331,6 +2326,7 @@ def run_decompiler():
                         emit_pyc=False,
                     )
                     hook_log(f"[BLOB] Native extract_blob complete -> {backup_dir / _omni_name}\n")
+                    _blob_extracted = True
                 except Exception as _eb_err:
                     hook_log(f"[BLOB] Native extract_blob failed ({_eb_err}), trying py -3.12 subprocess...\n")
                     try:
@@ -2341,10 +2337,29 @@ def run_decompiler():
                         _proc = _sp.Popen(_cmd, stdout=_sp.PIPE, stderr=_sp.PIPE)
                         _stdout, _stderr = _proc.communicate(timeout=15)
                         hook_log(f"[BLOB] Subprocess stdout:\n{_stdout.decode('utf-8', errors='replace')}\n")
-                        if _proc.returncode != 0:
+                        if _proc.returncode == 0:
+                            _blob_extracted = True
+                        else:
                             hook_log(f"[BLOB] Subprocess error (code {_proc.returncode}):\n{_stderr.decode('utf-8', errors='replace')}\n")
                     except Exception as _sp_err:
                         hook_log(f"[BLOB] Subprocess run failed: {_sp_err}\n")
+
+                # Clean up the blob from DYNAMIC_BLOB/ after successful extraction
+                # so it does not persist at C:\ProgramData\...\python_dumps\DYNAMIC_BLOB\
+                if _blob_extracted:
+                    try:
+                        import shutil as _shutil
+                        _blob_file = Path(_blob_path)
+                        if _blob_file.is_file():
+                            _blob_file.unlink()
+                            hook_log(f"[BLOB] Deleted blob after extraction: {_blob_file}\n")
+                        # Remove DYNAMIC_BLOB dir if now empty
+                        _blob_dir = _blob_file.parent
+                        if _blob_dir.is_dir() and not any(_blob_dir.iterdir()):
+                            _blob_dir.rmdir()
+                            hook_log(f"[BLOB] Removed empty DYNAMIC_BLOB dir: {_blob_dir}\n")
+                    except Exception as _cl_err:
+                        hook_log(f"[BLOB] Cleanup warning: {_cl_err}\n")
         except Exception as e:
             error_count += 1
             hook_log(f"[BLOB ERR] dynamic blob extraction crashed: {e}\n")

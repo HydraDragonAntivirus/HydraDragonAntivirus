@@ -1111,9 +1111,25 @@ static void DetectNuitkaBlob(const char* data, ptrdiff_t len) {
 static void DumpNuitkaBlob() {
     if (InterlockedCompareExchange(&g_blob_found, 1, 1) != 1 || !g_blob_start || g_blob_size == 0) return;
 
-    // Write blob directly into PYTHON_DUMPS_DIR\DYNAMIC_BLOB\nuitka_blob.bin
+    // Derive dump_N from g_marshal_dump_dir which is:
+    //   dump_N\RECONSTRUCTED_SOURCE\PYC_DUMPS
+    // Walk up two backslash-separated components to reach dump_N, then
+    // append \DYNAMIC_BLOB so the blob lands next to RECONSTRUCTED_SOURCE.
+    // Fall back to PYTHON_DUMPS_DIR\DYNAMIC_BLOB if the dir isn't set yet.
     char dir[MAX_PATH];
-    _snprintf_s(dir, _TRUNCATE, "%s\\DYNAMIC_BLOB", PYTHON_DUMPS_DIR);
+    if (g_marshal_dump_dir[0] != '\0') {
+        // Copy and strip the last two path components (PYC_DUMPS, RECONSTRUCTED_SOURCE)
+        char tmp[MAX_PATH];
+        strncpy_s(tmp, MAX_PATH, g_marshal_dump_dir, _TRUNCATE);
+        for (int strip = 0; strip < 2; ++strip) {
+            char* last = strrchr(tmp, '\\');
+            if (last) *last = '\0';
+        }
+        _snprintf_s(dir, MAX_PATH, _TRUNCATE, "%s\\DYNAMIC_BLOB", tmp);
+    } else {
+        // Fallback: marshal dir not yet resolved, use root dumps directory
+        _snprintf_s(dir, MAX_PATH, _TRUNCATE, "%s\\DYNAMIC_BLOB", PYTHON_DUMPS_DIR);
+    }
     CreateDirectoryA(dir, NULL);
 
     char path[MAX_PATH];
