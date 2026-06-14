@@ -850,11 +850,23 @@ static unsigned long long g_marshal_seq = 0;
 static unsigned char g_marshal_magic[4] = {0};
 static int g_marshal_magic_len = 0;
 
+// PyMarshal_ReadObjectFromFile globals
+typedef void* (*PyMarshal_ReadObjectFromFileFunc)(void*);
+typedef void* (*PyMarshal_WriteObjectToStringFunc)(void*, int);
+static PyMarshal_ReadObjectFromFileFunc g_original_PyMarshal_ReadObjectFromFile = nullptr;
+static PyMarshal_WriteObjectToStringFunc g_PyMarshal_WriteObjectToString_local = nullptr;
+static void* g_marshal_file_hook_fn = nullptr;
+static void* g_marshal_file_target = nullptr;
+static unsigned char g_marshal_original_file_bytes[16];
+static void* g_py_marshal_dumps = nullptr;
+
 // Cached Python C API function pointers
 static PyGILState_EnsureFunc g_PyGILState_Ensure = nullptr;
 static PyGILState_ReleaseFunc g_PyGILState_Release = nullptr;
 static PyObject_CallFunctionObjArgsFunc g_PyObject_CallFunctionObjArgs = nullptr;
 static PyBytes_FromStringAndSizeFunc g_PyBytes_FromStringAndSize = nullptr;
+typedef int (*PyBytesAsStringAndSizeFunc)(void*, const char**, ptrdiff_t*);
+static PyBytesAsStringAndSizeFunc g_PyBytes_AsStringAndSize = nullptr;
 static PyObject_GetAttrStringFunc g_PyObject_GetAttrString = nullptr;
 static Py_DecRefFunc g_Py_DecRef = nullptr;
 static PyImportModuleFunc g_PyImport_ImportModule = nullptr;
@@ -1341,6 +1353,9 @@ static __declspec(noinline) void* HookPyMarshal_ReadObjectFromString(const char*
     return nullptr;
 }
 
+// Forward declaration for PyMarshal_ReadObjectFromFile hook (defined later)
+static __declspec(noinline) void* HookPyMarshal_ReadObjectFromFile(void* fp);
+
 // Restore-call-rehook architecture:
 // 1. Save original prologue bytes and function pointer
 // 2. Write FF 25 detour at the target
@@ -1357,12 +1372,13 @@ static bool SetupMarshalHook(HMODULE hPyDll) {
     g_PyGILState_Ensure = (PyGILState_EnsureFunc)GetProcAddress(hPyDll, "PyGILState_Ensure");
     g_PyGILState_Release = (PyGILState_ReleaseFunc)GetProcAddress(hPyDll, "PyGILState_Release");
     g_PyBytes_FromStringAndSize = (PyBytes_FromStringAndSizeFunc)GetProcAddress(hPyDll, "PyBytes_FromStringAndSize");
+    g_PyBytes_AsStringAndSize = (PyBytesAsStringAndSizeFunc)GetProcAddress(hPyDll, "PyBytes_AsStringAndSize");
     g_PyObject_CallFunctionObjArgs = (PyObject_CallFunctionObjArgsFunc)GetProcAddress(hPyDll, "PyObject_CallFunctionObjArgs");
     g_PyObject_GetAttrString = (PyObject_GetAttrStringFunc)GetProcAddress(hPyDll, "PyObject_GetAttrString");
     g_Py_DecRef = (Py_DecRefFunc)GetProcAddress(hPyDll, "Py_DecRef");
     g_PyImport_ImportModule = (PyImportModuleFunc)GetProcAddress(hPyDll, "PyImport_ImportModule");
 
-    if (!g_PyGILState_Ensure || !g_PyBytes_FromStringAndSize ||
+    if (!g_PyGILState_Ensure || !g_PyBytes_FromStringAndSize || !g_PyBytes_AsStringAndSize ||
         !g_PyObject_CallFunctionObjArgs || !g_PyObject_GetAttrString ||
         !g_Py_DecRef || !g_PyImport_ImportModule) {
         dbgPrintf("[HOOK] ERROR: Cannot load Python C API functions for marshal hook\n");
@@ -1424,7 +1440,140 @@ static bool SetupMarshalHook(HMODULE hPyDll) {
     FlushInstructionCache(GetCurrentProcess(), target, MARSHAL_DETOUR_SIZE);
     VirtualProtect(target, MARSHAL_DETOUR_SIZE, old2, &old2);
     dbgPrintf("[HOOK] PyMarshal_ReadObjectFromString detour installed (FF 25)\n");
+
+    // ── PyMarshal_ReadObjectFromFile hook ─────────────────────────────
+    g_PyMarshal_WriteObjectToString_local = (PyMarshal_WriteObjectToStringFunc)
+        GetProcAddress(hPyDll, "PyMarshal_WriteObjectToString");
+    if (!g_PyMarshal_WriteObjectToString_local) {
+        dbgPrintf("[HOOK] WARNING: PyMarshal_WriteObjectToString not exported, FromFile hook disabled\n");
+    }
+
+    void* target_file = (void*)GetProcAddress(hPyDll, "PyMarshal_ReadObjectFromFile");
+    if (!target_file) {
+        dbgPrintf("[HOOK] WARNING: PyMarshal_ReadObjectFromFile not exported, skipping\n");
+        return true;
+    }
+    dbgPrintf("[HOOK] PyMarshal_ReadObjectFromFile @ 0x%p\n", target_file);
+
+    // Save original prologue
+    DWORD oldProtect2;
+    if (!VirtualProtect(target_file, MARSHAL_PROLOGUE_SIZE, PAGE_EXECUTE_READWRITE, &oldProtect2)) {
+        dbgPrintf("[HOOK] WARNING: VirtualProtect(save) for FromFile failed\n");
+        return true;
+    }
+    memcpy(g_marshal_original_file_bytes, target_file, MARSHAL_PROLOGUE_SIZE);
+    VirtualProtect(target_file, MARSHAL_PROLOGUE_SIZE, oldProtect2, &oldProtect2);
+
+    g_original_PyMarshal_ReadObjectFromFile = (PyMarshal_ReadObjectFromFileFunc)target_file;
+    g_marshal_file_hook_fn = (void*)&HookPyMarshal_ReadObjectFromFile;
+    g_marshal_file_target = target_file;
+
+    uintptr_t hookFnFile = (uintptr_t)&HookPyMarshal_ReadObjectFromFile;
+    DWORD old3;
+    if (!VirtualProtect(target_file, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old3)) {
+        dbgPrintf("[HOOK] WARNING: VirtualProtect(detour) for FromFile failed\n");
+        g_marshal_file_target = nullptr;
+        return true;
+    }
+    InterlockedExchange64((volatile LONG64*)((unsigned char*)target_file + 6), *(LONG64*)&hookFnFile);
+    MemoryBarrier();
+    unsigned char header_file[6] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };
+    memcpy(target_file, header_file, 6);
+    FlushInstructionCache(GetCurrentProcess(), target_file, MARSHAL_DETOUR_SIZE);
+    VirtualProtect(target_file, MARSHAL_DETOUR_SIZE, old3, &old3);
+    dbgPrintf("[HOOK] PyMarshal_ReadObjectFromFile detour installed (FF 25)\n");
+
     return true;
+}
+
+// --- PyMarshal_ReadObjectFromFile hook ---
+// Intercepts C-level file-based marshal deserialization.
+// Since we can't intercept raw bytes from a FILE*, we call the original,
+// re-serialize the result with PyMarshal_WriteObjectToString, and dump as .pyc.
+static __declspec(noinline) void* HookPyMarshal_ReadObjectFromFile(void* fp) {
+    __try {
+        dbgPrintf("[HOOK_MARSHAL_FILE] HookPyMarshal_ReadObjectFromFile(fp=%p)\n", fp);
+
+        if (g_marshal_file_target && g_original_PyMarshal_ReadObjectFromFile && fp &&
+            InterlockedCompareExchange(&g_unloading, 0, 0) == 0) {
+
+            // Restore original bytes
+            DWORD old;
+            VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+            memcpy(g_marshal_file_target, g_marshal_original_file_bytes, MARSHAL_DETOUR_SIZE);
+            VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, old, &old);
+            FlushInstructionCache(GetCurrentProcess(), g_marshal_file_target, MARSHAL_DETOUR_SIZE);
+
+            void* result = g_original_PyMarshal_ReadObjectFromFile(fp);
+
+            // Re-install FF 25 detour
+            VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+            uintptr_t hookFn = (uintptr_t)g_marshal_file_hook_fn;
+            InterlockedExchange64((volatile LONG64*)((unsigned char*)g_marshal_file_target + 6),
+                                  *(LONG64*)&hookFn);
+            MemoryBarrier();
+            unsigned char header[6] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };
+            memcpy(g_marshal_file_target, header, 6);
+            FlushInstructionCache(GetCurrentProcess(), g_marshal_file_target, MARSHAL_DETOUR_SIZE);
+            VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, old, &old);
+
+            // Re-serialize the result and dump as .pyc
+            if (result && g_marshal_dump_dir[0] != '\0' && g_PyMarshal_WriteObjectToString_local) {
+                void* bytes_obj = g_PyMarshal_WriteObjectToString_local(result, 0);
+                if (bytes_obj) {
+                    const char* buf = NULL;
+                    ptrdiff_t buf_len = 0;
+                    if (g_PyBytes_AsStringAndSize &&
+                        g_PyBytes_AsStringAndSize(bytes_obj, &buf, &buf_len) == 0 && buf && buf_len > 0) {
+
+                        unsigned long long seq = InterlockedIncrement64((volatile LONG64*)&g_marshal_seq);
+                        char pyc_path[MAX_PATH];
+                        _snprintf_s(pyc_path, MAX_PATH, _TRUNCATE, "%s\\fromfile_%llu.pyc",
+                                    g_marshal_dump_dir, seq);
+                        HANDLE hPyc = CreateFileA(pyc_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                                                  FILE_ATTRIBUTE_NORMAL, NULL);
+                        if (hPyc != INVALID_HANDLE_VALUE) {
+                            DWORD written;
+                            if (g_marshal_magic_len > 0) {
+                                WriteFile(hPyc, g_marshal_magic, 4, &written, NULL);
+                                unsigned char pyc_header[12] = {0};
+                                WriteFile(hPyc, pyc_header, 12, &written, NULL);
+                            }
+                            WriteFile(hPyc, buf, (DWORD)buf_len, &written, NULL);
+                            CloseHandle(hPyc);
+                            dbgPrintf("[HOOK_MARSHAL_FILE] Wrote %s (%lld bytes)\n", pyc_path, (long long)buf_len);
+                        }
+                    }
+                    g_Py_DecRef(bytes_obj);
+                }
+            }
+
+            return result;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        dbgPrintf("[HOOK_MARSHAL_FILE] SEH exception in HookPyMarshal_ReadObjectFromFile\n");
+    }
+
+    // Fallback: try calling original via pointer
+    if (g_original_PyMarshal_ReadObjectFromFile && g_marshal_file_target && fp) {
+        DWORD old;
+        VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+        memcpy(g_marshal_file_target, g_marshal_original_file_bytes, MARSHAL_DETOUR_SIZE);
+        VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), g_marshal_file_target, MARSHAL_DETOUR_SIZE);
+        void* result = g_original_PyMarshal_ReadObjectFromFile(fp);
+        VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+        uintptr_t hookFn = (uintptr_t)g_marshal_file_hook_fn;
+        InterlockedExchange64((volatile LONG64*)((unsigned char*)g_marshal_file_target + 6),
+                              *(LONG64*)&hookFn);
+        MemoryBarrier();
+        unsigned char header[6] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };
+        memcpy(g_marshal_file_target, header, 6);
+        FlushInstructionCache(GetCurrentProcess(), g_marshal_file_target, MARSHAL_DETOUR_SIZE);
+        VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, old, &old);
+        return result;
+    }
+    return nullptr;
 }
 
 // Compute marshal dump dir and cache Python magic number.
@@ -1522,18 +1671,29 @@ static bool CacheMarshalWriteFunc() {
 // C runtime heap operations) because python312.dll and/or the CRT may
 // already be unloaded at that point.
 static void RemoveMarshalHook() {
-    if (!g_marshal_target) return;
-    DWORD old;
-    VirtualProtect(g_marshal_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
-    memcpy(g_marshal_target, g_marshal_original_bytes, MARSHAL_DETOUR_SIZE);
-    VirtualProtect(g_marshal_target, MARSHAL_DETOUR_SIZE, old, &old);
-    g_marshal_target = nullptr;
+    if (g_marshal_target) {
+        DWORD old;
+        VirtualProtect(g_marshal_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+        memcpy(g_marshal_target, g_marshal_original_bytes, MARSHAL_DETOUR_SIZE);
+        VirtualProtect(g_marshal_target, MARSHAL_DETOUR_SIZE, old, &old);
+        g_marshal_target = nullptr;
+    }
+
+    if (g_marshal_file_target) {
+        DWORD old;
+        VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, PAGE_EXECUTE_READWRITE, &old);
+        memcpy(g_marshal_file_target, g_marshal_original_file_bytes, MARSHAL_DETOUR_SIZE);
+        VirtualProtect(g_marshal_file_target, MARSHAL_DETOUR_SIZE, old, &old);
+        g_marshal_file_target = nullptr;
+    }
+
     // Do NOT call g_Py_DecRef here: during DLL_PROCESS_DETACH the Python
     // DLL may already be unloaded. The reference will be cleaned up by
     // process exit.  Use OutputDebugStringA directly (safe from kernel32)
     // instead of dbgPrintf (which calls fprintf into the C runtime).
     g_py_write_marshal_pyc = nullptr;
-    OutputDebugStringA("[HOOK] PyMarshal_ReadObjectFromString hook removed\n");
+    g_py_marshal_dumps = nullptr;
+    OutputDebugStringA("[HOOK] PyMarshal_ReadObjectFromString/FromFile hooks removed\n");
 }
 
 static unsigned __stdcall hookImpl(void *lpParam) {

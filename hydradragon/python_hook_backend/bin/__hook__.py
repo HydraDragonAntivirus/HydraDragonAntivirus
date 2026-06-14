@@ -1179,6 +1179,25 @@ def dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads=None):
                 pass
             return None
 
+    import types as _t
+
+    def _extract_code_objects(obj, seen=None):
+        if seen is None:
+            seen = set()
+        if isinstance(obj, _t.CodeType):
+            oid = id(obj)
+            if oid not in seen:
+                seen.add(oid)
+                yield obj
+                for c in getattr(obj, "co_consts", ()):
+                    yield from _extract_code_objects(c, seen)
+        elif isinstance(obj, (tuple, list)):
+            for item in obj:
+                yield from _extract_code_objects(item, seen)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                yield from _extract_code_objects(v, seen)
+
     candidates = set()
     if source_dir.is_dir():
         for pyc in source_dir.rglob("*.pyc"):
@@ -1189,39 +1208,46 @@ def dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads=None):
     dumped = 0
     for pyc_path in sorted(candidates):
         try:
-            code_obj = load_pyc(pyc_path)
-            if code_obj is None or not hasattr(code_obj, "co_code"):
+            obj = load_pyc(pyc_path)
+            if obj is None:
+                continue
+            code_objects = list(_extract_code_objects(obj))
+            if not code_objects:
                 continue
 
-            safe = safe_name(pyc_path.stem)
+            base_safe = safe_name(pyc_path.stem)
+            for co_idx, code_obj in enumerate(code_objects):
+                safe = base_safe if co_idx == 0 else f"{base_safe}_{co_idx}"
 
-            content = []
-            content.append('"""')
-            content.append(f"PYC source: {pyc_path}")
-            content.append('"""')
-            content.append("")
-            content.append("# ===== PYC CODE OBJECT METADATA =====")
-            try:
-                content.append(f"# co_name={code_obj.co_name!r}")
-                content.append(f"# co_filename={code_obj.co_filename!r}")
-            except Exception:
-                pass
-            content.append("")
-            content.append("# ===== BEST-EFFORT PSEUDO SOURCE =====")
-            try:
-                content.append(recon.decompiler.decompile_code(code_obj))
-            except Exception as e:
-                content.append(f"# decompile failed: {e}")
-                content.append("pass")
+                content = []
+                content.append('"""')
+                content.append(f"PYC source: {pyc_path}")
+                if co_idx > 0:
+                    content.append(f"Nested code object #{co_idx}")
+                content.append('"""')
+                content.append("")
+                content.append("# ===== PYC CODE OBJECT METADATA =====")
+                try:
+                    content.append(f"# co_name={code_obj.co_name!r}")
+                    content.append(f"# co_filename={code_obj.co_filename!r}")
+                except Exception:
+                    pass
+                content.append("")
+                content.append("# ===== BEST-EFFORT PSEUDO SOURCE =====")
+                try:
+                    content.append(recon.decompiler.decompile_code(code_obj))
+                except Exception as e:
+                    content.append(f"# decompile failed: {e}")
+                    content.append("pass")
 
-            out_path = source_dir / f"{safe}.py"
-            out_path.write_text("\n".join(content), encoding="utf-8", errors="replace")
-            dumped += 1
-            hook_log(f"[PYC OK] {pyc_path} -> {out_path}\n")
+                out_path = source_dir / f"{safe}.py"
+                out_path.write_text("\n".join(content), encoding="utf-8", errors="replace")
+                dumped += 1
+                hook_log(f"[PYC OK] {pyc_path} -> {out_path}\n")
         except Exception as e:
             hook_log(f"[PYC_ERR] {pyc_path}: {e}\n")
 
-    hook_log(f"[PYC] Dumped {dumped} .pyc files\n")
+    hook_log(f"[PYC] Dumped {dumped} code objects from .pyc files\n")
 
     # ── Decode Nuitka .bin dumps from PYC_DUMPS ─────────────────────
     pyc_dumps_dir = source_dir / "PYC_DUMPS"
@@ -2397,6 +2423,14 @@ def run_decompiler():
                 hook_log(f"[MODULE_RESCAN_AFTER_UNLOCK] crashed: {e}\n")
             except Exception:
                 pass
+
+        # Final pass: process any new .pyc files generated during module processing
+        # (marshal_loads_*.pyc from late imports, frozen module loads, etc.)
+        try:
+            pyc_dumped = dump_pyc_files(recon, source_dir, hook_log, _real_marshal_loads)
+        except Exception as e:
+            error_count += 1
+            hook_log(f"[PYC FINAL ERR] pyc scan crashed: {e}\n")
 
         # Generic final snapshots.  These intentionally report all names, not
         # a hard-coded target substring.
