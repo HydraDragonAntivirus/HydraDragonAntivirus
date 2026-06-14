@@ -980,7 +980,35 @@ def _decode_nuitka_dumps(pyc_dumps_dir, hook_log):
                     pass
 
             if nbc_bytes is None or not constants:
+                # Debug: why did constants fail?
+                if nbc_bytes is not None:
+                    hook_log(f"[NBC] {bin_path.name}: constants was empty/None (nbc_bytes={len(nbc_bytes)})\n")
                 continue
+
+            # Log what the NBC constants tree looks like
+            _nbc_type_counts = {}
+            def _count_types(val, _seen):
+                oid = id(val)
+                if oid in _seen:
+                    return
+                _seen.add(oid)
+                tn = type(val).__name__
+                _nbc_type_counts[tn] = _nbc_type_counts.get(tn, 0) + 1
+                if isinstance(val, (bytes, bytearray)):
+                    if len(val) >= 2:
+                        _nbc_type_counts[f"bytes[0]={hex(val[0])}"] = _nbc_type_counts.get(f"bytes[0]={hex(val[0])}", 0) + 1
+                elif isinstance(val, (list, tuple)):
+                    for x in val:
+                        _count_types(x, _seen)
+                elif isinstance(val, dict):
+                    for v in val.values():
+                        _count_types(v, _seen)
+                    _t = val.get('_type')
+                    if _t:
+                        _nbc_type_counts[f"dict[_type={_t}]"] = _nbc_type_counts.get(f"dict[_type={_t}]", 0) + 1
+            _count_types(constants, set())
+            hook_log(f"[NBC] {bin_path.name}: {len(constants)} top-level, "
+                     f"type counts: {dict(sorted(_nbc_type_counts.items()))}\n")
 
             # Always call recursive_find_code — it extracts real marshal-loaded
             # CodeType objects from .bytecode sections and other bytes payloads
