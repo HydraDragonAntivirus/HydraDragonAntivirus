@@ -982,9 +982,37 @@ def _decode_nuitka_dumps(pyc_dumps_dir, hook_log):
             if nbc_bytes is None or not constants:
                 continue
 
+            # Always call recursive_find_code — it extracts real marshal-loaded
+            # CodeType objects from .bytecode sections and other bytes payloads
+            # inside the NBC constants tree.  magic_int is optional (heuristic
+            # fallback if None).
             code_objects = []
-            if magic_int:
-                _nbc_recursive_find(constants, code_objects, set(), magic_int)
+            _nbc_recursive_find(constants, code_objects, set(), magic_int)
+
+            # Also try direct marshal.loads on every bytes item in constants
+            # that looks like a marshal code object — this catches cases
+            # recursive_find_code may miss.
+            def _scan_for_marshal(val, seen):
+                oid = id(val)
+                if oid in seen:
+                    return
+                seen.add(oid)
+                if isinstance(val, (bytes, bytearray)) and len(val) >= 4:
+                    if val[0] in (0xe3, 0x63, 0xf3):
+                        try:
+                            cobj = _m.loads(val)
+                            if hasattr(cobj, 'co_code') and cobj not in code_objects:
+                                code_objects.append(cobj)
+                        except Exception:
+                            pass
+                elif isinstance(val, (list, tuple)):
+                    for x in val:
+                        _scan_for_marshal(x, seen)
+                elif isinstance(val, dict):
+                    for v in val.values():
+                        _scan_for_marshal(v, seen)
+            _scan_for_marshal(constants, set())
+
             strings = _extract_strings(constants)
             funcs = {}
             _walk_constants_for_funcs(constants, funcs)
