@@ -153,12 +153,13 @@ impl Pipeline {
             };
         }
 
+        // --- 1. HASH SCANNER (Early return for ANY known result) ---
         if let Some(ref scanner) = self.hash_scanner {
             match scanner.compute_and_scan_all(path) {
                 Ok(result) => {
                     let (verdict, detail) = match result {
                         crate::hash_scanner::HashScanResult::Whitelisted => {
-                            (Verdict::Clean, "MD5 whitelisted".into())
+                            (Verdict::Trusted, "MD5 whitelisted".into())
                         }
                         crate::hash_scanner::HashScanResult::Blacklisted => {
                             (Verdict::Malware, "Hash blacklisted".into())
@@ -172,6 +173,24 @@ impl Pipeline {
                         verdict,
                         detail,
                     });
+
+                    // EARLY RETURN: Stop scanning if we definitively know it's Trusted or Malware
+                    if verdict == Verdict::Trusted || verdict == Verdict::Malware {
+                        let threat = if verdict == Verdict::Malware {
+                            Some("Blacklisted Hash".into())
+                        } else {
+                            None
+                        };
+                        
+                        return ScanResult {
+                            verdict,
+                            threat_name: threat,
+                            engines,
+                            yara_x_matches: Vec::new(),
+                            ml_malware_probability: None,
+                            clamav_result: None,
+                        };
+                    }
                 }
                 Err(e) => {
                     engines.push(EngineResult {
@@ -183,6 +202,7 @@ impl Pipeline {
             }
         }
 
+        // --- 2. TRUSTED SIGNER ---
         if let Some(ref trusted) = self.trusted_signers {
             let tv = check_trusted_signer(path, trusted);
             engines.push(EngineResult {
@@ -202,6 +222,7 @@ impl Pipeline {
             }
         }
 
+        // --- 3. STATIC RULES ---
         let rules = if let Some(rules_dir) = self.config.hydradragonstatic_rules_dir.as_ref() {
             let rules_file = rules_dir.join("rules.yaml");
             if rules_file.exists() {
@@ -264,7 +285,7 @@ impl Pipeline {
             }
         }
 
-        // --- ML inference (runs before yara-x; Clean from ML → Trusted early return) ---
+        // --- 4. ML INFERENCE ---
         let ml_verdict = self.run_ml_inference(path);
         if let Some(ref mv) = ml_verdict {
             engines.push(EngineResult {
@@ -349,6 +370,7 @@ impl Pipeline {
             }
         }
 
+        // --- 5. CLAMAV ---
         if let Some(ref clamav) = self.clamav {
             match clamav.scan_file(path) {
                 Ok(result) => {
@@ -382,7 +404,7 @@ impl Pipeline {
             }
         }
 
-        // --- Hayabusa: scan .evtx files, dedup against existing yara_x_matches ---
+        // --- 6. HAYABUSA ---
         if path.extension().and_then(|e| e.to_str()) == Some("evtx") {
             if let Some(ref hdir) = self.config.hayabusa_dir {
                 let hayabusa_matches = run_hayabusa(path, hdir, &yara_x_matches);
