@@ -78,7 +78,7 @@ fn firewall_exe_path() -> PathBuf {
 }
 
 fn av_engine_exe_path() -> PathBuf {
-    PathBuf::from(CLAMAV_DIR).join("HydraDragonAV.exe")
+    PathBuf::from(CLAMAV_DIR).join("hydradragonav.exe")
 }
 
 fn venv_scripts_dir() -> PathBuf {

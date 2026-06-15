@@ -145,13 +145,10 @@ from .path_and_variables import (
     deobfuscar_path,
     eazfixer_path,
     eazfixer_dir_data,
-    machine_learning_pickle_benign_path,
-    machine_learning_pickle_malicious_path,
     resource_extractor_dir,
     ungarbler_dir,
     ungarbler_string_dir,
     html_extracted_dir,
-    unified_pe_cache,
     existing_projects,
     system32_dir,
     file_md5_cache,
@@ -542,15 +539,7 @@ from .pattern import (  # noqa: E402
 logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .pe_feature_extractor import pe_extractor, calculate_vector_similarity
-
-logger.debug(f"pe_feature_extractor functions loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 logger.debug(f"py_source_hook functions loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-logger.debug(f"pe_feature_extractor function loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and logger.debug total time
 total_end_time = time.time()
@@ -1216,120 +1205,6 @@ def extract_with_unipacker(file_path):
         return None
 
 
-def clear_pe_cache():
-    """Clear the unified PE feature cache."""
-    unified_pe_cache.clear()
-    logger.info("Unified PE feature cache cleared")
-
-
-def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
-    """
-    Extract and cache PE file numeric features with unified caching.
-    Returns cached features if available, otherwise extracts and caches them.
-    Used by both ML scanning and worm detection.
-    """
-    # Calculate MD5 hash for caching
-    file_md5 = compute_md5(file_path)
-    if not file_md5:
-        return None
-
-    # Check if we already have features for this MD5
-    if file_md5 in unified_pe_cache:
-        logger.debug(f"Using cached features for {file_path} (MD5: {file_md5})")
-        return unified_pe_cache[file_md5]
-
-    try:
-        # Extract numeric features
-        features = pe_extractor.extract_numeric_features(file_path)
-        if features:
-            # Cache the result with MD5 as key
-            unified_pe_cache[file_md5] = features
-            logger.debug(f"Cached features for {file_path} (MD5: {file_md5})")
-            return features
-        else:
-            # Cache negative result too to avoid re-processing failed files
-            unified_pe_cache[file_md5] = None
-            return None
-
-    except Exception as ex:
-        logger.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
-        # Cache the failure to avoid repeated attempts
-        unified_pe_cache[file_md5] = None
-        return None
-
-
-def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
-    """Scan a file for malicious activity using machine learning definitions loaded from pickle."""
-    malware_definition = "Unknown"
-    logger.info(f"Starting machine learning scan for file: {file_path}")
-
-    try:
-        pe = pefile.PE(file_path)
-        pe.close()
-    except pefile.PEFormatError:
-        logger.error(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
-        return False, malware_definition, 0
-
-    logger.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
-
-    # Use unified cache for feature extraction
-    file_numeric_features = get_cached_pe_features(file_path)
-    if not file_numeric_features:
-        return False, "Feature-Extraction-Failed", 0
-
-    is_malicious_ml = False
-    nearest_malicious_similarity = 0
-    nearest_benign_similarity = 0
-
-    # Check malicious definitions
-    for ml_feats, info in zip(malicious_numeric_features, malicious_file_names):
-        similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
-        nearest_malicious_similarity = max(nearest_malicious_similarity, similarity)
-
-        if similarity >= threshold:
-            is_malicious_ml = True
-
-            # Handle both string and dict cases
-            if isinstance(info, dict):
-                malware_definition = info.get("file_name", "Unknown")
-                rank = info.get("numeric_tag", "N/A")
-            elif isinstance(info, str):
-                malware_definition = info
-                rank = "N/A"
-            else:
-                malware_definition = str(info)
-                rank = "N/A"
-
-            logger.critical(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
-
-    # If not malicious, check benign
-    if not is_malicious_ml:
-        for ml_feats, info in zip(benign_numeric_features, benign_file_names):
-            similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
-            nearest_benign_similarity = max(nearest_benign_similarity, similarity)
-
-            # Handle both string and dict cases
-            if isinstance(info, dict):
-                benign_definition = info.get("file_name", "Unknown")
-            elif isinstance(info, str):
-                benign_definition = info
-            else:
-                benign_definition = str(info)
-
-        if nearest_benign_similarity >= 0.93:
-            malware_definition = "Benign"
-            logger.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
-        else:
-            malware_definition = "Unknown"
-            logger.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
-
-    # Return result
-    if is_malicious_ml:
-        return True, malware_definition, nearest_malicious_similarity
-    else:
-        return False, malware_definition, nearest_benign_similarity
-
-
 def restart_service(service_name, stop_only=False):
     """Restart or stop a Windows service using native service management."""
     try:
@@ -1551,12 +1426,8 @@ def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
     loop.create_task(_forward_web_candidates_to_firewall(paths, origin))
 
 
-# Global variables for rules and ML
+# Global variables for rules
 antivirus_domains_data = None
-malicious_numeric_features = []
-malicious_file_names = []
-benign_numeric_features = []
-benign_file_names = []
 
 # ============================================================================#
 # EDR PIPE CLIENT
@@ -2251,112 +2122,6 @@ def is_zip_file(file_path):
         return False
 
 
-async def scan_file_ml(
-    file_path: str,
-    *,
-    pe_file: bool = False,
-    signature_check: Optional[Dict[str, Any]] = None,
-    benign_threshold: float = 0.93,
-) -> Tuple[bool, str, float]:
-    """
-    Perform ML-only scan and return simplified result.
-    Returns (malware_found, virus_name, benign_score)
-    """
-    try:
-        if not pe_file:
-            logger.debug("ML scan skipped: not a PE file: %s", os.path.basename(file_path))
-            return False, "Clean", 0.0
-
-        # Unpack only the first 3 values
-        is_malicious_ml, malware_definition, benign_score = await scan_file_with_machine_learning_ai(file_path)
-
-        sig_valid = bool(signature_check and signature_check.get("is_valid", False))
-
-        if is_malicious_ml:
-            if benign_score is None:
-                benign_score = 0.0
-            # Decide malware vs benign using threshold
-            if benign_score < benign_threshold:
-                # ML -> malware
-                if sig_valid and isinstance(malware_definition, str):
-                    malware_definition = f"{malware_definition}.SIG"
-                logger.critical(
-                    "Infected file detected (ML): %s - Virus: %s",
-                    os.path.basename(file_path),
-                    malware_definition,
-                )
-                return True, malware_definition, benign_score
-            else:
-                logger.info(
-                    "File marked benign by ML (score=%s): %s",
-                    benign_score,
-                    os.path.basename(file_path),
-                )
-                return False, "Benign", benign_score
-        else:
-            logger.info("No malware detected by ML: %s", os.path.basename(file_path))
-            return False, "Clean", benign_score
-
-    except Exception as ex:
-        err_msg = f"ML scan error: {ex}"
-        logger.error(err_msg)
-        return False, "Clean", 0.0
-
-
-async def ml_fastpath_should_continue(norm_path, signature_check, pe_file, benign_threshold: float = 0.93) -> bool:
-    """
-    ML fast-path:
-      - Return False => ML marked benign or malicious -> EARLY EXIT (skip heavy scan)
-      - Return True  => proceed with full realtime scan
-    """
-    if not pe_file:
-        return True
-
-    try:
-        malware_found, virus_name, benign_score = await scan_file_ml(
-            norm_path,
-            pe_file=True,
-            signature_check=signature_check,
-            benign_threshold=benign_threshold,
-        )
-    except Exception as e:
-        logger.warning("ML fast-path failed for %s: %s. Proceeding to full scan.", os.path.basename(norm_path), e)
-        return True
-
-    # ML marked benign -> skip heavy scan
-    if not malware_found and virus_name == "Benign":
-        logger.info("ML marked %s as benign (score=%s). Skipping full scan.", os.path.basename(norm_path), benign_score)
-        return False
-
-    # ML detected malware -> notify and stop scanning
-    if malware_found:
-        if isinstance(virus_name, (list, tuple)):
-            virus_name = "".join(virus_name)
-
-        logger.critical("ML detected malware in %s. Virus: %s (stopping full scan)", os.path.basename(norm_path), virus_name)
-        match_details = (
-            "HydraDragon ML fast-path matched malware: "
-            f"definition={virus_name}; benign_score={benign_score}; "
-            f"benign_threshold={benign_threshold}; pe_file={pe_file}; "
-            f"signature_valid={bool(signature_check and signature_check.get('is_valid', False))}"
-        )
-
-        # Spawn notification and stop further scanning for this .
-        # False return value to actually stop the other scanning threads for this file.
-        if virus_name.startswith("PUA."):
-            asyncio.create_task(
-                notify_user_pua(norm_path, virus_name, "ML", match_details=match_details)
-            )
-        else:
-            asyncio.create_task(
-                notify_user(norm_path, virus_name, "ML", match_details=match_details)
-            )
-
-        # Tell the caller to stop scanning this file.
-        return False
-
-    # Otherwise (ML said Clean or gave no opinion) -> continue to full scan
-    return True
 def to_float(x, default=0.0):
     try:
         if x is None:
@@ -2407,169 +2172,6 @@ def reloc_summary(relocs):
     except Exception:
         return 0, 0
 
-
-def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
-    if not isinstance(entry, dict):
-        entry = {}
-
-    size_of_optional_header = to_float(entry.get("SizeOfOptionalHeader", 0))
-    major_linker = to_float(entry.get("MajorLinkerVersion", 0))
-    minor_linker = to_float(entry.get("MinorLinkerVersion", 0))
-    size_of_code = to_float(entry.get("SizeOfCode", 0))
-    size_of_init_data = to_float(entry.get("SizeOfInitializedData", 0))
-    size_of_uninit_data = to_float(entry.get("SizeOfUninitializedData", 0))
-    address_of_entry = to_float(entry.get("AddressOfEntryPoint", 0))
-    image_base = to_float(entry.get("ImageBase", 0))
-    subsystem = to_float(entry.get("Subsystem", 0))
-    dll_characteristics = to_float(entry.get("DllCharacteristics", 0))
-    size_of_stack_reserve = to_float(entry.get("SizeOfStackReserve", 0))
-    size_of_heap_reserve = to_float(entry.get("SizeOfHeapReserve", 0))
-    checksum = to_float(entry.get("CheckSum", 0))
-    num_rva_and_sizes = to_float(entry.get("NumberOfRvaAndSizes", 0))
-    size_of_image = to_float(entry.get("SizeOfImage", 0))
-
-    imports_count = safe_len(entry.get("imports", []))
-    exports_count = safe_len(entry.get("exports", []))
-    resources_count = safe_len(entry.get("resources", []))
-    sections_count = safe_len(entry.get("sections", []))
-
-    overlay = entry.get("overlay", {}) or {}
-    overlay_exists = int(bool(overlay.get("exists")))
-    overlay_size = to_float(overlay.get("size", 0))
-
-    sec_char = entry.get("section_characteristics", {}) or {}
-    sec_entropy_mean, sec_entropy_min, sec_entropy_max = section_entropy_stats(sec_char)
-
-    sec_disasm = entry.get("section_disassembly", {}) or {}
-    overall = sec_disasm.get("overall_analysis", {}) or {}
-    total_instructions = to_float(overall.get("total_instructions", 0))
-    total_adds = to_float(overall.get("add_count", 0))
-    total_movs = to_float(overall.get("mov_count", 0))
-    is_likely_packed = int(bool(overall.get("is_likely_packed")))
-
-    add_mov_ratio = (total_adds / (total_movs + 1.0)) if (total_movs is not None) else 0.0
-    instrs_per_kb = 0.0
-    try:
-        instrs_per_kb = total_instructions / ((size_of_image / 1024.0) + 1e-6)
-    except Exception:
-        instrs_per_kb = 0.0
-
-    tls = entry.get("tls_callbacks", {}) or {}
-    tls_callbacks_list = tls.get("callbacks", []) if isinstance(tls, dict) else []
-    num_tls_callbacks = safe_len(tls_callbacks_list)
-
-    delay_imports_list = entry.get("delay_imports", []) or []
-    num_delay_imports = safe_len(delay_imports_list)
-
-    relocs = entry.get("relocations", []) or []
-    num_reloc_entries, num_reloc_blocks = reloc_summary(relocs)
-
-    bound_imports = entry.get("bound_imports", []) or []
-    num_bound_imports = safe_len(bound_imports)
-
-    debug_entries = entry.get("debug", []) or []
-    num_debug_entries = safe_len(debug_entries)
-    cert_info = entry.get("certificates", {}) or {}
-    cert_size = to_float(cert_info.get("size", 0))
-
-    rich_header = entry.get("rich_header", {}) or {}
-    has_rich = int(bool(rich_header))
-
-    numeric = [
-        size_of_optional_header,
-        major_linker,
-        minor_linker,
-        size_of_code,
-        size_of_init_data,
-        size_of_uninit_data,
-        address_of_entry,
-        image_base,
-        subsystem,
-        dll_characteristics,
-        size_of_stack_reserve,
-        size_of_heap_reserve,
-        checksum,
-        num_rva_and_sizes,
-        size_of_image,
-        float(imports_count),
-        float(exports_count),
-        float(resources_count),
-        float(overlay_exists),
-        float(sections_count),
-        float(sec_entropy_mean),
-        float(sec_entropy_min),
-        float(sec_entropy_max),
-        float(total_instructions),
-        float(total_adds),
-        float(total_movs),
-        float(is_likely_packed),
-        float(add_mov_ratio),
-        float(instrs_per_kb),
-        float(overlay_size),
-        float(num_tls_callbacks),
-        float(num_delay_imports),
-        float(num_reloc_entries),
-        float(num_reloc_blocks),
-        float(num_bound_imports),
-        float(num_debug_entries),
-        float(cert_size),
-        float(has_rich),
-    ]
-
-    filename = (entry.get("file_info", {}) or {}).get("filename", "unknown")
-    return numeric, filename
-
-
-def load_ml_definitions_pickle(malicious_path: str, benign_path: str) -> bool:
-    """
-    Load ML definitions from separate malicious and benign pickle files.
-    Each file contains a stream of pickled feature dictionaries.
-    """
-    global malicious_numeric_features, malicious_file_names, benign_numeric_features, benign_file_names
-
-    malicious_path_obj = Path(malicious_path)
-    benign_path_obj = Path(benign_path)
-
-    malicious_numeric_features = []
-    malicious_file_names = []
-    benign_numeric_features = []
-    benign_file_names = []
-
-    def _load_stream(filepath: Path, is_malicious_type: bool):
-        if not filepath.exists():
-            logger.warning(f"ML definitions file not found: {filepath}. Skipping.")
-            return
-
-        with open(filepath, "rb") as f:
-            while True:
-                try:
-                    entry = pickle.load(f)
-                    numeric, filename = entry_to_numeric(entry)
-                    if is_malicious_type:
-                        malicious_numeric_features.append(numeric)
-                        malicious_file_names.append(filename)
-                    else:
-                        benign_numeric_features.append(numeric)
-                        benign_file_names.append(filename)
-                except EOFError:
-                    break
-                except Exception:
-                    logger.debug(f"Skipped a malformed entry in {filepath}.", exc_info=True)
-                    continue
-
-    try:
-        logger.info(f"Loading malicious ML definitions from: {malicious_path_obj}")
-        _load_stream(malicious_path_obj, True)
-
-        logger.info(f"Loading benign ML definitions from: {benign_path_obj}")
-        _load_stream(benign_path_obj, False)
-
-        total_ml = len(malicious_numeric_features) + len(benign_numeric_features)
-        logger.info(f"Successfully loaded {total_ml} ML definitions.")
-        return True
-    except Exception as e:
-        logger.exception(f"Failed to load ML definitions: {e}")
-        return False
 
 def scan_file_real_time(file_path: str, signature_check: dict, file_name: str, die_output, pe_file: bool = False, owlyshield_service_scan_results=None) -> Tuple[bool, str, str, Optional[bool], Optional[str]]:
     """
@@ -8280,13 +7882,8 @@ async def load_all_resources_async():
         except Exception as ex:
             logger.exception(f"Error loading Antivirus List: {ex}")
 
-    async def load_ml():
-        # load_ml_definitions_pickle is sync, so run in a thread
-        await asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_malicious_path, machine_learning_pickle_benign_path)
-
     # Fire and forget available tasks
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
-    asyncio.create_task(load_ml(), name="load_ml")
 
     logger.info("All resource loading tasks started in background")
     logger.info("Application will continue while resources load...")

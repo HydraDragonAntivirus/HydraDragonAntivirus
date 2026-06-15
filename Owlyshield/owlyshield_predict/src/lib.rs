@@ -27,6 +27,8 @@ pub mod connectors;
 pub mod csvwriter;
 pub mod extensions;
 pub mod globals;
+pub mod bloom_filter;
+pub mod hash_scanner;
 pub mod jsonrpc;
 pub mod logging;
 pub mod novelty;
@@ -38,6 +40,7 @@ pub mod threat_handler;
 pub mod utils;
 pub mod watchlist;
 pub mod whitelist_loader;
+pub mod ml;
 pub mod worker;
 
 #[cfg(feature = "realtime_learning")]
@@ -87,11 +90,8 @@ pub fn init_hydra_dragon(
         );
     }
 
-    use crate::worker::predictor::PredictorMalware;
-    let predictor_malware = PredictorMalware::new(config);
     Some(hydradragon::av_integration::AVIntegration::new(
         config,
-        predictor_malware,
         driver,
     ))
 }
@@ -123,7 +123,7 @@ pub use crate::windows::run;
 #[cfg(target_os = "windows")]
 pub use crate::windows::shadow_copy;
 #[cfg(target_os = "windows")]
-pub use crate::windows::signature_verification;
+pub use hydradragonstatic::signature_verification;
 #[cfg(target_os = "windows")]
 pub use crate::windows::threathandling;
 

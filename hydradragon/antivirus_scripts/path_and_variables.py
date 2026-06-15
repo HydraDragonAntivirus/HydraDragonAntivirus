@@ -160,9 +160,6 @@ memory_dir = os.path.join(data_dir, "memory")
 debloat_dir = os.path.join(data_dir, "debloat")
 installshield_extracted_dir = os.path.join(data_dir, "installshield_extracted")
 autoit_extracted_dir = os.path.join(data_dir, "autoit_extracted")
-machine_learning_dir = os.path.join(data_dir, "machine_learning")
-machine_learning_pickle_benign_path = os.path.join(machine_learning_dir, "ml_definitions_benign.pkl")
-machine_learning_pickle_malicious_path = os.path.join(machine_learning_dir, "ml_definitions_malicious.pkl")
 resource_extractor_dir = os.path.join(data_dir, "resources_extracted")
 ungarbler_dir = os.path.join(data_dir, "ungarbler")
 ungarbler_string_dir = os.path.join(data_dir, "ungarbler_string")
@@ -178,9 +175,6 @@ scanned_urls_general = []
 scanned_domains_general = []
 scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
-# Unified cache for all PE feature extractions
-unified_pe_cache = {}
-
 # HydraDragon Firewall executable path
 firewall_exe_path = os.path.join(program_files, "HydraDragonAntivirus", "hydradragon", "HydraDragonFirewall", "hydradragonfirewall.exe")
 

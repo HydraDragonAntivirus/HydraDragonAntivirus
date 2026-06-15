@@ -1,15 +1,15 @@
-name: HydraDragonAV
+name: hydradragonav
 
 on:
   push:
     branches: ["**"]
     paths:
-      - 'HydraDragonAV/**'
+      - 'hydradragonav/**'
       - '.github/workflows/hydradragonav.yml'
   pull_request:
     branches: ["**"]
     paths:
-      - 'HydraDragonAV/**'
+      - 'hydradragonav/**'
       - '.github/workflows/hydradragonav.yml'
   workflow_dispatch:
 
@@ -17,17 +17,9 @@ permissions:
   contents: write
   pull-requests: write
 
-env:
-  SOLUTION_FILE_PATH: "HydraDragonAV/HydraDragonAV.sln"
-  BUILD_BIN_DIR: "./HydraDragonAV/x64/"
-
 jobs:
-  ci:
+  check:
     runs-on: windows-2022
-    strategy:
-      matrix:
-        BUILD_CONFIGURATION: [Release, Debug]
-        PLATFORM: [x64]
     steps:
       - name: Enable long paths
         run: git config --global core.longpaths true
@@ -35,18 +27,10 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v3
-      - name: Build HydraDragonAV
-        run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.PLATFORM}} "${{env.SOLUTION_FILE_PATH}}"
-      - name: Upload build directory 
-        if: matrix.BUILD_CONFIGURATION == 'Release'
-        uses: actions/upload-artifact@v7
-        with:
-          name: hydradragonav_release_binaries_${{matrix.PLATFORM}}
-          path: |
-            ${{ env.BUILD_BIN_DIR }}${{matrix.BUILD_CONFIGURATION}}/**
-            !${{ env.BUILD_BIN_DIR }}${{matrix.BUILD_CONFIGURATION}}/**/*.cer
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo check
+        run: cargo check --manifest-path hydradragonav/Cargo.toml
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
@@ -55,34 +39,34 @@ jobs:
       - name: Enable Git long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@v6
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v3
-      - name: Build
-        run: msbuild HydraDragonAV/HydraDragonAV.sln /p:Configuration=Release /p:Platform=x64
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Release
+        run: cargo build --release --manifest-path hydradragonav/Cargo.toml
       - name: Stage
         shell: pwsh
         run: |
-          $dist = "hydradragon/HydraDragonAV"
+          $dist = "hydradragon/hydradragonav"
           New-Item -ItemType Directory -Force -Path $dist
-          Copy-Item "HydraDragonAV/x64/Release/HydraDragonAV.exe" "$dist/" -Force
+          Copy-Item "hydradragonav/target/release/hydradragonav.exe" "$dist/" -Force
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
         with:
           name: hydradragonav-publish-binaries
-          path: hydradragon/HydraDragonAV/
+          path: hydradragon/hydradragonav/
           if-no-files-found: error
       - name: Check for publishable changes
         id: check_changes
         uses: ./.github/actions/check-publishable-changes
         with:
-          paths: hydradragon/HydraDragonAV
+          paths: hydradragon/hydradragonav
       - name: Create PR
         if: steps.check_changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(av): update binaries"
-          title: "Update HydraDragonAV Binaries"
+          title: "Update hydradragonav Binaries"
           add-paths: ${{ steps.check_changes.outputs.publishable_files }}
           branch: "auto-update-av"
           base: ${{ github.ref_name }}

@@ -405,6 +405,13 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 
 - I used these projects to HyperVisor
 
+- https://www.nist.gov/itl/csd/secure-systems-and-applications/national-software-reference-library-nsrl/nsrl-download-0
+
+- I used these projects to Whitelist.
+
+- https://github.com/swelljoe/clam-juice/blob/main/clam_juice.py
+- I used these projects to make antivirus non signature-bloat.
+
 **Note 4:**.
 - You will need an internet connection to install. It's not an offline installer.
 - Installer note: when setup disables Hyper-V/VBS or asks for a reboot, that is only for this repo's Windows driver and testing compatibility.

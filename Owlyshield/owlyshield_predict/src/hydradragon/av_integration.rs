@@ -46,7 +46,7 @@ use crate::signature_verification::verify_signature;
 use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use crate::threathandling::WindowsThreatHandler;
 use crate::utils::validate_pipe_client;
-use crate::worker::predictor::PredictorMalware;
+use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use chrono::Utc;
 use hydradragonstatic::models::{ScanReport, Verdict};
 use hydradragonstatic::rules::RuleSet;
@@ -1872,7 +1872,6 @@ fn send_mbr_hips_notification(disk_number: i32, process_path: &str) {
 /// Integration struct — keeps internal channel & listener thread
 pub struct AVIntegration<'a> {
     config: &'a Config, // <-- MODIFIED: Now a borrow
-    predictor_malware: PredictorMalware,
     internal_scan_tx: Sender<EDRScanRequest>,
     signature_cache: HashMap<FileIdentity, FileSignatureStatus>,
     scan_metadata_cache: HashMap<FileIdentity, ScanMetadata>,
@@ -2875,7 +2874,6 @@ impl<'a> AVIntegration<'a> {
     /// Create new AVIntegration instance
     pub fn new(
         config: &'a Config,
-        predictor_malware: PredictorMalware,
         driver: crate::windows::edrsvc_client::Driver,
     ) -> Self {
         let (internal_scan_tx, internal_scan_rx) = channel::<EDRScanRequest>();
@@ -2902,7 +2900,6 @@ impl<'a> AVIntegration<'a> {
 
         AVIntegration {
             config, // <-- MODIFIED: Assigns the borrow
-            predictor_malware,
             internal_scan_tx,
             signature_cache: HashMap::new(),
             scan_metadata_cache: HashMap::new(),
@@ -3053,7 +3050,7 @@ impl<'a> AVIntegration<'a> {
         ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
             self.config, // config is a borrow, this works
             precord,
-            &self.predictor_malware.predictor_behavioral.mlp.timesteps,
+            &VecvecCappedF32::new(0, 0),
             &threat_info,
         );
     }

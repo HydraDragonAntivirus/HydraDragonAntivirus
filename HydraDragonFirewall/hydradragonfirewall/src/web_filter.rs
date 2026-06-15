@@ -1,6 +1,7 @@
+use fastbloom::AtomicBloomFilter;
 use glob::glob;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -148,66 +149,72 @@ enum CidrInterval {
 
 #[derive(Clone)]
 pub struct WebFilter {
-    ipv4_blocklist: Arc<RwLock<HashSet<Ipv4Addr>>>,
-    ipv6_blocklist: Arc<RwLock<HashSet<Ipv6Addr>>>,
+    ipv4_blocklist: Arc<AtomicBloomFilter>,
+    ipv6_blocklist: Arc<AtomicBloomFilter>,
     cidr_blocklist: Arc<RwLock<CidrIndex>>,
-    domain_blocklist: Arc<RwLock<HashSet<String>>>,
+    domain_blocklist: Arc<AtomicBloomFilter>,
 
     // Whitelists to override blocklists
-    ipv4_whitelist: Arc<RwLock<HashSet<Ipv4Addr>>>,
-    ipv6_whitelist: Arc<RwLock<HashSet<Ipv6Addr>>>,
+    ipv4_whitelist: Arc<AtomicBloomFilter>,
+    ipv6_whitelist: Arc<AtomicBloomFilter>,
     cidr_whitelist: Arc<RwLock<CidrIndex>>,
-    domain_whitelist: Arc<RwLock<HashSet<String>>>,
-    popular_domain_whitelist: Arc<RwLock<HashSet<String>>>,
+    domain_whitelist: Arc<AtomicBloomFilter>,
+    popular_domain_whitelist: Arc<AtomicBloomFilter>,
 
     /// Blocked hostname patterns (supports wildcards like *.facebook.com)
     blocked_hostnames: Arc<RwLock<Vec<String>>>,
     /// Blocked URL patterns (supports wildcards)
     blocked_url_patterns: Arc<RwLock<Vec<String>>>,
     /// Exact malicious URLs loaded from feeds such as phishing_links.txt.
-    exact_url_blocklist: Arc<RwLock<HashSet<String>>>,
+    exact_url_blocklist: Arc<AtomicBloomFilter>,
 
     // --- New Advanced Filtering Fields ---
-    email_blocklist: Arc<RwLock<HashSet<String>>>,
-    urlhaus_urls: Arc<RwLock<HashSet<String>>>,
-    _urlhaus_domains: Arc<RwLock<HashSet<String>>>,
+    email_blocklist: Arc<AtomicBloomFilter>,
+    urlhaus_urls: Arc<AtomicBloomFilter>,
+    _urlhaus_domains: Arc<AtomicBloomFilter>,
     reference_map: Arc<RwLock<HashMap<u32, String>>>,
+}
+
+fn new_bloom(expected: usize) -> Arc<AtomicBloomFilter> {
+    Arc::new(AtomicBloomFilter::with_false_pos(1e-4).expected_items(expected))
 }
 
 impl WebFilter {
     pub fn new() -> Self {
-        // No regex compilation here - patterns are lazily compiled on first use
-        Self {
-            ipv4_blocklist: Arc::new(RwLock::new(HashSet::new())),
-            ipv6_blocklist: Arc::new(RwLock::new(HashSet::new())),
+        // Bloom-backed blocklists/whitelists. No locks on the read path.
+        // FPR 1e-4: ~1-in-10k false positives, zero false negatives.
+        let filter = Self {
+            ipv4_blocklist: new_bloom(20_000_000),
+            ipv6_blocklist: new_bloom(1_000_000),
             cidr_blocklist: Arc::new(RwLock::new(CidrIndex::default())),
-            domain_blocklist: Arc::new(RwLock::new(HashSet::new())),
+            domain_blocklist: new_bloom(5_000_000),
 
-            ipv4_whitelist: Arc::new(RwLock::new(HashSet::new())),
-            ipv6_whitelist: Arc::new(RwLock::new(HashSet::new())),
+            ipv4_whitelist: new_bloom(5_000_000),
+            ipv6_whitelist: new_bloom(1_000_000),
             cidr_whitelist: Arc::new(RwLock::new(CidrIndex::default())),
-            domain_whitelist: Arc::new(RwLock::new(
-                [
-                    "discord.com".to_string(),
-                    "discordapp.com".to_string(),
-                    "gateway.discord.gg".to_string(),
-                    "cdn.discordapp.com".to_string(),
-                ]
-                .iter()
-                .cloned()
-                .collect(),
-            )),
-            popular_domain_whitelist: Arc::new(RwLock::new(HashSet::new())),
+            domain_whitelist: new_bloom(1_000_000),
+            popular_domain_whitelist: new_bloom(10_000_000),
 
             blocked_hostnames: Arc::new(RwLock::new(Vec::new())),
             blocked_url_patterns: Arc::new(RwLock::new(Vec::new())),
-            exact_url_blocklist: Arc::new(RwLock::new(HashSet::new())),
+            exact_url_blocklist: new_bloom(5_000_000),
 
-            email_blocklist: Arc::new(RwLock::new(HashSet::new())),
-            urlhaus_urls: Arc::new(RwLock::new(HashSet::new())),
-            _urlhaus_domains: Arc::new(RwLock::new(HashSet::new())),
+            email_blocklist: new_bloom(500_000),
+            urlhaus_urls: new_bloom(1_000_000),
+            _urlhaus_domains: new_bloom(100_000),
             reference_map: Arc::new(RwLock::new(HashMap::new())),
+        };
+
+        for d in [
+            "discord.com",
+            "discordapp.com",
+            "gateway.discord.gg",
+            "cdn.discordapp.com",
+        ] {
+            filter.domain_whitelist.insert(d);
         }
+
+        filter
     }
 
     /// Add a hostname pattern to block (e.g., "*.facebook.com")
@@ -225,12 +232,7 @@ impl WebFilter {
         let hostname_lower = hostname.to_lowercase();
 
         // 0. Check whitelist (whitelist prevents hostname/domain blocking, but individual URLs can still be blocked)
-        if self
-            .domain_whitelist
-            .read()
-            .unwrap()
-            .contains(&hostname_lower)
-        {
+        if self.domain_whitelist.contains(hostname_lower.as_str()) {
             return None;
         }
 
@@ -239,12 +241,7 @@ impl WebFilter {
         }
 
         // 1. Check domain blocklist (exact match)
-        if self
-            .domain_blocklist
-            .read()
-            .unwrap()
-            .contains(&hostname_lower)
-        {
+        if self.domain_blocklist.contains(hostname_lower.as_str()) {
             return Some(format!("Blocked Domain: {}", hostname));
         }
 
@@ -259,11 +256,10 @@ impl WebFilter {
     }
 
     fn is_popularity_whitelisted(&self, hostname: &str) -> bool {
-        let popular_domains = self.popular_domain_whitelist.read().unwrap();
         let mut candidate = hostname;
 
         loop {
-            if popular_domains.contains(candidate) {
+            if self.popular_domain_whitelist.contains(candidate) {
                 return true;
             }
 
@@ -283,25 +279,19 @@ impl WebFilter {
             return None;
         }
 
-        {
-            let exact_urls = self.exact_url_blocklist.read().unwrap();
-            if exact_urls.contains(&url_lower) {
-                return Some(format!("Blocked URL: {}", url));
-            }
-
-            let url_without_scheme = Self::strip_url_scheme(&url_lower);
-            if exact_urls.contains(url_without_scheme) {
-                return Some(format!("Blocked URL: {}", url));
-            }
+        if self.exact_url_blocklist.contains(url_lower.as_str()) {
+            return Some(format!("Blocked URL: {}", url));
         }
 
+        let url_without_scheme = Self::strip_url_scheme(&url_lower);
+        if self.exact_url_blocklist.contains(url_without_scheme) {
+            return Some(format!("Blocked URL: {}", url));
+        }
+
+        if self.urlhaus_urls.contains(url_lower.as_str())
+            || self.urlhaus_urls.contains(url_without_scheme)
         {
-            let urlhaus_urls = self.urlhaus_urls.read().unwrap();
-            if urlhaus_urls.contains(&url_lower)
-                || urlhaus_urls.contains(Self::strip_url_scheme(&url_lower))
-            {
-                return Some(format!("Blocked URL: {}", url));
-            }
+            return Some(format!("Blocked URL: {}", url));
         }
 
         for pattern in self.blocked_url_patterns.read().unwrap().iter() {
@@ -410,12 +400,11 @@ impl WebFilter {
     pub fn load_emails(&self, path: &str) -> std::io::Result<usize> {
         let content = std::fs::read_to_string(path)?;
         let mut count = 0;
-        let mut emails = self.email_blocklist.write().unwrap();
 
         for line in content.lines() {
             let email = line.trim().to_lowercase();
             if !email.is_empty() && !email.starts_with('#') {
-                emails.insert(email);
+                self.email_blocklist.insert(email.as_str());
                 count += 1;
             }
         }
@@ -434,8 +423,6 @@ impl WebFilter {
         // Basic check if it looks like CSV
         // We'll iterate lines manually to avoid strict CSV errors
         use std::io::BufRead;
-        let mut urls = self.urlhaus_urls.write().unwrap();
-        let mut exact_urls = self.exact_url_blocklist.write().unwrap();
 
         for line in reader.lines() {
             if let Ok(l) = line {
@@ -448,8 +435,8 @@ impl WebFilter {
                 if parts.len() > 3 {
                     let url = Self::normalize_url(&parts[2].trim().replace("\"", "")); // Simple unquote
                     if !url.is_empty() {
-                        urls.insert(url.clone());
-                        exact_urls.insert(url);
+                        self.urlhaus_urls.insert(url.as_str());
+                        self.exact_url_blocklist.insert(url.as_str());
                         // Parse domain from URL for domain blocking?
                         // Left as future optimization to avoid over-blocking
                     }
@@ -457,8 +444,8 @@ impl WebFilter {
                     // Fallback: Treat whole line as URL
                     let url = Self::normalize_url(l.trim());
                     if !url.is_empty() {
-                        urls.insert(url.clone());
-                        exact_urls.insert(url);
+                        self.urlhaus_urls.insert(url.as_str());
+                        self.exact_url_blocklist.insert(url.as_str());
                     }
                 }
                 count += 1;
@@ -473,7 +460,6 @@ impl WebFilter {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let mut count = 0usize;
-        let mut exact_urls = self.exact_url_blocklist.write().unwrap();
 
         for line in reader.lines() {
             let line = line?;
@@ -481,9 +467,8 @@ impl WebFilter {
             if url.is_empty() || url.starts_with('#') {
                 continue;
             }
-            if exact_urls.insert(url) {
-                count += 1;
-            }
+            self.exact_url_blocklist.insert(url.as_str());
+            count += 1;
         }
 
         Ok(count)
@@ -502,15 +487,13 @@ impl WebFilter {
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
         let mut count = 0usize;
-        let mut exact_urls = self.exact_url_blocklist.write().unwrap();
         for url in feed.data {
             let normalized = Self::normalize_url(&url);
             if normalized.is_empty() {
                 continue;
             }
-            if exact_urls.insert(normalized) {
-                count += 1;
-            }
+            self.exact_url_blocklist.insert(normalized.as_str());
+            count += 1;
         }
 
         Ok(count)
@@ -767,11 +750,11 @@ impl WebFilter {
 
         // Insert everything into appropriate lists
         if is_whitelist {
-            if !ips_v4.is_empty() {
-                self.ipv4_whitelist.write().unwrap().extend(ips_v4);
+            for ip in &ips_v4 {
+                self.ipv4_whitelist.insert(ip);
             }
-            if !ips_v6.is_empty() {
-                self.ipv6_whitelist.write().unwrap().extend(ips_v6);
+            for ip in &ips_v6 {
+                self.ipv6_whitelist.insert(ip);
             }
             if !cidr_ranges.is_empty() {
                 let mut cidr_whitelist = self.cidr_whitelist.write().unwrap();
@@ -780,21 +763,18 @@ impl WebFilter {
                 }
                 cidr_whitelist.normalize();
             }
-            if !domains.is_empty() {
-                self.domain_whitelist.write().unwrap().extend(domains);
+            for d in &domains {
+                self.domain_whitelist.insert(d.as_str());
             }
-            if !popular_domains.is_empty() {
-                self.popular_domain_whitelist
-                    .write()
-                    .unwrap()
-                    .extend(popular_domains);
+            for d in &popular_domains {
+                self.popular_domain_whitelist.insert(d.as_str());
             }
         } else {
-            if !ips_v4.is_empty() {
-                self.ipv4_blocklist.write().unwrap().extend(ips_v4);
+            for ip in &ips_v4 {
+                self.ipv4_blocklist.insert(ip);
             }
-            if !ips_v6.is_empty() {
-                self.ipv6_blocklist.write().unwrap().extend(ips_v6);
+            for ip in &ips_v6 {
+                self.ipv6_blocklist.insert(ip);
             }
             if !cidr_ranges.is_empty() {
                 let mut cidr_blocklist = self.cidr_blocklist.write().unwrap();
@@ -803,8 +783,8 @@ impl WebFilter {
                 }
                 cidr_blocklist.normalize();
             }
-            if !domains.is_empty() {
-                self.domain_blocklist.write().unwrap().extend(domains);
+            for d in &domains {
+                self.domain_blocklist.insert(d.as_str());
             }
         }
 
@@ -819,17 +799,17 @@ impl WebFilter {
         let exact_blocked = match ip {
             IpAddr::V4(ipv4) => {
                 // Check whitelist first
-                if self.ipv4_whitelist.read().unwrap().contains(&ipv4) {
+                if self.ipv4_whitelist.contains(&ipv4) {
                     return false;
                 }
-                self.ipv4_blocklist.read().unwrap().contains(&ipv4)
+                self.ipv4_blocklist.contains(&ipv4)
             }
             IpAddr::V6(ipv6) => {
                 // Check whitelist first
-                if self.ipv6_whitelist.read().unwrap().contains(&ipv6) {
+                if self.ipv6_whitelist.contains(&ipv6) {
                     return false;
                 }
-                self.ipv6_blocklist.read().unwrap().contains(&ipv6)
+                self.ipv6_blocklist.contains(&ipv6)
             }
         };
 

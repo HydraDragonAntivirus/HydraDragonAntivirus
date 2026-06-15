@@ -1,0 +1,34 @@
+name: False Positive Remover
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'false_positive_remover/**'
+      - '.github/workflows/false-positive-remover.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'false_positive_remover/**'
+      - '.github/workflows/false-positive-remover.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: false_positive_remover
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Cargo check
+        run: cargo check
+      - name: Build
+        run: cargo build --verbose

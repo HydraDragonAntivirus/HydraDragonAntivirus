@@ -1,0 +1,2303 @@
+﻿key|hkcu|Software\AppDataLow\{1146AC44-2F03-4431-B4FD-889BC837521F}
+key|hkcu|Software\AppDataLow\Software\VideoDownloadConverter_4z
+key|hkcu|Software\gameo
+key|hkcu|Software\InstallCore
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{2023ECEC-E06A-4372-A1C7-0B49F9E0FFF0}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{2f23ab71-4ac6-41f2-a955-ea576e553146}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{33BB0A4E-99AF-4226-BDF6-49120163DE86}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{E733165D-CBCF-4FDA-883E-ADEF965B476C}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{48586425-6BB7-4F51-8DC6-38C88E3EBB58}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{51D26BB4-4D2C-4AE4-9873-5FF41B6DED1F}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{B608CC98-54DE-4775-96C9-097DE398500C}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{C547C6C2-561B-4169-A2A5-20BA771CA93B}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{48586425-6BB7-4F51-8DC6-38C88E3EBB58}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{51D26BB4-4D2C-4AE4-9873-5FF41B6DED1F}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{B608CC98-54DE-4775-96C9-097DE398500C}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{C547C6C2-561B-4169-A2A5-20BA771CA93B}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\gameo
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\Price Fountain
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\PriceFountain
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\WorldofTanks
+key|hkcu|Software\nuevos-programas.com
+key|hkcu|Software\PriceFountain
+key|hkcu|Software\Speedchecker Limited
+key|hkcu|Software\Super Optimizer
+key|hkcu|Software\VideoDownloadConverter_4z
+key|hkml|SOFTWARE\{1146AC44-2F03-4431-B4FD-889BC837521F}
+key|hkml|SOFTWARE\{3A7D3E19-1B79-4E4E-BD96-5467DA2C4EF0}
+key|hkml|SOFTWARE\{6791A2F3-FC80-475C-A002-C014AF797E9C}
+key|hkml|SOFTWARE\Classes\CLSID\{4128C64D-F0DD-4811-9405-D22294E8151F}
+key|hkml|SOFTWARE\Classes\CLSID\{48586425-6BB7-4F51-8DC6-38C88E3EBB58}
+key|hkml|SOFTWARE\Classes\CLSID\{51D26BB4-4D2C-4AE4-9873-5FF41B6DED1F}
+key|hkml|SOFTWARE\Classes\CLSID\{5354D921-3F52-47C5-938D-77A2FB6DEFE7}
+key|hkml|SOFTWARE\Classes\CLSID\{A86782D8-7B41-452F-A217-1854F72DBA54}
+key|hkml|SOFTWARE\Classes\CLSID\{B608CC98-54DE-4775-96C9-097DE398500C}
+key|hkml|SOFTWARE\Classes\CLSID\{B853E835-9F24-4F4B-B55C-E554D15CCCD2}
+key|hkml|SOFTWARE\Classes\CLSID\{B89F5C49-51DB-4974-AB5A-E25901AA339C}
+key|hkml|SOFTWARE\Classes\CLSID\{C547C6C2-561B-4169-A2A5-20BA771CA93B}
+key|hkml|SOFTWARE\Classes\CLSID\{DD385519-22E7-4BE2-8A8D-35C66DF4858E}
+key|hkml|SOFTWARE\Classes\CLSID\{E9B5B0D2-D08A-49FC-8B5C-159B60BAA268}
+key|hkml|SOFTWARE\Classes\Interface\{1AD2049E-E483-4425-8555-8E0775ACB631}
+key|hkml|SOFTWARE\Classes\Interface\{2D73F2D0-2FAB-458E-977D-2F9050E0ED60}
+key|hkml|SOFTWARE\Classes\Interface\{917CAAE9-DD47-4025-936E-1414F07DF5B8}
+key|hkml|SOFTWARE\Classes\PCSU.Registry
+key|hkml|SOFTWARE\Classes\PCSU.Registry.1
+key|hkml|SOFTWARE\Classes\PCSU.SysUtils
+key|hkml|SOFTWARE\Classes\PCSU.SysUtils.1
+key|hkml|SOFTWARE\Classes\TypeLib\{192F487E-E812-40C0-B0DE-CB4BFA20F37B}
+key|hkml|SOFTWARE\Classes\TypeLib\{2D3826A1-F3E8-45D6-94B5-C26D8EC0073B}
+key|hkml|SOFTWARE\Classes\TypeLib\{F1F328EB-F5A5-432B-A54C-05F3EF5B0BD8}
+key|hkml|SOFTWARE\Classes\TypeLib\{FE8DBB09-C3D3-4477-80CB-D38914B94BB8}
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.FeedManager
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.FeedManager.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.HTMLMenu
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.HTMLMenu.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.HTMLPanel
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.HTMLPanel.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.MultipleButton
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.MultipleButton.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.PseudoTransparentPlugin
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.PseudoTransparentPlugin.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.ScriptButton
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.ScriptButton.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.SettingsPlugin
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.SettingsPlugin.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.ThirdPartyInstaller
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.ThirdPartyInstaller.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.ToolbarProtector
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.ToolbarProtector.1
+key|hkml|SOFTWARE\do-searchSoftware
+key|hkml|SOFTWARE\e5067689-0f16-48af-5bdd-446c10370faf
+key|hkml|SOFTWARE\IHProtect
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{33BB0A4E-99AF-4226-BDF6-49120163DE86}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{51D26BB4-4D2C-4AE4-9873-5FF41B6DED1F}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{B608CC98-54DE-4775-96C9-097DE398500C}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{C547C6C2-561B-4169-A2A5-20BA771CA93B}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{5354D921-3F52-47C5-938D-77A2FB6DEFE7}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{A86782D8-7B41-452F-A217-1854F72DBA54}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\do-search uninstall
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Super Optimizer_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\TermBlazer_1.10.0.16
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\VideoDownloadConverter_4zbar Uninstall Internet Explorer
+key|hkml|SOFTWARE\Speedchecker Limited
+key|hkml|SOFTWARE\SupDp
+key|hkml|SOFTWARE\SupTab
+key|hkml|SOFTWARE\TermBlazer_1.10.0.16
+key|hkml|SOFTWARE\VideoDownloadConverter_4z
+key|hkml|SOFTWARE\Classes\Interface\{E7270EC6-0113-4A78-B610-E501D0A9E48E}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PCSU-SL_is1
+key|hkml|SOFTWARE\WOW6432Node\Microsoft\Tracing\cltmng_RASAPI32
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Tracing\cltmng_RASMANCS
+key|hkml|SOFTWARE\WOW6432Node\Microsoft\Tracing\CltMngSvc_RASAPI32
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Tracing\CltMngSvc_RASMANCS
+key|hkml|SOFTWARE\WOW6432Node\Microsoft\Tracing\cltmngui_RASAPI32
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Tracing\cltmngui_RASMANCS
+key|hkml|SYSTEM\ControlSet001\Enum\Root\LEGACY_SPPD
+key|hkml|SYSTEM\ControlSet002\Enum\Root\LEGACY_SPPD
+key|hkml|SYSTEM\CurrentControlSet\Enum\Root\LEGACY_SPPD
+key|hkml|SOFTWARE\Classes\AppID\REI_AxControl.DLL
+key|hkml|SOFTWARE\Classes\AppID\{28FF42B8-A0DA-4BE5-9B81-E26DD59B350a}
+key|hkml|SOFTWARE\Classes\CLSID\{10ECCE17-29B5-4880-A8F5-EAD298611484}
+key|hkml|SOFTWARE\Classes\CLSID\{801B440B-1EE3-49B0-B05D-2AB076D4E8CB}
+key|hkml|SOFTWARE\Classes\Interface\{9BB31AD8-5DB2-459E-A901-DEA536F23BA4}
+key|hkml|SOFTWARE\Classes\Interface\{BD51A48E-EB5F-445A-8774-EF962DF64546}
+key|hkml|SOFTWARE\Classes\REI_AxControl.ReiEngine.A
+key|hkml|SOFTWARE\Classes\REI_AxControl.ReiEngine
+key|hkml|SOFTWARE\Classes\TypeLib\{FA6468D2-FAA4-4951-A53B-2A5CF9CC0A36}
+key|hkml|SOFTWARE\Classes\Wow6432Node\AppID\REI_AxControl.DLL
+key|hkml|SOFTWARE\Classes\Wow6432Node\AppID\{28FF42B8-A0DA-4BE5-9B81-E26DD59B350A}
+key|hkml|SOFTWARE\Classes\Wow6432Node\Interface\{9BB31AD8-5DB2-459E-A901-DEA536F23BA4}
+key|hkml|SOFTWARE\Classes\Wow6432Node\Interface\{BD51A48E-EB5F-4454-8774-EF962DF645456}
+key|hkml|SOFTWARE\Classes\Wow6432Node\TypeLib\{FA6468D2-FAA4-4951-A53B-2A5CF9CC0A36}
+key|hkml|SOFTWARE\Microsoft\Tracing\Reimage_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\Reimage_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Reimage.exe
+key|hkml|SOFTWARE\Reimage
+key|hkml|SOFTWARE\Wow6432Node\ProtectorUpdater_RASAPI32
+key|hkml|SOFTWARE\Wow6432Node\ProtectorUpdater_RASMANCS
+key|hkml|SOFTWARE\Wow6432Node\ReimagePackage_RASAPI32
+key|hkml|SOFTWARE\Wow6432Node\ReimagePackage_RASMANCS
+key|hkml|SOFTWARE\Wow6432Node\UniProtectorPackage_RASAPI32
+key|hkml|SOFTWARE\Wow6432Node\UniProtectorPackage_RASMANCS
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\App Paths\Reimage.exe!!!
+key|hkcu|Software\Microsoft\Windows\CurrentVersions\Ext\Settings\{10ECCE17-29B5-4880-A8F5-EAD298611484}
+key|hkcu|SOFTWARE\Reimage
+key|hkml|SOFTWARE\InstalledBrowserExtentions\21636
+key|hkml|SOFTWARE\Wow6432Node\InstalledBrowserExtentions\21636
+key|hkcu|Software\InstalledBrowserExtensions\21636
+key|hkml|SOFTWARE\Classes\CLSID\{4E1EDF3A-4C29-4D3B-A276-E59F9A49F698}
+key|hkml|SOFTWARE\Classes\CLSID\{FD50E69E-B0BF-49AC-AD34-0F73850A1D23}
+key|hkml|SOFTWARE\Classes\P4E1EDF3A_4C29_4D3B_A276_E59F9A49F698_.P4E1EDF3A_4C29_4D3B_A276_E59F9A49F698_
+key|hkml|SOFTWARE\Classes\P4E1EDF3A_4C29_4D3B_A276_E59F9A49F698_.P4E1EDF3A_4C29_4D3B_A276_E59F9A49F698_.9
+key|hkml|SOFTWARE\Classes\PFD50E69E_B0BF_49AC_AD34_0F73850A1D23_.PFD50E69E_B0BF_49AC_AD34_0F73850A1D23_
+key|hkml|SOFTWARE\Classes\PFD50E69E_B0BF_49AC_AD34_0F73850A1D23_.PFD50E69E_B0BF_49AC_AD34_0F73850A1D23_.9
+key|hkml|SOFTWARE\Classes\TypeLib\{9A44AB5B-B488-42A3-8D2B-7A0DA772F3A4}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{4E1EDF3A-4C29-4D3B-A276-E59F9A49F698}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{FD50E69E-B0BF-49AC-AD34-0F73850A1D23}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{4E1EDF3A-4C29-4D3B-A276-E59F9A49F698}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{FD50E69E-B0BF-49AC-AD34-0F73850A1D23}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{06B99631-BFA2-3B7A-F58B-D067C2BA59B7}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{4820778D-AB0D-6D18-C316-52A6A0E1D507}
+key|hkml|SOFTWARE\CLASSES\CLSID\{4E1EDF3A-4C29-4D3B-A276-E59F9A49F698}
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\EXPLORER\BROWSER HELPER OBJECTS\{4E1EDF3A-4C29-4D3B-A276-E59F9A49F698}
+key|hkml|SOFTWARE\CLASSES\P4E1EDF3A_4C29_4D3B_A276_E59F9A49F698_.P4E1EDF3A_4C29_4D3B_A276_E59F9A49F698_
+key|hkml|SOFTWARE\CLASSES\P4E1EDF3A_4C29_4D3B_A276_E59F9A49F698_.P4E1EDF3A_4C29_4D3B_A276_E59F9A49F698_.9
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\EXT\PREAPPROVED\{4E1EDF3A-4C29-4D3B-A276-E59F9A49F698}
+key|hkml|SOFTWARE\CLASSES\CLSID\{4E1EDF3A-4C29-4D3B-A276-E59F9A49F698}\INPROCSERVER32
+key|hkml|SOFTWARE\CLASSES\CLSID\{FD50E69E-B0BF-49AC-AD34-0F73850A1D23}
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\EXPLORER\BROWSER HELPER OBJECTS\{FD50E69E-B0BF-49AC-AD34-0F73850A1D23}
+key|hkml|SOFTWARE\CLASSES\PFD50E69E_B0BF_49AC_AD34_0F73850A1D23_.PFD50E69E_B0BF_49AC_AD34_0F73850A1D23_
+key|hkml|SOFTWARE\CLASSES\PFD50E69E_B0BF_49AC_AD34_0F73850A1D23_.PFD50E69E_B0BF_49AC_AD34_0F73850A1D23_.9
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\EXT\PREAPPROVED\{FD50E69E-B0BF-49AC-AD34-0F73850A1D23}
+key|hkml|SOFTWARE\CLASSES\CLSID\{FD50E69E-B0BF-49AC-AD34-0F73850A1D23}\INPROCSERVER32
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\UNINSTALL\{4820778D-AB0D-6D18-C316-52A6A0E1D507}
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\UNINSTALL\{06B99631-BFA2-3B7A-F58B-D067C2BA59B7}
+key|hkml|SOFTWARE\CLASSES\TYPELIB\{9A44AB5B-B488-42A3-8D2B-7A0DA772F3A4}
+key|hkml|SOFTWARE\CLASSES\INTERFACE\{2B95962A-90B8-4C79-BDD4-3971D685FED9}
+key|hkml|SOFTWARE\CLASSES\INTERFACE\{475C3CD8-85F8-4A9A-88A5-24BD59622BD3}
+key|hkml|SOFTWARE\CLASSES\INTERFACE\{79214141-1B23-4A0D-9B27-05E8383FEB45}
+key|hkml|SOFTWARE\CLASSES\INTERFACE\{CB9C9338-603C-4C1A-B8D8-683D534EF189}
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KVMonXP.kxp
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360HOTFIX.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360RP.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360RPT.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360SAFE.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360SAFEBOX.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360SD.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360SE.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360SOFTMGRSVC.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360SPEEDLD.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\360TRAY.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AFWSERV.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AST.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AVCENTER.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AVGNT.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AVGUARD.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AVMAILC.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AVP.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AVSHADOW.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\AVWEBGRD.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\CCENTER.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\CCSVCHST.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KAVSTART.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KISSVC.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KMAILMON.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KPFW32.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KPFWSVC.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KRNL360SVC.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KVMONXP.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KVSRVXP.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KWATCH.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KWSTRAY.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\KXESERV.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCAGENT.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCMSCSVC.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCNASVC.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCODS.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCPROXY.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCSACORE.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCSHIELD.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCSYSMON.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MCVSSHLD.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MPFSRV.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MPMON.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MPSVC.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MPSVC1.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MPSVC2.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\MSKSRVER.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\QUTMSERV.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\RAVMOND.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\RAVTASK.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\RSAGENT.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\RSNETSVR.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\RSTRAY.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\SAFEBOXTRAY.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\SCANFRM.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\SCHED.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\SFCTLCOM.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\SPIDERML.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\SPIDERNT.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\SPIDERUI.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\TMBMSRV.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\TMPROXY.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\UFSEAGNT.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\ZHUDONGFANGYU.EXE
+key|hkml|SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\IMAGE FILE EXECUTION OPTIONS\ÃÃ?Â¸Â´Â¹Â¤Â¾Ã?.EXE
+key|hkcu|SOFTWARE\9hGVNkAaKZH
+key|hkcu|SOFTWARE\DC3_FEXEC
+key|hkcu|SOFTWARE\VB AND VBA PROGRAM SETTINGS\SrvID
+key|hkcu|Software\APN PIP
+key|hkcu|Software\HomeTab
+key|hkcu|Software\simplytech
+key|hkcu|Software\Tutorials
+key|hkcu|Software\TutoTag
+key|hkcu|Software\TNT2
+key|hkcu|Software\WajIntEnhance
+key|hkcu|Software\CrossBrowser
+key|hkml|Software\TIRANIUM ANTIVIRUS
+key|hkml|Software\TIRANIUM
+key|hkcu|Software\TIRANIUM ANTIVIRUS
+key|hkcu|Software\TIRANIUM
+key|hkcu|Software\SearchProtectWS
+key|hkcu|Software\Crossbrowse
+key|hkcu|Software\AppDataLow\{12DA0E6F-5543-440C-BAA2-28BF01070AFA}
+key|hkcu|Software\AppDataLow\Software\SmartWeb
+key|hkml|SOFTWARE\AskPartnerNetwork
+key|hkml|SOFTWARE\Conduit
+key|hkml|SOFTWARE\Iminent
+key|hkml|SOFTWARE\istartsurfSoftware
+key|hkml|SOFTWARE\SearchProtect
+key|hkml|SOFTWARE\Tutorials
+key|hkml|SOFTWARE\YourFileDownloader
+key|hkml|SOFTWARE\mystartsearchSoftware
+key|hkml|SOFTWARE\GAMESDESKTOP
+key|hkml|SOFTWARE\{12DA0E6F-5543-440C-BAA2-28BF01070AFA}
+key|hkml|SOFTWARE\{12A61307-94CD-4F8E-94BC-918E511FAA81}
+key|hkml|SOFTWARE\WajIntEnhance
+key|hkml|SOFTWARE\Crossbrowse
+key|hkml|SOFTWARE\UltraToolbar
+key|hkml|SOFTWARE\DigitalMore
+key|hkml|SOFTWARE\SpeedBit
+key|hkml|SOFTWARE\CinemaPlus-3.2cV11.04
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\IMBoosterARP
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\IminentToolbar
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\SearchProtect
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\YourFileDownloader
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\WajIntEnhance
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\Vosteran.com
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{0F44DC3A-6E62-4961-A14B-95323C512F9B}_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\IMBoosterARP
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\IminentToolbar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\istartsurf uninstall
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SearchProtect
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SoftwareUpdater
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\VOPackage
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ConvertAd
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SmartWeb
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wincheck
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\WajIntEnhance
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Vosteran.com
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Crossbrowse
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{AD11DADE-C597-45D9-D8C5-1D2EB0B89613}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Digital More
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B696F285-F54E-2524-58B1-E06A70ABE6BE}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CinemaPlus-3.2cV11.04
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\gmsd_pl_89_is1
+key|hkml|SOFTWARE\InstalledBrowserExtensions
+key|hkml|SOFTWARE\Google\Chrome\Extensions\blbkdnmdcafmfhinpmnlhhddbepgkeaa
+key|hkml|SOFTWARE\Classes\AppID\{C26644C4-2A12-4CA6-8F2E-0EDE6CF018F3}
+key|hkml|SOFTWARE\Classes\AppID\escorTlbr.DLL
+key|hkml|SOFTWARE\Classes\delta.deltadskBnd
+key|hkml|SOFTWARE\Classes\delta.deltadskBnd.1
+key|hkml|SOFTWARE\Classes\delta.deltaHlpr
+key|hkml|SOFTWARE\Classes\delta.deltaHlpr.1
+key|hkml|SOFTWARE\Classes\esrv.holasearchesrvc
+key|hkml|SOFTWARE\Classes\esrv.holasearchesrvc.1
+key|hkml|SOFTWARE\Classes\Prod.cap
+key|hkml|SOFTWARE\Classes\protector_dll.protectorbho
+key|hkml|SOFTWARE\Classes\protector_dll.protectorbho.1
+key|hkml|SOFTWARE\Classes\speedupmypc
+key|hkcu|Software\5d6dfdeb46eed17
+key|hkml|SOFTWARE\5d6dfdeb46eed17
+key|hkml|SOFTWARE\Classes\AppID\{4E1E9D45-8BF9-4139-915C-9F83CC3D5921}
+key|hkml|SOFTWARE\Classes\AppID\{58B41DCD-55B2-48EB-A55A-E330070FFC00}
+key|hkml|SOFTWARE\Classes\AppID\{8D5CFE57-B0FD-4396-97A2-DFD0B7DA935B}
+key|hkml|SOFTWARE\Classes\CLSID\{1AA60054-57D9-4F99-9A55-D0FBFBE7ECD3}
+key|hkml|SOFTWARE\Classes\CLSID\{5A4E3A41-FA55-4BDA-AED7-CEBE6E7BCB52}
+key|hkml|SOFTWARE\Classes\CLSID\{AF175732-0D59-716D-F757-9F1492D808D9}
+key|hkml|SOFTWARE\Classes\Interface\{4E6354DE-9115-4AEE-BD21-C46C3E8A49DB}
+key|hkml|SOFTWARE\Classes\Interface\{FC073BDA-C115-4A1D-9DF9-9B5C461482E5}
+key|hkml|SOFTWARE\Classes\TypeLib\{4E1E9D45-8BF9-4139-915C-9F83CC3D5921}
+key|hkml|SOFTWARE\Classes\TypeLib\{58B41DCD-55B2-48EB-A55A-E330070FFC00}
+key|hkml|SOFTWARE\Classes\TypeLib\{A2D733A7-73B0-4C6B-B0C7-06A432950B66}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{C510DFFB-0AFE-484C-BA40-CED5B74C4EEF}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{DFF9B2DA-EF99-4B26-83CB-7058299999D8}
+key|hkcu|Software\BabSolution
+key|hkcu|Software\DataMngr
+key|hkcu|Software\delta LTD
+key|hkcu|Software\filescout
+key|hkcu|Software\holasearch LTD
+key|hkcu|Software\ParetoLogic
+key|hkcu|Software\YahooPartnerToolbar
+key|hkml|Software\Babylon
+key|hkml|Software\BabylonToolbar
+key|hkml|Software\DataMngr
+key|hkml|Software\ParetoLogic
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{15D2D75C-9CB2-4EFD-BAD7-B9B4CB4BC693}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\{15D2D75C-9CB2-4EFD-BAD7-B9B4CB4BC693}
+key|hkcu|Software\AppDataLow\Software\Crossrider
+key|hkcu|Software\AppDataLow\Software\iWebar
+key|hkcu|Software\AppDataLow\Software\Sense
+key|hkcu|Software\FindRight
+key|hkcu|Software\GlobalUpdate
+key|hkcu|Software\Goobzo
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{3593C8B9-8E18-4B4B-B7D3-CB8BEB1AA42C}
+key|hkcu|Software\PodoWeb
+key|hkcu|Software\SupHpUISoft
+key|hkml|SOFTWARE\Classes\AppID\{3278F5CF-48F3-4253-A6BB-004CE84AF492}
+key|hkml|SOFTWARE\Classes\AppID\{577975B8-C40E-43E6-B0DE-4C6B44088B52}
+key|hkml|SOFTWARE\Classes\AppID\{58FDA6AF-67D8-4198-B7CD-94B17532C8D5}
+key|hkml|SOFTWARE\Classes\AppID\ShopperPro.DLL
+key|hkml|SOFTWARE\Classes\CLSID\{02A96331-0CA6-40E2-A87D-C224601985EB}
+key|hkml|SOFTWARE\Classes\CLSID\{3278F5CF-48F3-4253-A6BB-004CE84AF492}
+key|hkml|SOFTWARE\Classes\CLSID\{3593C8B9-8E18-4B4B-B7D3-CB8BEB1AA42C}
+key|hkml|SOFTWARE\Classes\CLSID\{3B5702BA-7F4C-4D1A-B026-1E9A01D43978}
+key|hkml|SOFTWARE\Classes\CLSID\{4AA46D49-459F-4358-B4D1-169048547C23}
+key|hkml|SOFTWARE\Classes\CLSID\{5645E0E7-FC12-43BF-A6E4-F9751942B298}
+key|hkml|SOFTWARE\Classes\CLSID\{577975B8-C40E-43E6-B0DE-4C6B44088B52}
+key|hkml|SOFTWARE\Classes\CLSID\{5E89ACE9-E16B-499A-87B4-0DBF742404C1}
+key|hkml|SOFTWARE\Classes\CLSID\{69F256DF-BA98-45E9-86EA-FC3CFECF9D30}
+key|hkml|SOFTWARE\Classes\CLSID\{6E87FC94-9866-49B9-8E93-5736D6DE3DD7}
+key|hkml|SOFTWARE\Classes\CLSID\{7E49F793-B3CD-4BF7-8419-B34B8BD30E61}
+key|hkml|SOFTWARE\Classes\CLSID\{834469E3-CA2B-4F21-A5CA-4F6F4DBCDE87}
+key|hkml|SOFTWARE\Classes\CLSID\{8529FAA3-5BFD-43C1-AB35-B53C4B96C6E5}
+key|hkml|SOFTWARE\Classes\CLSID\{980b8a8f-ea0b-4c24-a2e9-70635e2502e9}
+key|hkml|SOFTWARE\Classes\CLSID\{A5A51D2A-505A-4D84-AFC6-E0FA87E47B8C}
+key|hkml|SOFTWARE\Classes\CLSID\{ADBC39BE-3D20-4333-8D99-E91EB1B62474}
+key|hkml|SOFTWARE\Classes\CLSID\{C7BF8F4B-7BC7-4F42-B944-3D28A3A86D8A}
+key|hkml|SOFTWARE\Classes\CLSID\{CFC47BB5-5FB5-4AD0-8427-6AA04334A3FC}
+key|hkml|SOFTWARE\Classes\CLSID\{E06CA7F5-BA34-4FF6-8D24-B1BDC594D91F}
+key|hkml|SOFTWARE\Classes\CLSID\{E0ADB535-D7B5-4D8B-B15D-578BDD20D76A}
+key|hkml|SOFTWARE\Classes\CLSID\{F6421EE5-A5BE-4D31-81D5-C16B7BF48E4C}
+key|hkml|SOFTWARE\Classes\CLSID\{FD8E81D0-F5FE-4CB1-9AEA-1E163D2BAB78}
+key|hkml|SOFTWARE\Classes\CrossriderApp0035510.BHO
+key|hkml|SOFTWARE\Classes\CrossriderApp0035510.BHO.1
+key|hkml|SOFTWARE\Classes\CrossriderApp0035510.Sandbox
+key|hkml|SOFTWARE\Classes\CrossriderApp0035510.Sandbox.1
+key|hkml|SOFTWARE\Classes\CrossriderApp0048292.BHO
+key|hkml|SOFTWARE\Classes\CrossriderApp0048292.BHO.1
+key|hkml|SOFTWARE\Classes\CrossriderApp0048292.Sandbox
+key|hkml|SOFTWARE\Classes\CrossriderApp0048292.Sandbox.1
+key|hkml|SOFTWARE\Classes\globalUpdate.OneClickCtrl.10
+key|hkml|SOFTWARE\Classes\globalUpdate.OneClickProcessLauncherMachine
+key|hkml|SOFTWARE\Classes\globalUpdate.OneClickProcessLauncherMachine.1.0
+key|hkml|SOFTWARE\Classes\globalUpdate.Update3WebControl.4
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.CoCreateAsync
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.CoCreateAsync.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.CoreClass
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.CoreClass.1
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.CoreMachineClass
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.CoreMachineClass.1
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.CredentialDialogMachine
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.CredentialDialogMachine.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.OnDemandCOMClassMachine
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.OnDemandCOMClassMachine.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.OnDemandCOMClassMachineFallback
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.OnDemandCOMClassMachineFallback.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.OnDemandCOMClassSvc
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.OnDemandCOMClassSvc.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.ProcessLauncher
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.ProcessLauncher.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.Update3COMClassService
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.Update3COMClassService.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.Update3WebMachine
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.Update3WebMachine.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.Update3WebMachineFallback
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.Update3WebMachineFallback.1.0
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.Update3WebSvc
+key|hkml|SOFTWARE\Classes\globalUpdateUpdate.Update3WebSvc.1.0
+key|hkml|SOFTWARE\Classes\Interface\{55555555-5555-5555-5555-550355555510}
+key|hkml|SOFTWARE\Classes\Interface\{55555555-5555-5555-5555-550455825592}
+key|hkml|SOFTWARE\Classes\Interface\{66666666-6666-6666-6666-660366556610}
+key|hkml|SOFTWARE\Classes\Interface\{66666666-6666-6666-6666-660466826692}
+key|hkml|SOFTWARE\Classes\Interface\{AEDAB5B0-022B-465C-A88B-1E8C2FAAA5A2}
+key|hkml|SOFTWARE\Classes\ShopperPro.ShopperProBHO
+key|hkml|SOFTWARE\Classes\ShopperPro.ShopperProBHO.1
+key|hkml|SOFTWARE\Classes\TypeLib\{44444444-4444-4444-4444-440344554410}
+key|hkml|SOFTWARE\Classes\TypeLib\{44444444-4444-4444-4444-440444824492}
+key|hkml|SOFTWARE\Classes\TypeLib\{968EDCE0-C10A-47BB-B3B6-FDF09F2A417D}
+key|hkml|SOFTWARE\Classes\TypeLib\{b3d6b511-4d77-44db-a459-938d9e6995f7}
+key|hkml|SOFTWARE\FindRight
+key|hkml|SOFTWARE\GlobalUpdate
+key|hkml|SOFTWARE\Goobzo
+key|hkml|SOFTWARE\iWebar
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{5645E0E7-FC12-43BF-A6E4-F9751942B298}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{5E89ACE9-E16B-499A-87B4-0DBF742404C1}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{C7BF8F4B-7BC7-4F42-B944-3D28A3A86D8A}
+key|hkml|SOFTWARE\Microsoft\Tracing\FindRight_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\FindRight_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\PodoWeb_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\PodoWeb_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SearchSettings_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SearchSettings_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\updateFindRight_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\updateFindRight_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\updatePodoWeb_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\updatePodoWeb_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\utilFindRight_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\utilFindRight_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\utilPodoWeb_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\utilPodoWeb_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{11111111-1111-1111-1111-110311551110}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{11111111-1111-1111-1111-110411821192}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{3593C8B9-8E18-4B4B-B7D3-CB8BEB1AA42C}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{980b8a8f-ea0b-4c24-a2e9-70635e2502e9}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{A5A51D2A-505A-4D84-AFC6-E0FA87E47B8C}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{5645E0E7-FC12-43BF-A6E4-F9751942B298}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{A5A51D2A-505A-4D84-AFC6-E0FA87E47B8C}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{C7BF8F4B-7BC7-4F42-B944-3D28A3A86D8A}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\FindRight
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\iWebar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PodoWeb
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Sense
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\WindowsMangerProtect
+key|hkml|SOFTWARE\MozillaPlugins\@staging.google.com
+key|hkml|SOFTWARE\PodoWeb
+key|hkml|SOFTWARE\Sense
+key|hkml|SOFTWARE\supWindowsMangerProtect
+key|hkml|SOFTWARE\supWPM
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\IePluginServices
+key|hkml|SYSTEM\CurrentControlSet\Services\EventLog\Application\Update FindRight
+key|hkml|SYSTEM\CurrentControlSet\Services\EventLog\Application\Update PodoWeb
+key|hkml|SYSTEM\CurrentControlSet\Services\EventLog\Application\Util FindRight
+key|hkml|SYSTEM\CurrentControlSet\Services\EventLog\Application\Util PodoWeb
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\WindowsMangerProtect
+key|hkcu|Software\AnyProtect
+key|hkcu|Software\APNDTX
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{9BB47C17-9C68-4BB3-B188-DD9AF0FD2410}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{FCE3FA8B-BA81-467C-81D8-E43C00D1BC71}
+key|hkml|SOFTWARE\Classes\CLSID\{35B8892D-C3FB-4D88-990D-31DB2EBD72BD}
+key|hkml|SOFTWARE\Classes\CLSID\{FCE3FA8B-BA81-467C-81D8-E43C00D1BC71}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Explorer\MenuOrder\Start Menu\Programs\BrowserProtect
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\bProtectSettings
+key|hkml|SOFTWARE\Classes\ToolBand.ToolBandObj
+key|hkml|SOFTWARE\Classes\ToolBand.ToolBandObj.1
+key|hkcu|Software\5d558f8fe66dbd14
+key|hkml|SOFTWARE\Classes\Interface\{95B92D92-8B7D-4A19-A3F1-43113B4DBCAF}
+key|hkml|SOFTWARE\Classes\TypeLib\{5297E905-1DFB-4A9C-9871-A4F95FD58945}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{00000000-6E41-4FD3-8538-502F5495E5FC}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{2C774641-5504-46A8-B63F-6715AE3FE376}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{82E1477C-B154-48D3-9891-33D83C26BCD3}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{C1AF5FA5-852C-4C90-812E-A7F75E011D87}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{D4027C7F-154A-4066-A1AD-4243D8127440}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{2C774641-5504-46A8-B63F-6715AE3FE376}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{D4027C7F-154A-4066-A1AD-4243D8127440}
+key|hkcu|Software\BABSOLUTION
+key|hkcu|Software\BabylonToolbar
+key|hkcu|Software\DataMngr_Toolbar
+key|hkcu|Software\Delta
+key|hkcu|Software\Softonic
+key|hkml|SOFTWARE\systweak
+key|hkml|SOFTWARE\Classes\Interface\{03C0AC00-86DE-4B55-81BA-2E7CD61C51B1}
+key|hkml|SOFTWARE\Classes\Interface\{3F607E46-0D3C-4442-B1DE-DE7FA4768F5C}
+key|hkml|SOFTWARE\Classes\Interface\{FE0273D1-99DF-4AC0-87D5-1371C6271785}
+key|hkml|SOFTWARE\Classes\TypeLib\{8FB1A663-2820-468B-95C4-5060A4C5F413}
+key|hkml|SOFTWARE\Classes\TypeLib\{93E3D79C-0786-48FF-9329-93BC9F6DC2B3}
+key|hkml|SOFTWARE\Google\Chrome\Extensions\nfengeggddojhakldhlpjdlddgkkjkdd
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{9BB47C17-9C68-4BB3-B188-DD9AF0FD2410}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\mypc backup
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{FCE3FA8B-BA81-467C-81D8-E43C00D1BC71}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{FCE3FA8B-BA81-467C-81D8-E43C00D1BC71}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ShopperPro
+key|hkml|SOFTWARE\ShopperPro
+key|hkml|SOFTWARE\Google\Chrome\Extensions\bopakagnckmlgajfccecajhnimjiiedh
+key|hkcu|Software\1ClickDownload
+key|hkcu|Software\a0df8db73fef13
+key|hkcu|Software\AppDataLow\Software\ConduitSearchScopes
+key|hkcu|Software\AppDataLow\Software\smartbar
+key|hkcu|Software\AppDataLow\SProtector
+key|hkcu|Software\IM
+key|hkcu|Software\ImInstaller
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{10EDB994-47F8-43F7-AE96-F2EA63E9F90F}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{98889811-442D-49DD-99D7-DC866BE87DBC}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{10EDB994-47F8-43F7-AE96-F2EA63E9F90F}
+key|hkcu|Software\OCS
+key|hkcu|Software\Optimizer Pro
+key|hkml|SOFTWARE\a0df8db73fef13
+key|hkml|SOFTWARE\Classes\AppID\{C3110516-8EFC-49D6-8B72-69354F332062}
+key|hkml|SOFTWARE\Classes\CLSID\{14F35FFC-522A-4DD1-A07E-6B8B65C6891E}
+key|hkml|SOFTWARE\Classes\CLSID\{2CE4D4CF-B278-4126-AD1E-B622DA2E8339}
+key|hkml|SOFTWARE\Classes\CLSID\{3C471948-F874-49F5-B338-4F214A2EE0B1}
+key|hkml|SOFTWARE\Classes\CLSID\{6E993643-8FBC-44FE-BC85-D318495C4D96}
+key|hkml|SOFTWARE\Classes\CLSID\{826D7151-8D99-434B-8540-082B8C2AE556}
+key|hkml|SOFTWARE\Classes\Interface\{2CE4D4CF-B278-4126-AD1E-B622DA2E8339}
+key|hkml|SOFTWARE\Classes\Interface\{31E3BC75-2A09-4CFF-9C92-8D0ED8D1DC0F}
+key|hkml|SOFTWARE\Classes\Toolbar.CT3072253
+key|hkml|SOFTWARE\Classes\Toolbar.CT3289847
+key|hkml|SOFTWARE\Classes\TypeLib\{AC329328-7EC4-4C34-B672-0A2B90CB9B00}
+key|hkml|SOFTWARE\Classes\TypeLib\{E2343056-CC08-46AC-B898-BFC7ACF4E755}
+key|hkml|Software\Conduit
+key|hkml|Software\ImInstaller
+key|hkml|SOFTWARE\Microsoft\Tracing\apnstub_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\apnstub_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\BundleSweetIMSetup_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\BundleSweetIMSetup_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\ConduitInstaller_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\ConduitInstaller_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\MyBabylontb_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\MyBabylontb_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_android-market-apk_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_android-market-apk_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_directx_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_directx_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_for_daemon-tools_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_for_daemon-tools_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_for_hjsplit_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_for_hjsplit_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\sweetim_rasapi32
+key|hkml|SOFTWARE\Microsoft\Tracing\sweetim_rasmancs
+key|hkml|SOFTWARE\Microsoft\Tracing\sweetpacksupdatemanager_rasapi32
+key|hkml|SOFTWARE\Microsoft\Tracing\SweetPacksUpdateManager_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\UpdateTask_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\UpdateTask_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\wsconduit__166_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\wsconduit__166_RASMANCS
+key|hkml|Software\PIP
+key|hkml|Software\SP Global
+key|hkml|Software\SProtector
+key|hkml|Software\systweak
+key|hkml|Software\Uniblue
+key|hkml|SOFTWARE\Classes\Interface\{1231839B-064E-4788-B865-465A1B5266FD}
+key|hkml|SOFTWARE\Classes\Interface\{2DAC2231-CC35-482B-97C5-CED1D4185080}
+key|hkml|SOFTWARE\Classes\Interface\{3F1CD84C-04A3-4EA0-9EA1-7D134FD66C82}
+key|hkml|SOFTWARE\Classes\Interface\{3F83A9CA-B5F0-44EC-9357-35BB3E84B07F}
+key|hkml|SOFTWARE\Classes\Interface\{47E520EA-CAD2-4F51-8F30-613B3A1C33EB}
+key|hkml|SOFTWARE\Classes\Interface\{57C91446-8D81-4156-A70E-624551442DE9}
+key|hkml|SOFTWARE\Classes\Interface\{70AFB7B2-9FB5-4A70-905B-0E9576142E1D}
+key|hkml|SOFTWARE\Classes\Interface\{7AD65FD1-79E0-406D-B03C-DD7C14726D69}
+key|hkml|SOFTWARE\Classes\Interface\{97DD820D-2E20-40AD-B01E-6730B2FCE630}
+key|hkml|SOFTWARE\Classes\Interface\{B177446D-54A4-4869-BABC-8566110B4BE0}
+key|hkml|SOFTWARE\Classes\Interface\{D9D1DFC5-502D-43E4-B1BB-4D0B7841489A}
+key|hkml|SOFTWARE\Classes\Interface\{E0B07188-A528-4F9E-B2F7-C7FDE8680AE4}
+key|hkml|SOFTWARE\Classes\Interface\{F05B12E1-ADE8-4485-B45B-898748B53C37}
+key|hkml|SOFTWARE\Google\Chrome\Extensions\jbolfgndggfhhpbnkgnpjkfhinclbigj
+key|hkml|SOFTWARE\Google\Chrome\Extensions\jmfkcklnlgedgbglfkkgedjfmejoahla
+key|hkml|SOFTWARE\Google\Chrome\Extensions\ndibdjnfmopecpmkdieinmbadjfpblof
+key|hkcu|Software\Classes\VirtualStore\MACHINE\SOFTWARE\Wow6432Node\BabylonToolbar
+key|hkml|SOFTWARE\Classes\AppID\kt_bho_dll.dll
+key|hkml|SOFTWARE\Classes\AppID\NCTAudioCDGrabber2.DLL
+key|hkml|SOFTWARE\Classes\Applications\ilividsetupv1.exe
+key|hkml|SOFTWARE\Classes\kt_bho.KettleBho
+key|hkml|SOFTWARE\Classes\kt_bho.KettleBho.1
+key|hkml|SOFTWARE\Microsoft\Tracing\askpartnercobrandingtool_rasapi32
+key|hkml|SOFTWARE\Microsoft\Tracing\askpartnercobrandingtool_rasmancs
+key|hkml|SOFTWARE\Microsoft\Tracing\AskPIP_FF__RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\AskPIP_FF__RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\au__rasapi32
+key|hkml|SOFTWARE\Microsoft\Tracing\au__rasmancs
+key|hkml|SOFTWARE\Microsoft\Tracing\datamngrUI_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\datamngrUI_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\FunmoodsLatest_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\FunmoodsLatest_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\iLividSetupV1_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\iLividSetupV1_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\IminentSetup_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\IminentSetup_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\Mobogenie_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\Mobogenie_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\Searchqu Toolbar uninstall_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\Searchqu Toolbar uninstall_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SearchquMediaBar_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SearchquMediaBar_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SetupDataMngr_Searchqu_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SetupDataMngr_Searchqu_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\TaskScheduler_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\TaskScheduler_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\WebCakeDesktop_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\WebCakeDesktop_RASMANCS
+key|hkcu|Software\f4d688e23def10
+key|hkml|SOFTWARE\f4d688e23def10
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_audacity_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_audacity_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_ventrilo-2-1-4_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_ventrilo-2-1-4_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_for_steam_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_for_steam_RASMANCS
+key|hkml|SOFTWARE\Classes\AppID\{28A88B70-D874-4F73-BBBA-9B2B222FB7D6}
+key|hkml|SOFTWARE\Classes\AppID\{BDB69379-802F-4EAF-B541-F8DE92DD98DB}
+key|hkml|SOFTWARE\Classes\AppID\{C007DADD-132A-624C-088E-59EE6CF0711F}
+key|hkml|SOFTWARE\Classes\AppID\{EA28B360-05E0-4F93-8150-02891F1D8D3C}
+key|hkml|SOFTWARE\Classes\CLSID\{3CA2F312-6F6E-4B53-A66E-4E65E497C8C0}
+key|hkml|SOFTWARE\Classes\CLSID\{83FF80F4-8C74-4B80-B5BA-C8DDD434E5C4}
+key|hkml|SOFTWARE\Classes\CLSID\{A0B10EBE-4E51-4CAE-949B-E6B9E7D68CEA}
+key|hkml|SOFTWARE\Classes\CLSID\{F511AFDB-726E-4458-90E7-1ECB97406544}
+key|hkml|SOFTWARE\Classes\CLSID\{FB684D26-01F4-4D9D-87CB-F486BEBA56DC}
+key|hkml|SOFTWARE\Classes\Interface\{7D86A08B-0A8F-4BE0-B693-F05E6947E780}
+key|hkml|SOFTWARE\Classes\TypeLib\{86676E13-D6D8-4652-9FCF-F2047F1FB000}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{3CA2F312-6F6E-4B53-A66E-4E65E497C8C0}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{0FB6A909-6086-458F-BD92-1F8EE10042A0}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{2EECD738-5844-4A99-B4B6-146BF802613B}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{3CA2F312-6F6E-4B53-A66E-4E65E497C8C0}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{75EBB0AA-4214-4CB4-90EC-E3E07ECD04F7}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{83FF80F4-8C74-4B80-B5BA-C8DDD434E5C4}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{98889811-442D-49DD-99D7-DC866BE87DBC}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{99079A25-328F-4BD4-BE04-00955ACAA0A7}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{9D717F81-9148-4F12-8568-69135F087DB0}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{A4C272EC-ED9E-4ACE-A6F2-9558C7F29EF3}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{0FB6A909-6086-458F-BD92-1F8EE10042A0}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{3593C8B9-8E18-4B4B-B7D3-CB8BEB1AA42C}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{3CA2F312-6F6E-4B53-A66E-4E65E497C8C0}
+key|hkcu|Software\Mozilla\Extends
+key|hkml|SOFTWARE\dt soft\daemon tools toolbar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\do-search uninstall
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{75EBB0AA-4214-4CB4-90EC-E3E07ECD04F7}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{99079A25-328F-4BD4-BE04-00955ACAA0A7}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{9D717F81-9148-4F12-8568-69135F087DB0}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{A4C272EC-ED9E-4ACE-A6F2-9558C7F29EF3}
+key|hkml|SOFTWARE\Classes\Interface\{49C00A51-6E59-41FE-B3FA-2D2157FAD67B}
+key|hkml|SOFTWARE\Classes\Interface\{DE34CD67-F1C8-4001-9A23-B8A68F63F377}
+key|hkcu|Software\Ask&Record
+key|hkcu|Software\BrowserMngr
+key|hkcu|Software\Complitly
+key|hkcu|Software\Conduit
+key|hkcu|Software\Iminent
+key|hkcu|Software\Popajar
+key|hkcu|Software\powerpack
+key|hkcu|Software\StartSearch
+key|hkcu|Software\AppDataLow\Software\Savings Bull
+key|hkcu|Software\AppDataLow\Software\searchqutoolbar
+key|hkcu|Software\AppDataLow\Software\SmartBar
+key|hkml|Software\BrowserMngr
+key|hkml|Software\DeviceVM
+key|hkml|Software\dosearchessoftware
+key|hkml|Software\IePlugin
+key|hkml|Software\Iminent
+key|hkml|Software\SavingsBullFilter
+key|hkml|Software\supTab
+key|hkml|Software\supWPM
+key|hkml|Software\sweet-pageSoftware
+key|hkml|Software\V9Software
+key|hkml|Software\Wpm
+key|hkml|SOFTWARE\DataMngr
+key|hkml|SOFTWARE\DeviceVM
+key|hkml|SOFTWARE\LevelQualityWatcher
+key|hkml|SOFTWARE\Tarma Installer
+key|hkcu|Software\Search Settings
+key|hkml|SOFTWARE\Application Updater
+key|hkml|SOFTWARE\Babylon
+key|hkml|SOFTWARE\BabylonToolbar
+key|hkml|SOFTWARE\pdfforge
+key|hkml|SOFTWARE\Search Settings
+key|hkml|SOFTWARE\Classes\b
+key|hkml|SOFTWARE\Classes\Babylon.dskBnd
+key|hkml|SOFTWARE\Classes\Babylon.dskBnd.1
+key|hkml|SOFTWARE\Classes\bbylnApp.appCore
+key|hkml|SOFTWARE\Classes\bbylnApp.appCore.1
+key|hkml|SOFTWARE\Classes\escort.escortIEPane
+key|hkml|SOFTWARE\Classes\escort.escortIEPane.1
+key|hkml|SOFTWARE\Classes\esrv.BabylonESrvc
+key|hkml|SOFTWARE\Classes\esrv.BabylonESrvc.1
+key|hkml|SOFTWARE\Classes\pdfforge.DllInfo
+key|hkml|SOFTWARE\Classes\pdfforge.PDF.PDF
+key|hkml|SOFTWARE\Classes\pdfforge.PDF.PDFEncryptor
+key|hkml|SOFTWARE\Classes\pdfforge.PDF.PDFLine
+key|hkml|SOFTWARE\Classes\pdfforge.PDF.PDFText
+key|hkml|SOFTWARE\Classes\pdfforge.Tools
+key|hkml|SOFTWARE\Classes\AppID\escort.DLL
+key|hkml|SOFTWARE\Classes\AppID\escortApp.DLL
+key|hkml|SOFTWARE\Classes\AppID\escortEng.DLL
+key|hkml|SOFTWARE\Classes\AppID\esrv.EXE
+key|hkml|SOFTWARE\Classes\AppID\{35C1605E-438B-4D64-AAB1-8885F097A9B1}
+key|hkml|SOFTWARE\Classes\AppID\{B12E99ED-69BD-437C-86BE-C862B9E5444D}
+key|hkml|SOFTWARE\Classes\AppID\{BDB69379-802F-4eaf-B541-F8DE92DD98DB}
+key|hkml|SOFTWARE\Classes\AppID\{D7EE8177-D51E-4F89-92B6-83EA2EC40800}
+key|hkml|SOFTWARE\Classes\AppID\{09C554C3-109B-483C-A06B-F14172F1A947}
+key|hkml|SOFTWARE\Classes\CLSID\{291BCCC1-6890-484a-89D3-318C928DAC1B}
+key|hkml|SOFTWARE\Classes\CLSID\{97F2FF5B-260C-4ccf-834A-2DDA4E29E39E}
+key|hkml|SOFTWARE\Classes\CLSID\{98889811-442D-49dd-99D7-DC866BE87DBC}
+key|hkml|SOFTWARE\Classes\CLSID\{B8276A94-891D-453C-9FF3-715C042A2575}
+key|hkml|SOFTWARE\Classes\CLSID\{FFB9ADCB-8C79-4C29-81D3-74D46A93D370}
+key|hkml|SOFTWARE\Classes\CLSID\{2EECD738-5844-4a99-B4B6-146BF802613B}
+key|hkml|SOFTWARE\Classes\CLSID\{E46C8196-B634-44a1-AF6E-957C64278AB1}
+key|hkml|SOFTWARE\Classes\Interface\{44C3C1DB-2127-433C-98EC-4C9412B5FC3A}
+key|hkml|SOFTWARE\Classes\Interface\{4D5132DD-BB2B-4249-B5E0-D145A8C982E1}
+key|hkml|SOFTWARE\Classes\Interface\{706D4A4B-184A-4434-B331-296B07493D2D}
+key|hkml|SOFTWARE\Classes\Interface\{8BE10F21-185F-4CA0-B789-9921674C3993}
+key|hkml|SOFTWARE\Classes\Interface\{94C0B25D-3359-4B10-B227-F96A77DB773F}
+key|hkml|SOFTWARE\Classes\Interface\{B0B75FBA-7288-4FD3-A9EB-7EE27FA65599}
+key|hkml|SOFTWARE\Classes\Interface\{B173667F-8395-4317-8DD6-45AD1FE00047}
+key|hkml|SOFTWARE\Classes\Interface\{B32672B3-F656-46E0-B584-FE61C0BB6037}
+key|hkml|SOFTWARE\Classes\Interface\{BFE569F7-646C-4512-969B-9BE3E580D393}
+key|hkml|SOFTWARE\Classes\Interface\{C2434722-5C85-4CA0-BA69-1B67E7AB3D68}
+key|hkml|SOFTWARE\Classes\Interface\{C2996524-2187-441F-A398-CD6CB6B3D020}
+key|hkml|SOFTWARE\Classes\Interface\{E047E227-5342-4D94-80F7-CFB154BF55BD}
+key|hkml|SOFTWARE\Classes\Interface\{E3F79BE9-24D4-4F4D-8C13-DF2C9899F82E}
+key|hkml|SOFTWARE\Classes\Interface\{E77EEF95-3E83-4BB8-9C0D-4A5163774997}
+key|hkml|SOFTWARE\Classes\TypeLib\{35C1605E-438B-4D64-AAB1-8885F097A9B1}
+key|hkml|SOFTWARE\Classes\TypeLib\{6E8BF012-2C85-4834-B10A-1B31AF173D70}
+key|hkml|SOFTWARE\Classes\TypeLib\{D7EE8177-D51E-4F89-92B6-83EA2EC40800}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{3BD44F0E-0596-4008-AEE0-45D47E3A8F0E}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{B922D405-6D13-4A2B-AE89-08A030DA4402}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{2EECD738-5844-4a99-B4B6-146BF802613B}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{98889811-442D-49dd-99D7-DC866BE87DBC}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{8375D9C8-634F-4ECB-8CF5-C7416BA5D542}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{2EECD738-5844-4a99-B4B6-146BF802613B}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\BabylonToolbar
+key|hkml|SOFTWARE\Classes\CLSID\{459DD0F7-0D55-D3DC-67BC-E6BE37E9D762}
+key|hkml|SOFTWARE\dll-files.com
+key|hkml|SOFTWARE\Classes\AppID\{5B1881D1-D9C7-46DF-B041-1E593282C7D0}
+key|hkml|SOFTWARE\Classes\AppID\{9B0CB95C-933A-4B8C-B6D4-EDCD19A43874}
+key|hkml|SOFTWARE\Classes\AppID\{AD25754E-D76C-42B3-A335-2F81478B722F}
+key|hkml|SOFTWARE\Classes\CLSID\{00000000-6E41-4FD3-8538-502F5495E5FC}
+key|hkml|SOFTWARE\Classes\CLSID\{A5B99E41-E157-4209-8AAC-DB003A816079}
+key|hkml|SOFTWARE\Classes\CLSID\{AD20D01C-C939-4DD2-8C55-56935A48987E}
+key|hkml|SOFTWARE\Classes\CLSID\{D4027C7F-154A-4066-A1AD-4243D8127440}
+key|hkml|SOFTWARE\Classes\CLSID\{DDE2C74F-58CC-4D71-8CE1-09DEBB8CFB78}
+key|hkml|SOFTWARE\Classes\CLSID\{E95EAD3F-18C6-4304-9DC6-BD6FD8E11D37}
+key|hkml|SOFTWARE\Classes\Interface\{542FA950-C57A-4E17-B3E1-D935DFE15DEE}
+key|hkml|SOFTWARE\Classes\Interface\{5B035F86-41B5-40F1-AAAD-3D219F30244E}
+key|hkml|SOFTWARE\Classes\Interface\{6365AC7B-9920-4D8B-AF5D-3BDFEAC340A8}
+key|hkml|SOFTWARE\Classes\Interface\{6A934270-717F-4BC3-BA59-BC9BED47A8D2}
+key|hkml|SOFTWARE\Classes\Interface\{6C434537-053E-486D-B62A-160059D9D456}
+key|hkml|SOFTWARE\Classes\Interface\{74C012C4-00FB-4F04-9AFB-4AD5449D2018}
+key|hkml|SOFTWARE\Classes\Interface\{78888F8B-D5E4-43CE-89F5-C8C18223AF64}
+key|hkml|SOFTWARE\Classes\Interface\{79B13431-CCAC-4097-8889-D0289E5E924F}
+key|hkml|SOFTWARE\Classes\Interface\{8B8558F6-DC26-4F39-8417-34B8934AA459}
+key|hkml|SOFTWARE\Classes\Interface\{8C8D5C57-3CAD-4CF9-BCAD-F873678DA883}
+key|hkml|SOFTWARE\Classes\Interface\{91CF619A-4686-4CA4-9232-3B2E6B63AA92}
+key|hkml|SOFTWARE\Classes\Interface\{981334CB-7B8B-431F-B86D-67B7426B125B}
+key|hkml|SOFTWARE\Classes\Interface\{9E393F82-2644-4AB6-B994-1AD39D6C59EE}
+key|hkml|SOFTWARE\Classes\Interface\{A3A2A5C0-1306-4D1A-A093-9CECA4230002}
+key|hkml|SOFTWARE\Classes\Interface\{A9379648-F6EB-4F65-A624-1C10411A15D0}
+key|hkml|SOFTWARE\Classes\Interface\{AC71B60E-94C9-4EDE-BA46-E146747BB67E}
+key|hkml|SOFTWARE\Classes\Interface\{C1C2FC43-F042-4F17-AEDB-C5ABF3B42E4B}
+key|hkml|SOFTWARE\Classes\Interface\{C8D424EF-CB21-49A0-8659-476FBAB0F8E8}
+key|hkml|SOFTWARE\Classes\Interface\{F16AB1DB-15C0-4456-A29E-4DF24FB9E3D2}
+key|hkml|SOFTWARE\Classes\Interface\{F7EC6286-297C-4981-9DCC-FD7F57BC24C9}
+key|hkml|SOFTWARE\Classes\TypeLib\{09C554C3-109B-483C-A06B-F14172F1A947}
+key|hkml|SOFTWARE\Classes\TypeLib\{12A5F606-B1EC-474C-83ED-95E99FD8058E}
+key|hkml|SOFTWARE\Classes\TypeLib\{2996F0E7-292B-4CAE-893F-47B8B1C05B56}
+key|hkml|SOFTWARE\Classes\TypeLib\{AD25754E-D76C-42B3-A335-2F81478B722F}
+key|hkml|SOFTWARE\Classes\TypeLib\{B12E99ED-69BD-437C-86BE-C862B9E5444D}
+key|hkcu|Software\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{A5AA24EA-11B8-4113-95AE-9ED71DEAF12A}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{A5AA24EA-11B8-4113-95AE-9ED71DEAF12A}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{FFDF9EF3-3C3A-4F05-9A6E-5D3B778EC567}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{D4027C7F-154A-4066-A1AD-4243D8127440}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{64182481-4F71-486B-A045-B233BD0DA8FC}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{DB4E9724-F518-4DFD-9C7C-78B52103CAB9}
+key|hkcu|Software\AppDataLow\Software\AskToolbar
+key|hkcu|Software\Ask.com
+key|hkcu|Software\facemoods.com
+key|hkml|SOFTWARE\AskToolbar
+key|hkml|SOFTWARE\Classes\AppID\GenericAskToolbar.DLL
+key|hkml|SOFTWARE\Classes\escort.escrtBtn.1
+key|hkml|SOFTWARE\Classes\esrv.escrtSrvc
+key|hkml|SOFTWARE\Classes\esrv.escrtSrvc.1
+key|hkml|SOFTWARE\Classes\facemoods.dskBnd
+key|hkml|SOFTWARE\Classes\facemoods.dskBnd.1
+key|hkml|SOFTWARE\Classes\facemoods.facemoodsHlpr
+key|hkml|SOFTWARE\Classes\facemoods.facemoodsHlpr.1
+key|hkml|SOFTWARE\Classes\facemoods.xtrnl
+key|hkml|SOFTWARE\Classes\facemoods.xtrnl.1
+key|hkml|SOFTWARE\Classes\facemoodsApp.appCore
+key|hkml|SOFTWARE\Classes\facemoodsApp.appCore.1
+key|hkml|SOFTWARE\Classes\GenericAskToolbar.ToolbarWnd
+key|hkml|SOFTWARE\Classes\GenericAskToolbar.ToolbarWnd.1
+key|hkml|SOFTWARE\Classes\Installer\Features\A28B4D68DEBAA244EB686953B7074FEF
+key|hkml|SOFTWARE\Classes\Installer\Products\A28B4D68DEBAA244EB686953B7074FEF
+key|hkml|SOFTWARE\facemoods.com
+key|hkml|SOFTWARE\Google\chrome\Extensions\ihflimipbcaljfnojhhknppphnnciiif
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{86D4B82A-ABED-442A-BE86-96357B70F4FE}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\A28B4D68DEBAA244EB686953B7074FEF
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{c9ab6446-7efc-47fe-966c-dc54324eff9f}
+key|hkcu|Software\Run_Dregol
+key|hkml|SOFTWARE\Classes\CLSID\{F83D1872-D9FF-47F8-B5A0-49CC51E24EE8}
+key|hkml|SOFTWARE\Google\Chrome\Extensions\eofcbnmajmjmplflapaojjnihcjkigck
+key|hkcu|Software\Linkey
+key|hkml|SOFTWARE\AIM Toolbar
+key|hkml|SOFTWARE\oursurfingSoftware
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\Linkey
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Linkey
+key|hkcu|Software\BI
+key|hkcu|Software\lollipop
+key|hkml|SOFTWARE\Classes\CLSID\{25A3A431-30BB-47C8-AD6A-E1063801134F}
+key|hkml|SOFTWARE\Classes\CLSID\{7A38E53C-E000-41E4-9B5A-47447DB81C2B}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{7A38E53C-E000-41E4-9B5A-47447DB81C2B}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{EE171732-BEB4-4576-887D-CB62727F01CA}
+key|hkcu|Software\Myfree Codec
+key|hkml|SOFTWARE\Classes\TypeLib\{C4D1C553-99C0-48E5-B0A7-B1E00163715C}
+key|hkcu|Software\FreeSoftToday
+key|hkcu|Software\Greener Web
+key|hkcu|Software\InstalledBrowserExtensions
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{EA34C851-D481-49F5-A356-3A8B0A8F3B7E}
+key|hkcu|Software\systweak
+key|hkcu|Software\V9
+key|hkml|SOFTWARE\AdvertisingSupport
+key|hkml|SOFTWARE\Bench
+key|hkml|SOFTWARE\Classes\CLSID\{6D4506CE-F855-4657-AA38-DB6B1F733982}
+key|hkml|SOFTWARE\Classes\Interface\{3408AC0D-510E-4808-8F7B-6B70B1F88534}
+key|hkml|SOFTWARE\Classes\TypeLib\{03771AEF-400D-4A13-B712-25878EC4A3F5}
+key|hkml|SOFTWARE\delta-homesSoftware
+key|hkml|SOFTWARE\Discount Dragon
+key|hkml|SOFTWARE\free_softtoday
+key|hkml|SOFTWARE\Greener Web
+key|hkml|SOFTWARE\hdcode
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\WindowsProtectManger
+key|hkml|SOFTWARE\supWindowsProtectManger
+key|hkml|SOFTWARE\V9
+key|hkml|SOFTWARE\webssearchesSoftware
+key|hkml|SOFTWARE\winzipersvc
+key|hkml|Software\Classes\CLSID\{FC0F186C-11A6-456F-A0EE-CBE9ED7E233E}	
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\istartsurf.com
+key|hkml|SOFTWARE\Wow6432Node\do-searchSoftware
+key|hkml|SOFTWARE\Wow6432Node\SupDp
+key|hkml|SOFTWARE\Wow6432Node\supTab
+key|hkml|SOFTWARE\Wow6432Node\e5067689-0f16-48af-5bdd-446c10370faf
+key|hkml|SOFTWARE\Wow6432Node\ihprotect
+key|hkml|SOFTWARE\ihprotect
+key|hkml|SOFTWARE\Wow6432Node\PriceMeterLiveUpdate
+key|hkml|SOFTWARE\PriceMeterLiveUpdate
+key|hkml|SOFTWARE\Wow6432Node\ProtectExtension
+key|hkml|SOFTWARE\ProtectExtension
+key|hkml|SOFTWARE\Wow6432Node\mystartsearchSoftware
+key|hkml|SOFTWARE\Wow6432Node\DealPlyLive
+key|hkml|SOFTWARE\DealPlyLive
+key|hkml|SOFTWARE\supTab
+key|hkml|SYSTEM\ControlSet001\services\IHProtect Service
+key|hkml|SYSTEM\ControlSet001\services\Intelligent Bigotry
+key|hkml|SYSTEM\ControlSet001\services\381a0ef7
+key|hkml|SYSTEM\ControlSet001\services\SrvUpdater
+key|hkml|SYSTEM\ControlSet001\services\srvProtectExtension
+key|hkml|SYSTEM\ControlSet001\services\pricemeterliveUpdate
+key|hkml|SYSTEM\ControlSet001\services\pricemeterliveUpdatem
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\mystartsearch.com
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\www.mystartsearch.com
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{420F3C64-4F60-4F0C-8403-6A861E6D6A47}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{4CDFDA87-E7C7-4DFB-9868-9DE57CC0DB05}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{420F3C64-4F60-4F0C-8403-6A861E6D6A47}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{4CDFDA87-E7C7-4DFB-9868-9DE57CC0DB05}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\PriceMeterUpdater
+key|hkcu|Software\PriceMeter
+key|hkcu|Software\PriceMeterLiveUpdate
+key|hkcu|Software\PriceMeterUpdater
+key|hkml|SOFTWARE\Classes\AppID\{126C78A0-36E7-4697-A3AB-32706144398B}
+key|hkml|SOFTWARE\Classes\AppID\{8D73A258-9787-4AE7-9232-41036673FD0E}
+key|hkml|SOFTWARE\Classes\AppID\PriceMeterLiveUpdate.exe
+key|hkml|SOFTWARE\Classes\CLSID\{00A154AE-6C33-4F1E-9057-242350540936}
+key|hkml|SOFTWARE\Classes\CLSID\{126C78A0-36E7-4697-A3AB-32706144398B}
+key|hkml|SOFTWARE\Classes\CLSID\{30D1E30D-B7F5-4C7A-8EDA-9F02966538A8}
+key|hkml|SOFTWARE\Classes\CLSID\{41C35ADE-DEDA-439F-8140-D53F2C76C963}
+key|hkml|SOFTWARE\Classes\CLSID\{420F3C64-4F60-4F0C-8403-6A861E6D6A47}
+key|hkml|SOFTWARE\Classes\CLSID\{4211E851-747F-4470-923D-6EF683EE79CA}
+key|hkml|SOFTWARE\Classes\CLSID\{45F8961E-1314-421E-9F00-BDDE18CF8EA0}
+key|hkml|SOFTWARE\Classes\CLSID\{4825ACAD-F495-4CDD-9603-9C91BABB2B88}
+key|hkml|SOFTWARE\Classes\CLSID\{4CDFDA87-E7C7-4DFB-9868-9DE57CC0DB05}
+key|hkml|SOFTWARE\Classes\CLSID\{5B60D1C0-453A-485D-AE91-61FAC9203719}
+key|hkml|SOFTWARE\Classes\CLSID\{74930D00-2198-46FE-B6BC-FEEC60C666C9}
+key|hkml|SOFTWARE\Classes\CLSID\{89449F37-4AB2-46ED-A566-BB3A7797701B}
+key|hkml|SOFTWARE\Classes\CLSID\{8D73A258-9787-4AE7-9232-41036673FD0E}
+key|hkml|SOFTWARE\Classes\CLSID\{9D24562E-40EC-4E46-B57C-700352059B55}
+key|hkml|SOFTWARE\Classes\CLSID\{B1F29F0C-2EC8-487B-97C2-8B8FEA6CEF14}
+key|hkml|SOFTWARE\Classes\CLSID\{C0756D99-64A1-4332-B783-A5A1B571D431}
+key|hkml|SOFTWARE\Classes\CLSID\{CF0A778A-DDA0-4492-9804-EF38C9A9F1A5}
+key|hkml|SOFTWARE\Classes\CLSID\{D1C6444C-CC06-4060-A486-736DEAFD9C16}
+key|hkml|SOFTWARE\Classes\CLSID\{D8746A3A-A372-4C8B-96E5-B58F6474EB19}
+key|hkml|SOFTWARE\Classes\CLSID\{F509ADC2-B40E-470F-A7B7-45191486B5CB}
+key|hkml|SOFTWARE\Classes\P420F3C64_4F60_4F0C_8403_6A861E6D6A47_.P420F3C64_4F60_4F0C_8403_6A861E6D6A47_
+key|hkml|SOFTWARE\Classes\P420F3C64_4F60_4F0C_8403_6A861E6D6A47_.P420F3C64_4F60_4F0C_8403_6A861E6D6A47_.9
+key|hkml|SOFTWARE\Classes\P4CDFDA87_E7C7_4DFB_9868_9DE57CC0DB05_.P4CDFDA87_E7C7_4DFB_9868_9DE57CC0DB05_
+key|hkml|SOFTWARE\Classes\P4CDFDA87_E7C7_4DFB_9868_9DE57CC0DB05_.P4CDFDA87_E7C7_4DFB_9868_9DE57CC0DB05_.9
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdate.OneClickCtrl.9
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdate.OneClickProcessLauncherMachine
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdate.OneClickProcessLauncherMachine.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdate.Update3WebControl.3
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.CoCreateAsync
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.CoCreateAsync.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.CoreClass
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.CoreClass.1
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.CoreMachineClass
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.CoreMachineClass.1
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.CredentialDialogMachine
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.CredentialDialogMachine.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.OnDemandCOMClassMachine
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.OnDemandCOMClassMachine.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.OnDemandCOMClassMachineFallback
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.OnDemandCOMClassMachineFallback.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.OnDemandCOMClassSvc
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.OnDemandCOMClassSvc.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.ProcessLauncher
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.ProcessLauncher.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.Update3COMClassService
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.Update3COMClassService.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.Update3WebMachine
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.Update3WebMachine.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.Update3WebMachineFallback
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.Update3WebMachineFallback.1.0
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.Update3WebSvc
+key|hkml|SOFTWARE\Classes\PriceMeterLiveUpdateUpdate.Update3WebSvc.1.0
+key|hkml|SOFTWARE\Classes\TypeLib\{7A6DCEC2-55AB-418F-A903-93D0DF482809}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{30D1E30D-B7F5-4C7A-8EDA-9F02966538A8}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{89449F37-4AB2-46ED-A566-BB3A7797701B}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{F509ADC2-B40E-470F-A7B7-45191486B5CB}
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\PriceMeterLiveUpdate.exe
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{420F3C64-4F60-4F0C-8403-6A861E6D6A47}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{4CDFDA87-E7C7-4DFB-9868-9DE57CC0DB05}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{420F3C64-4F60-4F0C-8403-6A861E6D6A47}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{4CDFDA87-E7C7-4DFB-9868-9DE57CC0DB05}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{89449F37-4AB2-46ED-A566-BB3A7797701B}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{F509ADC2-B40E-470F-A7B7-45191486B5CB}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{12DA0E6F-5543-440C-BAA2-28BF01070AFA}{381a0ef7}
+key|hkml|SOFTWARE\MozillaPlugins\@tools.updatepm.com
+key|hkml|SOFTWARE\SoftwareUpdater
+key|hkml|SOFTWARE\Vittalia
+key|hkml|SOFTWARE\dobreprogramy
+key|hkml|SOFTWARE\komputerswiat.pl
+key|hkml|SOFTWARE\Onet Pliki
+key|hkml|SOFTWARE\1Q1F1S1C1P1E1C1F1N1C1T1H2UtF1E1I
+key|hkcu|SOFTWARE\SoftwareUpdater
+key|hkcu|SOFTWARE\Vittalia
+key|hkcu|SOFTWARE\dobreprogramy
+key|hkcu|SOFTWARE\komputerswiat.pl
+key|hkcu|SOFTWARE\Onet Pliki
+key|hkcu|SOFTWARE\1Q1F1S1C1P1E1C1F1N1C1T1H2UtF1E1I
+key|hkml|SOFTWARE\Google\Chrome\Extensions\dhkplhfnhceodhffomolpfigojocbpcb
+key|hkml|SOFTWARE\Google\Chrome\Extensions\dlfienamagdnkekbbbocojppncdambda
+key|hkml|SOFTWARE\Google\Chrome\Extensions\dlnembnfbcpjnepmfjmngjenhhajpdfd
+key|hkml|SOFTWARE\Google\Chrome\Extensions\eooncjejnppfjjklapaamhcdmjbilmde
+key|hkml|SOFTWARE\Google\Chrome\Extensions\jbpkiefagocgkmemidfngdkamloieekf
+key|hkml|SOFTWARE\Google\Chrome\Extensions\jcdgjdiieiljkfkdcloehkohchhpekkn
+key|hkml|SOFTWARE\Google\Chrome\Extensions\jifflliplgeajjdhmkcfnngfpgbjonjg
+key|hkml|SOFTWARE\Google\Chrome\Extensions\kcmilhmkaganinonedmjidmceoppaajg
+key|hkml|SOFTWARE\Google\Chrome\Extensions\ogccgbmabaphcakpiclgcnmcnimhokcj
+key|hkml|SOFTWARE\Google\Chrome\Extensions\pfmopbbadnfoelckkcmjjeaaegjpjjbk
+key|hkml|SOFTWARE\Classes\*\shell\filescout
+key|hkml|SOFTWARE\Classes\AppID\CertifiedToolbar.DLL
+key|hkml|SOFTWARE\Classes\AppID\Complitly.DLL
+key|hkml|SOFTWARE\Classes\AppID\Extension.DLL
+key|hkml|SOFTWARE\Classes\d
+key|hkml|SOFTWARE\Classes\delta.deltaappCore
+key|hkml|SOFTWARE\Classes\delta.deltaappCore.1
+key|hkml|SOFTWARE\Classes\esrv.deltaESrvc
+key|hkml|SOFTWARE\Classes\esrv.deltaESrvc.1
+key|hkml|SOFTWARE\Classes\esrv.IncredibarESrvc
+key|hkml|SOFTWARE\Classes\esrv.IncredibarESrvc.1
+key|hkml|SOFTWARE\Classes\Extension.ExtensionHelperObject
+key|hkml|SOFTWARE\Classes\Extension.ExtensionHelperObject.1
+key|hkml|SOFTWARE\Classes\I
+key|hkml|SOFTWARE\Classes\Incredibar.dskBnd
+key|hkml|SOFTWARE\Classes\Incredibar.dskBnd.1
+key|hkml|SOFTWARE\Classes\Incredibar.IncredibarHlpr
+key|hkml|SOFTWARE\Classes\Incredibar.IncredibarHlpr.1
+key|hkml|SOFTWARE\Classes\IncredibarApp.appCore
+key|hkml|SOFTWARE\Classes\IncredibarApp.appCore.1
+key|hkml|SOFTWARE\Classes\MediaPlayer.GraphicsUtils
+key|hkml|SOFTWARE\Classes\MediaPlayer.GraphicsUtils.1
+key|hkml|SOFTWARE\Classes\MgMediaPlayer.GifAnimator
+key|hkml|SOFTWARE\Classes\MgMediaPlayer.GifAnimator.1
+key|hkml|SOFTWARE\Classes\sim-packages
+key|hkml|SOFTWARE\Classes\SuggestMeYes.SuggestMeYesBHO
+key|hkml|SOFTWARE\Classes\SuggestMeYes.SuggestMeYesBHO.1
+key|hkml|SOFTWARE\Classes\SWEETIE.IEToolbar
+key|hkml|SOFTWARE\Classes\SWEETIE.IEToolbar.1
+key|hkml|SOFTWARE\Classes\sweetim_urlsearchhook.toolbarurlsearchhook
+key|hkml|SOFTWARE\Classes\sweetim_urlsearchhook.toolbarurlsearchhook.1
+key|hkml|SOFTWARE\Classes\Toolbar3.sweetie
+key|hkml|SOFTWARE\Classes\Toolbar3.sweetie.1
+key|hkml|SOFTWARE\Classes\wtb.Band
+key|hkml|SOFTWARE\Classes\wtb.Band.1
+key|hkml|SOFTWARE\Classes\wtb.NotificationSource
+key|hkml|SOFTWARE\Classes\wtb.NotificationSource.1
+key|hkml|SOFTWARE\Classes\wtb.SourceSinkImpl
+key|hkml|SOFTWARE\Classes\wtb.SourceSinkImpl.1
+key|hkml|SOFTWARE\Classes\wtb.ToolbarInfo
+key|hkml|SOFTWARE\Classes\wtb.ToolbarInfo.1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\SweetIM.exe
+key|hkcu|Software\Classes\keepmysearch
+key|hkcu|Software\586d9dbb435e540
+key|hkml|SOFTWARE\586d9dbb435e540
+key|hkml|SOFTWARE\Classes\AppID\{39CB8175-E224-4446-8746-00566302DF8D}
+key|hkml|SOFTWARE\Classes\AppID\{3FC27B34-0C19-49DA-875E-1875DDD4A6B2}
+key|hkml|SOFTWARE\Classes\AppID\{442F13BC-2031-42D5-9520-437F65271153}
+key|hkml|SOFTWARE\Classes\AppID\{608D3067-77E8-463D-9084-908966806826}
+key|hkml|SOFTWARE\Classes\AppID\{B302A1BD-0157-49FA-90F1-4E94F22C7B4B}
+key|hkml|SOFTWARE\Classes\AppID\{CFE8AAFD-A0F3-4329-84E9-6B679EC93EC2}
+key|hkml|SOFTWARE\Classes\CLSID\{0FB6A909-6086-458F-BD92-1F8EE10042A0}
+key|hkml|SOFTWARE\Classes\CLSID\{261DD098-8A3E-43D4-87AA-63324FA897D8}
+key|hkml|SOFTWARE\Classes\CLSID\{336D0C35-8A85-403A-B9D2-65C292C39087}
+key|hkml|SOFTWARE\Classes\CLSID\{4FCB4630-2A1C-4AA1-B422-345E8DC8A6DE}
+key|hkml|SOFTWARE\Classes\CLSID\{6E13DDE1-2B6E-46CE-8B66-DC8BF36F6B99}
+key|hkml|SOFTWARE\Classes\CLSID\{82AC53B4-164C-4B07-A016-437A8388B81A}
+key|hkml|SOFTWARE\Classes\CLSID\{82E1477C-B154-48D3-9891-33D83C26BCD3}
+key|hkml|SOFTWARE\Classes\CLSID\{86838207-681D-469D-9511-D0DCC6F19F9B}
+key|hkml|SOFTWARE\Classes\CLSID\{A4A0CB15-8465-4F58-A7E5-73084EA2A064}
+key|hkml|SOFTWARE\Classes\CLSID\{A928E66C-F501-4E66-9953-855C712F93B2}
+key|hkml|SOFTWARE\Classes\CLSID\{C01315C7-B4E2-4864-B43D-5FAFC414D179}
+key|hkml|SOFTWARE\Classes\CLSID\{C1545464-C77C-4130-A572-1C619E2895FE}
+key|hkml|SOFTWARE\Classes\CLSID\{C1AF5FA5-852C-4C90-812E-A7F75E011D87}
+key|hkml|SOFTWARE\Classes\CLSID\{E97A663B-81A6-49C5-A6D3-BCB05BA1DE26}
+key|hkml|SOFTWARE\Classes\CLSID\{ED0E67AD-926C-4008-87E5-03CF72AA2A7E}
+key|hkml|SOFTWARE\Classes\CLSID\{EEE6C35B-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Classes\CLSID\{EEE6C35C-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Classes\CLSID\{EEE6C35D-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Classes\CLSID\{EF7BD87A-8024-11E2-F316-F3E56188709B}
+key|hkml|SOFTWARE\Classes\CLSID\{EF7FEC6D-451B-4452-9D26-7E10C6B5DB6E}
+key|hkml|SOFTWARE\Classes\CLSID\{F9639E4A-801B-4843-AEE3-03D9DA199E77}
+key|hkml|SOFTWARE\Classes\Interface\{22B0769F-794B-4422-AC84-47B123C8986D}
+key|hkml|SOFTWARE\Classes\Interface\{255E0B2A-D747-4EEF-B7CE-159D73A3656D}
+key|hkml|SOFTWARE\Classes\Interface\{28ED590D-F5ED-4E05-A87F-1D759F1C6169}
+key|hkml|SOFTWARE\Classes\Interface\{45D5B93F-E2ED-4AF2-915E-DCDDBDA8C33C}
+key|hkml|SOFTWARE\Classes\Interface\{771B99AB-636F-4A11-9039-8DFEB927B061}
+key|hkml|SOFTWARE\Classes\Interface\{8DA8B89E-0C65-403B-8231-AB22ECFA0687}
+key|hkml|SOFTWARE\Classes\Interface\{A36867C6-302D-49FC-9D8E-1EB037B5F1AB}
+key|hkml|SOFTWARE\Classes\Interface\{A439801C-961D-452C-AB42-7848E9CBD289}
+key|hkml|SOFTWARE\Classes\Interface\{A8321AA2-2227-40C7-8525-6C2F4E1B0EBE}
+key|hkml|SOFTWARE\Classes\Interface\{A928E66C-F501-4E66-9953-855C712F93B2}
+key|hkml|SOFTWARE\Classes\Interface\{AA41A731-6814-4A70-A6F1-C0A20FBBFBD5}
+key|hkml|SOFTWARE\Classes\Interface\{ABBB8A9E-D8AF-40D1-94BE-5175077465FC}
+key|hkml|SOFTWARE\Classes\Interface\{B0E28FA0-DF07-44B6-95CE-48BE26DB9266}
+key|hkml|SOFTWARE\Classes\Interface\{BF737694-56F6-46FA-9FDC-FA99A5B25FAD}
+key|hkml|SOFTWARE\Classes\Interface\{C9AE652B-8C99-4AC2-B556-8B501182874E}
+key|hkml|SOFTWARE\Classes\Interface\{CFCD164E-8AC9-478E-9ECC-B616A932016C}
+key|hkml|SOFTWARE\Classes\Interface\{D5961CC0-B442-4567-8030-67E241EF4CC2}
+key|hkml|SOFTWARE\Classes\Interface\{E450067F-1C93-41A7-928E-07E5C2EEC680}
+key|hkml|SOFTWARE\Classes\Interface\{E6B4EE8F-C38E-4994-BE28-229A3F92262C}
+key|hkml|SOFTWARE\Classes\Interface\{EEE6C358-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Classes\Interface\{EEE6C359-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Classes\Interface\{EEE6C35A-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Classes\Interface\{F4EBB1E2-21F3-4786-8CF4-16EC5925867F}
+key|hkml|SOFTWARE\Classes\Interface\{F977D9F2-4BDC-44A6-B508-7C0284C61EED}
+key|hkml|SOFTWARE\Classes\Interface\{FCA8936E-403A-4487-A966-70F80F1D5A6A}
+key|hkml|SOFTWARE\Classes\TypeLib\{01BCB858-2F62-4F06-A8F4-48F927C15333}
+key|hkml|SOFTWARE\Classes\TypeLib\{1D5A4199-956E-49BC-B89F-6A35C57C0D13}
+key|hkml|SOFTWARE\Classes\TypeLib\{39CB8175-E224-4446-8746-00566302DF8D}
+key|hkml|SOFTWARE\Classes\TypeLib\{4599D05A-D545-4069-BB42-5895B4EAE05B}
+key|hkml|SOFTWARE\Classes\TypeLib\{48C9C8B0-A546-46C1-A81F-47A31E623E9D}
+key|hkml|SOFTWARE\Classes\TypeLib\{4D3B167E-5FD8-4276-8FD7-9DF19C1E4D19}
+key|hkml|SOFTWARE\Classes\TypeLib\{CFE8AAFD-A0F3-4329-84E9-6B679EC93EC2}
+key|hkml|SOFTWARE\Classes\TypeLib\{EEE6C35E-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Classes\TypeLib\{EEE6C35F-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{0FB6A909-6086-458F-BD92-1F8EE10042A0}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{336D0C35-8A85-403A-B9D2-65C292C39087}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{C1AF5FA5-852C-4C90-812E-A7F75E011D87}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{EEE6C35C-6118-11DC-9C72-001320C79847}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{EF7BD87A-8024-11E2-F316-F3E56188709B}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{336D0C35-8A85-403A-B9D2-65C292C39087}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{6E13DDE1-2B6E-46CE-8B66-DC8BF36F6B99}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{EEE6C35B-6118-11DC-9C72-001320C79847}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{EEE6C35C-6118-11DC-9C72-001320C79847}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{EF7BD87A-8024-11E2-F316-F3E56188709B}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{F9639E4A-801B-4843-AEE3-03D9DA199E77}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{2EECD738-5844-4A99-B4B6-146BF802613B}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{336D0C35-8A85-403A-B9D2-65C292C39087}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{6E13DDE1-2B6E-46CE-8B66-DC8BF36F6B99}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{82E1477C-B154-48D3-9891-33D83C26BCD3}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{C1AF5FA5-852C-4C90-812E-A7F75E011D87}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{EEE6C35B-6118-11DC-9C72-001320C79847}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{EEE6C35C-6118-11DC-9C72-001320C79847}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{EF7BD87A-8024-11E2-F316-F3E56188709B}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{F9639E4A-801B-4843-AEE3-03D9DA199E77}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{348C2DF3-1191-4C3E-92A6-B3A89A9D9C85}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{74C36554-31F0-49DD-8857-ED6A64DF45BE}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{CFD485F0-96BD-47CD-BB6D-CD7DDA95F102}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{EEE6C367-6118-11DC-9C72-001320C79847}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{0ECDF796-C2DC-4D79-A620-CCE0C0A66CC9}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{AFDBDDAA-5D3F-42EE-B79C-185A7020515B}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{CFF4DB9B-135F-47C0-9269-B4C6572FD61A}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{EEE6C360-6118-11DC-9C72-001320C79847}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{44898056-1068-4440-B3FD-031573D20040}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{afdbddaa-5d3f-42ee-b79c-185a7020515b}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{EEE6C360-6118-11DC-9C72-001320C79847}
+key|hkcu|Software\APN
+key|hkcu|Software\DealPly
+key|hkcu|Software\Microsoft\Babylon
+key|hkcu|Software\pc speed maximizer
+key|hkcu|Software\ProtectedSearch
+key|hkcu|Software\Smart Driver Updater
+key|hkcu|Software\SweetIM
+key|hkcu|Software\WEDLMNGR
+key|hkcu|Software\WNLT
+key|hkcu|Software\AppDataLow\Software\simplytech
+key|hkml|SOFTWARE\APN
+key|hkml|SOFTWARE\DealPly
+key|hkml|SOFTWARE\Delta
+key|hkml|SOFTWARE\IB Updater
+key|hkml|SOFTWARE\incredibar.com
+key|hkml|SOFTWARE\SimplyGen
+key|hkml|SOFTWARE\SweetIM
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\DealPly
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\Softonic for Windows
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{4FFBB818-B13C-11E0-931D-B2664824019B}_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{7683B745-6060-41FD-AA75-0BBB383FEAD4}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{774C0434-9948-4DEE-A14E-69CDD316E36C}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{E55E7026-EF2A-4A17-AAA7-DB98EA3FD1B1}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{FB697452-8CA4-46B4-98B1-165C922A2EF3}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\1ClickDownload
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\DealPly
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Delta Chrome Toolbar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Delta
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\incredibar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PC Speed Maximizer_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Protected Search_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Smart Driver Updater_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\WNLT
+key|hkml|SOFTWARE\WNLT
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{336D0C35-8A85-403a-B9D2-65C292C39087}_is1
+key|hkml|SOFTWARE\Classes\Installer\Features\254796BF4AC84B64891B61C529A2E23F
+key|hkml|SOFTWARE\Classes\Installer\Features\4340C4778499EED41AE496DC3D613EC6
+key|hkml|SOFTWARE\Classes\Installer\Features\547B38670606DF14AA57B0BB83F3AE4D
+key|hkml|SOFTWARE\Classes\Installer\Features\6207E55EA2FE71A4AA7ABD89AEF31D1B
+key|hkml|SOFTWARE\Classes\Installer\Products\254796BF4AC84B64891B61C529A2E23F
+key|hkml|SOFTWARE\Classes\Installer\Products\4340C4778499EED41AE496DC3D613EC6
+key|hkml|SOFTWARE\Classes\Installer\Products\547B38670606DF14AA57B0BB83F3AE4D
+key|hkml|SOFTWARE\Classes\Installer\Products\6207E55EA2FE71A4AA7ABD89AEF31D1B
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\02F47BF73B948514FAACADD8CBBDF37D
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\07D5290CDBDAE4242926B8E6CA650501
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\080D9F5E1E95FEE4794CE438E635239E
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\08E33F7B61DEFF24BB9673ED7D467636
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\0CFE535C35F99574E8340BFA75BF92C2
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\0E12F736682067FDE4D1158D5940A82E
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\0E3D8A5B48622A445A7DF73FEFF32C3F
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\12BF94BD06C95F343A77631402B9556A
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\1A24B5BB8521B03E0C8D908F5ABC0AE6
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\1E264E0A5959A1C46BA9175A878B12EA
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\2124D8A8CF720FD44866190AF560228E
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\261F213D1F55267499B1F87D0CC3BCF7
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\27A325ACED8CA4743A30127638591ADB
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\2B0D56C4F4C46D844A57FFED6F0D2852
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\2E6768B6932D112438F047C54D180635
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\34EDDB1BFB3A2D448845F3EFD0F15A43
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\350D17402BD84234EAF7D32F08172D7C
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\351716A953E21214898904032EAE2E81
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\397C771A7BCAC904697C3EC629ED33ED
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\3EE8C5F419057E1478A654868CEE60B5
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\427EA997C413D1D47907CBFC7B2DB432
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\4318DF19719275242801CBE292063A4C
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\45FC115D1FEAEF849A4E1610D6EC8BF0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\46A5861A389ADB844AF89E31BC9DF0A1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\4735D908D66E1BA46B6C2D7185A12B2B
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\49B0E1A6FF50BBE4289E4E23DE6EA0C7
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\49D4375FE41653242AEA4C969E4E65E0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\4B2468513CA2D6943A1A233CD3F88CE7
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\4CCCAC049F34D0540AAC13011398BEDB
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\5C4389D0BFB302C479DE4178BD5D9EBA
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\5D2B09BDEF4FE54418E6F3373CDBC7AC
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\61B65D3397A1FBF4CB1571B5E4F6B5B0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\68E8A05C60DD9254591DBD16C94EDDBF
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\697E782CF574CC34CBB9566440BA12BC
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\69D6A6B2ED56AF24EA6335EAD6E91CA4
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\6AA0923513360135B272E8289C5F13FA
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\6AE27A8613CF7EA4782F2886F67295E5
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\6F7467AF8F29C134CBBAB394ECCFDE96
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\741B4ADF27276464790022C965AB6DA8
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\75D5168E5E176C24981B4E5DBD991078
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\76D8378E2DDAED3428720A631F6E3BF0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\7CE172051F585E04187BCB97570BFA74
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\7DE196B10195F5647A2B21B761F3DE01
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\7FFA128C2B0FF414D805FC5627883401
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\86A901BA5265452499DCBF719C378EE3
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\86EDC790504E1834DBC20C9A04328FD2
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\8724E58E6C7D00C48A0D4F3345EB2C26
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\88ABD1CD5C40EC84789A7F6EF86DAC5E
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\922525DCC5199162F8935747CA3D8E59
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\97C3D0F82E712E241A2F969F45E3351C
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\980289C22F80A7C4BB9323DC61255E4E
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\98CC8BF5A4A6E6C4ABF7051DDAB8B058
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\9A001B259DB7D694E818BE29B973992C
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\9A4B7EF3789F871419D9302583B20C15
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\9D4F5849367142E4685ED8C25E44C5ED
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\9E7F556BF224D804D96A96F0F6344789
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\A189D17A469616C4688D23E192996267
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\A5875B04372C19545BEB90D4D606C472
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\A6C53B0F76C44004A8F36716213017DB
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\A876D9E80B896EC44A8620248CC79296
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\AB676B0E1B9EFA049B9F7DDDA9645734
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\B31BBB0B825EDEF45AB0FE7099C68C81
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\B471D8D7319336B4CA89374ED0D7B806
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\B59F2D8189784CC46A4597F2842480B0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\B66FFAB725B92594C986DE826A867888
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\BAE2EC163C6A68A48921573E0E7E199D
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\BC30043663AA2CA4DA1DAA9CA5FDCC75
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\BCDA179D619B91648538E3394CAC94CC
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\BD746FB95FB8E5B45BF66BE54D5FD91F
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\BF4F885EDEE45644EB1E0C99E0162399
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\C06C6662FA5B04646829E4A460857770
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\CCF399FCD6D2D3F46BF02A1378654FC9
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\CE21F3FD57B244142880EF15A165A156
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\CEEB3E14ABE8270419B0FD762E18F7C6
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\D149C1355C98DE24E82CEFBD996FE06A
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\D15DAF33C220F91468A1D7D57C31ACD7
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\D3BA76A44C779424889063D5098ED2D6
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\D677B1A9671D4D4004F6F2A4469E86EA
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\D6D0EB9FDBD90C04D92A7E729058F10D
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\DB59FDB786388EA4D897F3EE715683AC
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\DB8DAD19CFBCC2049A4477183787E8C5
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\DD1402A9DD4215A43ABDE169A41AFA0E
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\E1C820A74ED67374BA048B52CB3C3804
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\E36E114A0EAD2AD46B381D23AD69CDDF
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\E4748F9A4181FCE46A23C13B517B9420
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\EC65F200D112357449C8B1BC3CFA03D0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\ED1B5E9A3BDB51349BF96E842C062D98
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\EF8E618DB3AEDFBB384561B5C548F65E
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\F327D0C73C0973644A21E8CC852267A0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\F754C503375A13344B22388E18DFE87E
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\FA96423FE2B98E248A3B23548D1E22D9
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\FDC83385E6C239F4C876A77A37DF581D
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\FECBC2BC14DA6CD459BD59A041709836
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\120DFADEB50841F408F04D2A278F9509
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\254796BF4AC84B64891B61C529A2E23F
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\4340C4778499EED41AE496DC3D613EC6
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\547B38670606DF14AA57B0BB83F3AE4D
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\6207E55EA2FE71A4AA7ABD89AEF31D1B
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes\789034A89B​AC50E4782F0A7BDBF75632
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes\A97CEC2333​2751B47BA4B95BAA50C9D0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes\F928123A03​9649549966D4C29D35B1C9
+key|hkml|SOFTWARE\Classes\Interface\{3B3F3AAD-FB97-49FF-BFEE-D22869AC4326}
+key|hkml|SOFTWARE\Classes\TypeLib\{157B1AA6-3E5C-404A-9118-C1D91F537040}
+key|hkml|Software\FreeSoftToday
+key|hkml|Software\Tutorials
+key|hkml|SOFTWARE\Classes\Updater.AmiUpd
+key|hkml|SOFTWARE\Classes\Interface\{9EDC0C90-2B5B-4512-953E-35767BAD5C67}
+key|hkml|SOFTWARE\Classes\TypeLib\{EAB5257A-1FB3-474C-9B42-231F52622E72}
+key|hkcu|Software\0cc2e62ef151ade53135716a79cd96fd
+key|hkcu|Software\AppDataLow\Software\Conduit
+key|hkcu|Software\bead739c11b6815884fb1a13a48ced96
+key|hkcu|Software\ExpressFiles
+key|hkcu|Software\f28bd1b03aec42
+key|hkcu|Software\PIP
+key|hkcu|Software\UpdateStar
+key|hkml|SOFTWARE\Classes\AppID\{6536801B-F50C-449B-9476-093DFD3789E3}
+key|hkml|SOFTWARE\Classes\AppID\BabylonHelper.EXE
+key|hkml|SOFTWARE\Classes\CLSID\{67BD9EEB-AA06-4329-A940-D250019300C9}
+key|hkml|SOFTWARE\Classes\CLSID\{80922EE0-8A76-46AE-95D5-BD3C3FE0708D}
+key|hkml|SOFTWARE\Classes\Interface\{0BF91075-F457-4A8B-99EF-140B52D2F22A}
+key|hkml|SOFTWARE\Classes\Interface\{37425600-CB21-49A0-8659-476FBAB0F8E8}
+key|hkml|SOFTWARE\Classes\Interface\{431FB0E5-2CBB-4602-9FE6-F1D64488ADD7}
+key|hkml|SOFTWARE\Classes\Interface\{5C9A230D-70A5-11D5-AFB0-0050DAC67890}
+key|hkml|SOFTWARE\Classes\Interface\{8911483C-C00A-4183-9FBC-6C9C00946C15}
+key|hkml|SOFTWARE\Classes\Interface\{C3F058A9-407D-4CD1-8F66-B75605B54B69}
+key|hkml|SOFTWARE\Classes\Interface\{EFDCAF05-D29C-4D4D-9836-8CDCD606A6B2}
+key|hkml|SOFTWARE\Classes\TypeLib\{5C9A2304-70A5-11D5-AFB0-0050DAC67890}
+key|hkml|SOFTWARE\Classes\TypeLib\{A0EE0278-2986-4E5A-884E-A3BF0357E476}
+key|hkml|SOFTWARE\Classes\Updater.AmiUpd.1
+key|hkml|Software\delta-homesSoftware
+key|hkml|Software\Desksvc
+key|hkml|Software\ExpressFiles
+key|hkml|Software\InstallIQ
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{BB74DE59-BC4C-4172-9AC4-73315F71CFFE}
+key|hkml|SOFTWARE\Microsoft\Tracing\askpartnercobrandingtool_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\askpartnercobrandingtool_RASMANCS
+key|hkml|SOFTWARE\Microsoft\tracing\askpartnercobrandingtool_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\Babylon_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\Babylon_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\BabylonTC_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\BabylonTC_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_blueeyem_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_blueeyem_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_java-development-kit_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_java-development-kit_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_mini-monitoring_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_mini-monitoring_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_san-andreas-mod-installer_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_san-andreas-mod-installer_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{99C91FC5-DB5B-4AA0-BB70-5D89C5A4DF96}
+key|hkml|Software\portaldositesSoftware
+key|hkml|Software\SearchProtect
+key|hkml|Software\Uniblue\DriverScanner
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\DeskSvc
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\WsysSvc
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Optimizer Pro_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OptimizerPro
+key|hkcu|Software\dsiteproducts
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{0ECDF796-C2DC-4d79-A620-CCE0C0A66CC9}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{95B7759C-8C7F-4BF1-B163-73684A933233}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{A6174F27-1FFF-E1D6-A93F-BA48AD5DD448}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{F25AF245-4A81-40DC-92F9-E9021F207706}
+key|hkcu|Software\WiseEnhance
+key|hkml|SOFTWARE\Classes\AppID\{BB711CB0-C70B-482E-9852-EC05EBD71DBB}
+key|hkml|SOFTWARE\Classes\AppID\ScriptHelper.EXE
+key|hkml|SOFTWARE\Classes\CLSID\{A6174F27-1FFF-E1D6-A93F-BA48AD5DD448}
+key|hkml|SOFTWARE\Classes\CLSID\{DE9028D0-5FFA-4E69-94E3-89EE8741F468}
+key|hkml|SOFTWARE\Classes\CLSID\{E7DF6BFF-55A5-4EB7-A673-4ED3E9456D39}
+key|hkml|SOFTWARE\Classes\TypeLib\{07CAC314-E962-4F78-89AB-DD002F2490EE}
+key|hkml|SOFTWARE\Classes\TypeLib\{13ABD093-D46F-40DF-A608-47E162EC799D}
+key|hkml|SOFTWARE\microsoft\shared tools\msconfig\startupreg\mobilegeni daemon
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\MobogenieAdd
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{95B7759C-8C7F-4BF1-B163-73684A933233}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{A6174F27-1FFF-E1D6-A93F-BA48AD5DD448}
+key|hkml|SOFTWARE\sweet-pageSoftware
+key|hkml|SOFTWARE\WiseEnhance
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\IePluginService
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\Wpm
+key|hkml|SOFTWARE\Microsoft\Tracing\DEALPL~1_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\DEALPL~1_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\incredibar_install_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\incredibar_install_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\IncredibarToolbar_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\IncredibarToolbar_RASMANCS
+key|hkml|SOFTWARE\968fd8e068ed47
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_daemon-tools(1)_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_daemon-tools(1)_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_open-fm_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_open-fm_RASMANCS
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{312F84FB-8970-4FD3-BDDB-7012EAC4AFC9}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{32099AAC-C132-4136-9E9A-4E364A424E17}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{312F84FB-8970-4FD3-BDDB-7012EAC4AFC9}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{32099AAC-C132-4136-9E9A-4E364A424E17}
+key|hkml|SOFTWARE\Classes\CLSID\{32099AAC-C132-4136-9E9A-4E364A424E17}
+key|hkcu|Software\AppDataLow\Software\Lyrmix
+key|hkml|Software\Delta
+key|hkml|Software\qvo6Software
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\bi_uninstaller
+key|hkcu|Software\AppDataLow\Software\Search Settings
+key|hkcu|Software\Google\Chrome\Extensions\joepfemoahndhaicaeaimohjnehakggf
+key|hkml|SOFTWARE\Classes\CLSID\{A1CCCE0D-AE21-42A2-BE58-8E6109410995}
+key|hkml|SOFTWARE\Google\Chrome\Extensions\hbcennhacfaagdopikcegfcobcadeocj
+key|hkml|SOFTWARE\Google\Chrome\Extensions\joepfemoahndhaicaeaimohjnehakggf
+key|hkml|SOFTWARE\Google\Chrome\Extensions\mhkaekfpcppmmioggniknbnbdbcigpkk
+key|hkml|SOFTWARE\Google\Chrome\Extensions\pfndaklgolladniicklehhancnlgocpp
+key|hkml|SOFTWARE\Classes\CLSID\{03EB0E9C-7A91-4381-A220-9B52B641CDB1}
+key|hkml|SYSTEM\ControlSet001\services\CltMngSvc
+key|hkml|SYSTEM\ControlSet002\services\CltMngSvc
+key|hkcu|Software\AppDataLow\Software\IncrediMail_MediaBar_2
+key|hkcu|Software\AppDataLow\Software\PricePeep
+key|hkcu|Software\Google\Chrome\Extensions\gaiilaahiahdejapggenmdmafpmbipje
+key|hkcu|Software\IB Updater
+key|hkcu|Software\incredibar.com
+key|hkcu|Software\IncrediMail_MediaBar_2
+key|hkcu|Software\Microsoft\Internet Explorer\Explorer Bars\{A7CDDCDC-BEEB-4685-A062-978F5E07CEEE}
+key|hkcu|Software\Microsoft\Internet Explorer\MenuExt\&Search
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{4B8C28A7-A9BC-45F8-990D-21499EED643C}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{AD22EBAF-0D18-4FC7-90CC-5EA0ABBE9EB8}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Explorer\MenuOrder\Start Menu2\Programs\DealPly
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{100EB1FD-D03E-47FD-81F3-EE91287F9465}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{AA80D9BB-36ED-469C-80AF-5A240D3F083A}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{C5428486-50A0-4A02-9D20-520B59A9F9B2}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{C5428486-50A0-4A02-9D20-520B59A9F9B3}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{D40B90B4-D3B1-4D6B-A5D7-DC041C1B76C0}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{DF7770F7-832F-4BDF-B144-100EDDD0C3AE}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{FD6D90C0-E6EE-4BC6-B9F7-9ED319698007}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{FD72061E-9FDE-484D-A58A-0BAB4151CAD8}
+key|hkcu|Software\PriceGong
+key|hkcu|Software\ShopperReports3
+key|hkcu|Software\SmartBar
+key|hkcu|Toolbar
+key|hkml|SOFTWARE\Classes\AppID\{0D82ACD6-A652-4496-A298-2BDE705F4227}
+key|hkml|SOFTWARE\Classes\AppID\{38A066B0-DD5F-4226-AC4F-6A27C1BFB892}
+key|hkml|SOFTWARE\Classes\AppID\{7025E484-D4B0-441A-9F0B-69063BD679CE}
+key|hkml|SOFTWARE\Classes\AppID\{8258B35C-05B8-4C0E-9525-9BCCC70F8F2D}
+key|hkml|SOFTWARE\Classes\AppID\{A89256AD-EC17-4A83-BEF5-4B8BC4F39306}
+key|hkml|SOFTWARE\Classes\AppID\{CFDAFE39-20CE-451D-BD45-A37452F39CF0}
+key|hkml|SOFTWARE\Classes\AppID\BRNstIE.DLL
+key|hkml|SOFTWARE\Classes\AppID\CmndFF.DLL
+key|hkml|SOFTWARE\Classes\AppID\mozillaps.dll
+key|hkml|SOFTWARE\Classes\AppID\Pltfrm.DLL
+key|hkml|SOFTWARE\Classes\AppID\YontooIEClient.DLL
+key|hkml|SOFTWARE\Classes\CLSID\{09325003-167C-483D-A4BA-8B3122ABB432}
+key|hkml|SOFTWARE\Classes\CLSID\{10DE7085-6A1E-4D41-A7BF-9AF93E351401}
+key|hkml|SOFTWARE\Classes\CLSID\{13119113-0854-469D-807A-171568457991}
+key|hkml|SOFTWARE\Classes\CLSID\{1F6F39C1-00A8-4752-A94C-D0EA92D978B6}
+key|hkml|SOFTWARE\Classes\CLSID\{20EA9658-6BC3-4599-A87D-6371FE9295FC}
+key|hkml|SOFTWARE\Classes\CLSID\{271F593A-B4E1-426C-81B2-9C4671E051CC}
+key|hkml|SOFTWARE\Classes\CLSID\{2721A8E5-BFDB-4562-9912-9E0531CA616C}
+key|hkml|SOFTWARE\Classes\CLSID\{2A1260C1-2964-453F-B0BA-FA429472EB5F}
+key|hkml|SOFTWARE\Classes\CLSID\{33119133-0854-469D-807A-171568457991}
+key|hkml|SOFTWARE\Classes\CLSID\{363D5C92-10DC-4287-93E5-1832EECC48EC}
+key|hkml|SOFTWARE\Classes\CLSID\{396CFC12-932D-496B-A0A8-5D7201E105E1}
+key|hkml|SOFTWARE\Classes\CLSID\{3B41BE90-F731-4137-AFF3-2CA951E7F0D9}
+key|hkml|SOFTWARE\Classes\CLSID\{60DA826C-B1C6-4358-BDEC-4837CED45470}
+key|hkml|SOFTWARE\Classes\CLSID\{66292684-B2C2-4C7C-B3D2-BF446E30744C}
+key|hkml|SOFTWARE\Classes\CLSID\{69407823-3494-4400-8D49-612549E8F4EE}
+key|hkml|SOFTWARE\Classes\CLSID\{6BFF4BCB-7A73-45A7-AC4C-389A34E1D1EF}
+key|hkml|SOFTWARE\Classes\CLSID\{6DD76B7B-6423-4DF0-9A07-84A6CAD973A0}
+key|hkml|SOFTWARE\Classes\CLSID\{71144427-1368-4D18-8DC9-2AE3CC4C4F83}
+key|hkml|SOFTWARE\Classes\CLSID\{74C22317-5B90-471F-9AD2-FEC049870A16}
+key|hkml|SOFTWARE\Classes\CLSID\{7E84186E-B5DE-4226-8A66-6E49C6B511B4}
+key|hkml|SOFTWARE\Classes\CLSID\{7F6CFB6A-9227-4BB8-B941-F2B067E76F51}
+key|hkml|SOFTWARE\Classes\CLSID\{8FCA5302-6D6D-4645-BF99-D43CF76CE474}
+key|hkml|SOFTWARE\Classes\CLSID\{99066096-8989-4612-841F-621A01D54AD7}
+key|hkml|SOFTWARE\Classes\CLSID\{99079A25-328F-4BD4-BE04-00955ACAA0A7}
+key|hkml|SOFTWARE\Classes\CLSID\{99E1F6FD-2E94-4CF6-8344-1BA63CD3BD9B}
+key|hkml|SOFTWARE\Classes\CLSID\{A16AD1E9-F69A-45AF-9462-B1C286708842}
+key|hkml|SOFTWARE\Classes\CLSID\{A7CDDCDC-BEEB-4685-A062-978F5E07CEEE}
+key|hkml|SOFTWARE\Classes\CLSID\{AA80D9BB-36ED-469C-80AF-5A240D3F083A}
+key|hkml|SOFTWARE\Classes\CLSID\{AB0EE208-DF60-4FA7-A617-C4269760033E}
+key|hkml|SOFTWARE\Classes\CLSID\{C1089F63-7AFC-4538-B0EB-BEA0F4225A57}
+key|hkml|SOFTWARE\Classes\CLSID\{C9CCBB35-D123-4A31-AFFC-9B2933132116}
+key|hkml|SOFTWARE\Classes\CLSID\{CC7BD6F1-565C-47CE-A5BB-9C935E77B59D}
+key|hkml|SOFTWARE\Classes\CLSID\{CFC16189-8A92-4A29-A940-60248385F426}
+key|hkml|SOFTWARE\Classes\CLSID\{DEE758B4-C3FB-4A5B-9939-848B9C77A2FB}
+key|hkml|SOFTWARE\Classes\CLSID\{DF7770F7-832F-4BDF-B144-100EDDD0C3AE}
+key|hkml|SOFTWARE\Classes\CLSID\{E12AEAB6-7D12-4C07-8E36-5892EFB4DAFB}
+key|hkml|SOFTWARE\Classes\CLSID\{E2F2C137-A782-4FB5-81AF-086156F5EB0A}
+key|hkml|SOFTWARE\Classes\CLSID\{ED345812-2722-4DCA-9976-D01832DB44EE}
+key|hkml|SOFTWARE\Classes\CLSID\{F1D06C9F-51F0-4476-BEDE-5DDF91BE304E}
+key|hkml|SOFTWARE\Classes\CLSID\{F3A32DF2-7413-4FB1-B575-1AC920A17B76}
+key|hkml|SOFTWARE\Classes\CLSID\{FE9271F2-6EFD-44B0-A826-84C829536E93}
+key|hkml|SOFTWARE\Classes\Conduit.Engine
+key|hkml|SOFTWARE\Classes\DTToolbar.ToolBandObj
+key|hkml|SOFTWARE\Classes\DTToolbar.ToolBandObj.1
+key|hkml|SOFTWARE\Classes\Interface\{10DE7085-6A1E-4D41-A7BF-9AF93E351401}
+key|hkml|SOFTWARE\Classes\Interface\{17B10E59-09E1-4C39-A738-6774D7AB7778}
+key|hkml|SOFTWARE\Classes\Interface\{17BF1E05-C0E8-413C-BD1F-A481EEA3B8E9}
+key|hkml|SOFTWARE\Classes\Interface\{1AD27395-1659-4DFF-A319-2CFA243861A5}
+key|hkml|SOFTWARE\Classes\Interface\{1B97A696-5576-43AC-A73B-E1D2C78F21E8}
+key|hkml|SOFTWARE\Classes\Interface\{21BA420E-161C-413A-B21E-4E42AE1F4226}
+key|hkml|SOFTWARE\Classes\Interface\{23119123-0854-469D-807A-171568457991}
+key|hkml|SOFTWARE\Classes\Interface\{3E9469AF-E866-4476-B767-810630F1F6E7}
+key|hkml|SOFTWARE\Classes\Interface\{453DB0C5-F41C-4D97-8DD6-CC72ECD5F699}
+key|hkml|SOFTWARE\Classes\Interface\{47700C35-9E3E-4DAD-934C-0CE28A87237C}
+key|hkml|SOFTWARE\Classes\Interface\{4AFC07D0-59BB-46B8-B097-1A46E88EEF71}
+key|hkml|SOFTWARE\Classes\Interface\{6511CE4C-4722-40D0-AD3D-4AFA2F50978A}
+key|hkml|SOFTWARE\Classes\Interface\{65A16874-2ED0-460E-A547-5FE2EC3A13A7}
+key|hkml|SOFTWARE\Classes\Interface\{716E443D-7CAA-44F1-866B-F45D00E712CC}
+key|hkml|SOFTWARE\Classes\Interface\{71E02280-5212-45C3-B174-4D5A35DA254F}
+key|hkml|SOFTWARE\Classes\Interface\{72063D77-7590-4DA9-A7F8-F5ECAF3632C4}
+key|hkml|SOFTWARE\Classes\Interface\{75BF416E-4326-45B5-8A2D-AE32D05B930B}
+key|hkml|SOFTWARE\Classes\Interface\{7FC87AC5-FA93-476E-A32C-A941229DED0B}
+key|hkml|SOFTWARE\Classes\Interface\{813A22E0-3E2B-4188-9BDA-ECA9878B8D48}
+key|hkml|SOFTWARE\Classes\Interface\{83B2FE06-BA20-4F7D-96C6-6FC3A4E877D3}
+key|hkml|SOFTWARE\Classes\Interface\{8AD9AD05-36BE-4E40-BA62-5422EB0D02FB}
+key|hkml|SOFTWARE\Classes\Interface\{9BEC9B38-BF39-4899-806E-A1C5DFEB60A2}
+key|hkml|SOFTWARE\Classes\Interface\{AEBF09E2-0C15-43C8-99BF-928C645D98A0}
+key|hkml|SOFTWARE\Classes\Interface\{B32966A2-F7C2-4362-A6CF-399EC8B44110}
+key|hkml|SOFTWARE\Classes\Interface\{B86D82BF-D39F-439A-A07C-43EDDC6F6EA6}
+key|hkml|SOFTWARE\Classes\Interface\{D8560AC2-21B5-4C1A-BDD4-BD12BC83B082}
+key|hkml|SOFTWARE\Classes\Interface\{DA6305B9-0869-4235-8C1D-533A65E639E5}
+key|hkml|SOFTWARE\Classes\Interface\{E25DA6D6-C365-46CF-ABAF-DC5893135D7A}
+key|hkml|SOFTWARE\Classes\Interface\{E6961C59-CFCE-4CCD-B794-BC78DB98413A}
+key|hkml|SOFTWARE\Classes\Interface\{F8B4EC8A-2407-4BE0-AEE2-0F430D65A90D}
+key|hkml|SOFTWARE\Classes\PricePeep.PricePeepBho
+key|hkml|SOFTWARE\Classes\PricePeep.PricePeepBho.1
+key|hkml|SOFTWARE\Classes\ShopperReports.AsyncReporter
+key|hkml|SOFTWARE\Classes\ShopperReports.AsyncReporter.1
+key|hkml|SOFTWARE\Classes\ShopperReports.CntntDic
+key|hkml|SOFTWARE\Classes\ShopperReports.CntntDic.1
+key|hkml|SOFTWARE\Classes\ShopperReports.CntntDisp
+key|hkml|SOFTWARE\Classes\ShopperReports.CntntDisp.1
+key|hkml|SOFTWARE\Classes\ShopperReports.Dwnldr
+key|hkml|SOFTWARE\Classes\ShopperReports.Dwnldr.1
+key|hkml|SOFTWARE\Classes\ShopperReports.HbAx
+key|hkml|SOFTWARE\Classes\ShopperReports.HbAx.1
+key|hkml|SOFTWARE\Classes\ShopperReports.HbGuru
+key|hkml|SOFTWARE\Classes\ShopperReports.HbGuru.1
+key|hkml|SOFTWARE\Classes\ShopperReports.HbInfoBand
+key|hkml|SOFTWARE\Classes\ShopperReports.HbInfoBand.1
+key|hkml|SOFTWARE\Classes\ShopperReports.IEButton
+key|hkml|SOFTWARE\Classes\ShopperReports.IEButton.1
+key|hkml|SOFTWARE\Classes\ShopperReports.IEButtonA
+key|hkml|SOFTWARE\Classes\ShopperReports.IEButtonA.1
+key|hkml|SOFTWARE\Classes\ShopperReports.KOPFF
+key|hkml|SOFTWARE\Classes\ShopperReports.KOPFF.1
+key|hkml|SOFTWARE\Classes\ShopperReports.MozillaNvgtnTrpr
+key|hkml|SOFTWARE\Classes\ShopperReports.MozillaNvgtnTrpr.1
+key|hkml|SOFTWARE\Classes\ShopperReports.MozillaPSExecuter
+key|hkml|SOFTWARE\Classes\ShopperReports.MozillaPSExecuter.1
+key|hkml|SOFTWARE\Classes\ShopperReports.ReportData
+key|hkml|SOFTWARE\Classes\ShopperReports.ReportData.1
+key|hkml|SOFTWARE\Classes\ShopperReports.Reporter
+key|hkml|SOFTWARE\Classes\ShopperReports.Reporter.1
+key|hkml|SOFTWARE\Classes\ShopperReports.RprtCtrl
+key|hkml|SOFTWARE\Classes\ShopperReports.RprtCtrl.1
+key|hkml|SOFTWARE\Classes\ShopperReports.Scopes
+key|hkml|SOFTWARE\Classes\ShopperReports.Scopes.1
+key|hkml|SOFTWARE\Classes\ShopperReports.Stock
+key|hkml|SOFTWARE\Classes\ShopperReports.Stock.1
+key|hkml|SOFTWARE\Classes\ShopperReports.TriggerImmidiate
+key|hkml|SOFTWARE\Classes\ShopperReports.TriggerImmidiate.1
+key|hkml|SOFTWARE\Classes\ShopperReports.TriggerImmidiateOrRandomTS
+key|hkml|SOFTWARE\Classes\ShopperReports.TriggerImmidiateOrRandomTS.1
+key|hkml|SOFTWARE\Classes\ShopperReports.TriggerOnceInDay
+key|hkml|SOFTWARE\Classes\ShopperReports.TriggerOnceInDay.1
+key|hkml|SOFTWARE\Classes\Toolbar.CT2724386
+key|hkml|SOFTWARE\Classes\TypeLib\{02AED140-2B62-4B49-8B3B-179020CC39B9}
+key|hkml|SOFTWARE\Classes\TypeLib\{03119103-0854-469D-807A-171568457991}
+key|hkml|SOFTWARE\Classes\TypeLib\{3BF3DED5-0FC8-4207-AC09-AA7B5AF4E408}
+key|hkml|SOFTWARE\Classes\TypeLib\{3EE17DD1-E28B-4AED-A3B2-9C29CB2C19D6}
+key|hkml|SOFTWARE\Classes\TypeLib\{573F4ABB-A1A2-44ED-9BA9-A8DAD40AAC46}
+key|hkml|SOFTWARE\Classes\TypeLib\{5FE0CEAE-CB69-40AF-A323-40F94257DACB}
+key|hkml|SOFTWARE\Classes\TypeLib\{886F93AD-3CBB-4424-8442-A7340243540F}
+key|hkml|SOFTWARE\Classes\TypeLib\{AA289DBC-59B6-40A5-AC7D-C90DF850289C}
+key|hkml|SOFTWARE\Classes\TypeLib\{ACC62306-9A63-4864-BD2F-C8825D2D7EA6}
+key|hkml|SOFTWARE\Classes\TypeLib\{CA723163-6FAD-43D4-8B93-0D8C52BD9974}
+key|hkml|SOFTWARE\Classes\TypeLib\{CDCA70D8-C6A6-49EE-9BED-7429D6C477A2}
+key|hkml|SOFTWARE\Classes\TypeLib\{D136987F-E1C4-4CCC-A220-893DF03EC5DF}
+key|hkml|SOFTWARE\Classes\TypeLib\{D372567D-67C1-4B29-B3F0-159B52B3E967}
+key|hkml|SOFTWARE\Classes\TypeLib\{E343EDFC-1E6C-4CB5-AA29-E9C922641C80}
+key|hkml|SOFTWARE\Classes\TypeLib\{F1A1892C-2A6C-4817-98B4-FF81443CBA20}
+key|hkml|SOFTWARE\Classes\TypeLib\{FB0E8A09-F08C-44CF-9E15-97ADAC016248}
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.DynamicBarButton
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.DynamicBarButton.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.Radio
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.Radio.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.RadioSettings
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.RadioSettings.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.SkinLauncher
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.SkinLauncher.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.UrlAlertButton
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.UrlAlertButton.1
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.XMLSessionPlugin
+key|hkml|SOFTWARE\Classes\VideoDownloadConverter_4z.XMLSessionPlugin.1
+key|hkml|SOFTWARE\Classes\YontooIEClient.Api
+key|hkml|SOFTWARE\Classes\YontooIEClient.Api.1
+key|hkml|SOFTWARE\Classes\YontooIEClient.Layers
+key|hkml|SOFTWARE\Classes\YontooIEClient.Layers.1
+key|hkml|Software\DealPly
+key|hkml|SOFTWARE\Google\Chrome\Extensions\gaiilaahiahdejapggenmdmafpmbipje
+key|hkml|SOFTWARE\Google\Chrome\Extensions\licjnkifamhpbaefhdpacpmihicfbomb
+key|hkml|SOFTWARE\Google\Chrome\Extensions\niapdbllcanepiiimjjndipklodoedlc
+key|hkml|Software\IB Updater
+key|hkml|Software\incredibar.com
+key|hkml|Software\IncrediMail_MediaBar_2
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\{336D0C35-8A85-403a-B9D2-65C292C39087}_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\{889DF117-14D1-44EE-9F31-C5FB5D47F68B}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\conduitEngine
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\DealPly
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\incredibar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\IncrediMail_MediaBar_2 Toolbar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\PricePeep
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\QuestScan
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\Searchqu 0 MediaBar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\ShopperReportsSA
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\VideoDownloadConverter_4zbar Uninstall
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\WNLT
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{1F6F39C1-00A8-4752-A94C-D0EA92D978B6}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{71144427-1368-4D18-8DC9-2AE3CC4C4F83}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{89F88394-3828-4D03-A0CF-8203604C3DA6}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{99E1F6FD-2E94-4CF6-8344-1BA63CD3BD9B}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{AA80D9BB-36ED-469C-80AF-5A240D3F083A}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{D4233F04-1789-483C-A137-731E8F113DD5}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{DF7770F7-832F-4BDF-B144-100EDDD0C3AE}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{ED345812-2722-4DCA-9976-D01832DB44EE}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{889DF117-14D1-44EE-9F31-C5FB5D47F68B}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\IncrediMail_MediaBar_2 Toolbar
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PricePeep
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuestScan
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ShopperReportsSA
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\VideoDownloadConverter_4zbar Uninstall
+key|hkml|Software\QuestScan
+key|hkml|Software\ShopperReports3
+key|hkml|Software\Tarma Installer
+key|hkml|Software\WNLT
+key|hkcu|Software\DeviceVM
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{05B5EF3F-4C6A-426E-B77E-48EBB3E721F1}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{CCC7B159-1D8C-11E3-B2AD-F3EF3D58318D}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{05B5EF3F-4C6A-426E-B77E-48EBB3E721F1}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{CCC7B152-1D8C-11E3-B2AD-F3EF3D58318D}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{CCC7B159-1D8C-11E3-B2AD-F3EF3D58318D}
+key|hkml|SOFTWARE\allgenius
+key|hkml|SOFTWARE\Classes\AddressBarSearch.SearchHook
+key|hkml|SOFTWARE\Classes\AddressBarSearch.SearchHook.1
+key|hkml|SOFTWARE\Classes\CLSID\{3BF72F68-72D8-461D-A884-329D936C5581}
+key|hkml|SOFTWARE\Classes\CLSID\{78E9D883-93CD-4072-BEF3-38EE581E2839}
+key|hkml|SOFTWARE\Classes\CLSID\{83AC1413-FCE4-4A46-9DD5-4F31F306E71F}
+key|hkml|SOFTWARE\Classes\TypeLib\{77AA6435-2488-4A94-9FE5-49519DD2ED9B}
+key|hkml|SOFTWARE\Classes\TypeLib\{C4C4F1F4-3074-4CB6-9FB8-0A64273166F0}
+key|hkml|SOFTWARE\Google\Chrome\Extensions\nppllibpnmahfaklnpggkibhkapjkeob
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{0ABE0FED-50E7-4E42-A125-57C0A11DBCDE}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{7C3B01BC-53A5-48A0-A43B-0C67731134B9}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{3AA4FC9D-FB51-44A2-B09F-0457857CA7C2}
+key|hkml|SOFTWARE\Classes\Interface\{03E2A1F3-4402-4121-8B35-733216D61217}
+key|hkml|SOFTWARE\Classes\Interface\{9E3B11F6-4179-4603-A71B-A55F4BCB0BEC}
+key|hkml|SOFTWARE\Classes\TypeLib\{9C049BA6-EA47-4AC3-AED6-A66D8DC9E1D8}
+key|hkml|SOFTWARE\V9Software
+key|hkcu|Software\Reimage
+key|hkml|SOFTWARE\Classes\Interface\{EAF749DC-CD87-4B04-B22A-D4AC3FBCB2BC}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{2FA77785-00C3-A920-6452-D4FE5C9C129F}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{37476589-E48E-439E-A706-56189E2ED4C4}_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RegClean Pro_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RegClean-Pro_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Reimage Protector
+key|hkml|SOFTWARE\Google\Chrome\Extensions\pljcgbedjplidkdjahbaalanadmjfgop
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\babylon.com
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\superfish.com
+key|hkml|SOFTWARE\microsoft\shared tools\msconfig\startupreg\ApnTBMon
+key|hkml|SOFTWARE\Classes\Directory\shellex\ContextMenuHandlers\WinZipper
+key|hkml|SOFTWARE\Classes\Folder\shellex\ContextMenuHandlers\WinZipper
+key|hkml|SOFTWARE\Classes\lnkfile\shellex\ContextMenuHandlers\WinZipper
+key|hkcu|Software\5e55dcddbd3cec10
+key|hkml|SOFTWARE\5e55dcddbd3cec10
+key|hkml|SOFTWARE\Classes\AppID\{0FA5C13C-4EDA-488A-A8EB-B84CD7395A79}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{3EBE6FB9-A9BF-481D-8742-3163A5D3F42F}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{40439b93-f815-4122-8073-d03bed94c303}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{483830EE-A4CD-4b71-B0A3-3D82E62A6909}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{67A2568C-7A0A-4EED-AECC-B5405DE63B64}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{DDA849FD-7BD4-4203-B9A3-7CBFD2E28395}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{40439b93-f815-4122-8073-d03bed94c303}
+key|hkcu|Software\AskPartnerNetwork
+key|hkcu|Software\qtrax
+key|hkcu|Software\metaCrawler
+key|hkml|SOFTWARE\omiga-plusSoftware
+key|hkml|SOFTWARE\StrongSignal
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\winzipper
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\omiga-plus uninstall
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\DownVision_is1
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\{15D2D75C-9CB2-4EFD-BAD7-B9B4CB4BC693}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\AnyProtect
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\VOPackage
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\winzipper
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\omiga-plus uninstall
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\DownVision_is1
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\{4F524A2D-5637-4300-76A7-A758B70C1200}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes\7AB5857A57A0687786597A857BFFFFFF
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\ask.com
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\softonic.pl
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\GamesDesktop
+key|hkcu|Software\Google\Chrome\Extensions\fdloijijlkoblmigdofommgnheckmaki
+key|hkcu|Software\ilivid
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{2FA28606-DE77-4029-AF96-B231E3B8F827}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{23C70BCA-6E23-4A65-AD2E-1389062074F1}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{23D8EEF7-0E13-4000-B9C4-6603C1E912D1}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{295CACB4-51F5-46FD-914E-C72BAAE1B672}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{2CE5C4B9-6DBE-4528-96FA-C9FF38EF1762}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{34C1FDF7-02C1-4F23-B393-F48B16E071D1}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{54291324-7A3D-4F11-B707-3FB6A2C97BD9}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{59C63F11-D4E5-46E7-9B8A-EE158DCA83A8}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{5DA22CBD-0029-4A09-B757-CF0FAFC488ED}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{77A6E7D4-4A83-4A9B-A2A0-EF3B125DC29D}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{C0585B2F-74D7-4734-88DE-6C150C5D4036}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{D8242E89-2F81-484A-AE5B-BA8CAD5B7347}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{EF0588D6-1621-4A75-B8BE-F4BC34794136}
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Internet Explorer\SearchScopes\{2FA28606-DE77-4029-AF96-B231E3B8F827}
+key|hkml|SOFTWARE\Classes\Interface\{0D80F1C5-D17B-4177-AC68-955F3EF9F191}
+key|hkml|SOFTWARE\Classes\Interface\{23C70BCA-6E23-4A65-AD2E-1389062074F1}
+key|hkml|SOFTWARE\Classes\Interface\{23D8EEF7-0E13-4000-B9C4-6603C1E912D1}
+key|hkml|SOFTWARE\Classes\Interface\{295CACB4-51F5-46FD-914E-C72BAAE1B672}
+key|hkml|SOFTWARE\Classes\Interface\{2CE5C4B9-6DBE-4528-96FA-C9FF38EF1762}
+key|hkml|SOFTWARE\Classes\Interface\{34C1FDF7-02C1-4F23-B393-F48B16E071D1}
+key|hkml|SOFTWARE\Classes\Interface\{54291324-7A3D-4F11-B707-3FB6A2C97BD9}
+key|hkml|SOFTWARE\Classes\Interface\{59C63F11-D4E5-46E7-9B8A-EE158DCA83A8}
+key|hkml|SOFTWARE\Classes\Interface\{5DA22CBD-0029-4A09-B757-CF0FAFC488ED}
+key|hkml|SOFTWARE\Classes\Interface\{77A6E7D4-4A83-4A9B-A2A0-EF3B125DC29D}
+key|hkml|SOFTWARE\Classes\Interface\{C0585B2F-74D7-4734-88DE-6C150C5D4036}
+key|hkml|SOFTWARE\Classes\Interface\{D8242E89-2F81-484A-AE5B-BA8CAD5B7347}
+key|hkml|SOFTWARE\Classes\Interface\{EF0588D6-1621-4A75-B8BE-F4BC34794136}
+key|hkml|SOFTWARE\Google\Chrome\Extensions\fdloijijlkoblmigdofommgnheckmaki
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{2FA28606-DE77-4029-AF96-B231E3B8F827}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{26B19FA4-E8A1-4A1B-A163-1A1E46F830DD}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{26B19FA4-E8A1-4A1B-A163-1A1E46F830DD}
+key|hkml|SOFTWARE\Classes\CLSID\{26B19FA4-E8A1-4A1B-A163-1A1E46F830DD}
+key|hkml|SOFTWARE\Classes\CLSID\{A40DC6C5-79D0-4CA8-A185-8FF989AF1115}
+key|hkml|SOFTWARE\Classes\CLSID\{CC1AC828-BB47-4361-AFB5-96EEE259DD87}
+key|hkml|SOFTWARE\Classes\Interface\{1B730ACF-26A3-447B-9994-14AEE0EB72CC}
+key|hkml|SOFTWARE\Classes\SearchQUIEHelper.DNSGuard
+key|hkml|SOFTWARE\Classes\SearchQUIEHelper.DNSGuard.1
+key|hkml|SOFTWARE\Classes\TypeLib\{6A4BCABA-C437-4C76-A54E-AF31B8A76CB9}
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\bitguard.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\bprotect.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\bpsvc.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\browserdefender.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\browserprotect.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\browsersafeguard.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\dprotectsvc.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\jumpflip
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\protectedsearch.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\searchinstaller.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\searchprotection.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\searchprotector.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\searchsettings.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\searchsettings64.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\snapdo.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\stinst32.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\stinst64.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\umbrella.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\utiljumpflip.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\volaro
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\vonteera
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\websteroids.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\websteroidsservice.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\regedit.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FRST.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FRST64.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\OTL.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\AnVir.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\HiJackThis.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\RegWorks.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\RSIT.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\RSITx64.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\avz.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CCleaner.exe
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CCleaner64.exe
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{26B19FA4-E8A1-4A1B-A163-1A1E46F830DD}
+key|hkml|Software\SafetyNut
+key|hkcr|CLSID\{67BD9EEB-AA06-4329-A940-D250019300C9}
+key|hkcr|Interface\{9EDC0C90-2B5B-4512-953E-35767BAD5C67}
+key|hkcr|TypeLib\{A0EE0278-2986-4E5A-884E-A3BF0357E476}
+key|hkcu|Software\conduit
+key|hkcu|Software\crossrider
+key|hkcu|Software\installedbrowserextensions
+key|hkml|Software\Classes\speedupmypc
+key|hkml|Software\Classes\updater.amiupd
+key|hkml|Software\Classes\updater.amiupd.1
+key|hkml|Software\Microsoft\Windows\CurrentVersion\Uninstall\{99c91fc5-db5b-4aa0-bb70-5d89c5a4df96}
+key|hkcr|CrossriderApp0044150.BHO
+key|hkcr|CrossriderApp0044150.BHO.1
+key|hkcr|CrossriderApp0044150.Sandbox
+key|hkcr|CrossriderApp0044150.Sandbox.1
+key|hkcr|CLSID\{11111111-1111-1111-1111-110411411150}
+key|hkcr|CLSID\{22222222-2222-2222-2222-220422412250}
+key|hkcr|Interface\{55555555-5555-5555-5555-550455415550}
+key|hkcr|Interface\{66666666-6666-6666-6666-660466416650}
+key|hkcr|TypeLib\{44444444-4444-4444-4444-440444414450}
+key|hkml|Software\Classes\CrossriderApp0044150.BHO
+key|hkml|Software\Classes\CrossriderApp0044150.BHO.1
+key|hkml|Software\Classes\CrossriderApp0044150.Sandbox
+key|hkml|Software\Classes\CrossriderApp0044150.Sandbox.1
+key|hkml|Software\Classes\Interface\{55555555-5555-5555-5555-550455415550}
+key|hkml|Software\Classes\Interface\{66666666-6666-6666-6666-660466416650}
+key|hkml|Software\Classes\TypeLib\{44444444-4444-4444-4444-440444414450}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{11111111-1111-1111-1111-110411411150}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{11111111-1111-1111-1111-110411411150}
+key|hkml|Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{11111111-1111-1111-1111-110411411150}
+key|hkml|SYSTEM\ControlSet001\services\IePluginServices
+key|hkml|SYSTEM\ControlSet001\services\Update FindRight
+key|hkml|SYSTEM\ControlSet001\services\Update PodoWeb
+key|hkml|SYSTEM\ControlSet001\services\Util FindRight
+key|hkml|SYSTEM\ControlSet001\services\Util PodoWeb
+key|hkml|SYSTEM\ControlSet001\services\WindowsMangerProtect
+key|hkcu|Software\Solution Real
+key|hkcu|Software\AppDataLow\Software\BlockAndSurf
+key|hkml|SOFTWARE\Solution Real
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ASPackage
+key|hkml|SOFTWARE\YTDownloader
+key|hkcu|Software\MICROSOFT\INTERNET EXPLORER\DOMSTORAGE\superfish.com
+key|hkcu|Software\Microsoft\Internet Explorer\DOMStorage\www.superfish.com
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\www.superfish.com
+key|hkml|SOFTWARE\Classes\P09ee2872_d578_4408_8bcf_5cb036064101_.P09ee2872_d578_4408_8bcf_5cb036064101_
+key|hkml|SOFTWARE\Classes\P09ee2872_d578_4408_8bcf_5cb036064101_.P09ee2872_d578_4408_8bcf_5cb036064101_.9
+key|hkml|SOFTWARE\Classes\Pdc742e42_acce_4c2f_b133_b9c9adec17c0_.Pdc742e42_acce_4c2f_b133_b9c9adec17c0_
+key|hkml|SOFTWARE\Classes\Pdc742e42_acce_4c2f_b133_b9c9adec17c0_.Pdc742e42_acce_4c2f_b133_b9c9adec17c0_.9
+key|hkml|SOFTWARE\Classes\CLSID\{09ee2872-d578-4408-8bcf-5cb036064101}
+key|hkml|SOFTWARE\Classes\CLSID\{dc742e42-acce-4c2f-b133-b9c9adec17c0}
+key|hkml|SOFTWARE\Classes\CLSID\{11111111-1111-1111-1111-110711001199}
+key|hkml|SOFTWARE\Classes\CLSID\{22222222-2222-2222-2222-220722002299}
+key|hkml|SOFTWARE\Classes\Interface\{3AE76A17-C344-4A83-81CE-65EFEE41E42D}
+key|hkml|SOFTWARE\Classes\Interface\{4E9EB4D5-C929-4005-AC62-1856B1DA5A24}
+key|hkml|SOFTWARE\Classes\Interface\{8FAF962C-3EDE-405E-B1D0-62B8235C6044}
+key|hkml|SOFTWARE\Classes\Interface\{55555555-5555-5555-5555-550755005599}
+key|hkml|SOFTWARE\Classes\Interface\{66666666-6666-6666-6666-660766006699}
+key|hkml|SOFTWARE\Classes\TypeLib\{57B0DCF0-8B40-4449-8AA4-E297D6E779D4}
+key|hkml|SOFTWARE\Classes\TypeLib\{44444444-4444-4444-4444-440744004499}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{D40C654D-7C51-4EB3-95B2-1E23905C2A2D}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{09ee2872-d578-4408-8bcf-5cb036064101}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{dc742e42-acce-4c2f-b133-b9c9adec17c0}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{11111111-1111-1111-1111-110711001199}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{D40C654D-7C51-4EB3-95B2-1E23905C2A2D}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{09ee2872-d578-4408-8bcf-5cb036064101}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{dc742e42-acce-4c2f-b133-b9c9adec17c0}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{11111111-1111-1111-1111-110711001199}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{D40C654D-7C51-4EB3-95B2-1E23905C2A2D}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{09ee2872-d578-4408-8bcf-5cb036064101}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{dc742e42-acce-4c2f-b133-b9c9adec17c0}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{09ee2872-d578-4408-8bcf-5cb036064101}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{dc742e42-acce-4c2f-b133-b9c9adec17c0}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{6ce854ec-44d4-444e-aa42-51e5f85691a0}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{876eae34-c403-4a14-a866-70f5f0a2821f}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{006EE092-9658-4FD6-BD8E-A21A348E59F5}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{014DB5FA-EAFB-4592-A95B-F44D3EE87FA9}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{014DB5FA-EAFB-4592-A95B-F44D3EE87FA9}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{5DB38B9F-C389-4B5C-AF8D-7F81FE974D2E}
+key|hkcu|Software\Wnkey
+key|hkcu|Software\Cinemaxversion3.0
+key|hkcu|Software\AppDataLow\Software\Cinemaxversion3.0
+key|hkml|SOFTWARE\SPPDCOM
+key|hkml|SOFTWARE\WordProser_1.10.0.6
+key|hkml|SOFTWARE\Cinemaxversion3.0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AnyProtect
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{80E8B0A0-117D-1402-7CDE-688156237115}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\igsc
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\IGS
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\WordProser_1.10.0.6
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{09854D8E-46B5-057B-5B6E-BFD2A04AD5AB}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{439763FF-59EC-FF1D-B0B5-CB9E213A7A5C}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{9B149088-3FB6-875E-C1A4-A25A6E9D278D}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Cinemaxversion3.0
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MyPC Backup
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\isearch.omiga-plus.com
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\omiga-plus.com
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\trovi.com
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\www.trovi.com
+key|hkml|SOFTWARE\Uniblue
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\key-find.com
+key|hkcu|Software\Microsoft\Internet Explorer\LowRegistry\DOMStorage\www.key-find.com
+key|hkml|Software\aartemisSoftware
+key|hkml|SOFTWARE\Classes\FTDownloader
+key|hkml|SOFTWARE\Google\Chrome\Extensions\lgnbhdnimikkoodkogjlcllngimhlapp
+key|hkml|SOFTWARE\Google\Chrome\Extensions\kincjchfokkeneeofpeefomkikfkiedl
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Plain\{9F305B5F-6D6B-4850-A219-41E0047C6D2C}
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{9F305B5F-6D6B-4850-A219-41E0047C6D2C}
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Logon\{9692150D-F708-4EEE-89AA-CEBD21FCC865}
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{9692150D-F708-4EEE-89AA-CEBD21FCC865}
+key|hkcu|Software\Classes\Applications\lollipop.exe
+key|hkml|SOFTWARE\Classes\and
+key|hkml|SOFTWARE\Classes\Toolbar.CT2530240
+key|hkml|SOFTWARE\Classes\Toolbar.CT3065462
+key|hkml|SOFTWARE\Classes\AppID\{186E19A3-B909-4F48-B687-BB81EB8BC7CE}
+key|hkml|SOFTWARE\Classes\Interface\{3AE26843-9171-4F23-A8E5-5421701276A4}
+key|hkml|SOFTWARE\Classes\TypeLib\{B00FE392-639D-4688-976E-A1BFF368CB96}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{02478D38-C3F9-4EFB-9B51-7695ECA05670}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{02478D38-C3F9-4EFB-9B51-7695ECA05670}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{1CB20BF0-BBAE-40A7-93F4-6435FF3D0411}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{4B3803EA-5230-4DC3-A7FC-33638F3D3542}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{8736C681-37A0-40C6-A0F0-4C083409151C}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{EF99BD32-C1FB-11D2-892F-0090271D4F88}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{1CB20BF0-BBAE-40A7-93F4-6435FF3D0411}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{4B3803EA-5230-4DC3-A7FC-33638F3D3542}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{EF99BD32-C1FB-11D2-892F-0090271D4F88}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{1CB20BF0-BBAE-40A7-93F4-6435FF3D0411}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{4B3803EA-5230-4DC3-A7FC-33638F3D3542}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{02478D38-C3F9-4EFB-9B51-7695ECA05670}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{1CB20BF0-BBAE-40A7-93F4-6435FF3D0411}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{4B3803EA-5230-4DC3-A7FC-33638F3D3542}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{EF99BD32-C1FB-11D2-892F-0090271D4F88}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{36911833-249A-4B21-AC71-25F78A8F14CE}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{171DEBEB-C3D4-40B7-AC73-056A5EBA4A7E}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{1CB20BF0-BBAE-40A7-93F4-6435FF3D0411}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{AFDBDDAA-5D3F-42EE-B79C-185A7020515B}
+key|hkcu|Software\genesis
+key|hkcu|Software\Tbccint_HKLM
+key|hkcu|Software\AppDataLow\Software\PriceGong
+key|hkcu|Software\AppDataLow\Software\Softonic-Polska
+key|hkml|Software\FREE_SOFT_TODAY
+key|hkml|Software\SimplyGen
+key|hkml|Software\Softonic-Polska
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\genesis
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\lollipop
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{E55B3271-7CA8-4D0C-AE06-69A24856E996}_is1
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\{4FFBB818-B13C-11E0-931D-B2664824019B}_is1
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\genesis
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\App Management\ARPCache\LiveSupport_is1
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\App Management\ARPCache\RegClean-Pro_is1
+key|hkml|SOFTWARE\Google\Chrome\Extensions\dhjbpmkagjlnhcmdpmbagjldaknbgnff
+key|hkml|SOFTWARE\Classes\AppID\ViProtocol.DLL
+key|hkml|SOFTWARE\Classes\protocols\handler\viprotocol
+key|hkml|SOFTWARE\Classes\ScriptHelper.ScriptHelperApi
+key|hkml|SOFTWARE\Classes\ScriptHelper.ScriptHelperApi.1
+key|hkml|SOFTWARE\Classes\ViProtocol.ViProtocolOLE
+key|hkml|SOFTWARE\Classes\ViProtocol.ViProtocolOLE.1
+key|hkml|SOFTWARE\Microsoft\Tracing\BingBar_RASMANCS
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_utorrent-64-bit_RASAPI32
+key|hkml|SOFTWARE\Microsoft\Tracing\SoftonicDownloader_dla_utorrent-64-bit_RASMANCS
+key|hkml|SOFTWARE\Classes\AppID\{1FDFF5A2-7BB1-48E1-8081-7236812B12B2}
+key|hkml|SOFTWARE\Classes\CLSID\{408CFAD9-8F13-4747-8EC7-770A339C7237}
+key|hkml|SOFTWARE\Classes\CLSID\{4E92DB5F-AAD9-49D3-8EAB-B40CBE5B1FF7}
+key|hkml|SOFTWARE\Classes\CLSID\{933B95E2-E7B7-4AD9-B952-7AC336682AE3}
+key|hkml|SOFTWARE\Classes\CLSID\{B658800C-F66E-4EF3-AB85-6C0C227862A9}
+key|hkml|SOFTWARE\Classes\CLSID\{F25AF245-4A81-40DC-92F9-E9021F207706}
+key|hkml|SOFTWARE\Classes\Interface\{4E92DB5F-AAD9-49D3-8EAB-B40CBE5B1FF7}
+key|hkml|SOFTWARE\Classes\Interface\{C401D2CE-DC27-45C7-BC0C-8E6EA7F085D6}
+key|hkml|SOFTWARE\Classes\TypeLib\{74FB6AFD-DD77-4CEB-83BD-AB2B63E63C93}
+key|hkml|SOFTWARE\Classes\TypeLib\{C2AC8A0E-E48E-484B-A71C-C7A937FAAB94}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{C6FDD0C3-266A-4DC3-B459-28C697C44CDC}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{F25AF245-4A81-40DC-92F9-E9021F207706}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{E7DF6BFF-55A5-4EB7-A673-4ED3E9456D39}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{F25AF245-4A81-40DC-92F9-E9021F207706}
+key|hkml|SOFTWARE\Google\Chrome\Extensions\ifohbjbgfchkkfhphahclmkpgejiplfo
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\BonanzaDealsLive.exe
+key|hkml|SOFTWARE\Classes\CLSID\{10AD2C61-0898-4348-8600-14A342F22AC3}
+key|hkml|SOFTWARE\Classes\Interface\{7C28CEF1-A4A6-4B6A-8B97-C44F1267753C}
+key|hkml|SOFTWARE\Classes\TypeLib\{D8CAF2DF-52D3-42CF-9DDB-F4FF828DB4F8}
+key|hkcu|Software\BonanzaDealsLive
+key|hkcu|Software\WebConnect
+key|hkml|Software\BonanzaDealsLive
+key|hkml|Software\Solvusoft
+key|hkml|SOFTWARE\Wow6432Node\CoupSeek
+key|hkml|SOFTWARE\Wow6432Node\MYBESTOFFERSTODAY
+key|hkml|SOFTWARE\CoupSeek
+key|hkml|SOFTWARE\MYBESTOFFERSTODAY
+key|hkcu|Software\ArenaHD
+key|hkcu|Software\HighDefAction
+key|hkcu|Software\MyBestOffersToday
+key|hkcu|Software\YorkNewCin
+key|hkcu|Software\YTDownloader
+key|hkml|SOFTWARE\ArenaHD
+key|hkml|SOFTWARE\HighDefAction
+key|hkml|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\globalupdate.exe
+key|hkml|SOFTWARE\YorkNewCin
+key|hkml|SYSTEM\CurrentControlSet\Control\Class\{0014298C-A9BA-440D-AAA8-AD12C7010EE5}
+key|hkml|SYSTEM\CurrentControlSet\Control\Class\{181A06EA-B82C-47DE-B851-E20FD0E1CC7D}
+key|hkml|SYSTEM\ControlSet001\globalUpdate
+key|hkml|SYSTEM\ControlSet001\globalUpdatem
+key|hkml|SOFTWARE\Classes\AppID\CptUrlPassthru.DLL
+key|hkml|SOFTWARE\Classes\AppID\dca-bho.DLL
+key|hkml|SOFTWARE\Classes\CptUrlPassthru.hxxpMonitor
+key|hkml|SOFTWARE\Classes\CptUrlPassthru.hxxpMonitor.1
+key|hkml|SOFTWARE\Classes\BuyNsave.BuyNsave
+key|hkml|SOFTWARE\Classes\BuyNsave.BuyNsave.9
+key|hkml|SOFTWARE\abdc5271-6703-149b-13d7-71f5a23e0090
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\S-153977404
+key|hkml|SOFTWARE\Classes\AppID\{A57F7191-1E7F-4852-BAAF-F80A43E2687A}
+key|hkml|SOFTWARE\Classes\AppID\{DD7C44CC-0F60-4FD9-A38F-5CF30D698AC2}
+key|hkml|SOFTWARE\Classes\AppID\{425F4ABF-B8E4-402D-9E49-06E494EB8DBF}
+key|hkml|SOFTWARE\Classes\CLSID\{60260024-AA48-4A2F-84DA-2C2DCB24AAD0}
+key|hkml|SOFTWARE\Classes\CLSID\{3CF50C82-4C4B-43E9-B1B2-15CB1BD0C193}
+key|hkml|SOFTWARE\Classes\CLSID\{7D8DAE88-BC05-4578-8C29-E541FFBA5757}
+key|hkml|SOFTWARE\Classes\CLSID\{e1eefc37-a2cb-4e8f-933f-8d9abbf6414d}
+key|hkml|SOFTWARE\Classes\CLSID\{e60b862e-2b1c-4e46-8a87-be258346e89c}
+key|hkml|SOFTWARE\Classes\Interface\{15527BF5-9729-49DC-889C-9F956983154C}
+key|hkml|SOFTWARE\Classes\Interface\{A9582D7B-F24A-441D-9D26-450D58F3CD17}
+key|hkml|SOFTWARE\Classes\Interface\{EE0D8859-2ED4-4B0D-9812-16865B9AFD65}
+key|hkml|SOFTWARE\Classes\TypeLib\{A57F7191-1E7F-4852-BAAF-F80A43E2687A}
+key|hkml|SOFTWARE\Classes\TypeLib\{B5C4833B-847B-49CD-8EBE-CDD9B43C882F}
+key|hkml|SOFTWARE\Classes\TypeLib\{14EF423E-3EE8-44AE-9337-07AC3F27B744}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{e1eefc37-a2cb-4e8f-933f-8d9abbf6414d}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{e60b862e-2b1c-4e46-8a87-be258346e89c}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{e1eefc37-a2cb-4e8f-933f-8d9abbf6414d}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{e60b862e-2b1c-4e46-8a87-be258346e89c}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{e1eefc37-a2cb-4e8f-933f-8d9abbf6414d}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{e60b862e-2b1c-4e46-8a87-be258346e89c}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{e1eefc37-a2cb-4e8f-933f-8d9abbf6414d}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{e60b862e-2b1c-4e46-8a87-be258346e89c}
+key|hkml|SOFTWARE\CompeteInc
+key|hkml|SOFTWARE\LookSafe
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\2A498D792D0AD2F4DADF03B3C066122B
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\C697F962E048A434B8AE269E702964C8
+key|hkml|SOFTWARE\Classes\abengineLib.DataContainer
+key|hkml|SOFTWARE\Classes\abengineLib.DataContainer.1
+key|hkml|SOFTWARE\Classes\abengineLib.DataController
+key|hkml|SOFTWARE\Classes\abengineLib.DataController.1
+key|hkml|SOFTWARE\Classes\abengineLib.DataTable
+key|hkml|SOFTWARE\Classes\abengineLib.DataTable.1
+key|hkml|SOFTWARE\Classes\abengineLib.DataTableFields
+key|hkml|SOFTWARE\Classes\abengineLib.DataTableFields.1
+key|hkml|SOFTWARE\Classes\abengineLib.DataTableHolder
+key|hkml|SOFTWARE\Classes\abengineLib.DataTableHolder.1
+key|hkml|SOFTWARE\Classes\abengineLib.LSPLogic
+key|hkml|SOFTWARE\Classes\abengineLib.LSPLogic.1
+key|hkml|SOFTWARE\Classes\abengineLib.ReadOnlyManager
+key|hkml|SOFTWARE\Classes\abengineLib.ReadOnlyManager.1
+key|hkml|SOFTWARE\Classes\AppID\abengine.EXE
+key|hkml|SYSTEM\CurrentControlSet\Control\SafeBoot\Network\abengine
+key|hkcu|Software\Classes\PepperZip
+key|hkml|SOFTWARE\c1c0ebc7-10b6-4f9e-9575-f3a316f5b7c4
+key|hkml|SOFTWARE\Classes\CLSID\{028F96B8-C73A-4C60-B82F-3944A19B046E}
+key|hkml|SOFTWARE\Classes\CLSID\{51F7DE65-A990-4213-BDB9-C2657FA7F3F4}
+key|hkml|SOFTWARE\Classes\CLSID\{879F721E-7F23-4B7F-B65B-F5A8F518864A}
+key|hkml|SOFTWARE\Classes\CLSID\{A5544F7B-C413-4CAC-8DB4-9A8D1986DD86}
+key|hkml|SOFTWARE\Classes\CLSID\{B9EE49F9-62A3-408D-858F-4ED9A23BAA24}
+key|hkml|SOFTWARE\Classes\CLSID\{BF6D8439-BAC1-4E73-94FE-9910D098AE00}
+key|hkml|SOFTWARE\Classes\CLSID\{D4F14684-336F-44FC-8D9E-8A73DAE003EC}
+key|hkml|SOFTWARE\Classes\CLSID\{9C4EFBD5-1ADF-41E6-BE26-AF44326E30E4}
+key|hkml|SOFTWARE\Classes\Interface\{4AEC2270-2E5F-40C8-BE5A-E5A5264714C0}
+key|hkml|SOFTWARE\Classes\Interface\{52E8E39B-2773-448F-BC20-547CD8DA4685}
+key|hkml|SOFTWARE\Classes\Interface\{62163814-0C94-4DC3-BA99-5E9E2420C914}
+key|hkml|SOFTWARE\Classes\Interface\{68AEA825-D48B-4A56-87F0-6FCE988A2C48}
+key|hkml|SOFTWARE\Classes\Interface\{6A0F07D3-F28E-4F45-8D4C-BBF8000F5BB8}
+key|hkml|SOFTWARE\Classes\Interface\{7AF435BC-80A9-466E-938B-32E4482EBD65}
+key|hkml|SOFTWARE\Classes\Interface\{85CEBABD-A775-41E2-8B67-FE06104F06ED}
+key|hkml|SOFTWARE\Classes\Interface\{AE92A5AB-E575-4487-BCC0-96D333E5346C}
+key|hkml|SOFTWARE\Classes\Interface\{C622315B-3049-43D4-9B41-D4B2DC2CD706}
+key|hkml|SOFTWARE\Classes\Interface\{CDB85458-AE08-4106-B699-B946FF4A61CD}
+key|hkml|SOFTWARE\Classes\Interface\{025EEF9C-90F5-417E-9196-09FA4AAB4C92}
+key|hkml|SOFTWARE\Classes\Interface\{03F13205-38FF-4361-BECE-EE939A002FA2}
+key|hkml|SOFTWARE\Classes\Interface\{1FAAF6AB-B931-4D05-BA12-B0ECCCCE2D0F}
+key|hkml|SOFTWARE\Classes\TypeLib\{1BCB34DC-BA6D-4B44-B786-4E259598A7C8}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{6A1806CD-94D4-4689-BA73-E35EA1EA9990}
+key|hkcu|Software\Store
+key|hkcu|Software\WTools
+key|hkcu|Software\MaxComputerCleanerLanguage
+key|hkml|SOFTWARE\TabNav
+key|hkml|SOFTWARE\SuperClick_1.10.0.16
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RocketTab
+key|hkml|SYSTEM\ControlSet001\services\cmwf
+key|hkml|SYSTEM\ControlSet001\services\cmwr
+key|hkml|SYSTEM\ControlSet001\services\ColorMedia
+key|hkml|SYSTEM\ControlSet001\services\vToolbarUpdater18.5.0
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{95B7759C-8C7F-4BF1-B163-73684A933233}
+key|hkcu|Software\SmileFiles
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{95B7759C-8C7F-4BF1-B163-73684A933233}
+key|hkml|SOFTWARE\Classes\CLSID\{95B7759C-8C7F-4BF1-B163-73684A933233}
+key|hkml|SOFTWARE\Classes\Interface\{E4C3E50F-5761-4BF8-95A0-939A819DF1C3}
+key|hkml|SOFTWARE\Classes\S
+key|hkml|SOFTWARE\d0c61be9-2470-fba0-7bf5-fc3ac4c3ce26
+key|hkml|SOFTWARE\Trymedia Systems
+key|hkml|SYSTEM\ControlSet001\ColorMedia
+key|hkml|SYSTEM\ControlSet001\vToolbarUpdater18.5.0
+key|hkml|SYSTEM\ControlSet001\cmwf
+key|hkml|SYSTEM\ControlSet001\cmwr
+key|hkml|SOFTWARE\PIP
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{D793423B-FF18-4A54-B9C9-75B3396BAAC4}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\464AA55239C100F32AF2D438EDDC0F47
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\5652BA3D5FB98AE31B337BF0AF939856
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\86EB95E1AFCBABE3DB9ECCC669B99494
+key|hkml|SOFTWARE\MozillaPlugins\@qq.com
+key|hkml|SOFTWARE\Classes\AppID\DownloadProxy.EXE
+key|hkml|SOFTWARE\Classes\Extension.jshep
+key|hkml|SOFTWARE\Classes\Extension.jshep.1
+key|hkml|SOFTWARE\Classes\AppID\{51BEE30D-EEC8-4BA3-930B-298B8E759EB1}
+key|hkml|SOFTWARE\Classes\AppID\{4D6A5312-AB4D-41AA-8BED-0E019B87CA11}
+key|hkml|SOFTWARE\Classes\CLSID\{051E9166-B275-4683-907B-372FAE22BC7C}
+key|hkml|SOFTWARE\Classes\CLSID\{70DE12EA-79F4-46BC-9812-86DB50A2FD64}
+key|hkml|SOFTWARE\Classes\CLSID\{E5A7A645-8318-4895-B85C-EDC606B80DB6}
+key|hkml|SOFTWARE\Classes\Interface\{6B3732AA-F6D4-4F16-9E22-49EDC52C9514}
+key|hkml|SOFTWARE\Classes\TypeLib\{9AE7A6AE-162E-44C4-9A2B-A6B4EF19909D}
+key|hkml|SOFTWARE\Classes\TypeLib\{230332DF-D235-47EE-BC42-60860EF144CD}
+key|hkml|SOFTWARE\Classes\TypeLib\{96BB8E60-6EF9-47E0-9ED8-4AD477ECF427}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{5081D2D4-1637-404C-B74F-50526718257D}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{5081D2D4-1637-404C-B74F-50526718257D}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{3593C8B9-8E18-4B4B-B7D3-CB8BEB1AA42C}
+key|hkcu|Software\estdemin
+key|hkcu|Software\SafeGuardApp
+key|hkcu|Software\PCPrivacyDockLanguage
+key|hkcu|Software\AppDataLow\Software\DynConIE
+key|hkcu|Software\AppDataLow\Software\SpeeditUp
+key|hkml|SOFTWARE\turbodiagnosis
+key|hkml|SOFTWARE\coupoon
+key|hkml|SOFTWARE\clean2pc
+key|hkml|SOFTWARE\SafeGuardApp
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{1a413f37-ed88-4fec-9666-5c48dc4b7bb7}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{B7FCA997-D0FB-4FE0-8AFD-255E89CF9671}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{D43B3890-80C7-4010-A95D-1E77B5924DC3}
+key|hkml|SOFTWARE\Google\Chrome\Extensions\bmiabdepfhhiieiipmeecdmeljggmfee
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{B7FCA997-D0FB-4FE0-8AFD-255E89CF9671}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{D43B3890-80C7-4010-A95D-1E77B5924DC3}
+key|hkcu|SOFTWARE\MICROSOFT\INTERNET EXPLORER\SEARCHSCOPES\{014DB5FA-EAFB-4592-A95B-F44D3EE87FA9}
+key|hkml|SOFTWARE\WOW6432NODE\VITTALIA\AxtanInstaller
+key|hkcu|SOFTWARE\speedial
+key|hkcu|SOFTWARE\INSTALLCORE\1I1T1Q1S
+key|hkcu|SOFTWARE\INSTALLCORE
+key|hkcu|SOFTWARE\MICROSOFT\INTERNET EXPLORER\SEARCHSCOPES\{31090377-0740-419E-BEFC-A56E50500D5B}
+key|hkcu|SOFTWARE\MICROSOFT\INTERNET EXPLORER\SEARCHSCOPES\{E61DDDE9-C56E-4C26-A9A8-4C37562C90E7}
+key|hkml|SOFTWARE\CLASSES\thunder
+key|hkml|SOFTWARE\WOW6432NODE\GigaClicks
+key|hkml|SOFTWARE\WOW6432NODE\Infonaut_1.10.0.14
+key|hkml|SOFTWARE\WOW6432NODE\APPDATALOW\SOFTWARE\Crossrider
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\thunder
+key|hkcu|SOFTWARE\{4E7638A1-6962-4e44-A6B9-F40E84FD6D09}
+key|hkcu|SOFTWARE\SOFTWARE\Ge-Force-nv-ie
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\CLSID\{18689D3E-CF06-482F-AEB1-0880F859F0AA}
+key|hkml|SOFTWARE\CLASSES\TYPELIB\{5165BFF4-4E35-446F-B00E-EA4185B64F76}
+key|hkml|SOFTWARE\CLASSES\INTERFACE\{332C1DFF-B83D-40E3-968F-F85E20BF0CFB}
+key|hkml|SOFTWARE\CLASSES\INTERFACE\{456A8A65-6E0E-464B-80C6-A16E6528FADF}
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\INTERFACE\{332C1DFF-B83D-40E3-968F-F85E20BF0CFB}
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\INTERFACE\{456A8A65-6E0E-464B-80C6-A16E6528FADF}
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\INTERFACE\{332C1DFF-B83D-40E3-968F-F85E20BF0CFB}
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\INTERFACE\{456A8A65-6E0E-464B-80C6-A16E6528FADF}
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\TYPELIB\{5165BFF4-4E35-446F-B00E-EA4185B64F76}
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\TYPELIB\{5165BFF4-4E35-446F-B00E-EA4185B64F76}
+key|hkml|SOFTWARE\CLASSES\Fun.OnlineInstallCtrl.1HKU
+key|hkml|SOFTWARE\CLASSES\Fun.OnlineInstallCtrlHKU
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\Fun.OnlineInstallCtrlHKU
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\Fun.OnlineInstallCtrlHKU
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\Fun.OnlineInstallCtrl.1HKU
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\Fun.OnlineInstallCtrl.1HKU
+key|hkml|SOFTWARE\CLASSES\CLSID\{18689D3E-CF06-482F-AEB1-0880F859F0AA}
+key|hkml|SOFTWARE\CLASSES\TYPELIB\{961ABF2E-D191-4542-90DC-C3406555FC62}
+key|hkml|SOFTWARE\CLASSES\INTERFACE\{43BE7926-9B51-46FD-98DD-8DCCFB231113}
+key|hkml|SOFTWARE\CLASSES\INTERFACE\{CE55D900-9EE4-4666-A1A1-1F6D59E32277}
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\INTERFACE\{43BE7926-9B51-46FD-98DD-8DCCFB231113}
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\INTERFACE\{CE55D900-9EE4-4666-A1A1-1F6D59E32277}
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\INTERFACE\{43BE7926-9B51-46FD-98DD-8DCCFB231113}
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\INTERFACE\{CE55D900-9EE4-4666-A1A1-1F6D59E32277}
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\TYPELIB\{961ABF2E-D191-4542-90DC-C3406555FC62}
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\TYPELIB\{961ABF2E-D191-4542-90DC-C3406555FC62}
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\CLSID\{18689D3E-CF06-482F-AEB1-0880F859F0AA}
+key|hkml|SOFTWARE\WOW6432NODE\CLASSES\CLSID\{1CF25200-FD42-45F6-ABBD-6C0C9C89B77A}
+key|hkml|SOFTWARE\CLASSES\WOW6432NODE\CLSID\{1CF25200-FD42-45F6-ABBD-6C0C9C89B77A}
+key|hkml|SOFTWARE\MOZILLA\FIREFOX\EXTENSIONS\{5081D2D4-1637-404c-B74F-50526718257D}
+key|hkml|SOFTWARE\WOW6432NODE\MOZILLA\FIREFOX\EXTENSIONS\{5081D2D4-1637-404c-B74F-50526718257D}
+key|hkcu|SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\EXPLORER\BROWSER HELPER OBJECTS\{7F6AFBF1-E065-4627-A2FD-810366367D01}
+key|hkml|SOFTWARE\WOW6432NODE\MICROSOFT\INTERNET EXPLORER\LOW RIGHTS\ELEVATIONPOLICY\{21111111-1111-1111-1111-110011441193}
+key|hkml|SOFTWARE\WOW6432NODE\RAPIDFINDA
+key|hkcu|SOFTWARE\APPDATALOW\SOFTWARE\DefaultTab
+key|hkcu|SOFTWARE\RAPIDFINDA
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{6E45F3E8-2683-4824-A6BE-08108022FB36}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{6E45F3E8-2683-4824-A6BE-08108022FB36}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains\grusskartencenter.com
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\grusskartencenter.com
+key|hkcu|Software\SearchProtect
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{d43b3890-80c7-4010-a95d-1e77b5924dc3}
+key|hkml|SOFTWARE\Classes\AppID\ButtonSite.DLL
+key|hkml|SOFTWARE\Classes\AppID\PropertySync.EXE
+key|hkml|SOFTWARE\Classes\AppID\ScriptHost.DLL
+key|hkml|Software\Classes\Installer\Features\90C64EA18BA25EE488BF80DCF07F2FFD
+key|hkml|Software\Classes\Installer\Products\90C64EA18BA25EE488BF80DCF07F2FFD
+key|hkml|SOFTWARE\Classes\ScriptHost.Tool
+key|hkml|SOFTWARE\Classes\ScriptHost.Tool.1
+key|hkml|SOFTWARE\Classes\Toolbar.CT3289075
+key|hkml|SOFTWARE\Classes\TypeLib\{212C2C4F-C845-4FBC-9561-C833A13D8DCE}
+key|hkml|SOFTWARE\Classes\TypeLib\{3C5D1D57-16C8-473C-A552-37B8D88596FE}
+key|hkml|SOFTWARE\Classes\TypeLib\{4A115D8A-6A7B-4C72-92B1-2E2D01F36979}
+key|hkml|SOFTWARE\Classes\TypeLib\{99DF8440-814E-497F-BDDD-FB93E9E9DF96}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\Extensions\{6E45F3E8-2683-4824-A6BE-08108022FB36}
+key|hkml|SOFTWARE\MozillaPlugins\@checkpoint.com/FFApi
+key|hkml|SOFTWARE\Wow6432Node\Classes\CLSID\{19D2F415-D58B-46BC-9390-C03DCBC21EB2}
+key|hkml|SOFTWARE\Wow6432Node\Classes\CLSID\{3C471948-F874-49F5-B338-4F214A2EE0B1}
+key|hkml|SOFTWARE\Wow6432Node\Classes\CLSID\{6E45F3E8-2683-4824-A6BE-08108022FB36}
+key|hkml|SOFTWARE\Wow6432Node\Classes\CLSID\{9F0F16DD-4E76-4049-A9B1-7A91E48F0323}
+key|hkml|SOFTWARE\Wow6432Node\Classes\CLSID\{F4288797-CB12-49CE-9DF8-7CDFA1143BEA}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{22B0769F-794B-4422-AC84-47B123C8986D}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{255E0B2A-D747-4EEF-B7CE-159D73A3656D}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{28ED590D-F5ED-4E05-A87F-1D759F1C6169}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{45D5B93F-E2ED-4AF2-915E-DCDDBDA8C33C}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{771B99AB-636F-4A11-9039-8DFEB927B061}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{A8321AA2-2227-40C7-8525-6C2F4E1B0EBE}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{AA41A731-6814-4A70-A6F1-C0A20FBBFBD5}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{ABBB8A9E-D8AF-40D1-94BE-5175077465FC}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{BF737694-56F6-46FA-9FDC-FA99A5B25FAD}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{CFCD164E-8AC9-478E-9ECC-B616A932016C}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{D5961CC0-B442-4567-8030-67E241EF4CC2}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{E450067F-1C93-41A7-928E-07E5C2EEC680}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{F977D9F2-4BDC-44A6-B508-7C0284C61EED}
+key|hkml|SOFTWARE\Wow6432Node\Classes\Interface\{FFB96CC1-7EB3-449D-B827-DB661701C6BB}
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{83CAD530-387D-40FD-82EA-B9E863D92A9B}
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Internet Explorer\SearchScopes\{B7FCA997-D0FB-4FE0-8AFD-255E89CF9671}
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Internet Explorer\SearchScopes\{d43b3890-80c7-4010-a95d-1e77b5924dc3}
+key|hkml|SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{6E45F3E8-2683-4824-A6BE-08108022FB36}
+key|hkml|SOFTWARE\Classes\Interface\{FFB96CC1-7EB3-449D-B827-DB661701C6BB}
+key|hkml|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{d43b3890-80c7-4010-a95d-1e77b5924dc3}
+key|hkml|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ZoneAlarm LTD Toolbar
+key|hkcu|Software\DealPlyLive
+key|hkcu|Software\Media Get LLC
+key|hklm|SOFTWARE\Classes\AppID\{80FABB17-63AF-4655-9F07-B6509EE37AF2}
+key|hklm|SOFTWARE\Classes\AppID\{F48FC5B2-094A-44C7-B48C-289738C9582D}
+key|hklm|SOFTWARE\Classes\AppID\dealplylive.exe
+key|hklm|SOFTWARE\Classes\CLSID\{0D89DE71-3D99-4288-84DC-F18F1047A7D8}
+key|hklm|SOFTWARE\Classes\CLSID\{1E0C9B2A-6447-452C-B012-2314A0C29412}
+key|hklm|SOFTWARE\Classes\CLSID\{34A8CEB6-89BB-49F1-B5E4-0D0D6C21F3B1}
+key|hklm|SOFTWARE\Classes\CLSID\{3A4DBD3A-98CC-41CE-AD21-352D42B6F754}
+key|hklm|SOFTWARE\Classes\CLSID\{4F8A50F6-69DE-4BE3-A33A-A1079B9AC0DB}
+key|hklm|SOFTWARE\Classes\CLSID\{501CB57A-D4E2-4855-96AD-EDB0A9083395}
+key|hklm|SOFTWARE\Classes\CLSID\{6FF2C4DD-77A4-4BB5-BA4C-B42DEFBF9137}
+key|hklm|SOFTWARE\Classes\CLSID\{7F1796B2-BEC6-427B-B734-F9C75ED94A80}
+key|hklm|SOFTWARE\Classes\CLSID\{80FABB17-63AF-4655-9F07-B6509EE37AF2}
+key|hklm|SOFTWARE\Classes\CLSID\{83ABA270-8390-4CA6-AE48-FC089F55629E}
+key|hklm|SOFTWARE\Classes\CLSID\{8B218A5F-1A3D-4347-94EF-A79575EB8094}
+key|hklm|SOFTWARE\Classes\CLSID\{8C338DDB-19FC-4C1F-B74D-6931EE55F7A1}
+key|hklm|SOFTWARE\Classes\CLSID\{9BDB5E09-4BBA-4422-8C2B-529B281C32B8}
+key|hklm|SOFTWARE\Classes\CLSID\{AE48ED75-5A56-4C5F-BBCE-6F1AC3875F66}
+key|hklm|SOFTWARE\Classes\CLSID\{C536F080-57B7-46D6-8894-C647553F2889}
+key|hklm|SOFTWARE\Classes\CLSID\{CA5D945F-E738-4D0B-A0B5-25AC51C64659}
+key|hklm|SOFTWARE\Classes\CLSID\{F48FC5B2-094A-44C7-B48C-289738C9582D}
+key|hklm|SOFTWARE\Classes\CLSID\{F7698761-4ABA-45C2-A5BB-D2163922C725}
+key|hklm|SOFTWARE\Classes\CLSID\{FFCC53E6-2655-47FC-A89B-54E8D7F305D1}
+key|hklm|SOFTWARE\Classes\DealPlyLive.OneClickCtrl.9
+key|hklm|SOFTWARE\Classes\DealPlyLive.OneClickProcessLauncherMachine
+key|hklm|SOFTWARE\Classes\DealPlyLive.OneClickProcessLauncherMachine.1.0
+key|hklm|SOFTWARE\Classes\DealPlyLive.Update3WebControl.3
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.CoCreateAsync
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.CoCreateAsync.1.0
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.coreclass
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.CoreClass.1
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.CoreMachineClass
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.CoreMachineClass.1
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.credentialdialogmachine
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.credentialdialogmachine.1.0
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.ondemandcomclassmachine
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.OnDemandCOMClassMachine.1.0
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.ondemandcomclassmachinefallback
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.ondemandcomclassmachinefallback.1.0
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.OnDemandCOMClassSvc
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.ondemandcomclasssvc.1.0
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.ProcessLauncher
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.ProcessLauncher.1.0
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.Update3COMClassService
+key|hklm|SOFTWARE\Classes\DealPlyLiveUpdate.Update3COMClassService.1.0
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.update3webmachine
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.update3webmachine.1.0
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.update3webmachinefallback
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.update3webmachinefallback.1.0
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.update3websvc
+key|hklm|SOFTWARE\Classes\dealplyliveupdate.update3websvc.1.0
+key|hklm|SOFTWARE\DealPly
+key|hklm|SOFTWARE\DealPlyLive
+key|hklm|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{7F1796B2-BEC6-427B-B734-F9C75ED94A80}
+key|hklm|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{8C338DDB-19FC-4C1F-B74D-6931EE55F7A1}
+key|hklm|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{C536F080-57B7-46D6-8894-C647553F2889}
+key|hklm|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\dealplylive.exe
+key|hklm|SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\DealPlyLive.exe
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{AE48ED75-5A56-4C5F-BBCE-6F1AC3875F66}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{7F1796B2-BEC6-427B-B734-F9C75ED94A80}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{8C338DDB-19FC-4C1F-B74D-6931EE55F7A1}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\DealPly
+key|hklm|SOFTWARE\MozillaPlugins\@tools.dpliveupdate.com/DealPlyLive Update;version=3
+key|hklm|SOFTWARE\MozillaPlugins\@tools.dpliveupdate.com/DealPlyLive Update;version=9
+key|hkcr|CLSID\{0A0DDBD3-6641-40B9-873F-BBDD26D6C14E}
+key|hkcr|CLSID\{236FE2ED-19AA-4392-A880-DA19F61AE10C}
+key|hkcr|CLSID\{276C8F18-7FD1-4156-A564-A2D2208AD116}
+key|hkcr|CLSID\{9CFACCB6-2F3F-4177-94EA-0D2B72D384C1}
+key|hkcr|CLSID\{BAC72C85-CEC6-4B86-AF06-FA20C259FAB8}
+key|hkcr|CLSID\{EA582743-9076-4178-9AA6-7393FDF4D5CE}
+key|hkcr|CLSID\{F443A627-5009-4323-9C1D-7FD598D0D712}
+key|hkcu|Software\Microsoft\Internet Explorer\SearchScopes\{443789B7-F39C-4b5c-9287-DA72D38F4FE6}
+key|hklm|Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{0A0DDBD3-6641-40B9-873F-BBDD26D6C14E}
+key|hklm|Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{236FE2ED-19AA-4392-A880-DA19F61AE10C}
+key|hklm|Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{9CFACCB6-2F3F-4177-94EA-0D2B72D384C1}
+key|hklm|Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{BAC72C85-CEC6-4B86-AF06-FA20C259FAB8}
+key|hklm|Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{F443A627-5009-4323-9C1D-7FD598D0D712}
+key|hkcu|Software\Babylon
+key|hkcu|Software\eFix
+key|hkcu|Software\Microsoft\Internet Explorer\MenuExt\Translate this web page with Babylon
+key|hkcu|Software\Microsoft\Internet Explorer\MenuExt\Translate with Babylon
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{10ECCE17-29B5-4880-A8F5-EAD298611484}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Settings\{9CFACCB6-2F3F-4177-94EA-0D2B72D384C1}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{9CFACCB6-2F3F-4177-94EA-0D2B72D384C1}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Ext\Stats\{F72841F0-4EF1-4DF5-BCE5-B3AC8ACF5478}
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\SimpleFiles
+key|hkcu|Software\Microsoft\Windows\CurrentVersion\Uninstall\StormFall
+key|hkcu|Software\PC Booster
+key|hkcu|Software\PRODUCTSETUP
+key|hkcu|Software\SimpleFiles
+key|hklm|SOFTWARE\{12A61307-94CD-4F8E-94BC-918E511FAA81}
+key|hklm|SOFTWARE\{3A7D3E19-1B79-4E4E-BD96-5467DA2C4EF0}
+key|hklm|SOFTWARE\32e30741-cfe8-ec3c-8381-69c3edbf0a0d
+key|hklm|SOFTWARE\Babylon
+key|hklm|SOFTWARE\Classes\.bdc
+key|hklm|SOFTWARE\Classes\.bgl
+key|hklm|SOFTWARE\Classes\.bof
+key|hklm|SOFTWARE\Classes\AppID\{28FF42B8-A0DA-4BE5-9B81-E26DD59B350A}
+key|hklm|SOFTWARE\Classes\AppID\{6536801B-F50C-449B-9476-093DFD3789E3}
+key|hklm|SOFTWARE\Classes\AppID\{B16632F1-24E0-4D99-A68D-70BFB6447C48}
+key|hklm|SOFTWARE\Classes\AppID\BabylonHelper.EXE
+key|hklm|SOFTWARE\Classes\AppID\BabylonIEPI.DLL
+key|hklm|SOFTWARE\Classes\AppID\REI_AxControl.DLL
+key|hklm|SOFTWARE\Classes\BabyDict
+key|hklm|SOFTWARE\Classes\BabyGloss
+key|hklm|SOFTWARE\Classes\BabylonIEPI.BabylonIEBho
+key|hklm|SOFTWARE\Classes\BabylonIEPI.BabylonIEBho.1
+key|hklm|SOFTWARE\Classes\BabylonOfficeAddin.OfficeAddin
+key|hklm|SOFTWARE\Classes\BabylonOfficeAddin.OfficeAddin.1
+key|hklm|SOFTWARE\Classes\BabyOptFile
+key|hklm|SOFTWARE\Classes\CLSID\{459DD0F7-0D55-D3DC-67BC-E6BE37E9D762}
+key|hklm|SOFTWARE\Classes\CLSID\{48A1CE77-0438-4AB2-AFED-E2117E77E361}
+key|hklm|SOFTWARE\Classes\CLSID\{6AC0BB10-C922-45E2-857D-2A368FE749E5}
+key|hklm|SOFTWARE\Classes\CLSID\{947217BD-E967-400A-B14A-BA851A8EDCBB}
+key|hklm|SOFTWARE\Classes\CLSID\{9CFACCB6-2F3F-4177-94EA-0D2B72D384C1}
+key|hklm|SOFTWARE\Classes\CLSID\{B9F7B62E-DC0F-487C-92A5-507C51EA1037}
+key|hklm|SOFTWARE\Classes\Interface\{5F339F0B-716F-408F-A627-DEEB5DEB4020}
+key|hklm|SOFTWARE\Classes\Interface\{928FE5E7-D557-46B7-8AF6-17ACCE1FB4ED}
+key|hklm|SOFTWARE\Classes\Interface\{9BB31AD8-5DB2-459E-A901-DEA536F23BA4}
+key|hklm|SOFTWARE\Classes\Interface\{BD51A48E-EB5F-4454-8774-EF962DF64546}
+key|hklm|SOFTWARE\Classes\P48A1CE77_0438_4AB2_AFED_E2117E77E361_.P48A1CE77_0438_4AB2_AFED_E2117E77E361_
+key|hklm|SOFTWARE\Classes\P48A1CE77_0438_4AB2_AFED_E2117E77E361_.P48A1CE77_0438_4AB2_AFED_E2117E77E361_.9
+key|hklm|SOFTWARE\Classes\PB9F7B62E_DC0F_487C_92A5_507C51EA1037_.PB9F7B62E_DC0F_487C_92A5_507C51EA1037_
+key|hklm|SOFTWARE\Classes\PB9F7B62E_DC0F_487C_92A5_507C51EA1037_.PB9F7B62E_DC0F_487C_92A5_507C51EA1037_.9
+key|hklm|SOFTWARE\Classes\Prod.cap
+key|hklm|SOFTWARE\Classes\REI_AxControl.ReiEngine
+key|hklm|SOFTWARE\Classes\REI_AxControl.ReiEngine.1
+key|hklm|SOFTWARE\Classes\TypeLib\{A1489C85-4F6F-48C4-AC9E-18B63AF4703E}
+key|hklm|SOFTWARE\Classes\TypeLib\{D109FD35-ED23-483B-87F3-9160F08B53B8}
+key|hklm|SOFTWARE\Classes\TypeLib\{F310F027-15CB-4A7F-B10D-3A4AFB5013A5}
+key|hklm|SOFTWARE\Classes\TypeLib\{FA6468D2-FAA4-4951-A53B-2A5CF9CC0A36}
+key|hklm|SOFTWARE\Microsoft\Internet Explorer\Extensions\{F72841F0-4EF1-4DF5-BCE5-B3AC8ACF5478}
+key|hklm|SOFTWARE\Microsoft\Internet Explorer\Low Rights\ElevationPolicy\{A1489C85-4F6F-48C4-AC9E-18B63AF4703E}
+key|hklm|SOFTWARE\Microsoft\Internet Explorer\SearchScopes\{33BB0A4E-99AF-4226-BDF6-49120163DE86}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Babylon.exe
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Reimage.exe
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{48A1CE77-0438-4AB2-AFED-E2117E77E361}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{9CFACCB6-2F3F-4177-94EA-0D2B72D384C1}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{B9F7B62E-DC0F-487C-92A5-507C51EA1037}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{48A1CE77-0438-4AB2-AFED-E2117E77E361}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Ext\PreApproved\{B9F7B62E-DC0F-487C-92A5-507C51EA1037}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{0F44DC3H-6E62-4961-A14B-95323C512F9B}_is1
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{12DA0E6F-5543-440C-BAA2-28BF01070AFA}{a28a497d}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{4820778D-AB0D-6D18-C316-52A6A0E1D507}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A2C98B47-B5F4-94AA-281D-4135416774CF}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{AD11DADE-C597-45D9-D8C5-1D2EB0B89613}
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Babylon
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Knight System Protector_is1
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PC Booster
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RegClean Pro_is1
+key|hklm|SOFTWARE\mystartsearchSoftware
+key|hklm|SOFTWARE\PC Booster
+key|hklm|SOFTWARE\SimpleFiles
+key|hklm|SOFTWARE\systweak
+key|hklm|SOFTWARE\Classes\CLSID\{10ECCE17-29B5-4880-A8F5-EAD298611484}
+key|hklm|SOFTWARE\Classes\CLSID\{64B00DAC-870D-4E6A-8D34-3A6E3E427A30}
+key|hklm|SOFTWARE\Classes\CLSID\{801B440B-1EE3-49B0-B05D-2AB076D4E8CB}
+key|hklm|SOFTWARE\eFix
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\eFix Pro
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OLBPre
+key|hklm|SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Reimage Repair
+key|hklm|SOFTWARE\Reimage
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\pcas
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\secbizsrv
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\ustspcodiskoptimizer
+key|hkml|SYSTEM\CurrentControlSet\Services\Eventlog\Application\yahooauservice
+key|hkml|SYSTEM\ControlSet001\services\pcas
+key|hkml|SYSTEM\ControlSet001\services\secbizsrv
+key|hkml|SYSTEM\ControlSet001\services\ustspcodiskoptimizer
+key|hkml|SYSTEM\ControlSet001\services\yahooauservice
+key|hkml|SYSTEM\ControlSet002\services\pcas
+key|hkml|SYSTEM\ControlSet002\services\secbizsrv
+key|hkml|SYSTEM\ControlSet002\services\ustspcodiskoptimizer
+key|hkml|SYSTEM\ControlSet002\services\yahooauservice

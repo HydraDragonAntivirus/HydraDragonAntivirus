@@ -35,6 +35,7 @@ pub enum Param {
     MinimalScanTimeoutMs,
     DeepScanTimeoutMs,
     LateChildScanGraceMs,
+    BloomFilterPath,
     Unknown,
 }
 
@@ -73,6 +74,7 @@ impl Param {
             Param::MinimalScanTimeoutMs => "MINIMAL_SCAN_TIMEOUT_MS",
             Param::DeepScanTimeoutMs => "DEEP_SCAN_TIMEOUT_MS",
             Param::LateChildScanGraceMs => "LATE_CHILD_SCAN_GRACE_MS",
+            Param::BloomFilterPath => "BLOOM_FILTER_PATH", // dir holding whitelist.bloom / blacklist.bloom
             _ => "UNKNOWN",
         }
     }
@@ -102,6 +104,7 @@ impl Param {
             Param::MinimalScanTimeoutMs => "minimal_scan_timeout_ms",
             Param::DeepScanTimeoutMs => "deep_scan_timeout_ms",
             Param::LateChildScanGraceMs => "late_child_scan_grace_ms",
+            Param::BloomFilterPath => "bloom_filter_path",
             _ => "unknown",
         }
     }
@@ -138,6 +141,7 @@ impl Param {
         params.push(Param::StaticRulesPath);
         params.push(Param::StaticRulesMode);
         params.push(Param::ReportDir);
+        params.push(Param::BloomFilterPath);
 
         let mut ret = Vec::new();
         for param in params {
@@ -172,6 +176,7 @@ impl Param {
             "MINIMAL_SCAN_TIMEOUT_MS" => Param::MinimalScanTimeoutMs,
             "DEEP_SCAN_TIMEOUT_MS" => Param::DeepScanTimeoutMs,
             "LATE_CHILD_SCAN_GRACE_MS" => Param::LateChildScanGraceMs,
+            "BLOOM_FILTER_PATH" => Param::BloomFilterPath,
             _ => Param::Unknown,
         }
     }
@@ -201,6 +206,7 @@ impl Param {
             "minimal_scan_timeout_ms" => Param::MinimalScanTimeoutMs,
             "deep_scan_timeout_ms" => Param::DeepScanTimeoutMs,
             "late_child_scan_grace_ms" => Param::LateChildScanGraceMs,
+            "bloom_filter_path" => Param::BloomFilterPath,
             _ => Param::Unknown,
         }
     }

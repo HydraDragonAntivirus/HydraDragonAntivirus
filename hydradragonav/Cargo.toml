@@ -1,0 +1,59 @@
+[package]
+name = "hydradragonav"
+version = "0.1.0"
+edition = "2021"
+description = "libclamav.dll scanner wrapper — on-demand scan, database reload, and freshclam updater"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+
+# Static analysis
+hydradragonstatic = { path = "hydradragonstatic", default-features = false }
+
+# Detect-It-Easy (native Rust bindings)
+die = { path = "../.agent/die-rust-inspect" }
+
+# YARA-X
+yara-x = "1.17.0"
+
+# Bloom filter
+fastbloom = { version = "0.17", features = ["serde"] }
+bincode-next = { version = "2.0", features = ["serde"] }
+
+# Hashing
+md-5 = "0.10.6"
+sha2 = "0.10.9"
+hex = "0.4.3"
+
+# ML / Burn
+burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
+burn-ndarray = "0.21"
+burn-dataset = "0.21"
+
+# Disassembly for PE feature extraction
+capstone = "0.14"
+
+# PE parsing
+goblin = "0.10.5"
+
+# JavaScript parser
+oxc_parser = "0.135"
+oxc_ast = "0.135"
+oxc_allocator = "0.135"
+oxc_span = "0.135"
+
+# CVD unpacking (ClamJuice)
+flate2 = "1"
+tar = "0.4"
+tempfile = "3"
+
+# Other
+regex = "1.12.2"
+
+[build-dependencies]
+sha2 = "0.10.9"
+winres = "0.1"

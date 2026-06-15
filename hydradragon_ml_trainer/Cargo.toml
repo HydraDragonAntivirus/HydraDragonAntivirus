@@ -1,0 +1,19 @@
+[package]
+name = "hydradragon_ml_trainer"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone PE and JavaScript ML trainer for HydraDragonAV scanning models"
+
+[dependencies]
+burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
+burn-ndarray = "0.21"
+capstone = "0.14"
+clap = { version = "4", features = ["derive"] }
+goblin = "0.10.5"
+oxc_allocator = "0.135"
+oxc_ast = "0.135"
+oxc_parser = "0.135"
+oxc_span = "0.135"
+rand = "0.9"
+rayon = "1.11"
+regex = "1.12.2"

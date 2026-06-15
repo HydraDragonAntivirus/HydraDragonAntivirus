@@ -78,16 +78,8 @@ pub fn init_hydra_dragon(
         );
     }
 
-    use crate::worker::predictor::PredictorMalware;
-
-    // Create predictor on this thread
-    let predictor_malware = PredictorMalware::new(config);
-
-    // Create AVIntegration on this thread
-    // This is safe because we're not trying to share it across threads
     Some(hydradragon::av_integration::AVIntegration::new(
         config,
-        predictor_malware,
         driver,
     ))
 }
@@ -133,7 +125,7 @@ pub(crate) use windows::run;
 #[path = "linux/run.rs"]
 mod run;
 #[cfg(target_os = "windows")]
-pub use windows::signature_verification;
+pub use hydradragonstatic::signature_verification;
 
 #[cfg(all(target_os = "linux", not(feature = "linux-ebpf")))]
 mod run {

@@ -1,0 +1,478 @@
+#![cfg(windows)]
+
+use std::path::PathBuf;
+use std::time::Duration;
+
+use clap::{Parser, Subcommand};
+
+use hydradragonav::clamjuice;
+use hydradragonav::pipeline::{Pipeline, PipelineConfig};
+use hydradragonav::run_freshclam_dll;
+use hydradragonav::Error;
+use hydradragonav::Scanner;
+
+const DEFINITION_MAX_AGE_HOURS: u64 = 12;
+
+fn exe_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn resolve_bloom_dir() -> PathBuf {
+    std::env::var("BLOOM_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("bloom_filter"))
+}
+
+fn resolve_yara_dir() -> PathBuf {
+    std::env::var("YARA_RULES_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("yara-x"))
+}
+
+fn resolve_complist() -> PathBuf {
+    std::env::var("COMPLIST_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("complist").join("complist.txt"))
+}
+
+fn resolve_clamav_dll() -> PathBuf {
+    std::env::var("CLAMAV_LIBRARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("libclamav.dll"))
+}
+
+fn resolve_clamav_db() -> PathBuf {
+    std::env::var("CLAMAV_DATABASE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("database"))
+}
+
+fn resolve_freshclam() -> PathBuf {
+    std::env::var("FRESHCLAM_DLL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("libfreshclam.dll"))
+}
+
+fn resolve_hayabusa_dir() -> PathBuf {
+    std::env::var("HAYABUSA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("hayabusa"))
+}
+
+fn resolve_detectiteasy_dir() -> PathBuf {
+    std::env::var("DETECTITEASY_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("detectiteasy"))
+}
+
+fn resolve_pe_ml_model() -> PathBuf {
+    std::env::var("PE_ML_MODEL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("ml").join("pe_model.mpk"))
+}
+
+fn resolve_js_ml_model() -> PathBuf {
+    std::env::var("JS_ML_MODEL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("ml").join("js_model.mpk"))
+}
+
+#[derive(Parser)]
+#[command(
+    name = "hydradragonav",
+    version,
+    about = "Unified malware scanning engine"
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+
+    #[arg(long, env = "CLAMAV_LIBRARY", global = true)]
+    lib: Option<PathBuf>,
+
+    #[arg(long, env = "CLAMAV_DATABASE", global = true)]
+    db: Option<PathBuf>,
+
+    #[arg(long, env = "FRESHCLAM_DLL_PATH", global = true)]
+    freshclam: Option<PathBuf>,
+
+    #[arg(long, env = "COMPLIST_PATH", global = true)]
+    complist: Option<PathBuf>,
+
+    #[arg(long, env = "BLOOM_DIR", global = true)]
+    bloom_dir: Option<PathBuf>,
+
+    #[arg(long, env = "YARA_RULES_DIR", global = true)]
+    yara_dir: Option<PathBuf>,
+
+    #[arg(long, env = "HAYABUSA_DIR", global = true)]
+    hayabusa_dir: Option<PathBuf>,
+
+    #[arg(long, env = "DETECTITEASY_DIR", global = true)]
+    detectiteasy_dir: Option<PathBuf>,
+
+    #[arg(long, env = "PE_ML_MODEL_PATH", global = true)]
+    pe_ml_model: Option<PathBuf>,
+
+    #[arg(long, env = "JS_ML_MODEL_PATH", global = true)]
+    js_ml_model: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Scan a file through the full detection pipeline
+    Scan {
+        /// File to scan
+        path: PathBuf,
+
+        /// Output raw JSON (default: human-readable)
+        #[arg(long, short)]
+        json: bool,
+    },
+
+    /// Quick scan using ClamAV only
+    QuickScan { path: PathBuf },
+
+    /// Update ClamAV virus definitions via libfreshclam.dll and optionally Hayabusa rules
+    Update {
+        #[arg(long, short)]
+        reload_scanner: bool,
+        #[arg(long)]
+        hayabusa: bool,
+        /// Filter databases after update (Windows-only, no hashes)
+        #[arg(long)]
+        juice: bool,
+    },
+
+    /// Filter ClamAV databases: keep Windows-only, remove all hash files
+    ClamJuice {
+        /// Keep the original .cvd/.cld files after filtering (by default they are deleted)
+        #[arg(long)]
+        keep_source: bool,
+    },
+
+    /// Reload the ClamAV database
+    ReloadDatabase,
+
+    /// Print engine versions
+    Version,
+
+    /// Check whether the local ClamAV definitions are stale
+    CheckUpdate,
+}
+
+fn default_paths() -> (
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+) {
+    (
+        resolve_clamav_dll(),
+        resolve_clamav_db(),
+        resolve_freshclam(),
+        resolve_complist(),
+        resolve_bloom_dir(),
+        resolve_yara_dir(),
+        resolve_hayabusa_dir(),
+        resolve_detectiteasy_dir(),
+        resolve_pe_ml_model(),
+        resolve_js_ml_model(),
+    )
+}
+
+fn cmd_scan(path: &std::path::Path, json: bool, config: &FullConfig) {
+    let pipeline_config = PipelineConfig {
+        complist_path: config.complist.clone().filter(|p| p.exists()),
+        bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
+        yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
+        pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
+        js_ml_model_path: config.js_ml_model.clone().filter(|p| p.exists()),
+        clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
+        clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
+        hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
+        detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
+        ..Default::default()
+    };
+
+    let pipeline = Pipeline::new(pipeline_config);
+    let result = pipeline.scan_file(path);
+
+    if json {
+        println!("{}", serde_json::to_string(&result).unwrap());
+    } else {
+        println!("[{}] {}", result.verdict.label(), path.display());
+        if let Some(ref tn) = result.threat_name {
+            println!("  threat: {}", tn);
+        }
+        for e in &result.engines {
+            println!("  ├─ {}: {} ({})", e.engine, e.verdict.label(), e.detail);
+        }
+        if let Some(prob) = result.ml_malware_probability {
+            println!("  └─ ml_probability: {:.4}", prob);
+        }
+    }
+}
+
+fn cmd_quick_scan(path: &std::path::Path, lib_path: &std::path::Path, db_path: &std::path::Path) {
+    let scanner = match Scanner::new(lib_path, db_path) {
+        Ok(s) => s,
+        Err(e) => {
+            let resp = serde_json::json!({
+                "status": "error",
+                "message": e.to_string(),
+            });
+            println!("{}", serde_json::to_string(&resp).unwrap());
+            std::process::exit(1);
+        }
+    };
+
+    match scanner.scan_file(path) {
+        Ok(result) => {
+            let resp = serde_json::json!({
+                "status": "success",
+                "malicious": result.is_virus(),
+                "clamav": result.virus_name,
+                "result_code": result.result_code,
+                "bytes_scanned": result.bytes_scanned,
+            });
+            println!("{}", serde_json::to_string(&resp).unwrap());
+        }
+        Err(e) => {
+            let resp = serde_json::json!({
+                "status": "error",
+                "message": e.to_string(),
+            });
+            println!("{}", serde_json::to_string(&resp).unwrap());
+            std::process::exit(1);
+        }
+    }
+}
+
+struct FullConfig {
+    lib: PathBuf,
+    db: PathBuf,
+    freshclam: PathBuf,
+    complist: Option<PathBuf>,
+    bloom_dir: Option<PathBuf>,
+    yara_dir: Option<PathBuf>,
+    hayabusa_dir: Option<PathBuf>,
+    detectiteasy_dir: Option<PathBuf>,
+    pe_ml_model: Option<PathBuf>,
+    js_ml_model: Option<PathBuf>,
+}
+
+fn main() {
+    let cli = Cli::parse();
+    let (lib, db, freshclam, cmpl, blm, yara, hayabusa, detectiteasy, pe_ml, js_ml) = default_paths();
+
+    let config = FullConfig {
+        lib: cli.lib.unwrap_or(lib),
+        db: cli.db.unwrap_or(db),
+        freshclam: cli.freshclam.unwrap_or(freshclam),
+        complist: cli.complist.or(Some(cmpl)),
+        bloom_dir: cli.bloom_dir.or(Some(blm)),
+        yara_dir: cli.yara_dir.or(Some(yara)),
+        hayabusa_dir: cli.hayabusa_dir.or(Some(hayabusa)),
+        detectiteasy_dir: cli.detectiteasy_dir.or(Some(detectiteasy)),
+        pe_ml_model: cli.pe_ml_model.or(Some(pe_ml)),
+        js_ml_model: cli.js_ml_model.or(Some(js_ml)),
+    };
+
+    match &cli.command {
+        Command::Scan { path, json } => cmd_scan(path, *json, &config),
+        Command::QuickScan { path } => cmd_quick_scan(path, &config.lib, &config.db),
+        Command::Update { reload_scanner, hayabusa, juice } => {
+            cmd_update(*reload_scanner, *hayabusa, *juice, &config.lib, &config.db, &config.freshclam, config.hayabusa_dir.as_deref())
+        }
+        Command::ClamJuice { keep_source } => {
+            clamjuice::run_juice(&config.db, !*keep_source);
+        }
+        Command::ReloadDatabase => cmd_reload_database(&config.lib, &config.db),
+        Command::Version => cmd_version(&config.lib, &config.db),
+        Command::CheckUpdate => cmd_check_update(&config.db),
+    }
+}
+
+fn cmd_update(
+    reload_scanner: bool,
+    update_hayabusa: bool,
+    update_juice: bool,
+    lib_path: &std::path::Path,
+    db_path: &std::path::Path,
+    freshclam_dll: &std::path::Path,
+    hayabusa_dir: Option<&std::path::Path>,
+) {
+    let certs_dir = freshclam_dll.parent().map(|p| p.join("certs"));
+
+    eprintln!("[ClamAV] Updating databases via libfreshclam.dll...");
+    match run_freshclam_dll(freshclam_dll, db_path, certs_dir.as_deref()) {
+        Ok(()) => {
+            eprintln!("[ClamAV] Database update completed successfully.");
+        }
+        Err(e) => {
+            eprintln!("[ClamAV] Database update failed: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    if update_hayabusa {
+        if let Some(hdir) = hayabusa_dir {
+            cmd_update_hayabusa(hdir);
+        } else {
+            eprintln!("[Hayabusa] hayabusa_dir not configured, skipping.");
+        }
+    }
+
+    if update_juice {
+        eprintln!("[ClamJuice] Filtering databases (Windows-only, no hashes)...");
+        clamjuice::run_juice(db_path, true);
+    }
+
+    if reload_scanner {
+        eprintln!("[ClamAV] Reloading scanner database...");
+        let scanner = match Scanner::new(lib_path, db_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[ClamAV] Failed to initialize scanner for reload: {}", e);
+                std::process::exit(1);
+            }
+        };
+        match scanner.reload_database() {
+            Ok(sigs) => {
+                eprintln!("[ClamAV] Database reloaded. Signatures loaded: {}", sigs);
+            }
+            Err(e) => {
+                eprintln!("[ClamAV] Database reload failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn cmd_update_hayabusa(hayabusa_dir: &std::path::Path) {
+    let exe = hayabusa_dir.join("hayabusa-3.9.0-win-x64.exe");
+    if !exe.exists() {
+        eprintln!("[Hayabusa] executable not found at {}", exe.display());
+        return;
+    }
+    eprintln!("[Hayabusa] Updating rules...");
+    match std::process::Command::new(&exe)
+        .args(["update-rules", "--quiet"])
+        .current_dir(hayabusa_dir)
+        .status()
+    {
+        Ok(s) if s.success() => eprintln!("[Hayabusa] Rules updated successfully."),
+        Ok(s) => eprintln!("[Hayabusa] update-rules exited with: {}", s),
+        Err(e) => eprintln!("[Hayabusa] Failed to run update-rules: {}", e),
+    }
+}
+
+fn cmd_reload_database(lib_path: &std::path::Path, db_path: &std::path::Path) {
+    let scanner = match Scanner::new(lib_path, db_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[ClamAV] Failed to initialize scanner: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    match scanner.reload_database() {
+        Ok(sigs) => {
+            eprintln!("[ClamAV] Database reloaded. Signatures loaded: {}", sigs);
+        }
+        Err(e) => {
+            eprintln!("[ClamAV] Database reload failed: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_version(lib_path: &std::path::Path, db_path: &std::path::Path) {
+    let scanner = match Scanner::new(lib_path, db_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[ClamAV] Failed to initialize scanner: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    match scanner.version() {
+        Some(v) => println!("{}", v),
+        None => {
+            eprintln!("[ClamAV] Could not retrieve engine version.");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_check_update(db_path: &std::path::Path) {
+    let staleness = match check_db_staleness(db_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[ClamAV] Error checking definitions: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    if staleness {
+        eprintln!("[ClamAV] Definitions are STALE. Update recommended.");
+        println!("{}", serde_json::json!({"status": "stale"}));
+    } else {
+        eprintln!("[ClamAV] Definitions are current.");
+        println!("{}", serde_json::json!({"status": "current"}));
+    }
+}
+
+fn check_db_staleness(db_path: &std::path::Path) -> Result<bool, Error> {
+    if !db_path.exists() {
+        return Err(Error::Other(format!(
+            "Database directory not found: {}",
+            db_path.display()
+        )));
+    }
+
+    let mut found_definition = false;
+    let mut latest_modified = std::time::SystemTime::UNIX_EPOCH;
+
+    for entry in std::fs::read_dir(db_path)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .unwrap_or_default();
+        if ext != "cvd" && ext != "cld" {
+            continue;
+        }
+        let metadata = entry.metadata()?;
+        let modified = metadata.modified()?;
+        if !found_definition || modified > latest_modified {
+            latest_modified = modified;
+            found_definition = true;
+        }
+    }
+
+    if !found_definition {
+        return Err(Error::Other("No .cvd/.cld definition files found.".into()));
+    }
+
+    let age = std::time::SystemTime::now()
+        .duration_since(latest_modified)
+        .unwrap_or(Duration::from_secs(0));
+
+    Ok(age > Duration::from_secs(DEFINITION_MAX_AGE_HOURS * 3600))
+}

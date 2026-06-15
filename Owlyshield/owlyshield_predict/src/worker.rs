@@ -1,161 +1,3 @@
-pub mod predictor {
-    use crate::config::Config;
-    use crate::predictions::prediction::input_tensors::Timestep;
-    use crate::predictions::prediction::input_tensors::VecvecCappedF32;
-    use crate::predictions::prediction::{PREDMTRXCOLS, PREDMTRXROWS};
-    use crate::predictions::prediction_malware::TfLiteMalware;
-    use crate::predictions::prediction_static::TfLiteStatic;
-    use crate::predictions::xgboost::score;
-    use crate::process::ProcessRecord;
-
-    pub trait PredictorHandler {
-        fn predict(&mut self, precord: &ProcessRecord) -> Option<f32>;
-    }
-
-    #[allow(dead_code)]
-    pub trait PredictorHandlerBehavioral: PredictorHandler {}
-
-    pub struct PredictionHandlerBehavioralXGBoost;
-
-    impl PredictorHandlerBehavioral for PredictionHandlerBehavioralXGBoost {}
-
-    impl PredictorHandler for PredictionHandlerBehavioralXGBoost {
-        fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
-            let timestep = Timestep::from(precord);
-            Some(score(timestep.to_vec_f32())[1])
-        }
-    }
-
-    impl PredictionHandlerBehavioralXGBoost {
-        pub fn new(_config: &Config) -> PredictionHandlerBehavioralXGBoost {
-            PredictionHandlerBehavioralXGBoost
-        }
-    }
-
-    pub struct PredictorHandlerBehavioralMLP {
-        pub timesteps: VecvecCappedF32,
-        tflite_malware: TfLiteMalware,
-    }
-
-    impl PredictorHandlerBehavioral for PredictorHandlerBehavioralMLP {}
-
-    impl PredictorHandler for PredictorHandlerBehavioralMLP {
-        fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
-            let timestep = Timestep::from(precord);
-            self.timesteps.push_row(timestep.to_vec_f32()).unwrap();
-            if self.timesteps.rows_len() > 0 {
-                let prediction = self.tflite_malware.make_prediction(&self.timesteps);
-                return Some(prediction);
-            }
-            None
-        }
-    }
-
-    impl PredictorHandlerBehavioralMLP {
-        pub fn new(config: &Config) -> PredictorHandlerBehavioralMLP {
-            PredictorHandlerBehavioralMLP {
-                timesteps: VecvecCappedF32::new(PREDMTRXCOLS, PREDMTRXROWS),
-                tflite_malware: TfLiteMalware::new(config),
-            }
-        }
-    }
-
-    // Import LruCache for tracking
-    use lru::LruCache;
-    use std::num::NonZeroUsize;
-    use std::path::PathBuf;
-
-    pub struct PredictorHandlerStatic {
-        predictor_static: TfLiteStatic,
-        cache: LruCache<PathBuf, f32>,
-    }
-
-    impl PredictorHandler for PredictorHandlerStatic {
-        fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
-            if let Some(score) = self.cache.get(&precord.exepath) {
-                return Some(*score);
-            }
-
-            if let Some(score) = self.predictor_static.make_prediction(&precord.exepath) {
-                self.cache.push(precord.exepath.clone(), score);
-                return Some(score);
-            }
-
-            None
-        }
-    }
-
-    impl PredictorHandlerStatic {
-        pub fn new(config: &Config) -> PredictorHandlerStatic {
-            PredictorHandlerStatic {
-                predictor_static: TfLiteStatic::new(config),
-                cache: LruCache::new(NonZeroUsize::new(1000).unwrap()),
-            }
-        }
-    }
-
-    pub struct PredictorMalwareBehavioral {
-        pub mlp: PredictorHandlerBehavioralMLP,
-        pub xgboost: PredictionHandlerBehavioralXGBoost,
-    }
-
-    impl PredictorHandlerBehavioral for PredictorMalwareBehavioral {}
-
-    impl PredictorHandler for PredictorMalwareBehavioral {
-        fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
-            self.xgboost.predict(precord)
-        }
-    }
-
-    impl PredictorMalwareBehavioral {
-        pub fn new(config: &Config) -> PredictorMalwareBehavioral {
-            PredictorMalwareBehavioral {
-                mlp: PredictorHandlerBehavioralMLP::new(config),
-                xgboost: PredictionHandlerBehavioralXGBoost::new(config),
-            }
-        }
-    }
-
-    pub struct PredictorMalware {
-        pub predictor_behavioral: PredictorMalwareBehavioral,
-        pub predictor_static: PredictorHandlerStatic,
-    }
-
-    impl PredictorHandler for PredictorMalware {
-        fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
-            let opt_pred_b = self.predictor_behavioral.predict(precord);
-            let opt_pred_s = self.predictor_static.predict(precord);
-
-            match (opt_pred_s, opt_pred_b) {
-                (Some(pred_s), Some(pred_b)) => {
-                    Some(self.ponderate_prediction(precord, pred_s, pred_b))
-                }
-                (Some(pred_s), None) => Some(pred_s),
-                (None, Some(pred_b)) => Some(pred_b),
-                _ => None,
-            }
-        }
-    }
-
-    impl PredictorMalware {
-        pub fn new(config: &Config) -> PredictorMalware {
-            PredictorMalware {
-                predictor_behavioral: PredictorMalwareBehavioral::new(config),
-                predictor_static: PredictorHandlerStatic::new(config),
-            }
-        }
-
-        fn ponderate_prediction(&self, precord: &ProcessRecord, pred_s: f32, pred_b: f32) -> f32 {
-            let ponderation = match precord.driver_msg_count {
-                0..=20 => 0.0,
-                21..=50 => 0.5,
-                _ => 0.8,
-            };
-            (1.0 - ponderation) * pred_s + ponderation * pred_b
-        }
-    }
-}
-
 pub mod process_record_handling {
     use std::path::PathBuf;
     use std::thread;
@@ -171,18 +13,15 @@ pub mod process_record_handling {
         QueryFullProcessImageNameW,
     };
 
-    use super::predictor::PredictorMalware;
     use crate::IOMessage;
-    use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
-    use crate::config::{Config, KillPolicy, Param};
+    use crate::config::{Config, Param};
     use crate::csvwriter::CsvWriter;
     use crate::logging::Logging;
     use crate::novelty::{Rule, StateSave};
     use crate::predictions::prediction::input_tensors::Timestep;
-    use crate::process::{ProcessRecord, ProcessState};
+    use crate::process::ProcessRecord;
     use crate::threat_handler::ThreatHandler;
     use crate::watchlist::WatchList;
-    use crate::worker::predictor::PredictorHandler;
 
     pub trait Exepath {
         fn exepath(&self, iomsg: &IOMessage) -> Option<PathBuf>;
@@ -238,146 +77,15 @@ pub mod process_record_handling {
     }
 
     pub struct ProcessRecordHandlerLive<'a> {
+        #[allow(dead_code)]
         config: &'a Config,
+        #[allow(dead_code)]
         threat_handler: Box<dyn ThreatHandler>,
-        predictor_malware: PredictorMalware,
     }
 
     impl ProcessRecordIOHandler for ProcessRecordHandlerLive<'_> {
-        #[cfg(target_os = "windows")]
-        fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            if let Some(prediction_behavioral) = self.predictor_malware.predict(precord)
-                && (prediction_behavioral > self.config.threshold_prediction
-                    || precord.appname.contains("TEST-OLRANSOM"))
-            {
-                Logging::debug(&format!(
-                    "MALWARE DETECTED - {} (gid: {}) | Prediction: {:.4} | Threshold: {:.4} | Files opened: {} | Files written: {} | Driver msgs: {}",
-                    precord.appname,
-                    precord.gid,
-                    prediction_behavioral,
-                    self.config.threshold_prediction,
-                    precord.files_opened.len(),
-                    precord.files_written.len(),
-                    precord.driver_msg_count
-                ));
-                println!("Ransomware Suspected!!!");
-                eprintln!("precord.gid = {:?}", precord.gid);
-                println!("{}", precord.appname);
-                println!("with {prediction_behavioral} certainty");
-                println!(
-                    "\nSee {}\\threats for details.",
-                    self.config[Param::RealTimeLearningPath]
-                );
-                println!("{}", self.config[Param::ConfigPath]);
-
-                let kill_policy = self.config.get_kill_policy();
-                let heuristic_hard_remediation = precord.appname.contains("TEST-OLRANSOM")
-                    || (prediction_behavioral >= 0.98
-                        && precord.driver_msg_count >= self.config.threshold_drivermsgs.max(120)
-                        && (!precord.is_signed || !precord.has_valid_signature));
-
-                if heuristic_hard_remediation
-                    && matches!(kill_policy, KillPolicy::Suspend)
-                    && precord.process_state != ProcessState::Suspended
-                {
-                    self.threat_handler.suspend(precord);
-                }
-
-                let threat_info = ThreatInfo {
-                    threat_type_label: "Ransomware",
-                    virus_name: "Behavioral Detection",
-                    prediction: prediction_behavioral,
-                    match_details: Some(if heuristic_hard_remediation {
-                        "Heuristic malware detection reached hard-remediation threshold".to_string()
-                    } else {
-                        "Heuristic malware detection reached notify-only threshold; hard remediation withheld to avoid false-positive termination".to_string()
-                    }),
-                    deny_access: false,
-                    terminate: heuristic_hard_remediation
-                        && matches!(
-                            kill_policy,
-                            KillPolicy::Kill
-                                | KillPolicy::KillAndQuarantine
-                                | KillPolicy::KillAndRemove
-                        ),
-                    kill_and_remove: heuristic_hard_remediation
-                        && matches!(kill_policy, KillPolicy::KillAndRemove),
-                    quarantine: heuristic_hard_remediation
-                        && matches!(kill_policy, KillPolicy::KillAndQuarantine),
-                    suspend: heuristic_hard_remediation
-                        && matches!(kill_policy, KillPolicy::Suspend),
-                    notify_user: true,
-                    revert: heuristic_hard_remediation,
-                };
-
-                if threat_info.terminate {
-                    ActionsOnKill::with_handler(self.threat_handler.clone_box())
-                        .run_actions_with_info(
-                            self.config,
-                            precord,
-                            &self.predictor_malware.predictor_behavioral.mlp.timesteps,
-                            &threat_info,
-                        );
-                } else {
-                    ActionsOnKill::new().run_actions_with_info(
-                        self.config,
-                        precord,
-                        &self.predictor_malware.predictor_behavioral.mlp.timesteps,
-                        &threat_info,
-                    );
-                }
-            }
-        }
-
-        #[cfg(target_os = "linux")]
-        fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            if let Some(prediction_behavioral) = self.predictor_malware.predict(precord) {
-                if prediction_behavioral > self.config.threshold_prediction
-                    || precord.appname.contains("TEST-OLRANSOM")
-                {
-                    Logging::debug(&format!(
-                        "MALWARE DETECTED - {} (gid: {}) | Prediction: {:.4} | Threshold: {:.4} | Files opened: {} | Files written: {} | Driver msgs: {}",
-                        precord.appname,
-                        precord.gid,
-                        prediction_behavioral,
-                        self.config.threshold_prediction,
-                        precord.files_opened.len(),
-                        precord.files_written.len(),
-                        precord.driver_msg_count
-                    ));
-                    println!("Ransomware Suspected!!!");
-                    eprintln!("precord.gid = {:?}", precord.gid);
-                    println!("{}", precord.appname);
-                    println!("with {} certainty", prediction_behavioral);
-                    println!(
-                        "\nSee {}\\threats for details.",
-                        self.config[Param::RealTimeLearningPath]
-                    );
-                    println!("{}", self.config[Param::ConfigPath]);
-
-                    let threat_info = ThreatInfo {
-                        threat_type_label: "Ransomware",
-                        virus_name: "Behavioral Detection",
-                        prediction: prediction_behavioral,
-                        match_details: None,
-                        deny_access: false,
-                        terminate: true,
-                        quarantine: true,
-                        kill_and_remove: false,
-                        suspend: false,
-                        notify_user: true,
-                        revert: true,
-                    };
-
-                    ActionsOnKill::with_handler(self.threat_handler.clone_box())
-                        .run_actions_with_info(
-                            self.config,
-                            precord,
-                            &self.predictor_malware.predictor_behavioral.mlp.timesteps,
-                            &threat_info,
-                        );
-                }
-            }
+        fn handle_io(&mut self, _precord: &mut ProcessRecord) {
+            // ML prediction handled by behavior_engine in process_io()
         }
     }
 
@@ -389,7 +97,6 @@ pub mod process_record_handling {
             ProcessRecordHandlerLive {
                 config,
                 threat_handler,
-                predictor_malware: PredictorMalware::new(config),
             }
         }
     }

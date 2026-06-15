@@ -1,0 +1,12 @@
+0	Unknown
+1	github.com/T145/black-mirror(BlackList)
+2	github.com/T145/black-mirror(WhiteList)
+3	cloudflare.com
+4	tranco-list.eu/list/PL9GJ/1000000
+5	github.com/maravento/blackweb(Malware)
+6	github.com/T145/black-mirror(Malware)
+7	gist.github.com/0100110000100011(Malware)
+8	dangerous.domains(Malware)
+9	safer-networking.org(Malware)
+10	rtbh.com.tr(BruteForce)
+11	github.com/87owo/PYAS(Malware)

@@ -1,0 +1,11 @@
+[package]
+name = "false_positive_remover"
+version = "0.1.0"
+edition = "2021"
+description = "Removes false positive hashes from blacklist that are actually whitelisted"
+
+[dependencies]
+fastbloom = { version = "0.17", features = ["serde"] }
+bincode-next = { version = "2.0", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
