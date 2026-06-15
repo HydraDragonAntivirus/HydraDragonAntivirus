@@ -426,7 +426,7 @@ impl Pipeline {
 
     fn run_ml_inference(&self, path: &Path) -> Option<MlVerdict> {
         use burn::module::Module;
-        use burn::record::{BinBytesRecorder, Recorder};
+        use burn::record::{NamedMpkBytesRecorder, Recorder};
         use burn_ndarray::{NdArray, NdArrayDevice};
         type B = NdArray<f32>;
 
@@ -436,7 +436,7 @@ impl Pipeline {
         if let Some(model_path) = self.config.pe_ml_model_path.as_ref().filter(|p| p.exists()) {
             let model_bytes = std::fs::read(model_path).ok()?;
             let config = crate::ml::model::MalwareNetConfig::default();
-            let record = BinBytesRecorder::<burn::record::FullPrecisionSettings>::default()
+            let record = NamedMpkBytesRecorder::<burn::record::FullPrecisionSettings>::default()
                 .load(model_bytes, &device)
                 .ok()?;
             let model: crate::ml::model::MalwareNet<B> =
@@ -457,7 +457,7 @@ impl Pipeline {
         if let Some(model_path) = self.config.js_ml_model_path.as_ref().filter(|p| p.exists()) {
             let model_bytes = std::fs::read(model_path).ok()?;
             let config = crate::ml::model::MalwareNetConfig::default();
-            let record = BinBytesRecorder::<burn::record::FullPrecisionSettings>::default()
+            let record = NamedMpkBytesRecorder::<burn::record::FullPrecisionSettings>::default()
                 .load(model_bytes, &device)
                 .ok()?;
             let model: crate::ml::model::MalwareNet<B> =
