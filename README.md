@@ -334,7 +334,7 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 
 - https://github.com/icsharpcode/ILSpy/tree/master/ICSharpCode.ILSpyCmd
 - https://github.com/extremecoders-re/nuitka-extractor
-- https://github.com/horsicq/Detect-It-Easy
+- https://github.com/elastic/die-rust
 - https://github.com/extremecoders-re/decompyle-builds
 - https://github.com/mandiant/gostringungarbler
 - https://github.com/cod3nym/Deobfuscar

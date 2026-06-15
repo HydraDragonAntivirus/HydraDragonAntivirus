@@ -18,7 +18,7 @@ indicatif = "0.18.4"
 hydradragonstatic = { path = "hydradragonstatic", default-features = false }
 
 # Detect-It-Easy (native Rust bindings)
-die = { path = "../.agent/die-rust-inspect" }
+die = { path = "../die-rust-inspect" }
 
 # YARA-X
 yara-x = "1.17.0"
