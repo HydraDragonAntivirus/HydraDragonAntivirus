@@ -10,10 +10,12 @@ use crate::hash_scanner::HashScanner;
 use crate::scanner::Scanner as ClamavScanner;
 use crate::verdict::{EngineResult, ScanResult, Verdict};
 
+#[derive(Clone)]
 pub struct PipelineConfig {
     pub complist_path: Option<PathBuf>,
     pub bloom_dir: Option<PathBuf>,
     pub yara_rules_dir: Option<PathBuf>,
+    pub hydradragonstatic_rules_dir: Option<PathBuf>,
     pub pe_ml_model_path: Option<PathBuf>,
     pub js_ml_model_path: Option<PathBuf>,
     pub clamav_lib: Option<PathBuf>,
@@ -29,6 +31,7 @@ impl Default for PipelineConfig {
             complist_path: None,
             bloom_dir: None,
             yara_rules_dir: None,
+            hydradragonstatic_rules_dir: None,
             pe_ml_model_path: None,
             js_ml_model_path: None,
             clamav_lib: None,
@@ -199,11 +202,26 @@ impl Pipeline {
             }
         }
 
-        match hydradragonstatic::scan_path(
-            path,
-            &hydradragonstatic::rules::RuleSet::reglist_pua(),
-            &hydradragonstatic::ScanOptions::default(),
-        ) {
+        let rules = if let Some(rules_dir) = self.config.hydradragonstatic_rules_dir.as_ref() {
+            let rules_file = rules_dir.join("rules.yaml");
+            if rules_file.exists() {
+                match hydradragonstatic::rules::RuleSet::from_yaml_file(&rules_file) {
+                    Ok(r) => Some(r),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        match rules {
+            Some(rules) => match hydradragonstatic::scan_path(
+                path,
+                &rules,
+                &hydradragonstatic::ScanOptions::default(),
+            ) {
             Ok(report) => {
                 static_file_type = Some(report.file_type.clone());
                 let hv = match report.verdict {
@@ -234,6 +252,14 @@ impl Pipeline {
                     engine: "hydradragonstatic",
                     verdict: Verdict::Clean,
                     detail: format!("error: {}", e),
+                });
+            }
+            },
+            None => {
+                engines.push(EngineResult {
+                    engine: "hydradragonstatic",
+                    verdict: Verdict::Clean,
+                    detail: "no hydradragonstatic rules loaded".into(),
                 });
             }
         }

@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
 use memchr::memmem;
 use once_cell::sync::Lazy;
-use rayon::prelude::*;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
@@ -31,33 +30,17 @@ impl ScanView {
     fn new(report: &ScanReport) -> Self {
         // Keep a complete lowercase view so case-insensitive matching stays fast
         // without dropping late strings from large files.
-        let strings_lower: Vec<String> = if report.strings.len() > 1000 {
-            report
-                .strings
-                .par_iter()
-                .map(|hit| hit.value.to_ascii_lowercase())
-                .collect()
-        } else {
-            report
-                .strings
-                .iter()
-                .map(|hit| hit.value.to_ascii_lowercase())
-                .collect()
-        };
+        let strings_lower: Vec<String> = report
+            .strings
+            .iter()
+            .map(|hit| hit.value.to_ascii_lowercase())
+            .collect();
 
-        let decoded_lower: Vec<String> = if report.decoded_strings.len() > 1000 {
-            report
-                .decoded_strings
-                .par_iter()
-                .map(|hit| hit.decoded.to_ascii_lowercase())
-                .collect()
-        } else {
-            report
-                .decoded_strings
-                .iter()
-                .map(|hit| hit.decoded.to_ascii_lowercase())
-                .collect()
-        };
+        let decoded_lower: Vec<String> = report
+            .decoded_strings
+            .iter()
+            .map(|hit| hit.decoded.to_ascii_lowercase())
+            .collect();
 
         let imports_lower = report
             .pe
@@ -217,20 +200,6 @@ impl RuleSet {
         Self { rules: Vec::new() }
     }
 
-    /// Returns a [`RuleSet`] built from the embedded `reglist_pua.yaml`
-    /// (generated from reglist.txt). All rules carry `verdict: pua` and fire
-    /// on files whose string table contains known PUA/adware registry key paths.
-    pub fn reglist_pua() -> Self {
-        const YAML: &str = include_str!("reglist_pua.yaml");
-        match Self::from_yaml_str(YAML) {
-            Ok(rs) => rs,
-            Err(e) => {
-                eprintln!("[HydraDragonStatic] Failed to load reglist_pua.yaml: {e}");
-                Self::empty()
-            }
-        }
-    }
-
     pub fn from_yaml_str(yaml: &str) -> Result<Self> {
         let file: YamlRulesFile = yaml_serde::from_str(yaml).context("invalid YAML rule file")?;
         for rule in &file.rules {
@@ -335,8 +304,8 @@ impl RuleSet {
         bytes: &[u8],
         options: RuleEvalOptions,
     ) {
-        for (index, rule) in self.rules.iter().enumerate() {
-            let result = evaluate_one_rule(index, rule, report, view, bytes, options.profile_rules);
+        for rule in self.rules.iter() {
+            let result = evaluate_one_rule(rule, report, view, bytes, options.profile_rules);
             let matched = result.finding.is_some();
             push_rule_eval_result(report, result);
             if options.stop_on_detection && matched {
@@ -354,42 +323,30 @@ impl RuleSet {
     ) {
         if options.stop_on_detection {
             // Deterministic first-match mode: returns the earliest matching rule in rule-file order.
-            // Rayon may evaluate some later rules speculatively, but only the first ordered hit is kept.
-            let first = {
-                let report_ref: &ScanReport = &*report;
-                self.rules
-                    .par_iter()
-                    .enumerate()
-                    .find_map_first(|(index, rule)| {
-                        let result = evaluate_one_rule(
-                            index,
-                            rule,
-                            report_ref,
-                            view,
-                            bytes,
-                            options.profile_rules,
-                        );
-                        result.finding.is_some().then_some(result)
-                    })
-            };
-            if let Some(result) = first {
-                push_rule_eval_result(report, result);
+            for rule in self.rules.iter() {
+                let result = evaluate_one_rule(
+                    rule,
+                    report,
+                    view,
+                    bytes,
+                    options.profile_rules,
+                );
+                if result.finding.is_some() {
+                    push_rule_eval_result(report, result);
+                    return;
+                }
             }
             return;
         }
 
-        let mut results: Vec<_> = {
-            let report_ref: &ScanReport = &*report;
-            self.rules
-                .par_iter()
-                .enumerate()
-                .map(|(index, rule)| {
-                    evaluate_one_rule(index, rule, report_ref, view, bytes, options.profile_rules)
-                })
-                .collect()
-        };
-        results.sort_by_key(|result| result.index);
-        for result in results {
+        for rule in self.rules.iter() {
+            let result = evaluate_one_rule(
+                rule,
+                report,
+                view,
+                bytes,
+                options.profile_rules,
+            );
             push_rule_eval_result(report, result);
         }
     }
@@ -475,13 +432,11 @@ fn warm_rule_caches(rule: &Rule) {
 
 #[derive(Debug, Clone)]
 struct RuleEvalResult {
-    index: usize,
     finding: Option<Finding>,
     performance: Option<RulePerformance>,
 }
 
 fn evaluate_one_rule(
-    index: usize,
     rule: &Rule,
     report: &ScanReport,
     view: &ScanView,
@@ -542,7 +497,6 @@ fn evaluate_one_rule(
     };
 
     RuleEvalResult {
-        index,
         finding,
         performance,
     }

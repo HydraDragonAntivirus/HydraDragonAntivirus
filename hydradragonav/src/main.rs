@@ -32,6 +32,12 @@ fn resolve_yara_dir() -> PathBuf {
         .unwrap_or_else(|_| exe_dir().join("yara-x"))
 }
 
+fn resolve_hydradragonstatic_rules_dir() -> PathBuf {
+    std::env::var("HYDRADRAGONSTATIC_RULES_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("hydradragonstatic_rules"))
+}
+
 fn resolve_complist() -> PathBuf {
     std::env::var("COMPLIST_PATH")
         .map(PathBuf::from)
@@ -108,6 +114,9 @@ struct Cli {
     #[arg(long, env = "YARA_RULES_DIR", global = true)]
     yara_dir: Option<PathBuf>,
 
+    #[arg(long, env = "HYDRADRAGONSTATIC_RULES_DIR", global = true)]
+    hydradragonstatic_rules_dir: Option<PathBuf>,
+
     #[arg(long, env = "HAYABUSA_DIR", global = true)]
     hayabusa_dir: Option<PathBuf>,
 
@@ -123,9 +132,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Scan a file through the full detection pipeline
+    /// Scan a file or directory through the full detection pipeline
     Scan {
-        /// File to scan
+        /// File or directory to scan
         path: PathBuf,
 
         /// Output raw JSON (default: human-readable)
@@ -175,6 +184,7 @@ fn default_paths() -> (
     PathBuf,
     PathBuf,
     PathBuf,
+    PathBuf,
 ) {
     (
         resolve_clamav_dll(),
@@ -183,6 +193,7 @@ fn default_paths() -> (
         resolve_complist(),
         resolve_bloom_dir(),
         resolve_yara_dir(),
+        resolve_hydradragonstatic_rules_dir(),
         resolve_hayabusa_dir(),
         resolve_detectiteasy_dir(),
         resolve_pe_ml_model(),
@@ -191,10 +202,19 @@ fn default_paths() -> (
 }
 
 fn cmd_scan(path: &std::path::Path, json: bool, config: &FullConfig) {
+    if path.is_dir() {
+        cmd_scan_recursive(path, json, config);
+    } else {
+        cmd_scan_single(path, json, config);
+    }
+}
+
+fn cmd_scan_single(path: &std::path::Path, json: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
+        hydradragonstatic_rules_dir: config.hydradragonstatic_rules_dir.clone().filter(|p| p.exists()),
         pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
         js_ml_model_path: config.js_ml_model.clone().filter(|p| p.exists()),
         clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
@@ -221,6 +241,82 @@ fn cmd_scan(path: &std::path::Path, json: bool, config: &FullConfig) {
             println!("  └─ ml_probability: {:.4}", prob);
         }
     }
+}
+
+fn cmd_scan_recursive(root_path: &std::path::Path, json: bool, config: &FullConfig) {
+    // Collect all files recursively
+    let mut files = Vec::new();
+    fn collect_files(dir: &std::path::Path, files: &mut Vec<PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    files.push(path);
+                } else if path.is_dir() {
+                    collect_files(&path, files);
+                }
+            }
+        }
+    }
+    collect_files(root_path, &mut files);
+
+    let total_files = files.len();
+    eprintln!("[Scan] Found {} files to scan", total_files);
+    eprintln!("[Scan] ================================================================================");
+
+    // Create pipeline config once
+    let pipeline_config = PipelineConfig {
+        complist_path: config.complist.clone().filter(|p| p.exists()),
+        bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
+        yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
+        hydradragonstatic_rules_dir: config.hydradragonstatic_rules_dir.clone().filter(|p| p.exists()),
+        pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
+        js_ml_model_path: config.js_ml_model.clone().filter(|p| p.exists()),
+        clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
+        clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
+        hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
+        detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
+        ..Default::default()
+    };
+
+    let pipeline = Pipeline::new(pipeline_config);
+
+    // Sequential scan
+    let mut files_scanned = 0u64;
+    let mut threats_found = 0u64;
+
+    for file_path in files {
+        let result = pipeline.scan_file(&file_path);
+        files_scanned += 1;
+
+        if json {
+            let output = serde_json::json!({
+                "file": file_path.to_string_lossy(),
+                "verdict": result.verdict.label(),
+                "threat_name": result.threat_name,
+                "engines": result.engines,
+            });
+            println!("{}", serde_json::to_string(&output).unwrap());
+        } else {
+            if result.verdict.label() != "Clean" {
+                threats_found += 1;
+                println!("[{}] {}", result.verdict.label(), file_path.display());
+                if let Some(ref tn) = result.threat_name {
+                    println!("  └─ threat: {}", tn);
+                }
+            }
+        }
+
+        // Progress indicator: show every 10 files
+        if files_scanned % 10 == 0 {
+            eprintln!("[Scan] Progress: {} files scanned | {} threats found", files_scanned, threats_found);
+        }
+    }
+
+    eprintln!("[Scan] ================================================================================");
+    eprintln!("[Scan] Scan Complete!");
+    eprintln!("[Scan] Total files scanned: {}", files_scanned);
+    eprintln!("[Scan] Total threats found: {}", threats_found);
 }
 
 fn cmd_quick_scan(path: &std::path::Path, lib_path: &std::path::Path, db_path: &std::path::Path) {
@@ -265,6 +361,7 @@ struct FullConfig {
     complist: Option<PathBuf>,
     bloom_dir: Option<PathBuf>,
     yara_dir: Option<PathBuf>,
+    hydradragonstatic_rules_dir: Option<PathBuf>,
     hayabusa_dir: Option<PathBuf>,
     detectiteasy_dir: Option<PathBuf>,
     pe_ml_model: Option<PathBuf>,
@@ -273,7 +370,7 @@ struct FullConfig {
 
 fn main() {
     let cli = Cli::parse();
-    let (lib, db, freshclam, cmpl, blm, yara, hayabusa, detectiteasy, pe_ml, js_ml) = default_paths();
+    let (lib, db, freshclam, cmpl, blm, yara, hydradragonstatic_rules, hayabusa, detectiteasy, pe_ml, js_ml) = default_paths();
 
     let config = FullConfig {
         lib: cli.lib.unwrap_or(lib),
@@ -282,6 +379,7 @@ fn main() {
         complist: cli.complist.or(Some(cmpl)),
         bloom_dir: cli.bloom_dir.or(Some(blm)),
         yara_dir: cli.yara_dir.or(Some(yara)),
+        hydradragonstatic_rules_dir: cli.hydradragonstatic_rules_dir.or(Some(hydradragonstatic_rules)),
         hayabusa_dir: cli.hayabusa_dir.or(Some(hayabusa)),
         detectiteasy_dir: cli.detectiteasy_dir.or(Some(detectiteasy)),
         pe_ml_model: cli.pe_ml_model.or(Some(pe_ml)),

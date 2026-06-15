@@ -11,6 +11,9 @@ serde_json = "1"
 thiserror = "2"
 log = "0.4"
 
+# Progess bar
+indicatif = "0.18.4"
+
 # Static analysis
 hydradragonstatic = { path = "hydradragonstatic", default-features = false }
 
