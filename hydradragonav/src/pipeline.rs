@@ -153,7 +153,7 @@ impl Pipeline {
             };
         }
 
-        // --- 1. HASH SCANNER (Early return for ANY known result) ---
+        // --- 1. HASH SCANNER ---
         if let Some(ref scanner) = self.hash_scanner {
             match scanner.compute_and_scan_all(path) {
                 Ok(result) => {
@@ -174,7 +174,6 @@ impl Pipeline {
                         detail,
                     });
 
-                    // EARLY RETURN: Stop scanning if we definitively know it's Trusted or Malware
                     if verdict == Verdict::Trusted || verdict == Verdict::Malware {
                         let threat = if verdict == Verdict::Malware {
                             Some("Blacklisted Hash".into())
@@ -243,38 +242,40 @@ impl Pipeline {
                 &rules,
                 &hydradragonstatic::ScanOptions::default(),
             ) {
-            Ok(report) => {
-                static_file_type = Some(report.file_type.clone());
-                let hv = match report.verdict {
-                    hydradragonstatic::models::Verdict::Clean => Verdict::Clean,
-                    hydradragonstatic::models::Verdict::Trusted => Verdict::Trusted,
-                    hydradragonstatic::models::Verdict::Pua => Verdict::Pua,
-                    hydradragonstatic::models::Verdict::Suspicious => Verdict::Suspicious,
-                    hydradragonstatic::models::Verdict::Malware => Verdict::Malware,
-                };
-                engines.push(EngineResult {
-                    engine: "hydradragonstatic",
-                    verdict: hv,
-                    detail: report.threat_name.clone().unwrap_or_default(),
-                });
-                if hv == Verdict::Malware {
-                    return ScanResult {
-                        verdict: Verdict::Malware,
-                        threat_name: report.threat_name,
-                        engines,
-                        yara_x_matches: Vec::new(),
-                        ml_malware_probability: None,
-                        clamav_result: None,
+                Ok(report) => {
+                    static_file_type = Some(report.file_type.clone());
+                    let hv = match report.verdict {
+                        hydradragonstatic::models::Verdict::Clean => Verdict::Clean,
+                        hydradragonstatic::models::Verdict::Trusted => Verdict::Trusted,
+                        hydradragonstatic::models::Verdict::Pua => Verdict::Pua,
+                        hydradragonstatic::models::Verdict::Suspicious => Verdict::Suspicious,
+                        hydradragonstatic::models::Verdict::Malware => Verdict::Malware,
                     };
+                    engines.push(EngineResult {
+                        engine: "hydradragonstatic",
+                        verdict: hv,
+                        detail: report.threat_name.clone().unwrap_or_default(),
+                    });
+                    
+                    // SHORT-CIRCUIT: Any Detection
+                    if matches!(hv, Verdict::Malware | Verdict::Suspicious | Verdict::Pua) {
+                        return ScanResult {
+                            verdict: hv,
+                            threat_name: report.threat_name,
+                            engines,
+                            yara_x_matches: Vec::new(),
+                            ml_malware_probability: None,
+                            clamav_result: None,
+                        };
+                    }
                 }
-            }
-            Err(e) => {
-                engines.push(EngineResult {
-                    engine: "hydradragonstatic",
-                    verdict: Verdict::Clean,
-                    detail: format!("error: {}", e),
-                });
-            }
+                Err(e) => {
+                    engines.push(EngineResult {
+                        engine: "hydradragonstatic",
+                        verdict: Verdict::Clean,
+                        detail: format!("error: {}", e),
+                    });
+                }
             },
             None => {
                 engines.push(EngineResult {
@@ -290,7 +291,6 @@ impl Pipeline {
         if let Some(ref mv) = ml_verdict {
             engines.push(EngineResult {
                 engine: "ml",
-                // Promote ML-Clean to Trusted so downstream sees the right label
                 verdict: if mv.verdict == Verdict::Clean {
                     Verdict::Trusted
                 } else {
@@ -300,7 +300,6 @@ impl Pipeline {
             });
 
             if mv.verdict == Verdict::Clean {
-                // ML considers this file benign → treat as Trusted, skip yara-x and ClamAV
                 return ScanResult {
                     verdict: Verdict::Trusted,
                     threat_name: None,
@@ -370,6 +369,34 @@ impl Pipeline {
             }
         }
 
+        // ML/YARA SHORT-CIRCUIT EVALUATION
+        let has_ml_yara_detection = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Suspicious | Verdict::Pua));
+        if has_ml_yara_detection {
+            // Eagerly execute the DIE gate to ensure we don't return a suppressed False Positive
+            maybe_suppress_yara_only_unknown_binary(
+                path,
+                file_size,
+                &self.detectiteasy,
+                static_file_type.as_ref(),
+                &mut engines,
+                &mut yara_x_matches,
+            );
+
+            // Re-evaluate if we are still detecting a threat post-suppression
+            let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Suspicious | Verdict::Pua));
+            if still_detected {
+                let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                return ScanResult {
+                    verdict: final_verdict,
+                    threat_name: yara_x_matches.first().cloned(),
+                    engines,
+                    yara_x_matches,
+                    ml_malware_probability: ml_verdict.map(|m| m.probability),
+                    clamav_result: None,
+                };
+            }
+        }
+
         // --- 5. CLAMAV ---
         if let Some(ref clamav) = self.clamav {
             match clamav.scan_file(path) {
@@ -386,6 +413,17 @@ impl Pipeline {
                             verdict: cv,
                             detail: result.virus_name.clone(),
                         });
+
+                        // SHORT-CIRCUIT: ClamAV Detection
+                        let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                        return ScanResult {
+                            verdict: final_verdict,
+                            threat_name: clamav_result.clone(),
+                            engines,
+                            yara_x_matches,
+                            ml_malware_probability: ml_verdict.map(|m| m.probability),
+                            clamav_result,
+                        };
                     } else {
                         engines.push(EngineResult {
                             engine: "clamav",
@@ -414,31 +452,29 @@ impl Pipeline {
                         verdict: Verdict::Suspicious,
                         detail: hayabusa_matches.join(", "),
                     });
-                    yara_x_matches.extend(hayabusa_matches);
+                    yara_x_matches.extend(hayabusa_matches.clone());
+                    
+                    // SHORT-CIRCUIT: Hayabusa Detection
+                    let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                    return ScanResult {
+                        verdict: final_verdict,
+                        threat_name: hayabusa_matches.first().cloned(),
+                        engines,
+                        yara_x_matches,
+                        ml_malware_probability: ml_verdict.map(|m| m.probability),
+                        clamav_result,
+                    };
                 }
             }
         }
 
-        maybe_suppress_yara_only_unknown_binary(
-            path,
-            file_size,
-            &self.detectiteasy,
-            static_file_type.as_ref(),
-            &mut engines,
-            &mut yara_x_matches,
-        );
-
+        // If we reach the end, no threats were detected across any of the engines
         let engine_verdicts: Vec<Verdict> = engines.iter().map(|e| e.verdict).collect();
         let final_verdict = Verdict::aggregate(&engine_verdicts);
 
-        let threat_name = yara_x_matches
-            .first()
-            .or_else(|| clamav_result.as_ref())
-            .cloned();
-
         ScanResult {
             verdict: final_verdict,
-            threat_name,
+            threat_name: None,
             engines,
             yara_x_matches,
             ml_malware_probability: ml_verdict.map(|m| m.probability),
