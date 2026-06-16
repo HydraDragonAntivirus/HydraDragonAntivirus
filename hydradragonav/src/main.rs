@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use indicatif::{ProgressBar, ProgressStyle};
 
 use hydradragonav::clamjuice;
 use hydradragonav::pipeline::{Pipeline, PipelineConfig, ScanMode};
@@ -313,6 +314,12 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
 
     eprintln!("[Scan] ================================================================================");
 
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {pos} files scanned | {msg}")
+            .unwrap(),
+    );
+
     let mut files_scanned = 0u64;
     let mut threats_found = 0u64;
     let mut harmful_results: Vec<(std::path::PathBuf, hydradragonav::verdict::ScanResult)> = Vec::new();
@@ -325,6 +332,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         files_scanned: &mut u64,
         threats_found: &mut u64,
         harmful_results: &mut Vec<(std::path::PathBuf, hydradragonav::verdict::ScanResult)>,
+        pb: &ProgressBar,
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -339,7 +347,8 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                     }
                     let result = pipeline.scan_file(&path);
                     *files_scanned += 1;
-                    eprintln!("[Scan] Progress: {} files scanned | {} threats found | {}", files_scanned, threats_found, path.display());
+                    pb.set_message(format!("{} threats | {}", threats_found, path.display()));
+                    pb.inc(1);
 
                     if json {
                         let output = serde_json::json!({
@@ -350,7 +359,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                         });
                         println!("{}", serde_json::to_string(&output).unwrap());
                     } else {
-                        if result.verdict.label() != "Clean" {
+                        if result.verdict.label() != "Clean" && result.verdict.label() != "Trusted" {
                             *threats_found += 1;
                             println!("[{}] {}", result.verdict.label(), path.display());
                             if let Some(ref tn) = result.threat_name {
@@ -364,13 +373,14 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                     }
 
                 } else if path.is_dir() {
-                    walk_and_scan(&path, pipeline, mode, json, files_scanned, threats_found, harmful_results);
+                    walk_and_scan(&path, pipeline, mode, json, files_scanned, threats_found, harmful_results, pb);
                 }
             }
         }
     }
 
-    walk_and_scan(root_path, &pipeline, mode, json, &mut files_scanned, &mut threats_found, &mut harmful_results);
+    walk_and_scan(root_path, &pipeline, mode, json, &mut files_scanned, &mut threats_found, &mut harmful_results, &pb);
+    pb.finish_and_clear();
 
     if let Some(output_path) = output {
         let entries: Vec<serde_json::Value> = harmful_results.iter().map(|(path, result)| {

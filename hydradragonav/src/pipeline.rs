@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
@@ -61,6 +64,7 @@ pub struct Pipeline {
     clamav: Option<ClamavScanner>,
     detectiteasy: DetectItEasyScanner,
     hydradragonstatic_rules: Option<hydradragonstatic::rules::RuleSet>,
+    excluded_yara_rules: HashSet<String>,
 }
 
 impl Pipeline {
@@ -80,6 +84,21 @@ impl Pipeline {
         let clamav_db = config.clamav_db.clone();
         let detectiteasy_dir = config.detectiteasy_dir.clone();
         let hydradragonstatic_rules_dir = config.hydradragonstatic_rules_dir.clone();
+
+        // Load excluded rules line by line
+        let mut excluded_yara_rules = HashSet::new();
+        let exclusion_file_path = Path::new("excluded_yara_x_rules/excluded_yara_x_rules.txt");
+        if exclusion_file_path.exists() {
+            if let Ok(file) = File::open(exclusion_file_path) {
+                let reader = BufReader::new(file);
+                for line in reader.lines().flatten() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                        excluded_yara_rules.insert(trimmed.to_string());
+                    }
+                }
+            }
+        }
 
         let (trusted_signers, hash_scanner, yara_rules, clamav, detectiteasy, hydradragonstatic_rules) =
             std::thread::scope(|s| {
@@ -148,6 +167,7 @@ impl Pipeline {
             clamav,
             detectiteasy,
             hydradragonstatic_rules,
+            excluded_yara_rules,
         }
     }
 
@@ -197,7 +217,6 @@ impl Pipeline {
                     let (verdict, detail) = if first_result == crate::hash_scanner::HashScanResult::Unknown {
                         (Verdict::Clean, "not found".into())
                     } else {
-                        // Bloom filters have false positives; re-scan to confirm before trusting
                         match scanner.compute_and_scan_all(path) {
                             Ok(second_result) if second_result == first_result => {
                                 match first_result {
@@ -284,8 +303,6 @@ impl Pipeline {
                 };
             }
 
-            // SHORT-CIRCUIT: ML detected threat — exit immediately, don't let it
-            // fall through and poison the final aggregate verdict at the end
             if matches!(mv.verdict, Verdict::Malware | Verdict::Suspicious) {
                 return ScanResult {
                     verdict: mv.verdict,
@@ -323,7 +340,19 @@ impl Pipeline {
                         detail: report.threat_name.clone().unwrap_or_default(),
                     });
                     
-                    // SHORT-CIRCUIT: Any Detection
+                    // DEĞİŞİKLİK BURADA: Eğer static kurallar Trusted dediyse, 
+                    // alt taraftaki ClamAV/Yara aşamalarına girmeden DOĞRUDAN güvenli sonucu dön!
+                    if hv == Verdict::Trusted {
+                        return ScanResult {
+                            verdict: Verdict::Trusted,
+                            threat_name: None,
+                            engines,
+                            yara_x_matches,
+                            ml_malware_probability: ml_verdict.as_ref().map(|m| m.probability),
+                            clamav_result: None,
+                        };
+                    }
+
                     if matches!(hv, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua) {
                         return ScanResult {
                             verdict: hv,
@@ -368,7 +397,6 @@ impl Pipeline {
                         })
                         .collect();
 
-                    // first pass — collect candidates
                     let mut phishing_urls: Vec<String> = Vec::new();
                     let mut urlhaus_urls: Vec<String> = Vec::new();
                     for url in &urls {
@@ -376,7 +404,6 @@ impl Pipeline {
                         if bloom.is_urlhaus(url) { urlhaus_urls.push(url.clone()); }
                     }
 
-                    // re-scan confirmation — re-read file, retain only confirmed hits
                     if !phishing_urls.is_empty() || !urlhaus_urls.is_empty() {
                         if let Ok(content2) = std::fs::read_to_string(path) {
                             let urls2: Vec<String> = content2.lines()
@@ -445,7 +472,6 @@ impl Pipeline {
                             detail: result.virus_name.clone(),
                         });
 
-                        // SHORT-CIRCUIT: ClamAV Detection
                         let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
                         return ScanResult {
                             verdict: final_verdict,
@@ -475,7 +501,7 @@ impl Pipeline {
 
         // --- 7. YARA-X (final confirmation) ---
         if let Some(ref rules) = self.yara_rules {
-            match scan_file_yara(path, rules) {
+            match scan_file_yara(path, rules, &self.excluded_yara_rules) {
                 Ok(matches) => {
                     yara_x_matches = matches.clone();
                     if !matches.is_empty() {
@@ -485,7 +511,6 @@ impl Pipeline {
                             detail: matches.join(", "),
                         });
 
-                        // DIE gate: suppress yara-only detection on unknown binaries
                         maybe_suppress_yara_only_unknown_binary(
                             path,
                             file_size,
@@ -495,7 +520,6 @@ impl Pipeline {
                             &mut yara_x_matches,
                         );
 
-                        // Short-circuit if still detected after DIE gate
                         let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
                         if still_detected {
                             let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
@@ -526,7 +550,6 @@ impl Pipeline {
             }
         }
 
-        // If we reach the end, no threats were detected across any of the engines
         let engine_verdicts: Vec<Verdict> = engines.iter().map(|e| e.verdict).collect();
         let final_verdict = Verdict::aggregate(&engine_verdicts);
 
@@ -701,7 +724,6 @@ fn maybe_suppress_yara_only_unknown_binary(
     }
 }
 
-/// Run hayabusa once on all .evtx files in the standard Windows event log directory.
 pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
     use std::collections::HashSet;
     use std::process::Command;
@@ -788,7 +810,6 @@ fn load_yara_rules_from_dir(dir: &Path) -> Option<Rules> {
         }
     }
 
-    // Return first compiled ruleset found (largest coverage), or text-compiled rules
     if let Some(r) = compiled_rules.into_iter().next() {
         return Some(r);
     }
@@ -799,7 +820,7 @@ fn load_yara_rules_from_dir(dir: &Path) -> Option<Rules> {
     }
 }
 
-fn scan_file_yara(path: &Path, rules: &Rules) -> Result<Vec<String>, String> {
+fn scan_file_yara(path: &Path, rules: &Rules, exclusions: &HashSet<String>) -> Result<Vec<String>, String> {
     let data = std::fs::read(path).map_err(|e| format!("read error: {}", e))?;
     let mut scanner = YaraScanner::new(rules);
     let results = scanner
@@ -809,13 +830,13 @@ fn scan_file_yara(path: &Path, rules: &Rules) -> Result<Vec<String>, String> {
     let matches: Vec<String> = results
         .matching_rules()
         .map(|r| r.identifier().to_string())
+        .filter(|rule_id| !exclusions.contains(rule_id))
         .collect();
 
     Ok(matches)
 }
 
 fn check_trusted_signer(path: &Path, trusted: &TrustedSignerList) -> Verdict {
-    // Rely on hydradragonstatic's robust implementation instead of custom FFI
     let sig_info = hydradragonstatic::signature_verification::verify_signature(path);
 
     if sig_info.is_signed {
