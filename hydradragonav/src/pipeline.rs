@@ -8,11 +8,16 @@ use hydradragonstatic::models::FileTypeInfo;
 use hydradragonstatic::trusted_signers::TrustedSignerList;
 use yara_x::{Compiler, Rules, Scanner as YaraScanner};
 
+use burn::record::{NamedMpkBytesRecorder, Recorder};
+use burn_ndarray::{NdArray, NdArrayDevice};
+
 use crate::bloom_filter::HashBloomFilter;
 use crate::detectiteasy::{DetectItEasyScanner, MAX_DIE_FILE_SIZE, MAX_SCAN_FILE_SIZE};
 use crate::hash_scanner::HashScanner;
 use crate::scanner::Scanner as ClamavScanner;
 use crate::verdict::{EngineResult, ScanResult, Verdict};
+
+type InferBackend = NdArray<f32>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum ScanMode {
@@ -65,6 +70,8 @@ pub struct Pipeline {
     detectiteasy: DetectItEasyScanner,
     hydradragonstatic_rules: Option<hydradragonstatic::rules::RuleSet>,
     excluded_yara_rules: HashSet<String>,
+    pe_ml_model: Option<crate::ml::model::MalwareNet<InferBackend>>,
+    js_ml_model: Option<crate::ml::model::MalwareNet<InferBackend>>,
 }
 
 impl Pipeline {
@@ -84,6 +91,8 @@ impl Pipeline {
         let clamav_db = config.clamav_db.clone();
         let detectiteasy_dir = config.detectiteasy_dir.clone();
         let hydradragonstatic_rules_dir = config.hydradragonstatic_rules_dir.clone();
+        let pe_ml_model_path = config.pe_ml_model_path.clone();
+        let js_ml_model_path = config.js_ml_model_path.clone();
 
         // Load excluded rules line by line
         let mut excluded_yara_rules = HashSet::new();
@@ -100,7 +109,7 @@ impl Pipeline {
             }
         }
 
-        let (trusted_signers, hash_scanner, yara_rules, clamav, detectiteasy, hydradragonstatic_rules) =
+        let (trusted_signers, hash_scanner, yara_rules, clamav, detectiteasy, hydradragonstatic_rules, pe_ml_model, js_ml_model) =
             std::thread::scope(|s| {
                 let t_signers = s.spawn(move || {
                     complist_path
@@ -149,6 +158,20 @@ impl Pipeline {
                         })
                 });
 
+                let t_pe_model = s.spawn(move || {
+                    load_ml_model(
+                        pe_ml_model_path.as_deref(),
+                        crate::ml::model::MalwareNetConfig::default(),
+                    )
+                });
+
+                let t_js_model = s.spawn(move || {
+                    load_ml_model(
+                        js_ml_model_path.as_deref(),
+                        crate::ml::model::MalwareNetConfig::default_js(),
+                    )
+                });
+
                 (
                     t_signers.join().expect("trusted_signers loader panicked"),
                     t_hash.join().expect("hash_scanner loader panicked"),
@@ -156,6 +179,8 @@ impl Pipeline {
                     t_clamav.join().expect("clamav loader panicked"),
                     t_die.join().expect("detectiteasy loader panicked"),
                     t_hds_rules.join().expect("hydradragonstatic rules loader panicked"),
+                    t_pe_model.join().expect("pe_model loader panicked"),
+                    t_js_model.join().expect("js_model loader panicked"),
                 )
             });
 
@@ -168,6 +193,8 @@ impl Pipeline {
             detectiteasy,
             hydradragonstatic_rules,
             excluded_yara_rules,
+            pe_ml_model,
+            js_ml_model,
         }
     }
 
@@ -564,54 +591,25 @@ impl Pipeline {
     }
 
     fn run_ml_inference(&self, path: &Path) -> Option<MlVerdict> {
-        use burn::module::Module;
-        use burn::record::{NamedMpkBytesRecorder, Recorder};
-        use burn_ndarray::{NdArray, NdArrayDevice};
-        type B = NdArray<f32>;
-
         let device = NdArrayDevice::default();
         let bytes = std::fs::read(path).ok()?;
 
-        if let Some(model_path) = self.config.pe_ml_model_path.as_ref().filter(|p| p.exists()) {
-            let model_bytes = std::fs::read(model_path).ok()?;
-            let config = crate::ml::model::MalwareNetConfig::default();
-            let record = NamedMpkBytesRecorder::<burn::record::FullPrecisionSettings>::default()
-                .load(model_bytes, &device)
-                .ok()?;
-            let model: crate::ml::model::MalwareNet<B> =
-                crate::ml::model::MalwareNet::new(&config, &device).load_record(record);
-
-            if let Some(prob) = crate::ml::inference::predict_pe::<B>(&bytes, &model, &device) {
-                let verdict = if prob >= self.config.ml_threshold {
-                    Verdict::Malware
-                } else if prob >= self.config.ml_threshold * 0.6 {
-                    Verdict::Suspicious
-                } else {
-                    Verdict::Clean
-                };
-                return Some(MlVerdict { verdict, probability: prob });
+        if let Some(ref model) = self.pe_ml_model {
+            if let Some(prob) = crate::ml::inference::predict_pe::<InferBackend>(&bytes, model, &device) {
+                return Some(MlVerdict {
+                    verdict: ml_classify(prob, self.config.ml_threshold),
+                    probability: prob,
+                });
             }
         }
 
-        if let Some(model_path) = self.config.js_ml_model_path.as_ref().filter(|p| p.exists()) {
-            let model_bytes = std::fs::read(model_path).ok()?;
-            let config = crate::ml::model::MalwareNetConfig::default();
-            let record = NamedMpkBytesRecorder::<burn::record::FullPrecisionSettings>::default()
-                .load(model_bytes, &device)
-                .ok()?;
-            let model: crate::ml::model::MalwareNet<B> =
-                crate::ml::model::MalwareNet::new(&config, &device).load_record(record);
-
+        if let Some(ref model) = self.js_ml_model {
             if let Ok(source) = String::from_utf8(bytes) {
-                if let Some(prob) = crate::ml::inference::predict_js::<B>(&source, &model, &device) {
-                    let verdict = if prob >= self.config.ml_threshold {
-                        Verdict::Malware
-                    } else if prob >= self.config.ml_threshold * 0.6 {
-                        Verdict::Suspicious
-                    } else {
-                        Verdict::Clean
-                    };
-                    return Some(MlVerdict { verdict, probability: prob });
+                if let Some(prob) = crate::ml::inference::predict_js::<InferBackend>(&source, model, &device) {
+                    return Some(MlVerdict {
+                        verdict: ml_classify(prob, self.config.ml_threshold),
+                        probability: prob,
+                    });
                 }
             }
         }
@@ -623,6 +621,30 @@ impl Pipeline {
 struct MlVerdict {
     verdict: Verdict,
     probability: f32,
+}
+
+fn ml_classify(prob: f32, threshold: f32) -> Verdict {
+    if prob >= threshold {
+        Verdict::Malware
+    } else if prob >= threshold * 0.6 {
+        Verdict::Suspicious
+    } else {
+        Verdict::Clean
+    }
+}
+
+fn load_ml_model(
+    path: Option<&Path>,
+    config: crate::ml::model::MalwareNetConfig,
+) -> Option<crate::ml::model::MalwareNet<InferBackend>> {
+    use burn::module::Module;
+    let path = path.filter(|p| p.exists())?;
+    let bytes = std::fs::read(path).ok()?;
+    let device = NdArrayDevice::default();
+    let record = NamedMpkBytesRecorder::<burn::record::FullPrecisionSettings>::default()
+        .load(bytes, &device)
+        .ok()?;
+    Some(crate::ml::model::MalwareNet::new(&config, &device).load_record(record))
 }
 
 fn maybe_suppress_yara_only_unknown_binary(

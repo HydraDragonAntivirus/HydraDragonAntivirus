@@ -4,7 +4,7 @@ use burn::nn::{DropoutConfig, LinearConfig};
 use burn::prelude::*;
 use burn::tensor::activation;
 
-use super::features::PeFeatureVector;
+use super::features::{JsFeatureVector, PeFeatureVector};
 
 #[derive(Module, Debug)]
 pub struct MalwareNet<B: Backend> {
@@ -25,7 +25,18 @@ impl Default for MalwareNetConfig {
     fn default() -> Self {
         Self {
             input_dim: PeFeatureVector::LEN,
-            hidden_dim: 64,
+            hidden_dim: 256,
+            num_classes: 2,
+        }
+    }
+}
+
+
+impl MalwareNetConfig {
+    pub fn default_js() -> Self {
+        Self {
+            input_dim: JsFeatureVector::LEN,
+            hidden_dim: 256,
             num_classes: 2,
         }
     }
@@ -47,6 +58,7 @@ impl<B: Backend> MalwareNet<B> {
         let x = self.dropout.forward(x);
         let x = self.fc2.forward(x);
         let x = activation::relu(x);
+        let x = self.dropout.forward(x);
         let x = self.fc3.forward(x);
         x
     }

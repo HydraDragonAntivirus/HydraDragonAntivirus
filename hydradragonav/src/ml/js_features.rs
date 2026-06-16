@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::*;
@@ -6,6 +7,24 @@ use oxc_parser::Parser;
 use oxc_span::SourceType;
 
 use super::features::JsFeatureVector;
+
+static RE_HEX_ENCODED: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\\x[0-9a-fA-F]{2}").unwrap());
+static RE_UNICODE_ENCODED: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\\u[0-9a-fA-F]{4}").unwrap());
+static RE_CHAR_CODE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"String\.fromCharCode").unwrap());
+static RE_BASE64: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\batob\b|\bbtoa\b").unwrap());
+static RE_ESCAPE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\bunescape\b|\bescape\b").unwrap());
+static RE_BRACKET_NOTATION: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r#"\[['"].*?['"]\]\s*\("#).unwrap());
+static RE_CRYPTO: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"crypto|CryptoJS|aes|des|rsa|md5|sha1|sha256|sha512|encrypt|decrypt|cipher").unwrap());
+static RE_NETWORK: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"http[s]?://|ws[s]?://|fetch\s*\(|XMLHttpRequest|\.send\s*\(|\.open\s*\(|WebSocket").unwrap());
+static RE_FILE_OPS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"FileSystemObject|readFile|writeFile|OpenTextFile|DeleteFile|CopyFile").unwrap());
+static RE_REGISTRY: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"RegRead|RegWrite|RegDelete|HKEY_|HKLM|HKCU").unwrap());
+static RE_PROCESS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"Run\s*\(|Exec\s*\(|ShellExecute|CreateObject\s*\(").unwrap());
+static RE_SUSPICIOUS_APIS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\beval\b|\bFunction\b|\bsetTimeout\b|\bsetInterval\b|\bActiveXObject\b|\bWScript\b|\bXMLHttpRequest\b|\bfetch\b|\bWebSocket\b").unwrap());
+static RE_STRINGS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r#"["']([^"']*)["']"#).unwrap());
+static RE_BASE64_STR: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^[A-Za-z0-9+/]{20,}={0,2}$").unwrap());
+static RE_URL_STR: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"https?://|ftp://|ws[s]?://").unwrap());
+static RE_HEX_STR: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^[0-9a-fA-F]+$").unwrap());
+static RE_IDENTIFIERS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b[a-zA-Z_$][a-zA-Z0-9_$]*\b").unwrap());
 
 fn shannon_entropy_str(data: &str) -> f32 {
     if data.is_empty() {
@@ -25,6 +44,11 @@ fn shannon_entropy_str(data: &str) -> f32 {
         entropy -= p * p.log2();
     }
     entropy
+}
+
+#[inline]
+fn ln1p(x: f32) -> f32 {
+    (x + 1.0).ln()
 }
 
 struct AstWalkerCounts {
@@ -485,54 +509,32 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
     let mut walker = AstWalkerCounts::new();
     walker.walk_statements(&program.body);
 
-    let hex_encoded = count_regex(source, r"\\x[0-9a-fA-F]{2}");
-    let unicode_encoded = count_regex(source, r"\\u[0-9a-fA-F]{4}");
-    let char_code = count_regex(source, r"String\.fromCharCode");
-    let base64 = count_regex(source, r"atob|btoa");
-    let escape = count_regex(source, r"unescape|escape");
-    let bracket_notation = count_regex(source, r#"\[['"].*?['"]\]\s*\("#);
+    let hex_encoded = RE_HEX_ENCODED.find_iter(source).count() as f32;
+    let unicode_encoded = RE_UNICODE_ENCODED.find_iter(source).count() as f32;
+    let char_code = RE_CHAR_CODE.find_iter(source).count() as f32;
+    let base64 = RE_BASE64.find_iter(source).count() as f32;
+    let escape = RE_ESCAPE.find_iter(source).count() as f32;
+    let bracket_notation = RE_BRACKET_NOTATION.find_iter(source).count() as f32;
 
     let obfuscation_score =
         hex_encoded + unicode_encoded + char_code + base64 + escape + bracket_notation;
     let is_obfuscated = if obfuscation_score > 10.0 { 1.0 } else { 0.0 };
 
-    let crypto_refs = count_regex(
-        source,
-        r"crypto|CryptoJS|aes|des|rsa|md5|sha1|sha256|sha512|encrypt|decrypt|cipher",
-    );
-    let network_ops = count_regex(
-        source,
-        r"http[s]?://|ws[s]?://|fetch\s*\(|XMLHttpRequest|\.send\s*\(|\.open\s*\(|WebSocket",
-    );
-    let file_ops = count_regex(
-        source,
-        r"FileSystemObject|readFile|writeFile|OpenTextFile|DeleteFile|CopyFile",
-    );
-    let registry_ops = count_regex(source, r"RegRead|RegWrite|RegDelete|HKEY_|HKLM|HKCU");
-    let process_ops = count_regex(source, r"Run\s*\(|Exec\s*\(|ShellExecute|CreateObject\s*\(");
+    let crypto_refs = RE_CRYPTO.find_iter(source).count() as f32;
+    let network_ops = RE_NETWORK.find_iter(source).count() as f32;
+    let file_ops = RE_FILE_OPS.find_iter(source).count() as f32;
+    let registry_ops = RE_REGISTRY.find_iter(source).count() as f32;
+    let process_ops = RE_PROCESS.find_iter(source).count() as f32;
 
-    let suspicious_apis = [
-        "eval",
-        "Function",
-        "setTimeout",
-        "setInterval",
-        "ActiveXObject",
-        "WScript",
-        "XMLHttpRequest",
-        "fetch",
-        "WebSocket",
-    ];
-    let suspicious_api_calls_f32 = suspicious_apis
-        .iter()
-        .map(|api| count_regex(source, api) as i32)
-        .sum::<i32>() as f32;
+    // AST walker gives the suspicious_call_count; regex gives a raw text count
+    // from a different angle (catches string-wrapped names the AST misses).
+    let suspicious_api_calls_regex = RE_SUSPICIOUS_APIS.find_iter(source).count() as f32;
 
     let suspicious_score = crypto_refs * 2.0
         + network_ops * 3.0
         + file_ops * 4.0
         + registry_ops * 5.0
-        + process_ops * 5.0
-        + suspicious_api_calls_f32 * 2.0;
+        + process_ops * 5.0;
 
     let (
         total_strings,
@@ -543,6 +545,7 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
         url_strings,
         hex_strings_val,
     ) = extract_string_features(source);
+
     let (
         total_lines,
         code_lines,
@@ -550,77 +553,75 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
         blank_lines,
         avg_line_len,
         max_line_len,
-        cyclomatic,
-    ) = analyze_complexity(source);
+    ) = analyze_lines(source);
+
+    // Cyclomatic complexity derived from AST decision points, not raw text.
+    // Raw substring counting matched keywords inside strings/comments/identifiers.
+    let cyclomatic = (walker.conditional_statements
+        + walker.loop_statements
+        + walker.try_catch_blocks
+        + 1) as f32;
+
     let (total_idents, short_idents, long_idents, avg_ident_len, suspicious_naming, random_idents) =
         analyze_identifiers(source);
 
     Some(JsFeatureVector {
-        file_size: source.len() as f32,
+        file_size: ln1p(source.len() as f32),
         entropy: shannon_entropy_str(source),
         parse_success,
-        function_count: walker.function_count as f32,
-        variable_declarations: walker.variable_declarations as f32,
-        call_expressions: walker.call_expressions as f32,
-        member_expressions: walker.member_expressions as f32,
-        binary_expressions: walker.binary_expressions as f32,
-        conditional_statements: walker.conditional_statements as f32,
-        loop_statements: walker.loop_statements as f32,
+        function_count: ln1p(walker.function_count as f32),
+        variable_declarations: ln1p(walker.variable_declarations as f32),
+        call_expressions: ln1p(walker.call_expressions as f32),
+        member_expressions: ln1p(walker.member_expressions as f32),
+        binary_expressions: ln1p(walker.binary_expressions as f32),
+        conditional_statements: ln1p(walker.conditional_statements as f32),
+        loop_statements: ln1p(walker.loop_statements as f32),
         try_catch_blocks: walker.try_catch_blocks as f32,
-        array_literals: walker.array_literals as f32,
-        object_literals: walker.object_literals as f32,
+        array_literals: ln1p(walker.array_literals as f32),
+        object_literals: ln1p(walker.object_literals as f32),
         max_nesting_depth: walker.max_nesting_depth as f32,
         eval_usage: walker.eval_usage as f32,
         suspicious_call_count: walker.suspicious_calls.len() as f32,
-        hex_encoded_strings: hex_encoded as f32,
-        unicode_encoded_strings: unicode_encoded as f32,
+        hex_encoded_strings: ln1p(hex_encoded),
+        unicode_encoded_strings: ln1p(unicode_encoded),
         char_code_usage: char_code as f32,
         base64_usage: base64 as f32,
         escape_usage: escape as f32,
         bracket_notation_calls: bracket_notation as f32,
-        obfuscation_score: obfuscation_score as f32,
+        obfuscation_score: ln1p(obfuscation_score),
         is_obfuscated,
-        crypto_references: crypto_refs,
-        network_operations: network_ops,
-        file_system_operations: file_ops,
-        registry_operations: registry_ops,
-        process_operations: process_ops,
-        suspicious_api_calls: suspicious_api_calls_f32,
-        suspicious_score,
-        total_strings,
+        crypto_references: ln1p(crypto_refs),
+        network_operations: ln1p(network_ops),
+        file_system_operations: file_ops as f32,
+        registry_operations: registry_ops as f32,
+        process_operations: process_ops as f32,
+        suspicious_api_calls: ln1p(suspicious_api_calls_regex),
+        suspicious_score: ln1p(suspicious_score),
+        total_strings: ln1p(total_strings),
         avg_string_length: avg_string_len,
-        max_string_length: max_string_len,
-        long_strings_count: long_strings,
-        base64_like_strings: base64_strings,
-        url_strings,
-        hex_strings: hex_strings_val,
-        total_lines,
-        code_lines,
-        comment_lines,
-        blank_lines,
+        max_string_length: ln1p(max_string_len),
+        long_strings_count: ln1p(long_strings),
+        base64_like_strings: ln1p(base64_strings),
+        url_strings: ln1p(url_strings),
+        hex_strings: ln1p(hex_strings_val),
+        total_lines: ln1p(total_lines),
+        code_lines: ln1p(code_lines),
+        comment_lines: ln1p(comment_lines),
+        blank_lines: ln1p(blank_lines),
         avg_line_length: avg_line_len,
-        max_line_length: max_line_len,
-        cyclomatic_complexity: cyclomatic,
-        total_identifiers: total_idents,
-        short_identifiers: short_idents,
-        long_identifiers: long_idents,
+        max_line_length: ln1p(max_line_len),
+        cyclomatic_complexity: ln1p(cyclomatic),
+        total_identifiers: ln1p(total_idents),
+        short_identifiers: ln1p(short_idents),
+        long_identifiers: ln1p(long_idents),
         avg_identifier_length: avg_ident_len,
         suspicious_naming,
-        random_like_identifiers: random_idents,
+        random_like_identifiers: ln1p(random_idents),
     })
 }
 
-fn count_regex(text: &str, pattern: &str) -> f32 {
-    if let Ok(re) = regex::Regex::new(pattern) {
-        re.find_iter(text).count() as f32
-    } else {
-        0.0
-    }
-}
-
 fn extract_string_features(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) {
-    let re = regex::Regex::new(r#"["']([^"']*)["']"#).unwrap();
-    let strings: Vec<&str> = re
+    let strings: Vec<&str> = RE_STRINGS
         .find_iter(source)
         .filter_map(|m| {
             let s = m.as_str();
@@ -637,22 +638,17 @@ fn extract_string_features(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) 
     let avg = lengths.iter().sum::<f32>() / total;
     let max = lengths.iter().cloned().fold(0.0f32, f32::max);
     let long = strings.iter().filter(|s| s.len() > 100).count() as f32;
-
-    let b64 = strings.iter().filter(|s| s.len() > 20).count() as f32;
-
-    let url_re = regex::Regex::new(r"https?://|ftp://|ws[s]?://").unwrap();
-    let urls = strings.iter().filter(|s| url_re.is_match(s)).count() as f32;
-
-    let hex_re = regex::Regex::new(r"^[0-9a-fA-F]+$").unwrap();
+    let b64 = strings.iter().filter(|s| RE_BASE64_STR.is_match(s)).count() as f32;
+    let urls = strings.iter().filter(|s| RE_URL_STR.is_match(s)).count() as f32;
     let hex = strings
         .iter()
-        .filter(|s| s.len() > 10 && hex_re.is_match(s))
+        .filter(|s| s.len() > 10 && RE_HEX_STR.is_match(s))
         .count() as f32;
 
     (total, avg, max, long, b64, urls, hex)
 }
 
-fn analyze_complexity(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) {
+fn analyze_lines(source: &str) -> (f32, f32, f32, f32, f32, f32) {
     let lines: Vec<&str> = source.lines().collect();
     let total_lines = lines.len() as f32;
 
@@ -693,14 +689,6 @@ fn analyze_complexity(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) {
     };
     let max_line = code_line_lengths.iter().cloned().fold(0.0f32, f32::max);
 
-    let decision_keywords = [
-        "if", "else", "for", "while", "case", "catch", "&&", "||", "?",
-    ];
-    let cyclomatic: u32 = decision_keywords
-        .iter()
-        .map(|kw| count_substring(source, kw))
-        .sum();
-
     (
         total_lines,
         code_lines as f32,
@@ -708,56 +696,19 @@ fn analyze_complexity(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) {
         blank_lines as f32,
         avg_line,
         max_line,
-        cyclomatic as f32,
     )
 }
 
 fn analyze_identifiers(source: &str) -> (f32, f32, f32, f32, f32, f32) {
     let js_keywords = [
-        "var",
-        "let",
-        "const",
-        "function",
-        "return",
-        "if",
-        "else",
-        "for",
-        "while",
-        "do",
-        "switch",
-        "case",
-        "break",
-        "continue",
-        "try",
-        "catch",
-        "finally",
-        "throw",
-        "new",
-        "this",
-        "typeof",
-        "instanceof",
-        "in",
-        "of",
-        "delete",
-        "void",
-        "null",
-        "undefined",
-        "true",
-        "false",
-        "class",
-        "extends",
-        "super",
-        "static",
-        "import",
-        "export",
-        "from",
-        "default",
-        "async",
-        "await",
+        "var", "let", "const", "function", "return", "if", "else", "for", "while", "do",
+        "switch", "case", "break", "continue", "try", "catch", "finally", "throw", "new",
+        "this", "typeof", "instanceof", "in", "of", "delete", "void", "null", "undefined",
+        "true", "false", "class", "extends", "super", "static", "import", "export", "from",
+        "default", "async", "await",
     ];
 
-    let ident_re = regex::Regex::new(r"\b[a-zA-Z_$][a-zA-Z0-9_$]*\b").unwrap();
-    let all: Vec<&str> = ident_re.find_iter(source).map(|m| m.as_str()).collect();
+    let all: Vec<&str> = RE_IDENTIFIERS.find_iter(source).map(|m| m.as_str()).collect();
     let identifiers: Vec<&str> = all
         .iter()
         .filter(|id| !js_keywords.contains(id))
@@ -790,6 +741,3 @@ fn analyze_identifiers(source: &str) -> (f32, f32, f32, f32, f32, f32) {
     (total, short, long, avg, suspicious, random)
 }
 
-fn count_substring(text: &str, sub: &str) -> u32 {
-    text.matches(sub).count() as u32
-}

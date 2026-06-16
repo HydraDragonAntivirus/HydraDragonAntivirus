@@ -103,7 +103,7 @@ fn run_pe(args: TrainArgs) {
     collect_pe_samples(&args.malicious, 1, &mut samples);
     collect_pe_samples(&args.benign, 0, &mut samples);
 
-    train_or_exit(samples, PeFeatureVector::LEN, args);
+    train_or_exit(samples, MalwareNetConfig::default(), args);
 }
 
 fn run_js(args: TrainArgs) {
@@ -113,7 +113,7 @@ fn run_js(args: TrainArgs) {
     collect_js_samples(&args.malicious, 1, &mut samples);
     collect_js_samples(&args.benign, 0, &mut samples);
 
-    train_or_exit(samples, JsFeatureVector::LEN, args);
+    train_or_exit(samples, MalwareNetConfig::default_js(), args);
 }
 
 fn validate_dirs(args: &TrainArgs) {
@@ -162,7 +162,7 @@ fn collect_pe_samples(dir: &Path, label: usize, samples: &mut Vec<Sample>) {
                 }
             };
 
-            let features = ml::pe_features::extract_pe_features(&bytes)?;
+            let features: PeFeatureVector = ml::pe_features::extract_pe_features(&bytes)?;
 
             Some(Sample {
                 features: features.to_array().to_vec(),
@@ -206,7 +206,7 @@ fn collect_js_samples(dir: &Path, label: usize, samples: &mut Vec<Sample>) {
                 }
             };
 
-            let features = ml::js_features::extract_js_features(&source)?;
+            let features: JsFeatureVector = ml::js_features::extract_js_features(&source)?;
 
             Some(Sample {
                 features: features.to_array().to_vec(),
@@ -251,7 +251,7 @@ fn walk_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn train_or_exit(samples: Vec<Sample>, input_dim: usize, args: TrainArgs) {
+fn train_or_exit(samples: Vec<Sample>, config: MalwareNetConfig, args: TrainArgs) {
     let malicious = samples.iter().filter(|sample| sample.label == 1).count();
     let benign = samples.len().saturating_sub(malicious);
 
@@ -264,10 +264,6 @@ fn train_or_exit(samples: Vec<Sample>, input_dim: usize, args: TrainArgs) {
     type ADBackend = burn::backend::Autodiff<Backend>;
 
     let device = NdArrayDevice::Cpu;
-    let config = MalwareNetConfig {
-        input_dim,
-        ..Default::default()
-    };
 
     let model = train_model::<ADBackend>(
         <ADBackend as BackendTypes>::Device::from(device),
