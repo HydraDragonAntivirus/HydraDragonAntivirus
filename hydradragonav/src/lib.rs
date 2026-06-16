@@ -7,6 +7,7 @@ pub mod ffi;
 pub mod hash_scanner;
 pub mod ml;
 pub mod pipeline;
+pub mod registry_scanner;
 pub mod scanner;
 pub mod types;
 pub mod verdict;

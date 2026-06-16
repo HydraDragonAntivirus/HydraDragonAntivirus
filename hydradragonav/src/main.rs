@@ -6,7 +6,8 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 
 use hydradragonav::clamjuice;
-use hydradragonav::pipeline::{Pipeline, PipelineConfig};
+use hydradragonav::pipeline::{Pipeline, PipelineConfig, ScanMode};
+use hydradragonav::registry_scanner::RegistryScanner;
 use hydradragonav::run_freshclam_dll;
 use hydradragonav::Error;
 use hydradragonav::Scanner;
@@ -42,6 +43,12 @@ fn resolve_complist() -> PathBuf {
     std::env::var("COMPLIST_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| exe_dir().join("complist").join("complist.txt"))
+}
+
+fn resolve_reglist() -> PathBuf {
+    std::env::var("REGLIST_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir().join("reglist.txt"))
 }
 
 fn resolve_clamav_dll() -> PathBuf {
@@ -132,18 +139,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Scan a file or directory through the full detection pipeline
+    /// Scan a file or directory through the detection pipeline
     Scan {
         /// File or directory to scan
         path: PathBuf,
+
+        /// Scan mode: full (hayabusa + registry + files) or files-only
+        #[arg(long, short, default_value = "full")]
+        mode: ScanMode,
 
         /// Output raw JSON (default: human-readable)
         #[arg(long, short)]
         json: bool,
     },
-
-    /// Quick scan using ClamAV only
-    QuickScan { path: PathBuf },
 
     /// Update ClamAV virus definitions via libfreshclam.dll and optionally Hayabusa rules
     Update {
@@ -185,6 +193,7 @@ fn default_paths() -> (
     PathBuf,
     PathBuf,
     PathBuf,
+    PathBuf,
 ) {
     (
         resolve_clamav_dll(),
@@ -198,18 +207,19 @@ fn default_paths() -> (
         resolve_detectiteasy_dir(),
         resolve_pe_ml_model(),
         resolve_js_ml_model(),
+        resolve_reglist(),
     )
 }
 
-fn cmd_scan(path: &std::path::Path, json: bool, config: &FullConfig) {
+fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, config: &FullConfig) {
     if path.is_dir() {
-        cmd_scan_recursive(path, json, config);
+        cmd_scan_recursive(path, mode, json, config);
     } else {
-        cmd_scan_single(path, json, config);
+        cmd_scan_single(path, mode, json, config);
     }
 }
 
-fn cmd_scan_single(path: &std::path::Path, json: bool, config: &FullConfig) {
+fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
@@ -221,6 +231,7 @@ fn cmd_scan_single(path: &std::path::Path, json: bool, config: &FullConfig) {
         clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
         detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
+        scan_mode: mode,
         ..Default::default()
     };
 
@@ -228,7 +239,17 @@ fn cmd_scan_single(path: &std::path::Path, json: bool, config: &FullConfig) {
     let result = pipeline.scan_file(path);
 
     if json {
-        println!("{}", serde_json::to_string(&result).unwrap());
+        let mut output = serde_json::json!({
+            "file": path.to_string_lossy(),
+            "verdict": result.verdict.label(),
+            "threat_name": result.threat_name,
+            "engines": result.engines,
+        });
+        if mode == ScanMode::Full {
+            let reg_result = scan_registry(config);
+            output["registry_scan"] = serde_json::to_value(&reg_result).unwrap();
+        }
+        println!("{}", serde_json::to_string(&output).unwrap());
     } else {
         println!("[{}] {}", result.verdict.label(), path.display());
         if let Some(ref tn) = result.threat_name {
@@ -240,10 +261,13 @@ fn cmd_scan_single(path: &std::path::Path, json: bool, config: &FullConfig) {
         if let Some(prob) = result.ml_malware_probability {
             println!("  └─ ml_probability: {:.4}", prob);
         }
+        if mode == ScanMode::Full {
+            print_registry_scan(&scan_registry(config));
+        }
     }
 }
 
-fn cmd_scan_recursive(root_path: &std::path::Path, json: bool, config: &FullConfig) {
+fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, config: &FullConfig) {
     // Collect all files recursively
     let mut files = Vec::new();
     fn collect_files(dir: &std::path::Path, files: &mut Vec<PathBuf>) {
@@ -276,6 +300,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, json: bool, config: &FullConf
         clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
         detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
+        scan_mode: mode,
         ..Default::default()
     };
 
@@ -317,39 +342,14 @@ fn cmd_scan_recursive(root_path: &std::path::Path, json: bool, config: &FullConf
     eprintln!("[Scan] Scan Complete!");
     eprintln!("[Scan] Total files scanned: {}", files_scanned);
     eprintln!("[Scan] Total threats found: {}", threats_found);
-}
 
-fn cmd_quick_scan(path: &std::path::Path, lib_path: &std::path::Path, db_path: &std::path::Path) {
-    let scanner = match Scanner::new(lib_path, db_path) {
-        Ok(s) => s,
-        Err(e) => {
-            let resp = serde_json::json!({
-                "status": "error",
-                "message": e.to_string(),
-            });
-            println!("{}", serde_json::to_string(&resp).unwrap());
-            std::process::exit(1);
-        }
-    };
-
-    match scanner.scan_file(path) {
-        Ok(result) => {
-            let resp = serde_json::json!({
-                "status": "success",
-                "malicious": result.is_virus(),
-                "clamav": result.virus_name,
-                "result_code": result.result_code,
-                "bytes_scanned": result.bytes_scanned,
-            });
-            println!("{}", serde_json::to_string(&resp).unwrap());
-        }
-        Err(e) => {
-            let resp = serde_json::json!({
-                "status": "error",
-                "message": e.to_string(),
-            });
-            println!("{}", serde_json::to_string(&resp).unwrap());
-            std::process::exit(1);
+    if mode == ScanMode::Full {
+        eprintln!();
+        if json {
+            let reg_result = scan_registry(config);
+            println!("{}", serde_json::to_string(&reg_result).unwrap());
+        } else {
+            print_registry_scan(&scan_registry(config));
         }
     }
 }
@@ -366,11 +366,12 @@ struct FullConfig {
     detectiteasy_dir: Option<PathBuf>,
     pe_ml_model: Option<PathBuf>,
     js_ml_model: Option<PathBuf>,
+    reglist: Option<PathBuf>,
 }
 
 fn main() {
     let cli = Cli::parse();
-    let (lib, db, freshclam, cmpl, blm, yara, hydradragonstatic_rules, hayabusa, detectiteasy, pe_ml, js_ml) = default_paths();
+    let (lib, db, freshclam, cmpl, blm, yara, hydradragonstatic_rules, hayabusa, detectiteasy, pe_ml, js_ml, reglist) = default_paths();
 
     let config = FullConfig {
         lib: cli.lib.unwrap_or(lib),
@@ -384,11 +385,11 @@ fn main() {
         detectiteasy_dir: cli.detectiteasy_dir.or(Some(detectiteasy)),
         pe_ml_model: cli.pe_ml_model.or(Some(pe_ml)),
         js_ml_model: cli.js_ml_model.or(Some(js_ml)),
+        reglist: Some(reglist),
     };
 
     match &cli.command {
-        Command::Scan { path, json } => cmd_scan(path, *json, &config),
-        Command::QuickScan { path } => cmd_quick_scan(path, &config.lib, &config.db),
+        Command::Scan { path, mode, json } => cmd_scan(path, *mode, *json, &config),
         Command::Update { reload_scanner, hayabusa, juice } => {
             cmd_update(*reload_scanner, *hayabusa, *juice, &config.lib, &config.db, &config.freshclam, config.hayabusa_dir.as_deref())
         }
@@ -573,4 +574,33 @@ fn check_db_staleness(db_path: &std::path::Path) -> Result<bool, Error> {
         .unwrap_or(Duration::from_secs(0));
 
     Ok(age > Duration::from_secs(DEFINITION_MAX_AGE_HOURS * 3600))
+}
+
+fn scan_registry(config: &FullConfig) -> hydradragonav::registry_scanner::RegistryScanResult {
+    let scanner = match &config.reglist {
+        Some(path) if path.exists() => RegistryScanner::load_reglist(path),
+        _ => RegistryScanner::default(),
+    };
+    scanner.scan()
+}
+
+fn print_registry_scan(result: &hydradragonav::registry_scanner::RegistryScanResult) {
+    println!("[Registry Scan]");
+    println!("  Total entries scanned: {}", result.total_scanned);
+    println!("  Threats found: {}", result.threats_found);
+    for entry in &result.entries {
+        if entry.pua_match {
+            println!(
+                "  [PUA] {}\\{} (value: {})",
+                entry.hive, entry.path, entry.value_name
+            );
+            if !entry.value_data.is_empty() {
+                println!("    data: {}", entry.value_data);
+            }
+            println!("    detail: {}", entry.detail);
+        }
+    }
+    if result.threats_found == 0 {
+        println!("  No PUA registry entries detected.");
+    }
 }

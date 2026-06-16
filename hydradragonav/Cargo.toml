@@ -54,6 +54,9 @@ flate2 = "1"
 tar = "0.4"
 tempfile = "3"
 
+# Windows registry access
+winreg = "0.52"
+
 # Other
 regex = "1.12.2"
 

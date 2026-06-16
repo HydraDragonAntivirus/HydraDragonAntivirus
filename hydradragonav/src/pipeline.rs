@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
 use hydradragonstatic::models::FileTypeInfo;
 use hydradragonstatic::trusted_signers::TrustedSignerList;
 use yara_x::{Compiler, Rules, Scanner as YaraScanner};
@@ -9,6 +10,13 @@ use crate::detectiteasy::{DetectItEasyScanner, MAX_DIE_FILE_SIZE, MAX_SCAN_FILE_
 use crate::hash_scanner::HashScanner;
 use crate::scanner::Scanner as ClamavScanner;
 use crate::verdict::{EngineResult, ScanResult, Verdict};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum ScanMode {
+    #[default]
+    Full,
+    Files,
+}
 
 #[derive(Clone)]
 pub struct PipelineConfig {
@@ -22,6 +30,7 @@ pub struct PipelineConfig {
     pub clamav_db: Option<PathBuf>,
     pub hayabusa_dir: Option<PathBuf>,
     pub detectiteasy_dir: Option<PathBuf>,
+    pub scan_mode: ScanMode,
     pub ml_threshold: f32,
 }
 
@@ -38,6 +47,7 @@ impl Default for PipelineConfig {
             clamav_db: None,
             hayabusa_dir: None,
             detectiteasy_dir: None,
+            scan_mode: ScanMode::default(),
             ml_threshold: 0.8,
         }
     }
@@ -442,8 +452,10 @@ impl Pipeline {
             }
         }
 
-        // --- 6. HAYABUSA ---
-        if path.extension().and_then(|e| e.to_str()) == Some("evtx") {
+        // --- 6. HAYABUSA (full mode only) ---
+        if self.config.scan_mode == ScanMode::Full
+            && path.extension().and_then(|e| e.to_str()) == Some("evtx")
+        {
             if let Some(ref hdir) = self.config.hayabusa_dir {
                 let hayabusa_matches = run_hayabusa(path, hdir, &yara_x_matches);
                 if !hayabusa_matches.is_empty() {
