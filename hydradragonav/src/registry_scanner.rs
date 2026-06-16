@@ -4,6 +4,7 @@ use serde::Serialize;
 use winreg::enums::*;
 use winreg::RegKey;
 
+use hydradragonstatic::rules::RuleSet;
 use hydradragonstatic::trusted_signers::PuaRegistryList;
 
 #[derive(Debug, Clone, Serialize)]
@@ -13,6 +14,8 @@ pub struct RegistryEntry {
     pub value_name: String,
     pub value_data: String,
     pub pua_match: bool,
+    pub static_match: bool,
+    pub threat_name: Option<String>,
     pub detail: String,
 }
 
@@ -25,6 +28,7 @@ pub struct RegistryScanResult {
 
 pub struct RegistryScanner {
     pua_list: PuaRegistryList,
+    rules: Option<RuleSet>,
 }
 
 static PERSISTENCE_PATHS_HKLM: &[&str] = &[
@@ -65,14 +69,14 @@ static PERSISTENCE_PATHS_HKCU: &[&str] = &[
 ];
 
 impl RegistryScanner {
-    pub fn new(pua_list: PuaRegistryList) -> Self {
-        Self { pua_list }
+    pub fn new(pua_list: PuaRegistryList, rules: Option<RuleSet>) -> Self {
+        Self { pua_list, rules }
     }
 
-    pub fn load_reglist<P: AsRef<Path>>(path: P) -> Self {
-        Self {
-            pua_list: PuaRegistryList::load(path),
-        }
+    pub fn load<P: AsRef<Path>>(reglist_path: P, rules_dir: Option<&Path>) -> Self {
+        let pua_list = PuaRegistryList::load(reglist_path);
+        let rules = rules_dir.and_then(|dir| load_hydradragonstatic_rules(dir));
+        Self { pua_list, rules }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -93,7 +97,7 @@ impl RegistryScanner {
             self.scan_subkey(&hkcu, "HKCU", rel_path, &mut entries, &mut seen);
         }
 
-        let threats = entries.iter().filter(|e| e.pua_match).count() as u32;
+        let threats = entries.iter().filter(|e| e.pua_match || e.static_match).count() as u32;
 
         RegistryScanResult {
             total_scanned: entries.len() as u32,
@@ -158,12 +162,23 @@ impl RegistryScanner {
 
             let pua_match = self.pua_list.is_pua(hive_name, &sub_path);
 
-            let detail = if pua_match {
-                "PUA registry pattern match".to_string()
-            } else if !data_str.starts_with('(') && !data_str.is_empty() {
-                format!("value: {}", truncate_str(&data_str, 120))
-            } else {
-                "present".to_string()
+            let (static_match, static_threat) = self.run_static_scan(hive_name, rel_path, &name, &value.bytes);
+
+            let threat_name = static_threat.or_else(|| {
+                if pua_match { Some("PUA registry pattern".into()) } else { None }
+            });
+
+            let detail = match (pua_match, static_match) {
+                (true, true) => format!("PUA + static rule match: {}", threat_name.as_deref().unwrap_or("unknown")),
+                (true, false) => "PUA registry pattern match".to_string(),
+                (false, true) => format!("static rule match: {}", threat_name.as_deref().unwrap_or("unknown")),
+                (false, false) => {
+                    if !data_str.starts_with('(') && !data_str.is_empty() {
+                        format!("value: {}", truncate_str(&data_str, 120))
+                    } else {
+                        "present".to_string()
+                    }
+                }
             };
 
             entries.push(RegistryEntry {
@@ -172,8 +187,42 @@ impl RegistryScanner {
                 value_name: name,
                 value_data: data_str,
                 pua_match,
+                static_match,
+                threat_name,
                 detail,
             });
+        }
+    }
+
+    fn run_static_scan(
+        &self,
+        hive_name: &str,
+        rel_path: &str,
+        value_name: &str,
+        value_bytes: &[u8],
+    ) -> (bool, Option<String>) {
+        let rules = match &self.rules {
+            Some(r) => r,
+            None => return (false, None),
+        };
+
+        let ctx = hydradragonstatic::models::RegistryScanContext {
+            key: format!("{}\\{}", hive_name, rel_path),
+            value_name: Some(value_name.to_string()),
+            value_data: Some(value_bytes.to_vec()),
+        };
+
+        match hydradragonstatic::scan_registry_key(&ctx, rules, &hydradragonstatic::ScanOptions::default()) {
+            Ok(report) => {
+                let detected = matches!(
+                    report.verdict,
+                    hydradragonstatic::models::Verdict::Malware
+                        | hydradragonstatic::models::Verdict::Suspicious
+                        | hydradragonstatic::models::Verdict::Pua
+                );
+                (detected, report.threat_name)
+            }
+            Err(_) => (false, None),
         }
     }
 }
@@ -182,7 +231,17 @@ impl Default for RegistryScanner {
     fn default() -> Self {
         Self {
             pua_list: PuaRegistryList::default(),
+            rules: None,
         }
+    }
+}
+
+fn load_hydradragonstatic_rules(rules_dir: &Path) -> Option<RuleSet> {
+    let rules_file = rules_dir.join("rules.yaml");
+    if rules_file.exists() {
+        RuleSet::from_yaml_file(&rules_file).ok()
+    } else {
+        None
     }
 }
 

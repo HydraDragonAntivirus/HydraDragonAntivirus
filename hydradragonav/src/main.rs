@@ -577,11 +577,12 @@ fn check_db_staleness(db_path: &std::path::Path) -> Result<bool, Error> {
 }
 
 fn scan_registry(config: &FullConfig) -> hydradragonav::registry_scanner::RegistryScanResult {
-    let scanner = match &config.reglist {
-        Some(path) if path.exists() => RegistryScanner::load_reglist(path),
-        _ => RegistryScanner::default(),
-    };
-    scanner.scan()
+    let reglist_path = config.reglist.as_deref().filter(|p| p.exists());
+    let rules_dir = config.hydradragonstatic_rules_dir.as_deref().filter(|p| p.exists());
+    match reglist_path {
+        Some(rp) => RegistryScanner::load(rp, rules_dir),
+        None => RegistryScanner::default(),
+    }.scan()
 }
 
 fn print_registry_scan(result: &hydradragonav::registry_scanner::RegistryScanResult) {
@@ -589,11 +590,21 @@ fn print_registry_scan(result: &hydradragonav::registry_scanner::RegistryScanRes
     println!("  Total entries scanned: {}", result.total_scanned);
     println!("  Threats found: {}", result.threats_found);
     for entry in &result.entries {
-        if entry.pua_match {
+        if entry.pua_match || entry.static_match {
+            let tag = if entry.pua_match && entry.static_match {
+                "PUA+STATIC"
+            } else if entry.pua_match {
+                "PUA"
+            } else {
+                "STATIC"
+            };
             println!(
-                "  [PUA] {}\\{} (value: {})",
-                entry.hive, entry.path, entry.value_name
+                "  [{}] {}\\{} (value: {})",
+                tag, entry.hive, entry.path, entry.value_name
             );
+            if let Some(ref tn) = entry.threat_name {
+                println!("    threat: {}", tn);
+            }
             if !entry.value_data.is_empty() {
                 println!("    data: {}", entry.value_data);
             }
@@ -601,6 +612,6 @@ fn print_registry_scan(result: &hydradragonav::registry_scanner::RegistryScanRes
         }
     }
     if result.threats_found == 0 {
-        println!("  No PUA registry entries detected.");
+        println!("  No threats detected.");
     }
 }
