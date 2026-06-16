@@ -146,7 +146,7 @@ enum Command {
         path: PathBuf,
 
         /// Scan mode: full (hayabusa + registry + files) or files-only
-        #[arg(long, short, default_value = "full")]
+        #[arg(long, short, default_value = "files-only")]
         mode: ScanMode,
 
         /// Output raw JSON (default: human-readable)
@@ -339,6 +339,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                     }
                     let result = pipeline.scan_file(&path);
                     *files_scanned += 1;
+                    eprintln!("[Scan] Progress: {} files scanned | {} threats found | {}", files_scanned, threats_found, path.display());
 
                     if json {
                         let output = serde_json::json!({
@@ -362,9 +363,6 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                         harmful_results.push((path, result));
                     }
 
-                    if *files_scanned % 10 == 0 {
-                        eprintln!("[Scan] Progress: {} files scanned | {} threats found", files_scanned, threats_found);
-                    }
                 } else if path.is_dir() {
                     walk_and_scan(&path, pipeline, mode, json, files_scanned, threats_found, harmful_results);
                 }

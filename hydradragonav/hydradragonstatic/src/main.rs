@@ -322,6 +322,14 @@ struct Cli {
     /// Do not create .bak copies before rewriting rule files in false-positive mode.
     #[arg(long)]
     fp_remove_no_backup: bool,
+
+    /// Enable registry PUA detection rules (loads registry_rules.yaml automatically).
+    #[arg(long)]
+    scan_registry: bool,
+
+    /// Full system scan: scan C:\ recursively with registry rules enabled.
+    #[arg(long)]
+    full_scan: bool,
 }
 
 fn main() -> Result<()> {
@@ -342,11 +350,33 @@ fn main() -> Result<()> {
     if cli.rules.is_empty() {
         anyhow::bail!("--rules <YAMDLE> is required for scan mode; pass at least one rule file or directory");
     }
-    if cli.paths.is_empty() && cli.scan_paths.is_empty() && cli.path_lists.is_empty() {
+
+    let mut paths = cli.paths.clone();
+    let mut scan_paths = cli.scan_paths.clone();
+    let recursive = cli.recursive || cli.full_scan;
+    let scan_registry = cli.scan_registry || cli.full_scan;
+
+    if cli.full_scan {
+        if paths.is_empty() && scan_paths.is_empty() && cli.path_lists.is_empty() {
+            paths.push(PathBuf::from("C:\\"));
+        }
+    }
+
+    if paths.is_empty() && scan_paths.is_empty() && cli.path_lists.is_empty() {
         anyhow::bail!("at least one scan PATH is required; pass a file or directory to scan");
     }
 
-    let rule_files = collect_rule_files_from_sources(&cli.rules)?;
+    let mut rule_sources = cli.rules.clone();
+    if scan_registry {
+        let registry_rules = PathBuf::from("hydradragonstatic_rules/registry_rules.yaml");
+        if registry_rules.exists() {
+            rule_sources.push(registry_rules);
+        } else {
+            eprintln!("Warning: --scan-registry enabled but registry_rules.yaml not found");
+        }
+    }
+
+    let rule_files = collect_rule_files_from_sources(&rule_sources)?;
     let rules = load_external_rules_from_files(&rule_files)?;
     if rules.rules().is_empty() {
         anyhow::bail!(
@@ -354,14 +384,14 @@ fn main() -> Result<()> {
         );
     }
 
-    let scan_roots = collect_scan_roots(&cli.paths, &cli.scan_paths, &cli.path_lists)?;
+    let scan_roots = collect_scan_roots(&paths, &scan_paths, &cli.path_lists)?;
     let include_patterns = compile_glob_patterns(&cli.include_globs)?;
     let exclude_patterns = compile_glob_patterns(&cli.exclude_globs)?;
     let include_types = normalize_type_filters(&cli.include_types)?;
     let exclude_types = normalize_type_filters(&cli.exclude_types)?;
     let files = collect_files_from_roots(
         &scan_roots,
-        cli.recursive,
+        recursive,
         cli.max_depth,
         cli.follow_links,
         &include_patterns,

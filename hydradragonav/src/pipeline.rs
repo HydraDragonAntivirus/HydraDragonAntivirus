@@ -283,6 +283,19 @@ impl Pipeline {
                     clamav_result: None,
                 };
             }
+
+            // SHORT-CIRCUIT: ML detected threat — exit immediately, don't let it
+            // fall through and poison the final aggregate verdict at the end
+            if matches!(mv.verdict, Verdict::Malware | Verdict::Suspicious) {
+                return ScanResult {
+                    verdict: mv.verdict,
+                    threat_name: Some(format!("ml_detected (p={:.4})", mv.probability)),
+                    engines,
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: Some(mv.probability),
+                    clamav_result: None,
+                };
+            }
         }
 
         // --- 4. STATIC RULES ---
