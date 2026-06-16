@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use clap::ValueEnum;
 use hydradragonstatic::models::FileTypeInfo;
 use hydradragonstatic::trusted_signers::TrustedSignerList;
-use yara_x::{Compiler, Rules, Scanner as YaraScanner};
+use yara_x::{Rules, Scanner as YaraScanner};
 
 use burn::record::{NamedMpkBytesRecorder, Recorder};
 use burn_ndarray::{NdArray, NdArrayDevice};
@@ -65,7 +65,7 @@ pub struct Pipeline {
     config: PipelineConfig,
     trusted_signers: Option<TrustedSignerList>,
     hash_scanner: Option<HashScanner>,
-    yara_rules: Option<Rules>,
+    yara_rules: Vec<Rules>,
     clamav: Option<ClamavScanner>,
     detectiteasy: DetectItEasyScanner,
     hydradragonstatic_rules: Option<hydradragonstatic::rules::RuleSet>,
@@ -129,7 +129,8 @@ impl Pipeline {
                     yara_rules_dir
                         .as_ref()
                         .filter(|p| p.exists())
-                        .and_then(|dir| load_yara_rules_from_dir(dir.as_path()))
+                        .map(|dir| load_yara_rules_from_dir(dir.as_path()))
+                        .unwrap_or_default()
                 });
 
                 let t_clamav = s.spawn(move || {
@@ -311,28 +312,15 @@ impl Pipeline {
         if let Some(ref mv) = ml_verdict {
             engines.push(EngineResult {
                 engine: "ml",
-                verdict: if mv.verdict == Verdict::Clean {
-                    Verdict::Trusted
-                } else {
-                    mv.verdict
-                },
+                verdict: mv.verdict,
                 detail: format!("probability={:.4}", mv.probability),
             });
 
-            if mv.verdict == Verdict::Clean {
+            // Only short-circuit on high-confidence Malware; Suspicious and Clean
+            // continue through the rest of the pipeline so other engines can weigh in.
+            if mv.verdict == Verdict::Malware {
                 return ScanResult {
-                    verdict: Verdict::Trusted,
-                    threat_name: None,
-                    engines,
-                    yara_x_matches: Vec::new(),
-                    ml_malware_probability: Some(mv.probability),
-                    clamav_result: None,
-                };
-            }
-
-            if matches!(mv.verdict, Verdict::Malware | Verdict::Suspicious) {
-                return ScanResult {
-                    verdict: mv.verdict,
+                    verdict: Verdict::Malware,
                     threat_name: Some(format!("ml_detected (p={:.4})", mv.probability)),
                     engines,
                     yara_x_matches: Vec::new(),
@@ -526,54 +514,89 @@ impl Pipeline {
             }
         }
 
+        // --- 6b. DETECT-IT-EASY ---
+        let die_result = if file_size <= MAX_DIE_FILE_SIZE {
+            let r = self.detectiteasy.scan_file(path);
+            let detail = if !r.scan_ok {
+                format!("unavailable: {}", r.scan_error.as_deref().unwrap_or("unknown error"))
+            } else if r.is_plain_text {
+                "plain text".into()
+            } else if r.is_unknown {
+                "unknown".into()
+            } else {
+                r.file_type.clone().unwrap_or_else(|| "identified".into())
+            };
+            engines.push(EngineResult {
+                engine: "detectiteasy",
+                verdict: Verdict::Clean,
+                detail,
+            });
+            Some(r)
+        } else {
+            engines.push(EngineResult {
+                engine: "detectiteasy",
+                verdict: Verdict::Clean,
+                detail: format!("skipped: file over 100 MiB ({file_size} bytes)"),
+            });
+            None
+        };
+
         // --- 7. YARA-X (final confirmation) ---
-        if let Some(ref rules) = self.yara_rules {
-            match scan_file_yara(path, rules, &self.excluded_yara_rules) {
-                Ok(matches) => {
-                    yara_x_matches = matches.clone();
-                    if !matches.is_empty() {
-                        engines.push(EngineResult {
-                            engine: "yara_x",
-                            verdict: Verdict::Suspicious,
-                            detail: matches.join(", "),
-                        });
-
-                        maybe_suppress_yara_only_unknown_binary(
-                            path,
-                            file_size,
-                            &self.detectiteasy,
-                            static_file_type.as_ref(),
-                            &mut engines,
-                            &mut yara_x_matches,
-                        );
-
-                        let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
-                        if still_detected {
-                            let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
-                            return ScanResult {
-                                verdict: final_verdict,
-                                threat_name: yara_x_matches.first().cloned(),
-                                engines,
-                                yara_x_matches,
-                                ml_malware_probability: ml_verdict.map(|m| m.probability),
-                                clamav_result,
-                            };
-                        }
-                    } else {
-                        engines.push(EngineResult {
-                            engine: "yara_x",
-                            verdict: Verdict::Clean,
-                            detail: "no matches".into(),
-                        });
-                    }
+        if self.yara_rules.is_empty() {
+            engines.push(EngineResult {
+                engine: "yara_x",
+                verdict: Verdict::Clean,
+                detail: "no rules loaded".into(),
+            });
+        } else {
+            let mut all_matches: Vec<String> = Vec::new();
+            let mut scan_error: Option<String> = None;
+            for rules in &self.yara_rules {
+                match scan_file_yara(path, rules, &self.excluded_yara_rules) {
+                    Ok(mut m) => all_matches.append(&mut m),
+                    Err(e) => { scan_error = Some(e); break; }
                 }
-                Err(e) => {
-                    engines.push(EngineResult {
-                        engine: "yara_x",
-                        verdict: Verdict::Clean,
-                        detail: format!("error: {}", e),
-                    });
+            }
+
+            if let Some(e) = scan_error {
+                engines.push(EngineResult {
+                    engine: "yara_x",
+                    verdict: Verdict::Clean,
+                    detail: format!("error: {}", e),
+                });
+            } else if !all_matches.is_empty() {
+                yara_x_matches = all_matches.clone();
+                engines.push(EngineResult {
+                    engine: "yara_x",
+                    verdict: Verdict::Malware,
+                    detail: all_matches.join(", "),
+                });
+
+                maybe_suppress_yara_only_unknown_binary(
+                    die_result.as_ref(),
+                    static_file_type.as_ref(),
+                    &mut engines,
+                    &mut yara_x_matches,
+                );
+
+                let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
+                if still_detected {
+                    let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                    return ScanResult {
+                        verdict: final_verdict,
+                        threat_name: yara_x_matches.first().cloned(),
+                        engines,
+                        yara_x_matches,
+                        ml_malware_probability: ml_verdict.map(|m| m.probability),
+                        clamav_result,
+                    };
                 }
+            } else {
+                engines.push(EngineResult {
+                    engine: "yara_x",
+                    verdict: Verdict::Clean,
+                    detail: "no matches".into(),
+                });
             }
         }
 
@@ -626,7 +649,7 @@ struct MlVerdict {
 fn ml_classify(prob: f32, threshold: f32) -> Verdict {
     if prob >= threshold {
         Verdict::Malware
-    } else if prob >= threshold * 0.6 {
+    } else if prob >= threshold * 0.875 {
         Verdict::Suspicious
     } else {
         Verdict::Clean
@@ -648,9 +671,7 @@ fn load_ml_model(
 }
 
 fn maybe_suppress_yara_only_unknown_binary(
-    path: &Path,
-    file_size: u64,
-    detectiteasy: &DetectItEasyScanner,
+    die_result: Option<&crate::detectiteasy::DetectItEasyResult>,
     file_type: Option<&FileTypeInfo>,
     engines: &mut Vec<EngineResult>,
     yara_x_matches: &mut Vec<String>,
@@ -659,90 +680,34 @@ fn maybe_suppress_yara_only_unknown_binary(
         return;
     }
 
-    if file_size > MAX_DIE_FILE_SIZE {
-        engines.push(EngineResult {
-            engine: "detectiteasy",
-            verdict: Verdict::Clean,
-            detail: format!("skipped: file is over 100 MiB ({file_size} bytes)"),
-        });
-        return;
-    }
+    let Some(file_type) = file_type else { return };
+    if file_type.is_plain_text || !file_type.is_binary { return }
+    if file_type.primary != "unknown" { return }
+    if file_type.is_broken_executable || file_type.is_broken_apk { return }
 
-    let Some(file_type) = file_type else {
-        return;
-    };
-
-    if file_type.is_plain_text || !file_type.is_binary {
-        return;
-    }
-    if file_type.primary != "unknown" {
-        return;
-    }
-    if file_type.is_broken_executable || file_type.is_broken_apk {
-        return;
-    }
-
-    let only_yara_is_suspicious = engines.iter().all(|engine| {
-        if engine.engine == "yara_x" {
-            matches!(engine.verdict, Verdict::Suspicious | Verdict::Abuse | Verdict::Malware)
+    let only_yara_is_suspicious = engines.iter().all(|e| {
+        if e.engine == "yara_x" {
+            matches!(e.verdict, Verdict::Suspicious | Verdict::Abuse | Verdict::Malware)
         } else {
-            matches!(engine.verdict, Verdict::Clean | Verdict::Trusted)
+            matches!(e.verdict, Verdict::Clean | Verdict::Trusted)
         }
     });
     if !only_yara_is_suspicious {
         return;
     }
 
-    let die_result = detectiteasy.scan_file(path);
-    if !die_result.scan_ok {
-        engines.push(EngineResult {
-            engine: "detectiteasy",
-            verdict: Verdict::Clean,
-            detail: format!(
-                "gate unavailable: {}",
-                die_result
-                    .scan_error
-                    .unwrap_or_else(|| "unknown error".to_string())
-            ),
-        });
-        return;
-    }
+    let Some(die) = die_result else { return };
+    if !die.scan_ok || die.is_plain_text { return }
 
-    if die_result.is_plain_text {
-        engines.push(EngineResult {
-            engine: "detectiteasy",
-            verdict: Verdict::Clean,
-            detail: "plain text; not suppressing yara result".into(),
-        });
-        return;
-    }
-
-    if die_result.is_unknown {
-        for engine in engines
-            .iter_mut()
-            .filter(|engine| engine.engine == "yara_x")
-        {
-            engine.verdict = Verdict::Clean;
-            engine.detail = format!(
-                "suppressed yara-only unknown binary: {}",
-                yara_x_matches.join(", ")
-            );
+    if die.is_unknown {
+        for e in engines.iter_mut().filter(|e| e.engine == "yara_x") {
+            e.verdict = Verdict::Clean;
+            e.detail = format!("suppressed yara-only unknown binary: {}", yara_x_matches.join(", "));
         }
         yara_x_matches.clear();
-        engines.push(EngineResult {
-            engine: "detectiteasy",
-            verdict: Verdict::Clean,
-            detail: "DIE fully unknown; suppressing yara-only unknown binary".into(),
-        });
-    } else {
-        let die_type = die_result
-            .file_type
-            .unwrap_or_else(|| "identified".to_string());
-        engines.push(EngineResult {
-            engine: "detectiteasy",
-            verdict: Verdict::Clean,
-            detail: format!("DIE identified file type: {die_type}"),
-        });
+        for e in engines.iter_mut().filter(|e| e.engine == "detectiteasy") {
+            e.detail = format!("DIE unknown — suppressed yara-only result: {}", e.detail);
+        }
     }
 }
 
@@ -804,42 +769,35 @@ pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
     all_matches
 }
 
-fn load_yara_rules_from_dir(dir: &Path) -> Option<Rules> {
-    let mut compiler = Compiler::new();
-    let mut compiled_rules: Vec<Rules> = Vec::new();
-    let mut found_src = false;
+fn load_yara_rules_from_dir(dir: &Path) -> Vec<Rules> {
+    let mut loaded: Vec<Rules> = Vec::new();
 
-    if let Ok(entries) = std::fs::read_dir(dir) {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let entries = match std::fs::read_dir(&current) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         for entry in entries.flatten() {
             let path = entry.path();
-            match path.extension().and_then(|e| e.to_str()) {
-                Some("yar") => {
-                    if let Ok(source) = std::fs::read_to_string(&path) {
-                        if compiler.add_source(source.as_str()).is_ok() {
-                            found_src = true;
-                        }
-                    }
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) == Some("yrc") {
+                match std::fs::read(&path) {
+                    Ok(bytes) => match Rules::deserialize(&bytes) {
+                        Ok(rules) => loaded.push(rules),
+                        Err(e) => eprintln!("[YARA] failed to load {}: {}", path.display(), e),
+                    },
+                    Err(e) => eprintln!("[YARA] failed to read {}: {}", path.display(), e),
                 }
-                Some("yrc") => {
-                    if let Ok(bytes) = std::fs::read(&path) {
-                        if let Ok(rules) = Rules::deserialize(&bytes) {
-                            compiled_rules.push(rules);
-                        }
-                    }
-                }
-                _ => {}
             }
         }
     }
 
-    if let Some(r) = compiled_rules.into_iter().next() {
-        return Some(r);
-    }
-    if found_src {
-        Some(compiler.build())
-    } else {
-        None
-    }
+    eprintln!("[YARA] loaded {} ruleset(s) from {}", loaded.len(), dir.display());
+    loaded
 }
 
 fn scan_file_yara(path: &Path, rules: &Rules, exclusions: &HashSet<String>) -> Result<Vec<String>, String> {

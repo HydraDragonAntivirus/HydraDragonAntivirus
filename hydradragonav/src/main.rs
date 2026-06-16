@@ -1,7 +1,7 @@
 #![cfg(windows)]
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -242,7 +242,9 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &
     };
 
     let pipeline = Pipeline::new(pipeline_config);
+    let scan_start = Instant::now();
     let result = pipeline.scan_file(path);
+    let elapsed = scan_start.elapsed();
 
     if json {
         let mut output = serde_json::json!({
@@ -250,6 +252,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &
             "verdict": result.verdict.label(),
             "threat_name": result.threat_name,
             "engines": result.engines,
+            "scan_time_ms": elapsed.as_millis(),
         });
         if mode == ScanMode::Full {
             let reg_result = scan_registry(config);
@@ -261,7 +264,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &
         }
         println!("{}", serde_json::to_string(&output).unwrap());
     } else {
-        println!("[{}] {}", result.verdict.label(), path.display());
+        println!("[{}] {} ({:.0?})", result.verdict.label(), path.display(), elapsed);
         if let Some(ref tn) = result.threat_name {
             println!("  threat: {}", tn);
         }
@@ -379,7 +382,9 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         }
     }
 
+    let scan_start = Instant::now();
     walk_and_scan(root_path, &pipeline, mode, json, &mut files_scanned, &mut threats_found, &mut harmful_results, &pb);
+    let elapsed = scan_start.elapsed();
     pb.finish_and_clear();
 
     if let Some(output_path) = output {
@@ -404,10 +409,15 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         }
     }
 
+    let secs = elapsed.as_secs_f64();
+    let rate = if secs > 0.0 { files_scanned as f64 / secs } else { 0.0 };
+
     eprintln!("[Scan] ================================================================================");
     eprintln!("[Scan] Scan Complete!");
     eprintln!("[Scan] Total files scanned: {}", files_scanned);
     eprintln!("[Scan] Total threats found: {}", threats_found);
+    eprintln!("[Scan] Time elapsed:         {:.2?}", elapsed);
+    eprintln!("[Scan] Scan rate:            {:.1} files/sec", rate);
 
     if mode == ScanMode::Full {
         eprintln!();
