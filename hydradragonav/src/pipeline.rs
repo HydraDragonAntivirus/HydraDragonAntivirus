@@ -60,18 +60,28 @@ pub struct Pipeline {
     yara_rules: Option<Rules>,
     clamav: Option<ClamavScanner>,
     detectiteasy: DetectItEasyScanner,
+    hydradragonstatic_rules: Option<hydradragonstatic::rules::RuleSet>,
 }
 
 impl Pipeline {
     pub fn new(config: PipelineConfig) -> Self {
+        Self::new_impl(config, None)
+    }
+
+    pub fn new_with_clamav(config: PipelineConfig, clamav: ClamavScanner) -> Self {
+        Self::new_impl(config, Some(clamav))
+    }
+
+    fn new_impl(config: PipelineConfig, existing_clamav: Option<ClamavScanner>) -> Self {
         let complist_path = config.complist_path.clone();
         let bloom_dir = config.bloom_dir.clone();
         let yara_rules_dir = config.yara_rules_dir.clone();
         let clamav_lib = config.clamav_lib.clone();
         let clamav_db = config.clamav_db.clone();
         let detectiteasy_dir = config.detectiteasy_dir.clone();
+        let hydradragonstatic_rules_dir = config.hydradragonstatic_rules_dir.clone();
 
-        let (trusted_signers, hash_scanner, yara_rules, clamav, detectiteasy) =
+        let (trusted_signers, hash_scanner, yara_rules, clamav, detectiteasy, hydradragonstatic_rules) =
             std::thread::scope(|s| {
                 let t_signers = s.spawn(move || {
                     complist_path
@@ -95,15 +105,30 @@ impl Pipeline {
                 });
 
                 let t_clamav = s.spawn(move || {
-                    clamav_lib
-                        .as_ref()
-                        .zip(clamav_db.as_ref())
-                        .filter(|(lib, _)| lib.exists())
-                        .and_then(|(lib, db)| ClamavScanner::new(lib, db).ok())
+                    if let Some(c) = existing_clamav {
+                        Some(c)
+                    } else {
+                        clamav_lib
+                            .as_ref()
+                            .zip(clamav_db.as_ref())
+                            .filter(|(lib, _)| lib.exists())
+                            .and_then(|(lib, db)| ClamavScanner::new(lib, db).ok())
+                    }
                 });
 
                 let t_die =
                     s.spawn(move || DetectItEasyScanner::new(detectiteasy_dir.as_deref()));
+
+                let t_hds_rules = s.spawn(move || {
+                    hydradragonstatic_rules_dir
+                        .as_ref()
+                        .filter(|p| p.exists())
+                        .map(|dir| dir.join("rules.yaml"))
+                        .filter(|p| p.exists())
+                        .and_then(|rules_file| {
+                            hydradragonstatic::rules::RuleSet::from_yaml_file(&rules_file).ok()
+                        })
+                });
 
                 (
                     t_signers.join().expect("trusted_signers loader panicked"),
@@ -111,6 +136,7 @@ impl Pipeline {
                     t_yara.join().expect("yara_rules loader panicked"),
                     t_clamav.join().expect("clamav loader panicked"),
                     t_die.join().expect("detectiteasy loader panicked"),
+                    t_hds_rules.join().expect("hydradragonstatic rules loader panicked"),
                 )
             });
 
@@ -121,6 +147,7 @@ impl Pipeline {
             yara_rules,
             clamav,
             detectiteasy,
+            hydradragonstatic_rules,
         }
     }
 
@@ -166,16 +193,24 @@ impl Pipeline {
         // --- 1. HASH SCANNER ---
         if let Some(ref scanner) = self.hash_scanner {
             match scanner.compute_and_scan_all(path) {
-                Ok(result) => {
-                    let (verdict, detail) = match result {
-                        crate::hash_scanner::HashScanResult::Whitelisted => {
-                            (Verdict::Trusted, "MD5 whitelisted".into())
-                        }
-                        crate::hash_scanner::HashScanResult::Blacklisted => {
-                            (Verdict::Malware, "Hash blacklisted".into())
-                        }
-                        crate::hash_scanner::HashScanResult::Unknown => {
-                            (Verdict::Clean, "not found".into())
+                Ok(first_result) => {
+                    let (verdict, detail) = if first_result == crate::hash_scanner::HashScanResult::Unknown {
+                        (Verdict::Clean, "not found".into())
+                    } else {
+                        // Bloom filters have false positives; re-scan to confirm before trusting
+                        match scanner.compute_and_scan_all(path) {
+                            Ok(second_result) if second_result == first_result => {
+                                match first_result {
+                                    crate::hash_scanner::HashScanResult::Whitelisted => {
+                                        (Verdict::Trusted, "MD5 whitelisted (confirmed)".into())
+                                    }
+                                    crate::hash_scanner::HashScanResult::Blacklisted => {
+                                        (Verdict::Malware, "Hash blacklisted (confirmed)".into())
+                                    }
+                                    crate::hash_scanner::HashScanResult::Unknown => unreachable!(),
+                                }
+                            }
+                            _ => (Verdict::Clean, "bloom match not confirmed on re-scan".into()),
                         }
                     };
                     engines.push(EngineResult {
@@ -184,16 +219,10 @@ impl Pipeline {
                         detail,
                     });
 
-                    if verdict == Verdict::Trusted || verdict == Verdict::Malware {
-                        let threat = if verdict == Verdict::Malware {
-                            Some("Blacklisted Hash".into())
-                        } else {
-                            None
-                        };
-                        
+                    if verdict != Verdict::Clean {
                         return ScanResult {
                             verdict,
-                            threat_name: threat,
+                            threat_name: None,
                             engines,
                             yara_x_matches: Vec::new(),
                             ml_malware_probability: None,
@@ -231,72 +260,7 @@ impl Pipeline {
             }
         }
 
-        // --- 3. STATIC RULES ---
-        let rules = if let Some(rules_dir) = self.config.hydradragonstatic_rules_dir.as_ref() {
-            let rules_file = rules_dir.join("rules.yaml");
-            if rules_file.exists() {
-                match hydradragonstatic::rules::RuleSet::from_yaml_file(&rules_file) {
-                    Ok(r) => Some(r),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        match rules {
-            Some(rules) => match hydradragonstatic::scan_path(
-                path,
-                &rules,
-                &hydradragonstatic::ScanOptions::default(),
-            ) {
-                Ok(report) => {
-                    static_file_type = Some(report.file_type.clone());
-                    let hv = match report.verdict {
-                        hydradragonstatic::models::Verdict::Clean => Verdict::Clean,
-                        hydradragonstatic::models::Verdict::Trusted => Verdict::Trusted,
-                        hydradragonstatic::models::Verdict::Pua => Verdict::Pua,
-                        hydradragonstatic::models::Verdict::Suspicious => Verdict::Suspicious,
-                        hydradragonstatic::models::Verdict::Malware => Verdict::Malware,
-                    };
-                    engines.push(EngineResult {
-                        engine: "hydradragonstatic",
-                        verdict: hv,
-                        detail: report.threat_name.clone().unwrap_or_default(),
-                    });
-                    
-                    // SHORT-CIRCUIT: Any Detection
-                    if matches!(hv, Verdict::Malware | Verdict::Suspicious | Verdict::Pua) {
-                        return ScanResult {
-                            verdict: hv,
-                            threat_name: report.threat_name,
-                            engines,
-                            yara_x_matches: Vec::new(),
-                            ml_malware_probability: None,
-                            clamav_result: None,
-                        };
-                    }
-                }
-                Err(e) => {
-                    engines.push(EngineResult {
-                        engine: "hydradragonstatic",
-                        verdict: Verdict::Clean,
-                        detail: format!("error: {}", e),
-                    });
-                }
-            },
-            None => {
-                engines.push(EngineResult {
-                    engine: "hydradragonstatic",
-                    verdict: Verdict::Clean,
-                    detail: "no hydradragonstatic rules loaded".into(),
-                });
-            }
-        }
-
-        // --- 4. ML INFERENCE ---
+        // --- 3. ML INFERENCE ---
         let ml_verdict = self.run_ml_inference(path);
         if let Some(ref mv) = ml_verdict {
             engines.push(EngineResult {
@@ -319,95 +283,139 @@ impl Pipeline {
                     clamav_result: None,
                 };
             }
-
-            // ML flagged as Suspicious/Malware → run yara-x for confirmation
-            if let Some(ref rules) = self.yara_rules {
-                match scan_file_yara(path, rules) {
-                    Ok(matches) => {
-                        yara_x_matches = matches.clone();
-                        if !matches.is_empty() {
-                            engines.push(EngineResult {
-                                engine: "yara_x",
-                                verdict: Verdict::Suspicious,
-                                detail: matches.join(", "),
-                            });
-                        } else {
-                            engines.push(EngineResult {
-                                engine: "yara_x",
-                                verdict: Verdict::Clean,
-                                detail: "no matches".into(),
-                            });
-                        }
-                    }
-                    Err(e) => {
-                        engines.push(EngineResult {
-                            engine: "yara_x",
-                            verdict: Verdict::Clean,
-                            detail: format!("error: {}", e),
-                        });
-                    }
-                }
-            }
-        } else {
-            // ML unavailable — run yara-x unconditionally
-            if let Some(ref rules) = self.yara_rules {
-                match scan_file_yara(path, rules) {
-                    Ok(matches) => {
-                        yara_x_matches = matches.clone();
-                        if !matches.is_empty() {
-                            engines.push(EngineResult {
-                                engine: "yara_x",
-                                verdict: Verdict::Suspicious,
-                                detail: matches.join(", "),
-                            });
-                        } else {
-                            engines.push(EngineResult {
-                                engine: "yara_x",
-                                verdict: Verdict::Clean,
-                                detail: "no matches".into(),
-                            });
-                        }
-                    }
-                    Err(e) => {
-                        engines.push(EngineResult {
-                            engine: "yara_x",
-                            verdict: Verdict::Clean,
-                            detail: format!("error: {}", e),
-                        });
-                    }
-                }
-            }
         }
 
-        // ML/YARA SHORT-CIRCUIT EVALUATION
-        let has_ml_yara_detection = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Suspicious | Verdict::Pua));
-        if has_ml_yara_detection {
-            // Eagerly execute the DIE gate to ensure we don't return a suppressed False Positive
-            maybe_suppress_yara_only_unknown_binary(
+        // --- 4. STATIC RULES ---
+        match &self.hydradragonstatic_rules {
+            Some(rules) => match hydradragonstatic::scan_path(
                 path,
-                file_size,
-                &self.detectiteasy,
-                static_file_type.as_ref(),
-                &mut engines,
-                &mut yara_x_matches,
-            );
-
-            // Re-evaluate if we are still detecting a threat post-suppression
-            let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Suspicious | Verdict::Pua));
-            if still_detected {
-                let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
-                return ScanResult {
-                    verdict: final_verdict,
-                    threat_name: yara_x_matches.first().cloned(),
-                    engines,
-                    yara_x_matches,
-                    ml_malware_probability: ml_verdict.map(|m| m.probability),
-                    clamav_result: None,
-                };
+                &rules,
+                &hydradragonstatic::ScanOptions::default(),
+            ) {
+                Ok(report) => {
+                    static_file_type = Some(report.file_type.clone());
+                    let hv = match report.verdict {
+                        hydradragonstatic::models::Verdict::Clean => Verdict::Clean,
+                        hydradragonstatic::models::Verdict::Trusted => Verdict::Trusted,
+                        hydradragonstatic::models::Verdict::Pua => Verdict::Pua,
+                        hydradragonstatic::models::Verdict::Mining => Verdict::Mining,
+                        hydradragonstatic::models::Verdict::Spam => Verdict::Spam,
+                        hydradragonstatic::models::Verdict::Abuse => Verdict::Abuse,
+                        hydradragonstatic::models::Verdict::Suspicious => Verdict::Suspicious,
+                        hydradragonstatic::models::Verdict::Malware => Verdict::Malware,
+                    };
+                    engines.push(EngineResult {
+                        engine: "hydradragonstatic",
+                        verdict: hv,
+                        detail: report.threat_name.clone().unwrap_or_default(),
+                    });
+                    
+                    // SHORT-CIRCUIT: Any Detection
+                    if matches!(hv, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua) {
+                        return ScanResult {
+                            verdict: hv,
+                            threat_name: report.threat_name,
+                            engines,
+                            yara_x_matches,
+                            ml_malware_probability: ml_verdict.as_ref().map(|m| m.probability),
+                            clamav_result: None,
+                        };
+                    }
+                }
+                Err(e) => {
+                    engines.push(EngineResult {
+                        engine: "hydradragonstatic",
+                        verdict: Verdict::Clean,
+                        detail: format!("error: {}", e),
+                    });
+                }
+            },
+            None => {
+                engines.push(EngineResult {
+                    engine: "hydradragonstatic",
+                    verdict: Verdict::Clean,
+                    detail: "no hydradragonstatic rules loaded".into(),
+                });
             }
         }
 
-        // --- 5. CLAMAV ---
+        // --- 5. URL / PHISHING BLOOM CHECK ---
+        if let Some(ref scanner) = self.hash_scanner {
+            let bloom = scanner.bloom();
+            if let Ok(content) = std::fs::read_to_string(path) {
+                if content.len() <= 1_048_576 {
+                    let urls: Vec<String> = content.lines()
+                        .filter_map(|line| {
+                            let line = line.trim();
+                            if !line.contains("://") { return None; }
+                            let cleaned = line.trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\'']);
+                            let url = cleaned.split_whitespace().next().unwrap_or(cleaned);
+                            if !url.contains("://") { return None; }
+                            Some(url.to_string())
+                        })
+                        .collect();
+
+                    // first pass — collect candidates
+                    let mut phishing_urls: Vec<String> = Vec::new();
+                    let mut urlhaus_urls: Vec<String> = Vec::new();
+                    for url in &urls {
+                        if bloom.is_phishing(url) { phishing_urls.push(url.clone()); }
+                        if bloom.is_urlhaus(url) { urlhaus_urls.push(url.clone()); }
+                    }
+
+                    // re-scan confirmation — re-read file, retain only confirmed hits
+                    if !phishing_urls.is_empty() || !urlhaus_urls.is_empty() {
+                        if let Ok(content2) = std::fs::read_to_string(path) {
+                            let urls2: Vec<String> = content2.lines()
+                                .filter_map(|line| {
+                                    let line = line.trim();
+                                    if !line.contains("://") { return None; }
+                                    let cleaned = line.trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\'']);
+                                    let url = cleaned.split_whitespace().next().unwrap_or(cleaned);
+                                    if !url.contains("://") { return None; }
+                                    Some(url.to_string())
+                                })
+                                .collect();
+                            phishing_urls.retain(|u| urls2.iter().any(|u2| u2 == u && bloom.is_phishing(u2)));
+                            urlhaus_urls.retain(|u| urls2.iter().any(|u2| u2 == u && bloom.is_urlhaus(u2)));
+                        }
+                    }
+
+                    if !phishing_urls.is_empty() {
+                        engines.push(EngineResult {
+                            engine: "phishing_bloom",
+                            verdict: Verdict::Phishing,
+                            detail: phishing_urls.join(", "),
+                        });
+                        return ScanResult {
+                            verdict: Verdict::Phishing,
+                            threat_name: Some("phishing_url".into()),
+                            engines,
+                            yara_x_matches: Vec::new(),
+                            ml_malware_probability: None,
+                            clamav_result: None,
+                        };
+                    }
+                    if !urlhaus_urls.is_empty() {
+                        engines.push(EngineResult {
+                            engine: "urlhaus_bloom",
+                            verdict: Verdict::Malware,
+                            detail: urlhaus_urls.join(", "),
+                        });
+                        return ScanResult {
+                            verdict: Verdict::Malware,
+                            threat_name: Some("urlhaus_url".into()),
+                            engines,
+                            yara_x_matches: Vec::new(),
+                            ml_malware_probability: None,
+                            clamav_result: None,
+                        };
+                    }
+                }
+            }
+        }
+
+        // --- 6. CLAMAV ---
         if let Some(ref clamav) = self.clamav {
             match clamav.scan_file(path) {
                 Ok(result) => {
@@ -452,30 +460,55 @@ impl Pipeline {
             }
         }
 
-        // --- 6. HAYABUSA (full mode only) ---
-        if self.config.scan_mode == ScanMode::Full
-            && path.extension().and_then(|e| e.to_str()) == Some("evtx")
-        {
-            if let Some(ref hdir) = self.config.hayabusa_dir {
-                let hayabusa_matches = run_hayabusa(path, hdir, &yara_x_matches);
-                if !hayabusa_matches.is_empty() {
+        // --- 7. YARA-X (final confirmation) ---
+        if let Some(ref rules) = self.yara_rules {
+            match scan_file_yara(path, rules) {
+                Ok(matches) => {
+                    yara_x_matches = matches.clone();
+                    if !matches.is_empty() {
+                        engines.push(EngineResult {
+                            engine: "yara_x",
+                            verdict: Verdict::Suspicious,
+                            detail: matches.join(", "),
+                        });
+
+                        // DIE gate: suppress yara-only detection on unknown binaries
+                        maybe_suppress_yara_only_unknown_binary(
+                            path,
+                            file_size,
+                            &self.detectiteasy,
+                            static_file_type.as_ref(),
+                            &mut engines,
+                            &mut yara_x_matches,
+                        );
+
+                        // Short-circuit if still detected after DIE gate
+                        let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
+                        if still_detected {
+                            let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                            return ScanResult {
+                                verdict: final_verdict,
+                                threat_name: yara_x_matches.first().cloned(),
+                                engines,
+                                yara_x_matches,
+                                ml_malware_probability: ml_verdict.map(|m| m.probability),
+                                clamav_result,
+                            };
+                        }
+                    } else {
+                        engines.push(EngineResult {
+                            engine: "yara_x",
+                            verdict: Verdict::Clean,
+                            detail: "no matches".into(),
+                        });
+                    }
+                }
+                Err(e) => {
                     engines.push(EngineResult {
-                        engine: "hayabusa",
-                        verdict: Verdict::Suspicious,
-                        detail: hayabusa_matches.join(", "),
+                        engine: "yara_x",
+                        verdict: Verdict::Clean,
+                        detail: format!("error: {}", e),
                     });
-                    yara_x_matches.extend(hayabusa_matches.clone());
-                    
-                    // SHORT-CIRCUIT: Hayabusa Detection
-                    let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
-                    return ScanResult {
-                        verdict: final_verdict,
-                        threat_name: hayabusa_matches.first().cloned(),
-                        engines,
-                        yara_x_matches,
-                        ml_malware_probability: ml_verdict.map(|m| m.probability),
-                        clamav_result,
-                    };
                 }
             }
         }
@@ -593,7 +626,7 @@ fn maybe_suppress_yara_only_unknown_binary(
 
     let only_yara_is_suspicious = engines.iter().all(|engine| {
         if engine.engine == "yara_x" {
-            matches!(engine.verdict, Verdict::Suspicious | Verdict::Malware)
+            matches!(engine.verdict, Verdict::Suspicious | Verdict::Abuse | Verdict::Malware)
         } else {
             matches!(engine.verdict, Verdict::Clean | Verdict::Trusted)
         }
@@ -655,8 +688,8 @@ fn maybe_suppress_yara_only_unknown_binary(
     }
 }
 
-/// Run hayabusa on an .evtx file, return rule titles not already in `existing`.
-fn run_hayabusa(evtx: &Path, hayabusa_dir: &Path, existing: &[String]) -> Vec<String> {
+/// Run hayabusa once on all .evtx files in the standard Windows event log directory.
+pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
     use std::collections::HashSet;
     use std::process::Command;
 
@@ -665,41 +698,53 @@ fn run_hayabusa(evtx: &Path, hayabusa_dir: &Path, existing: &[String]) -> Vec<St
         return Vec::new();
     }
 
-    let out = match Command::new(&exe)
-        .args([
-            "csv-timeline",
-            "--no-wizard",
-            "--quiet",
-            "--file",
-            &evtx.to_string_lossy(),
-            "--rules",
-            &hayabusa_dir.join("rules").to_string_lossy().into_owned(),
-        ])
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return Vec::new(),
-    };
+    let evtx_dir = Path::new(r"C:\Windows\System32\winevt\Logs");
+    if !evtx_dir.exists() {
+        return Vec::new();
+    }
 
-    let existing_set: HashSet<&str> = existing.iter().map(|s| s.as_str()).collect();
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut all_matches: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
 
-    // CSV header: Timestamp,Computer,...,RuleTitle,...
-    // Parse RuleTitle from column index 4 (0-based) of each data row
-    let mut matches: Vec<String> = Vec::new();
-    for (i, line) in stdout.lines().enumerate() {
-        if i == 0 {
-            continue;
-        } // skip header
-        let cols: Vec<&str> = line.splitn(6, ',').collect();
-        if let Some(title) = cols.get(4) {
-            let t = title.trim().trim_matches('"');
-            if !t.is_empty() && !existing_set.contains(t) && !matches.contains(&t.to_string()) {
-                matches.push(t.to_string());
+    if let Ok(entries) = std::fs::read_dir(evtx_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("evtx") {
+                continue;
+            }
+
+            let out = match Command::new(&exe)
+                .args([
+                    "csv-timeline",
+                    "--no-wizard",
+                    "--quiet",
+                    "--file",
+                    &path.to_string_lossy(),
+                    "--rules",
+                    &hayabusa_dir.join("rules").to_string_lossy().into_owned(),
+                ])
+                .output()
+            {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for (i, line) in stdout.lines().enumerate() {
+                if i == 0 {
+                    continue;
+                }
+                let cols: Vec<&str> = line.splitn(6, ',').collect();
+                if let Some(title) = cols.get(4) {
+                    let t = title.trim().trim_matches('"').to_string();
+                    if !t.is_empty() && seen.insert(t.clone()) {
+                        all_matches.push(t);
+                    }
+                }
             }
         }
     }
-    matches
+    all_matches
 }
 
 fn load_yara_rules_from_dir(dir: &Path) -> Option<Rules> {

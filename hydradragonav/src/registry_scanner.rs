@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::OnceLock;
 
 use serde::Serialize;
 use winreg::enums::*;
@@ -219,6 +220,9 @@ impl RegistryScanner {
                     hydradragonstatic::models::Verdict::Malware
                         | hydradragonstatic::models::Verdict::Suspicious
                         | hydradragonstatic::models::Verdict::Pua
+                        | hydradragonstatic::models::Verdict::Abuse
+                        | hydradragonstatic::models::Verdict::Mining
+                        | hydradragonstatic::models::Verdict::Spam
                 );
                 (detected, report.threat_name)
             }
@@ -236,13 +240,17 @@ impl Default for RegistryScanner {
     }
 }
 
+static HDS_RULES: OnceLock<Option<RuleSet>> = OnceLock::new();
+
 fn load_hydradragonstatic_rules(rules_dir: &Path) -> Option<RuleSet> {
-    let rules_file = rules_dir.join("rules.yaml");
-    if rules_file.exists() {
-        RuleSet::from_yaml_file(&rules_file).ok()
-    } else {
-        None
-    }
+    HDS_RULES.get_or_init(|| {
+        let rules_file = rules_dir.join("rules.yaml");
+        if rules_file.exists() {
+            RuleSet::from_yaml_file(&rules_file).ok()
+        } else {
+            None
+        }
+    }).clone()
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {

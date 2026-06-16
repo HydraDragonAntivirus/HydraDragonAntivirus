@@ -17,39 +17,32 @@ pub enum Severity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
-    /// File is signed by a trusted publisher or whitelisted by hash.
-    /// Short-circuits all downstream scanning.
     Trusted,
     Clean,
     Suspicious,
     Pua,
+    Mining,
+    Spam,
+    Abuse,
     Malware,
 }
 
 /// SDK-style scan result codes for programmatic integration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanResultCode {
-    /// File does not contain malicious code
     Ok = 0,
-    /// Detected suspicious code (heuristic analysis)
     Heuristic = 1,
-    /// Malicious code is detected (infected file)
     Malicious = 2,
-    /// Potentially Unwanted Application detected
     Unwanted = 3,
-    /// General error of the scan engine
+    Spam = 4,
+    Mining = 5,
+    Abuse = 6,
     GeneralError = -1,
-    /// Incorrect scan/core handle range
     WrongHandle = -2,
-    /// Scan/core handle is not initialized
     UnknownHandle = -3,
-    /// Supplied file path is too long
     PathTooLong = -4,
-    /// Error opening/reading the file
     OpenError = -5,
-    /// File too large for scanning
     FileTooLarge = -6,
-    /// Unsupported file format
     UnsupportedFormat = -7,
 }
 
@@ -64,6 +57,9 @@ impl ScanResultCode {
             1 => Some(Self::Heuristic),
             2 => Some(Self::Malicious),
             3 => Some(Self::Unwanted),
+            4 => Some(Self::Spam),
+            5 => Some(Self::Mining),
+            6 => Some(Self::Abuse),
             -1 => Some(Self::GeneralError),
             -2 => Some(Self::WrongHandle),
             -3 => Some(Self::UnknownHandle),
@@ -80,7 +76,7 @@ impl ScanResultCode {
     }
 
     pub fn is_infected(self) -> bool {
-        matches!(self, Self::Heuristic | Self::Malicious | Self::Unwanted)
+        matches!(self, Self::Heuristic | Self::Malicious | Self::Unwanted | Self::Spam | Self::Mining | Self::Abuse)
     }
 
     pub fn is_error(self) -> bool {
@@ -93,6 +89,9 @@ impl ScanResultCode {
             Verdict::Clean => Self::Ok,
             Verdict::Suspicious => Self::Heuristic,
             Verdict::Pua => Self::Unwanted,
+            Verdict::Spam => Self::Spam,
+            Verdict::Mining => Self::Mining,
+            Verdict::Abuse => Self::Abuse,
             Verdict::Malware => Self::Malicious,
         }
     }
@@ -226,6 +225,9 @@ impl Verdict {
             Self::Clean => "CLEAN",
             Self::Suspicious => "SUSPICIOUS",
             Self::Pua => "PUA",
+            Self::Mining => "MINING",
+            Self::Spam => "SPAM",
+            Self::Abuse => "ABUSE",
             Self::Malware => "MALWARE",
         }
     }

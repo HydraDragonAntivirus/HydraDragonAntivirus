@@ -6,358 +6,257 @@ use std::path::Path;
 use std::sync::Arc;
 
 const FP_RATE: f64 = 1e-4;
-const EXPECTED_ITEMS: usize = 20_000_000;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        print_usage();
+    if args.len() != 2 {
+        eprintln!("Usage: bloom_builder <dir>");
         std::process::exit(1);
     }
-
-    match args[1].as_str() {
-        "blacklist" | "bl" => {
-            if args.len() < 3 {
-                eprintln!("ERROR: Usage: bloom_builder blacklist <hashes_dir> [output.bloom]");
-                std::process::exit(1);
-            }
-            let hashes_dir = &args[2];
-            let output = args.get(3).map(|s| s.as_str()).unwrap_or("blacklist.bloom");
-            build_blacklist_bloom(hashes_dir, output);
-        }
-        "whitelist" | "wl" => {
-            let all_types = args.iter().any(|a| a == "--all-types");
-            let pos_args: Vec<&String> = args.iter().skip(2).filter(|a| !a.starts_with("--")).collect();
-            if pos_args.is_empty() {
-                eprintln!("ERROR: Usage: bloom_builder whitelist [--all-types] <whitelist.db> [sql_file] [output.bloom]");
-                std::process::exit(1);
-            }
-            let db_path = pos_args[0];
-            let sql_file = pos_args.get(1).map(|s| s.as_str());
-            let output = pos_args.get(2).map(|s| s.as_str()).unwrap_or("whitelist.bloom");
-            build_whitelist_bloom(db_path, sql_file, output, all_types);
-        }
-        _ => print_usage(),
-    }
-}
-
-fn print_usage() {
-    println!("bloom_builder - Build bloom filters from hash databases");
-    println!();
-    println!("USAGE:");
-    println!("  bloom_builder blacklist <hashes_dir> [output.bloom]");
-    println!("  bloom_builder whitelist [--all-types] <whitelist.db> [sql_file] [output.bloom]");
-    println!("");
-    println!("FLAGS:");
-    println!("  --all-types    Include SHA1/SHA256 from SQL (for FP remover bloom)");
-    println!();
-    println!("COMMANDS:");
-    println!("  blacklist (bl)  Build blacklist bloom from hashes directory");
-    println!("                  Supports: full.csv, md5_db, sha256_db, tlsh_db,");
-    println!("                  virusshare1/2, malshare, malsharesha1/256,");
-    println!("                  eset, sslbl, virusign, virussign, iocemotet,");
-    println!("                  samplesstalkware, sha256amnestytech");
-    println!("  whitelist (wl)  Build whitelist bloom from whitelist.db (MD5 only)");
-    println!();
-    println!("  Default output: blacklist.bloom / whitelist.bloom");
-}
-
-/// Build blacklist bloom from all hash files in the hashes directory
-fn build_blacklist_bloom(hashes_dir: &str, output_path: &str) {
-    let bloom =
-        Arc::new(AtomicBloomFilter::with_false_pos(FP_RATE).expected_items(EXPECTED_ITEMS));
-
-    println!("[+] Building BLACKLIST bloom from: {}", hashes_dir);
-    let dir = Path::new(hashes_dir);
-
-    // Process MalwareBazaar full.csv
-    let csv_path = dir.join("full.csv");
-    if csv_path.exists() {
-        process_full_csv(&csv_path, &bloom);
-    }
-
-    // Process individual hash files
-    for entry in fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-
-        let fname = path.file_name().unwrap().to_string_lossy().to_string();
-        if fname == "full.csv" {
-            continue;
-        }
-
-        match fname.as_str() {
-            "md5_db" | "sha256_db" | "tlsh_db" | "sslbl" | "virusign" => {
-                process_colon_file(&path, &bloom);
-            }
-            "virusshare1" | "virusshare2" | "virusshare2026.md5" => {
-                process_plain_hash_file(&path, &bloom);
-            }
-            "malshare" => {
-                process_plain_hash_file(&path, &bloom);
-            }
-            _ => {
-                process_plain_hash_file(&path, &bloom);
-            }
-        }
-    }
-
-    let count = 0; // AtomicBloomFilter does not expose count
-    println!("[+] Blacklist bloom built");
-
-    save_bloom(&bloom, output_path);
-}
-
-/// Build whitelist bloom from whitelist.db (MD5 only, one hash per line)
-fn build_whitelist_bloom(db_path: &str, sql_file: Option<&str>, output_path: &str, all_types: bool) {
-    let bloom = Arc::new(
-        AtomicBloomFilter::with_false_pos(FP_RATE).expected_items(EXPECTED_ITEMS),
-    );
-
-    let mut count = 0u64;
-
-    println!("[+] Building WHITELIST bloom from: {}", db_path);
-    let path = Path::new(db_path);
-    if !path.exists() {
-        eprintln!("ERROR: Whitelist db not found: {}", db_path);
+    let dir = &args[1];
+    if !Path::new(dir).exists() {
+        eprintln!("ERROR: Directory not found: {}", dir);
         std::process::exit(1);
     }
-
-    let file = match fs::File::open(path) {
-        Ok(f) => BufReader::new(f),
-        Err(e) => {
-            eprintln!("ERROR: Cannot open {}: {}", db_path, e);
-            std::process::exit(1);
-        }
-    };
-
-    for line in file.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        let hash = line.trim();
-        if hash.is_empty() || hash.starts_with('#') {
-            continue;
-        }
-        if hash.len() == 32 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
-            bloom.insert(hash);
-            count += 1;
-        }
-    }
-    println!("[+] MD5 hashes from whitelist.db: {}", count);
-
-    if let Some(sql_path) = sql_file {
-        println!("[+] Also loading SQL hashes from: {}", sql_path);
-        let sql_count = build_whitelist_from_sql(&bloom, sql_path, all_types);
-        count += sql_count;
-    }
-
-    println!("[+] Total hashes in whitelist bloom: {}", count);
-    save_bloom(&bloom, output_path);
+    build_blacklist_bloom(dir);
+    build_whitelist_bloom(dir);
+    build_urlhaus_bloom(dir);
+    build_phishing_bloom(dir);
 }
 
-/// Save bloom filter to file
-fn save_bloom(bloom: &Arc<AtomicBloomFilter>, output_path: &str) {
+fn count_plain_lines(path: &Path) -> usize {
+    let file = match fs::File::open(path) { Ok(f) => f, Err(_) => return 0 };
+    BufReader::new(file).lines()
+        .filter_map(|l| l.ok())
+        .filter(|l| {
+            let t = l.trim();
+            if t.is_empty() || t.starts_with('#') { return false; }
+            let token = t.split_whitespace().next().unwrap_or("");
+            is_valid_hash(token)
+        })
+        .count()
+}
+
+fn count_csv_col(path: &Path, col: usize, has_header: bool) -> usize {
+    let file = match fs::File::open(path) { Ok(f) => f, Err(_) => return 0 };
+    let mut rdr = csv::ReaderBuilder::new().has_headers(has_header).flexible(true).from_reader(file);
+    rdr.records()
+        .filter_map(|r| r.ok())
+        .filter(|r| r.get(col).map(|v| !v.trim().is_empty()).unwrap_or(false))
+        .count()
+}
+
+fn make_bloom(n: usize) -> Arc<AtomicBloomFilter> {
+    Arc::new(AtomicBloomFilter::with_false_pos(FP_RATE).expected_items(n.max(128)))
+}
+
+fn save_bloom(bloom: &Arc<AtomicBloomFilter>, out: &str) {
     match encode_to_vec(bloom.as_ref(), bincode_next::config::standard()) {
         Ok(data) => {
-            fs::write(output_path, &data[..]).unwrap_or_else(|e| {
-                eprintln!("ERROR: Failed to write bloom: {}", e);
-                std::process::exit(1);
-            });
-            println!("[+] Bloom written to: {} ({} bytes)", output_path, data.len());
+            fs::write(out, &data[..]).unwrap_or_else(|e| { eprintln!("ERROR write: {}", e); std::process::exit(1); });
+            println!("[+] Written: {} ({} bytes)", out, data.len());
         }
-        Err(e) => {
-            eprintln!("ERROR: Failed to serialize bloom: {}", e);
-            std::process::exit(1);
-        }
+        Err(e) => { eprintln!("ERROR serialize: {}", e); std::process::exit(1); }
     }
 }
 
-/// Parse MalwareBazaar CSV: extracts SHA256(1), MD5(2), SHA1(3), SSDEEP(12), TLSH(13)
-fn process_full_csv(path: &Path, bloom: &Arc<AtomicBloomFilter>) {
-    println!("  [full.csv] Parsing MalwareBazaar...");
-    let file = match fs::File::open(path) {
-        Ok(f) => BufReader::new(f),
-        Err(e) => {
-            eprintln!("    ERROR: {}", e);
-            return;
+fn trim_q(s: &str) -> &str {
+    let s = s.trim();
+    if s.len() >= 2 && s.as_bytes()[0] == b'\'' && s.as_bytes()[s.len()-1] == b'\'' { &s[1..s.len()-1] } else { s }
+}
+
+fn is_valid_hash(s: &str) -> bool {
+    if s.is_empty() { return false; }
+    match s.len() {
+        32 | 40 | 64 | 128 => s.chars().all(|c| c.is_ascii_hexdigit()),
+        _ => false,
+    }
+}
+
+// ── blacklist ──────────────────────────────────────────────────────────────
+
+fn build_blacklist_bloom(dir: &str) {
+    let path = Path::new(dir);
+    println!("[+] Building blacklist bloom...");
+
+    let mut hash_files: Vec<std::path::PathBuf> = Vec::new();
+    let csv_path = path.join("full.csv");
+
+    for entry in fs::read_dir(path).unwrap().flatten() {
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        let fname = p.file_name().unwrap().to_string_lossy().to_string();
+        if fname == "whitelist.db" { continue; }
+        if p == csv_path { continue; }
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        match ext { "" | "md5" => {} _ => continue }
+        hash_files.push(p);
+    }
+
+    let has_md5_db = path.join("md5_db").exists();
+    let has_sha256_db = path.join("sha256_db").exists();
+
+    let mut total = 0usize;
+    if csv_path.exists() {
+        let file = match fs::File::open(&csv_path) { Ok(f) => f, Err(_) => return };
+        let mut rdr = csv::ReaderBuilder::new().has_headers(false).flexible(true).from_reader(file);
+        for result in rdr.records() {
+            let r = match result { Ok(r) => r, Err(_) => continue };
+            // col 1=sha256, col 2=md5, col 3=sha1, col 12=ssdeep, col 13=tlsh
+            // skip sha256 if sha256_db present, skip md5 if md5_db present
+            for col in [1usize, 2, 3, 13] {
+                if col == 1 && has_sha256_db { continue; }
+                if col == 2 && has_md5_db { continue; }
+                if let Some(h) = r.get(col) {
+                    let h = h.trim().trim_matches('"');
+                    if !h.is_empty() && h != "n/a" { total += 1; }
+                }
+            }
         }
+    }
+    for p in &hash_files { total += count_plain_lines(p); }
+
+    if total == 0 { println!("[!] No blacklist source files found, skipping"); return; }
+    println!("[+] Blacklist expected items: {}", total);
+    let bloom = make_bloom(total);
+
+    if csv_path.exists() {
+        let file = match fs::File::open(&csv_path) { Ok(f) => f, Err(_) => return };
+        let mut rdr = csv::ReaderBuilder::new().has_headers(false).flexible(true).from_reader(file);
+        for result in rdr.records() {
+            let r = match result { Ok(r) => r, Err(_) => continue };
+            for col in [1usize, 2, 3, 13] {
+                if let Some(h) = r.get(col) {
+                    let h = h.trim().trim_matches('"');
+                    if !h.is_empty() && h != "n/a" { bloom.insert(h); }
+                }
+            }
+        }
+    }
+
+    for p in &hash_files {
+        let fname = p.file_name().unwrap().to_string_lossy().to_string();
+        let colon = matches!(fname.as_str(), "md5_db" | "sha256_db" | "sslbl" | "virusign");
+        let file = match fs::File::open(p) { Ok(f) => f, Err(_) => continue };
+        for line in BufReader::new(file).lines().flatten() {
+            let line = line.trim().to_string();
+            if line.is_empty() || line.starts_with('#') { continue; }
+            // extract first token (before any space/tab/colon separator)
+            let raw = if colon {
+                line.split(':').next().unwrap_or("").trim().to_string()
+            } else {
+                line.split_whitespace().next().unwrap_or("").to_string()
+            };
+            if is_valid_hash(&raw) { bloom.insert(&raw); }
+        }
+    }
+
+    save_bloom(&bloom, &format!("{}/blacklist.bloom", dir));
+}
+
+// ── whitelist ──────────────────────────────────────────────────────────────
+
+fn build_whitelist_bloom(dir: &str) {
+    let path = Path::new(dir);
+    let db_path = path.join("whitelist.db");
+    if !db_path.exists() { println!("[!] whitelist.db not found, skipping"); return; }
+
+    let mut sql_files: Vec<std::path::PathBuf> = Vec::new();
+    for entry in fs::read_dir(path).unwrap().flatten() {
+        let p = entry.path();
+        let fname = p.file_name().unwrap().to_string_lossy().to_string();
+        if fname.starts_with("RDS") && fname.ends_with(".sql") { sql_files.push(p); }
+    }
+
+    let db_count = count_plain_lines(&db_path);
+    let sql_count: usize = sql_files.iter().map(|p| count_sql_md5(p)).sum();
+    let total = db_count + sql_count;
+    println!("[+] Whitelist expected items: {} (db={} sql={})", total, db_count, sql_count);
+    let bloom = make_bloom(total);
+
+    let file = match fs::File::open(&db_path) { Ok(f) => f, Err(e) => { eprintln!("ERROR: {}", e); return; } };
+    for line in BufReader::new(file).lines().flatten() {
+        let h = line.trim().to_string();
+        if h.is_empty() || h.starts_with('#') { continue; }
+        if h.len() == 32 && h.chars().all(|c| c.is_ascii_hexdigit()) { bloom.insert(&h); }
+    }
+
+    for p in &sql_files {
+        let content = match fs::read_to_string(p) { Ok(c) => c, Err(_) => continue };
+        for line in content.lines() {
+            let line = line.trim();
+            if !line.starts_with("INSERT INTO METADATA") { continue; }
+            let vs = match line.find("VALUES(") { Some(p) => p + 7, None => continue };
+            let ve = match line.rfind(')') { Some(p) => p, None => continue };
+            let parts: Vec<&str> = line[vs..ve].split(',').collect();
+            if parts.len() < 23 { continue; }
+            let md5 = trim_q(parts[20]);
+            if !md5.is_empty() && md5.len() == 32 && md5.chars().all(|c| c.is_ascii_hexdigit()) {
+                bloom.insert(md5);
+            }
+        }
+    }
+
+    save_bloom(&bloom, &format!("{}/whitelist.bloom", dir));
+}
+
+fn count_sql_md5(path: &std::path::PathBuf) -> usize {
+    let content = match fs::read_to_string(path) { Ok(c) => c, Err(_) => return 0 };
+    content.lines()
+        .filter(|l| l.trim().starts_with("INSERT INTO METADATA"))
+        .filter(|l| {
+            let l = l.trim();
+            let vs = match l.find("VALUES(") { Some(p) => p + 7, None => return false };
+            let ve = match l.rfind(')') { Some(p) => p, None => return false };
+            let parts: Vec<&str> = l[vs..ve].split(',').collect();
+            if parts.len() < 23 { return false; }
+            let md5 = trim_q(parts[20]);
+            !md5.is_empty() && md5.len() == 32
+        })
+        .count()
+}
+
+// ── urlhaus ────────────────────────────────────────────────────────────────
+
+fn build_urlhaus_bloom(dir: &str) {
+    let path = Path::new(dir).join("urlhaus.csv");
+    if !path.exists() { println!("[!] urlhaus.csv not found, skipping"); return; }
+
+    let total = count_csv_col(&path, 2, true);
+    println!("[+] URLhaus expected items: {}", total);
+    let bloom = make_bloom(total);
+
+    let mut rdr = match csv::ReaderBuilder::new().has_headers(true).flexible(true).from_path(&path) {
+        Ok(r) => r, Err(e) => { eprintln!("ERROR: {}", e); return; }
     };
-
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .from_reader(file);
-
     let mut count = 0u64;
     for result in rdr.records() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-
-        if count % 100000 == 0 && count > 0 {
-            println!("    [full.csv] {} records...", count);
-        }
-
-        if let Some(field) = record.get(1) {
-            let h = field.trim().trim_matches('"');
-            if !h.is_empty() && h.len() == 64 {
-                bloom.insert(h);
-            }
-        }
-        if let Some(field) = record.get(2) {
-            let h = field.trim().trim_matches('"');
-            if !h.is_empty() && h.len() == 32 {
-                bloom.insert(h);
-            }
-        }
-        if let Some(field) = record.get(3) {
-            let h = field.trim().trim_matches('"');
-            if !h.is_empty() && h.len() == 40 {
-                bloom.insert(h);
-            }
-        }
-        if let Some(field) = record.get(12) {
-            let h = field.trim().trim_matches('"');
-            if !h.is_empty() && h != "n/a" {
-                bloom.insert(h);
-            }
-        }
-        if let Some(field) = record.get(13) {
-            let h = field.trim().trim_matches('"');
-            if !h.is_empty() && h != "n/a" {
-                bloom.insert(h);
-            }
-        }
-
-        count += 1;
+        let r = match result { Ok(r) => r, Err(_) => continue };
+        if let Some(u) = r.get(2) { let u = u.trim(); if !u.is_empty() { bloom.insert(u); count += 1; } }
     }
-    println!("    [full.csv] Done: {} records", count);
+    println!("[+] URLhaus inserted: {}", count);
+    save_bloom(&bloom, &format!("{}/urlhaus.bloom", dir));
 }
 
-/// Parse colon-separated: `hash:metadata`
-fn process_colon_file(path: &Path, bloom: &Arc<AtomicBloomFilter>) {
-    let fname = path.file_name().unwrap().to_string_lossy();
-    println!("  [{}] Parsing...", fname);
+// ── phishing ───────────────────────────────────────────────────────────────
 
-    let file = match fs::File::open(path) {
-        Ok(f) => BufReader::new(f),
-        Err(e) => {
-            eprintln!("    ERROR: {}", e);
-            return;
-        }
-    };
+fn build_phishing_bloom(dir: &str) {
+    let path = Path::new(dir).join("phishing_links.json");
+    if !path.exists() { println!("[!] phishing_links.json not found, skipping"); return; }
 
-    let mut count = 0u64;
-    for line in file.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Some(hash) = trimmed.split(':').next() {
-            let hash = hash.trim();
-            if !hash.is_empty() {
-                bloom.insert(hash);
-                count += 1;
-            }
-        }
-    }
-    println!("    [{}] Done: {} hashes", fname, count);
-}
+    let content = match fs::read_to_string(&path) { Ok(c) => c, Err(e) => { eprintln!("ERROR: {}", e); return; } };
 
-/// Parse plain hash files: one hash per line
-fn process_plain_hash_file(path: &Path, bloom: &Arc<AtomicBloomFilter>) {
-    let fname = path.file_name().unwrap().to_string_lossy();
-    println!("  [{}] Parsing...", fname);
-
-    let file = match fs::File::open(path) {
-        Ok(f) => BufReader::new(f),
-        Err(e) => {
-            eprintln!("    ERROR: {}", e);
-            return;
-        }
-    };
-
-    let mut count = 0u64;
-    for line in file.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        let hash = line.trim();
-        if hash.is_empty() {
-            continue;
-        }
-        bloom.insert(hash);
-        count += 1;
-    }
-    println!("    [{}] Done: {} hashes", fname, count);
-}
-
-fn build_whitelist_from_sql(bloom: &Arc<AtomicBloomFilter>, sql_path: &str, all_types: bool) -> u64 {
-    let content = match fs::read_to_string(sql_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("ERROR: Cannot read SQL file '{}': {}", sql_path, e);
-            std::process::exit(1);
-        }
-    };
-
-    let mut count = 0u64;
-    for line in content.lines() {
-        let line = line.trim();
-        if !line.starts_with("INSERT INTO METADATA") {
-            continue;
-        }
-        let values_start = match line.find("VALUES(") {
-            Some(pos) => pos + 7,
-            None => continue,
-        };
-        let values_end = match line.rfind(')') {
-            Some(pos) => pos,
-            None => continue,
-        };
-        let values = &line[values_start..values_end];
-        let parts: Vec<&str> = values.split(',').collect();
-        if parts.len() < 23 {
-            continue;
-        }
-        let md5 = trim_quotes(parts[20]);
-        if !md5.is_empty() && md5.len() == 32 && md5.chars().all(|c| c.is_ascii_hexdigit()) {
-            bloom.insert(md5);
-            count += 1;
-        }
-        if all_types {
-            let sha1 = trim_quotes(parts[21]);
-            let sha256 = trim_quotes(parts[22]);
-            if !sha1.is_empty() && sha1.len() == 40 && sha1.chars().all(|c| c.is_ascii_hexdigit()) {
-                bloom.insert(sha1);
-                count += 1;
-            }
-            if !sha256.is_empty() && sha256.len() == 64 && sha256.chars().all(|c| c.is_ascii_hexdigit()) {
-                bloom.insert(sha256);
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
-fn trim_quotes(s: &str) -> &str {
-    let s = s.trim();
-    if s.len() >= 2 && s.as_bytes()[0] == b'\'' && s.as_bytes()[s.len() - 1] == b'\'' {
-        &s[1..s.len() - 1]
+    let urls: Vec<String> = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+        parsed.get("data").and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|u| u.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+            .unwrap_or_default()
     } else {
-        s
-    }
-}
+        content.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty() && !l.starts_with('#')).collect()
+    };
 
+    let total = urls.len();
+    println!("[+] Phishing expected items: {}", total);
+    let bloom = make_bloom(total);
+    for u in &urls { bloom.insert(u.as_str()); }
+    save_bloom(&bloom, &format!("{}/phishing.bloom", dir));
+}

@@ -2338,30 +2338,19 @@ pub fn aggregate_verdict(report: &mut ScanReport) {
         .max()
         .unwrap_or(0);
 
-    // Important: intentionally signature-like. One matched rule with verdict=malware is enough.
-    report.verdict = if report
-        .findings
-        .iter()
-        .any(|f| f.verdict == Verdict::Malware)
-    {
+    report.verdict = if report.findings.iter().any(|f| f.verdict == Verdict::Malware) {
         Verdict::Malware
-    } else if report
-        .findings
-        .iter()
-        .any(|f| f.verdict == Verdict::Pua)
-    {
+    } else if report.findings.iter().any(|f| f.verdict == Verdict::Abuse) {
+        Verdict::Abuse
+    } else if report.findings.iter().any(|f| f.verdict == Verdict::Pua) {
         Verdict::Pua
-    } else if report
-        .findings
-        .iter()
-        .any(|f| f.verdict == Verdict::Trusted)
-    {
+    } else if report.findings.iter().any(|f| f.verdict == Verdict::Mining) {
+        Verdict::Mining
+    } else if report.findings.iter().any(|f| f.verdict == Verdict::Spam) {
+        Verdict::Spam
+    } else if report.findings.iter().any(|f| f.verdict == Verdict::Trusted) {
         Verdict::Trusted
-    } else if report
-        .findings
-        .iter()
-        .any(|f| f.verdict == Verdict::Suspicious)
-    {
+    } else if report.findings.iter().any(|f| f.verdict == Verdict::Suspicious) {
         Verdict::Suspicious
     } else {
         Verdict::Clean

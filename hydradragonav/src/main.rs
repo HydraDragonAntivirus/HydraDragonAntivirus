@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 
 use hydradragonav::clamjuice;
 use hydradragonav::pipeline::{Pipeline, PipelineConfig, ScanMode};
+use hydradragonav::pipeline::scan_hayabusa_once;
 use hydradragonav::registry_scanner::RegistryScanner;
 use hydradragonav::run_freshclam_dll;
 use hydradragonav::Error;
@@ -151,6 +152,10 @@ enum Command {
         /// Output raw JSON (default: human-readable)
         #[arg(long, short)]
         json: bool,
+
+        /// Write malware-only results to this file after directory scan
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
 
     /// Update ClamAV virus definitions via libfreshclam.dll and optionally Hayabusa rules
@@ -211,9 +216,9 @@ fn default_paths() -> (
     )
 }
 
-fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, config: &FullConfig) {
+fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, config: &FullConfig) {
     if path.is_dir() {
-        cmd_scan_recursive(path, mode, json, config);
+        cmd_scan_recursive(path, mode, json, output, config);
     } else {
         cmd_scan_single(path, mode, json, config);
     }
@@ -248,6 +253,10 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &
         if mode == ScanMode::Full {
             let reg_result = scan_registry(config);
             output["registry_scan"] = serde_json::to_value(&reg_result).unwrap();
+            if let Some(ref hdir) = config.hayabusa_dir {
+                let hayabusa_matches = scan_hayabusa_once(hdir);
+                output["hayabusa_matches"] = serde_json::to_value(&hayabusa_matches).unwrap();
+            }
         }
         println!("{}", serde_json::to_string(&output).unwrap());
     } else {
@@ -263,32 +272,20 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &
         }
         if mode == ScanMode::Full {
             print_registry_scan(&scan_registry(config));
-        }
-    }
-}
-
-fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, config: &FullConfig) {
-    // Collect all files recursively
-    let mut files = Vec::new();
-    fn collect_files(dir: &std::path::Path, files: &mut Vec<PathBuf>) {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    files.push(path);
-                } else if path.is_dir() {
-                    collect_files(&path, files);
+            if let Some(ref hdir) = config.hayabusa_dir {
+                let hayabusa_matches = scan_hayabusa_once(hdir);
+                if !hayabusa_matches.is_empty() {
+                    println!("[Hayabusa]");
+                    for m in &hayabusa_matches {
+                        println!("  ├─ {m}");
+                    }
                 }
             }
         }
     }
-    collect_files(root_path, &mut files);
+}
 
-    let total_files = files.len();
-    eprintln!("[Scan] Found {} files to scan", total_files);
-    eprintln!("[Scan] ================================================================================");
-
-    // Create pipeline config once
+fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
@@ -304,37 +301,98 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, c
         ..Default::default()
     };
 
-    let pipeline = Pipeline::new(pipeline_config);
+    let scanner = match Scanner::new(&config.lib, &config.db) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[ClamAV] Failed to initialize scanner: {}", e);
+            std::process::exit(1);
+        }
+    };
 
-    // Sequential scan
+    let pipeline = Pipeline::new_with_clamav(pipeline_config, scanner);
+
+    eprintln!("[Scan] ================================================================================");
+
     let mut files_scanned = 0u64;
     let mut threats_found = 0u64;
+    let mut harmful_results: Vec<(std::path::PathBuf, hydradragonav::verdict::ScanResult)> = Vec::new();
 
-    for file_path in files {
-        let result = pipeline.scan_file(&file_path);
-        files_scanned += 1;
+    fn walk_and_scan(
+        dir: &std::path::Path,
+        pipeline: &Pipeline,
+        mode: ScanMode,
+        json: bool,
+        files_scanned: &mut u64,
+        threats_found: &mut u64,
+        harmful_results: &mut Vec<(std::path::PathBuf, hydradragonav::verdict::ScanResult)>,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let meta = match std::fs::metadata(&path) {
+                        Ok(m) => m,
+                        Err(_) => continue,
+                    };
+                    if meta.len() < 12 {
+                        continue;
+                    }
+                    let result = pipeline.scan_file(&path);
+                    *files_scanned += 1;
 
-        if json {
-            let output = serde_json::json!({
-                "file": file_path.to_string_lossy(),
-                "verdict": result.verdict.label(),
-                "threat_name": result.threat_name,
-                "engines": result.engines,
-            });
-            println!("{}", serde_json::to_string(&output).unwrap());
-        } else {
-            if result.verdict.label() != "Clean" {
-                threats_found += 1;
-                println!("[{}] {}", result.verdict.label(), file_path.display());
-                if let Some(ref tn) = result.threat_name {
-                    println!("  └─ threat: {}", tn);
+                    if json {
+                        let output = serde_json::json!({
+                            "file": path.to_string_lossy(),
+                            "verdict": result.verdict.label(),
+                            "threat_name": result.threat_name,
+                            "engines": result.engines,
+                        });
+                        println!("{}", serde_json::to_string(&output).unwrap());
+                    } else {
+                        if result.verdict.label() != "Clean" {
+                            *threats_found += 1;
+                            println!("[{}] {}", result.verdict.label(), path.display());
+                            if let Some(ref tn) = result.threat_name {
+                                println!("  └─ threat: {}", tn);
+                            }
+                        }
+                    }
+
+                    if matches!(result.verdict, hydradragonav::verdict::Verdict::Malware | hydradragonav::verdict::Verdict::Abuse | hydradragonav::verdict::Verdict::Phishing | hydradragonav::verdict::Verdict::Suspicious | hydradragonav::verdict::Verdict::Spam | hydradragonav::verdict::Verdict::Mining | hydradragonav::verdict::Verdict::Pua) {
+                        harmful_results.push((path, result));
+                    }
+
+                    if *files_scanned % 10 == 0 {
+                        eprintln!("[Scan] Progress: {} files scanned | {} threats found", files_scanned, threats_found);
+                    }
+                } else if path.is_dir() {
+                    walk_and_scan(&path, pipeline, mode, json, files_scanned, threats_found, harmful_results);
                 }
             }
         }
+    }
 
-        // Progress indicator: show every 10 files
-        if files_scanned % 10 == 0 {
-            eprintln!("[Scan] Progress: {} files scanned | {} threats found", files_scanned, threats_found);
+    walk_and_scan(root_path, &pipeline, mode, json, &mut files_scanned, &mut threats_found, &mut harmful_results);
+
+    if let Some(output_path) = output {
+        let entries: Vec<serde_json::Value> = harmful_results.iter().map(|(path, result)| {
+            serde_json::json!({
+                "file": path.to_string_lossy(),
+                "verdict": result.verdict.label(),
+                "threat_name": result.threat_name,
+                "engines": result.engines,
+            })
+        }).collect();
+        let report = serde_json::json!({
+            "scan_root": root_path.to_string_lossy(),
+            "files_scanned": files_scanned,
+            "threats_found": threats_found,
+            "results": entries,
+        });
+        if let Err(e) = std::fs::write(output_path, serde_json::to_string_pretty(&report).unwrap()) {
+            eprintln!("[Scan] Failed to write report to {}: {}", output_path.display(), e);
+        } else {
+            eprintln!("[Scan] Malware report written to {}", output_path.display());
         }
     }
 
@@ -348,8 +406,21 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, c
         if json {
             let reg_result = scan_registry(config);
             println!("{}", serde_json::to_string(&reg_result).unwrap());
+            if let Some(ref hdir) = config.hayabusa_dir {
+                let hayabusa_matches = scan_hayabusa_once(hdir);
+                println!("{}", serde_json::to_string(&hayabusa_matches).unwrap());
+            }
         } else {
             print_registry_scan(&scan_registry(config));
+            if let Some(ref hdir) = config.hayabusa_dir {
+                let hayabusa_matches = scan_hayabusa_once(hdir);
+                if !hayabusa_matches.is_empty() {
+                    println!("[Hayabusa]");
+                    for m in &hayabusa_matches {
+                        println!("  ├─ {m}");
+                    }
+                }
+            }
         }
     }
 }
@@ -389,7 +460,7 @@ fn main() {
     };
 
     match &cli.command {
-        Command::Scan { path, mode, json } => cmd_scan(path, *mode, *json, &config),
+        Command::Scan { path, mode, json, output } => cmd_scan(path, *mode, *json, output.as_deref(), &config),
         Command::Update { reload_scanner, hayabusa, juice } => {
             cmd_update(*reload_scanner, *hayabusa, *juice, &config.lib, &config.db, &config.freshclam, config.hayabusa_dir.as_deref())
         }
@@ -496,22 +567,8 @@ fn cmd_reload_database(lib_path: &std::path::Path, db_path: &std::path::Path) {
     }
 }
 
-fn cmd_version(lib_path: &std::path::Path, db_path: &std::path::Path) {
-    let scanner = match Scanner::new(lib_path, db_path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[ClamAV] Failed to initialize scanner: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    match scanner.version() {
-        Some(v) => println!("{}", v),
-        None => {
-            eprintln!("[ClamAV] Could not retrieve engine version.");
-            std::process::exit(1);
-        }
-    }
+fn cmd_version(_lib_path: &std::path::Path, _db_path: &std::path::Path) {
+    println!("{}", env!("CARGO_PKG_VERSION"));
 }
 
 fn cmd_check_update(db_path: &std::path::Path) {

@@ -3,15 +3,14 @@ use serde::Serialize;
 /// Unified verdict produced by the HydraDragonAV scan pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Verdict {
-    /// File is signed by a trusted publisher (complist.txt match).
     Trusted,
-    /// File is clean — no engine flagged it.
     Clean,
-    /// File matches PUA registry patterns (reglist.txt).
     Pua,
-    /// File exhibits suspicious characteristics but below Malware threshold.
+    Mining,
+    Spam,
     Suspicious,
-    /// File is definitively malicious.
+    Phishing,
+    Abuse,
     Malware,
 }
 
@@ -21,7 +20,11 @@ impl Verdict {
             Verdict::Trusted => "Trusted",
             Verdict::Clean => "Clean",
             Verdict::Pua => "PUA",
+            Verdict::Mining => "Mining",
+            Verdict::Spam => "Spam",
             Verdict::Suspicious => "Suspicious",
+            Verdict::Phishing => "Phishing",
+            Verdict::Abuse => "Abuse",
             Verdict::Malware => "Malware",
         }
     }
@@ -31,13 +34,15 @@ impl Verdict {
             Verdict::Trusted => 0,
             Verdict::Clean => 1,
             Verdict::Pua => 2,
-            Verdict::Suspicious => 3,
-            Verdict::Malware => 4,
+            Verdict::Mining => 3,
+            Verdict::Spam => 4,
+            Verdict::Suspicious => 5,
+            Verdict::Phishing => 6,
+            Verdict::Abuse => 7,
+            Verdict::Malware => 8,
         }
     }
 
-    /// Aggregate verdicts: the highest-priority non-Trusted verdict wins.
-    /// Trusted can be overridden by any other verdict.
     pub fn aggregate(verdicts: &[Verdict]) -> Verdict {
         let mut result = Verdict::Clean;
         for &v in verdicts {
@@ -48,17 +53,11 @@ impl Verdict {
                     }
                 }
                 Verdict::Malware => return Verdict::Malware,
-                Verdict::Suspicious => {
-                    if result.priority() < v.priority() {
+                _ => {
+                    if v.priority() > result.priority() {
                         result = v;
                     }
                 }
-                Verdict::Pua => {
-                    if result.priority() < v.priority() {
-                        result = v;
-                    }
-                }
-                Verdict::Clean => {}
             }
         }
         result

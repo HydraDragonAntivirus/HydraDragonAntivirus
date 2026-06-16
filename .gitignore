@@ -1,17 +1,17 @@
+# Pre Bloom Files
+allblooms/
+
 # DIE Rust Inspect
 die-rust-inspect/
 
 # Wiki
 tempwiki/
 
-# Portable Antivirusss
+# Portable Antivirus
 HydraDragonAVPortable/
 
 # hashes
 hashes/
-
-# SQL files that are too big to be stored in git
-sql/RDS_2026.06.1_modern_delta.sql
 
 # AI plans
 plans/
