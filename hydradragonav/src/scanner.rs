@@ -9,6 +9,12 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::ffi::{self, Api, ClEngineFreeFn, ClEngineNewFn, ClInitFn};
+
+/// FFI type for cl_set_clcb_msg.
+/// severity: CL_MSG_INFO_VERBOSE=32, CL_MSG_WARN=64, CL_MSG_ERROR=128
+type ClSetClcbMsgFn = unsafe extern "C" fn(
+    Option<unsafe extern "C" fn(u32, *const i8, *const i8, *mut std::ffi::c_void)>,
+);
 use crate::types::{self, ClScanOptions, Error, ScanResult, DEFAULT_ENGINE_OPTIONS};
 
 // ---------------------------------------------------------------------------
@@ -152,10 +158,17 @@ impl Engine {
     unsafe fn set_options(&self, options: &[(u32, u32)]) {
         let set_num = match self.cl_engine_set_num {
             Some(f) => f,
-            None => return,
+            None => {
+                log_warn("cl_engine_set_num not found — engine limits not applied");
+                return;
+            }
         };
         for &(opt_id, value) in options {
             let res = set_num(self.ptr, opt_id, value);
+            log_info(&format!(
+                "cl_engine_set_num(opt={}, val={}) => {}",
+                opt_id, value, res
+            ));
             if res != types::CL_SUCCESS {
                 let msg = self.error_message(res);
                 log_warn(&format!(
@@ -582,6 +595,18 @@ impl Scanner {
             bind_optional!("cl_retver", cl_retver, crate::ffi::ClRetVerFn);
             bind_optional!("cl_strerror", cl_strerror, crate::ffi::ClStrErrorFn);
 
+            // Install message callback to suppress the known benign scanned_bytes
+            // overflow warning. Must be called before cl_init and before going
+            // multithreaded per the clamav.h docs.
+            let set_cb_ptr = ffi::GetProcAddress(
+                module,
+                b"cl_set_clcb_msg\0".as_ptr() as *const i8,
+            );
+            if let Some(f) = set_cb_ptr {
+                let set_cb = std::mem::transmute::<unsafe extern "C" fn(), ClSetClcbMsgFn>(f);
+                set_cb(Some(clamav_msg_callback));
+            }
+
             // cl_init
             let init_fn = guard.api.cl_init.ok_or(Error::MissingExport("cl_init"))?;
             let res = init_fn(0);
@@ -776,6 +801,35 @@ fn log_warn(msg: &str) {
 
 fn log_error(msg: &str) {
     eprintln!("[ClamAV][ERROR] {}", msg);
+}
+
+/// Libclamav message callback. Filters out the known-benign scanned_bytes
+/// overflow warning so it doesn't pollute stderr. All other messages are
+/// forwarded to eprintln as before.
+///
+/// Safety: called from C with valid pointers; fullmsg is always non-null
+/// per libclamav source.
+unsafe extern "C" fn clamav_msg_callback(
+    severity: u32,
+    fullmsg: *const i8,
+    _msg: *const i8,
+    _context: *mut std::ffi::c_void,
+) {
+    if fullmsg.is_null() {
+        return;
+    }
+    let s = std::ffi::CStr::from_ptr(fullmsg).to_string_lossy();
+    // Suppress the known scanned_bytes u32 overflow warning — benign, detection unaffected.
+    if s.contains("scanned_bytes exceeds UINT32_MAX") {
+        return;
+    }
+    // CL_MSG_WARN = 64, CL_MSG_ERROR = 128
+    if severity >= 128 {
+        eprintln!("[ClamAV][ERROR] {}", s.trim_end_matches(|c: char| c == '\r' || c == '\n'));
+    } else if severity >= 64 {
+        eprintln!("[ClamAV][WARN] {}", s.trim_end_matches(|c: char| c == '\r' || c == '\n'));
+    }
+    // CL_MSG_INFO_VERBOSE (32) and below: silently drop to avoid noise.
 }
 
 /// Update ClamAV databases via libfreshclam.dll.
