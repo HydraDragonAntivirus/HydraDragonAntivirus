@@ -195,7 +195,7 @@ impl Engine {
         let mut output = ScanResult {
             result_code: result,
             virus_name: String::new(),
-            bytes_scanned,
+            bytes_scanned: bytes_scanned as u64,
         };
         if result == types::CL_VIRUS && !virname.is_null() {
             let c_str = std::ffi::CStr::from_ptr(virname);
@@ -669,7 +669,7 @@ impl Scanner {
     // Scanning
     // -----------------------------------------------------------------------
 
-    pub fn scan_file<P: AsRef<Path>>(&self, path: P) -> Result<ScanResult, Error> {
+    pub fn scan_file<P: AsRef<Path>>(&self, path: P, heuristics: bool) -> Result<ScanResult, Error> {
         if !self.is_ready() {
             if self.is_initializing() {
                 (self.logger)(
@@ -693,7 +693,10 @@ impl Scanner {
         }
 
         let utf8_path = path.to_string_lossy().into_owned();
-        let scan_opts = ClScanOptions::default();
+        let mut scan_opts = ClScanOptions::default();
+        if !heuristics {
+            scan_opts.general &= !types::CL_SCAN_GENERAL_HEURISTICS;
+        }
 
         let guard = self.inner.lock().unwrap();
         let engine = guard.engine.as_ref().ok_or(Error::NotReady)?;

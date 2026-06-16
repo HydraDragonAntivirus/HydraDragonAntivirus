@@ -157,6 +157,10 @@ enum Command {
         /// Write malware-only results to this file after directory scan
         #[arg(long)]
         output: Option<PathBuf>,
+
+        /// Enable ClamAV heuristic detection (off by default to reduce false positives)
+        #[arg(long)]
+        heuristics: bool,
     },
 
     /// Update ClamAV virus definitions via libfreshclam.dll and optionally Hayabusa rules
@@ -217,15 +221,15 @@ fn default_paths() -> (
     )
 }
 
-fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, config: &FullConfig) {
+fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, config: &FullConfig) {
     if path.is_dir() {
-        cmd_scan_recursive(path, mode, json, output, config);
+        cmd_scan_recursive(path, mode, json, output, heuristics, config);
     } else {
-        cmd_scan_single(path, mode, json, config);
+        cmd_scan_single(path, mode, json, heuristics, config);
     }
 }
 
-fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &FullConfig) {
+fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristics: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
@@ -238,6 +242,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
         detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
         scan_mode: mode,
+        clamav_heuristics: heuristics,
         ..Default::default()
     };
 
@@ -289,7 +294,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, config: &
     }
 }
 
-fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, config: &FullConfig) {
+fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
@@ -302,18 +307,11 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
         detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
         scan_mode: mode,
+        clamav_heuristics: heuristics,
         ..Default::default()
     };
 
-    let scanner = match Scanner::new(&config.lib, &config.db) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[ClamAV] Failed to initialize scanner: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let pipeline = Pipeline::new_with_clamav(pipeline_config, scanner);
+    let pipeline = Pipeline::new(pipeline_config);
 
     eprintln!("[Scan] ================================================================================");
 
@@ -478,7 +476,7 @@ fn main() {
     };
 
     match &cli.command {
-        Command::Scan { path, mode, json, output } => cmd_scan(path, *mode, *json, output.as_deref(), &config),
+        Command::Scan { path, mode, json, output, heuristics } => cmd_scan(path, *mode, *json, output.as_deref(), *heuristics, &config),
         Command::Update { reload_scanner, hayabusa, juice } => {
             cmd_update(*reload_scanner, *hayabusa, *juice, &config.lib, &config.db, &config.freshclam, config.hayabusa_dir.as_deref())
         }

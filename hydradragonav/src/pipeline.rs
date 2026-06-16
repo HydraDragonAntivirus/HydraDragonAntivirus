@@ -40,6 +40,7 @@ pub struct PipelineConfig {
     pub detectiteasy_dir: Option<PathBuf>,
     pub scan_mode: ScanMode,
     pub ml_threshold: f32,
+    pub clamav_heuristics: bool,
 }
 
 impl Default for PipelineConfig {
@@ -57,6 +58,7 @@ impl Default for PipelineConfig {
             detectiteasy_dir: None,
             scan_mode: ScanMode::default(),
             ml_threshold: 0.8,
+            clamav_heuristics: false,
         }
     }
 }
@@ -76,14 +78,11 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new(config: PipelineConfig) -> Self {
-        Self::new_impl(config, None)
+        Self::new_impl(config)
     }
 
-    pub fn new_with_clamav(config: PipelineConfig, clamav: ClamavScanner) -> Self {
-        Self::new_impl(config, Some(clamav))
-    }
-
-    fn new_impl(config: PipelineConfig, existing_clamav: Option<ClamavScanner>) -> Self {
+    fn new_impl(config: PipelineConfig) -> Self {
+        let existing_clamav: Option<ClamavScanner> = None;
         let complist_path = config.complist_path.clone();
         let bloom_dir = config.bloom_dir.clone();
         let yara_rules_dir = config.yara_rules_dir.clone();
@@ -448,7 +447,7 @@ impl Pipeline {
 
         // --- 6. CLAMAV ---
         if let Some(ref clamav) = self.clamav {
-            match clamav.scan_file(path) {
+            match clamav.scan_file(path, self.config.clamav_heuristics) {
                 Ok(result) => {
                     if result.is_virus() {
                         clamav_result = Some(result.virus_name.clone());
@@ -701,44 +700,36 @@ pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
         return Vec::new();
     }
 
+    let out = match Command::new(&exe)
+        .args([
+            "csv-timeline",
+            "--no-wizard",
+            "--quiet",
+            "--directory",
+            &evtx_dir.to_string_lossy(),
+            "--rules",
+            &hayabusa_dir.join("rules").to_string_lossy().into_owned(),
+        ])
+        .current_dir(hayabusa_dir)
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return Vec::new(),
+    };
+
     let mut all_matches: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
-    if let Ok(entries) = std::fs::read_dir(evtx_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("evtx") {
-                continue;
-            }
-
-            let out = match Command::new(&exe)
-                .args([
-                    "csv-timeline",
-                    "--no-wizard",
-                    "--quiet",
-                    "--file",
-                    &path.to_string_lossy(),
-                    "--rules",
-                    &hayabusa_dir.join("rules").to_string_lossy().into_owned(),
-                ])
-                .output()
-            {
-                Ok(o) => o,
-                Err(_) => continue,
-            };
-
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for (i, line) in stdout.lines().enumerate() {
-                if i == 0 {
-                    continue;
-                }
-                let cols: Vec<&str> = line.splitn(6, ',').collect();
-                if let Some(title) = cols.get(4) {
-                    let t = title.trim().trim_matches('"').to_string();
-                    if !t.is_empty() && seen.insert(t.clone()) {
-                        all_matches.push(t);
-                    }
-                }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for (i, line) in stdout.lines().enumerate() {
+        if i == 0 {
+            continue; // skip CSV header
+        }
+        let cols: Vec<&str> = line.splitn(6, ',').collect();
+        if let Some(title) = cols.get(4) {
+            let t = title.trim().trim_matches('"').to_string();
+            if !t.is_empty() && seen.insert(t.clone()) {
+                all_matches.push(t);
             }
         }
     }
