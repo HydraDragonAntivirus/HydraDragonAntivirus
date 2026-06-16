@@ -397,43 +397,19 @@ impl Pipeline {
         }
 
         // --- 5. URL / PHISHING BLOOM CHECK ---
+        // Reads raw bytes and extracts printable ASCII strings (like `strings` utility)
+        // so URLs embedded in PE/binary files are also found, not just text files.
         if let Some(ref scanner) = self.hash_scanner {
             let bloom = scanner.bloom();
-            if let Ok(content) = std::fs::read_to_string(path) {
-                if content.len() <= 1_048_576 {
-                    let urls: Vec<String> = content.lines()
-                        .filter_map(|line| {
-                            let line = line.trim();
-                            if !line.contains("://") { return None; }
-                            let cleaned = line.trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\'']);
-                            let url = cleaned.split_whitespace().next().unwrap_or(cleaned);
-                            if !url.contains("://") { return None; }
-                            Some(url.to_string())
-                        })
-                        .collect();
+            if let Ok(bytes) = std::fs::read(path) {
+                if bytes.len() <= 1_048_576 {
+                    let urls = extract_urls_from_bytes(&bytes);
 
                     let mut phishing_urls: Vec<String> = Vec::new();
                     let mut urlhaus_urls: Vec<String> = Vec::new();
                     for url in &urls {
                         if bloom.is_phishing(url) { phishing_urls.push(url.clone()); }
                         if bloom.is_urlhaus(url) { urlhaus_urls.push(url.clone()); }
-                    }
-
-                    if !phishing_urls.is_empty() || !urlhaus_urls.is_empty() {
-                        if let Ok(content2) = std::fs::read_to_string(path) {
-                            let urls2: Vec<String> = content2.lines()
-                                .filter_map(|line| {
-                                    let line = line.trim();
-                                    if !line.contains("://") { return None; }
-                                    let cleaned = line.trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\'']);
-                                    let url = cleaned.split_whitespace().next().unwrap_or(cleaned);
-                                    if !url.contains("://") { return None; }
-                                    Some(url.to_string())
-                                })
-                                .collect();
-                            phishing_urls.retain(|u| urls2.iter().any(|u2| u2 == u && bloom.is_phishing(u2)));
-                            urlhaus_urls.retain(|u| urls2.iter().any(|u2| u2 == u && bloom.is_urlhaus(u2)));
-                        }
                     }
 
                     if !phishing_urls.is_empty() {
@@ -814,6 +790,47 @@ fn scan_file_yara(path: &Path, rules: &Rules, exclusions: &HashSet<String>) -> R
         .collect();
 
     Ok(matches)
+}
+
+// Extracts URL-like strings from raw bytes by scanning for printable ASCII runs
+// that contain "://" — works on binary files (PE, ELF, etc.) as well as text.
+fn extract_urls_from_bytes(bytes: &[u8]) -> Vec<String> {
+    let mut urls = Vec::new();
+    let mut current: Vec<u8> = Vec::new();
+
+    for &b in bytes {
+        if b.is_ascii_graphic() || b == b' ' {
+            current.push(b);
+        } else {
+            if current.len() >= 8 {
+                if let Ok(s) = std::str::from_utf8(&current) {
+                    for token in s.split_whitespace() {
+                        if token.contains("://") {
+                            let cleaned = token.trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\''] as &[char]);
+                            if cleaned.len() >= 8 {
+                                urls.push(cleaned.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            current.clear();
+        }
+    }
+    // flush last run
+    if current.len() >= 8 {
+        if let Ok(s) = std::str::from_utf8(&current) {
+            for token in s.split_whitespace() {
+                if token.contains("://") {
+                    let cleaned = token.trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\''] as &[char]);
+                    if cleaned.len() >= 8 {
+                        urls.push(cleaned.to_string());
+                    }
+                }
+            }
+        }
+    }
+    urls
 }
 
 fn check_trusted_signer(path: &Path, trusted: &TrustedSignerList) -> Verdict {
