@@ -1,5 +1,8 @@
 # Frequently Asked Questions (FAQ)
 
+### Q: Why it doesn't detect Non-Windows viruses?
+- I removed almost every non Windows malware signatures to improve performance.
+
 ### Q: Why is this repository still mostly YARA?
 - This is mainly because auto-generated YARA rules produced through machine learning have not been archived. As a result, the repository still contains a large number of manually created rules.
 - Additionally, the archived rules remain substantial in size because, for many years, malware analysts heavily relied on signature-based detection methods. While effective in certain scenarios, this approach is now considered less optimal compared to more modern techniques.

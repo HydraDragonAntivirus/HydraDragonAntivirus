@@ -161,6 +161,10 @@ enum Command {
         /// Enable ClamAV heuristic detection (off by default to reduce false positives)
         #[arg(long)]
         heuristics: bool,
+
+        /// Print per-engine timing and highlight the slowest engine
+        #[arg(long)]
+        time_engines: bool,
     },
 
     /// Update ClamAV virus definitions via libfreshclam.dll and optionally Hayabusa rules
@@ -221,15 +225,15 @@ fn default_paths() -> (
     )
 }
 
-fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, config: &FullConfig) {
+fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, config: &FullConfig) {
     if path.is_dir() {
-        cmd_scan_recursive(path, mode, json, output, heuristics, config);
+        cmd_scan_recursive(path, mode, json, output, heuristics, time_engines, config);
     } else {
-        cmd_scan_single(path, mode, json, heuristics, config);
+        cmd_scan_single(path, mode, json, heuristics, time_engines, config);
     }
 }
 
-fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristics: bool, config: &FullConfig) {
+fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristics: bool, time_engines: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
@@ -243,6 +247,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
         detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
         scan_mode: mode,
         clamav_heuristics: heuristics,
+        time_engines,
         ..Default::default()
     };
 
@@ -273,8 +278,21 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
         if let Some(ref tn) = result.threat_name {
             println!("  threat: {}", tn);
         }
+        let slowest = result.engines.iter()
+            .filter_map(|e| e.elapsed_ms.map(|ms| (e.engine, ms)))
+            .max_by_key(|&(_, ms)| ms);
         for e in &result.engines {
-            println!("  ├─ {}: {} ({})", e.engine, e.verdict.label(), e.detail);
+            match e.elapsed_ms {
+                Some(ms) => {
+                    let mark = if slowest.map(|(name, _)| name == e.engine).unwrap_or(false) {
+                        "  <-- slowest"
+                    } else {
+                        ""
+                    };
+                    println!("  ├─ {}: {} ({}) [{} ms]{}", e.engine, e.verdict.label(), e.detail, ms, mark);
+                }
+                None => println!("  ├─ {}: {} ({})", e.engine, e.verdict.label(), e.detail),
+            }
         }
         if let Some(prob) = result.ml_malware_probability {
             println!("  └─ ml_probability: {:.4}", prob);
@@ -294,7 +312,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
     }
 }
 
-fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, config: &FullConfig) {
+fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
@@ -308,6 +326,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
         scan_mode: mode,
         clamav_heuristics: heuristics,
+        time_engines,
         ..Default::default()
     };
 
@@ -324,6 +343,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
     let mut files_scanned = 0u64;
     let mut threats_found = 0u64;
     let mut harmful_results: Vec<(std::path::PathBuf, hydradragonav::verdict::ScanResult)> = Vec::new();
+    let mut engine_totals: std::collections::HashMap<&'static str, u64> = std::collections::HashMap::new();
 
     fn walk_and_scan(
         dir: &std::path::Path,
@@ -333,6 +353,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         files_scanned: &mut u64,
         threats_found: &mut u64,
         harmful_results: &mut Vec<(std::path::PathBuf, hydradragonav::verdict::ScanResult)>,
+        engine_totals: &mut std::collections::HashMap<&'static str, u64>,
         pb: &ProgressBar,
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
@@ -348,6 +369,11 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                     }
                     let result = pipeline.scan_file(&path);
                     *files_scanned += 1;
+                    for e in &result.engines {
+                        if let Some(ms) = e.elapsed_ms {
+                            *engine_totals.entry(e.engine).or_insert(0) += ms;
+                        }
+                    }
                     pb.set_message(format!("{} threats | {}", threats_found, path.display()));
                     pb.inc(1);
 
@@ -374,14 +400,14 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                     }
 
                 } else if path.is_dir() {
-                    walk_and_scan(&path, pipeline, mode, json, files_scanned, threats_found, harmful_results, pb);
+                    walk_and_scan(&path, pipeline, mode, json, files_scanned, threats_found, harmful_results, engine_totals, pb);
                 }
             }
         }
     }
 
     let scan_start = Instant::now();
-    walk_and_scan(root_path, &pipeline, mode, json, &mut files_scanned, &mut threats_found, &mut harmful_results, &pb);
+    walk_and_scan(root_path, &pipeline, mode, json, &mut files_scanned, &mut threats_found, &mut harmful_results, &mut engine_totals, &pb);
     let elapsed = scan_start.elapsed();
     pb.finish_and_clear();
 
@@ -416,6 +442,15 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
     eprintln!("[Scan] Total threats found: {}", threats_found);
     eprintln!("[Scan] Time elapsed:         {:.2?}", elapsed);
     eprintln!("[Scan] Scan rate:            {:.1} files/sec", rate);
+
+    if time_engines && !engine_totals.is_empty() {
+        let mut rows: Vec<(&'static str, u64)> = engine_totals.into_iter().collect();
+        rows.sort_by_key(|&(_, ms)| std::cmp::Reverse(ms));
+        eprintln!("[Scan] Per-engine totals (slowest first):");
+        for (engine, ms) in rows {
+            eprintln!("[Scan]   {:<20} {:>10} ms", engine, ms);
+        }
+    }
 
     if mode == ScanMode::Full {
         eprintln!();
@@ -476,7 +511,7 @@ fn main() {
     };
 
     match &cli.command {
-        Command::Scan { path, mode, json, output, heuristics } => cmd_scan(path, *mode, *json, output.as_deref(), *heuristics, &config),
+        Command::Scan { path, mode, json, output, heuristics, time_engines } => cmd_scan(path, *mode, *json, output.as_deref(), *heuristics, *time_engines, &config),
         Command::Update { reload_scanner, hayabusa, juice } => {
             cmd_update(*reload_scanner, *hayabusa, *juice, &config.lib, &config.db, &config.freshclam, config.hayabusa_dir.as_deref())
         }

@@ -38,3 +38,7 @@ python yara_utils_pro_cli.py -d ./rules -r --fix-limits
 # For YARA-X
 Don't forget to create HydraDragonAntivirus\\hydradragon\\yara-x and move to yara-x files here
 
+# For Clean Excluded Rules And Duplicate Import Remover
+py -3.12 YARA_Util_Exclude_Remover.py -d rules -x excluded_yara_x_rules.txt -o clean_rules
+py -3.12 YARA_Util_duplicate_import.py -d rules -o clean_rules
+
