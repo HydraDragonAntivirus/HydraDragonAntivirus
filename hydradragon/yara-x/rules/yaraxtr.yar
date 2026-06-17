@@ -7,7 +7,6 @@ import "macho"
 import "math"
 import "time"
 
-import "hash"
 
 // YARA rule set for detecting potential malicious TTPs in a file sample
 // Author: Phil Stokes, SentinelLabs
@@ -5299,7 +5298,6 @@ rule SUSP_OBF_NET_Eazfuscator_Virtualization_Jan24
 		and all of ($sa*)
 		and 2 of ($op*)
 }
-import "pe"
 
 rule SUSP_OBF_NET_Reactor_Native_Stub_Jan24 {
 	meta:
@@ -5333,7 +5331,6 @@ rule SUSP_OBF_NET_Reactor_Indicators_Jan24
       uint16(0) == 0x5a4d
 		and 2 of them
 }
-import "pe"
 
 rule SUSP_NET_Shellcode_Loader_Indicators_Jan24 {
    meta:
@@ -5447,7 +5444,6 @@ rule SUSP_RLO_Exe_Extension_Spoofing_Jan24 {
    condition:
       1 of them
 }
-import "pe"
 
 rule Obfuscar
 {
@@ -5494,7 +5490,6 @@ rule PyinstallerWiper
         2 of ($sys_path, $inf_path, $download_url, $disable_defender, $vssadmin, $reg_del, $greeting, $final_msg, $tk_svchost, $tk_csrss, $mlbo_ext)
 }
 
-import "pe"
 rule HackTool_Python_Pyramid_Generic {
     meta:
         description = "Detects generic Pyramid-based Python hacktools using in-memory execution and encryption techniques"

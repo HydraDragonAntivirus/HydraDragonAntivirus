@@ -1904,4 +1904,9 @@ TTP_RegOpenKeyExA_HKEY_LOCAL_MACHINE_tight
 Check_VmTools
 capa_empty_the_recycle_bin
 AutoIT_Compiled_ren
+seven_zip_cmdversion
+aspack_108a
+_DodgyPhp
+powershell_ren
+_ObfuscatedPhp
 

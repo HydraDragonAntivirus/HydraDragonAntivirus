@@ -70,7 +70,7 @@ pub struct Pipeline {
     config: PipelineConfig,
     trusted_signers: Option<TrustedSignerList>,
     hash_scanner: Option<HashScanner>,
-    yara_rules: Vec<Rules>,
+    yara_rules: Vec<(String, Rules)>,
     clamav: Option<ClamavScanner>,
     detectiteasy: DetectItEasyScanner,
     hydradragonstatic_rules: Option<hydradragonstatic::rules::RuleSet>,
@@ -518,10 +518,37 @@ impl Pipeline {
             let t0 = Instant::now();
             let mut all_matches: Vec<String> = Vec::new();
             let mut scan_error: Option<String> = None;
-            for rules in &self.yara_rules {
-                match scan_file_yara(path, rules, &self.excluded_yara_rules) {
-                    Ok(mut m) => all_matches.append(&mut m),
-                    Err(e) => { scan_error = Some(e); break; }
+
+            // File type is already known from the hydradragonstatic stage (stage 4),
+            // so type-specific ML rulesets are gated on those flags instead of having
+            // YARA-X re-detect the type. machine_learning_pe runs only on PE files,
+            // machine_learning_js only on JavaScript; all other rulesets always run.
+            let is_pe = static_file_type.as_ref().is_some_and(|ft| ft.is_pe);
+            let is_js = static_file_type.as_ref().is_some_and(|ft| ft.is_javascript);
+
+            // Read the file once and reuse the buffer across every ruleset.
+            match std::fs::read(path) {
+                Ok(data) => {
+                    for (name, rules) in &self.yara_rules {
+                        let applies = match name.as_str() {
+                            "machine_learning_pe" => is_pe,
+                            "machine_learning_js" => is_js,
+                            _ => true,
+                        };
+                        if !applies {
+                            continue;
+                        }
+                        match scan_bytes_yara(&data, rules, &self.excluded_yara_rules) {
+                            Ok(mut m) => all_matches.append(&mut m),
+                            Err(e) => {
+                                scan_error = Some(e);
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    scan_error = Some(format!("read error: {}", e));
                 }
             }
             let yara_elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
@@ -758,8 +785,12 @@ pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
     all_matches
 }
 
-fn load_yara_rules_from_dir(dir: &Path) -> Vec<Rules> {
-    let mut loaded: Vec<Rules> = Vec::new();
+fn load_yara_rules_from_dir(dir: &Path) -> Vec<(String, Rules)> {
+    // Collect .yrc paths first so we can load them in a deterministic, prefix-
+    // controllable order. With first-match-wins scanning, order decides which
+    // ruleset gets the chance to fire first, so it must not depend on the
+    // filesystem's directory-iteration order.
+    let mut paths: Vec<PathBuf> = Vec::new();
 
     let mut stack = vec![dir.to_path_buf()];
     while let Some(current) = stack.pop() {
@@ -774,14 +805,28 @@ fn load_yara_rules_from_dir(dir: &Path) -> Vec<Rules> {
                 continue;
             }
             if path.extension().and_then(|e| e.to_str()) == Some("yrc") {
-                match std::fs::read(&path) {
-                    Ok(bytes) => match Rules::deserialize(&bytes) {
-                        Ok(rules) => loaded.push(rules),
-                        Err(e) => eprintln!("[YARA] failed to load {}: {}", path.display(), e),
-                    },
-                    Err(e) => eprintln!("[YARA] failed to read {}: {}", path.display(), e),
-                }
+                paths.push(path);
             }
+        }
+    }
+
+    paths.sort();
+
+    let mut loaded: Vec<(String, Rules)> = Vec::new();
+    for path in paths {
+        // The file stem (e.g. "machine_learning_pe") is the routing key used to
+        // gate type-specific rulesets in scan_file.
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        match std::fs::read(&path) {
+            Ok(bytes) => match Rules::deserialize(&bytes) {
+                Ok(rules) => loaded.push((stem, rules)),
+                Err(e) => eprintln!("[YARA] failed to load {}: {}", path.display(), e),
+            },
+            Err(e) => eprintln!("[YARA] failed to read {}: {}", path.display(), e),
         }
     }
 
@@ -789,11 +834,13 @@ fn load_yara_rules_from_dir(dir: &Path) -> Vec<Rules> {
     loaded
 }
 
-fn scan_file_yara(path: &Path, rules: &Rules, exclusions: &HashSet<String>) -> Result<Vec<String>, String> {
-    let data = std::fs::read(path).map_err(|e| format!("read error: {}", e))?;
+// Scans an already-read byte buffer against one ruleset. Pulling the file read
+// out of here lets scan_file read the bytes once and reuse them across every
+// ruleset instead of re-reading the file per ruleset.
+fn scan_bytes_yara(data: &[u8], rules: &Rules, exclusions: &HashSet<String>) -> Result<Vec<String>, String> {
     let mut scanner = YaraScanner::new(rules);
     let results = scanner
-        .scan(&data)
+        .scan(data)
         .map_err(|e| format!("scan error: {}", e))?;
 
     let matches: Vec<String> = results
