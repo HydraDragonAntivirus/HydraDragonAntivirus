@@ -171,7 +171,7 @@ fn finalize_scan_context(
     let bytes = std::mem::take(&mut ctx.bytes);
     let mut report = report::build_report(ctx);
     evaluate_rules(&mut report, &bytes, rules, options);
-    finalize_report_metadata(&mut report, rules);
+    finalize_report_metadata(&mut report, rules, options);
 
     if should_scan_archive(&report, &bytes, options, archive_depth) {
         let archive_scan = scan_archive_members_from_bytes(
@@ -186,7 +186,7 @@ fn finalize_scan_context(
         report.findings.extend(archive_scan.findings);
         report.statistics.archive_members = report.archive_members.len() as u32;
         report.statistics.files_scanned = 1u32.saturating_add(report.statistics.archive_members);
-        finalize_report_metadata(&mut report, rules);
+        finalize_report_metadata(&mut report, rules, options);
     }
 
     report.statistics.scan_duration_ms = report
@@ -208,13 +208,14 @@ fn evaluate_rules(report: &mut ScanReport, bytes: &[u8], rules: &RuleSet, option
     );
 }
 
-fn finalize_report_metadata(report: &mut ScanReport, rules: &RuleSet) {
+fn finalize_report_metadata(report: &mut ScanReport, rules: &RuleSet, _options: &ScanOptions) {
     report.findings.sort_by(|a, b| {
         b.score
             .cmp(&a.score)
             .then_with(|| a.rule_id.cmp(&b.rule_id))
     });
     aggregate_verdict(report);
+
     report.result_code = ScanResultCode::from_verdict(report.verdict);
     report.statistics.signature_records_used = rules.rules().len() as u32;
     report.statistics.infections_found = report

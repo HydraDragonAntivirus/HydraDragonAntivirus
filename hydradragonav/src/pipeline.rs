@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use clap::ValueEnum;
 use hydradragonstatic::models::FileTypeInfo;
-use hydradragonstatic::trusted_signers::TrustedSignerList;
+use hydradragonstatic::rules::RuleSet;
 use yara_x::{Rules, Scanner as YaraScanner};
 
 use burn::record::{NamedMpkBytesRecorder, Recorder};
@@ -32,7 +32,6 @@ pub enum ScanMode {
 
 #[derive(Clone)]
 pub struct PipelineConfig {
-    pub complist_path: Option<PathBuf>,
     pub bloom_dir: Option<PathBuf>,
     pub yara_rules_dir: Option<PathBuf>,
     pub hydradragonstatic_rules_dir: Option<PathBuf>,
@@ -50,7 +49,6 @@ pub struct PipelineConfig {
 impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
-            complist_path: None,
             bloom_dir: None,
             yara_rules_dir: None,
             hydradragonstatic_rules_dir: None,
@@ -69,7 +67,6 @@ impl Default for PipelineConfig {
 
 pub struct Pipeline {
     config: PipelineConfig,
-    trusted_signers: Option<TrustedSignerList>,
     hash_scanner: Option<HashScanner>,
     yara_rules: Vec<(String, Rules)>,
     clamav: Option<ClamavScanner>,
@@ -86,7 +83,6 @@ impl Pipeline {
 
     fn new_impl(config: PipelineConfig) -> Self {
         let existing_clamav: Option<ClamavScanner> = None;
-        let complist_path = config.complist_path.clone();
         let bloom_dir = config.bloom_dir.clone();
         let yara_rules_dir = config.yara_rules_dir.clone();
         let clamav_lib = config.clamav_lib.clone();
@@ -110,15 +106,8 @@ impl Pipeline {
             }
         }
 
-        let (trusted_signers, hash_scanner, yara_rules, clamav, hydradragonstatic_rules, pe_ml_model, js_ml_model) =
+        let (hash_scanner, yara_rules, clamav, hydradragonstatic_rules, pe_ml_model, js_ml_model) =
             std::thread::scope(|s| {
-                let t_signers = s.spawn(move || {
-                    complist_path
-                        .as_ref()
-                        .filter(|p| p.exists())
-                        .map(|p| TrustedSignerList::load(p))
-                });
-
                 let t_hash = s.spawn(move || {
                     bloom_dir.as_ref().filter(|p| p.exists()).map(|dir| {
                         let bloom = HashBloomFilter::with_base_dir(dir.clone());
@@ -147,14 +136,28 @@ impl Pipeline {
                 });
 
                 let t_hds_rules = s.spawn(move || {
-                    hydradragonstatic_rules_dir
-                        .as_ref()
-                        .filter(|p| p.exists())
-                        .map(|dir| dir.join("rules.yaml"))
-                        .filter(|p| p.exists())
-                        .and_then(|rules_file| {
-                            hydradragonstatic::rules::RuleSet::from_yaml_file(&rules_file).ok()
-                        })
+                    let dir = hydradragonstatic_rules_dir.as_ref().filter(|p| p.exists());
+                    if dir.is_none() {
+                        return None;
+                    }
+                    let dir = dir.unwrap();
+                    let mut rules = RuleSet::empty();
+
+                    let rules_file = dir.join("rules.yaml");
+                    if rules_file.exists() {
+                        if let Ok(loaded) = RuleSet::from_yaml_file(&rules_file) {
+                            rules.extend(loaded);
+                        }
+                    }
+
+                    let trusted_file = dir.join("trusted_signers.yaml");
+                    if trusted_file.exists() {
+                        if let Ok(loaded) = RuleSet::from_yaml_file(&trusted_file) {
+                            rules.extend(loaded);
+                        }
+                    }
+
+                    if rules.rules().is_empty() { None } else { Some(rules) }
                 });
 
                 let t_pe_model = s.spawn(move || {
@@ -172,7 +175,6 @@ impl Pipeline {
                 });
 
                 (
-                    t_signers.join().expect("trusted_signers loader panicked"),
                     t_hash.join().expect("hash_scanner loader panicked"),
                     t_yara.join().expect("yara_rules loader panicked"),
                     t_clamav.join().expect("clamav loader panicked"),
@@ -184,7 +186,6 @@ impl Pipeline {
 
         Self {
             config,
-            trusted_signers,
             hash_scanner,
             yara_rules,
             clamav,
@@ -319,25 +320,7 @@ impl Pipeline {
             }
         }
 
-        // --- 3. TRUSTED SIGNER ---
-        if let Some(ref trusted) = self.trusted_signers {
-            let t0 = Instant::now();
-            let tv = check_trusted_signer(path, trusted);
-            let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
-            engines.push(EngineResult { engine: "trusted_signer", verdict: tv, detail: format!("{:?}", tv), elapsed_ms });
-            if tv == Verdict::Trusted {
-                return ScanResult {
-                    verdict: Verdict::Trusted,
-                    threat_name: None,
-                    engines,
-                    yara_x_matches: Vec::new(),
-                    ml_malware_probability: ml_verdict.as_ref().map(|m| m.probability),
-                    clamav_result: None,
-                };
-            }
-        }
-
-        // --- 4. STATIC RULES ---
+        // --- 3. STATIC RULES ---
         let t0 = Instant::now();
         match &self.hydradragonstatic_rules {
             Some(rules) => match hydradragonstatic::scan_path(
@@ -556,9 +539,14 @@ impl Pipeline {
                 });
             } else if !all_matches.is_empty() {
                 yara_x_matches = all_matches.clone();
+                let yara_verdict = if all_matches.iter().any(|m| m.contains("_PUA_")) {
+                    Verdict::Pua
+                } else {
+                    Verdict::Malware
+                };
                 engines.push(EngineResult {
                     engine: "yara_x",
-                    verdict: Verdict::Malware,
+                    verdict: yara_verdict,
                     detail: all_matches.join(", "),
                     elapsed_ms: yara_elapsed_ms,
                 });
@@ -813,16 +801,4 @@ fn extract_urls_from_bytes(bytes: &[u8]) -> Vec<String> {
     urls
 }
 
-fn check_trusted_signer(path: &Path, trusted: &TrustedSignerList) -> Verdict {
-    let sig_info = hydradragonstatic::signature_verification::verify_signature(path);
 
-    if sig_info.is_signed {
-        if let Some(signer) = sig_info.signer_name {
-            if trusted.is_trusted(&signer) {
-                return Verdict::Trusted;
-            }
-        }
-    }
-
-    Verdict::Clean
-}

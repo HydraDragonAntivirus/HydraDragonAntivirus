@@ -41,12 +41,6 @@ fn resolve_hydradragonstatic_rules_dir() -> PathBuf {
         .unwrap_or_else(|_| exe_dir().join("hydradragonstatic_rules"))
 }
 
-fn resolve_complist() -> PathBuf {
-    std::env::var("COMPLIST_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| exe_dir().join("complist").join("complist.txt"))
-}
-
 fn resolve_reglist() -> PathBuf {
     std::env::var("REGLIST_PATH")
         .map(PathBuf::from)
@@ -107,9 +101,6 @@ struct Cli {
 
     #[arg(long, env = "FRESHCLAM_DLL_PATH", global = true)]
     freshclam: Option<PathBuf>,
-
-    #[arg(long, env = "COMPLIST_PATH", global = true)]
-    complist: Option<PathBuf>,
 
     #[arg(long, env = "BLOOM_DIR", global = true)]
     bloom_dir: Option<PathBuf>,
@@ -186,8 +177,7 @@ enum Command {
     CheckUpdate,
 }
 
-fn default_paths() -> (
-    PathBuf,
+fn default_paths(    ) -> (
     PathBuf,
     PathBuf,
     PathBuf,
@@ -203,7 +193,6 @@ fn default_paths() -> (
         resolve_clamav_dll(),
         resolve_clamav_db(),
         resolve_freshclam(),
-        resolve_complist(),
         resolve_bloom_dir(),
         resolve_yara_dir(),
         resolve_hydradragonstatic_rules_dir(),
@@ -254,7 +243,6 @@ fn cmd_scan_metadata(json: bool, config: &FullConfig) {
 
 fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristics: bool, time_engines: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
-        complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
         hydradragonstatic_rules_dir: config.hydradragonstatic_rules_dir.clone().filter(|p| p.exists()),
@@ -332,7 +320,6 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
 
 fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
-        complist_path: config.complist.clone().filter(|p| p.exists()),
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
         hydradragonstatic_rules_dir: config.hydradragonstatic_rules_dir.clone().filter(|p| p.exists()),
@@ -497,7 +484,6 @@ struct FullConfig {
     lib: PathBuf,
     db: PathBuf,
     freshclam: PathBuf,
-    complist: Option<PathBuf>,
     bloom_dir: Option<PathBuf>,
     yara_dir: Option<PathBuf>,
     hydradragonstatic_rules_dir: Option<PathBuf>,
@@ -509,13 +495,12 @@ struct FullConfig {
 
 fn main() {
     let cli = Cli::parse();
-    let (lib, db, freshclam, cmpl, blm, yara, hydradragonstatic_rules, hayabusa, pe_ml, js_ml, reglist) = default_paths();
+    let (lib, db, freshclam, blm, yara, hydradragonstatic_rules, hayabusa, pe_ml, js_ml, reglist) = default_paths();
 
     let config = FullConfig {
         lib: cli.lib.unwrap_or(lib),
         db: cli.db.unwrap_or(db),
         freshclam: cli.freshclam.unwrap_or(freshclam),
-        complist: cli.complist.or(Some(cmpl)),
         bloom_dir: cli.bloom_dir.or(Some(blm)),
         yara_dir: cli.yara_dir.or(Some(yara)),
         hydradragonstatic_rules_dir: cli.hydradragonstatic_rules_dir.or(Some(hydradragonstatic_rules)),
