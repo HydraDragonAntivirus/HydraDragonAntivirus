@@ -147,6 +147,10 @@ enum Command {
         /// Print per-engine timing and highlight the slowest engine
         #[arg(long)]
         time_engines: bool,
+
+        /// Enable yara-x fast-scan mode (stops tracking matches after first match for boolean-only patterns)
+        #[arg(long, short, default_value_t = true)]
+        fast_scan: bool,
     },
 
     /// Update ClamAV virus definitions via libfreshclam.dll and optionally Hayabusa rules
@@ -203,14 +207,14 @@ fn default_paths(    ) -> (
     )
 }
 
-fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, config: &FullConfig) {
+fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, fast_scan: bool, config: &FullConfig) {
     match mode {
         ScanMode::NonFiles => cmd_scan_metadata(json, config),
         _ => {
             if path.is_dir() {
-                cmd_scan_recursive(path, mode, json, output, heuristics, time_engines, config);
+                cmd_scan_recursive(path, mode, json, output, heuristics, time_engines, fast_scan, config);
             } else {
-                cmd_scan_single(path, mode, json, heuristics, time_engines, config);
+                cmd_scan_single(path, mode, json, heuristics, time_engines, fast_scan, config);
             }
         }
     }
@@ -241,7 +245,7 @@ fn cmd_scan_metadata(json: bool, config: &FullConfig) {
     }
 }
 
-fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristics: bool, time_engines: bool, config: &FullConfig) {
+fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristics: bool, time_engines: bool, fast_scan: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
@@ -254,6 +258,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
         scan_mode: mode,
         clamav_heuristics: heuristics,
         time_engines,
+        fast_scan,
         ..Default::default()
     };
 
@@ -318,7 +323,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
     }
 }
 
-fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, config: &FullConfig) {
+fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, fast_scan: bool, config: &FullConfig) {
     let pipeline_config = PipelineConfig {
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
@@ -331,6 +336,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         scan_mode: mode,
         clamav_heuristics: heuristics,
         time_engines,
+        fast_scan,
         ..Default::default()
     };
 
@@ -511,7 +517,7 @@ fn main() {
     };
 
     match &cli.command {
-        Command::Scan { path, mode, json, output, heuristics, time_engines } => cmd_scan(path, *mode, *json, output.as_deref(), *heuristics, *time_engines, &config),
+        Command::Scan { path, mode, json, output, heuristics, time_engines, fast_scan } => cmd_scan(path, *mode, *json, output.as_deref(), *heuristics, *time_engines, *fast_scan, &config),
         Command::Update { reload_scanner, hayabusa, juice } => {
             cmd_update(*reload_scanner, *hayabusa, *juice, &config.lib, &config.db, &config.freshclam, config.hayabusa_dir.as_deref())
         }

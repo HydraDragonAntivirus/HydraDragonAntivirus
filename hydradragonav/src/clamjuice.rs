@@ -200,6 +200,35 @@ pub fn filter_cvd(
                     fs::write(&dest, filtered).map_err(|e| Error::Other(e.to_string()))?;
                 }
             }
+            "fp" | "sfp" => {
+                // Don't deploy .fp/.sfp files as signatures — extract the hash
+                // (first colon-delimited field) and merge into whitelist.db.
+                // Format: HashString:FileSize:MalwareName
+                let content = fs::read_to_string(&src)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+                let db_path = output_dir.join("whitelist.db");
+                let mut out = String::new();
+                if db_path.exists() {
+                    out = fs::read_to_string(&db_path)
+                        .map_err(|e| Error::Other(e.to_string()))?;
+                    if !out.ends_with('\n') { out.push('\n'); }
+                }
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+                    let hash = trimmed.split(':').next().unwrap_or("").trim();
+                    let valid = match hash.len() {
+                        32 | 40 | 64 | 128 => hash.chars().all(|c| c.is_ascii_hexdigit()),
+                        _ => false,
+                    };
+                    if valid {
+                        out.push_str(hash);
+                        out.push('\n');
+                    }
+                }
+                fs::write(&db_path, out)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+            }
             "mdb" | "hsb" => {
                 if excluded {
                     if ext == "mdb" {

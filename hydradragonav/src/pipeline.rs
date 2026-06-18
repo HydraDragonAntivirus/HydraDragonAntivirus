@@ -44,6 +44,7 @@ pub struct PipelineConfig {
     pub ml_threshold: f32,
     pub clamav_heuristics: bool,
     pub time_engines: bool,
+    pub fast_scan: bool,
 }
 
 impl Default for PipelineConfig {
@@ -61,6 +62,7 @@ impl Default for PipelineConfig {
             ml_threshold: 0.8,
             clamav_heuristics: false,
             time_engines: false,
+            fast_scan: true,
         }
     }
 }
@@ -515,7 +517,7 @@ impl Pipeline {
                         if !applies {
                             continue;
                         }
-                        match scan_bytes_yara(&data, rules, &self.excluded_yara_rules) {
+                        match scan_bytes_yara(&data, rules, &self.excluded_yara_rules, self.config.fast_scan) {
                             Ok(mut m) => all_matches.append(&mut m),
                             Err(e) => {
                                 scan_error = Some(e);
@@ -745,8 +747,11 @@ fn load_yara_rules_from_dir(dir: &Path) -> Vec<(String, Rules)> {
 // Scans an already-read byte buffer against one ruleset. Pulling the file read
 // out of here lets scan_file read the bytes once and reuse them across every
 // ruleset instead of re-reading the file per ruleset.
-fn scan_bytes_yara(data: &[u8], rules: &Rules, exclusions: &HashSet<String>) -> Result<Vec<String>, String> {
+fn scan_bytes_yara(data: &[u8], rules: &Rules, exclusions: &HashSet<String>, fast_scan: bool) -> Result<Vec<String>, String> {
     let mut scanner = YaraScanner::new(rules);
+    if fast_scan {
+        scanner.fast_scan(true);
+    }
     let results = scanner
         .scan(data)
         .map_err(|e| format!("scan error: {}", e))?;

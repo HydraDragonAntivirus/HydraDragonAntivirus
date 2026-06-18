@@ -159,26 +159,30 @@ fn build_blacklist_bloom(dir: &str) {
 fn build_whitelist_bloom(dir: &str) {
     let path = Path::new(dir);
     let db_path = path.join("whitelist.db");
-    if !db_path.exists() { println!("[!] whitelist.db not found, skipping"); return; }
 
     let mut sql_files: Vec<std::path::PathBuf> = Vec::new();
+    let mut fp_files: Vec<std::path::PathBuf> = Vec::new();
     for entry in fs::read_dir(path).unwrap().flatten() {
         let p = entry.path();
         let fname = p.file_name().unwrap().to_string_lossy().to_string();
-        if fname.starts_with("RDS") && fname.ends_with(".sql") { sql_files.push(p); }
+        if fname.starts_with("RDS") && fname.ends_with(".sql") { sql_files.push(p.clone()); }
+        if p.extension().and_then(|e| e.to_str()) == Some("fp") { fp_files.push(p); }
     }
 
-    let db_count = count_plain_lines(&db_path);
+    let db_count = if db_path.exists() { count_plain_lines(&db_path) } else { 0 };
     let sql_count: usize = sql_files.iter().map(|p| count_sql_md5(p)).sum();
-    let total = db_count + sql_count;
-    println!("[+] Whitelist expected items: {} (db={} sql={})", total, db_count, sql_count);
+    let fp_count: usize = fp_files.iter().map(|p| count_fp_lines(p)).sum();
+    let total = db_count + sql_count + fp_count;
+    println!("[+] Whitelist expected items: {} (db={} sql={} fp={})", total, db_count, sql_count, fp_count);
     let bloom = make_bloom(total);
 
-    let file = match fs::File::open(&db_path) { Ok(f) => f, Err(e) => { eprintln!("ERROR: {}", e); return; } };
-    for line in BufReader::new(file).lines().flatten() {
-        let h = line.trim().to_string();
-        if h.is_empty() || h.starts_with('#') { continue; }
-        if h.len() == 32 && h.chars().all(|c| c.is_ascii_hexdigit()) { bloom.insert(&h); }
+    if db_path.exists() {
+        let file = match fs::File::open(&db_path) { Ok(f) => f, Err(e) => { eprintln!("ERROR: {}", e); return; } };
+        for line in BufReader::new(file).lines().flatten() {
+            let h = line.trim().to_string();
+            if h.is_empty() || h.starts_with('#') { continue; }
+            if h.len() == 32 && h.chars().all(|c| c.is_ascii_hexdigit()) { bloom.insert(&h); }
+        }
     }
 
     for p in &sql_files {
@@ -197,7 +201,31 @@ fn build_whitelist_bloom(dir: &str) {
         }
     }
 
+    for p in &fp_files {
+        // .fp / .sfp format: HashString:FileSize:MalwareName
+        let file = match fs::File::open(p) { Ok(f) => f, Err(_) => continue };
+        for line in BufReader::new(file).lines().flatten() {
+            let trimmed = line.trim().to_string();
+            if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+            let hash = trimmed.split(':').next().unwrap_or("").trim().to_string();
+            if is_valid_hash(&hash) { bloom.insert(&hash); }
+        }
+    }
+
     save_bloom(&bloom, &format!("{}/whitelist.bloom", dir));
+}
+
+fn count_fp_lines(path: &Path) -> usize {
+    let file = match fs::File::open(path) { Ok(f) => f, Err(_) => return 0 };
+    BufReader::new(file).lines()
+        .filter_map(|l| l.ok())
+        .filter(|l| {
+            let t = l.trim();
+            if t.is_empty() || t.starts_with('#') { return false; }
+            let hash = t.split(':').next().unwrap_or("").trim();
+            is_valid_hash(hash)
+        })
+        .count()
 }
 
 fn count_sql_md5(path: &std::path::PathBuf) -> usize {
