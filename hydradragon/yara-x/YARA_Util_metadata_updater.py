@@ -26,6 +26,7 @@ import os
 from optparse import OptionParser
 import sys
 import datetime
+import re
 
 
 def build_cli_parser():
@@ -44,12 +45,43 @@ def build_cli_parser():
     parser.add_option("", "--strip-blank", help="Remove empty and whitespace-only lines", action="store_true")
     parser.add_option("-O", "--optimize", help="Strip meta + comments + blank lines (smallest readable form)", action="store_true")
     parser.add_option("", "--perf", help="Check YARA rules for performance anti-patterns", action="store_true")
+    parser.add_option("", "--fix-perf", help="Auto-fix the SAFE perf anti-patterns only (currently: pe.is_pe -> uint16(0)==0x5A4D). Writes <file>.fixed.yar unless --in-place is given. Implies --perf.", action="store_true")
+    parser.add_option("", "--in-place", help="With --fix-perf, overwrite the original file instead of writing a .fixed.yar copy (a .bak backup is made first)", action="store_true")
     return parser
 
 
-def check_performance(lines, filepath):
-    import re
+# Anti-patterns that can be auto-fixed with a pure, semantics-preserving text
+# substitution (no judgment call about bounds/refactors required). Everything
+# else in check_performance is report-only on purpose: things like nocase,
+# regex quantifier bounds, hex alternation splits, and metadata trimming all
+# depend on what the rule author is actually trying to match, so rewriting
+# them automatically risks silently changing what the rule does.
+_SAFE_FIX_PATTERNS = [
+    (re.compile(r'pe\.is_pe(\(\))?', re.IGNORECASE), "uint16(0) == 0x5A4D",
+     "pe.is_pe  → uint16(0) == 0x5A4D (avoids full PE parse)"),
+]
+
+
+def apply_safe_fixes(line):
+    """Apply only the mechanically-safe substitutions to a single line.
+    Returns (new_line, list_of_fix_descriptions)."""
+    fixed = line
+    applied = []
+    for pattern, replacement, desc in _SAFE_FIX_PATTERNS:
+        if pattern.search(fixed):
+            fixed = pattern.sub(replacement, fixed)
+            applied.append(desc)
+    return fixed, applied
+
+
+def check_performance(lines, filepath, apply_fixes=False):
+    """Scan for perf anti-patterns. If apply_fixes is True, also returns a
+    fixed copy of the lines with the SAFE substitutions applied (see
+    _SAFE_FIX_PATTERNS) — everything else stays a warning only, since it
+    can't be fixed without a judgment call about the rule's intent."""
     warnings = []
+    fixed_lines = list(lines) if apply_fixes else None
+    any_fix_applied = False
     lineno = 0
     in_block_comment = False
     for line in lines:
@@ -72,7 +104,16 @@ def check_performance(lines, filepath):
 
         # pe.is_pe
         if "pe.is_pe" in s:
-            warnings.append((lineno, "pe.is_pe  → use uint16(0) == 0x5A4D instead (avoids full PE parse)"))
+            if apply_fixes:
+                new_line, applied = apply_safe_fixes(fixed_lines[lineno - 1])
+                if applied:
+                    fixed_lines[lineno - 1] = new_line
+                    any_fix_applied = True
+                    warnings.append((lineno, "pe.is_pe  → [FIXED] replaced with uint16(0) == 0x5A4D"))
+                else:
+                    warnings.append((lineno, "pe.is_pe  → use uint16(0) == 0x5A4D instead (avoids full PE parse)"))
+            else:
+                warnings.append((lineno, "pe.is_pe  → use uint16(0) == 0x5A4D instead (avoids full PE parse)"))
 
         # import "magic"
         if 'import "magic"' in s:
@@ -123,6 +164,14 @@ def check_performance(lines, filepath):
         print(f"\n[PERF] {filepath}")
         for ln, msg in warnings:
             print(f"  L{ln}: {msg}")
+        if apply_fixes:
+            if any_fix_applied:
+                fixed_count = sum(1 for _, msg in warnings if "[FIXED]" in msg)
+                print(f"  -> auto-fixed {fixed_count} safe issue(s); remaining warnings above need manual review")
+            else:
+                print("  -> no auto-fixable (safe) issues found; all warnings above need manual review")
+
+    return warnings, fixed_lines, any_fix_applied
 
 
 def ProcessRule(lstRuleFile, strYARApath, strOutPath):
@@ -274,6 +323,8 @@ boolStripMeta = False
 boolStripComments = False
 boolStripBlank = False
 boolPerf = False
+boolFixPerf = False
+boolInPlace = False
 boolInMeta = False
 folderMatch = ""
 indexPath = ""
@@ -323,6 +374,12 @@ if opts.optimize:
 if opts.perf:
     boolPerf = True
     print("checking performance anti-patterns")
+if opts.fix_perf:
+    boolPerf = True
+    boolFixPerf = True
+    print("checking performance anti-patterns and auto-fixing safe issues")
+if opts.in_place:
+    boolInPlace = True
 if opts.YARA_File_Path:
     outputPath = opts.YARA_File_Path
 dictRuleName = dict()
@@ -347,7 +404,21 @@ for scanDirs in parentDir:
                 with open(scanDirs + "/" + i, encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                 if boolPerf:
-                    check_performance(lines, scanDirs + "/" + i)
+                    fpath = scanDirs + "/" + i
+                    warnings, fixed_lines, any_fix_applied = check_performance(lines, fpath, apply_fixes=boolFixPerf)
+                    if boolFixPerf and any_fix_applied:
+                        if boolInPlace:
+                            logToFile(fpath + ".bak", "".join(lines), True, "w")
+                            logToFile(fpath, "".join(fixed_lines), True, "w")
+                            print(f"  -> wrote fixes in place, backup at {fpath}.bak")
+                        else:
+                            outFixedPath = fpath + ".fixed.yar"
+                            logToFile(outFixedPath, "".join(fixed_lines), True, "w")
+                            print(f"  -> wrote fixed copy to {outFixedPath} (original untouched)")
+                        # downstream steps (dedupe/strip/etc) should operate on the
+                        # fixed content if we changed the in-memory lines for this file
+                        if boolInPlace:
+                            lines = fixed_lines
                 ProcessRule(lines, scanDirs + "/" + i, outputPath)
             else:  # create index
                 boolIndexExclude = False
