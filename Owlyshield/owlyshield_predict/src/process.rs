@@ -45,8 +45,6 @@ use crate::shared_def::{
 use crate::extensions::ExtensionsCount;
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use crate::hydradragon::av_integration::AVIntegration;
-use crate::novelty::DirectoriesContent;
-
 fn normalize_extension_token(extension: &str) -> String {
     extension
         .trim()
@@ -222,8 +220,6 @@ pub struct ProcessRecord {
     pub clusters: Clusters,
     /// Number of driver messages received for this Gid
     pub driver_msg_count: usize,
-
-    pub dirs_content: DirectoriesContent,
 
     /// Used by [Self::launch_thread_clustering] to communicate with a thread in charge of the heavy computations (clustering).
     tx: Sender<Clusters>,
@@ -689,9 +685,6 @@ impl ProcessRecord {
         self.exe_exists = iomsg.runtime_features.exe_still_exists;
         if !iomsg.runtime_features.command_line.trim().is_empty() {
             self.command_line = iomsg.runtime_features.command_line.clone();
-        }
-        if let Some(parent) = get_parent_path(&iomsg.filepathstr) {
-            self.dirs_content.insert(PathBuf::from(parent), iomsg);
         }
         let irp_op = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
         self.update_kernel_event_features(iomsg, &irp_op);

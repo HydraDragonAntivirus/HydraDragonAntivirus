@@ -24,7 +24,6 @@ enum Status {
     Alert,   // Program detected a malware
     Warning, // Warning in program execution
     Error,   // Error in program execution
-    Novelty, // Notice a novelty
     Info,    // General information
     Debug,   // Debug-level message
 }
@@ -37,7 +36,6 @@ impl Status {
             Status::Alert => "ALERT",
             Status::Warning => "WARNING",
             Status::Error => "ERROR",
-            Status::Novelty => "NOVELTY",
             Status::Info => "INFO",
             Status::Debug => "DEBUG",
         }
@@ -171,11 +169,6 @@ impl Logging {
         Logging::log(Status::Error, message);
     }
 
-    /// Notice a novelty
-    pub fn novelty(message: &str) {
-        Logging::log(Status::Novelty, message);
-    }
-
     /// Log general information
     pub fn info(message: &str) {
         Logging::log(Status::Info, message);
@@ -197,7 +190,7 @@ impl Logging {
         }
 
         match status {
-            Status::Alert | Status::Warning | Status::Novelty => {
+            Status::Alert | Status::Warning => {
                 warn!("{}: {}", status.to_str(), message);
             }
             Status::Error => {

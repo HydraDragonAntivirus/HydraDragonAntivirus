@@ -6,7 +6,6 @@ pub static REPORTS_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static RULES_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static UTILS_PATH: OnceLock<PathBuf> = OnceLock::new();
-pub static NOVELTY_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static BLOOM_FILTER_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 /// Initialize global path variables from the configuration
@@ -52,13 +51,6 @@ pub fn init_globals(config: &Config) {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("utils"));
     UTILS_PATH.set(utils_path).ok();
-
-    let novelty_path = config
-        .get_param(Param::NoveltyPath)
-        .filter(|s| !s.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("novelty"));
-    NOVELTY_PATH.set(novelty_path).ok();
 
     let bloom_filter_path = config
         .get_param(Param::BloomFilterPath)

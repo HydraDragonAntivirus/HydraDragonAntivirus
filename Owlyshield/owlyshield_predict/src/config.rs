@@ -22,7 +22,6 @@ pub enum Param {
     Language,
     Telemetry,
     MqttServer,
-    NoveltyPath,
     RulesPath,
     StaticRulesPath,
     StaticRulesMode,
@@ -61,7 +60,6 @@ impl Param {
             Param::Language => "LANGUAGE",      // Language used at installation
             Param::Telemetry => "TELEMETRY",    // 1 if telemetry is active, 0 if not
             Param::MqttServer => "MQTT_SERVER",
-            Param::NoveltyPath => "NOVELTY_PATH",
             Param::RulesPath => "RULES_PATH",
             Param::StaticRulesPath => "STATIC_RULES_PATH",
             Param::StaticRulesMode => "STATIC_RULES_MODE",
@@ -91,7 +89,6 @@ impl Param {
             Param::Language => "language",      // Language used at installation
             Param::Telemetry => "telemetry",    // 1 if telemetry is active, 0 if not
             Param::MqttServer => "mqtt_server",
-            Param::NoveltyPath => "novelty_path",
             Param::RulesPath => "rules_path",
             Param::StaticRulesPath => "static_rules_path",
             Param::StaticRulesMode => "static_rules_mode",
@@ -133,10 +130,6 @@ impl Param {
             params.push(Param::MqttServer);
         }
 
-        if cfg!(feature = "novelty") {
-            params.push(Param::NoveltyPath);
-        }
-
         params.push(Param::RulesPath);
         params.push(Param::StaticRulesPath);
         params.push(Param::StaticRulesMode);
@@ -163,7 +156,6 @@ impl Param {
             "LANGUAGE" => Param::Language,      // Language used at installation
             "TELEMETRY" => Param::Telemetry,    // 1 if telemetry is active, 0 if not
             "MQTT_SERVER" => Param::MqttServer,
-            "NOVELTY_PATH" => Param::NoveltyPath,
             "RULES_PATH" => Param::RulesPath,
             "STATIC_RULES_PATH" => Param::StaticRulesPath,
             "STATIC_RULES_MODE" => Param::StaticRulesMode,
@@ -193,7 +185,6 @@ impl Param {
             "language" => Param::Language,      // Language used at installation
             "telemetry" => Param::Telemetry,    // 1 if telemetry is active, 0 if not
             "mqtt_server" => Param::MqttServer,
-            "novelty_path" => Param::NoveltyPath,
             "rules_path" => Param::RulesPath,
             "static_rules_path" => Param::StaticRulesPath,
             "static_rules_mode" => Param::StaticRulesMode,

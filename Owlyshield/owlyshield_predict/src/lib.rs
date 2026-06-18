@@ -31,7 +31,6 @@ pub mod bloom_filter;
 pub mod hash_scanner;
 pub mod jsonrpc;
 pub mod logging;
-pub mod novelty;
 pub mod predictions;
 pub mod process;
 pub mod report;
@@ -106,7 +105,7 @@ pub use crate::threat_handler::ThreatHandler;
 pub use crate::utils::is_process_alive;
 pub use crate::watchlist::WatchList;
 pub use crate::worker::process_record_handling::{
-    ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty,
+    ExepathLive, ProcessRecordHandlerLive,
 };
 pub use crate::worker::worker_instance::{
     IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Worker,

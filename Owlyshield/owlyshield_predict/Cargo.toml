@@ -120,7 +120,6 @@ record = []
 replay = []
 jsonrpc = []
 mqtt = []
-novelty = []
 # --- Windows-Only Features ---
 firewall = []
 sanctum = []
