@@ -1,0 +1,31 @@
+name: YARA-X Validate
+
+on:
+  push:
+    paths:
+      - 'hydradragon/yara-x/**/*.yar'
+      - 'hydradragon_yara_x_compile/**'
+      - '.github/workflows/yara-x-compile.yml'
+  pull_request:
+    paths:
+      - 'hydradragon/yara-x/**/*.yar'
+      - 'hydradragon_yara_x_compile/**'
+      - '.github/workflows/yara-x-compile.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build validation tool
+        run: cargo build --release
+        working-directory: hydradragon_yara_x_compile
+
+      - name: Validate YARA-X rules
+        run: ./target/release/hydradragon_yara_x_compile --check hydradragon/yara-x

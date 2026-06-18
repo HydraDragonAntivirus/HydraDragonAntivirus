@@ -4,5 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-yara-x = { version = "=1.18.0", features = ["compile"] }
-bincode = { version = "2", features = ["serde"] }
+yara-x = "1.18.0"
