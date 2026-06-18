@@ -159,7 +159,11 @@ impl Pipeline {
                         }
                     }
 
-                    if rules.rules().is_empty() { None } else { Some(rules) }
+                    if rules.rules().is_empty() {
+                        None
+                    } else {
+                        Some(rules)
+                    }
                 });
 
                 let t_pe_model = s.spawn(move || {
@@ -180,7 +184,9 @@ impl Pipeline {
                     t_hash.join().expect("hash_scanner loader panicked"),
                     t_yara.join().expect("yara_rules loader panicked"),
                     t_clamav.join().expect("clamav loader panicked"),
-                    t_hds_rules.join().expect("hydradragonstatic rules loader panicked"),
+                    t_hds_rules
+                        .join()
+                        .expect("hydradragonstatic rules loader panicked"),
                     t_pe_model.join().expect("pe_model loader panicked"),
                     t_js_model.join().expect("js_model loader panicked"),
                 )
@@ -253,22 +259,34 @@ impl Pipeline {
                                     crate::hash_scanner::HashScanResult::Whitelisted => {
                                         Ok((Verdict::Trusted, "MD5 whitelisted (confirmed)".into()))
                                     }
-                                    crate::hash_scanner::HashScanResult::Blacklisted => {
-                                        Ok((Verdict::Malware, "Hash blacklisted (confirmed)".into()))
-                                    }
+                                    crate::hash_scanner::HashScanResult::Blacklisted => Ok((
+                                        Verdict::Malware,
+                                        "Hash blacklisted (confirmed)".into(),
+                                    )),
                                     crate::hash_scanner::HashScanResult::Unknown => unreachable!(),
                                 }
                             }
-                            _ => Ok((Verdict::Clean, "bloom match not confirmed on re-scan".into())),
+                            _ => Ok((
+                                Verdict::Clean,
+                                "bloom match not confirmed on re-scan".into(),
+                            )),
                         }
                     }
                 }
                 Err(e) => Err(format!("error: {}", e)),
             };
-            let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
+            let elapsed_ms = self
+                .config
+                .time_engines
+                .then(|| t0.elapsed().as_millis() as u64);
             match bloom_outcome {
                 Ok((verdict, detail)) => {
-                    engines.push(EngineResult { engine: "bloom_filter", verdict, detail, elapsed_ms });
+                    engines.push(EngineResult {
+                        engine: "bloom_filter",
+                        verdict,
+                        detail,
+                        elapsed_ms,
+                    });
                     if verdict != Verdict::Clean {
                         return ScanResult {
                             verdict,
@@ -281,7 +299,12 @@ impl Pipeline {
                     }
                 }
                 Err(detail) => {
-                    engines.push(EngineResult { engine: "bloom_filter", verdict: Verdict::Clean, detail, elapsed_ms });
+                    engines.push(EngineResult {
+                        engine: "bloom_filter",
+                        verdict: Verdict::Clean,
+                        detail,
+                        elapsed_ms,
+                    });
                 }
             }
         }
@@ -289,7 +312,10 @@ impl Pipeline {
         // --- 2. ML INFERENCE ---
         let t0 = Instant::now();
         let ml_verdict = self.run_ml_inference(path);
-        let ml_elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
+        let ml_elapsed_ms = self
+            .config
+            .time_engines
+            .then(|| t0.elapsed().as_millis() as u64);
         if let Some(ref mv) = ml_verdict {
             engines.push(EngineResult {
                 engine: "ml",
@@ -331,7 +357,10 @@ impl Pipeline {
                 &hydradragonstatic::ScanOptions::default(),
             ) {
                 Ok(report) => {
-                    let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
+                    let elapsed_ms = self
+                        .config
+                        .time_engines
+                        .then(|| t0.elapsed().as_millis() as u64);
                     static_file_type = Some(report.file_type.clone());
                     let hv = match report.verdict {
                         hydradragonstatic::models::Verdict::Clean => Verdict::Clean,
@@ -363,7 +392,15 @@ impl Pipeline {
                         };
                     }
 
-                    if matches!(hv, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua) {
+                    if matches!(
+                        hv,
+                        Verdict::Malware
+                            | Verdict::Abuse
+                            | Verdict::Suspicious
+                            | Verdict::Spam
+                            | Verdict::Mining
+                            | Verdict::Pua
+                    ) {
                         return ScanResult {
                             verdict: hv,
                             threat_name: report.threat_name,
@@ -375,7 +412,10 @@ impl Pipeline {
                     }
                 }
                 Err(e) => {
-                    let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
+                    let elapsed_ms = self
+                        .config
+                        .time_engines
+                        .then(|| t0.elapsed().as_millis() as u64);
                     engines.push(EngineResult {
                         engine: "hydradragonstatic",
                         verdict: Verdict::Clean,
@@ -407,11 +447,18 @@ impl Pipeline {
                     let mut phishing_urls: Vec<String> = Vec::new();
                     let mut urlhaus_urls: Vec<String> = Vec::new();
                     for url in &urls {
-                        if bloom.is_phishing(url) { phishing_urls.push(url.clone()); }
-                        if bloom.is_urlhaus(url) { urlhaus_urls.push(url.clone()); }
+                        if bloom.is_phishing(url) {
+                            phishing_urls.push(url.clone());
+                        }
+                        if bloom.is_urlhaus(url) {
+                            urlhaus_urls.push(url.clone());
+                        }
                     }
 
-                    let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
+                    let elapsed_ms = self
+                        .config
+                        .time_engines
+                        .then(|| t0.elapsed().as_millis() as u64);
                     if !phishing_urls.is_empty() {
                         engines.push(EngineResult {
                             engine: "phishing_bloom",
@@ -453,7 +500,10 @@ impl Pipeline {
             let t0 = Instant::now();
             match clamav.scan_file(path, self.config.clamav_heuristics) {
                 Ok(result) => {
-                    let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
+                    let elapsed_ms = self
+                        .config
+                        .time_engines
+                        .then(|| t0.elapsed().as_millis() as u64);
                     if result.is_virus() {
                         clamav_result = Some(result.virus_name.clone());
                         let cv = if result.virus_name.starts_with("PUA.") {
@@ -461,9 +511,16 @@ impl Pipeline {
                         } else {
                             Verdict::Malware
                         };
-                        engines.push(EngineResult { engine: "clamav", verdict: cv, detail: result.virus_name.clone(), elapsed_ms });
+                        engines.push(EngineResult {
+                            engine: "clamav",
+                            verdict: cv,
+                            detail: result.virus_name.clone(),
+                            elapsed_ms,
+                        });
 
-                        let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                        let final_verdict = Verdict::aggregate(
+                            &engines.iter().map(|e| e.verdict).collect::<Vec<_>>(),
+                        );
                         return ScanResult {
                             verdict: final_verdict,
                             threat_name: clamav_result.clone(),
@@ -473,12 +530,25 @@ impl Pipeline {
                             clamav_result,
                         };
                     } else {
-                        engines.push(EngineResult { engine: "clamav", verdict: Verdict::Clean, detail: "clean".into(), elapsed_ms });
+                        engines.push(EngineResult {
+                            engine: "clamav",
+                            verdict: Verdict::Clean,
+                            detail: "clean".into(),
+                            elapsed_ms,
+                        });
                     }
                 }
                 Err(e) => {
-                    let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
-                    engines.push(EngineResult { engine: "clamav", verdict: Verdict::Clean, detail: format!("error: {}", e), elapsed_ms });
+                    let elapsed_ms = self
+                        .config
+                        .time_engines
+                        .then(|| t0.elapsed().as_millis() as u64);
+                    engines.push(EngineResult {
+                        engine: "clamav",
+                        verdict: Verdict::Clean,
+                        detail: format!("error: {}", e),
+                        elapsed_ms,
+                    });
                 }
             }
         }
@@ -517,7 +587,12 @@ impl Pipeline {
                         if !applies {
                             continue;
                         }
-                        match scan_bytes_yara(&data, rules, &self.excluded_yara_rules, self.config.fast_scan) {
+                        match scan_bytes_yara(
+                            &data,
+                            rules,
+                            &self.excluded_yara_rules,
+                            self.config.fast_scan,
+                        ) {
                             Ok(mut m) => all_matches.append(&mut m),
                             Err(e) => {
                                 scan_error = Some(e);
@@ -530,7 +605,10 @@ impl Pipeline {
                     scan_error = Some(format!("read error: {}", e));
                 }
             }
-            let yara_elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
+            let yara_elapsed_ms = self
+                .config
+                .time_engines
+                .then(|| t0.elapsed().as_millis() as u64);
 
             if let Some(e) = scan_error {
                 engines.push(EngineResult {
@@ -553,9 +631,21 @@ impl Pipeline {
                     elapsed_ms: yara_elapsed_ms,
                 });
 
-                let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
+                let still_detected = engines.iter().any(|e| {
+                    matches!(
+                        e.verdict,
+                        Verdict::Malware
+                            | Verdict::Abuse
+                            | Verdict::Suspicious
+                            | Verdict::Spam
+                            | Verdict::Mining
+                            | Verdict::Pua
+                            | Verdict::Phishing
+                    )
+                });
                 if still_detected {
-                    let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                    let final_verdict =
+                        Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
                     return ScanResult {
                         verdict: final_verdict,
                         threat_name: yara_x_matches.first().cloned(),
@@ -593,7 +683,9 @@ impl Pipeline {
         let bytes = std::fs::read(path).ok()?;
 
         if let Some(ref model) = self.pe_ml_model {
-            if let Some(prob) = crate::ml::inference::predict_pe::<InferBackend>(&bytes, model, &device) {
+            if let Some(prob) =
+                crate::ml::inference::predict_pe::<InferBackend>(&bytes, model, &device)
+            {
                 return Some(MlVerdict {
                     verdict: ml_classify(prob, self.config.ml_threshold),
                     probability: prob,
@@ -603,7 +695,9 @@ impl Pipeline {
 
         if let Some(ref model) = self.js_ml_model {
             if let Ok(source) = String::from_utf8(bytes) {
-                if let Some(prob) = crate::ml::inference::predict_js::<InferBackend>(&source, model, &device) {
+                if let Some(prob) =
+                    crate::ml::inference::predict_js::<InferBackend>(&source, model, &device)
+                {
                     return Some(MlVerdict {
                         verdict: ml_classify(prob, self.config.ml_threshold),
                         probability: prob,
@@ -740,14 +834,23 @@ fn load_yara_rules_from_dir(dir: &Path) -> Vec<(String, Rules)> {
         }
     }
 
-    eprintln!("[YARA] loaded {} ruleset(s) from {}", loaded.len(), dir.display());
+    eprintln!(
+        "[YARA] loaded {} ruleset(s) from {}",
+        loaded.len(),
+        dir.display()
+    );
     loaded
 }
 
 // Scans an already-read byte buffer against one ruleset. Pulling the file read
 // out of here lets scan_file read the bytes once and reuse them across every
 // ruleset instead of re-reading the file per ruleset.
-fn scan_bytes_yara(data: &[u8], rules: &Rules, exclusions: &HashSet<String>, fast_scan: bool) -> Result<Vec<String>, String> {
+fn scan_bytes_yara(
+    data: &[u8],
+    rules: &Rules,
+    exclusions: &HashSet<String>,
+    fast_scan: bool,
+) -> Result<Vec<String>, String> {
     let mut scanner = YaraScanner::new(rules);
     if fast_scan {
         scanner.fast_scan(true);
@@ -779,7 +882,10 @@ fn extract_urls_from_bytes(bytes: &[u8]) -> Vec<String> {
                 if let Ok(s) = std::str::from_utf8(&current) {
                     for token in s.split_whitespace() {
                         if token.contains("://") {
-                            let cleaned = token.trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\''] as &[char]);
+                            let cleaned = token
+                                .trim_end_matches(
+                                    &[',', '.', ';', ')', ']', '}', '"', '\''] as &[char]
+                                );
                             if cleaned.len() >= 8 {
                                 urls.push(cleaned.to_string());
                             }
@@ -795,7 +901,8 @@ fn extract_urls_from_bytes(bytes: &[u8]) -> Vec<String> {
         if let Ok(s) = std::str::from_utf8(&current) {
             for token in s.split_whitespace() {
                 if token.contains("://") {
-                    let cleaned = token.trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\''] as &[char]);
+                    let cleaned = token
+                        .trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\''] as &[char]);
                     if cleaned.len() >= 8 {
                         urls.push(cleaned.to_string());
                     }
@@ -805,5 +912,3 @@ fn extract_urls_from_bytes(bytes: &[u8]) -> Vec<String> {
     }
     urls
 }
-
-

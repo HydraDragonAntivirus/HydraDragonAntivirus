@@ -7,8 +7,8 @@ use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use hydradragonav::clamjuice;
-use hydradragonav::pipeline::{Pipeline, PipelineConfig, ScanMode};
 use hydradragonav::pipeline::scan_hayabusa_once;
+use hydradragonav::pipeline::{Pipeline, PipelineConfig, ScanMode};
 use hydradragonav::registry_scanner::RegistryScanner;
 use hydradragonav::run_freshclam_dll;
 use hydradragonav::Error;
@@ -181,7 +181,7 @@ enum Command {
     CheckUpdate,
 }
 
-fn default_paths(    ) -> (
+fn default_paths() -> (
     PathBuf,
     PathBuf,
     PathBuf,
@@ -207,14 +207,40 @@ fn default_paths(    ) -> (
     )
 }
 
-fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, fast_scan: bool, config: &FullConfig) {
+fn cmd_scan(
+    path: &std::path::Path,
+    mode: ScanMode,
+    json: bool,
+    output: Option<&std::path::Path>,
+    heuristics: bool,
+    time_engines: bool,
+    fast_scan: bool,
+    config: &FullConfig,
+) {
     match mode {
         ScanMode::NonFiles => cmd_scan_metadata(json, config),
         _ => {
             if path.is_dir() {
-                cmd_scan_recursive(path, mode, json, output, heuristics, time_engines, fast_scan, config);
+                cmd_scan_recursive(
+                    path,
+                    mode,
+                    json,
+                    output,
+                    heuristics,
+                    time_engines,
+                    fast_scan,
+                    config,
+                );
             } else {
-                cmd_scan_single(path, mode, json, heuristics, time_engines, fast_scan, config);
+                cmd_scan_single(
+                    path,
+                    mode,
+                    json,
+                    heuristics,
+                    time_engines,
+                    fast_scan,
+                    config,
+                );
             }
         }
     }
@@ -245,11 +271,22 @@ fn cmd_scan_metadata(json: bool, config: &FullConfig) {
     }
 }
 
-fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristics: bool, time_engines: bool, fast_scan: bool, config: &FullConfig) {
+fn cmd_scan_single(
+    path: &std::path::Path,
+    mode: ScanMode,
+    json: bool,
+    heuristics: bool,
+    time_engines: bool,
+    fast_scan: bool,
+    config: &FullConfig,
+) {
     let pipeline_config = PipelineConfig {
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
-        hydradragonstatic_rules_dir: config.hydradragonstatic_rules_dir.clone().filter(|p| p.exists()),
+        hydradragonstatic_rules_dir: config
+            .hydradragonstatic_rules_dir
+            .clone()
+            .filter(|p| p.exists()),
         pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
         js_ml_model_path: config.js_ml_model.clone().filter(|p| p.exists()),
         clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
@@ -285,11 +322,18 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
         }
         println!("{}", serde_json::to_string(&output).unwrap());
     } else {
-        println!("[{}] {} ({:.0?})", result.verdict.label(), path.display(), elapsed);
+        println!(
+            "[{}] {} ({:.0?})",
+            result.verdict.label(),
+            path.display(),
+            elapsed
+        );
         if let Some(ref tn) = result.threat_name {
             println!("  threat: {}", tn);
         }
-        let slowest = result.engines.iter()
+        let slowest = result
+            .engines
+            .iter()
             .filter_map(|e| e.elapsed_ms.map(|ms| (e.engine, ms)))
             .max_by_key(|&(_, ms)| ms);
         for e in &result.engines {
@@ -300,7 +344,14 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
                     } else {
                         ""
                     };
-                    println!("  ├─ {}: {} ({}) [{} ms]{}", e.engine, e.verdict.label(), e.detail, ms, mark);
+                    println!(
+                        "  ├─ {}: {} ({}) [{} ms]{}",
+                        e.engine,
+                        e.verdict.label(),
+                        e.detail,
+                        ms,
+                        mark
+                    );
                 }
                 None => println!("  ├─ {}: {} ({})", e.engine, e.verdict.label(), e.detail),
             }
@@ -323,11 +374,23 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
     }
 }
 
-fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, fast_scan: bool, config: &FullConfig) {
+fn cmd_scan_recursive(
+    root_path: &std::path::Path,
+    mode: ScanMode,
+    json: bool,
+    output: Option<&std::path::Path>,
+    heuristics: bool,
+    time_engines: bool,
+    fast_scan: bool,
+    config: &FullConfig,
+) {
     let pipeline_config = PipelineConfig {
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
-        hydradragonstatic_rules_dir: config.hydradragonstatic_rules_dir.clone().filter(|p| p.exists()),
+        hydradragonstatic_rules_dir: config
+            .hydradragonstatic_rules_dir
+            .clone()
+            .filter(|p| p.exists()),
         pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
         js_ml_model_path: config.js_ml_model.clone().filter(|p| p.exists()),
         clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
@@ -342,18 +405,24 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
 
     let pipeline = Pipeline::new(pipeline_config);
 
-    eprintln!("[Scan] ================================================================================");
+    eprintln!(
+        "[Scan] ================================================================================"
+    );
 
     let pb = ProgressBar::new_spinner();
     pb.set_style(
-        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {pos} files scanned | {msg}")
-            .unwrap(),
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] {pos} files scanned | {msg}",
+        )
+        .unwrap(),
     );
 
     let mut files_scanned = 0u64;
     let mut threats_found = 0u64;
-    let mut harmful_results: Vec<(std::path::PathBuf, hydradragonav::verdict::ScanResult)> = Vec::new();
-    let mut engine_totals: std::collections::HashMap<&'static str, u64> = std::collections::HashMap::new();
+    let mut harmful_results: Vec<(std::path::PathBuf, hydradragonav::verdict::ScanResult)> =
+        Vec::new();
+    let mut engine_totals: std::collections::HashMap<&'static str, u64> =
+        std::collections::HashMap::new();
 
     fn walk_and_scan(
         dir: &std::path::Path,
@@ -396,7 +465,8 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                         });
                         println!("{}", serde_json::to_string(&output).unwrap());
                     } else {
-                        if result.verdict.label() != "Clean" && result.verdict.label() != "Trusted" {
+                        if result.verdict.label() != "Clean" && result.verdict.label() != "Trusted"
+                        {
                             *threats_found += 1;
                             println!("[{}] {}", result.verdict.label(), path.display());
                             if let Some(ref tn) = result.threat_name {
@@ -405,48 +475,90 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
                         }
                     }
 
-                    if matches!(result.verdict, hydradragonav::verdict::Verdict::Malware | hydradragonav::verdict::Verdict::Abuse | hydradragonav::verdict::Verdict::Phishing | hydradragonav::verdict::Verdict::Suspicious | hydradragonav::verdict::Verdict::Spam | hydradragonav::verdict::Verdict::Mining | hydradragonav::verdict::Verdict::Pua) {
+                    if matches!(
+                        result.verdict,
+                        hydradragonav::verdict::Verdict::Malware
+                            | hydradragonav::verdict::Verdict::Abuse
+                            | hydradragonav::verdict::Verdict::Phishing
+                            | hydradragonav::verdict::Verdict::Suspicious
+                            | hydradragonav::verdict::Verdict::Spam
+                            | hydradragonav::verdict::Verdict::Mining
+                            | hydradragonav::verdict::Verdict::Pua
+                    ) {
                         harmful_results.push((path, result));
                     }
-
                 } else if path.is_dir() {
-                    walk_and_scan(&path, pipeline, mode, json, files_scanned, threats_found, harmful_results, engine_totals, pb);
+                    walk_and_scan(
+                        &path,
+                        pipeline,
+                        mode,
+                        json,
+                        files_scanned,
+                        threats_found,
+                        harmful_results,
+                        engine_totals,
+                        pb,
+                    );
                 }
             }
         }
     }
 
     let scan_start = Instant::now();
-    walk_and_scan(root_path, &pipeline, mode, json, &mut files_scanned, &mut threats_found, &mut harmful_results, &mut engine_totals, &pb);
+    walk_and_scan(
+        root_path,
+        &pipeline,
+        mode,
+        json,
+        &mut files_scanned,
+        &mut threats_found,
+        &mut harmful_results,
+        &mut engine_totals,
+        &pb,
+    );
     let elapsed = scan_start.elapsed();
     pb.finish_and_clear();
 
     if let Some(output_path) = output {
-        let entries: Vec<serde_json::Value> = harmful_results.iter().map(|(path, result)| {
-            serde_json::json!({
-                "file": path.to_string_lossy(),
-                "verdict": result.verdict.label(),
-                "threat_name": result.threat_name,
-                "engines": result.engines,
+        let entries: Vec<serde_json::Value> = harmful_results
+            .iter()
+            .map(|(path, result)| {
+                serde_json::json!({
+                    "file": path.to_string_lossy(),
+                    "verdict": result.verdict.label(),
+                    "threat_name": result.threat_name,
+                    "engines": result.engines,
+                })
             })
-        }).collect();
+            .collect();
         let report = serde_json::json!({
             "scan_root": root_path.to_string_lossy(),
             "files_scanned": files_scanned,
             "threats_found": threats_found,
             "results": entries,
         });
-        if let Err(e) = std::fs::write(output_path, serde_json::to_string_pretty(&report).unwrap()) {
-            eprintln!("[Scan] Failed to write report to {}: {}", output_path.display(), e);
+        if let Err(e) = std::fs::write(output_path, serde_json::to_string_pretty(&report).unwrap())
+        {
+            eprintln!(
+                "[Scan] Failed to write report to {}: {}",
+                output_path.display(),
+                e
+            );
         } else {
             eprintln!("[Scan] Malware report written to {}", output_path.display());
         }
     }
 
     let secs = elapsed.as_secs_f64();
-    let rate = if secs > 0.0 { files_scanned as f64 / secs } else { 0.0 };
+    let rate = if secs > 0.0 {
+        files_scanned as f64 / secs
+    } else {
+        0.0
+    };
 
-    eprintln!("[Scan] ================================================================================");
+    eprintln!(
+        "[Scan] ================================================================================"
+    );
     eprintln!("[Scan] Scan Complete!");
     eprintln!("[Scan] Total files scanned: {}", files_scanned);
     eprintln!("[Scan] Total threats found: {}", threats_found);
@@ -501,7 +613,8 @@ struct FullConfig {
 
 fn main() {
     let cli = Cli::parse();
-    let (lib, db, freshclam, blm, yara, hydradragonstatic_rules, hayabusa, pe_ml, js_ml, reglist) = default_paths();
+    let (lib, db, freshclam, blm, yara, hydradragonstatic_rules, hayabusa, pe_ml, js_ml, reglist) =
+        default_paths();
 
     let config = FullConfig {
         lib: cli.lib.unwrap_or(lib),
@@ -509,7 +622,9 @@ fn main() {
         freshclam: cli.freshclam.unwrap_or(freshclam),
         bloom_dir: cli.bloom_dir.or(Some(blm)),
         yara_dir: cli.yara_dir.or(Some(yara)),
-        hydradragonstatic_rules_dir: cli.hydradragonstatic_rules_dir.or(Some(hydradragonstatic_rules)),
+        hydradragonstatic_rules_dir: cli
+            .hydradragonstatic_rules_dir
+            .or(Some(hydradragonstatic_rules)),
         hayabusa_dir: cli.hayabusa_dir.or(Some(hayabusa)),
         pe_ml_model: cli.pe_ml_model.or(Some(pe_ml)),
         js_ml_model: cli.js_ml_model.or(Some(js_ml)),
@@ -517,10 +632,37 @@ fn main() {
     };
 
     match &cli.command {
-        Command::Scan { path, mode, json, output, heuristics, time_engines, fast_scan } => cmd_scan(path, *mode, *json, output.as_deref(), *heuristics, *time_engines, *fast_scan, &config),
-        Command::Update { reload_scanner, hayabusa, juice } => {
-            cmd_update(*reload_scanner, *hayabusa, *juice, &config.lib, &config.db, &config.freshclam, config.hayabusa_dir.as_deref())
-        }
+        Command::Scan {
+            path,
+            mode,
+            json,
+            output,
+            heuristics,
+            time_engines,
+            fast_scan,
+        } => cmd_scan(
+            path,
+            *mode,
+            *json,
+            output.as_deref(),
+            *heuristics,
+            *time_engines,
+            *fast_scan,
+            &config,
+        ),
+        Command::Update {
+            reload_scanner,
+            hayabusa,
+            juice,
+        } => cmd_update(
+            *reload_scanner,
+            *hayabusa,
+            *juice,
+            &config.lib,
+            &config.db,
+            &config.freshclam,
+            config.hayabusa_dir.as_deref(),
+        ),
         Command::ClamJuice { keep_source } => {
             clamjuice::run_juice(&config.db, !*keep_source);
         }
@@ -692,11 +834,15 @@ fn check_db_staleness(db_path: &std::path::Path) -> Result<bool, Error> {
 
 fn scan_registry(config: &FullConfig) -> hydradragonav::registry_scanner::RegistryScanResult {
     let reglist_path = config.reglist.as_deref().filter(|p| p.exists());
-    let rules_dir = config.hydradragonstatic_rules_dir.as_deref().filter(|p| p.exists());
+    let rules_dir = config
+        .hydradragonstatic_rules_dir
+        .as_deref()
+        .filter(|p| p.exists());
     match reglist_path {
         Some(rp) => RegistryScanner::load(rp, rules_dir),
         None => RegistryScanner::default(),
-    }.scan()
+    }
+    .scan()
 }
 
 fn print_registry_scan(result: &hydradragonav::registry_scanner::RegistryScanResult) {

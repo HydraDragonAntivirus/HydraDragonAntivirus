@@ -598,10 +598,8 @@ impl Scanner {
             // Install message callback to suppress the known benign scanned_bytes
             // overflow warning. Must be called before cl_init and before going
             // multithreaded per the clamav.h docs.
-            let set_cb_ptr = ffi::GetProcAddress(
-                module,
-                b"cl_set_clcb_msg\0".as_ptr() as *const i8,
-            );
+            let set_cb_ptr =
+                ffi::GetProcAddress(module, b"cl_set_clcb_msg\0".as_ptr() as *const i8);
             if let Some(f) = set_cb_ptr {
                 let set_cb = std::mem::transmute::<unsafe extern "C" fn(), ClSetClcbMsgFn>(f);
                 set_cb(Some(clamav_msg_callback));
@@ -694,7 +692,11 @@ impl Scanner {
     // Scanning
     // -----------------------------------------------------------------------
 
-    pub fn scan_file<P: AsRef<Path>>(&self, path: P, heuristics: bool) -> Result<ScanResult, Error> {
+    pub fn scan_file<P: AsRef<Path>>(
+        &self,
+        path: P,
+        heuristics: bool,
+    ) -> Result<ScanResult, Error> {
         if !self.is_ready() {
             if self.is_initializing() {
                 (self.logger)(
@@ -825,9 +827,15 @@ unsafe extern "C" fn clamav_msg_callback(
     }
     // CL_MSG_WARN = 64, CL_MSG_ERROR = 128
     if severity >= 128 {
-        eprintln!("[ClamAV][ERROR] {}", s.trim_end_matches(|c: char| c == '\r' || c == '\n'));
+        eprintln!(
+            "[ClamAV][ERROR] {}",
+            s.trim_end_matches(|c: char| c == '\r' || c == '\n')
+        );
     } else if severity >= 64 {
-        eprintln!("[ClamAV][WARN] {}", s.trim_end_matches(|c: char| c == '\r' || c == '\n'));
+        eprintln!(
+            "[ClamAV][WARN] {}",
+            s.trim_end_matches(|c: char| c == '\r' || c == '\n')
+        );
     }
     // CL_MSG_INFO_VERBOSE (32) and below: silently drop to avoid noise.
 }
@@ -840,14 +848,19 @@ pub fn run_freshclam_dll<P: AsRef<Path>>(
 ) -> Result<(), Error> {
     let dll_path = dll_path.as_ref();
     if !dll_path.exists() {
-        return Err(Error::FreshclamNotFound(dll_path.to_string_lossy().into_owned()));
+        return Err(Error::FreshclamNotFound(
+            dll_path.to_string_lossy().into_owned(),
+        ));
     }
 
     let dll_wide = path_to_utf16(dll_path);
     let hmodule = unsafe { ffi::LoadLibraryW(dll_wide.as_ptr()) };
     if hmodule.is_null() {
         let err = unsafe { format_win32_error(ffi::GetLastError()) };
-        return Err(Error::FreshclamError(format!("failed to load libfreshclam.dll: {}", err)));
+        return Err(Error::FreshclamError(format!(
+            "failed to load libfreshclam.dll: {}",
+            err
+        )));
     }
 
     macro_rules! get_proc {
@@ -857,7 +870,9 @@ pub fn run_freshclam_dll<P: AsRef<Path>>(
                 Some(f) => unsafe { std::mem::transmute::<unsafe extern "C" fn(), $ty>(f) },
                 None => {
                     unsafe { ffi::FreeLibrary(hmodule) };
-                    return Err(Error::FreshclamError(concat!($name, " not found in libfreshclam.dll").into()));
+                    return Err(Error::FreshclamError(
+                        concat!($name, " not found in libfreshclam.dll").into(),
+                    ));
                 }
             }
         }};
@@ -870,8 +885,8 @@ pub fn run_freshclam_dll<P: AsRef<Path>>(
     let db_dir_cstr = std::ffi::CString::new(db_dir.as_ref().to_str().unwrap_or_default())
         .map_err(|e| Error::FreshclamError(format!("invalid db_dir: {}", e)))?;
 
-    let certs_cstr = certs_dir
-        .and_then(|p| std::ffi::CString::new(p.to_str().unwrap_or_default()).ok());
+    let certs_cstr =
+        certs_dir.and_then(|p| std::ffi::CString::new(p.to_str().unwrap_or_default()).ok());
 
     let mut config = crate::ffi::FcConfig {
         msg_flags: 0,
@@ -897,8 +912,14 @@ pub fn run_freshclam_dll<P: AsRef<Path>>(
 
     let rc = unsafe { fc_initialize(&mut config) };
     if rc != 0 && rc != 1 {
-        unsafe { fc_cleanup(); ffi::FreeLibrary(hmodule); }
-        return Err(Error::FreshclamError(format!("fc_initialize failed with code {}", rc)));
+        unsafe {
+            fc_cleanup();
+            ffi::FreeLibrary(hmodule);
+        }
+        return Err(Error::FreshclamError(format!(
+            "fc_initialize failed with code {}",
+            rc
+        )));
     }
 
     let databases = [
@@ -926,10 +947,16 @@ pub fn run_freshclam_dll<P: AsRef<Path>>(
         )
     };
 
-    unsafe { fc_cleanup(); ffi::FreeLibrary(hmodule); }
+    unsafe {
+        fc_cleanup();
+        ffi::FreeLibrary(hmodule);
+    }
 
     if rc != 0 && rc != 1 {
-        return Err(Error::FreshclamError(format!("fc_update_databases failed with code {}", rc)));
+        return Err(Error::FreshclamError(format!(
+            "fc_update_databases failed with code {}",
+            rc
+        )));
     }
 
     Ok(())

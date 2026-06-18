@@ -54,8 +54,16 @@ fn main() {
         if let Some(ref out_dir) = out_dir {
             let out_path = out_dir.join(format!("{}.yrc", stem));
             if out_path.exists() {
-                let src_modified = path.metadata().and_then(|m| m.modified()).ok().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                let out_modified = out_path.metadata().and_then(|m| m.modified()).ok().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let src_modified = path
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let out_modified = out_path
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                 if out_modified >= src_modified {
                     eprintln!("[SKIP] {} (up to date)", stem);
                     continue;

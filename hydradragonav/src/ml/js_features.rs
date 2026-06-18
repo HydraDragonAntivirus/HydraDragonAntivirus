@@ -8,23 +8,50 @@ use oxc_span::SourceType;
 
 use super::features::JsFeatureVector;
 
-static RE_HEX_ENCODED: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\\x[0-9a-fA-F]{2}").unwrap());
-static RE_UNICODE_ENCODED: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\\u[0-9a-fA-F]{4}").unwrap());
-static RE_CHAR_CODE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"String\.fromCharCode").unwrap());
-static RE_BASE64: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\batob\b|\bbtoa\b").unwrap());
-static RE_ESCAPE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\bunescape\b|\bescape\b").unwrap());
-static RE_BRACKET_NOTATION: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r#"\[['"].*?['"]\]\s*\("#).unwrap());
-static RE_CRYPTO: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"crypto|CryptoJS|aes|des|rsa|md5|sha1|sha256|sha512|encrypt|decrypt|cipher").unwrap());
-static RE_NETWORK: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"http[s]?://|ws[s]?://|fetch\s*\(|XMLHttpRequest|\.send\s*\(|\.open\s*\(|WebSocket").unwrap());
-static RE_FILE_OPS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"FileSystemObject|readFile|writeFile|OpenTextFile|DeleteFile|CopyFile").unwrap());
-static RE_REGISTRY: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"RegRead|RegWrite|RegDelete|HKEY_|HKLM|HKCU").unwrap());
-static RE_PROCESS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"Run\s*\(|Exec\s*\(|ShellExecute|CreateObject\s*\(").unwrap());
-static RE_SUSPICIOUS_APIS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\beval\b|\bFunction\b|\bsetTimeout\b|\bsetInterval\b|\bActiveXObject\b|\bWScript\b|\bXMLHttpRequest\b|\bfetch\b|\bWebSocket\b").unwrap());
-static RE_STRINGS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r#"["']([^"']*)["']"#).unwrap());
-static RE_BASE64_STR: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^[A-Za-z0-9+/]{20,}={0,2}$").unwrap());
-static RE_URL_STR: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"https?://|ftp://|ws[s]?://").unwrap());
-static RE_HEX_STR: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^[0-9a-fA-F]+$").unwrap());
-static RE_IDENTIFIERS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b[a-zA-Z_$][a-zA-Z0-9_$]*\b").unwrap());
+static RE_HEX_ENCODED: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\\x[0-9a-fA-F]{2}").unwrap());
+static RE_UNICODE_ENCODED: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\\u[0-9a-fA-F]{4}").unwrap());
+static RE_CHAR_CODE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"String\.fromCharCode").unwrap());
+static RE_BASE64: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\batob\b|\bbtoa\b").unwrap());
+static RE_ESCAPE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\bunescape\b|\bescape\b").unwrap());
+static RE_BRACKET_NOTATION: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#"\[['"].*?['"]\]\s*\("#).unwrap());
+static RE_CRYPTO: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"crypto|CryptoJS|aes|des|rsa|md5|sha1|sha256|sha512|encrypt|decrypt|cipher")
+        .unwrap()
+});
+static RE_NETWORK: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"http[s]?://|ws[s]?://|fetch\s*\(|XMLHttpRequest|\.send\s*\(|\.open\s*\(|WebSocket",
+    )
+    .unwrap()
+});
+static RE_FILE_OPS: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"FileSystemObject|readFile|writeFile|OpenTextFile|DeleteFile|CopyFile")
+        .unwrap()
+});
+static RE_REGISTRY: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"RegRead|RegWrite|RegDelete|HKEY_|HKLM|HKCU").unwrap());
+static RE_PROCESS: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"Run\s*\(|Exec\s*\(|ShellExecute|CreateObject\s*\(").unwrap()
+});
+static RE_SUSPICIOUS_APIS: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\beval\b|\bFunction\b|\bsetTimeout\b|\bsetInterval\b|\bActiveXObject\b|\bWScript\b|\bXMLHttpRequest\b|\bfetch\b|\bWebSocket\b").unwrap()
+});
+static RE_STRINGS: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#"["']([^"']*)["']"#).unwrap());
+static RE_BASE64_STR: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^[A-Za-z0-9+/]{20,}={0,2}$").unwrap());
+static RE_URL_STR: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"https?://|ftp://|ws[s]?://").unwrap());
+static RE_HEX_STR: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^[0-9a-fA-F]+$").unwrap());
+static RE_IDENTIFIERS: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\b[a-zA-Z_$][a-zA-Z0-9_$]*\b").unwrap());
 
 fn shannon_entropy_str(data: &str) -> f32 {
     if data.is_empty() {
@@ -546,21 +573,14 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
         hex_strings_val,
     ) = extract_string_features(source);
 
-    let (
-        total_lines,
-        code_lines,
-        comment_lines,
-        blank_lines,
-        avg_line_len,
-        max_line_len,
-    ) = analyze_lines(source);
+    let (total_lines, code_lines, comment_lines, blank_lines, avg_line_len, max_line_len) =
+        analyze_lines(source);
 
     // Cyclomatic complexity derived from AST decision points, not raw text.
     // Raw substring counting matched keywords inside strings/comments/identifiers.
-    let cyclomatic = (walker.conditional_statements
-        + walker.loop_statements
-        + walker.try_catch_blocks
-        + 1) as f32;
+    let cyclomatic =
+        (walker.conditional_statements + walker.loop_statements + walker.try_catch_blocks + 1)
+            as f32;
 
     let (total_idents, short_idents, long_idents, avg_ident_len, suspicious_naming, random_idents) =
         analyze_identifiers(source);
@@ -701,14 +721,52 @@ fn analyze_lines(source: &str) -> (f32, f32, f32, f32, f32, f32) {
 
 fn analyze_identifiers(source: &str) -> (f32, f32, f32, f32, f32, f32) {
     let js_keywords = [
-        "var", "let", "const", "function", "return", "if", "else", "for", "while", "do",
-        "switch", "case", "break", "continue", "try", "catch", "finally", "throw", "new",
-        "this", "typeof", "instanceof", "in", "of", "delete", "void", "null", "undefined",
-        "true", "false", "class", "extends", "super", "static", "import", "export", "from",
-        "default", "async", "await",
+        "var",
+        "let",
+        "const",
+        "function",
+        "return",
+        "if",
+        "else",
+        "for",
+        "while",
+        "do",
+        "switch",
+        "case",
+        "break",
+        "continue",
+        "try",
+        "catch",
+        "finally",
+        "throw",
+        "new",
+        "this",
+        "typeof",
+        "instanceof",
+        "in",
+        "of",
+        "delete",
+        "void",
+        "null",
+        "undefined",
+        "true",
+        "false",
+        "class",
+        "extends",
+        "super",
+        "static",
+        "import",
+        "export",
+        "from",
+        "default",
+        "async",
+        "await",
     ];
 
-    let all: Vec<&str> = RE_IDENTIFIERS.find_iter(source).map(|m| m.as_str()).collect();
+    let all: Vec<&str> = RE_IDENTIFIERS
+        .find_iter(source)
+        .map(|m| m.as_str())
+        .collect();
     let identifiers: Vec<&str> = all
         .iter()
         .filter(|id| !js_keywords.contains(id))
@@ -740,4 +798,3 @@ fn analyze_identifiers(source: &str) -> (f32, f32, f32, f32, f32, f32) {
 
     (total, short, long, avg, suspicious, random)
 }
-

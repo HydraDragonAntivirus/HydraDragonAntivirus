@@ -31,7 +31,6 @@ impl Default for MalwareNetConfig {
     }
 }
 
-
 impl MalwareNetConfig {
     pub fn default_js() -> Self {
         Self {

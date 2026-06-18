@@ -247,14 +247,18 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
 
     // Count how many distinct debug record types are present (goblin 0.10.x
     // parses each debug type into its own Option field instead of a Vec).
-    let num_debug_entries = pe.debug_data.as_ref().map(|d| {
-        d.codeview_pdb70_debug_info.is_some() as u32
-            + d.codeview_pdb20_debug_info.is_some() as u32
-            + d.vcfeature_info.is_some() as u32
-            + d.ex_dll_characteristics_info.is_some() as u32
-            + d.repro_info.is_some() as u32
-            + d.pogo_info.is_some() as u32
-    }).unwrap_or(0) as f32;
+    let num_debug_entries = pe
+        .debug_data
+        .as_ref()
+        .map(|d| {
+            d.codeview_pdb70_debug_info.is_some() as u32
+                + d.codeview_pdb20_debug_info.is_some() as u32
+                + d.vcfeature_info.is_some() as u32
+                + d.ex_dll_characteristics_info.is_some() as u32
+                + d.repro_info.is_some() as u32
+                + d.pogo_info.is_some() as u32
+        })
+        .unwrap_or(0) as f32;
 
     // pe.certificates is Vec<AttributeCertificate<'_>> in goblin 0.10.x.
     let cert_size = pe

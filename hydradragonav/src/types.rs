@@ -11,10 +11,10 @@ pub const CL_SUCCESS: i32 = 0;
 // Database load flags
 // From clamav.h: CL_DB_STDOPT = CL_DB_PHISHING | CL_DB_PHISHING_URLS | CL_DB_BYTECODE
 // ---------------------------------------------------------------------------
-pub const CL_DB_PHISHING:      u32 = 0x2;
+pub const CL_DB_PHISHING: u32 = 0x2;
 pub const CL_DB_PHISHING_URLS: u32 = 0x8;
-pub const CL_DB_BYTECODE:      u32 = 0x2000;
-pub const CL_DB_STDOPT:        u32 = CL_DB_PHISHING | CL_DB_PHISHING_URLS | CL_DB_BYTECODE;
+pub const CL_DB_BYTECODE: u32 = 0x2000;
+pub const CL_DB_STDOPT: u32 = CL_DB_PHISHING | CL_DB_PHISHING_URLS | CL_DB_BYTECODE;
 
 // ---------------------------------------------------------------------------
 // Scan option flags — general
@@ -25,24 +25,24 @@ pub const CL_SCAN_GENERAL_HEURISTICS: u32 = 0x4;
 // Scan option flags — parse
 // Values from clamav.h CL_SCAN_PARSE_* defines
 // ---------------------------------------------------------------------------
-pub const CL_SCAN_PARSE_ARCHIVE:  u32 = 0x1;
-pub const CL_SCAN_PARSE_ELF:      u32 = 0x2;
-pub const CL_SCAN_PARSE_PDF:      u32 = 0x4;
-pub const CL_SCAN_PARSE_SWF:      u32 = 0x8;
-pub const CL_SCAN_PARSE_HWP3:     u32 = 0x10;
-pub const CL_SCAN_PARSE_XMLDOCS:  u32 = 0x20;
-pub const CL_SCAN_PARSE_MAIL:     u32 = 0x40;
-pub const CL_SCAN_PARSE_OLE2:     u32 = 0x80;
-pub const CL_SCAN_PARSE_HTML:     u32 = 0x100;
-pub const CL_SCAN_PARSE_PE:       u32 = 0x200;
+pub const CL_SCAN_PARSE_ARCHIVE: u32 = 0x1;
+pub const CL_SCAN_PARSE_ELF: u32 = 0x2;
+pub const CL_SCAN_PARSE_PDF: u32 = 0x4;
+pub const CL_SCAN_PARSE_SWF: u32 = 0x8;
+pub const CL_SCAN_PARSE_HWP3: u32 = 0x10;
+pub const CL_SCAN_PARSE_XMLDOCS: u32 = 0x20;
+pub const CL_SCAN_PARSE_MAIL: u32 = 0x40;
+pub const CL_SCAN_PARSE_OLE2: u32 = 0x80;
+pub const CL_SCAN_PARSE_HTML: u32 = 0x100;
+pub const CL_SCAN_PARSE_PE: u32 = 0x200;
 
 // ---------------------------------------------------------------------------
 // Engine field ordinals — from enum cl_engine_field in clamav.h
 // ---------------------------------------------------------------------------
-pub const CL_ENGINE_MAX_SCANSIZE:   u32 = 0;  // uint64_t — total bytes across all recursive layers
-pub const CL_ENGINE_MAX_FILESIZE:   u32 = 1;  // uint64_t — per-file size limit
-pub const CL_ENGINE_MAX_RECURSION:  u32 = 2;  // uint32_t — max extraction depth
-pub const CL_ENGINE_MAX_FILES:      u32 = 3;  // uint32_t — max files extracted during scan
+pub const CL_ENGINE_MAX_SCANSIZE: u32 = 0; // uint64_t — total bytes across all recursive layers
+pub const CL_ENGINE_MAX_FILESIZE: u32 = 1; // uint64_t — per-file size limit
+pub const CL_ENGINE_MAX_RECURSION: u32 = 2; // uint32_t — max extraction depth
+pub const CL_ENGINE_MAX_FILES: u32 = 3; // uint32_t — max files extracted during scan
 pub const CL_ENGINE_MAX_EMBEDDEDPE: u32 = 18; // uint64_t — ordinal 18 in the enum
 
 // ---------------------------------------------------------------------------
@@ -55,10 +55,10 @@ pub const CL_ENGINE_MAX_EMBEDDEDPE: u32 = 18; // uint64_t — ordinal 18 in the 
 // Tuple is (field_ordinal: u32, value: u64) — cl_engine_set_num takes long long.
 // ---------------------------------------------------------------------------
 pub const DEFAULT_ENGINE_OPTIONS: [(u32, u32); 4] = [
-    (CL_ENGINE_MAX_SCANSIZE,   32 * 1024 * 1024),  // 32 MiB total recursive scan budget
-    (CL_ENGINE_MAX_FILESIZE,   32 * 1024 * 1024),  // 32 MiB per file
-    (CL_ENGINE_MAX_RECURSION,  10),                 // was 50; deep recursion multiplies byte counts fast
-    (CL_ENGINE_MAX_FILES,      200),                // replaces the old MAX_EMBEDDEDPE at wrong ordinal
+    (CL_ENGINE_MAX_SCANSIZE, 32 * 1024 * 1024), // 32 MiB total recursive scan budget
+    (CL_ENGINE_MAX_FILESIZE, 32 * 1024 * 1024), // 32 MiB per file
+    (CL_ENGINE_MAX_RECURSION, 10), // was 50; deep recursion multiplies byte counts fast
+    (CL_ENGINE_MAX_FILES, 200),    // replaces the old MAX_EMBEDDEDPE at wrong ordinal
 ];
 
 // ---------------------------------------------------------------------------

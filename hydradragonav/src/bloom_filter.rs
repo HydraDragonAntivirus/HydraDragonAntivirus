@@ -59,7 +59,10 @@ fn load_bloom_field(data: &[u8], path: &PathBuf, label: &str) -> Arc<AtomicBloom
             Arc::new(bf)
         }
         Err(e) => {
-            eprintln!("[BloomFilter] Failed to deserialize {} bloom from {:?}: {}", label, path, e);
+            eprintln!(
+                "[BloomFilter] Failed to deserialize {} bloom from {:?}: {}",
+                label, path, e
+            );
             log::error!("Failed to deserialize {} bloom: {}", label, e);
             empty_bloom()
         }
@@ -70,7 +73,13 @@ fn load_bloom_file(path: &PathBuf, label: &str) -> Option<Vec<u8>> {
     match fs::read(path) {
         Ok(d) => Some(d),
         Err(e) => {
-            log::warn!("{} bloom not found at {:?}: {}; {} disabled", label, path, e, label);
+            log::warn!(
+                "{} bloom not found at {:?}: {}; {} disabled",
+                label,
+                path,
+                e,
+                label
+            );
             None
         }
     }
@@ -80,7 +89,11 @@ fn load_whitelist_from(path: &PathBuf) -> Arc<AtomicBloomFilter> {
     match fs::read(path) {
         Ok(data) => load_bloom_field(&data, path, "whitelist"),
         Err(e) => {
-            log::warn!("Whitelist bloom not found at {:?}: {}; whitelist disabled", path, e);
+            log::warn!(
+                "Whitelist bloom not found at {:?}: {}; whitelist disabled",
+                path,
+                e
+            );
             empty_bloom()
         }
     }
@@ -150,7 +163,9 @@ impl HashBloomFilter {
     }
 
     pub fn is_hash_allowed(&self, hash: &str) -> bool {
-        if self.is_blacklisted(hash) { return false; }
+        if self.is_blacklisted(hash) {
+            return false;
+        }
         self.whitelist.contains(hash)
     }
 }

@@ -98,7 +98,10 @@ impl RegistryScanner {
             self.scan_subkey(&hkcu, "HKCU", rel_path, &mut entries, &mut seen);
         }
 
-        let threats = entries.iter().filter(|e| e.pua_match || e.static_match).count() as u32;
+        let threats = entries
+            .iter()
+            .filter(|e| e.pua_match || e.static_match)
+            .count() as u32;
 
         RegistryScanResult {
             total_scanned: entries.len() as u32,
@@ -163,16 +166,27 @@ impl RegistryScanner {
 
             let pua_match = self.pua_list.is_pua(hive_name, &sub_path);
 
-            let (static_match, static_threat) = self.run_static_scan(hive_name, rel_path, &name, &value.bytes);
+            let (static_match, static_threat) =
+                self.run_static_scan(hive_name, rel_path, &name, &value.bytes);
 
             let threat_name = static_threat.or_else(|| {
-                if pua_match { Some("PUA registry pattern".into()) } else { None }
+                if pua_match {
+                    Some("PUA registry pattern".into())
+                } else {
+                    None
+                }
             });
 
             let detail = match (pua_match, static_match) {
-                (true, true) => format!("PUA + static rule match: {}", threat_name.as_deref().unwrap_or("unknown")),
+                (true, true) => format!(
+                    "PUA + static rule match: {}",
+                    threat_name.as_deref().unwrap_or("unknown")
+                ),
                 (true, false) => "PUA registry pattern match".to_string(),
-                (false, true) => format!("static rule match: {}", threat_name.as_deref().unwrap_or("unknown")),
+                (false, true) => format!(
+                    "static rule match: {}",
+                    threat_name.as_deref().unwrap_or("unknown")
+                ),
                 (false, false) => {
                     if !data_str.starts_with('(') && !data_str.is_empty() {
                         format!("value: {}", truncate_str(&data_str, 120))
@@ -213,7 +227,11 @@ impl RegistryScanner {
             value_data: Some(value_bytes.to_vec()),
         };
 
-        match hydradragonstatic::scan_registry_key(&ctx, rules, &hydradragonstatic::ScanOptions::default()) {
+        match hydradragonstatic::scan_registry_key(
+            &ctx,
+            rules,
+            &hydradragonstatic::ScanOptions::default(),
+        ) {
             Ok(report) => {
                 let detected = matches!(
                     report.verdict,
@@ -243,14 +261,16 @@ impl Default for RegistryScanner {
 static HDS_RULES: OnceLock<Option<RuleSet>> = OnceLock::new();
 
 fn load_hydradragonstatic_rules(rules_dir: &Path) -> Option<RuleSet> {
-    HDS_RULES.get_or_init(|| {
-        let rules_file = rules_dir.join("rules.yaml");
-        if rules_file.exists() {
-            RuleSet::from_yaml_file(&rules_file).ok()
-        } else {
-            None
-        }
-    }).clone()
+    HDS_RULES
+        .get_or_init(|| {
+            let rules_file = rules_dir.join("rules.yaml");
+            if rules_file.exists() {
+                RuleSet::from_yaml_file(&rules_file).ok()
+            } else {
+                None
+            }
+        })
+        .clone()
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {
