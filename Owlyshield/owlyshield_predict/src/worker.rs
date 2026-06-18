@@ -17,7 +17,6 @@ pub mod process_record_handling {
     use crate::config::{Config, Param};
     use crate::csvwriter::CsvWriter;
     use crate::logging::Logging;
-    use crate::novelty::{Rule, StateSave};
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::process::ProcessRecord;
     use crate::threat_handler::ThreatHandler;
@@ -130,102 +129,6 @@ pub mod process_record_handling {
         }
     }
 
-    pub struct ProcessRecordHandlerNovelty<'a> {
-        config: &'a Config,
-        watchlist: WatchList,
-        rules: LruCache<String, Rule>,
-    }
-
-    impl ProcessRecordIOHandler for ProcessRecordHandlerNovelty<'_> {
-        fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            if precord.driver_msg_count.is_multiple_of(5)
-                && self.watchlist.is_app_watchlisted(precord.appname.as_str())
-            {
-                let novelty_path = self.config[Param::NoveltyPath].as_str();
-                let app_file = &precord.appname.replace(".", "_");
-                let now = Local::now();
-                let mut rule;
-
-                match self.rules.get(app_file) {
-                    Some(r) => {
-                        rule = r.to_owned();
-                    }
-                    None => {
-                        let path = PathBuf::from(novelty_path).join(app_file.to_string() + ".yml");
-                        if Rule::get_files(novelty_path).contains(app_file) {
-                            rule = Rule::deserialize_yml_file(path);
-                            let pathsave = PathBuf::from(novelty_path)
-                                .join(app_file.to_string() + "_save.json");
-                            let savestate = StateSave::load_file(&pathsave).unwrap();
-                            savestate.update_precord(precord);
-                        } else {
-                            rule = Rule::from(precord);
-                            Rule::serialize_yml_file(path, rule.clone());
-                        }
-                        self.rules.push(app_file.to_string(), rule.clone());
-                    }
-                }
-
-                if precord.driver_msg_count.is_multiple_of(50) {
-                    let mut newrule = rule.learn(precord);
-                    if !newrule.is_clusters_empty() {
-                        let dis = rule.distance(&newrule, precord);
-                        let opt_clusterdistance_min = dis.iter().min_by(|cd1, cd2| {
-                            cd1.distance
-                                .partial_cmp(&cd2.distance)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        });
-
-                        newrule.replace_subclusters(&rule, &dis);
-                        if let Some(clusterdistance_min) = opt_clusterdistance_min
-                            && clusterdistance_min.distance > 0f32
-                        {
-                            if clusterdistance_min.distance == 1f32 {
-                                Logging::novelty(&format!(
-                                    "[{}] New Cluster: {}",
-                                    &precord.appname,
-                                    clusterdistance_min.dir2.display()
-                                ));
-                            } else {
-                                Logging::novelty(&format!(
-                                    "[{}] Expanding Cluster: {} => {}",
-                                    &precord.appname,
-                                    clusterdistance_min.dir1.display(),
-                                    clusterdistance_min.dir2.display()
-                                ));
-                            }
-                        }
-
-                        if now
-                            > (rule.update_time.unwrap_or_else(Local::now)
-                                + chrono::Duration::minutes(20))
-                        {
-                            newrule.update_time = Some(now);
-                            Rule::serialize_yml_file(
-                                PathBuf::from(novelty_path).join(app_file.to_string() + ".yml"),
-                                newrule.clone(),
-                            );
-                            let savestate = StateSave::new(precord);
-                            let pathsave = PathBuf::from(novelty_path)
-                                .join(app_file.to_string() + "_save.json");
-                            savestate.save_file(&pathsave).unwrap();
-                        }
-                        self.rules.put(app_file.to_string(), newrule);
-                    }
-                }
-            }
-        }
-    }
-
-    impl<'a> ProcessRecordHandlerNovelty<'a> {
-        pub fn new(config: &'a Config, watchlist: WatchList) -> ProcessRecordHandlerNovelty<'a> {
-            ProcessRecordHandlerNovelty {
-                config,
-                watchlist,
-                rules: LruCache::new(std::num::NonZeroUsize::new(1024).unwrap()),
-            }
-        }
-    }
 }
 
 mod process_records {

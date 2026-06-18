@@ -96,7 +96,6 @@ pub struct BehavioralProfile {
 
     // Anomaly scores (calculated by ML)
     pub anomaly_score: f32,
-    pub novelty_score: f32,
     pub threat_probability: f32,
 
     // Learning metadata
@@ -329,10 +328,6 @@ impl AutonomousLearningEngine {
         let anomaly_score = self.calculate_anomaly_score(&profile);
         profile.anomaly_score = anomaly_score;
 
-        // Calculate novelty score (how different from known patterns)
-        let novelty_score = self.calculate_novelty_score(&profile);
-        profile.novelty_score = novelty_score;
-
         // Calculate threat probability using ML model
         let threat_probability = self.calculate_threat_probability(&profile);
         profile.threat_probability = threat_probability;
@@ -359,13 +354,11 @@ impl AutonomousLearningEngine {
                 "[Autonomous Learning] 🚨 HIGH THREAT detected: {} (GID: {})
   - Threat Probability: {:.1}%
   - Anomaly Score:      {:.2}
-  - Novelty Score:      {:.2}
   - Reasoning: {}",
                 profile.process_name,
                 gid,
                 threat_probability * 100.0,
                 anomaly_score,
-                novelty_score,
                 reasoning
             );
         }
@@ -384,7 +377,6 @@ impl AutonomousLearningEngine {
             is_threat,
             threat_probability,
             anomaly_score,
-            novelty_score,
             reasoning, // Pass reasoning to ThreatAssessment
         }
     }
@@ -439,7 +431,6 @@ impl AutonomousLearningEngine {
                 network_behavior: network_behavior.clone(),
                 process_interaction: process_interaction.clone(),
                 anomaly_score: 0.0,
-                novelty_score: 0.0,
                 threat_probability: 0.0,
                 first_seen,
                 last_updated: now,
@@ -679,29 +670,6 @@ impl AutonomousLearningEngine {
         }
     }
 
-    /// Calculate novelty score (how different from known patterns)
-    fn calculate_novelty_score(&self, profile: &BehavioralProfile) -> f32 {
-        // Compare to existing clusters
-        if self.behavior_clusters.clusters.is_empty() {
-            return 0.5; // Moderate novelty
-        }
-
-        // Find distance to nearest cluster
-        let feature_vector = self.extract_feature_vector(profile);
-        let mut min_distance = f32::MAX;
-
-        for cluster in &self.behavior_clusters.clusters {
-            let distance = self.euclidean_distance(&feature_vector, &cluster.centroid);
-            if distance < min_distance {
-                min_distance = distance;
-            }
-        }
-
-        // Normalize novelty score (0-1) using adaptive normalization factor
-        let normalization_factor = self.adaptive_novelty_normalization_factor();
-        (min_distance / normalization_factor).min(1.0)
-    }
-
     /// Adaptive injection ratio threshold (replaces hardcoded 0.1)
     fn adaptive_injection_threshold(&self) -> f32 {
         // Learn from observed injection ratios in baseline
@@ -728,34 +696,6 @@ impl AutonomousLearningEngine {
         }
     }
 
-    /// Adaptive novelty normalization factor (replaces hardcoded 10.0)
-    fn adaptive_novelty_normalization_factor(&self) -> f32 {
-        // Learn from observed cluster distances
-        if self.behavior_clusters.clusters.len() > 5 {
-            // Calculate average inter-cluster distance
-            let mut total_distance = 0.0;
-            let mut count = 0;
-            for i in 0..self.behavior_clusters.clusters.len() {
-                for j in (i + 1)..self.behavior_clusters.clusters.len() {
-                    let dist = self.euclidean_distance(
-                        &self.behavior_clusters.clusters[i].centroid,
-                        &self.behavior_clusters.clusters[j].centroid,
-                    );
-                    total_distance += dist;
-                    count += 1;
-                }
-            }
-            if count > 0 {
-                let avg_distance = total_distance / count as f32;
-                (avg_distance * 2.0).max(5.0).min(20.0) // Between 5 and 20
-            } else {
-                10.0
-            }
-        } else {
-            10.0 // Default until we have enough clusters
-        }
-    }
-
     /// Calculate threat probability using ML model
     fn calculate_threat_probability(&self, profile: &BehavioralProfile) -> f32 {
         // Weighted combination of factors
@@ -766,13 +706,6 @@ impl AutonomousLearningEngine {
         if profile.anomaly_score > self.config.anomaly_threshold {
             threat_score += (profile.anomaly_score / 5.0).min(1.0) * 0.4;
             total_weight += 0.4;
-        }
-
-        // Novelty contributes (new attack patterns) - using adaptive threshold
-        let novelty_threshold = self.adaptive_novelty_threshold();
-        if profile.novelty_score > novelty_threshold {
-            threat_score += profile.novelty_score * 0.3;
-            total_weight += 0.3;
         }
 
         // High-risk API combinations
@@ -831,24 +764,6 @@ impl AutonomousLearningEngine {
         self.adapt_clustering_frequency();
     }
 
-    /// Adaptive novelty threshold (replaces hardcoded 0.7)
-    fn adaptive_novelty_threshold(&self) -> f32 {
-        // Learn from observed novelty scores
-        if self.behavioral_profiles.len() > 20 {
-            // Calculate percentile of observed novelty scores
-            let mut novelty_scores: Vec<f32> = self
-                .behavioral_profiles
-                .values()
-                .map(|p| p.novelty_score)
-                .collect();
-            novelty_scores.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let p75_idx = (novelty_scores.len() * 3 / 4).min(novelty_scores.len() - 1);
-            novelty_scores[p75_idx].max(0.5).min(0.9) // Between 0.5 and 0.9
-        } else {
-            0.6 // Start conservative, will adapt
-        }
-    }
-
     /// Adapt clustering frequency based on system performance
     fn adapt_clustering_frequency(&mut self) {
         // Adapt based on number of profiles and system performance
@@ -870,14 +785,6 @@ impl AutonomousLearningEngine {
             reasons.push(format!(
                 "High statistical anomaly (score: {:.2})",
                 profile.anomaly_score
-            ));
-        }
-
-        let novelty_threshold = self.adaptive_novelty_threshold();
-        if profile.novelty_score > novelty_threshold {
-            reasons.push(format!(
-                "Novel/unseen behavior pattern (novelty: {:.2})",
-                profile.novelty_score
             ));
         }
 
@@ -1151,6 +1058,5 @@ pub struct ThreatAssessment {
     pub is_threat: bool,
     pub threat_probability: f32,
     pub anomaly_score: f32,
-    pub novelty_score: f32,
     pub reasoning: String,
 }

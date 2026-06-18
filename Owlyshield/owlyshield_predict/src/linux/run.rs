@@ -12,8 +12,7 @@ use crate::threathandling::LinuxThreatHandler;
 use crate::watchlist::WatchList;
 use crate::{
     Connectors, ExepathLive, IOMessage, IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC,
-    IOMsgPostProcessorWriter, LDriverMsg, Logging, ProcessRecordHandlerLive,
-    ProcessRecordHandlerNovelty, Worker, config,
+    IOMsgPostProcessorWriter, LDriverMsg, Logging, ProcessRecordHandlerLive, Worker, config,
 };
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -92,9 +91,6 @@ pub async fn run() -> Result<(), anyhow::Error> {
         if cfg!(feature = "malware") {
             println!("\nMALWARE PROTECTION MODE");
         }
-        if cfg!(feature = "novelty") {
-            println!("\nNOVELTY PROTECTION MODE");
-        }
         if cfg!(feature = "record") {
             println!("\nRECORD");
         }
@@ -117,18 +113,6 @@ pub async fn run() -> Result<(), anyhow::Error> {
                             &config,
                             Box::new(LinuxThreatHandler::default()),
                         )));
-                }
-
-                if cfg!(feature = "novelty") {
-                    let watchlist = WatchList::from(
-                        &Path::new(&config[Param::NoveltyPath]).join(Path::new("to_analyze.yml")),
-                    )
-                    .expect("Cannot open to_analyze.yml");
-                    watchlist.refresh_periodically();
-
-                    worker = worker.process_record_handler(Box::new(
-                        ProcessRecordHandlerNovelty::new(&config, watchlist),
-                    ));
                 }
 
                 if cfg!(feature = "record") {

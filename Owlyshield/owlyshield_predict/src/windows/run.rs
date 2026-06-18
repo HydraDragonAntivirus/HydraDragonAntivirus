@@ -16,7 +16,7 @@ use crate::shared_def::IOMessage;
 use crate::threathandling::WindowsThreatHandler;
 use crate::watchlist::WatchList;
 use crate::worker::process_record_handling::{
-    ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty,
+    ExepathLive, ProcessRecordHandlerLive,
 };
 use crate::worker::worker_instance::{
     IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Worker,
@@ -229,9 +229,6 @@ pub fn run() {
         if cfg!(feature = "malware") {
             println!("\nMALWARE PROTECTION MODE");
         }
-        if cfg!(feature = "novelty") {
-            println!("\nNOVELTY PROTECTION MODE");
-        }
         if cfg!(feature = "record") {
             println!("\nRECORD");
         }
@@ -279,19 +276,6 @@ pub fn run() {
                 worker = worker.process_record_handler(Box::new(ProcessRecordHandlerLive::new(
                     &thread_config,
                     Box::new(win_threat_handler.clone()),
-                )));
-            }
-
-            if cfg!(feature = "novelty") {
-                let watchlist = WatchList::from(
-                    &Path::new(&thread_config[Param::NoveltyPath])
-                        .join(Path::new("to_analyze.yml")),
-                )
-                .expect("Cannot open to_analyze.yml");
-                watchlist.refresh_periodically();
-                worker = worker.process_record_handler(Box::new(ProcessRecordHandlerNovelty::new(
-                    &thread_config,
-                    watchlist,
                 )));
             }
 

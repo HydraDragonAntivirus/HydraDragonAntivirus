@@ -42,3 +42,5 @@ Don't forget to create HydraDragonAntivirus\\hydradragon\\yara-x and move to yar
 py -3.12 YARA_Util_Exclude_Remover.py -d rules -x excluded_yara_x_rules.txt -o clean_rules
 py -3.12 YARA_Util_duplicate_import.py -d rules -o clean_rules
 
+# Warning fixer
+yr fix warnings valhalla-rules.yar

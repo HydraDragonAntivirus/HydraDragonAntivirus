@@ -5141,7 +5141,7 @@ rule PUA_AnyDesk_Compromised_Certificate_Revoked_Feb24_RID39A9 : DEMO EXE FILE {
       minimum_yara = "3.5.0"
       
    condition: 
-      uint16 ( 0 ) == 0x5a4d and for any i in ( 0 .. pe.number_of_signatures ) : ( pe.signatures [ i ] . issuer contains "DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA1" and pe.signatures [ i ] . serial == "0d:bf:15:2d:ea:f0:b9:81:a8:a9:38:d5:3f:76:9d:b8" )
+      uint16 ( 0 ) == 0x5a4d and for any i in ( 0 .. pe.signatures.len() ) : ( pe.signatures [ i ] . issuer contains "DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA1" and pe.signatures [ i ] . serial == "0d:bf:15:2d:ea:f0:b9:81:a8:a9:38:d5:3f:76:9d:b8" )
 }
 
 rule APT_UNC5221_Ivanti_ForensicArtifacts_Jan24_1_RID3676 : APT DEMO {
@@ -5389,7 +5389,7 @@ rule SUSP_THOR_Unsigned_Oct23_1_RID300E : DEMO EXE FILE SUSP {
       $s2 = "Nextron Systems GmbH" wide fullword
       $sc1 = { 00 4F 00 72 00 69 00 67 00 69 00 6E 00 61 00 6C 00 46 00 69 00 6C 00 65 00 6E 00 61 00 6D 00 65 00 00 00 74 00 68 00 6F 00 72 } 
    condition: 
-      uint16 ( 0 ) == 0x5a4d and all of them and pe.number_of_signatures == 0
+      uint16 ( 0 ) == 0x5a4d and all of them and pe.signatures.len() == 0
 }
 
 rule SUSP_EXPL_LIBCUE_CVE_2023_43641_Oct23_1_RID3245 : CVE_2023_43641 DEMO EXPLOIT SUSP {
@@ -7036,7 +7036,7 @@ rule SUSP_Email_Suspicious_OneNote_Attachment_Jan23_2_RID3926 : DEMO SUSP T1203 
       minimum_yara = "3.5.0"
       
    strings:
-      $hc1 = { 2E 6F 6E 65 22 0D 0A 0D 0A 35 46 4A 63 65 } 
+      $hc1 = ".one\"\r\n\r\n5FJce" 
       $x01 = " attachment; filename=\"Invoice" nocase
       $x02 = " attachment; filename=\"ORDER" nocase
       $x03 = " attachment; filename=\"PURCHASE" nocase
@@ -9829,7 +9829,7 @@ rule SUSP_AdobePDF_SFX_Bitmap_Combo_Executable_RID362C : ANOMALY DEMO EXE FILE S
       $sc1 = { FF 00 CC FF FF 00 99 FF FF 00 66 FF FF 00 33 FF FF 80 00 FF FF 80 FF CC FF 80 CC CC FF C0 99 CC FF 80 66 CC FF 00 33 CC FF 00 00 CC FF 00 FF 99 FF FF CC 99 FF FF 99 99 FF FF 66 99 FF FF 33 99 FF 08 00 99 FF 88 FF 66 FF 88 CC 66 FF 88 99 66 FF 88 66 66 FF 88 33 66 FF 05 00 66 FF 55 FF 33 FF 55 CC 33 FF 55 99 33 FF 55 66 33 FF 58 33 33 FF 01 00 33 FF 99 FF 00 FF 99 CC 00 FF 99 99 00 FF 99 66 00 FF 58 33 00 FF 01 00 00 FF 99 FF FF CC 99 CC FF CC 99 99 FF CC 99 66 FF CC 58 33 FF CC 01 00 FF CC FF FF CC CC FF CC CC CC FF 99 CC CC FF 66 CC CC 58 33 CC CC 01 00 CC CC FF FF 99 } 
       $sc2 = { 28 66 27 00 60 00 00 00 80 00 00 00 80 80 80 00 C0 C0 C0 00 FF FF FF 00 FF FF FF 00 FF FF FF 00 FF FF FF 00 FF FF FF 00 FF FF FF 00 FF FF FF 00 FF FF FF 00 FF FF FF 00 5D 33 00 00 5D 33 00 00 5D 33 00 00 5D 33 00 00 5D 33 00 00 5D 33 00 00 5D 33 00 00 5D 33 00 00 5D 33 00 00 5D 33 00 00 } 
    condition: 
-      uint16 ( 0 ) == 0x5a4d and all of them and pe.number_of_signatures < 1
+      uint16 ( 0 ) == 0x5a4d and all of them and pe.signatures.len() < 1
 }
 
 rule SUSP_AdobePDF_Bitmap_Executable_RID328D : DEMO EXE FILE SUSP {
@@ -9850,7 +9850,7 @@ rule SUSP_AdobePDF_Bitmap_Executable_RID328D : DEMO EXE FILE SUSP {
       $sc1 = { FF 00 CC FF FF 00 99 FF FF 00 66 FF FF 00 33 FF FF 80 00 FF FF 80 FF CC FF 80 CC CC FF C0 99 CC FF 80 66 CC FF 00 33 CC FF 00 00 CC FF 00 FF 99 FF FF CC 99 FF FF 99 99 FF FF 66 99 FF FF 33 99 FF 08 00 99 FF 88 FF 66 FF 88 CC 66 FF 88 99 66 FF 88 66 66 FF 88 33 66 FF 05 00 66 FF 55 FF 33 FF 55 CC 33 FF 55 99 33 FF 55 66 33 FF 58 33 33 FF 01 00 33 FF 99 FF 00 FF 99 CC 00 FF 99 99 00 FF 99 66 00 FF 58 33 00 FF 01 00 00 FF 99 FF FF CC 99 CC FF CC 99 99 FF CC 99 66 FF CC 58 33 FF CC 01 00 FF CC FF FF CC CC FF CC CC CC FF 99 CC CC FF 66 CC CC 58 33 CC CC 01 00 CC CC FF FF 99 } 
       $fp1 = "Adobe" ascii wide fullword
    condition: 
-      uint16 ( 0 ) == 0x5a4d and $sc1 and not 1 of ( $fp* ) and pe.number_of_signatures < 1
+      uint16 ( 0 ) == 0x5a4d and $sc1 and not 1 of ( $fp* ) and pe.signatures.len() < 1
 }
 
 rule APT_CN_MAL_RedDelta_Shellcode_Loader_Oct20_2_RID36A3 : APT CHINA DEMO EXE G0129 MAL {
@@ -9939,7 +9939,7 @@ rule APT_MAL_URL_CloudAtlas_Oct20_2_RID3144 : APT DEMO FILE G0100 MAL {
       minimum_yara = "3.5.0"
       
    strings:
-      $hc1 = { 5B 49 6E 74 65 72 6E 65 74 53 68 6F 72 74 63 75 74 5D 0D 0A 55 52 4C 3D 68 74 74 70 73 3A 2F 2F 6D 73 6F 66 66 69 63 65 75 70 64 61 74 65 2E 6F 72 67 } 
+      $hc1 = "[InternetShortcut]\r\nURL=https://msofficeupdate.org" 
    condition: 
       uint16 ( 0 ) == 0x495b and filesize < 200 and $hc1 at 0
 }
@@ -10295,7 +10295,7 @@ rule SUSP_Script_Base64_Blocks_Jun20_1_RID32AF : DEMO SCRIPT SUSP T1132_001 {
       
    strings:
       $sa1 = "<script language=" ascii
-      $sb2 = { 41 41 41 22 2B 0D 0A 22 41 41 41 } 
+      $sb2 = "AAA\"+\r\n\"AAA" 
    condition: 
       all of them
 }
@@ -10903,7 +10903,7 @@ rule MAL_Mirai_Nov19_1_RID2CC8 : DEMO FILE MAL {
       $s2 = "-loldongs" fullword ascii
       $s3 = "/dev/null" fullword ascii
       $s4 = "/bin/busybox" fullword ascii
-      $sc1 = { 47 72 6F 75 70 73 3A 09 30 } 
+      $sc1 = "Groups:\t0" 
    condition: 
       uint16 ( 0 ) == 0x457f and filesize <= 100KB and 4 of them
 }
@@ -11189,7 +11189,7 @@ rule SUSP_Unsigned_OSPPSVC_RID2E85 : DEMO EXE FILE OFFICE SUSP T1569_002 {
    strings:
       $sc1 = { 00 46 00 69 00 6C 00 65 00 44 00 65 00 73 00 63 00 72 00 69 00 70 00 74 00 69 00 6F 00 6E 00 00 00 00 00 4D 00 69 00 63 00 72 00 6F 00 73 00 6F 00 66 00 74 00 20 00 4F 00 66 00 66 00 69 00 63 00 65 00 20 00 53 00 6F 00 66 00 74 00 77 00 61 00 72 00 65 00 20 00 50 00 72 00 6F 00 74 00 65 00 63 00 74 00 69 00 6F 00 6E 00 20 00 50 00 6C 00 61 00 74 00 66 00 6F 00 72 00 6D 00 20 00 53 00 65 00 72 00 76 00 69 00 63 00 65 } 
    condition: 
-      uint16 ( 0 ) == 0x5a4d and filesize < 8000KB and $sc1 and pe.number_of_signatures < 1
+      uint16 ( 0 ) == 0x5a4d and filesize < 8000KB and $sc1 and pe.signatures.len() < 1
 }
 
 rule MAL_ArtraDownloader2_Aug19_1_RID30FB : DEMO EXE FILE MAL {
@@ -11209,7 +11209,7 @@ rule MAL_ArtraDownloader2_Aug19_1_RID30FB : DEMO EXE FILE MAL {
       $xc1 = { 47 45 54 20 25 73 20 48 54 54 50 2F 31 2E 30 00 0D 0A 00 00 48 6F 73 74 3A 20 25 73 00 00 00 00 3F 61 3D 00 26 62 3D 00 26 63 3D 00 26 64 3D 00 26 65 3D 00 25 32 30 } 
       $xc2 = { 25 73 20 25 73 20 25 73 0D 0A 25 73 20 25 73 0D 0A 25 73 25 73 0D 0A 25 73 25 73 0D 0A 25 73 20 25 64 0D 0A 0D 0A 25 73 00 00 00 00 71 72 79 3D } 
       $xc3 = { 49 44 3D 25 73 00 00 00 3A 00 00 00 25 73 20 25 73 20 25 73 0D 0A 25 73 20 25 73 0D 0A 25 73 25 73 0D 0A 25 73 25 73 0D 0A 43 6F 6E 74 65 6E 74 2D 6C 65 6E 67 74 68 25 73 20 25 64 } 
-      $xc4 = { 25 73 20 25 73 20 25 73 0D 0A 25 73 20 25 73 0D 0A 25 73 25 73 0D 0A 25 73 25 73 0D 0A 43 6F 6E 74 65 6E 74 2D 6C 65 6E 67 74 68 3A 20 25 64 0D 0A 0D 0A 25 73 } 
+      $xc4 = "%s %s %s\r\n%s %s\r\n%s%s\r\n%s%s\r\nContent-length: %d\r\n\r\n%s" 
       $x1 = "Tpguxbsf]Njdsptpgu" ascii
       $x2 = ".gpsn.vsmfodpefe" ascii
    condition: 
@@ -11469,7 +11469,7 @@ rule SUSP_Unsigned_GoogleUpdate_RID3117 : DEMO EXE FILE HIGHVOL SUSP {
    strings:
       $ac1 = { 00 4F 00 72 00 69 00 67 00 69 00 6E 00 61 00 6C 00 46 00 69 00 6C 00 65 00 6E 00 61 00 6D 00 65 00 00 00 47 00 6F 00 6F 00 67 00 6C 00 65 00 55 00 70 00 64 00 61 00 74 00 65 00 2E 00 65 00 78 00 65 } 
    condition: 
-      uint16 ( 0 ) == 0x5a4d and filesize < 2000KB and $ac1 and pe.number_of_signatures < 1
+      uint16 ( 0 ) == 0x5a4d and filesize < 2000KB and $ac1 and pe.signatures.len() < 1
 }
 
 rule SUSP_DOC_LNK_in_ZIP_RID2D5D : DEMO FILE SUSP T1547_009 {
@@ -12158,8 +12158,8 @@ rule MAL_CMD_Script_Obfuscated_Feb19_1_RID32B7 : DEMO FILE MAL OBFUS SCRIPT T105
       minimum_yara = "3.5.0"
       
    strings:
-      $h1 = { 40 65 63 68 6F 20 6F 66 66 0D 0A 73 65 74 20 } 
-      $s1 = { 2C 31 25 0D 0A 65 63 68 6F 20 25 25 } 
+      $h1 = "@echo off\r\nset " 
+      $s1 = ",1%\r\necho %%" 
    condition: 
       uint16 ( 0 ) == 0x6540 and filesize < 200KB and $h1 at 0 and uint16 ( filesize - 3 ) == 0x0d25 and uint8 ( filesize - 1 ) == 0x0a and $s1 in ( filesize - 200 .. filesize )
 }
@@ -18783,7 +18783,7 @@ rule Webshell_FOPO_Obfuscation_APT_ON_Nov17_1_RID3580 : APT DEMO FILE NK OBFUS T
    strings:
       $x1 = "Obfuscation provided by FOPO" fullword ascii
       $s1 = "\";@eval($" ascii
-      $f1 = { 22 29 29 3B 0D 0A 3F 3E } 
+      $f1 = "\"));\r\n?>" 
    condition: 
       uint16 ( 0 ) == 0x3f3c and filesize < 800KB and ( $x1 or ( $s1 in ( 0 .. 350 ) and $f1 at ( filesize - 23 ) ) )
 }
@@ -19885,7 +19885,7 @@ rule APT17_Unsigned_Symantec_Binary_EFA_RID338C : APT DEMO EXE FILE G0025 {
       $s1 = "Copyright (c) 2007 - 2011 Symantec Corporation" fullword wide
       $s2 = "\\\\.\\SYMEFA" fullword wide
    condition: 
-      ( uint16 ( 0 ) == 0x5a4d and filesize < 200KB and all of them and pe.number_of_signatures == 0 )
+      ( uint16 ( 0 ) == 0x5a4d and filesize < 200KB and all of them and pe.signatures.len() == 0 )
 }
 
 rule APT17_Malware_Oct17_Gen_RID2EEC : APT DEMO EXE FILE G0025 GEN {
@@ -20318,7 +20318,7 @@ rule ALFA_SHELL_RID29FC : DEMO SCRIPT T1505_003 WEBSHELL {
       $x3 = "'login_page' => '500',//gui or 500 or 403 or 404" fullword ascii
       $x4 = "$GLOBALS['__ALFA__']" fullword ascii
       $x5 = "if(!function_exists('b'.'as'.'e6'.'4_'.'en'.'co'.'de')" ascii
-      $f1 = { 76 2F 38 76 2F 36 76 2F 2B 76 2F 2F 66 38 46 27 29 3B 3F 3E 0D 0A } 
+      $f1 = "v/8v/6v/+v//f8F');?>\r\n" 
    condition: 
       ( filesize < 900KB and 2 of ( $x* ) or $f1 at ( filesize - 22 ) )
 }
@@ -22061,7 +22061,7 @@ rule PAS_Webshell_Encoded_RID2E9B : DEMO FILE T1505_003 WEBSHELL {
       $enc4 = "]))%256);$" ascii
       $enc5 = "]))@setcookie('" ascii
       $enc6 = "]=chr(( ord($_" ascii
-      $x1 = { 3D 0A 27 29 29 3B 69 66 28 69 73 73 65 74 28 24 5F 43 4F 4F 4B 49 45 5B 27 } 
+      $x1 = "=\n'));if(isset($_COOKIE['" 
       $foot1 = "value=\"\"/><input type=\"submit\" value=\"&gt;\"/></form>" 
       $foot2 = "();}} @header(\"Status: 404 Not Found\"); ?>" 
    condition: 
@@ -56809,10 +56809,10 @@ rule WebShell_Generic_PHP_9_RID2F22 : DEMO GEN SCRIPT T1505_003 WEBSHELL {
       minimum_yara = "3.5.0"
       
    strings:
-      $ = { 3a 3c 62 3e 22 20 2e 62 61 73 65 36 34 5f 64 65 63 6f 64 65 28 24 5f 50 4f 53 54 5b 27 74 6f 74 27 5d 29 2e 20 22 3c 2f 62 3e 22 3b } 
-      $ = { 69 66 20 28 69 73 73 65 74 28 24 5f 50 4f 53 54 5b 27 77 71 27 5d 29 20 26 26 20 24 5f 50 4f 53 54 5b 27 77 71 27 5d 3c 3e 22 22 29 20 7b } 
-      $ = { 70 61 73 73 74 68 72 75 28 24 5f 50 4f 53 54 5b 27 63 27 5d 29 3b } 
-      $ = { 3c 69 6e 70 75 74 20 74 79 70 65 3d 22 72 61 64 69 6f 22 20 6e 61 6d 65 3d 22 74 61 63 22 20 76 61 6c 75 65 3d 22 31 22 3e 42 36 34 20 44 65 63 6f 64 65 3c 62 72 3e } 
+      $ = ":<b>\" .base64_decode($_POST['tot']). \"</b>\";" 
+      $ = "if (isset($_POST['wq']) && $_POST['wq']<>\"\") {" 
+      $ = "passthru($_POST['c']);" 
+      $ = "<input type=\"radio\" name=\"tac\" value=\"1\">B64 Decode<br>" 
    condition: 
       1 of them
 }
