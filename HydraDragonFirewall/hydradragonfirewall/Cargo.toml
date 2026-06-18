@@ -30,7 +30,7 @@ bytes = "1"
 rcgen = "0.14.8"
 moka = { version = "0.12", features = ["sync"] }
 fastbloom = { version = "0.17", features = ["serde"] }
-bincode = "3.0"
+bincode_next = "2.1.0"
 tokio = { version = "1", features = ["full"] }
 url = "2.5.8"
 sha2 = "0.11"
