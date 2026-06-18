@@ -77,12 +77,6 @@ fn resolve_hayabusa_dir() -> PathBuf {
         .unwrap_or_else(|_| exe_dir().join("hayabusa"))
 }
 
-fn resolve_detectiteasy_dir() -> PathBuf {
-    std::env::var("DETECTITEASY_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| exe_dir().join("detectiteasy"))
-}
-
 fn resolve_pe_ml_model() -> PathBuf {
     std::env::var("PE_ML_MODEL_PATH")
         .map(PathBuf::from)
@@ -129,9 +123,6 @@ struct Cli {
     #[arg(long, env = "HAYABUSA_DIR", global = true)]
     hayabusa_dir: Option<PathBuf>,
 
-    #[arg(long, env = "DETECTITEASY_DIR", global = true)]
-    detectiteasy_dir: Option<PathBuf>,
-
     #[arg(long, env = "PE_ML_MODEL_PATH", global = true)]
     pe_ml_model: Option<PathBuf>,
 
@@ -146,7 +137,7 @@ enum Command {
         /// File or directory to scan
         path: PathBuf,
 
-        /// Scan mode: full (hayabusa + registry + files) or files-only
+        /// Scan mode: full (hayabusa + registry + files), files-only, or non-files (hayabusa + registry only)
         #[arg(long, short, default_value = "files-only")]
         mode: ScanMode,
 
@@ -207,7 +198,6 @@ fn default_paths() -> (
     PathBuf,
     PathBuf,
     PathBuf,
-    PathBuf,
 ) {
     (
         resolve_clamav_dll(),
@@ -218,7 +208,6 @@ fn default_paths() -> (
         resolve_yara_dir(),
         resolve_hydradragonstatic_rules_dir(),
         resolve_hayabusa_dir(),
-        resolve_detectiteasy_dir(),
         resolve_pe_ml_model(),
         resolve_js_ml_model(),
         resolve_reglist(),
@@ -226,10 +215,40 @@ fn default_paths() -> (
 }
 
 fn cmd_scan(path: &std::path::Path, mode: ScanMode, json: bool, output: Option<&std::path::Path>, heuristics: bool, time_engines: bool, config: &FullConfig) {
-    if path.is_dir() {
-        cmd_scan_recursive(path, mode, json, output, heuristics, time_engines, config);
+    match mode {
+        ScanMode::NonFiles => cmd_scan_metadata(json, config),
+        _ => {
+            if path.is_dir() {
+                cmd_scan_recursive(path, mode, json, output, heuristics, time_engines, config);
+            } else {
+                cmd_scan_single(path, mode, json, heuristics, time_engines, config);
+            }
+        }
+    }
+}
+
+fn cmd_scan_metadata(json: bool, config: &FullConfig) {
+    if json {
+        let mut output = serde_json::json!({});
+        let reg_result = scan_registry(config);
+        output["registry_scan"] = serde_json::to_value(&reg_result).unwrap();
+        if let Some(ref hdir) = config.hayabusa_dir {
+            let hayabusa_matches = scan_hayabusa_once(hdir);
+            output["hayabusa_matches"] = serde_json::to_value(&hayabusa_matches).unwrap();
+        }
+        println!("{}", serde_json::to_string(&output).unwrap());
     } else {
-        cmd_scan_single(path, mode, json, heuristics, time_engines, config);
+        println!("[Metadata Scan]");
+        print_registry_scan(&scan_registry(config));
+        if let Some(ref hdir) = config.hayabusa_dir {
+            let hayabusa_matches = scan_hayabusa_once(hdir);
+            if !hayabusa_matches.is_empty() {
+                println!("[Hayabusa]");
+                for m in &hayabusa_matches {
+                    println!("  ├─ {m}");
+                }
+            }
+        }
     }
 }
 
@@ -244,7 +263,6 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
         clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
         clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
-        detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
         scan_mode: mode,
         clamav_heuristics: heuristics,
         time_engines,
@@ -264,7 +282,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
             "engines": result.engines,
             "scan_time_ms": elapsed.as_millis(),
         });
-        if mode == ScanMode::Full {
+        if matches!(mode, ScanMode::Full | ScanMode::NonFiles) {
             let reg_result = scan_registry(config);
             output["registry_scan"] = serde_json::to_value(&reg_result).unwrap();
             if let Some(ref hdir) = config.hayabusa_dir {
@@ -297,7 +315,7 @@ fn cmd_scan_single(path: &std::path::Path, mode: ScanMode, json: bool, heuristic
         if let Some(prob) = result.ml_malware_probability {
             println!("  └─ ml_probability: {:.4}", prob);
         }
-        if mode == ScanMode::Full {
+        if matches!(mode, ScanMode::Full | ScanMode::NonFiles) {
             print_registry_scan(&scan_registry(config));
             if let Some(ref hdir) = config.hayabusa_dir {
                 let hayabusa_matches = scan_hayabusa_once(hdir);
@@ -323,7 +341,6 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
         clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
-        detectiteasy_dir: config.detectiteasy_dir.clone().filter(|p| p.exists()),
         scan_mode: mode,
         clamav_heuristics: heuristics,
         time_engines,
@@ -452,7 +469,7 @@ fn cmd_scan_recursive(root_path: &std::path::Path, mode: ScanMode, json: bool, o
         }
     }
 
-    if mode == ScanMode::Full {
+    if matches!(mode, ScanMode::Full | ScanMode::NonFiles) {
         eprintln!();
         if json {
             let reg_result = scan_registry(config);
@@ -485,7 +502,6 @@ struct FullConfig {
     yara_dir: Option<PathBuf>,
     hydradragonstatic_rules_dir: Option<PathBuf>,
     hayabusa_dir: Option<PathBuf>,
-    detectiteasy_dir: Option<PathBuf>,
     pe_ml_model: Option<PathBuf>,
     js_ml_model: Option<PathBuf>,
     reglist: Option<PathBuf>,
@@ -493,7 +509,7 @@ struct FullConfig {
 
 fn main() {
     let cli = Cli::parse();
-    let (lib, db, freshclam, cmpl, blm, yara, hydradragonstatic_rules, hayabusa, detectiteasy, pe_ml, js_ml, reglist) = default_paths();
+    let (lib, db, freshclam, cmpl, blm, yara, hydradragonstatic_rules, hayabusa, pe_ml, js_ml, reglist) = default_paths();
 
     let config = FullConfig {
         lib: cli.lib.unwrap_or(lib),
@@ -504,7 +520,6 @@ fn main() {
         yara_dir: cli.yara_dir.or(Some(yara)),
         hydradragonstatic_rules_dir: cli.hydradragonstatic_rules_dir.or(Some(hydradragonstatic_rules)),
         hayabusa_dir: cli.hayabusa_dir.or(Some(hayabusa)),
-        detectiteasy_dir: cli.detectiteasy_dir.or(Some(detectiteasy)),
         pe_ml_model: cli.pe_ml_model.or(Some(pe_ml)),
         js_ml_model: cli.js_ml_model.or(Some(js_ml)),
         reglist: Some(reglist),

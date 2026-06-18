@@ -13,18 +13,21 @@ use burn::record::{NamedMpkBytesRecorder, Recorder};
 use burn_ndarray::{NdArray, NdArrayDevice};
 
 use crate::bloom_filter::HashBloomFilter;
-use crate::detectiteasy::{DetectItEasyScanner, MAX_DIE_FILE_SIZE, MAX_SCAN_FILE_SIZE};
 use crate::hash_scanner::HashScanner;
 use crate::scanner::Scanner as ClamavScanner;
 use crate::verdict::{EngineResult, ScanResult, Verdict};
 
 type InferBackend = NdArray<f32>;
 
+/// Maximum file size (in bytes) for content scanning (2 GiB).
+const MAX_SCAN_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum ScanMode {
     #[default]
     Full,
     Files,
+    NonFiles,
 }
 
 #[derive(Clone)]
@@ -38,7 +41,6 @@ pub struct PipelineConfig {
     pub clamav_lib: Option<PathBuf>,
     pub clamav_db: Option<PathBuf>,
     pub hayabusa_dir: Option<PathBuf>,
-    pub detectiteasy_dir: Option<PathBuf>,
     pub scan_mode: ScanMode,
     pub ml_threshold: f32,
     pub clamav_heuristics: bool,
@@ -57,7 +59,6 @@ impl Default for PipelineConfig {
             clamav_lib: None,
             clamav_db: None,
             hayabusa_dir: None,
-            detectiteasy_dir: None,
             scan_mode: ScanMode::default(),
             ml_threshold: 0.8,
             clamav_heuristics: false,
@@ -72,7 +73,6 @@ pub struct Pipeline {
     hash_scanner: Option<HashScanner>,
     yara_rules: Vec<(String, Rules)>,
     clamav: Option<ClamavScanner>,
-    detectiteasy: DetectItEasyScanner,
     hydradragonstatic_rules: Option<hydradragonstatic::rules::RuleSet>,
     excluded_yara_rules: HashSet<String>,
     pe_ml_model: Option<crate::ml::model::MalwareNet<InferBackend>>,
@@ -91,7 +91,6 @@ impl Pipeline {
         let yara_rules_dir = config.yara_rules_dir.clone();
         let clamav_lib = config.clamav_lib.clone();
         let clamav_db = config.clamav_db.clone();
-        let detectiteasy_dir = config.detectiteasy_dir.clone();
         let hydradragonstatic_rules_dir = config.hydradragonstatic_rules_dir.clone();
         let pe_ml_model_path = config.pe_ml_model_path.clone();
         let js_ml_model_path = config.js_ml_model_path.clone();
@@ -111,7 +110,7 @@ impl Pipeline {
             }
         }
 
-        let (trusted_signers, hash_scanner, yara_rules, clamav, detectiteasy, hydradragonstatic_rules, pe_ml_model, js_ml_model) =
+        let (trusted_signers, hash_scanner, yara_rules, clamav, hydradragonstatic_rules, pe_ml_model, js_ml_model) =
             std::thread::scope(|s| {
                 let t_signers = s.spawn(move || {
                     complist_path
@@ -147,9 +146,6 @@ impl Pipeline {
                     }
                 });
 
-                let t_die =
-                    s.spawn(move || DetectItEasyScanner::new(detectiteasy_dir.as_deref()));
-
                 let t_hds_rules = s.spawn(move || {
                     hydradragonstatic_rules_dir
                         .as_ref()
@@ -180,7 +176,6 @@ impl Pipeline {
                     t_hash.join().expect("hash_scanner loader panicked"),
                     t_yara.join().expect("yara_rules loader panicked"),
                     t_clamav.join().expect("clamav loader panicked"),
-                    t_die.join().expect("detectiteasy loader panicked"),
                     t_hds_rules.join().expect("hydradragonstatic rules loader panicked"),
                     t_pe_model.join().expect("pe_model loader panicked"),
                     t_js_model.join().expect("js_model loader panicked"),
@@ -193,7 +188,6 @@ impl Pipeline {
             hash_scanner,
             yara_rules,
             clamav,
-            detectiteasy,
             hydradragonstatic_rules,
             excluded_yara_rules,
             pe_ml_model,
@@ -569,39 +563,6 @@ impl Pipeline {
                     elapsed_ms: yara_elapsed_ms,
                 });
 
-                // --- DETECT-IT-EASY (lazy: only on YARA-X detection) ---
-                let die_result = if file_size <= MAX_DIE_FILE_SIZE {
-                    let t0 = Instant::now();
-                    let r = self.detectiteasy.scan_file(path);
-                    let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
-                    let detail = if !r.scan_ok {
-                        format!("unavailable: {}", r.scan_error.as_deref().unwrap_or("unknown error"))
-                    } else if r.is_plain_text {
-                        "plain text".into()
-                    } else if r.is_unknown {
-                        "unknown".into()
-                    } else {
-                        r.file_type.clone().unwrap_or_else(|| "identified".into())
-                    };
-                    engines.push(EngineResult { engine: "detectiteasy", verdict: Verdict::Clean, detail, elapsed_ms });
-                    Some(r)
-                } else {
-                    engines.push(EngineResult {
-                        engine: "detectiteasy",
-                        verdict: Verdict::Clean,
-                        detail: format!("skipped: file over 100 MiB ({file_size} bytes)"),
-                        elapsed_ms: None,
-                    });
-                    None
-                };
-
-                maybe_suppress_yara_only_unknown_binary(
-                    die_result.as_ref(),
-                    static_file_type.as_ref(),
-                    &mut engines,
-                    &mut yara_x_matches,
-                );
-
                 let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
                 if still_detected {
                     let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
@@ -692,47 +653,6 @@ fn load_ml_model(
         .load(bytes, &device)
         .ok()?;
     Some(crate::ml::model::MalwareNet::new(&config, &device).load_record(record))
-}
-
-fn maybe_suppress_yara_only_unknown_binary(
-    die_result: Option<&crate::detectiteasy::DetectItEasyResult>,
-    file_type: Option<&FileTypeInfo>,
-    engines: &mut Vec<EngineResult>,
-    yara_x_matches: &mut Vec<String>,
-) {
-    if yara_x_matches.is_empty() {
-        return;
-    }
-
-    let Some(file_type) = file_type else { return };
-    if file_type.is_plain_text || !file_type.is_binary { return }
-    if file_type.primary != "unknown" { return }
-    if file_type.is_broken_executable || file_type.is_broken_apk { return }
-
-    let only_yara_is_suspicious = engines.iter().all(|e| {
-        if e.engine == "yara_x" {
-            matches!(e.verdict, Verdict::Suspicious | Verdict::Abuse | Verdict::Malware)
-        } else {
-            matches!(e.verdict, Verdict::Clean | Verdict::Trusted)
-        }
-    });
-    if !only_yara_is_suspicious {
-        return;
-    }
-
-    let Some(die) = die_result else { return };
-    if !die.scan_ok || die.is_plain_text { return }
-
-    if die.is_unknown {
-        for e in engines.iter_mut().filter(|e| e.engine == "yara_x") {
-            e.verdict = Verdict::Clean;
-            e.detail = format!("suppressed yara-only unknown binary: {}", yara_x_matches.join(", "));
-        }
-        yara_x_matches.clear();
-        for e in engines.iter_mut().filter(|e| e.engine == "detectiteasy") {
-            e.detail = format!("DIE unknown — suppressed yara-only result: {}", e.detail);
-        }
-    }
 }
 
 pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {

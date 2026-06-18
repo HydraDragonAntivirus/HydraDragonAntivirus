@@ -17,11 +17,8 @@ indicatif = "0.18.4"
 # Static analysis
 hydradragonstatic = { path = "hydradragonstatic", default-features = false }
 
-# Detect-It-Easy (native Rust bindings)
-die = { path = "../die-rust-inspect" }
-
 # YARA-X
-yara-x = "1.17.0"
+yara-x = "1.18.0"
 
 # Bloom filter
 fastbloom = { version = "0.17", features = ["serde"] }

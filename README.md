@@ -412,6 +412,9 @@ HydraDragon uses a **Zero-Disk Rule Architecture** to prevent post-infection tam
 - https://github.com/swelljoe/clam-juice/blob/main/clam_juice.py
 - I used these projects to make antivirus non signature-bloat.
 
+- https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/HashDatabase
+- I used these projects for hash based detection.
+
 **Note 4:**.
 - You will need an internet connection to install. It's not an offline installer.
 - Installer note: when setup disables Hyper-V/VBS or asks for a reboot, that is only for this repo's Windows driver and testing compatibility.
