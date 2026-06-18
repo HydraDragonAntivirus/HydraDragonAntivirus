@@ -41,25 +41,216 @@ def build_cli_parser():
     parser.add_option("-s", "--subdirectories", help="Recurse into subdirectories", action="store_true")
     parser.add_option("-v", "--verboselog", help="log all rules and the associated file", action="store_true")
     # NEW: exclusion list option
-    parser.add_option("-x", "--exclude", action="store", default=None, dest="YARA_Exclude_Path", help="Path to a text file containing rule names to exclude/remove (one per line)")
+    parser.add_option("-x", "--exclude", action="store", default="excluded_yara_x_rules.txt", dest="YARA_Exclude_Path", help="Path to a text file containing rule names to exclude/remove, one per line. Lines may be a bare rule name (SEH__vba) or 'rule SEH__vba' - both are accepted. Default: excluded_yara_x_rules.txt")
     # NEW: output directory option
     parser.add_option("-o", "--output", action="store", default=None, dest="YARA_Output_Dir", help="Output directory for cleaned YARA files (copies processed files here instead of overwriting originals)")
+    # NEW: short scan mode
+    parser.add_option("", "--short-scan", help="Non-destructive: scan all rule names in the directory and report which entries in the exclusion list were NOT found anywhere (stale/typo'd exclude entries). Removes/excludes nothing.", action="store_true")
+    # NEW: content-based duplicate detection (ignores metadata, ignores rule name)
+    parser.add_option("", "--dedupe-content", help="Detect rules that are duplicates by CONTENT (strings:/condition:, ignoring metadata and ignoring rule name) across all scanned files. Report-only unless combined with --remove-content-dupes. When duplicates are found, the copy with the richest (most) metadata is preferred as the one to keep.", action="store_true")
+    parser.add_option("", "--remove-content-dupes", help="With --dedupe-content, actually remove the non-preferred duplicate copies (overwrites originals unless -o/--output is set). Removed rules are logged to removed_content_duplicates.yar.", action="store_true")
     return parser
 
 
 def load_exclude_list(filepath):
-    """Load rule names to exclude from a text file (one rule name per line)."""
+    """Load rule names to exclude from a text file (one rule name per line).
+    Accepts either a bare rule name ('SEH__vba') or a 'rule NAME' style line
+    ('rule SEH__vba') - the 'rule ' prefix is stripped either way."""
     exclude_set = set()
+    if not filepath or not os.path.isfile(filepath):
+        print(f"[!] Exclusion list not found: {filepath} (continuing with no exclusions)")
+        return exclude_set
     try:
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 rule_name = line.strip()
+                if not rule_name:
+                    continue
+                if rule_name.lower().startswith("rule "):
+                    rule_name = rule_name[5:].strip()
                 if rule_name:
                     exclude_set.add(rule_name)
         print(f"[*] Loaded {len(exclude_set)} rule(s) from exclusion list: {filepath}")
     except Exception as e:
         print(f"[!] Failed to load exclusion list: {e}")
     return exclude_set
+
+
+def extract_rule_names(lines):
+    """Lightweight, read-only pass that returns the set of rule names
+    (public and private) defined in a YARA file's lines. Used by
+    --short-scan so it can report on rule presence without touching
+    anything ProcessRule would otherwise modify or remove."""
+    names = set()
+    for line in lines:
+        nameDepth = 0
+        if line[:5] == "rule ":
+            nameDepth = 5
+        elif line[:13] == "private rule ":
+            nameDepth = 13
+        if nameDepth == 0:
+            continue
+        name = line[nameDepth:].rstrip("\n").rstrip("\r")
+        if name.endswith("{"):
+            name = name[:-1]
+        name = name.strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def extract_rule_blocks(lines):
+    """Split a YARA file's lines into per-rule blocks. A block runs from its
+    'rule '/'private rule ' declaration line up to (not including) the next
+    such line, or end of file - this mirrors how the rest of this script
+    already delimits rule boundaries (see ProcessRule above). Lines before
+    the first rule (imports, includes) are not part of any block."""
+    blocks = []
+    current = None
+    for line in lines:
+        nameDepth = 0
+        if line[:5] == "rule ":
+            nameDepth = 5
+        elif line[:13] == "private rule ":
+            nameDepth = 13
+        if nameDepth != 0:
+            if current is not None:
+                blocks.append(current)
+            name = line[nameDepth:]
+            name = name.split("{", 1)[0]
+            name = name.split(":", 1)[0]  # drop rule tags, e.g. 'rule foo : tag1 tag2'
+            name = name.strip().rstrip("\r")
+            current = {"name": name, "lines": [line]}
+            continue
+        if current is not None:
+            current["lines"].append(line)
+    if current is not None:
+        blocks.append(current)
+    return blocks
+
+
+def analyze_rule_block(block_lines):
+    """Return (meta_richness, body_key) for a single rule block.
+
+    meta_richness: count of non-blank, non-comment lines inside meta: - used
+    to decide which copy to KEEP when two rules are functionally identical
+    but carry different amounts of metadata. More metadata wins.
+
+    body_key: the rule's strings:/condition:/everything-after content with
+    metadata stripped out and whitespace normalized, used to detect 'same
+    rule in everything but name and metadata'. Two rules with an identical
+    body_key are content-duplicates."""
+    in_meta = False
+    meta_richness = 0
+    capturing_body = False
+    body_lines = []
+    for line in block_lines:
+        t = line.strip()
+        if t == "meta:":
+            in_meta = True
+            continue
+        if in_meta:
+            if t in ("strings:", "condition:") or t == "}" or t.startswith("}"):
+                in_meta = False
+            else:
+                if t and not t.startswith("//"):
+                    meta_richness += 1
+                continue
+        if t in ("strings:", "condition:"):
+            capturing_body = True
+        if capturing_body:
+            if t and not t.startswith("//") and not t.startswith("/*"):
+                body_lines.append(t)
+    body_key = "\n".join(body_lines)
+    return meta_richness, body_key
+
+
+def find_content_duplicates(file_paths):
+    """Pass 1 (read-only): read every candidate file once, group rule blocks
+    by normalized body. Returns (groups, file_lines_cache) where groups maps
+    body_key -> list of {filepath, name, meta_richness} dicts, and
+    file_lines_cache holds each file's lines so a later removal pass doesn't
+    need to re-read disk."""
+    groups = {}
+    file_lines_cache = {}
+    for fp in file_paths:
+        with open(fp, encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+        file_lines_cache[fp] = lines
+        for block in extract_rule_blocks(lines):
+            meta_richness, body_key = analyze_rule_block(block["lines"])
+            if not body_key:
+                continue  # empty/malformed rule body, nothing to compare
+            groups.setdefault(body_key, []).append({
+                "filepath": fp, "name": block["name"], "meta_richness": meta_richness
+            })
+    return groups, file_lines_cache
+
+
+def resolve_content_duplicates(groups):
+    """For every body_key shared by 2+ rules, keep the entry with the richest
+    metadata; the rest are marked for removal. Ties keep whichever entry was
+    encountered first (stable scan order), so results are deterministic.
+    Returns (remove_by_file, dup_report) where remove_by_file maps
+    filepath -> set of rule names to drop, and dup_report is a list of
+    (winner, losers) tuples for printing/logging."""
+    remove_by_file = {}
+    dup_report = []
+    for body_key, entries in groups.items():
+        if len(entries) < 2:
+            continue
+        winner = max(entries, key=lambda e: e["meta_richness"])
+        losers = [e for e in entries if e is not winner]
+        dup_report.append((winner, losers))
+        for loser in losers:
+            remove_by_file.setdefault(loser["filepath"], set()).add(loser["name"])
+    return remove_by_file, dup_report
+
+
+def remove_named_rule_blocks(lines, names_to_remove):
+    """Stream through a file's lines, dropping any rule block whose declared
+    name is in names_to_remove. Block boundaries are delimited the same way
+    as extract_rule_blocks. Returns (kept_text, removed_text)."""
+    kept = []
+    removed = []
+    excluding = False
+    for line in lines:
+        nameDepth = 0
+        if line[:5] == "rule ":
+            nameDepth = 5
+        elif line[:13] == "private rule ":
+            nameDepth = 13
+        if nameDepth != 0:
+            name = line[nameDepth:]
+            name = name.split("{", 1)[0]
+            name = name.split(":", 1)[0]
+            name = name.strip().rstrip("\r")
+            excluding = name in names_to_remove
+        if excluding:
+            removed.append(line)
+        else:
+            kept.append(line)
+    return "".join(kept), "".join(removed)
+
+
+def apply_content_dedupe_removal(remove_by_file, file_lines_cache, output_dir, current_dir):
+    """Pass 2: actually rewrite files to drop the losing duplicate rule
+    blocks. Removed rules are appended to removed_content_duplicates.yar."""
+    removed_log_text = ""
+    for fp, names_to_remove in remove_by_file.items():
+        lines = file_lines_cache[fp]
+        kept_text, removed_text = remove_named_rule_blocks(lines, names_to_remove)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            out_path = os.path.join(output_dir, os.path.basename(fp))
+            logToFile(out_path, kept_text, True, "w")
+        else:
+            logToFile(fp, kept_text, True, "w")
+        if removed_text:
+            removed_log_text += removed_text + "\n"
+        print(f"  [content-dedupe] {fp}: removed {len(names_to_remove)} duplicate rule(s): {', '.join(sorted(names_to_remove))}")
+    if removed_log_text:
+        logToFile(os.path.join(current_dir, "removed_content_duplicates.yar"), removed_log_text, False, "a")
 
 
 def ProcessRule(lstRuleFile, strYARApath, strOutPath, output_dir=None):
@@ -216,6 +407,9 @@ indexPath = ""
 outputPath = ""
 baseDirectory = ""
 outputDir = ""
+boolShortScan = False
+boolDedupeContent = False
+boolRemoveContentDupes = False
 setExcludeRules = set()   # NEW: holds excluded rule names
 dictExclude = {"deprecated", "index.yar", "_index", "index_"}
 strCurrentDirectory = os.getcwd()
@@ -249,9 +443,20 @@ if opts.modify:
 if opts.YARA_File_Path:
     outputPath = opts.YARA_File_Path
 
-# NEW: load exclusion list
-if opts.YARA_Exclude_Path:
-    setExcludeRules = load_exclude_list(opts.YARA_Exclude_Path)
+# NEW: load exclusion list (defaults to excluded_yara_x_rules.txt)
+setExcludeRules = load_exclude_list(opts.YARA_Exclude_Path)
+
+# NEW: short scan mode
+if opts.short_scan:
+    boolShortScan = True
+    print("[*] Short scan mode: read-only, will report exclusion entries that were never found")
+
+# NEW: content-based duplicate detection
+if opts.dedupe_content:
+    boolDedupeContent = True
+    print("[*] Content-dedupe mode: detecting rules identical in strings/condition (ignoring metadata)")
+if opts.remove_content_dupes:
+    boolRemoveContentDupes = True
 
 # NEW: output directory
 if opts.YARA_Output_Dir:
@@ -271,6 +476,7 @@ else:
     parentDir = {strYARADirectory}
 
 print(parentDir)
+foundRuleNames = set()
 for scanDirs in parentDir:
     for i in os.listdir(scanDirs):
         if i.endswith(".yar") or i.endswith(".yara"):
@@ -281,6 +487,9 @@ for scanDirs in parentDir:
                 print(i)
                 with open(scanDirs + "/" + i, encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
+                if boolShortScan:
+                    foundRuleNames.update(extract_rule_names(lines))
+                else:
                     ProcessRule(lines, scanDirs + "/" + i, outputPath, outputDir if outputDir else None)
             else:
                 boolIndexExclude = False
@@ -294,6 +503,79 @@ for scanDirs in parentDir:
                     boolNewIndex = False
         else:
             continue
+
+if boolShortScan:
+    missing = sorted(setExcludeRules - foundRuleNames)
+    matched = setExcludeRules & foundRuleNames
+    print(f"\n[SHORT SCAN] Exclusion list entries: {len(setExcludeRules)}")
+    print(f"[SHORT SCAN] Found in scanned rules : {len(matched)}")
+    print(f"[SHORT SCAN] Missing (stale/typo'd) : {len(missing)}")
+    reportLines = [
+        "Short scan report - " + str(datetime.datetime.now()),
+        f"Directory scanned: {strYARADirectory}",
+        f"Exclusion list: {opts.YARA_Exclude_Path}",
+        f"Total exclusion entries: {len(setExcludeRules)}",
+        f"Matched (will be removed by a normal run): {len(matched)}",
+        f"Missing (not found in any scanned .yar/.yara file):",
+    ]
+    if missing:
+        for name in missing:
+            print(f"  [MISSING] {name}")
+            reportLines.append(f"  {name}")
+    else:
+        print("  (none - every exclusion entry was found)")
+        reportLines.append("  (none - every exclusion entry was found)")
+    logToFile(strCurrentDirectory + "/short_scan_report.txt", "\n".join(reportLines) + "\n", True, "w")
+    print(f"\n[*] Full report written to {strCurrentDirectory}/short_scan_report.txt")
+
+if boolDedupeContent:
+    print("\n[*] Scanning for content-duplicate rules (ignoring metadata)...")
+    candidate_files = []
+    for scanDirs in parentDir:
+        for i in os.listdir(scanDirs):
+            if i.endswith(".yar") or i.endswith(".yara"):
+                candidate_files.append(scanDirs + "/" + i)
+
+    groups, file_lines_cache = find_content_duplicates(candidate_files)
+    remove_by_file, dup_report = resolve_content_duplicates(groups)
+
+    reportLines = [
+        "Content-dedupe report - " + str(datetime.datetime.now()),
+        f"Directory scanned: {strYARADirectory}",
+        f"Files scanned: {len(candidate_files)}",
+        f"Duplicate group(s) found: {len(dup_report)}",
+        f"Mode: {'REMOVED' if boolRemoveContentDupes else 'REPORT-ONLY (pass --remove-content-dupes to actually remove)'}",
+        "",
+    ]
+    if not dup_report:
+        print("[*] No content-duplicate rules found.")
+        reportLines.append("(no content-duplicate rules found)")
+    else:
+        print(f"[*] Found {len(dup_report)} group(s) of content-duplicate rules:")
+        for winner, losers in dup_report:
+            keep_line = f"KEEP   {winner['name']}  ({winner['filepath']}, {winner['meta_richness']} meta line(s))"
+            print(f"  {keep_line}")
+            reportLines.append(keep_line)
+            for loser in losers:
+                tag = "REMOVED" if boolRemoveContentDupes else "DUPLICATE"
+                loser_line = f"  {tag}  {loser['name']}  ({loser['filepath']}, {loser['meta_richness']} meta line(s))"
+                print(f"  {loser_line}")
+                reportLines.append(loser_line)
+            reportLines.append("")
+
+    logToFile(strCurrentDirectory + "/content_dedupe_report.txt", "\n".join(reportLines) + "\n", True, "w")
+    print(f"[*] Full report written to {strCurrentDirectory}/content_dedupe_report.txt")
+
+    if boolRemoveContentDupes:
+        if remove_by_file:
+            apply_content_dedupe_removal(remove_by_file, file_lines_cache, outputDir if outputDir else None, strCurrentDirectory)
+            print(f"[*] Removed duplicates logged to {strCurrentDirectory}/removed_content_duplicates.yar")
+        else:
+            print("[*] Nothing to remove.")
+    elif dup_report:
+        print("[*] Report-only: nothing was modified. Re-run with --remove-content-dupes to remove the duplicates.")
+
+
 
 logToFile(strCurrentDirectory + "/duplicate.log", "Completed " + str(datetime.datetime.now()) + "\n", False, "a")
 print("[*] Done. See duplicate.log for details.")

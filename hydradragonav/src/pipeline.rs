@@ -619,7 +619,7 @@ impl Pipeline {
                 });
             } else if !all_matches.is_empty() {
                 yara_x_matches = all_matches.clone();
-                let yara_verdict = if all_matches.iter().any(|m| m.contains("_PUA_")) {
+                let yara_verdict = if all_matches.iter().any(|m| m.contains("_PUA_") || m.starts_with("PUA_")) {
                     Verdict::Pua
                 } else {
                     Verdict::Malware

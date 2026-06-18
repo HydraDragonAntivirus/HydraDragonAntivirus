@@ -1,0 +1,20 @@
+[package]
+name = "hydradragonheur"
+version = "0.1.0"
+edition = "2024"
+description = "Heuristic engine for HydraDragon — Unicorn-based PE CPU emulation and behavioral heuristics, ported from TinyAntivirus"
+license = "GPL-2.0-or-later"
+
+[dependencies]
+# CPU emulation (TinyAntivirus used Unicorn for PE unpacking / behavioral analysis)
+unicorn-engine = "2.1.5"
+
+# PE parsing — shared choice with hydradragonav for consistency
+goblin = "0.10.5"
+
+# Error handling
+thiserror = "2.0.18"
+log = "0.4.32"
+
+[dev-dependencies]
+tempfile = "3.27.0"
