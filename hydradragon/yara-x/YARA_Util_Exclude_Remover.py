@@ -46,6 +46,8 @@ def build_cli_parser():
     parser.add_option("-o", "--output", action="store", default=None, dest="YARA_Output_Dir", help="Output directory for cleaned YARA files (copies processed files here instead of overwriting originals)")
     # NEW: short scan mode
     parser.add_option("", "--short-scan", help="Non-destructive: scan all rule names in the directory and report which entries in the exclusion list were NOT found anywhere (stale/typo'd exclude entries). Removes/excludes nothing.", action="store_true")
+    # NEW: short scan THEN remove, scoped only to confirmed matches
+    parser.add_option("", "--short-scan-remove", help="Two-phase removal: first does a read-only pre-scan to find which exclusion-list entries actually exist in the scanned files (same check as --short-scan), then removes ONLY those confirmed matches. Stale/typo'd entries are skipped instead of being checked uselessly on every rule. Writes short_scan_remove_report.txt listing exactly what was targeted.", action="store_true")
     # NEW: content-based duplicate detection (ignores metadata, ignores rule name)
     parser.add_option("", "--dedupe-content", help="Detect rules that are duplicates by CONTENT (strings:/condition:, ignoring metadata and ignoring rule name) across all scanned files. Report-only unless combined with --remove-content-dupes. When duplicates are found, the copy with the richest (most) metadata is preferred as the one to keep.", action="store_true")
     parser.add_option("", "--remove-content-dupes", help="With --dedupe-content, actually remove the non-preferred duplicate copies (overwrites originals unless -o/--output is set). Removed rules are logged to removed_content_duplicates.yar.", action="store_true")
@@ -408,6 +410,7 @@ outputPath = ""
 baseDirectory = ""
 outputDir = ""
 boolShortScan = False
+boolShortScanRemove = False
 boolDedupeContent = False
 boolRemoveContentDupes = False
 setExcludeRules = set()   # NEW: holds excluded rule names
@@ -451,6 +454,11 @@ if opts.short_scan:
     boolShortScan = True
     print("[*] Short scan mode: read-only, will report exclusion entries that were never found")
 
+# NEW: short-scan-remove (validate then remove only confirmed matches)
+if opts.short_scan_remove:
+    boolShortScanRemove = True
+    print("[*] Short-scan-remove mode: validating exclusion list against actual content before removing")
+
 # NEW: content-based duplicate detection
 if opts.dedupe_content:
     boolDedupeContent = True
@@ -474,6 +482,36 @@ if boolRecurse:
     parentDir.sort()
 else:
     parentDir = {strYARADirectory}
+
+if boolShortScanRemove:
+    print("[*] Pre-scan: collecting all rule names to confirm which exclusion entries actually exist...")
+    preScanFound = set()
+    for scanDirs in parentDir:
+        for i in os.listdir(scanDirs):
+            if i.endswith(".yar") or i.endswith(".yara"):
+                with open(scanDirs + "/" + i, encoding="utf-8", errors="ignore") as f:
+                    preScanFound.update(extract_rule_names(f.readlines()))
+    matchedForRemoval = setExcludeRules & preScanFound
+    missingForRemoval = setExcludeRules - preScanFound
+    print(f"[SHORT SCAN REMOVE] Exclusion list entries           : {len(setExcludeRules)}")
+    print(f"[SHORT SCAN REMOVE] Confirmed present, will be removed: {len(matchedForRemoval)}")
+    print(f"[SHORT SCAN REMOVE] Stale/typo'd, skipped untouched   : {len(missingForRemoval)}")
+    reportLines = [
+        "Short scan remove report - " + str(datetime.datetime.now()),
+        f"Directory scanned: {strYARADirectory}",
+        f"Exclusion list: {opts.YARA_Exclude_Path}",
+        f"Total exclusion entries: {len(setExcludeRules)}",
+        f"Confirmed present, targeted for removal: {len(matchedForRemoval)}",
+    ]
+    for name in sorted(matchedForRemoval):
+        reportLines.append(f"  {name}")
+    reportLines.append(f"Stale/typo'd, skipped untouched: {len(missingForRemoval)}")
+    logToFile(strCurrentDirectory + "/short_scan_remove_report.txt", "\n".join(reportLines) + "\n", True, "w")
+    print(f"[*] Pre-scan report written to {strCurrentDirectory}/short_scan_remove_report.txt")
+    # Narrow the active exclusion set so the removal pass below only ever
+    # acts on confirmed rule names - the 1765 stale entries are never
+    # looked up per-rule during the real pass.
+    setExcludeRules = matchedForRemoval
 
 print(parentDir)
 foundRuleNames = set()

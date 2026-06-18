@@ -17,7 +17,7 @@ if not exist "%~1" (
     exit /b 1
 )
 echo [YARA-X] %~1 -^> %~2
-"%YARA_X%" compile -m "%~1" --output  "%~2" :: Metadata is heavy
+"%YARA_X%" compile "%~1" --output  "%~2" :: Metadata is heavy
 if errorlevel 1 exit /b %ERRORLEVEL%
 if not exist "%~2" (
     echo [ERROR] Missing output file after yr.exe: %~2
