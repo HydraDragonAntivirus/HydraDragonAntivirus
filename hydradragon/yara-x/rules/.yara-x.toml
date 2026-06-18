@@ -1,0 +1,6 @@
+[fmt]
+rule.indent_section_headers = true
+rule.indent_section_contents = true
+rule.indent_spaces = 2
+meta.align_values = false
+patterns.align_values = false
