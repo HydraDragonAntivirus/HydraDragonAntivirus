@@ -1,4 +1,4 @@
-﻿name: HydraDragonStatic Trusted Signer Rules
+name: HydraDragonStatic Trusted Signer Rules
 version: "1"
 rules:
   - id: trusted-signer-001
@@ -780,4 +780,3 @@ rules:
       - type: signature_signer_contains
         value: "ZTE CORPORATION"
         nocase: true
-
