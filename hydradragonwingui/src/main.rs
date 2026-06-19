@@ -1,5 +1,8 @@
 #![cfg(windows)]
 #![windows_subsystem = "windows"]
+// Every function here is `unsafe fn` wrapping raw Win32/COM calls; the whole body
+// is the unsafe surface, so we don't double-wrap each call (edition-2024 lint).
+#![allow(unsafe_op_in_unsafe_fn)]
 
 //! Native Win32 GUI for the HydraDragon portable antivirus. Built from scratch
 //! on the Win32 API (window class + message loop + native controls) with the
@@ -13,17 +16,16 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use hydradragonav::pipeline::{Pipeline, PipelineConfig};
 
 use windows::core::{w, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{GetSysColorBrush, COLOR_BTNFACE};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{GetSysColorBrush, UpdateWindow, COLOR_BTNFACE};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_INPROC_SERVER,
     COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{InitCommonControlsEx, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX};
-use windows::Win32::UI::Shell::Common::IShellItem;
 use windows::Win32::UI::Shell::{
-    FileOpenDialog, IFileOpenDialog, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    FileOpenDialog, IFileOpenDialog, IShellItem, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -111,7 +113,7 @@ fn main() {
             520,
             None,
             None,
-            hinst.into(),
+            HINSTANCE::from(hinst),
             None,
         )
         .expect("CreateWindow");
@@ -284,12 +286,7 @@ unsafe fn layout(hwnd: HWND) {
 }
 
 unsafe fn child(parent: HWND, id: usize) -> Option<HWND> {
-    let h = GetDlgItem(parent, id as i32);
-    if h.0.is_null() {
-        None
-    } else {
-        Some(h)
-    }
+    GetDlgItem(parent, id as i32).ok().filter(|h| !h.0.is_null())
 }
 
 unsafe fn append_line(edit: HWND, text: &str) {

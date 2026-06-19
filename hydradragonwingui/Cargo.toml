@@ -14,7 +14,7 @@ path = "src/main.rs"
 hydradragonav = { path = "../hydradragonav" }
 
 # Native Win32/COM GUI — controls, message loop, shell file dialog.
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Controls",
