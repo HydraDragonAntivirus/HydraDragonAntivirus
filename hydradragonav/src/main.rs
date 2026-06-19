@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use hydradragonav::disinfector::{self, DisinfectOutcome};
+use hydradragonav::remediation;
 use hydradragonav::pipeline::scan_hayabusa_once;
 use hydradragonav::pipeline::{Pipeline, PipelineConfig, ScanMode};
 use hydradragonav::registry_scanner::RegistryScanner;
@@ -135,6 +136,22 @@ enum Command {
 
     /// Print engine versions
     Version,
+
+    /// Manage quarantined files (XOR-encoded, recoverable)
+    Quarantine {
+        #[command(subcommand)]
+        action: QuarantineAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum QuarantineAction {
+    /// List quarantined files
+    List,
+    /// Restore a quarantined file to its original location (by id)
+    Restore { id: String },
+    /// Permanently delete a quarantined file (by id)
+    Delete { id: String },
 }
 
 fn default_paths() -> (
@@ -624,6 +641,49 @@ fn main() {
             None => eprintln!("[Hayabusa] hayabusa_dir not configured, skipping."),
         },
         Command::Version => println!("{}", env!("CARGO_PKG_VERSION")),
+        Command::Quarantine { action } => cmd_quarantine(action, &config.db),
+    }
+}
+
+fn cmd_quarantine(action: &QuarantineAction, db_path: &std::path::Path) {
+    let dir = db_path
+        .parent()
+        .map(|p| p.join("quarantine"))
+        .unwrap_or_else(|| PathBuf::from("quarantine"));
+    let q = hydradragonav::quarantine::Quarantine::new(&dir);
+    match action {
+        QuarantineAction::List => {
+            let items = q.list();
+            if items.is_empty() {
+                println!("No quarantined files. (store: {})", dir.join("store").display());
+                return;
+            }
+            println!("{} quarantined file(s):", items.len());
+            for e in items {
+                println!(
+                    "  {}\n    original : {}\n    detection: {}   size: {} bytes   sha256: {}",
+                    e.id,
+                    e.original_path.display(),
+                    e.detection,
+                    e.size,
+                    e.sha256
+                );
+            }
+        }
+        QuarantineAction::Restore { id } => match q.restore(id) {
+            Ok(p) => println!("Restored {id} -> {}", p.display()),
+            Err(e) => {
+                eprintln!("Restore failed for {id}: {e}");
+                std::process::exit(1);
+            }
+        },
+        QuarantineAction::Delete { id } => match q.delete(id) {
+            Ok(()) => println!("Permanently deleted {id}"),
+            Err(e) => {
+                eprintln!("Delete failed for {id}: {e}");
+                std::process::exit(1);
+            }
+        },
     }
 }
 
@@ -689,9 +749,67 @@ fn offer_disinfection(
                         eprintln!("[Disinfect] FAILED for {}: {reason}", path.display())
                     }
                 }
+                // After cleaning the file, hunt down and remove its traces.
+                offer_trace_removal(path, &quarantine_dir, &stdin);
             }
             _ => eprintln!("[Disinfect] skipped {}", path.display()),
         }
+    }
+}
+
+/// Find a malicious file's traces (autorun registry, services, scheduled tasks,
+/// prefetch, startup shortcuts, uninstall entries) and offer to remove them.
+fn offer_trace_removal(
+    path: &std::path::Path,
+    quarantine_dir: &std::path::Path,
+    stdin: &std::io::Stdin,
+) {
+    use std::io::Write;
+
+    let traces = remediation::find_traces(path);
+    if traces.is_empty() {
+        eprintln!(
+            "[Remediate] no registry/service/task/prefetch/startup traces found for {}",
+            path.display()
+        );
+        return;
+    }
+
+    eprintln!(
+        "[Remediate] {} trace(s) found for {}:",
+        traces.len(),
+        path.display()
+    );
+    for t in &traces {
+        eprintln!("  [{}] {}", t.category, t.description);
+    }
+    eprint!("[Remediate] Remove these traces? [a=remove all, s=skip] (admin rights needed): ");
+    let _ = std::io::stderr().flush();
+
+    let mut line = String::new();
+    if stdin.read_line(&mut line).unwrap_or(0) == 0 {
+        eprintln!("\n[Remediate] no input; skipping trace removal.");
+        return;
+    }
+    match line.trim().to_ascii_lowercase().as_str() {
+        "a" | "all" | "y" | "yes" => {
+            eprintln!("[Remediate] creating a Windows System Restore Point before changes...");
+            match remediation::create_restore_point("HydraDragon malware remediation") {
+                Ok(_) => eprintln!("[Remediate] System Restore Point created."),
+                Err(e) => eprintln!(
+                    "[Remediate] WARNING: restore point not created ({e}); per-key .reg backups are still saved before each registry deletion."
+                ),
+            }
+            for t in &traces {
+                match remediation::apply(t, quarantine_dir) {
+                    Ok(msg) => eprintln!("[Remediate] {msg}"),
+                    Err(e) => {
+                        eprintln!("[Remediate] FAILED [{}] {}: {e}", t.category, t.description)
+                    }
+                }
+            }
+        }
+        _ => eprintln!("[Remediate] skipped trace removal."),
     }
 }
 

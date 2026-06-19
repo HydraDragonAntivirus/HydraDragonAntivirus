@@ -233,42 +233,16 @@ pub fn neutralize_arenas(path: &Path, arenas: &[(usize, usize)]) -> io::Result<(
     Ok((neutralized, backup))
 }
 
-/// Move `path` into `quarantine_dir` (created if needed). Returns the new path.
+/// Quarantine `path`: XOR-encode it into `quarantine_dir` (recoverable via the
+/// quarantine manager) and remove the original. Returns the stored `.quar` path.
 pub fn quarantine_file(path: &Path, quarantine_dir: &Path) -> io::Result<PathBuf> {
-    std::fs::create_dir_all(quarantine_dir)?;
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("quarantined");
-    let dest = unique_path(quarantine_dir.join(format!("{file_name}.quarantined")));
-
-    // Try a plain rename; fall back to copy+remove across volumes.
-    match std::fs::rename(path, &dest) {
-        Ok(()) => Ok(dest),
-        Err(_) => {
-            std::fs::copy(path, &dest)?;
-            std::fs::remove_file(path)?;
-            Ok(dest)
-        }
-    }
+    let q = crate::quarantine::Quarantine::new(quarantine_dir);
+    let entry = q.quarantine(path, "quarantined")?;
+    Ok(q.data_file(&entry.id))
 }
 
 fn backup_path(path: &Path) -> PathBuf {
     let mut os = path.as_os_str().to_owned();
     os.push(".bak");
     PathBuf::from(os)
-}
-
-fn unique_path(candidate: PathBuf) -> PathBuf {
-    if !candidate.exists() {
-        return candidate;
-    }
-    let mut index = 1u32;
-    loop {
-        let alt = PathBuf::from(format!("{}.{index}", candidate.display()));
-        if !alt.exists() {
-            return alt;
-        }
-        index += 1;
-    }
 }

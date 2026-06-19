@@ -258569,3 +258569,395 @@ rule aspack_108a {
     $a0
 }
 
+rule IEuser_author_doc {
+  meta:
+    id             = "6KWw23emrB9UUOTTLuFIe9"
+    fingerprint    = "08cd3ae7218fba3334965f671c82ffcda47ffe510545d7859ef66e79619a1cbe"
+    version        = "1.0"
+    creation_date  = "2020-12-01"
+    first_imported = "2021-12-30"
+    last_modified  = "2021-12-30"
+    status         = "RELEASED"
+    sharing        = "TLP:WHITE"
+    source         = "BARTBLAZE"
+    author         = "@bartblaze"
+    description    = "Identifies Microsoft Word documents created with the default user on IE11 test VMs, more likely to be suspicious."
+    category       = "MALWARE"
+    reference      = "https://developer.microsoft.com/en-us/microsoft-edge/tools/vms/"
+
+  strings:
+    $doc    = { D0 CF 11 E0 }
+    $ieuser = { 49 00 45 00 55 00 73 00 65 00 72 }
+
+  condition:
+    $doc at 0 and $ieuser
+}
+
+rule KeyBase {
+  meta:
+    id             = "5cV9wZM0UzNuIyF7OK1Tpk"
+    fingerprint    = "d959211abb79a5b0e4e1e2e8c30bc6963876dcbe929e9099085dd2cc75dce730"
+    version        = "1.0"
+    creation_date  = "2019-02-01"
+    first_imported = "2021-12-30"
+    last_modified  = "2021-12-30"
+    status         = "RELEASED"
+    sharing        = "TLP:WHITE"
+    source         = "BARTBLAZE"
+    author         = "@bartblaze"
+    description    = "Identifies KeyBase aka Kibex."
+    category       = "MALWARE"
+    malware        = "KEYBASE"
+    hash           = "cafe2d12fb9252925fbd1acb9b7648d6"
+
+  strings:
+    $s1 = " End:]" ascii wide
+    $s2 = "Keystrokes typed:" ascii wide
+    $s3 = "Machine Time:" ascii wide
+    $s4 = "Text:" ascii wide
+    $s5 = "Time:" ascii wide
+    $s6 = "Window title:" ascii wide
+    $x1 = "&application=" ascii wide
+    $x2 = "&clipboardtext=" ascii wide
+    $x3 = "&keystrokestyped=" ascii wide
+    $x4 = "&link=" ascii wide
+    $x5 = "&username=" ascii wide
+    $x6 = "&windowtitle=" ascii wide
+    $x7 = "=drowssap&" ascii wide
+    $x8 = "=emitenihcam&" ascii wide
+
+  condition:
+    uint16(0) == 0x5a4d and (5 of ($s*) or 6 of ($x*) or (3 of ($s*) and 3 of ($x*)))
+}
+
+rule RDPWrap {
+  meta:
+    id             = "5t73wrjJYkVLaE3Mn4a6sp"
+    fingerprint    = "f16d06fc8f81dcae5727af12a84956fc7b3c2aab120d6f4eaac097f7452e71d4"
+    version        = "1.0"
+    creation_date  = "2020-05-01"
+    first_imported = "2021-12-30"
+    last_modified  = "2022-11-04"
+    status         = "RELEASED"
+    sharing        = "TLP:WHITE"
+    source         = "BARTBLAZE"
+    author         = "@bartblaze"
+    description    = "Identifies RDP Wrapper, sometimes used by attackers to maintain persistence."
+    category       = "MALWARE"
+    reference      = "https://github.com/stascorp/rdpwrap"
+
+  strings:
+    $ = "rdpwrap.dll" ascii wide
+    $ = "rdpwrap.ini" ascii wide
+    $ = "RDP Wrapper" ascii wide
+    $ = "RDPWInst" ascii wide
+    $ = "Stas'M Corp." ascii wide
+    $ = "stascorp" ascii wide
+
+  condition:
+    2 of them
+}
+
+rule AlienSpy {
+  meta:
+    author   = "Kevin Breen"
+    ref      = "http://malwareconfig.com/stats/AlienSpy"
+    maltype  = "Remote Access Trojan"
+    filetype = "jar"
+
+  strings:
+    $PK = "PK"
+    $MF = "META-INF/MANIFEST.MF"
+
+    $a1 = "a.txt"
+    $a2 = "b.txt"
+    $a3 = "Main.class"
+
+    $b1 = "ID"
+    $b2 = "Main.class"
+    $b3 = "plugins/Server.class"
+
+    $c1 = "resource/password.txt"
+    $c2 = "resource/server.dll"
+
+    $d1 = "java/stubcito.opp"
+    $d2 = "java/textito.isn"
+
+    $e1 = "java/textito.text"
+    $e2 = "java/resources.xsx"
+
+    $f1 = "amarillo/asdasd.asd"
+    $f2 = "amarillo/adqwdqwd.asdwf"
+
+    $g1 = "config/config.perl"
+    $g2 = "main/Start.class"
+
+    $o1 = "config/config.ini"
+    $o2 = "windows/windows.ini"
+    $o3 = "components/linux.plsk"
+    $o4 = "components/manifest.ini"
+    $o5 = "components/mac.hwid"
+
+  condition:
+    $PK at 0 and $MF and
+    (all of ($a*) or all of ($b*) or all of ($c*) or all of ($d*) or all of ($e*) or all of ($f*) or all of ($g*) or any of ($o*))
+}
+
+rule BumbleBeeLoader {
+  meta:
+    author       = "enzo & kevoreilly"
+    description  = "BumbleBee Loader"
+    cape_options = "coverage-modules=gdiplus,ntdll-protect=0"
+
+  strings:
+    $str_set       = { C7 ?? 53 65 74 50 }
+    $str_path      = { C7 4? 04 61 74 68 00 }
+    $openfile      = { 4D 8B C? [0-70] 4C 8B C? [0-70] 41 8B D? [0-70] 4? 8B C? [0-70] FF D? }
+    $createsection = { 89 44 24 20 FF 93 [2] 00 00 80 BB [2] 00 00 00 8B F? 74 }
+    $hook          = { 48 85 C9 74 20 48 85 D2 74 1B 4C 8B C9 45 85 C0 74 13 48 2B D1 42 8A 04 0A 41 88 01 49 FF C1 41 83 E8 01 75 F0 48 8B C1 C3 }
+    $iternaljob    = "IternalJob"
+
+  condition:
+    uint16(0) == 0x5A4D and 2 of them
+}
+
+rule UPX {
+  meta:
+    author       = "kevoreilly"
+    description  = "UPX dump on OEP (original entry point)"
+    cape_options = "bp0=$upx32+9,bp0=$upx64+11,action0=step2oep"
+
+  strings:
+    $upx32 = { 6A 00 39 C4 75 FA 83 EC ?? E9 }
+    $upx64 = { 6A 00 48 39 C4 75 F9 48 83 EC ?? E9 }
+
+  condition:
+    uint16(0) == 0x5A4D and any of them
+}
+
+rule Zloader {
+  meta:
+    author       = "kevoreilly"
+    description  = "Zloader API Spam Bypass"
+    cape_options = "bp0=$trap1-5,action0=hooks:0,bp1=$traps-108,action1=jmp:15,bp2=$traps-88,action2=hooks:1,count=0"
+
+  strings:
+    $trap1 = { 81 F7 4C 01 00 00 8D B4 37 [2] FF FF 31 FE 69 FE 95 03 00 00 E8 [4] 31 FE 0F AF FE 0F AF FE E8 }
+    $traps = { 6A 44 53 E8 [2] FF FF 83 C4 08 8D 85 ?? FF FF FF C7 85 ?? FF FF FF 44 00 00 00 50 }
+
+  condition:
+    uint16(0) == 0x5A4D and any of them
+}
+
+rule loader_win_bumblebee {
+  meta:
+    author                    = "SEKOIA.IO"
+    description               = "Find BumbleBee samples based on specific strings"
+    date                      = "2022-06-02"
+    yarahub_author_twitter    = "@sekoia_io"
+    yarahub_reference_link    = "https://blog.sekoia.io/bumblebee-a-new-trendy-loader-for-initial-access-brokers/"
+    yarahub_reference_md5     = "6d58437232ebab24d810270096e6e20b"
+    yarahub_uuid              = "8fd795c7-6896-498c-a892-de9da6427b60"
+    yarahub_license           = "CC BY 4.0"
+    yarahub_rule_matching_tlp = "TLP:WHITE"
+    yarahub_rule_sharing_tlp  = "TLP:WHITE"
+    malpedia_family           = "win.bumblebee"
+
+  strings:
+    $str0 = { 5a 00 3a 00 5c 00 68 00 6f 00 6f 00 6b 00 65 00 72 00 32 00 5c 00 43 00 6f 00 6d 00 6d 00 6f 00 6e 00 5c 00 6d 00 64 00 35 00 2e 00 63 00 70 00 70 00 }  // Z:\hooker2\Common\md5.cpp
+    $str1 = "/gates" ascii
+    $str2 = "3C29FEA2-6FE8-4BF9-B98A-0E3442115F67" wide
+
+  condition:
+    uint16be(0) == 0x4d5a and all of them
+}
+
+rule SUSP_Doc_WordXMLRels_May22 {
+  meta:
+    description               = "Detects a suspicious pattern in docx document.xml.rels file as seen in CVE-2022-30190 / Follina exploitation"
+    author                    = "Tobias Michalski, Christian Burkard, Wojciech Cieslak"
+    date                      = "2022-05-30"
+    yarahub_reference_md5     = "5f15a9b76ad6ba5229cb427ad7c7a4f6"
+    yarahub_uuid              = "a9aad367-682e-440c-8732-dc414274b5c3"
+    yarahub_license           = "CC0 1.0"
+    yarahub_rule_matching_tlp = "TLP:WHITE"
+    yarahub_rule_sharing_tlp  = "TLP:WHITE"
+    techniques                = "File and Directory"
+    modified                  = "2022-06-02"
+    reference                 = "https://doublepulsar.com/follina-a-microsoft-office-code-execution-vulnerability-1a47fce5629e"
+    hash                      = "62f262d180a5a48f89be19369a8425bec596bc6a02ed23100424930791ae3df0"
+    score                     = 70
+
+  strings:
+    $a1 = "<Relationships" ascii
+    $a2 = "TargetMode=\"External\"" ascii
+
+    $x1 = ".html!" ascii
+    $x2 = ".htm!" ascii
+
+  condition:
+    filesize < 50KB
+    and all of ($a*)
+    and 1 of ($x*)
+}
+
+rule netcat {
+  meta:
+    author  = "@tylabs"
+    comment = "tool"
+
+  strings:
+    $a = "Failed to create ReadShell session thread, error = %s"
+    $b = "Failed to create shell stdout pipe, error = %s"
+
+  condition:
+    all of them
+}
+
+rule Generic_Phishing_PDF {
+  meta:
+    id             = "6iE0XEqqhVGNED6Z8xIMr1"
+    fingerprint    = "f3f31ec9651ee41552d41dbd6650899d7a33beea46ed1c3329c3bbd023fe128e"
+    version        = "1.0"
+    creation_date  = "2019-03-01"
+    first_imported = "2021-12-30"
+    last_modified  = "2021-12-30"
+    status         = "RELEASED"
+    sharing        = "TLP:WHITE"
+    source         = "BARTBLAZE"
+    author         = "@bartblaze"
+    description    = "Identifies generic phishing PDFs."
+    category       = "MALWARE"
+    reference      = "https://bartblaze.blogspot.com/2019/03/analysing-massive-office-365-phishing.html"
+
+  strings:
+    $pdf = "%PDF"
+    $s1  = "<xmp:CreatorTool>RAD PDF</xmp:CreatorTool>"
+    $s2  = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"DynaPDF"
+
+  condition:
+    $pdf at 0 and all of ($s*)
+}
+
+rule Rhadamanthys {
+  meta:
+    author       = "kevoreilly"
+    cape_options = "bp0=$conf-11,hc0=1,action0=setdump:edx::ebx,bp1=$conf+64,hc1=1,action1=dump,count=0,typestring=Rhadamanthys Config,ntdll-protect=0"
+    packed       = "9e28586ab70b1abdccfe087d81e326a0703f75e9551ced187d37c51130ad02f5"
+
+  strings:
+    $rc4  = { 88 4C 01 08 41 81 F9 00 01 00 00 7C F3 89 75 08 33 FF 8B 4D 08 3B 4D 10 72 04 83 65 08 00 }
+    $code = { 8B 4D FC 3B CF 8B C1 74 0D 83 78 04 02 74 1C 8B 40 1C 3B C7 75 F3 3B CF 8B C1 74 57 83 78 04 17 74 09 8B 40 1C 3B C7 75 F3 EB }
+    $conf = { 46 BB FF 00 00 00 23 F3 0F B6 44 31 08 03 F8 23 FB 0F B6 5C 39 08 88 5C 31 08 88 44 39 08 02 C3 8B 5D 08 0F B6 C0 8A 44 08 08 }
+
+  condition:
+    2 of them
+}
+
+rule Webshell_in_image {
+  meta:
+    id             = "6IgdjyQO28avrjCjsw4VWh"
+    fingerprint    = "459e953dedb3a743094868b6ba551e72c3640e3f4d2d2837913e4288e88f6eca"
+    version        = "1.0"
+    creation_date  = "2020-01-01"
+    first_imported = "2021-12-30"
+    last_modified  = "2021-12-30"
+    status         = "RELEASED"
+    sharing        = "TLP:WHITE"
+    source         = "BARTBLAZE"
+    author         = "@bartblaze"
+    description    = "Identifies a webshell or backdoor in image files."
+    category       = "MALWARE"
+    malware_type   = "WEBSHELL"
+
+  strings:
+    $gif  = { 47 49 46 38 3? 61 }
+    $png  = { 89 50 4E 47 0D 0A 1A 0A }
+    $jpeg = { FF D8 FF E0 }
+    $bmp  = "BM"
+    $s1   = "<%@ Page Language=" ascii wide
+    $s2   = "<?php" ascii wide nocase
+    $s3   = "eval(" ascii wide nocase
+    $s4   = "<eval" ascii wide nocase
+    $s5   = "<%eval" ascii wide nocase
+
+  condition:
+    ($gif at 0 and any of ($s*)) or ($png at 0 and any of ($s*)) or ($jpeg at 0 and any of ($s*)) or ($bmp at 0 and any of ($s*))
+}
+
+rule AdwareAdGazelleSample {
+  meta:
+    Description = "Adware.AdGazelle.vb"
+    ThreatLevel = "5"
+
+  strings:
+    $ = "D:\\popajar3" ascii wide
+    $ = "squeakychocolate" ascii wide
+    $ = "squeaky chocolate" ascii wide
+    $ = "adxloader.dll" ascii wide
+    $ = "adxloader.pdb" ascii wide
+    $ = "adxloader64.dll" ascii wide
+    $ = "adxloader64.pdb" ascii wide
+    $ = "d:\\Products\\ADX.IE.8" ascii wide
+
+  condition:
+    any of them
+}
+
+rule shellcode {
+  meta:
+    author      = "nex"
+    description = "Matched shellcode byte patterns"
+    modified    = "Glenn Edwards (@hiddenillusion)"
+
+  strings:
+    $s0 = { 64 8b 64 }
+    $s1 = { 64 a1 30 }
+    $s2 = { 64 8b 15 30 }
+    $s3 = { 64 8b 35 30 }
+    $s4 = { 55 8b ec 83 c4 }
+    $s5 = { 55 8b ec 81 ec }
+    $s6 = { 55 8b ec e8 }
+    $s7 = { 55 8b ec e9 }
+
+  condition:
+    for any of ($s*): ($ at pe.entry_point)
+}
+
+rule sniffer {
+  meta:
+    description = "Indicates network sniffer"
+
+  strings:
+    $sniff0 = "sniffer" nocase fullword
+    $sniff1 = "rpcap:////" nocase
+    $sniff2 = "wpcap.dll" nocase fullword
+    $sniff3 = "pcap_findalldevs" nocase
+    $sniff4 = "pcap_open" nocase
+    $sniff5 = "pcap_loop" nocase
+    $sniff6 = "pcap_compile" nocase
+    $sniff7 = "pcap_close" nocase
+
+  condition:
+    any of them
+}
+
+rule PyInstaller {
+  meta:
+    author      = "_pusher_"
+    date        = "2016-09"
+    description = "www.pyinstaller.org"
+
+  strings:
+    $a0  = { 4D 45 49 0C 0B 0A 0B 0E ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 70 79 74 68 6F 6E }
+    $aa0 = "Py_SetProgramName" ascii
+    $aa1 = "Py_SetPythonHome" ascii
+    $aa2 = "Py_Initialize" ascii
+    $aa3 = "Py_Finalize" ascii
+    $aa4 = "PyImport_ImportModule" ascii
+
+  condition:
+    $a0 and
+    all of ($aa*)
+}
+

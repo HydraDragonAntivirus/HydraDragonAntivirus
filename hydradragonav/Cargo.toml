@@ -49,6 +49,17 @@ oxc_span = "0.135"
 # Windows registry access
 winreg = "0.56"
 
+# Native Win32/COM APIs for remediation (Service Control Manager, System
+# Restore, Task Scheduler) — no shelling out to sc/schtasks/powershell.
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Services",
+    "Win32_System_Restore",
+    "Win32_System_TaskScheduler",
+    "Win32_System_Com",
+    "Win32_System_Variant",
+] }
+
 # Heuristic engine (Unicorn PE unpacking + emulation)
 hydradragonunicorn = { path = "../hydradragonunicorn" }
 

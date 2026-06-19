@@ -1,0 +1,26 @@
+[package]
+name = "hydradragonwingui"
+version = "0.1.0"
+edition = "2024"
+description = "Native Win32 GUI for the HydraDragon portable antivirus"
+license = "GPL-2.0-or-later"
+
+[[bin]]
+name = "hydradragonwingui"
+path = "src/main.rs"
+
+[dependencies]
+# The scanning engine (pipeline, verdicts, quarantine).
+hydradragonav = { path = "../hydradragonav" }
+
+# Native Win32/COM GUI — controls, message loop, shell file dialog.
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Com",
+] }
