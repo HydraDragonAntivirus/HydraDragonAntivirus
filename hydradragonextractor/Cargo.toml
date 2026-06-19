@@ -1,7 +1,7 @@
 [package]
 name = "hydradragonextractor"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Pure-Rust archive and compression extractor — tar, gzip, xz, lzma, 7z"
 license = "GPL-2.0-or-later"
 

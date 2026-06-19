@@ -1,7 +1,7 @@
 [package]
 name = "hydradragonunicorn"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Heuristic engine for HydraDragon — Unicorn-based PE CPU emulation and behavioral heuristics, ported from TinyAntivirus"
 license = "GPL-2.0-or-later"
 
