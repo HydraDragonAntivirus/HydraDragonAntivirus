@@ -3,7 +3,7 @@ version: 1
 rules:
   - id: HDS_GOD_MODE_IDDQD_YAMDLE
     title: IDDQD God Mode native Yamdle static signature
-    description: Native HydraDragonStatic/Yamdle conversion of the provided God Mode style static signatures. No YARA runtime or dependency is used.
+    description: Native HydraDragonSig/Yamdle conversion of the provided God Mode style static signatures. No YARA runtime or dependency is used.
     severity: Critical
     verdict: malware
     confidence: 95

@@ -1896,3 +1896,17 @@ self_inject
 capa_inject_APC
 Sandboxie_Detection 
 SUSP_PE_RSRCs_Name_Strings_64_and_32_Refs
+RelativeOffsetExample
+TTP_RegOpenKeyExA_HKEY_CURRENT_USER_tight
+vmdetect_misc00
+vmdetect_misc_ren
+TTP_RegOpenKeyExA_HKEY_LOCAL_MACHINE_tight
+Check_VmTools
+capa_empty_the_recycle_bin
+AutoIT_Compiled_ren
+seven_zip_cmdversion
+aspack_108a
+_DodgyPhp
+powershell_ren
+_ObfuscatedPhp
+

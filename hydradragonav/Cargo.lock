@@ -3697,7 +3697,7 @@ dependencies = [
  "hex",
  "hydradragonclamav",
  "hydradragonextractor",
- "hydradragonstatic",
+ "hydradragonsig",
  "hydradragonunicorn",
  "indicatif",
  "log",
@@ -3737,7 +3737,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hydradragonstatic"
+name = "hydradragonsig"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",

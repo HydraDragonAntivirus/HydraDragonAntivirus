@@ -247,7 +247,7 @@ impl RuleSet {
                             }
                             Err(e) => {
                                 eprintln!(
-                                    "[HydraDragonStatic] Warning: Failed to load include {}: {}",
+                                    "[HydraDragonSig] Warning: Failed to load include {}: {}",
                                     include_path.display(),
                                     e
                                 );
@@ -255,7 +255,7 @@ impl RuleSet {
                         }
                     } else {
                         eprintln!(
-                            "[HydraDragonStatic] Warning: Include path does not exist: {}",
+                            "[HydraDragonSig] Warning: Include path does not exist: {}",
                             include_path.display()
                         );
                     }

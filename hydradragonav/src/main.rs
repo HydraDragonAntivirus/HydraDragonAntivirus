@@ -30,10 +30,10 @@ fn resolve_yara_dir() -> PathBuf {
         .unwrap_or_else(|_| exe_dir().join("yara-x"))
 }
 
-fn resolve_hydradragonstatic_rules_dir() -> PathBuf {
-    std::env::var("HYDRADRAGONSTATIC_RULES_DIR")
+fn resolve_hydradragonsig_rules_dir() -> PathBuf {
+    std::env::var("HYDRADRAGONSIG_RULES_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| exe_dir().join("hydradragonstatic_rules"))
+        .unwrap_or_else(|_| exe_dir().join("hydradragonsig_rules"))
 }
 
 fn resolve_reglist() -> PathBuf {
@@ -85,8 +85,8 @@ struct Cli {
     #[arg(long, env = "YARA_RULES_DIR", global = true)]
     yara_dir: Option<PathBuf>,
 
-    #[arg(long, env = "HYDRADRAGONSTATIC_RULES_DIR", global = true)]
-    hydradragonstatic_rules_dir: Option<PathBuf>,
+    #[arg(long, env = "HYDRADRAGONSIG_RULES_DIR", global = true)]
+    hydradragonsig_rules_dir: Option<PathBuf>,
 
     #[arg(long, env = "HAYABUSA_DIR", global = true)]
     hayabusa_dir: Option<PathBuf>,
@@ -151,7 +151,7 @@ fn default_paths() -> (
         resolve_clamav_db(),
         resolve_bloom_dir(),
         resolve_yara_dir(),
-        resolve_hydradragonstatic_rules_dir(),
+        resolve_hydradragonsig_rules_dir(),
         resolve_hayabusa_dir(),
         resolve_pe_ml_model(),
         resolve_js_ml_model(),
@@ -235,8 +235,8 @@ fn cmd_scan_single(
     let pipeline_config = PipelineConfig {
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
-        hydradragonstatic_rules_dir: config
-            .hydradragonstatic_rules_dir
+        hydradragonsig_rules_dir: config
+            .hydradragonsig_rules_dir
             .clone()
             .filter(|p| p.exists()),
         pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
@@ -354,8 +354,8 @@ fn cmd_scan_recursive(
     let pipeline_config = PipelineConfig {
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
-        hydradragonstatic_rules_dir: config
-            .hydradragonstatic_rules_dir
+        hydradragonsig_rules_dir: config
+            .hydradragonsig_rules_dir
             .clone()
             .filter(|p| p.exists()),
         pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
@@ -576,7 +576,7 @@ struct FullConfig {
     db: PathBuf,
     bloom_dir: Option<PathBuf>,
     yara_dir: Option<PathBuf>,
-    hydradragonstatic_rules_dir: Option<PathBuf>,
+    hydradragonsig_rules_dir: Option<PathBuf>,
     hayabusa_dir: Option<PathBuf>,
     pe_ml_model: Option<PathBuf>,
     js_ml_model: Option<PathBuf>,
@@ -585,15 +585,15 @@ struct FullConfig {
 
 fn main() {
     let cli = Cli::parse();
-    let (db, blm, yara, hydradragonstatic_rules, hayabusa, pe_ml, js_ml, reglist) = default_paths();
+    let (db, blm, yara, hydradragonsig_rules, hayabusa, pe_ml, js_ml, reglist) = default_paths();
 
     let config = FullConfig {
         db: cli.db.unwrap_or(db),
         bloom_dir: cli.bloom_dir.or(Some(blm)),
         yara_dir: cli.yara_dir.or(Some(yara)),
-        hydradragonstatic_rules_dir: cli
-            .hydradragonstatic_rules_dir
-            .or(Some(hydradragonstatic_rules)),
+        hydradragonsig_rules_dir: cli
+            .hydradragonsig_rules_dir
+            .or(Some(hydradragonsig_rules)),
         hayabusa_dir: cli.hayabusa_dir.or(Some(hayabusa)),
         pe_ml_model: cli.pe_ml_model.or(Some(pe_ml)),
         js_ml_model: cli.js_ml_model.or(Some(js_ml)),
@@ -716,7 +716,7 @@ fn cmd_update_hayabusa(hayabusa_dir: &std::path::Path) {
 fn scan_registry(config: &FullConfig) -> hydradragonav::registry_scanner::RegistryScanResult {
     let reglist_path = config.reglist.as_deref().filter(|p| p.exists());
     let rules_dir = config
-        .hydradragonstatic_rules_dir
+        .hydradragonsig_rules_dir
         .as_deref()
         .filter(|p| p.exists());
     match reglist_path {

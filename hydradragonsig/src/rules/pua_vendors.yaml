@@ -2,7 +2,7 @@
 # Auto-generated from malvendor.db - Subset with PUA-relevant vendors
 # These rules detect files signed by known PUA certificate authorities
 
-name: HydraDragonStatic PUA Vendor Rules
+name: HydraDragonSig PUA Vendor Rules
 version: "1"
 rules:
   - id: pua-vendor-0001

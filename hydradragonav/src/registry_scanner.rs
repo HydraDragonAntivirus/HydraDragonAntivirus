@@ -5,8 +5,8 @@ use serde::Serialize;
 use winreg::enums::*;
 use winreg::RegKey;
 
-use hydradragonstatic::rules::RuleSet;
-use hydradragonstatic::trusted_signers::PuaRegistryList;
+use hydradragonsig::rules::RuleSet;
+use hydradragonsig::trusted_signers::PuaRegistryList;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RegistryEntry {
@@ -76,7 +76,7 @@ impl RegistryScanner {
 
     pub fn load<P: AsRef<Path>>(reglist_path: P, rules_dir: Option<&Path>) -> Self {
         let pua_list = PuaRegistryList::load(reglist_path);
-        let rules = rules_dir.and_then(|dir| load_hydradragonstatic_rules(dir));
+        let rules = rules_dir.and_then(|dir| load_hydradragonsig_rules(dir));
         Self { pua_list, rules }
     }
 
@@ -221,26 +221,26 @@ impl RegistryScanner {
             None => return (false, None),
         };
 
-        let ctx = hydradragonstatic::models::RegistryScanContext {
+        let ctx = hydradragonsig::models::RegistryScanContext {
             key: format!("{}\\{}", hive_name, rel_path),
             value_name: Some(value_name.to_string()),
             value_data: Some(value_bytes.to_vec()),
         };
 
-        match hydradragonstatic::scan_registry_key(
+        match hydradragonsig::scan_registry_key(
             &ctx,
             rules,
-            &hydradragonstatic::ScanOptions::default(),
+            &hydradragonsig::ScanOptions::default(),
         ) {
             Ok(report) => {
                 let detected = matches!(
                     report.verdict,
-                    hydradragonstatic::models::Verdict::Malware
-                        | hydradragonstatic::models::Verdict::Suspicious
-                        | hydradragonstatic::models::Verdict::Pua
-                        | hydradragonstatic::models::Verdict::Abuse
-                        | hydradragonstatic::models::Verdict::Mining
-                        | hydradragonstatic::models::Verdict::Spam
+                    hydradragonsig::models::Verdict::Malware
+                        | hydradragonsig::models::Verdict::Suspicious
+                        | hydradragonsig::models::Verdict::Pua
+                        | hydradragonsig::models::Verdict::Abuse
+                        | hydradragonsig::models::Verdict::Mining
+                        | hydradragonsig::models::Verdict::Spam
                 );
                 (detected, report.threat_name)
             }
@@ -260,7 +260,7 @@ impl Default for RegistryScanner {
 
 static HDS_RULES: OnceLock<Option<RuleSet>> = OnceLock::new();
 
-fn load_hydradragonstatic_rules(rules_dir: &Path) -> Option<RuleSet> {
+fn load_hydradragonsig_rules(rules_dir: &Path) -> Option<RuleSet> {
     HDS_RULES
         .get_or_init(|| {
             let rules_file = rules_dir.join("rules.yaml");

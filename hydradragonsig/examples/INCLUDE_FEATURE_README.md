@@ -1,4 +1,4 @@
-# !include Feature for HydraDragonStatic
+# !include Feature for HydraDragonSig
 
 ## Overview
 
@@ -153,7 +153,7 @@ The implementation includes protection against circular includes with a maximum 
 When using the Rust API:
 
 ```rust
-use hydradragonstatic::rules::RuleSet;
+use hydradragonsig::rules::RuleSet;
 use std::path::Path;
 
 // Load rules with automatic include processing

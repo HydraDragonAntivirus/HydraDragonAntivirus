@@ -1,14 +1,13 @@
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser, ValueEnum};
 use colored::Colorize;
-use hydradragonstatic::scanner::filetype;
-use hydradragonstatic::{
+use hydradragonsig::scanner::filetype;
+use hydradragonsig::{
     models::{CoreInitOptions, Finding, Severity, UnpackConfig, Verdict},
     rules::{RuleSet, YamlRulesFile},
     scan_path, ScanOptions,
 };
 use indicatif::{ProgressBar, ProgressStyle};
-use rayon::{prelude::*, ThreadPoolBuilder};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -148,10 +147,10 @@ impl FpRemoveSelector {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "hydradragonstatic")]
+#[command(name = "hydradragonsig")]
 #[command(
     version,
-    about = "HydraDragonStatic deterministic static scanner with external Yamdle rules"
+    about = "HydraDragonSig deterministic static scanner with external Yamdle rules"
 )]
 struct Cli {
     /// File(s) or directory root(s) to scan. Multiple roots are supported.
@@ -256,9 +255,6 @@ struct Cli {
     #[arg(long)]
     no_parallel_files: bool,
 
-    /// Limit Rayon worker threads. 0 uses Rayon default.
-    #[arg(long, default_value_t = 0)]
-    rule_threads: usize,
 
     /// Stop rule evaluation for each file as soon as the first rule matches.
     /// With --parallel-rules this keeps the earliest matching rule in rule-file order.
@@ -336,13 +332,6 @@ fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
 
-    if cli.rule_threads > 0 {
-        ThreadPoolBuilder::new()
-            .num_threads(cli.rule_threads)
-            .build_global()
-            .context("failed to configure Rayon global thread pool")?;
-    }
-
     if cli.fp_remove && cli.fp_remove_levels.is_empty() {
         anyhow::bail!("--fp-remove requires --fp-remove-levels, for example: --fp-remove-levels suspicious,malware");
     }
@@ -352,7 +341,7 @@ fn main() -> Result<()> {
     }
 
     let mut paths = cli.paths.clone();
-    let mut scan_paths = cli.scan_paths.clone();
+    let scan_paths = cli.scan_paths.clone();
     let recursive = cli.recursive || cli.full_scan;
     let scan_registry = cli.scan_registry || cli.full_scan;
 
@@ -368,7 +357,7 @@ fn main() -> Result<()> {
 
     let mut rule_sources = cli.rules.clone();
     if scan_registry {
-        let registry_rules = PathBuf::from("hydradragonstatic_rules/registry_rules.yaml");
+        let registry_rules = PathBuf::from("hydradragonsig_rules/registry_rules.yaml");
         if registry_rules.exists() {
             rule_sources.push(registry_rules);
         } else {
@@ -466,7 +455,7 @@ fn main() -> Result<()> {
         out
     } else {
         files
-            .par_iter()
+            .iter()
             .filter_map(|path| {
                 pb.set_message(path.display().to_string());
                 let result = scan_path(path, &rules, &options);
@@ -803,9 +792,9 @@ fn glob_to_regex(pattern: &str) -> String {
 }
 
 fn filter_reports(
-    reports: &[hydradragonstatic::models::ScanReport],
+    reports: &[hydradragonsig::models::ScanReport],
     include_clean: bool,
-) -> Vec<&hydradragonstatic::models::ScanReport> {
+) -> Vec<&hydradragonsig::models::ScanReport> {
     reports
         .iter()
         .filter(|report| include_clean || !report.findings.is_empty())
@@ -813,7 +802,7 @@ fn filter_reports(
 }
 
 fn collect_fp_rule_ids(
-    reports: &[hydradragonstatic::models::ScanReport],
+    reports: &[hydradragonsig::models::ScanReport],
     selector: &FpRemoveSelector,
 ) -> HashSet<String> {
     let mut ids = HashSet::new();
@@ -1034,7 +1023,7 @@ struct SlowRuleAggregate {
 }
 
 fn aggregate_rule_performance(
-    reports: &[hydradragonstatic::models::ScanReport],
+    reports: &[hydradragonsig::models::ScanReport],
 ) -> HashMap<String, SlowRuleAggregate> {
     let mut aggregates: HashMap<String, SlowRuleAggregate> = HashMap::new();
 
@@ -1071,7 +1060,7 @@ fn aggregate_rule_performance(
 }
 
 fn print_slow_rule_summary(
-    reports: &[hydradragonstatic::models::ScanReport],
+    reports: &[hydradragonsig::models::ScanReport],
     threshold_micros: u64,
     top: usize,
 ) {
@@ -1137,7 +1126,7 @@ fn print_slow_rule_summary(
 
 fn apply_slow_rule_removal(
     rule_files: &[PathBuf],
-    reports: &[hydradragonstatic::models::ScanReport],
+    reports: &[hydradragonsig::models::ScanReport],
     threshold_micros: u64,
     metric: &SlowRuleMetric,
     selector: &FpRemoveSelector,
@@ -1222,7 +1211,7 @@ fn avg_micros(stat: &SlowRuleAggregate) -> u64 {
     }
 }
 
-fn print_pretty(reports: &[hydradragonstatic::models::ScanReport]) {
+fn print_pretty(reports: &[hydradragonsig::models::ScanReport]) {
     let mut detections = 0usize;
     for report in reports {
         let badge = match report.verdict {

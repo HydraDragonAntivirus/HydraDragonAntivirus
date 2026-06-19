@@ -370,8 +370,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "hydradragonstatic"
-version = "0.1.6"
+name = "hydradragonsig"
+version = "0.1.0"
 dependencies = [
  "aho-corasick",
  "anyhow",

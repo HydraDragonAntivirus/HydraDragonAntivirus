@@ -2,7 +2,7 @@
 # Auto-generated from malvendor.db - Subset with actual malware vendors
 # These rules detect files signed by known malicious certificate authorities
 
-name: HydraDragonStatic Malicious Vendor Rules
+name: HydraDragonSig Malicious Vendor Rules
 version: "1"
 rules:
   - id: malicious-vendor-0001

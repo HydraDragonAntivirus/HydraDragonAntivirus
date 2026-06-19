@@ -1,6 +1,6 @@
-# HydraDragonStatic Native Yamdle Signature Packs
+# HydraDragonSig Native Yamdle Signature Packs
 
-These packs are examples and are **not built in**. HydraDragonStatic does not load them unless you pass them with `--rules`.
+These packs are examples and are **not built in**. HydraDragonSig does not load them unless you pass them with `--rules`.
 
 ```bash
 cargo run --release -- sample.exe \

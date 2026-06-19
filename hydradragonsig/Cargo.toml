@@ -1,13 +1,13 @@
 [package]
-name = "hydradragonstatic"
+name = "hydradragonsig"
 version = "0.1.0"
 edition = "2024"
-description = "HydraDragonStatic deterministic static scanner with external Yamdle/YAML rules"
+description = "HydraDragonSig deterministic static scanner with external Yamdle/YAML rules"
 license = "MIT OR Apache-2.0"
 authors = ["HydraDragon"]
 
 [[bin]]
-name = "hydradragonstatic"
+name = "hydradragonsig"
 path = "src/main.rs"
 required-features = ["cli"]
 

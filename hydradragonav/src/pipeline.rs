@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::ValueEnum;
-use hydradragonstatic::models::FileTypeInfo;
-use hydradragonstatic::rules::RuleSet;
+use hydradragonsig::models::FileTypeInfo;
+use hydradragonsig::rules::RuleSet;
 use yara_x::{Rules, Scanner as YaraScanner};
 
 use burn::record::{NamedMpkBytesRecorder, Recorder};
@@ -34,7 +34,7 @@ pub enum ScanMode {
 pub struct PipelineConfig {
     pub bloom_dir: Option<PathBuf>,
     pub yara_rules_dir: Option<PathBuf>,
-    pub hydradragonstatic_rules_dir: Option<PathBuf>,
+    pub hydradragonsig_rules_dir: Option<PathBuf>,
     pub pe_ml_model_path: Option<PathBuf>,
     pub js_ml_model_path: Option<PathBuf>,
     pub clamav_db: Option<PathBuf>,
@@ -51,7 +51,7 @@ impl Default for PipelineConfig {
         Self {
             bloom_dir: None,
             yara_rules_dir: None,
-            hydradragonstatic_rules_dir: None,
+            hydradragonsig_rules_dir: None,
             pe_ml_model_path: None,
             js_ml_model_path: None,
             clamav_db: None,
@@ -70,7 +70,7 @@ pub struct Pipeline {
     hash_scanner: Option<HashScanner>,
     yara_rules: Vec<(String, Rules)>,
     clamav: Option<ClamavScanner>,
-    hydradragonstatic_rules: Option<hydradragonstatic::rules::RuleSet>,
+    hydradragonsig_rules: Option<hydradragonsig::rules::RuleSet>,
     excluded_yara_rules: HashSet<String>,
     pe_ml_model: Option<crate::ml::model::MalwareNet<InferBackend>>,
     js_ml_model: Option<crate::ml::model::MalwareNet<InferBackend>>,
@@ -86,7 +86,7 @@ impl Pipeline {
         let bloom_dir = config.bloom_dir.clone();
         let yara_rules_dir = config.yara_rules_dir.clone();
         let clamav_db = config.clamav_db.clone();
-        let hydradragonstatic_rules_dir = config.hydradragonstatic_rules_dir.clone();
+        let hydradragonsig_rules_dir = config.hydradragonsig_rules_dir.clone();
         let pe_ml_model_path = config.pe_ml_model_path.clone();
         let js_ml_model_path = config.js_ml_model_path.clone();
 
@@ -105,7 +105,7 @@ impl Pipeline {
             }
         }
 
-        let (hash_scanner, yara_rules, clamav, hydradragonstatic_rules, pe_ml_model, js_ml_model) =
+        let (hash_scanner, yara_rules, clamav, hydradragonsig_rules, pe_ml_model, js_ml_model) =
             std::thread::scope(|s| {
                 let t_hash = s.spawn(move || {
                     bloom_dir.as_ref().filter(|p| p.exists()).map(|dir| {
@@ -134,7 +134,7 @@ impl Pipeline {
                 });
 
                 let t_hds_rules = s.spawn(move || {
-                    let dir = hydradragonstatic_rules_dir.as_ref().filter(|p| p.exists());
+                    let dir = hydradragonsig_rules_dir.as_ref().filter(|p| p.exists());
                     if dir.is_none() {
                         return None;
                     }
@@ -182,7 +182,7 @@ impl Pipeline {
                     t_clamav.join().expect("clamav loader panicked"),
                     t_hds_rules
                         .join()
-                        .expect("hydradragonstatic rules loader panicked"),
+                        .expect("hydradragonsig rules loader panicked"),
                     t_pe_model.join().expect("pe_model loader panicked"),
                     t_js_model.join().expect("js_model loader panicked"),
                 )
@@ -193,7 +193,7 @@ impl Pipeline {
             hash_scanner,
             yara_rules,
             clamav,
-            hydradragonstatic_rules,
+            hydradragonsig_rules,
             excluded_yara_rules,
             pe_ml_model,
             js_ml_model,
@@ -346,11 +346,11 @@ impl Pipeline {
 
         // --- 3. STATIC RULES ---
         let t0 = Instant::now();
-        match &self.hydradragonstatic_rules {
-            Some(rules) => match hydradragonstatic::scan_path(
+        match &self.hydradragonsig_rules {
+            Some(rules) => match hydradragonsig::scan_path(
                 path,
                 &rules,
-                &hydradragonstatic::ScanOptions::default(),
+                &hydradragonsig::ScanOptions::default(),
             ) {
                 Ok(report) => {
                     let elapsed_ms = self
@@ -359,17 +359,17 @@ impl Pipeline {
                         .then(|| t0.elapsed().as_millis() as u64);
                     static_file_type = Some(report.file_type.clone());
                     let hv = match report.verdict {
-                        hydradragonstatic::models::Verdict::Clean => Verdict::Clean,
-                        hydradragonstatic::models::Verdict::Trusted => Verdict::Trusted,
-                        hydradragonstatic::models::Verdict::Pua => Verdict::Pua,
-                        hydradragonstatic::models::Verdict::Mining => Verdict::Mining,
-                        hydradragonstatic::models::Verdict::Spam => Verdict::Spam,
-                        hydradragonstatic::models::Verdict::Abuse => Verdict::Abuse,
-                        hydradragonstatic::models::Verdict::Suspicious => Verdict::Suspicious,
-                        hydradragonstatic::models::Verdict::Malware => Verdict::Malware,
+                        hydradragonsig::models::Verdict::Clean => Verdict::Clean,
+                        hydradragonsig::models::Verdict::Trusted => Verdict::Trusted,
+                        hydradragonsig::models::Verdict::Pua => Verdict::Pua,
+                        hydradragonsig::models::Verdict::Mining => Verdict::Mining,
+                        hydradragonsig::models::Verdict::Spam => Verdict::Spam,
+                        hydradragonsig::models::Verdict::Abuse => Verdict::Abuse,
+                        hydradragonsig::models::Verdict::Suspicious => Verdict::Suspicious,
+                        hydradragonsig::models::Verdict::Malware => Verdict::Malware,
                     };
                     engines.push(EngineResult {
-                        engine: "hydradragonstatic",
+                        engine: "hydradragonsig",
                         verdict: hv,
                         detail: report.threat_name.clone().unwrap_or_default(),
                         elapsed_ms,
@@ -412,7 +412,7 @@ impl Pipeline {
                         .time_engines
                         .then(|| t0.elapsed().as_millis() as u64);
                     engines.push(EngineResult {
-                        engine: "hydradragonstatic",
+                        engine: "hydradragonsig",
                         verdict: Verdict::Clean,
                         detail: format!("error: {}", e),
                         elapsed_ms,
@@ -421,9 +421,9 @@ impl Pipeline {
             },
             None => {
                 engines.push(EngineResult {
-                    engine: "hydradragonstatic",
+                    engine: "hydradragonsig",
                     verdict: Verdict::Clean,
-                    detail: "no hydradragonstatic rules loaded".into(),
+                    detail: "no hydradragonsig rules loaded".into(),
                     elapsed_ms: None,
                 });
             }
@@ -563,7 +563,7 @@ impl Pipeline {
             let mut all_matches: Vec<String> = Vec::new();
             let mut scan_error: Option<String> = None;
 
-            // File type is already known from the hydradragonstatic stage (stage 4),
+            // File type is already known from the hydradragonsig stage (stage 4),
             // so type-specific ML rulesets are gated on those flags instead of having
             // YARA-X re-detect the type. machine_learning_pe runs only on PE files,
             // machine_learning_js only on JavaScript; all other rulesets always run.
@@ -614,41 +614,50 @@ impl Pipeline {
                 });
             } else if !all_matches.is_empty() {
                 yara_x_matches = all_matches.clone();
-                let yara_verdict = if all_matches.iter().any(|m| m.contains("_PUA_") || m.starts_with("PUA_")) {
-                    Verdict::Pua
-                } else {
-                    Verdict::Malware
-                };
-                engines.push(EngineResult {
-                    engine: "yara_x",
-                    verdict: yara_verdict,
-                    detail: all_matches.join(", "),
-                    elapsed_ms: yara_elapsed_ms,
-                });
+                match classify_yara_verdict(&all_matches) {
+                    Some(yara_verdict) => {
+                        engines.push(EngineResult {
+                            engine: "yara_x",
+                            verdict: yara_verdict,
+                            detail: all_matches.join(", "),
+                            elapsed_ms: yara_elapsed_ms,
+                        });
 
-                let still_detected = engines.iter().any(|e| {
-                    matches!(
-                        e.verdict,
-                        Verdict::Malware
-                            | Verdict::Abuse
-                            | Verdict::Suspicious
-                            | Verdict::Spam
-                            | Verdict::Mining
-                            | Verdict::Pua
-                            | Verdict::Phishing
-                    )
-                });
-                if still_detected {
-                    let final_verdict =
-                        Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
-                    return ScanResult {
-                        verdict: final_verdict,
-                        threat_name: yara_x_matches.first().cloned(),
-                        engines,
-                        yara_x_matches,
-                        ml_malware_probability: ml_verdict.map(|m| m.probability),
-                        clamav_result,
-                    };
+                        let still_detected = engines.iter().any(|e| {
+                            matches!(
+                                e.verdict,
+                                Verdict::Malware
+                                    | Verdict::Abuse
+                                    | Verdict::Suspicious
+                                    | Verdict::Spam
+                                    | Verdict::Mining
+                                    | Verdict::Pua
+                                    | Verdict::Phishing
+                            )
+                        });
+                        if still_detected {
+                            let final_verdict = Verdict::aggregate(
+                                &engines.iter().map(|e| e.verdict).collect::<Vec<_>>(),
+                            );
+                            return ScanResult {
+                                verdict: final_verdict,
+                                threat_name: yara_x_matches.first().cloned(),
+                                engines,
+                                yara_x_matches,
+                                ml_malware_probability: ml_verdict.map(|m| m.probability),
+                                clamav_result,
+                            };
+                        }
+                    }
+                    None => {
+                        // Only informational (INFO_) rules matched — not a threat.
+                        engines.push(EngineResult {
+                            engine: "yara_x",
+                            verdict: Verdict::Clean,
+                            detail: format!("informational: {}", all_matches.join(", ")),
+                            elapsed_ms: yara_elapsed_ms,
+                        });
+                    }
                 }
             } else {
                 engines.push(EngineResult {
@@ -786,16 +795,16 @@ impl Pipeline {
         }
 
         // --- 2. STATIC RULES (in-memory) ---
-        let mut static_file_type: Option<hydradragonstatic::models::FileTypeInfo> = None;
+        let mut static_file_type: Option<hydradragonsig::models::FileTypeInfo> = None;
         let t0 = Instant::now();
-        match &self.hydradragonstatic_rules {
+        match &self.hydradragonsig_rules {
             Some(rules) => {
-                let ctx = hydradragonstatic::models::MemoryScanContext {
+                let ctx = hydradragonsig::models::MemoryScanContext {
                     buffer: data.to_vec(),
                     identifier: "memory".into(),
                     base_address: None,
                 };
-                match hydradragonstatic::scan_memory(&ctx, rules, &hydradragonstatic::ScanOptions::default()) {
+                match hydradragonsig::scan_memory(&ctx, rules, &hydradragonsig::ScanOptions::default()) {
                     Ok(report) => {
                         let elapsed_ms = self
                             .config
@@ -804,7 +813,7 @@ impl Pipeline {
                         static_file_type = Some(report.file_type.clone());
                         let hv = convert_verdict(&report.verdict);
                         engines.push(EngineResult {
-                            engine: "hydradragonstatic",
+                            engine: "hydradragonsig",
                             verdict: hv,
                             detail: report.threat_name.clone().unwrap_or_default(),
                             elapsed_ms,
@@ -836,7 +845,7 @@ impl Pipeline {
                             .time_engines
                             .then(|| t0.elapsed().as_millis() as u64);
                         engines.push(EngineResult {
-                            engine: "hydradragonstatic",
+                            engine: "hydradragonsig",
                             verdict: Verdict::Clean,
                             detail: format!("error: {}", e),
                             elapsed_ms,
@@ -846,9 +855,9 @@ impl Pipeline {
             }
             None => {
                 engines.push(EngineResult {
-                    engine: "hydradragonstatic",
+                    engine: "hydradragonsig",
                     verdict: Verdict::Clean,
-                    detail: "no hydradragonstatic rules loaded".into(),
+                    detail: "no hydradragonsig rules loaded".into(),
                     elapsed_ms: None,
                 });
             }
@@ -950,28 +959,36 @@ impl Pipeline {
                 });
             } else if !all_matches.is_empty() {
                 yara_x_matches = all_matches.clone();
-                let yara_verdict = if all_matches.iter().any(|m| m.contains("_PUA_") || m.starts_with("PUA_")) {
-                    Verdict::Pua
-                } else {
-                    Verdict::Malware
-                };
-                engines.push(EngineResult {
-                    engine: "yara_x",
-                    verdict: yara_verdict,
-                    detail: all_matches.join(", "),
-                    elapsed_ms: yara_elapsed_ms,
-                });
-                let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
-                if still_detected {
-                    let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
-                    return ScanResult {
-                        verdict: final_verdict,
-                        threat_name: yara_x_matches.first().cloned(),
-                        engines,
-                        yara_x_matches,
-                        ml_malware_probability: ml_verdict.map(|m| m.probability),
-                        clamav_result: None,
-                    };
+                match classify_yara_verdict(&all_matches) {
+                    Some(yara_verdict) => {
+                        engines.push(EngineResult {
+                            engine: "yara_x",
+                            verdict: yara_verdict,
+                            detail: all_matches.join(", "),
+                            elapsed_ms: yara_elapsed_ms,
+                        });
+                        let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
+                        if still_detected {
+                            let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                            return ScanResult {
+                                verdict: final_verdict,
+                                threat_name: yara_x_matches.first().cloned(),
+                                engines,
+                                yara_x_matches,
+                                ml_malware_probability: ml_verdict.map(|m| m.probability),
+                                clamav_result: None,
+                            };
+                        }
+                    }
+                    None => {
+                        // Only informational (INFO_) rules matched — not a threat.
+                        engines.push(EngineResult {
+                            engine: "yara_x",
+                            verdict: Verdict::Clean,
+                            detail: format!("informational: {}", all_matches.join(", ")),
+                            elapsed_ms: yara_elapsed_ms,
+                        });
+                    }
                 }
             } else {
                 engines.push(EngineResult {
@@ -1075,17 +1092,17 @@ fn ml_classify(prob: f32, threshold: f32) -> Verdict {
     }
 }
 
-/// Convert hydradragonstatic's Verdict to hydradragonav's Verdict.
-fn convert_verdict(v: &hydradragonstatic::models::Verdict) -> Verdict {
+/// Convert hydradragonsig's Verdict to hydradragonav's Verdict.
+fn convert_verdict(v: &hydradragonsig::models::Verdict) -> Verdict {
     match v {
-        hydradragonstatic::models::Verdict::Clean => Verdict::Clean,
-        hydradragonstatic::models::Verdict::Trusted => Verdict::Trusted,
-        hydradragonstatic::models::Verdict::Pua => Verdict::Pua,
-        hydradragonstatic::models::Verdict::Mining => Verdict::Mining,
-        hydradragonstatic::models::Verdict::Spam => Verdict::Spam,
-        hydradragonstatic::models::Verdict::Abuse => Verdict::Abuse,
-        hydradragonstatic::models::Verdict::Suspicious => Verdict::Suspicious,
-        hydradragonstatic::models::Verdict::Malware => Verdict::Malware,
+        hydradragonsig::models::Verdict::Clean => Verdict::Clean,
+        hydradragonsig::models::Verdict::Trusted => Verdict::Trusted,
+        hydradragonsig::models::Verdict::Pua => Verdict::Pua,
+        hydradragonsig::models::Verdict::Mining => Verdict::Mining,
+        hydradragonsig::models::Verdict::Spam => Verdict::Spam,
+        hydradragonsig::models::Verdict::Abuse => Verdict::Abuse,
+        hydradragonsig::models::Verdict::Suspicious => Verdict::Suspicious,
+        hydradragonsig::models::Verdict::Malware => Verdict::Malware,
     }
 }
 
@@ -1263,6 +1280,52 @@ fn scan_bytes_yara_ranges(
         }
     }
     arenas
+}
+
+/// Classify a set of matched YARA-X rule names into a verdict by naming
+/// convention. Returns `None` when every match is purely informational
+/// (`INFO_`/`_INFO_`), so such matches are not treated as a detection.
+///
+/// Markers are matched case-insensitively as any underscore-delimited segment
+/// of the rule name (so as a `MARKER_` prefix, `_MARKER_` infix, or `_MARKER`
+/// suffix):
+///   `INFO`             -> informational (ignored)
+///   `SUSP`/`SUSPICIOUS` -> Suspicious
+///   `PUA`              -> Pua
+///   otherwise          -> Malware
+/// When several rules match, the most severe verdict wins.
+fn classify_yara_verdict(matches: &[String]) -> Option<Verdict> {
+    let mut verdict: Option<Verdict> = None;
+    for name in matches {
+        if let Some(v) = yara_rule_verdict(name) {
+            verdict = Some(match verdict {
+                Some(current) if current.priority() >= v.priority() => current,
+                _ => v,
+            });
+        }
+    }
+    verdict
+}
+
+fn yara_rule_verdict(rule: &str) -> Option<Verdict> {
+    let lower = rule.to_ascii_lowercase();
+    if has_name_marker(&lower, "info") {
+        return None;
+    }
+    if has_name_marker(&lower, "susp") || has_name_marker(&lower, "suspicious") {
+        return Some(Verdict::Suspicious);
+    }
+    if has_name_marker(&lower, "pua") {
+        return Some(Verdict::Pua);
+    }
+    Some(Verdict::Malware)
+}
+
+/// True if any underscore-delimited segment of `lower_name` equals `token`, so
+/// the marker matches as a prefix (`token_…`), infix (`…_token_…`), or suffix
+/// (`…_token`). Both arguments must already be lowercase.
+fn has_name_marker(lower_name: &str, token: &str) -> bool {
+    lower_name.split('_').any(|segment| segment == token)
 }
 
 // Find every non-overlapping occurrence of `needle` in `haystack`, returning

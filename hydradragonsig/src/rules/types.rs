@@ -32,7 +32,7 @@ pub struct Rule {
     pub description: String,
     pub severity: Severity,
 
-    /// HydraDragonStatic verdict. If this rule matches and verdict is Malware,
+    /// HydraDragonSig verdict. If this rule matches and verdict is Malware,
     /// the final file verdict is Malware even if it is the only matched rule.
     #[serde(default = "default_verdict")]
     pub verdict: Verdict,
@@ -160,7 +160,7 @@ pub enum RuleCondition {
         regex: bool,
     },
 
-    /// HydraDragonStatic native signature format. It holds deterministic
+    /// HydraDragonSig native signature format. It holds deterministic
     /// signature atoms and a boolean expression such as:
     /// `any of them`, `2 of ($a*)`, `$a and ($b or $c)`, `filesize < 500KB`.
     NativeSignature {
