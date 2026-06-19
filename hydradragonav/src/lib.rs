@@ -2,6 +2,7 @@
 
 pub mod bloom_filter;
 pub mod clamjuice;
+pub mod disinfector;
 pub mod ffi;
 pub mod hash_scanner;
 pub mod ml;

@@ -258357,3 +258357,215 @@ rule SUSP_SVG_Onload_Onerror_Jul23 {
     ($onload or $onerror)
 }
 
+rule powershell_ren {
+  strings:
+    $a = "powershell" nocase
+
+  condition:
+    $a
+}
+
+rule _DodgyPhp {
+  strings:
+    $basedir_bypass       = /curl_init\s*\(\s*["']file:\/\// nocase
+    $basedir_bypass2      = "file:file:///"  // https://www.intelligentexploit.com/view-details.html?id=8719
+    $disable_magic_quotes = /set_magic_quotes_runtime\s*\(\s*0/ nocase
+
+    $execution  = /\b(eval|assert|passthru|exec|include|system|pcntl_exec|shell_exec|base64_decode|`|array_map|ob_start|call_user_func(_array)?)\s*\(\s*(base64_decode|php:\/\/input|str_rot13|gz(inflate|uncompress)|getenv|pack|\\?\$_(GET|REQUEST|POST|COOKIE|SERVER))/ nocase  // function that takes a callback as 1st parameter
+    $execution2 = /\b(array_filter|array_reduce|array_walk(_recursive)?|array_walk|assert_options|uasort|uksort|usort|preg_replace_callback|iterator_apply)\s*\(\s*[^,]+,\s*(base64_decode|php:\/\/input|str_rot13|gz(inflate|uncompress)|getenv|pack|\\?\$_(GET|REQUEST|POST|COOKIE|SERVER))/ nocase  // functions that takes a callback as 2nd parameter
+    $execution3 = /\b(array_(diff|intersect)_u(key|assoc)|array_udiff)\s*\(\s*([^,]+\s*,?)+\s*(base64_decode|php:\/\/input|str_rot13|gz(inflate|uncompress)|getenv|pack|\\?\$_(GET|REQUEST|POST|COOKIE|SERVER))\s*\[[^]]+\]\s*\)+\s*;/ nocase  // functions that takes a callback as 2nd parameter
+
+    $htaccess          = "SetHandler application/x-httpd-php"
+    $iis_com           = /IIS:\/\/localhost\/w3svc/
+    $include           = /include\s*\(\s*[^\.]+\.(png|jpg|gif|bmp)/  // Clever includes
+    $ini_get           = /ini_(get|set|restore)\s*\(\s*['"](safe_mode|open_basedir|disable_(function|classe)s|safe_mode_exec_dir|safe_mode_include_dir|register_globals|allow_url_include)/ nocase
+    $pr                = /(preg_replace(_callback)?|mb_ereg_replace|preg_filter)\s*\([^)]*(\/|\\x2f)(e|\\x65)['"]/ nocase  // http://php.net/manual/en/function.preg-replace.php
+    $register_function = /register_[a-z]+_function\s*\(\s*['"]\s*(eval|assert|passthru|exec|include|system|shell_exec|`)/  // https://github.com/nbs-system/php-malware-finder/issues/41
+    $safemode_bypass   = /\x00\/\.\.\/|LD_PRELOAD/
+    $shellshock        = /\(\)\s*\\\{\s*[a-z:]\s*;\s*\\\}\s*;/
+    $udp_dos           = /fsockopen\s*\(\s*['"]udp:\/\// nocase
+    $various           = "<!--#exec cmd="  //http://www.w3.org/Jigsaw/Doc/User/SSI.html#exec
+    $at_eval           = /@eval\s*\(/ nocase
+    $double_var        = /\$\\\{\s*\$\\\{/
+    $extract           = /extract\s*\(\s*\$_(GET|POST|REQUEST|COOKIE|SERVER)/
+    $reversed          = /noitcnuf_etaerc|metsys|urhtssap|edulcni|etucexe_llehs/ nocase
+    $silenced_include  = /@\s*include\s*/ nocase
+
+  condition:
+    (any of them) and not IsWhitelisted
+}
+
+rule Microsoft_Excel_Hidden_Macrosheet {
+  meta:
+    author         = "InQuest Labs"
+    description    = "This signature detects Microsoft Excel spreadsheets that contain hidden sheets. Presence of a hidden sheet alone is not indication of malicious behavior."
+    created_date   = "2022-03-15"
+    updated_date   = "2022-03-15"
+    blog_reference = "https://support.office.com/en-us/article/hide-or-show-worksheets-or-workbooks-69f2701a-21f5-4186-87d7-341a8cf53344"
+    labs_reference = "https://labs.inquest.net/dfi/sha256/127c67df5629ff69f67328d0c5c92c606ac7caebf6106aaee8364a982711c120"
+    labs_pivot     = "https://labs.inquest.net/dfi/search/alert/Excel%20Macro%20Manipulates%20Hidden%20Sheets"
+    samples        = "127c67df5629ff69f67328d0c5c92c606ac7caebf6106aaee8364a982711c120"
+
+  strings:
+    $ole_marker     = { D0 CF 11 E0 A1 B1 1A E1 }
+    $macro_sheet_h1 = { 85 00 ?? ?? ?? ?? ?? ?? 01 01 }
+    $macro_sheet_h2 = { 85 00 ?? ?? ?? ?? ?? ?? 02 01 }
+    $hidden_xlsx_01 = /hidden\s*=\s*["'][12]["']/ nocase
+    $hidden_xlsx_02 = /state\s*=\s*["'](very)?Hidden["']/ nocase
+
+  condition:
+    ($ole_marker at 0 and 1 of ($macro_sheet_h*))
+    or
+    any of ($hidden_xlsx*)
+}
+
+rule Windows_API_Function {
+  meta:
+    author         = "InQuest Labs"
+    description    = "This signature detects the presence of a number of Windows API functionality often seen within embedded executables. When this signature alerts on an executable, it is not an indication of malicious behavior. However, if seen firing in other file types, deeper investigation may be warranted."
+    created_date   = "2022-03-15"
+    updated_date   = "2022-03-15"
+    blog_reference = "http://en.wikipedia.org/wiki/Windows_API"
+    labs_reference = "https://labs.inquest.net/dfi/hash/f9b62b2aee5937e4d7f33f04f52ad5b05c4a1ccde6553e18909d2dc0cb595209"
+    labs_pivot     = "N/A"
+    samples        = "f9b62b2aee5937e4d7f33f04f52ad5b05c4a1ccde6553e18909d2dc0cb595209"
+
+  strings:
+    $magic  = "INQUEST-PII="
+    $api_00 = "LoadLibraryA" nocase ascii wide
+    $api_01 = "ShellExecuteA" nocase ascii wide
+    $api_03 = "GetProcAddress" nocase ascii wide
+    $api_04 = "GetVersionExA" nocase ascii wide
+    $api_05 = "GetModuleHandleA" nocase ascii wide
+    $api_06 = "OpenProcess" nocase ascii wide
+    $api_07 = "GetWindowsDirectoryA" nocase ascii wide
+    $api_08 = "lstrcatA" nocase ascii wide
+    $api_09 = "GetSystemDirectoryA" nocase ascii wide
+    $api_10 = "WriteFile" nocase ascii wide
+    $api_11 = "ReadFile" nocase ascii wide
+    $api_12 = "GetFileSize" nocase ascii wide
+    $api_13 = "CreateFileA" nocase ascii wide
+    $api_14 = "DeleteFileA" nocase ascii wide
+    $api_15 = "CreateProcessA" nocase ascii wide
+    $api_16 = "GetCurrentProcessId" nocase ascii wide
+    $api_17 = "RegOpenKeyExA" nocase ascii wide
+    $api_18 = "GetStartupInfoA" nocase ascii wide
+    $api_19 = "CreateServiceA" nocase ascii wide
+    $api_20 = "CopyFileA" nocase ascii wide
+    $api_21 = "GetModuleFileNameA" nocase ascii wide
+    $api_22 = "IsBadReadPtr" nocase ascii wide
+    $api_23 = "CreateFileW" nocase ascii wide
+    $api_24 = "SetFilePointer" nocase ascii wide
+    $api_25 = "VirtualAlloc" nocase ascii wide
+    $api_26 = "AdjustTokenPrivileges" nocase ascii wide
+    $api_27 = "CloseHandle" nocase ascii wide
+    $api_28 = "CreateFile" nocase ascii wide
+    $api_29 = "GetProcAddr" nocase ascii wide
+    $api_30 = "GetSystemDirectory" nocase ascii wide
+    $api_31 = "GetTempPath" nocase ascii wide
+    $api_32 = "GetWindowsDirectory" nocase ascii wide
+    $api_33 = "IsBadReadPtr" nocase ascii wide
+    $api_34 = "IsBadWritePtr" nocase ascii wide
+    $api_35 = "LoadLibrary" nocase ascii wide
+    $api_36 = "ReadFile" nocase ascii wide
+    $api_37 = "SetFilePointer" nocase ascii wide
+    $api_38 = "ShellExecute" nocase ascii wide
+    $api_39 = "UrlDownloadToFile" nocase ascii wide
+    $api_40 = "WinExec" nocase ascii wide
+    $api_41 = "WriteFile" nocase ascii wide
+    $api_42 = "StartServiceA" nocase ascii wide
+    $api_43 = "VirtualProtect" nocase ascii wide
+
+  condition:
+    any of ($api*)
+    and not $magic in (filesize - 30..filesize)
+    and not
+    (
+      /* trigger = 'MZ' */
+      (uint16be(0x0) == 0x4d5a)
+      or
+      /* trigger = 'ZM' */
+      (uint16be(0x0) == 0x5a4d)
+      or
+      /* trigger = 'PE' */
+      (uint16be(uint32(0x3c)) == 0x5045)
+    )
+}
+
+rule AutoIT_Compiled_ren {
+  meta:
+    id             = "1HD8y9jsBZi1HDN82XCpZx"
+    fingerprint    = "7d7623207492860e4196e8c8a493b874bb3042c83f19e61e1d958e79a09bc8f8"
+    version        = "1.0"
+    creation_date  = "2020-09-01"
+    first_imported = "2021-12-30"
+    last_modified  = "2023-12-28"
+    status         = "RELEASED"
+    sharing        = "TLP:WHITE"
+    source         = "BARTBLAZE"
+    author         = "@bartblaze"
+    description    = "Identifies compiled AutoIT script (as EXE). This rule by itself does NOT necessarily mean the detected file is malicious."
+    category       = "INFO"
+
+  strings:
+    $ = "#OnAutoItStartRegister" ascii wide
+    $ = "#pragma compile" ascii wide
+    $ = "/AutoIt3ExecuteLine" ascii wide
+    $ = "/AutoIt3ExecuteScript" ascii wide
+    $ = "/AutoIt3OutputDebug" ascii wide
+    $ = ">>>AUTOIT NO CMDEXECUTE<<<" ascii wide
+    $ = ">>>AUTOIT SCRIPT<<<" ascii wide
+    $ = "This is a third-party compiled AutoIt script." ascii wide
+
+  condition:
+    uint16(0) == 0x5A4D and any of them
+}
+
+rule case_5087_3 {
+  meta:
+    description = "Files - file 3.exe"
+    author      = "The DFIR Report"
+    reference   = "https://thedfirreport.com"
+    date        = "2021-08-30"
+    hash1       = "37b264e165e139c3071eb1d4f9594811f6b983d8f4b7ef1fe56ebf3d1f35ac89"
+
+  strings:
+    $s1  = "https://sectigo.com/CPS0" fullword ascii
+    $s2  = "?http://crl.usertrust.com/USERTrustRSACertificationAuthority.crl0v" fullword ascii
+    $s3  = "2http://crl.comodoca.com/AAACertificateServices.crl04" fullword ascii
+    $s4  = "3http://crt.usertrust.com/USERTrustRSAAddTrustCA.crt0%" fullword ascii
+    $s5  = "        <requestedExecutionLevel level=\"asInvoker\"/>" fullword ascii
+    $s6  = "http://ocsp.sectigo.com0" fullword ascii
+    $s7  = "2http://crt.sectigo.com/SectigoRSACodeSigningCA.crt0#" fullword ascii
+    $s8  = "2http://crl.sectigo.com/SectigoRSACodeSigningCA.crl0s" fullword ascii
+    $s9  = "ealagi@aol.com0" fullword ascii
+    $s10 = "bhfatmxx" fullword ascii
+    $s11 = "orzynoxl" fullword ascii
+    $s12 = "  <trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v3\">" fullword ascii
+    $s13 = "      <!--The ID below indicates application support for Windows 8.1 -->" fullword ascii
+    $s14 = "      <!--The ID below indicates application support for Windows 8 -->" fullword ascii
+    $s15 = "O:\\-e%" fullword ascii
+    $s16 = "      <!--The ID below indicates application support for Windows 10 -->" fullword ascii
+    $s17 = "      <!--The ID below indicates application support for Windows 7 -->" fullword ascii
+    $s18 = "      <!--The ID below indicates application support for Windows Vista -->" fullword ascii
+    $s19 = "  <compatibility xmlns=\"urn:schemas-microsoft-com:compatibility.v1\">" fullword ascii
+    $s20 = "  </compatibility>" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 1000KB and 8 of them
+}
+
+rule aspack_108a {
+  meta:
+    author      = "PEiD"
+    description = "ASPack 1.08.00 - 1.08.04 -> Alexey Solodovnikov"
+    group       = "105"
+    function    = "1"
+
+  strings:
+    $a0 = { 90 75 01 ?? E9 }
+
+  condition:
+    $a0
+}
+

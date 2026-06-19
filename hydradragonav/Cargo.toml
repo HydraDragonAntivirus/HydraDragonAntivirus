@@ -54,9 +54,13 @@ tempfile = "3"
 # Windows registry access
 winreg = "0.56"
 
+# Heuristic engine (unpacking + extraction + disinfection)
+hydradragonheur = { path = "../hydradragonheur" }
+
 # Other
 regex = "1.12.2"
 
 [build-dependencies]
 sha2 = "0.10.9"
 winres = "0.1"
+yara-x = "1.18.0"

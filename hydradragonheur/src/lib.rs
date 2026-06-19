@@ -12,11 +12,13 @@
 
 pub mod emulator;
 pub mod error;
+pub mod extract;
 pub mod filetype;
 pub mod fs;
 pub mod module;
 pub mod sality;
 pub mod scanner;
+pub mod unpacker;
 
 // Re-export the most commonly needed types at crate root
 pub use emulator::{EmulObserver, EmulateOrigin, Emulator, HookHandle, HookType, UnicornEmulator};
