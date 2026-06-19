@@ -42,9 +42,27 @@ pub fn detect_format(data: &[u8]) -> Option<&'static str> {
         Some("tar")
     } else if is_asar(data) {
         Some("asar")
+    } else if is_nsis(data) {
+        Some("nsis")
     } else {
         None
     }
+}
+
+/// NSIS installers are PE files whose appended overlay contains a FirstHeader
+/// carrying the distinctive `NullsoftInst` signature (after a `0xDEADBEEF`/
+/// `0xDEADBEED` siginfo). The MZ guard keeps the scan off non-PE inputs.
+fn is_nsis(data: &[u8]) -> bool {
+    data.starts_with(b"MZ") && find_subslice(data, b"NullsoftInst").is_some()
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 /// Electron `.asar` archives have no dedicated magic: they begin with a Pickle
@@ -278,6 +296,57 @@ fn extract_asar_to_dir(data: &[u8], output_dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// Parse an NSIS installer entirely in memory and return each embedded file's
+/// decompressed bytes — no temp files. Best-effort: members that fail to parse
+/// or decompress are skipped rather than aborting the whole archive.
+fn extract_nsis_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let installer = nsis::NsisInstaller::from_bytes(data).map_err(|e| {
+        ExtractError::OperationFailed {
+            reason: format!("nsis parse failed: {e}"),
+        }
+    })?;
+    let mut out = Vec::new();
+    for file in installer.files() {
+        let Ok(file) = file else { continue };
+        if let Ok(content) = file.decompress() {
+            out.push(content);
+        }
+    }
+    Ok(out)
+}
+
+/// Parse an NSIS installer in memory and write each embedded file to disk.
+fn extract_nsis_to_dir(data: &[u8], output_dir: &Path) -> Result<Vec<PathBuf>> {
+    let installer = nsis::NsisInstaller::from_bytes(data).map_err(|e| {
+        ExtractError::OperationFailed {
+            reason: format!("nsis parse failed: {e}"),
+        }
+    })?;
+    let mut files = Vec::new();
+    for (index, file) in installer.files().enumerate() {
+        let Ok(file) = file else { continue };
+        let Ok(content) = file.decompress() else {
+            continue;
+        };
+        let name = file
+            .name()
+            .map(|n| n.to_string().replace('\\', "/"))
+            .unwrap_or_default();
+        let out = if name.is_empty() {
+            output_dir.join(format!("nsis_file_{index}"))
+        } else {
+            safe_output_path(output_dir, &name)
+                .unwrap_or_else(|| output_dir.join(format!("nsis_file_{index}")))
+        };
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&out, content)?;
+        files.push(out);
+    }
+    Ok(files)
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -295,6 +364,8 @@ pub fn extract_archive(path: &Path, output_dir: &Path) -> Result<ExtractResult> 
         extract_gzip(path, output_dir)?
     } else if is_asar(&data) {
         extract_asar_to_dir(&data, output_dir)?
+    } else if is_nsis(&data) {
+        extract_nsis_to_dir(&data, output_dir)?
     } else if is_zip(&data) {
         extract_zip(&data, output_dir)?
     } else if is_xz(&data) {
@@ -330,6 +401,10 @@ pub fn extract_archive_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     // ASAR archives are parsed entirely in memory — never round-tripped to disk.
     if is_asar(data) {
         return extract_asar_from_bytes(data);
+    }
+    // NSIS installers are likewise parsed in memory.
+    if is_nsis(data) {
+        return extract_nsis_from_bytes(data);
     }
 
     // Create a temp working directory in the system temp
@@ -447,5 +522,20 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert!(files.iter().any(|f| f == b"Hello, World!"));
         assert!(files.iter().any(|f| f == b"http://evil.example"));
+    }
+
+    #[test]
+    fn detects_nsis_signature() {
+        // PE start + the NSIS FirstHeader signature (siginfo + NullsoftInst).
+        let mut data = b"MZ".to_vec();
+        data.extend_from_slice(&[0u8; 200]);
+        data.extend_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        data.extend_from_slice(b"NullsoftInst");
+        assert_eq!(detect_format(&data), Some("nsis"));
+
+        // The signature without an MZ header is not treated as NSIS.
+        let mut not_pe = vec![0u8; 50];
+        not_pe.extend_from_slice(b"NullsoftInst");
+        assert_eq!(detect_format(&not_pe), None);
     }
 }

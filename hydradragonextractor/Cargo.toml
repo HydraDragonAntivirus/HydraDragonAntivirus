@@ -2,7 +2,7 @@
 name = "hydradragonextractor"
 version = "0.1.0"
 edition = "2024"
-description = "Pure-Rust archive and compression extractor - zip, tar, gzip, xz, lzma, 7z, asar"
+description = "Pure-Rust archive and compression extractor - zip, tar, gzip, xz, lzma, 7z, asar, nsis"
 license = "GPL-2.0-or-later"
 
 [dependencies]
@@ -13,6 +13,8 @@ sevenz-rust2 = { version = "0.20", features = ["brotli", "deflate", "lz4", "zstd
 thiserror = "2"
 # Electron .asar archives — read-only (no write/integrity features needed)
 asar = { version = "0.3", default-features = false }
+# NSIS (NullSoft) installer parsing/extraction — pure Rust
+nsis = { git = "https://github.com/BinFlip/nsis-rs.git" }
 
 [dev-dependencies]
 # Enable the writer (default features) only for tests, to build sample archives.

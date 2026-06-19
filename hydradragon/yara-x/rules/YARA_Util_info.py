@@ -69,6 +69,36 @@ def meta_info_marked(block_text: str) -> bool:
     return False
 
 
+def tlp_white(block_text: str) -> bool:
+    """True if the rule's `meta:` marks it TLP:WHITE / TLP:CLEAR (public sharing),
+    e.g. `sharing = "TLP:CLEAR"` or `tlp = "TLP:WHITE"`. Such rules belong in
+    clean_rules.yar, not the INFO set, so they are never treated as INFO."""
+    in_meta = False
+    for raw in block_text.splitlines():
+        line = raw.strip()
+        if not in_meta:
+            if line == "meta:" or line.startswith("meta:"):
+                in_meta = True
+            continue
+        if line.startswith("strings:") or line.startswith("condition:") or line.startswith("}"):
+            break
+        low = line.lower()
+        if "tlp:white" in low or "tlp:clear" in low:
+            return True
+    return False
+
+
+def collect_imports(text: str):
+    """Return the de-duplicated `import "x"` lines of a ruleset, in order."""
+    imports, seen = [], set()
+    for line in IMPORT_RE.findall(text):
+        line = line.strip()
+        if line not in seen:
+            seen.add(line)
+            imports.append(line)
+    return imports
+
+
 def _skip_quoted(text: str, i: int, quote: str) -> int:
     """Given text[i] == quote (opening), return the index just past the closing
     (unescaped) quote. Handles backslash escapes. Used for "strings" and /regex/."""
@@ -209,23 +239,28 @@ def iter_rules(text: str):
 def classify_rules(text: str):
     """Partition a ruleset into INFO (non-malicious) and the rest.
 
-    A rule is INFO when its NAME has an `info` segment OR its META section marks
-    it as info. Returns (imports, info_blocks, other_blocks)."""
-    imports = []
-    seen = set()
-    for line in IMPORT_RE.findall(text):
-        line = line.strip()
-        if line not in seen:
-            seen.add(line)
-            imports.append(line)
-
+    A rule is INFO when (its NAME has an `info` segment OR its META marks it
+    info) AND it is NOT marked TLP:WHITE/CLEAR — TLP:WHITE rules belong in
+    clean_rules.yar. Returns (imports, info_blocks, other_blocks)."""
+    imports = collect_imports(text)
     info_blocks, other_blocks = [], []
     for name, block in iter_rules(text):
-        if info_marked(name) or meta_info_marked(block):
+        if (info_marked(name) or meta_info_marked(block)) and not tlp_white(block):
             info_blocks.append(block)
         else:
             other_blocks.append(block)
     return imports, info_blocks, other_blocks
+
+
+def split_by_tlp(text: str):
+    """Split a ruleset into (imports, tlp_white_blocks, other_blocks). The
+    TLP:WHITE/CLEAR rules are the ones to move back into clean_rules.yar; the
+    rest are the actual info rules."""
+    imports = collect_imports(text)
+    white_blocks, other_blocks = [], []
+    for _name, block in iter_rules(text):
+        (white_blocks if tlp_white(block) else other_blocks).append(block)
+    return imports, white_blocks, other_blocks
 
 
 def render(imports, blocks) -> str:
@@ -270,6 +305,18 @@ def main(argv=None) -> int:
         action="store_true",
         help="print the extracted INFO rules to stdout instead of writing -o",
     )
+    parser.add_argument(
+        "--tlp-split",
+        action="store_true",
+        help="split INPUT (e.g. info_rules.yar) by TLP:WHITE/CLEAR: the TLP:WHITE "
+        "rules go to <input>_to_clean.yar (re-add to clean_rules.yar), the rest to "
+        "<input>_actual_info.yar",
+    )
+    parser.add_argument(
+        "--tlp-output",
+        default=None,
+        help="path for the TLP:WHITE rules in --tlp-split (default: <input>_to_clean.yar)",
+    )
     args = parser.parse_args(argv)
 
     input_path = Path(args.input)
@@ -278,6 +325,31 @@ def main(argv=None) -> int:
         return 2
 
     text = input_path.read_text(encoding="utf-8", errors="ignore")
+
+    if args.tlp_split:
+        imports, white_blocks, other_blocks = split_by_tlp(text)
+        white_path = (
+            Path(args.tlp_output)
+            if args.tlp_output
+            else input_path.with_name(input_path.stem + "_to_clean" + input_path.suffix)
+        )
+        info_path = (
+            Path(args.output)
+            if args.output != str(here / "info_rules.yar")
+            else input_path.with_name(input_path.stem + "_actual_info" + input_path.suffix)
+        )
+        white_path.write_text(render(imports, white_blocks), encoding="utf-8")
+        info_path.write_text(render(imports, other_blocks), encoding="utf-8")
+        print(
+            f"TLP:WHITE rules (add to clean_rules.yar): {len(white_blocks)} -> {white_path}",
+            file=sys.stderr,
+        )
+        print(
+            f"actual info rules: {len(other_blocks)} -> {info_path}",
+            file=sys.stderr,
+        )
+        return 0
+
     imports, info_blocks, other_blocks = classify_rules(text)
 
     info_text = render(imports, info_blocks)
