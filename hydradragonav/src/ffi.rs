@@ -61,7 +61,7 @@ impl Api {
 unsafe impl Send for Api {}
 unsafe impl Sync for Api {}
 
-extern "system" {
+unsafe extern "system" {
     pub fn SetDefaultDllDirectories(directoryFlags: u32) -> BOOL;
     pub fn AddDllDirectory(NewDirectory: *const u16) -> DllDirectoryCookie;
     pub fn RemoveDllDirectory(Cookie: DllDirectoryCookie) -> BOOL;

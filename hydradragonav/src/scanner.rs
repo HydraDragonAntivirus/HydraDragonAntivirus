@@ -128,7 +128,7 @@ impl Engine {
         let new_fn = api
             .cl_engine_new
             .ok_or(Error::MissingExport("cl_engine_new"))?;
-        let ptr = new_fn();
+        let ptr = unsafe { new_fn() };
         if ptr.is_null() {
             return Err(Error::ClamavInit("Failed to create ClamAV engine".into()));
         }
@@ -148,7 +148,7 @@ impl Engine {
         let c_path = std::ffi::CString::new(utf8_path)
             .map_err(|e| Error::Other(format!("Invalid database path: {}", e)))?;
         let mut signatures_loaded: u32 = 0;
-        let res = load_fn(c_path.as_ptr(), self.ptr, &mut signatures_loaded, dboptions);
+        let res = unsafe { load_fn(c_path.as_ptr(), self.ptr, &mut signatures_loaded, dboptions) };
         if res != types::CL_SUCCESS {
             return Err(Error::DatabaseLoad(self.error_message(res)));
         }
@@ -164,7 +164,7 @@ impl Engine {
             }
         };
         for &(opt_id, value) in options {
-            let res = set_num(self.ptr, opt_id, value);
+            let res = unsafe { set_num(self.ptr, opt_id, value) };
             log_info(&format!(
                 "cl_engine_set_num(opt={}, val={}) => {}",
                 opt_id, value, res
@@ -183,7 +183,7 @@ impl Engine {
         let compile_fn = self
             .cl_engine_compile
             .ok_or(Error::MissingExport("cl_engine_compile"))?;
-        let res = compile_fn(self.ptr);
+        let res = unsafe { compile_fn(self.ptr) };
         if res != types::CL_SUCCESS {
             return Err(Error::EngineCompile(self.error_message(res)));
         }
@@ -198,20 +198,22 @@ impl Engine {
             .map_err(|e| Error::Other(format!("Invalid path: {}", e)))?;
         let mut virname: *const i8 = std::ptr::null();
         let mut bytes_scanned: u32 = 0;
-        let result = scan_fn(
-            c_path.as_ptr(),
-            &mut virname,
-            &mut bytes_scanned,
-            self.ptr as *const c_void,
-            scan_opts as *const ClScanOptions,
-        );
+        let result = unsafe {
+            scan_fn(
+                c_path.as_ptr(),
+                &mut virname,
+                &mut bytes_scanned,
+                self.ptr as *const c_void,
+                scan_opts as *const ClScanOptions,
+            )
+        };
         let mut output = ScanResult {
             result_code: result,
             virus_name: String::new(),
             bytes_scanned: bytes_scanned as u64,
         };
         if result == types::CL_VIRUS && !virname.is_null() {
-            let c_str = std::ffi::CStr::from_ptr(virname);
+            let c_str = unsafe { std::ffi::CStr::from_ptr(virname) };
             output.virus_name = c_str.to_string_lossy().into_owned();
         }
         Ok(output)
@@ -820,7 +822,7 @@ unsafe extern "C" fn clamav_msg_callback(
     if fullmsg.is_null() {
         return;
     }
-    let s = std::ffi::CStr::from_ptr(fullmsg).to_string_lossy();
+    let s = unsafe { std::ffi::CStr::from_ptr(fullmsg) }.to_string_lossy();
     // Suppress the known scanned_bytes u32 overflow warning — benign, detection unaffected.
     if s.contains("scanned_bytes exceeds UINT32_MAX") {
         return;

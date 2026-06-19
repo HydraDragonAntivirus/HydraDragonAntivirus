@@ -170,13 +170,7 @@ struct HookState {
     write_targets: Vec<(u64, u64)>,
     apicall_counter: HashMap<String, u64>,
     hook_addr: u64,
-    stack_addr: u64,
-    stack_size: u64,
-    peb_base: u64,
-    teb_base: u64,
     start_time: Instant,
-    sample_base_addr: u64,
-    sample_virtualmemorysize: u64,
     sample_sections: Vec<Section>,
     unpacker: UnpackerConfig,
     log_instr: bool,
@@ -219,8 +213,6 @@ impl UnpackerEngine {
     pub fn new(sample: Sample, unpack_path: &str) -> Self {
         let peb_base = PEB_ADDR;
         let teb_base = TEB_ADDR;
-        let base_addr = sample.base_addr;
-        let virtualmemorysize = sample.virtualmemorysize;
         let sections = sample.sections.clone();
         let unpacker = sample.unpacker.clone();
 
@@ -255,13 +247,7 @@ impl UnpackerEngine {
                 write_targets: Vec::new(),
                 apicall_counter: HashMap::new(),
                 hook_addr: HOOK_ADDR,
-                stack_addr: STACK_ADDR,
-                stack_size: STACK_SIZE,
-                peb_base,
-                teb_base,
                 start_time: Instant::now(),
-                sample_base_addr: base_addr,
-                sample_virtualmemorysize: virtualmemorysize,
                 sample_sections: sections,
                 unpacker,
                 log_instr: false,
@@ -412,11 +398,9 @@ impl UnpackerEngine {
         // --- Register hooks ---
         let hook_state = Rc::clone(&self.hook_state);
         let hook_state2 = Rc::clone(&self.hook_state);
-        let hook_state3 = Rc::clone(&self.hook_state);
-
         // Code hook
         let code_hook = uc
-            .add_code_hook(0, u64::MAX, move |uc, addr, size| {
+            .add_code_hook(0, u64::MAX, move |uc, addr, _size| {
                 let state = hook_state.borrow();
                 // Check breakpoints
                 if state.breakpoints.contains(&addr) {
@@ -436,8 +420,6 @@ impl UnpackerEngine {
 
                 // Store the hook addresses we need to check
                 let hook_addr_val: u64;
-                let sample_base: u64;
-                let virtual_size: u64;
                 let do_section_hopping: bool;
                 let do_write_execute: bool;
                 let allowed_sections: Vec<String>;
@@ -448,8 +430,6 @@ impl UnpackerEngine {
                 {
                     let s = hook_state.borrow();
                     hook_addr_val = s.hook_addr;
-                    sample_base = s.sample_base_addr;
-                    virtual_size = s.sample_virtualmemorysize;
                     do_section_hopping = s.unpacker.section_hopping_control;
                     do_write_execute = s.unpacker.write_execute_control;
                     allowed_sections = s.unpacker.allowed_sections.clone();
@@ -694,7 +674,6 @@ impl UnpackerEngine {
             .as_ref()
             .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
         let ctx = crate::unpacker::imagedump::DumpContext {
-            base_addr: self.sample.base_addr,
             virtualmemorysize: self.sample.virtualmemorysize,
             hook_addr: self.hook_addr,
             ntp: HashMap::new(),
@@ -736,7 +715,6 @@ impl UnpackerEngine {
             .as_ref()
             .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
         let ctx = crate::unpacker::imagedump::DumpContext {
-            base_addr: self.sample.base_addr,
             virtualmemorysize: self.sample.virtualmemorysize,
             hook_addr: self.hook_addr,
             ntp: HashMap::new(),

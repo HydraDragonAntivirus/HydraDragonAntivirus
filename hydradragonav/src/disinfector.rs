@@ -21,14 +21,12 @@ pub struct DisinfectResult {
 /// All intermediate steps operate on in-memory bytes — no temp files.
 pub struct Disinfector {
     pipeline: Pipeline,
-    yrc_bytes: &'static [u8],
 }
 
 impl Disinfector {
-    pub fn new(config: PipelineConfig, yrc_bytes: &'static [u8]) -> Self {
+    pub fn new(config: PipelineConfig) -> Self {
         Self {
             pipeline: Pipeline::new(config),
-            yrc_bytes,
         }
     }
 
@@ -46,9 +44,10 @@ impl Disinfector {
             Err(e) => return self.fail_result(engines, format!("read error: {e}")),
         };
 
-        // ---- Step 2: Packer detection (from bytes) ----
+        // ---- Step 2: Packer detection (from bytes, lazily compiled rules) ----
         let t0 = Instant::now();
-        let (packer_name, matches) = match identify_packer_from_bytes(&file_data, self.yrc_bytes) {
+        let yrc_bytes = crate::build_data::packer_rules_bytes();
+        let (packer_name, matches) = match identify_packer_from_bytes(&file_data, yrc_bytes) {
             Ok(r) => r,
             Err(_) => return self.fail_result(engines, "not a known packed PE".into()),
         };
@@ -99,7 +98,7 @@ impl Disinfector {
         let t0 = Instant::now();
         let extracted_files = match extract_archive_from_bytes(&dumped_bytes) {
             Ok(files) => files,
-            Err(_) => Vec::new(), // not an archive, that's fine
+            Err(_) => Vec::new(),
         };
         engines.push(Self::engine_result(
             "extractor",

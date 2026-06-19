@@ -1,6 +1,6 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::HashMap;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 use unicorn_engine::Unicorn;
 
 use crate::unpacker::error::{UnpackerError, UnpackerResult};
@@ -10,33 +10,20 @@ use crate::unpacker::error::{UnpackerError, UnpackerResult};
 // ---------------------------------------------------------------------------
 
 const IMAGE_SIZEOF_SHORT_NAME: usize = 8;
-const IMAGE_NUMBEROF_DIRECTORY_ENTRIES: usize = 16;
 const IMAGE_DIRECTORY_ENTRY_IMPORT: usize = 1;
 const IMAGE_DIRECTORY_ENTRY_IAT: usize = 12;
 const IMAGE_DIRECTORY_ENTRY_BASERELOC: usize = 5;
 const IMAGE_DIRECTORY_ENTRY_SECURITY: usize = 4;
 const IMAGE_SIZEOF_SECTION_HEADER: usize = 40;
 
-const IMAGE_SCN_MEM_EXECUTE: u32 = 0x20000000;
 const IMAGE_SCN_MEM_READ: u32 = 0x40000000;
 const IMAGE_SCN_MEM_WRITE: u32 = 0x80000000;
-const IMAGE_SCN_CNT_CODE: u32 = 0x00000020;
 const IMAGE_SCN_CNT_INITIALIZED_DATA: u32 = 0x00000040;
-const IMAGE_SCN_CNT_UNINITIALIZED_DATA: u32 = 0x00000080;
 
 const IMAGE_FILE_RELOCS_STRIPPED: u16 = 0x0001;
 
 const PE32_MAGIC: u16 = 0x10b;
-const PE32Plus_MAGIC: u16 = 0x20b;
-
-const PAGE_NOACCESS: u32 = 0x01;
-const PAGE_READONLY: u32 = 0x02;
-const PAGE_READWRITE: u32 = 0x04;
-const PAGE_WRITECOPY: u32 = 0x08;
-const PAGE_EXECUTE: u32 = 0x10;
-const PAGE_EXECUTE_READ: u32 = 0x20;
-const PAGE_EXECUTE_READWRITE: u32 = 0x40;
-const PAGE_EXECUTE_WRITECOPY: u32 = 0x80;
+const PE32_PLUS_MAGIC: u16 = 0x20b;
 
 const IMAGE_SNAP_BY_ORDINAL: u32 = 0x80000000;
 
@@ -94,7 +81,6 @@ pub struct ImportDescriptor {
 
 #[derive(Debug, Clone)]
 pub struct DumpContext {
-    pub base_addr: u64,
     pub virtualmemorysize: u64,
     pub hook_addr: u64,
     pub ntp: HashMap<String, (bool, bool, bool)>,
@@ -106,12 +92,10 @@ pub struct DumpContext {
 
 impl DumpContext {
     pub fn new(
-        base_addr: u64,
         virtualmemorysize: u64,
         hook_addr: u64,
     ) -> Self {
         Self {
-            base_addr,
             virtualmemorysize,
             hook_addr,
             ntp: HashMap::new(),
@@ -137,11 +121,6 @@ fn read_u32(data: &[u8], offset: usize) -> u32 {
     r.read_u32::<LittleEndian>().unwrap_or(0)
 }
 
-fn read_u64(data: &[u8], offset: usize) -> u64 {
-    let mut r = Cursor::new(&data[offset..offset + 8]);
-    r.read_u64::<LittleEndian>().unwrap_or(0)
-}
-
 fn write_u16(data: &mut [u8], offset: usize, val: u16) {
     let mut w = Cursor::new(&mut data[offset..offset + 2]);
     let _ = w.write_u16::<LittleEndian>(val);
@@ -150,11 +129,6 @@ fn write_u16(data: &mut [u8], offset: usize, val: u16) {
 fn write_u32(data: &mut [u8], offset: usize, val: u32) {
     let mut w = Cursor::new(&mut data[offset..offset + 4]);
     let _ = w.write_u32::<LittleEndian>(val);
-}
-
-fn write_u64(data: &mut [u8], offset: usize, val: u64) {
-    let mut w = Cursor::new(&mut data[offset..offset + 8]);
-    let _ = w.write_u64::<LittleEndian>(val);
 }
 
 fn pe_signature_offset(data: &[u8]) -> Option<usize> {
@@ -196,7 +170,7 @@ fn parse_pe_headers(
     let magic = read_u16(data, optional_header_offset);
     let is_pe32plus = match magic {
         PE32_MAGIC => false,
-        PE32Plus_MAGIC => true,
+        PE32_PLUS_MAGIC => true,
         _ => return None,
     };
 
@@ -230,15 +204,6 @@ fn read_section_headers(data: &[u8], section_hdr_offset: usize, count: u16) -> V
         });
     }
     sections
-}
-
-/// Calculate the highest RVA of any section (virtual_address + virtual_size).
-fn highest_section_rva(sections: &[Section]) -> u32 {
-    sections
-        .iter()
-        .map(|s| s.virtual_address.saturating_add(s.virtual_size))
-        .max()
-        .unwrap_or(0)
 }
 
 fn align_up(val: u32, align: u32) -> u32 {
@@ -414,7 +379,6 @@ pub fn chunk_to_image_section_hdr(
 /// Scans the binary for RVAs that fall within the import address table range.
 pub fn find_iat(
     data: &[u8],
-    base_addr: u64,
     import_rvas: &[(u32, u32)],
 ) -> Vec<(usize, u32)> {
     let mut found = Vec::new();
@@ -453,7 +417,6 @@ pub fn patch_iat(data: &mut [u8], patches: &[(usize, u32)]) {
 pub fn fix_imports_by_rebuilding(
     data: &mut Vec<u8>,
     ctx: &DumpContext,
-    base_addr: u64,
     image_size: u32,
     section_alignment: u32,
     file_alignment: u32,
@@ -579,7 +542,6 @@ pub fn fix_imports_by_rebuilding(
 
     // Write descriptors with correct RVAs
     for entry in &layout {
-        let dll = &dll_entries[entry.desc_idx].1;
         let desc_off = entry.desc_idx * 20;
 
         // OriginalFirstThunk -> hint/name table RVA
@@ -672,7 +634,7 @@ pub fn fix_imports_by_rebuilding(
 
     // Build result descriptors
     let mut result = Vec::new();
-    for (i, (dll_name, dll)) in dll_entries.iter().enumerate() {
+    for (i, (dll_name, _dll)) in dll_entries.iter().enumerate() {
         if let Some(entry) = layout.get(i) {
             let oft_rva = import_section_rva + entry.hint_name_offset;
             let name_rva = import_section_rva + entry.dll_name_offset;
@@ -690,38 +652,6 @@ pub fn fix_imports_by_rebuilding(
     }
 
     Ok(result)
-}
-
-/// Fix imports by searching for DLL names in the dumped binary.
-pub fn fix_imports_by_dllname(
-    data: &mut Vec<u8>,
-    ctx: &DumpContext,
-    base_addr: u64,
-    image_size: u32,
-    section_alignment: u32,
-    file_alignment: u32,
-) -> UnpackerResult<()> {
-    // Search for known DLL names in the dumped data
-    let mut dll_locations: Vec<(usize, String)> = Vec::new();
-
-    for dll_name in ctx.dllname_to_functionlist.keys() {
-        let name_bytes = dll_name.as_bytes();
-        // Search for the DLL name in the binary
-        for window in data.windows(name_bytes.len()) {
-            if window == name_bytes {
-                let offset = (window.as_ptr() as usize) - (data.as_ptr() as usize);
-                dll_locations.push((offset, dll_name.clone()));
-                break;
-            }
-        }
-    }
-
-    if dll_locations.is_empty() {
-        // Fall back to rebuilding
-        return fix_imports_by_rebuilding(data, ctx, base_addr, image_size, section_alignment, file_alignment).map(|_| ());
-    }
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -746,7 +676,7 @@ pub fn fix_checksum(data: &mut [u8]) -> UnpackerResult<()> {
             return Err(UnpackerError::InvalidPeFile("optional header too small".into()));
         }
         let magic = read_u16(data, optional_header_offset);
-        magic == PE32Plus_MAGIC
+        magic == PE32_PLUS_MAGIC
     };
 
     // Checksum location in optional header
@@ -799,7 +729,6 @@ pub fn add_import_section_api(
     virtual_size: u32,
     raw_data: &[u8],
     file_alignment: u32,
-    section_alignment: u32,
 ) -> UnpackerResult<()> {
     let raw_size = align_up(raw_data.len() as u32, file_alignment);
 
@@ -878,7 +807,7 @@ pub fn dump_image(
         .ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers from emulated memory".into()))?;
 
     // Get section alignment and file alignment from optional header
-    let (section_alignment, file_alignment, image_size) = if is_pe64 {
+    let (section_alignment, file_alignment, _image_size) = if is_pe64 {
         // PE32+ optional header layout:
         // +0: magic(2)
         // +2: major_linker_version(1), minor_linker_version(1)
@@ -976,7 +905,6 @@ pub fn dump_image(
     let _new_imports = fix_imports_by_rebuilding(
         &mut pe_data,
         ctx,
-        base_addr,
         actual_image_size,
         section_alignment,
         file_alignment,
@@ -1113,7 +1041,6 @@ pub fn dump_image_to_bytes(
     let _new_imports = fix_imports_by_rebuilding(
         &mut pe_data,
         ctx,
-        base_addr,
         actual_image_size,
         section_alignment,
         file_alignment,
