@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 /// Magic bytes for detection.
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+const ZIP_LOCAL_MAGIC: [u8; 4] = [0x50, 0x4b, 0x03, 0x04];
 const XZ_MAGIC: [u8; 6] = [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00];
 const LZMA_STREAM_MAGIC: [u8; 2] = [0x5d, 0x00];
 /// ustar tar has "ustar" at offset 257.
@@ -29,6 +30,8 @@ type Result<T> = std::result::Result<T, ExtractError>;
 pub fn detect_format(data: &[u8]) -> Option<&'static str> {
     if data.starts_with(&GZIP_MAGIC) {
         Some("gz")
+    } else if data.starts_with(&ZIP_LOCAL_MAGIC) {
+        Some("zip")
     } else if data.starts_with(&XZ_MAGIC) {
         Some("xz")
     } else if data.starts_with(&LZMA_STREAM_MAGIC) {
@@ -37,9 +40,22 @@ pub fn detect_format(data: &[u8]) -> Option<&'static str> {
         && data[TAR_USTAR_OFFSET..TAR_USTAR_OFFSET + 5] == TAR_USTAR_MAGIC
     {
         Some("tar")
+    } else if is_asar(data) {
+        Some("asar")
     } else {
         None
     }
+}
+
+/// Electron `.asar` archives have no dedicated magic: they begin with a Pickle
+/// `uint32 = 4` length prefix followed by the JSON header `{"files":...`. Detect
+/// both to avoid false positives on arbitrary `04 00 00 00` data.
+fn is_asar(data: &[u8]) -> bool {
+    if !data.starts_with(&[0x04, 0x00, 0x00, 0x00]) || data.len() < 16 {
+        return false;
+    }
+    let head = &data[..data.len().min(64)];
+    head.windows(8).any(|window| window == b"{\"files\"")
 }
 
 fn is_tar(data: &[u8]) -> bool {
@@ -49,6 +65,10 @@ fn is_tar(data: &[u8]) -> bool {
 
 fn is_gzip(data: &[u8]) -> bool {
     data.starts_with(&GZIP_MAGIC)
+}
+
+fn is_zip(data: &[u8]) -> bool {
+    data.starts_with(&ZIP_LOCAL_MAGIC)
 }
 
 fn is_xz(data: &[u8]) -> bool {
@@ -65,9 +85,11 @@ fn is_lzma(data: &[u8]) -> bool {
 
 fn extract_tar<R: Read>(reader: R, output_dir: &Path) -> Result<Vec<PathBuf>> {
     let mut archive = tar::Archive::new(reader);
-    archive.unpack(output_dir).map_err(|e| ExtractError::OperationFailed {
-        reason: format!("tar extraction failed: {e}"),
-    })?;
+    archive
+        .unpack(output_dir)
+        .map_err(|e| ExtractError::OperationFailed {
+            reason: format!("tar extraction failed: {e}"),
+        })?;
     let mut files = Vec::new();
     collect_files(output_dir, &mut files);
     Ok(files)
@@ -123,12 +145,11 @@ fn extract_xz(path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
 
 fn extract_lzma(path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
     let file = std::fs::File::open(path)?;
-    let mut decoder =
-        lzma_rust2::LzmaReader::new_mem_limit(file, u32::MAX, None).map_err(|e| {
-            ExtractError::OperationFailed {
-                reason: format!("lzma decoder init failed: {e}"),
-            }
-        })?;
+    let mut decoder = lzma_rust2::LzmaReader::new_mem_limit(file, u32::MAX, None).map_err(|e| {
+        ExtractError::OperationFailed {
+            reason: format!("lzma decoder init failed: {e}"),
+        }
+    })?;
 
     let mut decompressed = Vec::new();
     decoder
@@ -155,6 +176,108 @@ fn extract_plain_tar(path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
     extract_tar(file, output_dir)
 }
 
+fn extract_zip(data: &[u8], output_dir: &Path) -> Result<Vec<PathBuf>> {
+    let eocd = find_eocd(data).ok_or_else(|| ExtractError::OperationFailed {
+        reason: "zip end-of-central-directory not found".to_string(),
+    })?;
+    let total_entries = read_u16(data, eocd + 10).unwrap_or(0) as usize;
+    let central_offset = read_u32(data, eocd + 16).unwrap_or(0) as usize;
+    let mut cursor = central_offset;
+    let mut files = Vec::new();
+
+    for _ in 0..total_entries {
+        if data.get(cursor..cursor + 4) != Some(b"PK\x01\x02") {
+            break;
+        }
+        let method = read_u16(data, cursor + 10).unwrap_or(0);
+        let compressed_size = read_u32(data, cursor + 20).unwrap_or(0) as usize;
+        let name_len = read_u16(data, cursor + 28).unwrap_or(0) as usize;
+        let extra_len = read_u16(data, cursor + 30).unwrap_or(0) as usize;
+        let comment_len = read_u16(data, cursor + 32).unwrap_or(0) as usize;
+        let local_offset = read_u32(data, cursor + 42).unwrap_or(0) as usize;
+        let name_start = cursor + 46;
+        let name_end = name_start.saturating_add(name_len);
+        let Some(name_bytes) = data.get(name_start..name_end) else {
+            break;
+        };
+        let name = String::from_utf8_lossy(name_bytes).replace('\\', "/");
+
+        if !name.ends_with('/') {
+            if let Some(output_path) = safe_output_path(output_dir, &name) {
+                if data.get(local_offset..local_offset + 4) == Some(b"PK\x03\x04") {
+                    let local_name_len = read_u16(data, local_offset + 26).unwrap_or(0) as usize;
+                    let local_extra_len = read_u16(data, local_offset + 28).unwrap_or(0) as usize;
+                    let data_start = local_offset
+                        .saturating_add(30)
+                        .saturating_add(local_name_len)
+                        .saturating_add(local_extra_len);
+                    let data_end = data_start.saturating_add(compressed_size);
+                    if let Some(compressed) = data.get(data_start..data_end) {
+                        let extracted = match method {
+                            0 => compressed.to_vec(),
+                            8 => {
+                                let mut decoder =
+                                    flate2::read::DeflateDecoder::new(Cursor::new(compressed));
+                                let mut out = Vec::new();
+                                decoder.read_to_end(&mut out).map_err(|e| {
+                                    ExtractError::OperationFailed {
+                                        reason: format!("zip deflate failed: {e}"),
+                                    }
+                                })?;
+                                out
+                            }
+                            _ => Vec::new(),
+                        };
+                        if !extracted.is_empty() || method == 0 {
+                            if let Some(parent) = output_path.parent() {
+                                std::fs::create_dir_all(parent)?;
+                            }
+                            std::fs::write(&output_path, extracted)?;
+                            files.push(output_path);
+                        }
+                    }
+                }
+            }
+        }
+
+        cursor = name_end
+            .saturating_add(extra_len)
+            .saturating_add(comment_len);
+    }
+
+    Ok(files)
+}
+
+/// Parse an Electron `.asar` archive entirely in memory and return each
+/// member's bytes — no temp files. ASAR members are stored uncompressed, so the
+/// reader hands back slices we simply copy out.
+fn extract_asar_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let reader =
+        asar::AsarReader::new(data, None::<PathBuf>).map_err(|e| ExtractError::OperationFailed {
+            reason: format!("asar parse failed: {e}"),
+        })?;
+    Ok(reader.files().values().map(|f| f.data().to_vec()).collect())
+}
+
+/// Parse an Electron `.asar` archive in memory and write each member to disk.
+fn extract_asar_to_dir(data: &[u8], output_dir: &Path) -> Result<Vec<PathBuf>> {
+    let reader =
+        asar::AsarReader::new(data, None::<PathBuf>).map_err(|e| ExtractError::OperationFailed {
+            reason: format!("asar parse failed: {e}"),
+        })?;
+    let mut files = Vec::new();
+    for (path, file) in reader.files() {
+        if let Some(out) = safe_output_path(output_dir, &path.to_string_lossy()) {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&out, file.data())?;
+            files.push(out);
+        }
+    }
+    Ok(files)
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -170,6 +293,10 @@ pub fn extract_archive(path: &Path, output_dir: &Path) -> Result<ExtractResult> 
 
     let files = if is_gzip(&data) {
         extract_gzip(path, output_dir)?
+    } else if is_asar(&data) {
+        extract_asar_to_dir(&data, output_dir)?
+    } else if is_zip(&data) {
+        extract_zip(&data, output_dir)?
     } else if is_xz(&data) {
         extract_xz(path, output_dir)?
     } else if is_lzma(&data) {
@@ -178,10 +305,11 @@ pub fn extract_archive(path: &Path, output_dir: &Path) -> Result<ExtractResult> 
         extract_plain_tar(path, output_dir)?
     } else {
         // Try 7z as fallback (it has its own magic check)
-        sevenz_rust2::decompress_file(path, output_dir)
-            .map_err(|e| ExtractError::OperationFailed {
+        sevenz_rust2::decompress_file(path, output_dir).map_err(|e| {
+            ExtractError::OperationFailed {
                 reason: format!("7z extraction failed: {e}"),
-            })?;
+            }
+        })?;
         let mut files = Vec::new();
         collect_files(output_dir, &mut files);
         files
@@ -199,6 +327,11 @@ pub fn extract_archive(path: &Path, output_dir: &Path) -> Result<ExtractResult> 
 /// reads all extracted file contents into memory, cleans up, and returns
 /// the file contents as `Vec<Vec<u8>>`.
 pub fn extract_archive_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    // ASAR archives are parsed entirely in memory — never round-tripped to disk.
+    if is_asar(data) {
+        return extract_asar_from_bytes(data);
+    }
+
     // Create a temp working directory in the system temp
     let mut tmp = std::env::temp_dir();
     tmp.push(format!("hdext_{:x}", rand_byte()));
@@ -213,14 +346,11 @@ pub fn extract_archive_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
 
     // Read all extracted files into memory
     let mut result: Vec<Vec<u8>> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&output_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Ok(bytes) = std::fs::read(&path) {
-                    result.push(bytes);
-                }
-            }
+    let mut files = Vec::new();
+    collect_files(&output_dir, &mut files);
+    for path in files {
+        if let Ok(bytes) = std::fs::read(&path) {
+            result.push(bytes);
         }
     }
 
@@ -241,6 +371,35 @@ fn rand_byte() -> u32 {
     (nanos as u32).wrapping_mul(6364136223846793005u64 as u32)
 }
 
+fn find_eocd(data: &[u8]) -> Option<usize> {
+    let min = data.len().saturating_sub(65_557);
+    (min..data.len().saturating_sub(3))
+        .rev()
+        .find(|offset| data.get(*offset..offset + 4) == Some(b"PK\x05\x06"))
+}
+
+fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
+    let bytes = data.get(offset..offset + 2)?;
+    Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
+    let bytes = data.get(offset..offset + 4)?;
+    Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn safe_output_path(output_dir: &Path, name: &str) -> Option<PathBuf> {
+    let mut out = output_dir.to_path_buf();
+    for component in Path::new(name).components() {
+        match component {
+            std::path::Component::Normal(part) => out.push(part),
+            std::path::Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
 fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -251,5 +410,42 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
                 out.push(path);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_asar_header() {
+        let mut data = vec![0x04, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00];
+        data.extend_from_slice(b"{\"files\":{}}");
+        assert_eq!(detect_format(&data), Some("asar"));
+
+        // A bare `04 00 00 00` prefix without the JSON header is not asar.
+        let other = vec![0x04, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+            0x88, 0x99, 0xaa, 0xbb];
+        assert_eq!(detect_format(&other), None);
+    }
+
+    #[test]
+    fn extracts_asar_in_memory() {
+        let mut writer = asar::AsarWriter::new();
+        writer
+            .write_file("hello.txt", b"Hello, World!", false)
+            .unwrap();
+        writer
+            .write_file("config/c2.txt", b"http://evil.example", false)
+            .unwrap();
+        let mut buf = Vec::new();
+        writer.finalize(&mut buf).unwrap();
+
+        assert_eq!(detect_format(&buf), Some("asar"));
+
+        let files = extract_archive_from_bytes(&buf).unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().any(|f| f == b"Hello, World!"));
+        assert!(files.iter().any(|f| f == b"http://evil.example"));
     }
 }

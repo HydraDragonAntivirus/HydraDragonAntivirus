@@ -1,20 +1,15 @@
 #![cfg(windows)]
 
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 
-use hydradragonav::clamjuice;
+use hydradragonav::disinfector::{self, DisinfectOutcome};
 use hydradragonav::pipeline::scan_hayabusa_once;
 use hydradragonav::pipeline::{Pipeline, PipelineConfig, ScanMode};
 use hydradragonav::registry_scanner::RegistryScanner;
-use hydradragonav::run_freshclam_dll;
-use hydradragonav::Error;
-use hydradragonav::Scanner;
-
-const DEFINITION_MAX_AGE_HOURS: u64 = 12;
 
 fn exe_dir() -> PathBuf {
     std::env::current_exe()
@@ -47,22 +42,10 @@ fn resolve_reglist() -> PathBuf {
         .unwrap_or_else(|_| exe_dir().join("reglist.txt"))
 }
 
-fn resolve_clamav_dll() -> PathBuf {
-    std::env::var("CLAMAV_LIBRARY")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| exe_dir().join("libclamav.dll"))
-}
-
 fn resolve_clamav_db() -> PathBuf {
     std::env::var("CLAMAV_DATABASE")
         .map(PathBuf::from)
         .unwrap_or_else(|_| exe_dir().join("database"))
-}
-
-fn resolve_freshclam() -> PathBuf {
-    std::env::var("FRESHCLAM_DLL_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| exe_dir().join("libfreshclam.dll"))
 }
 
 fn resolve_hayabusa_dir() -> PathBuf {
@@ -93,14 +76,8 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 
-    #[arg(long, env = "CLAMAV_LIBRARY", global = true)]
-    lib: Option<PathBuf>,
-
     #[arg(long, env = "CLAMAV_DATABASE", global = true)]
     db: Option<PathBuf>,
-
-    #[arg(long, env = "FRESHCLAM_DLL_PATH", global = true)]
-    freshclam: Option<PathBuf>,
 
     #[arg(long, env = "BLOOM_DIR", global = true)]
     bloom_dir: Option<PathBuf>,
@@ -140,7 +117,7 @@ enum Command {
         #[arg(long)]
         output: Option<PathBuf>,
 
-        /// Enable ClamAV heuristic detection (off by default to reduce false positives)
+        /// Accepted for compatibility; the pure-Rust ClamAV engine has no separate heuristic mode
         #[arg(long)]
         heuristics: bool,
 
@@ -153,32 +130,11 @@ enum Command {
         fast_scan: bool,
     },
 
-    /// Update ClamAV virus definitions via libfreshclam.dll and optionally Hayabusa rules
-    Update {
-        #[arg(long, short)]
-        reload_scanner: bool,
-        #[arg(long)]
-        hayabusa: bool,
-        /// Filter databases after update (Windows-only, no hashes)
-        #[arg(long)]
-        juice: bool,
-    },
-
-    /// Filter ClamAV databases: keep Windows-only, remove all hash files
-    ClamJuice {
-        /// Keep the original .cvd/.cld files after filtering (by default they are deleted)
-        #[arg(long)]
-        keep_source: bool,
-    },
-
-    /// Reload the ClamAV database
-    ReloadDatabase,
+    /// Update Hayabusa detection rules
+    Update,
 
     /// Print engine versions
     Version,
-
-    /// Check whether the local ClamAV definitions are stale
-    CheckUpdate,
 }
 
 fn default_paths() -> (
@@ -190,13 +146,9 @@ fn default_paths() -> (
     PathBuf,
     PathBuf,
     PathBuf,
-    PathBuf,
-    PathBuf,
 ) {
     (
-        resolve_clamav_dll(),
         resolve_clamav_db(),
-        resolve_freshclam(),
         resolve_bloom_dir(),
         resolve_yara_dir(),
         resolve_hydradragonstatic_rules_dir(),
@@ -289,7 +241,6 @@ fn cmd_scan_single(
             .filter(|p| p.exists()),
         pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
         js_ml_model_path: config.js_ml_model.clone().filter(|p| p.exists()),
-        clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
         clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
         scan_mode: mode,
@@ -372,6 +323,22 @@ fn cmd_scan_single(
             }
         }
     }
+
+    if !json
+        && matches!(
+            result.verdict,
+            hydradragonav::verdict::Verdict::Malware
+                | hydradragonav::verdict::Verdict::Abuse
+                | hydradragonav::verdict::Verdict::Phishing
+                | hydradragonav::verdict::Verdict::Suspicious
+                | hydradragonav::verdict::Verdict::Spam
+                | hydradragonav::verdict::Verdict::Mining
+                | hydradragonav::verdict::Verdict::Pua
+        )
+    {
+        let infected = vec![(path.to_path_buf(), result.threat_name.clone())];
+        offer_disinfection(&infected, &pipeline, &config.db);
+    }
 }
 
 fn cmd_scan_recursive(
@@ -393,7 +360,6 @@ fn cmd_scan_recursive(
             .filter(|p| p.exists()),
         pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
         js_ml_model_path: config.js_ml_model.clone().filter(|p| p.exists()),
-        clamav_lib: Some(config.lib.clone()).filter(|p| p.exists()),
         clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
         scan_mode: mode,
@@ -574,6 +540,14 @@ fn cmd_scan_recursive(
         }
     }
 
+    if !json && !harmful_results.is_empty() {
+        let infected: Vec<(PathBuf, Option<String>)> = harmful_results
+            .iter()
+            .map(|(path, result)| (path.clone(), result.threat_name.clone()))
+            .collect();
+        offer_disinfection(&infected, &pipeline, &config.db);
+    }
+
     if matches!(mode, ScanMode::Full | ScanMode::NonFiles) {
         eprintln!();
         if json {
@@ -599,9 +573,7 @@ fn cmd_scan_recursive(
 }
 
 struct FullConfig {
-    lib: PathBuf,
     db: PathBuf,
-    freshclam: PathBuf,
     bloom_dir: Option<PathBuf>,
     yara_dir: Option<PathBuf>,
     hydradragonstatic_rules_dir: Option<PathBuf>,
@@ -613,13 +585,10 @@ struct FullConfig {
 
 fn main() {
     let cli = Cli::parse();
-    let (lib, db, freshclam, blm, yara, hydradragonstatic_rules, hayabusa, pe_ml, js_ml, reglist) =
-        default_paths();
+    let (db, blm, yara, hydradragonstatic_rules, hayabusa, pe_ml, js_ml, reglist) = default_paths();
 
     let config = FullConfig {
-        lib: cli.lib.unwrap_or(lib),
         db: cli.db.unwrap_or(db),
-        freshclam: cli.freshclam.unwrap_or(freshclam),
         bloom_dir: cli.bloom_dir.or(Some(blm)),
         yara_dir: cli.yara_dir.or(Some(yara)),
         hydradragonstatic_rules_dir: cli
@@ -650,80 +619,78 @@ fn main() {
             *fast_scan,
             &config,
         ),
-        Command::Update {
-            reload_scanner,
-            hayabusa,
-            juice,
-        } => cmd_update(
-            *reload_scanner,
-            *hayabusa,
-            *juice,
-            &config.lib,
-            &config.db,
-            &config.freshclam,
-            config.hayabusa_dir.as_deref(),
-        ),
-        Command::ClamJuice { keep_source } => {
-            clamjuice::run_juice(&config.db, !*keep_source);
-        }
-        Command::ReloadDatabase => cmd_reload_database(&config.lib, &config.db),
-        Command::Version => cmd_version(&config.lib, &config.db),
-        Command::CheckUpdate => cmd_check_update(&config.db),
+        Command::Update => match config.hayabusa_dir.as_deref() {
+            Some(hdir) => cmd_update_hayabusa(hdir),
+            None => eprintln!("[Hayabusa] hayabusa_dir not configured, skipping."),
+        },
+        Command::Version => println!("{}", env!("CARGO_PKG_VERSION")),
     }
 }
 
-fn cmd_update(
-    reload_scanner: bool,
-    update_hayabusa: bool,
-    update_juice: bool,
-    lib_path: &std::path::Path,
+/// After a scan, interactively offer to clean each infected file. Disinfection
+/// neutralizes the matched signature arenas in place (keeping a `.bak`); files
+/// with no recoverable arena — or where neutralization fails — are quarantined.
+fn offer_disinfection(
+    infected: &[(PathBuf, Option<String>)],
+    pipeline: &Pipeline,
     db_path: &std::path::Path,
-    freshclam_dll: &std::path::Path,
-    hayabusa_dir: Option<&std::path::Path>,
 ) {
-    let certs_dir = freshclam_dll.parent().map(|p| p.join("certs"));
+    use std::io::Write;
 
-    eprintln!("[ClamAV] Updating databases via libfreshclam.dll...");
-    match run_freshclam_dll(freshclam_dll, db_path, certs_dir.as_deref()) {
-        Ok(()) => {
-            eprintln!("[ClamAV] Database update completed successfully.");
-        }
-        Err(e) => {
-            eprintln!("[ClamAV] Database update failed: {}", e);
-            std::process::exit(1);
-        }
+    if infected.is_empty() {
+        return;
     }
 
-    if update_hayabusa {
-        if let Some(hdir) = hayabusa_dir {
-            cmd_update_hayabusa(hdir);
-        } else {
-            eprintln!("[Hayabusa] hayabusa_dir not configured, skipping.");
+    eprintln!();
+    eprintln!("[Disinfect] {} infected file(s) detected.", infected.len());
+    eprintln!("[Disinfect] Disinfection neutralizes matched signature regions in place (a .bak");
+    eprintln!("[Disinfect] backup is kept) but may miss other malicious parts — deleting the file");
+    eprintln!("[Disinfect] is safer. Files with no recoverable signature arena are quarantined.");
+
+    let quarantine_dir = db_path
+        .parent()
+        .map(|p| p.join("quarantine"))
+        .unwrap_or_else(|| PathBuf::from("quarantine"));
+
+    let stdin = std::io::stdin();
+    for (path, threat) in infected {
+        let label = threat.as_deref().unwrap_or("malware");
+        eprint!(
+            "[Disinfect] Clean '{}' ({})? [d=disinfect/quarantine, s=skip, q=quit]: ",
+            path.display(),
+            label
+        );
+        let _ = std::io::stderr().flush();
+
+        let mut line = String::new();
+        if stdin.read_line(&mut line).unwrap_or(0) == 0 {
+            eprintln!("\n[Disinfect] no input available; aborting disinfection.");
+            return;
         }
-    }
-
-    if update_juice {
-        eprintln!("[ClamJuice] Filtering databases (Windows-only, no hashes)...");
-        clamjuice::run_juice(db_path, true);
-    }
-
-    if reload_scanner {
-        eprintln!("[ClamAV] Reloading scanner database...");
-        let scanner = match Scanner::new(lib_path, db_path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[ClamAV] Failed to initialize scanner for reload: {}", e);
-                std::process::exit(1);
+        match line.trim().to_ascii_lowercase().as_str() {
+            "q" | "quit" => {
+                eprintln!("[Disinfect] aborted.");
+                return;
             }
-        };
-        match scanner.reload_database() {
-            Ok(sigs) => {
-                eprintln!("[ClamAV] Database reloaded. Signatures loaded: {}", sigs);
+            "d" | "disinfect" | "y" | "yes" => {
+                // Recover ClamAV + YARA-X matched arenas (file offsets).
+                let arenas = pipeline.arenas_for_file(path);
+                match disinfector::disinfect_file(path, &arenas, &quarantine_dir) {
+                    DisinfectOutcome::Neutralized { bytes, backup } => eprintln!(
+                        "[Disinfect] neutralized {bytes} byte(s) in {}; backup at {}",
+                        path.display(),
+                        backup.display()
+                    ),
+                    DisinfectOutcome::Quarantined { to } => eprintln!(
+                        "[Disinfect] no signature arena; quarantined to {}",
+                        to.display()
+                    ),
+                    DisinfectOutcome::Failed { reason } => {
+                        eprintln!("[Disinfect] FAILED for {}: {reason}", path.display())
+                    }
+                }
             }
-            Err(e) => {
-                eprintln!("[ClamAV] Database reload failed: {}", e);
-                std::process::exit(1);
-            }
+            _ => eprintln!("[Disinfect] skipped {}", path.display()),
         }
     }
 }
@@ -744,92 +711,6 @@ fn cmd_update_hayabusa(hayabusa_dir: &std::path::Path) {
         Ok(s) => eprintln!("[Hayabusa] update-rules exited with: {}", s),
         Err(e) => eprintln!("[Hayabusa] Failed to run update-rules: {}", e),
     }
-}
-
-fn cmd_reload_database(lib_path: &std::path::Path, db_path: &std::path::Path) {
-    let scanner = match Scanner::new(lib_path, db_path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[ClamAV] Failed to initialize scanner: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    match scanner.reload_database() {
-        Ok(sigs) => {
-            eprintln!("[ClamAV] Database reloaded. Signatures loaded: {}", sigs);
-        }
-        Err(e) => {
-            eprintln!("[ClamAV] Database reload failed: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
-fn cmd_version(_lib_path: &std::path::Path, _db_path: &std::path::Path) {
-    println!("{}", env!("CARGO_PKG_VERSION"));
-}
-
-fn cmd_check_update(db_path: &std::path::Path) {
-    let staleness = match check_db_staleness(db_path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[ClamAV] Error checking definitions: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    if staleness {
-        eprintln!("[ClamAV] Definitions are STALE. Update recommended.");
-        println!("{}", serde_json::json!({"status": "stale"}));
-    } else {
-        eprintln!("[ClamAV] Definitions are current.");
-        println!("{}", serde_json::json!({"status": "current"}));
-    }
-}
-
-fn check_db_staleness(db_path: &std::path::Path) -> Result<bool, Error> {
-    if !db_path.exists() {
-        return Err(Error::Other(format!(
-            "Database directory not found: {}",
-            db_path.display()
-        )));
-    }
-
-    let mut found_definition = false;
-    let mut latest_modified = std::time::SystemTime::UNIX_EPOCH;
-
-    for entry in std::fs::read_dir(db_path)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .unwrap_or_default();
-        if ext != "cvd" && ext != "cld" {
-            continue;
-        }
-        let metadata = entry.metadata()?;
-        let modified = metadata.modified()?;
-        if !found_definition || modified > latest_modified {
-            latest_modified = modified;
-            found_definition = true;
-        }
-    }
-
-    if !found_definition {
-        return Err(Error::Other("No .cvd/.cld definition files found.".into()));
-    }
-
-    let age = std::time::SystemTime::now()
-        .duration_since(latest_modified)
-        .unwrap_or(Duration::from_secs(0));
-
-    Ok(age > Duration::from_secs(DEFINITION_MAX_AGE_HOURS * 3600))
 }
 
 fn scan_registry(config: &FullConfig) -> hydradragonav::registry_scanner::RegistryScanResult {

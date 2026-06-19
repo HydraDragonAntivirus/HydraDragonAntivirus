@@ -10,6 +10,11 @@ struct Cli {
     scan: Option<PathBuf>,
     strict_targets: bool,
     max_matches: usize,
+    scan_archives: bool,
+    scan_normalized: bool,
+    max_recursion: usize,
+    max_child_objects: usize,
+    max_child_size: usize,
     show_unsupported: bool,
 }
 
@@ -52,6 +57,11 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let options = ScanOptions {
         strict_targets: cli.strict_targets,
         max_matches: cli.max_matches,
+        scan_archives: cli.scan_archives,
+        scan_normalized: cli.scan_normalized,
+        max_recursion: cli.max_recursion,
+        max_child_objects: cli.max_child_objects,
+        max_child_size: cli.max_child_size,
         ..ScanOptions::default()
     };
     let mut files = Vec::new();
@@ -65,10 +75,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             any_found = true;
             for hit in matches {
                 println!(
-                    "{}: {} FOUND ({:?}, {}:{})",
+                    "{}: {} FOUND ({:?}, object={}, view={:?}, {}:{})",
                     file.display(),
                     hit.name,
                     hit.kind,
+                    hit.object_path,
+                    hit.view,
                     hit.source.path.display(),
                     hit.source.line
                 );
@@ -84,6 +96,11 @@ fn parse_args() -> Result<Cli, String> {
         scan: None,
         strict_targets: false,
         max_matches: 128,
+        scan_archives: true,
+        scan_normalized: true,
+        max_recursion: 8,
+        max_child_objects: 4096,
+        max_child_size: 128 * 1024 * 1024,
         show_unsupported: false,
     };
 
@@ -111,6 +128,8 @@ fn parse_args() -> Result<Cli, String> {
                 );
             }
             "--strict-targets" => cli.strict_targets = true,
+            "--no-archives" => cli.scan_archives = false,
+            "--no-normalize" => cli.scan_normalized = false,
             "--max-matches" => {
                 index += 1;
                 cli.max_matches = args
@@ -118,6 +137,18 @@ fn parse_args() -> Result<Cli, String> {
                     .ok_or_else(|| "--max-matches requires a number".to_string())?
                     .parse::<usize>()
                     .map_err(|_| "--max-matches requires a decimal number".to_string())?;
+            }
+            "--max-recursion" => {
+                index += 1;
+                cli.max_recursion = parse_usize_arg(&args, index, "--max-recursion")?;
+            }
+            "--max-child-objects" => {
+                index += 1;
+                cli.max_child_objects = parse_usize_arg(&args, index, "--max-child-objects")?;
+            }
+            "--max-child-size" => {
+                index += 1;
+                cli.max_child_size = parse_size_arg(&args, index, "--max-child-size")?;
             }
             "--list-unsupported" => cli.show_unsupported = true,
             other if cli.scan.is_none() => cli.scan = Some(PathBuf::from(other)),
@@ -131,8 +162,31 @@ fn parse_args() -> Result<Cli, String> {
 
 fn print_help() {
     println!(
-        "hydradragonclamav\n\n  --database, -d <path>  ClamAV database directory\n  --scan, -s <path>      File or directory to scan\n  --strict-targets       Enforce simple target type checks\n  --max-matches <n>      Stop after n matches per scanned file\n  --list-unsupported     Print unsupported database records\n\nWithout --scan, the command loads the database and prints coverage stats."
+        "hydradragonclamav\n\n  --database, -d <path>     ClamAV database directory\n  --scan, -s <path>         File or directory to scan\n  --strict-targets          Enforce simple target type checks on raw objects\n  --no-archives             Disable recursive archive scanning\n  --no-normalize            Disable HTML/text normalized views\n  --max-matches <n>         Stop after n matches per scanned file\n  --max-recursion <n>       Archive recursion depth, default 8\n  --max-child-objects <n>   Child object scan limit, default 4096\n  --max-child-size <size>   Child size limit, supports K/M/G suffixes\n  --list-unsupported        Print unsupported database records\n\nWithout --scan, the command loads the database and prints coverage stats."
     );
+}
+
+fn parse_usize_arg(args: &[String], index: usize, name: &str) -> Result<usize, String> {
+    args.get(index)
+        .ok_or_else(|| format!("{name} requires a number"))?
+        .parse::<usize>()
+        .map_err(|_| format!("{name} requires a decimal number"))
+}
+
+fn parse_size_arg(args: &[String], index: usize, name: &str) -> Result<usize, String> {
+    let raw = args
+        .get(index)
+        .ok_or_else(|| format!("{name} requires a size"))?;
+    let (number, multiplier) = match raw.as_bytes().last().copied() {
+        Some(b'k' | b'K') => (&raw[..raw.len() - 1], 1024usize),
+        Some(b'm' | b'M') => (&raw[..raw.len() - 1], 1024usize * 1024),
+        Some(b'g' | b'G') => (&raw[..raw.len() - 1], 1024usize * 1024 * 1024),
+        _ => (raw.as_str(), 1usize),
+    };
+    number
+        .parse::<usize>()
+        .map(|value| value.saturating_mul(multiplier))
+        .map_err(|_| format!("{name} requires a decimal size"))
 }
 
 fn default_database_path() -> PathBuf {
@@ -153,6 +207,11 @@ fn print_report(report: &LoadReport) {
         report.extended_loaded
     );
     println!("loaded logical signatures: {}", report.logical_loaded);
+    println!(
+        "loaded container metadata signatures: {}",
+        report.container_loaded
+    );
+    println!("loaded file-type magic records: {}", report.ftm_loaded);
     println!("skipped hash database files: {}", report.hash_files_skipped);
     println!("unsupported database files: {}", report.unsupported_files);
     println!("unsupported records: {}", report.unsupported_records);

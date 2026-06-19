@@ -1,6 +1,7 @@
 use crate::logical::{parse_logical_signature, LogicalSignature};
 use crate::pattern::{compile_pattern_variants, Modifiers, Pattern};
 use crate::pe::PeInfo;
+use regex::Regex;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
@@ -10,6 +11,8 @@ use std::path::{Path, PathBuf};
 pub struct Database {
     pub extended: Vec<ExtendedSignature>,
     pub logical: Vec<LogicalSignature>,
+    pub container: Vec<ContainerSignature>,
+    pub file_type_magic: Vec<FileTypeMagic>,
     pub unsupported: Vec<UnsupportedRecord>,
 }
 
@@ -19,6 +22,54 @@ pub struct ExtendedSignature {
     pub target: Option<u32>,
     pub offset: OffsetSpec,
     pub patterns: Vec<Pattern>,
+    pub source: SourceLocation,
+}
+
+/// Container metadata (`.cdb`) signature.
+///
+/// Only the fields HydraDragon can observe from `hydradragonextractor` are
+/// matched: container type/size, member real size, and member position. Fields
+/// that need archive member metadata we don't expose (`filename`, `encrypted`,
+/// compressed `size_in_container`, CRC) are parsed but cause the signature to be
+/// skipped when constrained, so it never false-positives on unknowable data.
+#[derive(Clone, Debug)]
+pub struct ContainerSignature {
+    pub name: String,
+    pub container_type: ContainerType,
+    pub container_size: NumSpec,
+    pub filename: Option<Regex>,
+    pub size_in_container: NumSpec,
+    pub size_real: NumSpec,
+    pub encrypted: Option<bool>,
+    pub file_pos: NumSpec,
+    pub source: SourceLocation,
+}
+
+/// Resolved container type for a `.cdb` signature.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContainerType {
+    /// `*` — any container.
+    Any,
+    /// A container format `hydradragonextractor` can detect, e.g. `"zip"`.
+    Format(&'static str),
+    /// A ClamAV container type HydraDragon cannot detect/extract (never matches).
+    Unsupported,
+}
+
+/// A numeric field constraint: `*`, exact, or a `x-y` / `x-` / `-y` range.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NumSpec {
+    Any,
+    Exact(u64),
+    Range(Option<u64>, Option<u64>),
+}
+
+/// File-type magic (`.ftm`) record (magictype 0 absolute / 1 body-pattern).
+#[derive(Clone, Debug)]
+pub struct FileTypeMagic {
+    pub offset: OffsetSpec,
+    pub patterns: Vec<Pattern>,
+    pub clamav_type: String,
     pub source: SourceLocation,
 }
 
@@ -46,6 +97,8 @@ pub struct LoadReport {
     pub lines_seen: usize,
     pub extended_loaded: usize,
     pub logical_loaded: usize,
+    pub container_loaded: usize,
+    pub ftm_loaded: usize,
     pub hash_files_skipped: usize,
     pub unsupported_files: usize,
     pub unsupported_records: usize,
@@ -195,7 +248,10 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
         return Ok(());
     }
 
-    if !matches!(ext.as_str(), "ndb" | "ndu" | "ldb" | "ldu") {
+    if !matches!(
+        ext.as_str(),
+        "ndb" | "ndu" | "ldb" | "ldu" | "cdb" | "ftm"
+    ) {
         if is_known_unsupported_extension(&ext) {
             report.unsupported_files += 1;
             push_unsupported(
@@ -223,16 +279,15 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
             path: path.to_path_buf(),
             line: line_number,
         };
-        if matches!(ext.as_str(), "ndb" | "ndu") {
-            match parse_extended_signature(line, source.clone()) {
+        match ext.as_str() {
+            "ndb" | "ndu" => match parse_extended_signature(line, source.clone()) {
                 Ok(signature) => {
                     database.extended.push(signature);
                     report.extended_loaded += 1;
                 }
                 Err(message) => push_error(report, source, message),
-            }
-        } else {
-            match parse_logical_signature(line, source.clone()) {
+            },
+            "ldb" | "ldu" => match parse_logical_signature(line, source.clone()) {
                 Ok((signature, warnings)) => {
                     for warning in warnings {
                         push_unsupported(database, report, path, line_number, warning);
@@ -241,10 +296,144 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
                     report.logical_loaded += 1;
                 }
                 Err(message) => push_error(report, source, message),
-            }
+            },
+            "cdb" => match parse_container_signature(line, source.clone()) {
+                Ok(signature) => {
+                    database.container.push(signature);
+                    report.container_loaded += 1;
+                }
+                Err(message) => push_error(report, source, message),
+            },
+            "ftm" => match parse_ftm(line, source.clone()) {
+                Ok(signature) => {
+                    database.file_type_magic.push(signature);
+                    report.ftm_loaded += 1;
+                }
+                Err(message) => push_error(report, source, message),
+            },
+            _ => unreachable!(),
         }
     }
     Ok(())
+}
+
+fn parse_container_signature(
+    line: &str,
+    source: SourceLocation,
+) -> Result<ContainerSignature, String> {
+    let parts = line.split(':').collect::<Vec<_>>();
+    if parts.len() < 8 {
+        return Err(
+            "container signature needs at least name:type:size:filename:csize:rsize:enc:pos"
+                .to_string(),
+        );
+    }
+    Ok(ContainerSignature {
+        name: parts[0].to_string(),
+        container_type: cl_type_to_container(parts[1]),
+        container_size: NumSpec::parse(parts[2])?,
+        filename: parse_filename_regex(parts[3])?,
+        size_in_container: NumSpec::parse(parts[4])?,
+        size_real: NumSpec::parse(parts[5])?,
+        encrypted: parse_encrypted(parts[6])?,
+        file_pos: NumSpec::parse(parts[7])?,
+        source,
+    })
+}
+
+fn parse_ftm(line: &str, source: SourceLocation) -> Result<FileTypeMagic, String> {
+    let parts = line.split(':').collect::<Vec<_>>();
+    if parts.len() < 6 {
+        return Err("ftm needs magictype:offset:magicbytes:name:rtype:type".to_string());
+    }
+    let offset = match parts[0].trim() {
+        // 0 = absolute byte comparison, 1 = body-pattern anywhere.
+        "0" | "1" => OffsetSpec::parse(parts[1].trim()),
+        other => return Err(format!("unsupported ftm magictype '{other}'")),
+    };
+    let patterns = compile_pattern_variants(parts[2].trim(), Modifiers::default())
+        .map_err(|err| format!("invalid ftm magic bytes: {err}"))?;
+    Ok(FileTypeMagic {
+        offset,
+        patterns,
+        clamav_type: parts[5].trim().to_string(),
+        source,
+    })
+}
+
+fn cl_type_to_container(raw: &str) -> ContainerType {
+    match raw.trim() {
+        "*" => ContainerType::Any,
+        "CL_TYPE_ZIP" => ContainerType::Format("zip"),
+        "CL_TYPE_GZ" => ContainerType::Format("gz"),
+        "CL_TYPE_XZ" => ContainerType::Format("xz"),
+        "CL_TYPE_7Z" => ContainerType::Format("7z"),
+        "CL_TYPE_POSIX_TAR" | "CL_TYPE_OLD_TAR" | "CL_TYPE_TAR" => ContainerType::Format("tar"),
+        _ => ContainerType::Unsupported,
+    }
+}
+
+fn parse_filename_regex(raw: &str) -> Result<Option<Regex>, String> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "*" || raw == ".*" {
+        return Ok(None);
+    }
+    Regex::new(raw)
+        .map(Some)
+        .map_err(|err| format!("invalid container filename regex: {err}"))
+}
+
+fn parse_encrypted(raw: &str) -> Result<Option<bool>, String> {
+    match raw.trim() {
+        "*" | "" => Ok(None),
+        "0" => Ok(Some(false)),
+        "1" => Ok(Some(true)),
+        other => Err(format!("invalid IsEncrypted value '{other}'")),
+    }
+}
+
+impl NumSpec {
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let raw = raw.trim();
+        if raw.is_empty() || raw == "*" {
+            return Ok(NumSpec::Any);
+        }
+        if let Some(rest) = raw.strip_prefix('-') {
+            return Ok(NumSpec::Range(None, Some(parse_u64(rest)?)));
+        }
+        if let Some(rest) = raw.strip_suffix('-') {
+            return Ok(NumSpec::Range(Some(parse_u64(rest)?), None));
+        }
+        if let Some((lo, hi)) = raw.split_once('-') {
+            let lo = parse_u64(lo)?;
+            let hi = parse_u64(hi)?;
+            if hi < lo {
+                return Err(format!("invalid range '{raw}'"));
+            }
+            return Ok(NumSpec::Range(Some(lo), Some(hi)));
+        }
+        Ok(NumSpec::Exact(parse_u64(raw)?))
+    }
+
+    pub fn matches(&self, value: u64) -> bool {
+        match self {
+            NumSpec::Any => true,
+            NumSpec::Exact(n) => value == *n,
+            NumSpec::Range(lo, hi) => {
+                lo.map_or(true, |l| value >= l) && hi.map_or(true, |h| value <= h)
+            }
+        }
+    }
+
+    pub fn is_constrained(&self) -> bool {
+        !matches!(self, NumSpec::Any)
+    }
+}
+
+fn parse_u64(raw: &str) -> Result<u64, String> {
+    raw.trim()
+        .parse::<u64>()
+        .map_err(|_| format!("invalid number '{raw}'"))
 }
 
 fn parse_extended_signature(
@@ -327,8 +516,7 @@ fn is_hash_extension(ext: &str) -> bool {
 fn is_known_unsupported_extension(ext: &str) -> bool {
     matches!(
         ext,
-        "cdb"
-            | "cbc"
+        "cbc"
             | "idb"
             | "pdb"
             | "gdb"
@@ -340,7 +528,6 @@ fn is_known_unsupported_extension(ext: &str) -> bool {
             | "cfg"
             | "cat"
             | "crb"
-            | "ftm"
             | "info"
             | "pwdb"
             | "cvd"

@@ -37,7 +37,6 @@ pub struct PipelineConfig {
     pub hydradragonstatic_rules_dir: Option<PathBuf>,
     pub pe_ml_model_path: Option<PathBuf>,
     pub js_ml_model_path: Option<PathBuf>,
-    pub clamav_lib: Option<PathBuf>,
     pub clamav_db: Option<PathBuf>,
     pub hayabusa_dir: Option<PathBuf>,
     pub scan_mode: ScanMode,
@@ -55,7 +54,6 @@ impl Default for PipelineConfig {
             hydradragonstatic_rules_dir: None,
             pe_ml_model_path: None,
             js_ml_model_path: None,
-            clamav_lib: None,
             clamav_db: None,
             hayabusa_dir: None,
             scan_mode: ScanMode::default(),
@@ -87,7 +85,6 @@ impl Pipeline {
         let existing_clamav: Option<ClamavScanner> = None;
         let bloom_dir = config.bloom_dir.clone();
         let yara_rules_dir = config.yara_rules_dir.clone();
-        let clamav_lib = config.clamav_lib.clone();
         let clamav_db = config.clamav_db.clone();
         let hydradragonstatic_rules_dir = config.hydradragonstatic_rules_dir.clone();
         let pe_ml_model_path = config.pe_ml_model_path.clone();
@@ -129,11 +126,10 @@ impl Pipeline {
                     if let Some(c) = existing_clamav {
                         Some(c)
                     } else {
-                        clamav_lib
+                        clamav_db
                             .as_ref()
-                            .zip(clamav_db.as_ref())
-                            .filter(|(lib, _)| lib.exists())
-                            .and_then(|(lib, db)| ClamavScanner::new(lib, db).ok())
+                            .filter(|db| db.exists())
+                            .and_then(|db| ClamavScanner::new(db).ok())
                     }
                 });
 
@@ -379,8 +375,7 @@ impl Pipeline {
                         elapsed_ms,
                     });
 
-                    // DEĞİŞİKLİK BURADA: Eğer static kurallar Trusted dediyse,
-                    // alt taraftaki ClamAV/Yara aşamalarına girmeden DOĞRUDAN güvenli sonucu dön!
+                    // A Trusted verdict short-circuits the remaining ClamAV/YARA stages.
                     if hv == Verdict::Trusted {
                         return ScanResult {
                             verdict: Verdict::Trusted,
@@ -676,6 +671,59 @@ impl Pipeline {
             ml_malware_probability: ml_verdict.map(|m| m.probability),
             clamav_result,
         }
+    }
+
+    /// Recover the matched signature byte ranges (file offsets) for a file, for
+    /// in-place disinfection. Unions ClamAV arenas, YARA-X match ranges, and the
+    /// byte ranges of any phishing/URLhaus URLs found by the bloom filters. All
+    /// of these engines scan the raw file bytes, so the offsets map to the file.
+    ///
+    /// All YARA rulesets are run (no per-type gating): over-neutralizing a few
+    /// extra suspicious regions in a known-malicious file is harmless.
+    pub fn arenas_for_file(&self, path: &Path) -> Vec<(usize, usize)> {
+        let mut arenas: Vec<(usize, usize)> = Vec::new();
+
+        if let Some(ref clamav) = self.clamav {
+            if let Ok(result) = clamav.scan_file(path, self.config.clamav_heuristics) {
+                arenas.extend(result.arenas.iter().copied());
+            }
+        }
+
+        // YARA-X and the URL bloom filters both scan the raw bytes; read once.
+        if !self.yara_rules.is_empty() || self.hash_scanner.is_some() {
+            if let Ok(data) = std::fs::read(path) {
+                for (_name, rules) in &self.yara_rules {
+                    arenas.extend(scan_bytes_yara_ranges(
+                        &data,
+                        rules,
+                        &self.excluded_yara_rules,
+                        self.config.fast_scan,
+                    ));
+                }
+                arenas.extend(self.url_bloom_arenas(&data));
+            }
+        }
+
+        arenas
+    }
+
+    /// Locate the byte ranges of any phishing/URLhaus URLs in `data`, mirroring
+    /// the pipeline's URL bloom check (same ≤1 MiB gate and URL extraction).
+    fn url_bloom_arenas(&self, data: &[u8]) -> Vec<(usize, usize)> {
+        let mut arenas = Vec::new();
+        let Some(ref scanner) = self.hash_scanner else {
+            return arenas;
+        };
+        if data.len() > 1_048_576 {
+            return arenas;
+        }
+        let bloom = scanner.bloom();
+        for url in extract_urls_from_bytes(data) {
+            if bloom.is_phishing(&url) || bloom.is_urlhaus(&url) {
+                arenas.extend(find_all_byte_ranges(data, url.as_bytes()));
+            }
+        }
+        arenas
     }
 
     /// Scan an in-memory byte buffer using all applicable engines.
@@ -1182,6 +1230,59 @@ fn scan_bytes_yara(
         .collect();
 
     Ok(matches)
+}
+
+// Collect the byte ranges of every YARA-X pattern match (file-coordinate, since
+// the scanner runs over the raw file bytes), skipping excluded rules. Used to
+// recover disinfection arenas for YARA-detected threats.
+fn scan_bytes_yara_ranges(
+    data: &[u8],
+    rules: &Rules,
+    exclusions: &HashSet<String>,
+    fast_scan: bool,
+) -> Vec<(usize, usize)> {
+    let mut scanner = YaraScanner::new(rules);
+    if fast_scan {
+        scanner.fast_scan(true);
+    }
+    let results = match scanner.scan(data) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut arenas = Vec::new();
+    for rule in results.matching_rules() {
+        if exclusions.contains(rule.identifier()) {
+            continue;
+        }
+        for pattern in rule.patterns() {
+            for m in pattern.matches() {
+                let range = m.range();
+                arenas.push((range.start, range.end));
+            }
+        }
+    }
+    arenas
+}
+
+// Find every non-overlapping occurrence of `needle` in `haystack`, returning
+// their `[start, end)` byte ranges. Used to map a detected malicious URL string
+// back to its position(s) in the file for disinfection.
+fn find_all_byte_ranges(haystack: &[u8], needle: &[u8]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return out;
+    }
+    let mut i = 0;
+    while i + needle.len() <= haystack.len() {
+        if &haystack[i..i + needle.len()] == needle {
+            out.push((i, i + needle.len()));
+            i += needle.len();
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 // Extracts URL-like strings from raw bytes by scanning for printable ASCII runs

@@ -2,11 +2,11 @@
 
 use std::fs;
 use std::io::{BufReader, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use flate2::read::GzDecoder;
 
-use crate::types::Error;
+use crate::error::Error;
 
 const CVD_HEADER_SIZE: u64 = 512;
 
@@ -293,8 +293,4 @@ pub fn run_juice(db_dir: &Path, delete_source: bool) {
             Err(e) => eprintln!("[ClamJuice] Failed to filter {cvd}: {e}"),
         }
     }
-}
-
-pub fn resolve_juice_output(db_dir: &Path) -> PathBuf {
-    db_dir.to_path_buf()
 }

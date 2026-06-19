@@ -6,3 +6,7 @@ description = "Pure-Rust ClamAV-compatible non-hash signature loader and scanner
 license = "GPL-2.0-or-later"
 
 [dependencies]
+hydradragonextractor = { path = "../hydradragonextractor" }
+
+# PCRE subsignatures and .cdb/.ftm regex fields (linear-time, no catastrophic backtracking)
+regex = "1"

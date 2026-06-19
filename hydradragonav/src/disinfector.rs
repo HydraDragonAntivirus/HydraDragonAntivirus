@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hydradragonextractor::extract_archive_from_bytes;
@@ -161,5 +162,113 @@ impl Disinfector {
     fn fail_result(&self, mut engines: Vec<EngineResult>, detail: String) -> DisinfectResult {
         engines.push(Self::engine_result("disinfector", Verdict::Clean, detail, None));
         DisinfectResult { verdict: Verdict::Clean, engines, disinfected: false }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Generic per-file disinfection
+//
+// Primary strategy: neutralize the matched signature arenas in place, keeping a
+// `.bak` backup. Fallback (no usable arena, or neutralization fails):
+// quarantine the file by moving it out of the way.
+// ---------------------------------------------------------------------------
+
+/// Outcome of a disinfection attempt on a single file.
+#[derive(Debug, Clone)]
+pub enum DisinfectOutcome {
+    /// Matched signature regions were zeroed in place; a `.bak` backup was kept.
+    Neutralized { bytes: usize, backup: PathBuf },
+    /// No usable arena (or neutralization failed); the file was quarantined.
+    Quarantined { to: PathBuf },
+    /// Neither neutralization nor quarantine succeeded.
+    Failed { reason: String },
+}
+
+/// Disinfect a malicious file. When `arenas` (matched signature byte ranges) are
+/// available, neutralize them in place keeping a `.bak` backup. Otherwise — or if
+/// neutralization fails — quarantine the file into `quarantine_dir`.
+pub fn disinfect_file(
+    path: &Path,
+    arenas: &[(usize, usize)],
+    quarantine_dir: &Path,
+) -> DisinfectOutcome {
+    if !arenas.is_empty() {
+        match neutralize_arenas(path, arenas) {
+            Ok((bytes, backup)) => return DisinfectOutcome::Neutralized { bytes, backup },
+            Err(e) => {
+                eprintln!(
+                    "[Disinfect] neutralize failed for {}: {e}; falling back to quarantine",
+                    path.display()
+                );
+            }
+        }
+    }
+    match quarantine_file(path, quarantine_dir) {
+        Ok(to) => DisinfectOutcome::Quarantined { to },
+        Err(e) => DisinfectOutcome::Failed {
+            reason: e.to_string(),
+        },
+    }
+}
+
+/// Overwrite the given byte ranges in `path` with zeroes, after writing a `.bak`
+/// backup. Returns `(bytes_neutralized, backup_path)`.
+pub fn neutralize_arenas(path: &Path, arenas: &[(usize, usize)]) -> io::Result<(usize, PathBuf)> {
+    let mut data = std::fs::read(path)?;
+    let backup = backup_path(path);
+    std::fs::write(&backup, &data)?;
+
+    let mut neutralized = 0usize;
+    for &(start, end) in arenas {
+        let s = start.min(data.len());
+        let e = end.min(data.len());
+        if s < e {
+            for byte in &mut data[s..e] {
+                *byte = 0;
+            }
+            neutralized += e - s;
+        }
+    }
+    std::fs::write(path, &data)?;
+    Ok((neutralized, backup))
+}
+
+/// Move `path` into `quarantine_dir` (created if needed). Returns the new path.
+pub fn quarantine_file(path: &Path, quarantine_dir: &Path) -> io::Result<PathBuf> {
+    std::fs::create_dir_all(quarantine_dir)?;
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("quarantined");
+    let dest = unique_path(quarantine_dir.join(format!("{file_name}.quarantined")));
+
+    // Try a plain rename; fall back to copy+remove across volumes.
+    match std::fs::rename(path, &dest) {
+        Ok(()) => Ok(dest),
+        Err(_) => {
+            std::fs::copy(path, &dest)?;
+            std::fs::remove_file(path)?;
+            Ok(dest)
+        }
+    }
+}
+
+fn backup_path(path: &Path) -> PathBuf {
+    let mut os = path.as_os_str().to_owned();
+    os.push(".bak");
+    PathBuf::from(os)
+}
+
+fn unique_path(candidate: PathBuf) -> PathBuf {
+    if !candidate.exists() {
+        return candidate;
+    }
+    let mut index = 1u32;
+    loop {
+        let alt = PathBuf::from(format!("{}.{index}", candidate.display()));
+        if !alt.exists() {
+            return alt;
+        }
+        index += 1;
     }
 }

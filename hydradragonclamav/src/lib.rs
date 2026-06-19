@@ -4,5 +4,8 @@ pub mod pattern;
 pub mod pe;
 pub mod scanner;
 
-pub use database::{Database, LoadError, LoadReport, UnsupportedRecord};
-pub use scanner::{Engine, ScanMatch, ScanOptions, SignatureKind};
+pub use database::{
+    ContainerSignature, ContainerType, Database, FileTypeMagic, LoadError, LoadReport, NumSpec,
+    UnsupportedRecord,
+};
+pub use scanner::{Engine, ScanMatch, ScanOptions, ScanView, SignatureKind};

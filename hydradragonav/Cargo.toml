@@ -2,7 +2,7 @@
 name = "hydradragonav"
 version = "0.1.0"
 edition = "2024"
-description = "libclamav.dll scanner wrapper — on-demand scan, database reload, and freshclam updater"
+description = "Unified malware scanning engine — pure-Rust ClamAV-compatible scanner, ML, and YARA-X"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
@@ -46,11 +46,6 @@ oxc_ast = "0.135"
 oxc_allocator = "0.135"
 oxc_span = "0.135"
 
-# CVD unpacking (ClamJuice)
-flate2 = "1"
-tar = "0.4"
-tempfile = "3"
-
 # Windows registry access
 winreg = "0.56"
 
@@ -59,6 +54,9 @@ hydradragonunicorn = { path = "../hydradragonunicorn" }
 
 # Pure-Rust archive/compression extractor (tar, gzip, xz, lzma, 7z)
 hydradragonextractor = { path = "../hydradragonextractor" }
+
+# Pure-Rust ClamAV-compatible non-hash signature loader and scanner
+hydradragonclamav = { path = "../hydradragonclamav" }
 
 # Other
 regex = "1.12.2"

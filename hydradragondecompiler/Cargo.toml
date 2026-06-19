@@ -1,0 +1,21 @@
+[package]
+name = "hydradragondecompiler"
+version = "0.1.0"
+edition = "2024"
+description = "Decompiler-lite string extractor that pulls extra strings out of PE binaries to feed HydraDragon scanning"
+license = "GPL-2.0-or-later"
+
+[dependencies]
+# PE / object parsing (mirrors the goblin major used by hydradragonav, 0.10.5).
+goblin = "0.10"
+# x86 16/32/64 disassembly for code-referenced and stack-built strings.
+# Pinned to the same major.minor as hydradragonav so the bundled build that
+# already works there works here too.
+capstone = "0.14"
+# Error handling, matching the sibling crates.
+thiserror = "2"
+# CLI argument parsing.
+clap = { version = "4", features = ["derive"] }
+# JSON output of extracted strings.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
