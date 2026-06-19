@@ -678,6 +678,276 @@ impl Pipeline {
         }
     }
 
+    /// Scan an in-memory byte buffer using all applicable engines.
+    /// Skips engines that require a file path (hash scanner, ClamAV).
+    pub fn scan_bytes(&self, data: &[u8]) -> ScanResult {
+        let mut engines: Vec<EngineResult> = Vec::new();
+        let mut yara_x_matches = Vec::new();
+
+        let max_len = MAX_SCAN_FILE_SIZE as usize;
+        if data.len() > max_len {
+            return ScanResult {
+                verdict: Verdict::Clean,
+                threat_name: None,
+                engines: vec![EngineResult {
+                    engine: "size_limit",
+                    verdict: Verdict::Clean,
+                    detail: format!("skipped: data is over 2 GiB ({} bytes)", data.len()),
+                    elapsed_ms: None,
+                }],
+                yara_x_matches: Vec::new(),
+                ml_malware_probability: None,
+                clamav_result: None,
+            };
+        }
+
+        // --- 1. ML INFERENCE ---
+        let t0 = Instant::now();
+        let ml_verdict = self.run_ml_inference_bytes(data);
+        let ml_elapsed_ms = self
+            .config
+            .time_engines
+            .then(|| t0.elapsed().as_millis() as u64);
+        if let Some(ref mv) = ml_verdict {
+            engines.push(EngineResult {
+                engine: "ml",
+                verdict: mv.verdict,
+                detail: format!("probability={:.4}", mv.probability),
+                elapsed_ms: ml_elapsed_ms,
+            });
+            if mv.verdict == Verdict::Trusted {
+                return ScanResult {
+                    verdict: Verdict::Trusted,
+                    threat_name: None,
+                    engines,
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: Some(mv.probability),
+                    clamav_result: None,
+                };
+            }
+            if mv.verdict != Verdict::Clean {
+                return ScanResult {
+                    verdict: mv.verdict,
+                    threat_name: Some(format!("ml_detected (p={:.4})", mv.probability)),
+                    engines,
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: Some(mv.probability),
+                    clamav_result: None,
+                };
+            }
+        }
+
+        // --- 2. STATIC RULES (in-memory) ---
+        let mut static_file_type: Option<hydradragonstatic::models::FileTypeInfo> = None;
+        let t0 = Instant::now();
+        match &self.hydradragonstatic_rules {
+            Some(rules) => {
+                let ctx = hydradragonstatic::models::MemoryScanContext {
+                    buffer: data.to_vec(),
+                    identifier: "memory".into(),
+                    base_address: None,
+                };
+                match hydradragonstatic::scan_memory(&ctx, rules, &hydradragonstatic::ScanOptions::default()) {
+                    Ok(report) => {
+                        let elapsed_ms = self
+                            .config
+                            .time_engines
+                            .then(|| t0.elapsed().as_millis() as u64);
+                        static_file_type = Some(report.file_type.clone());
+                        let hv = convert_verdict(&report.verdict);
+                        engines.push(EngineResult {
+                            engine: "hydradragonstatic",
+                            verdict: hv,
+                            detail: report.threat_name.clone().unwrap_or_default(),
+                            elapsed_ms,
+                        });
+                        if hv == Verdict::Trusted {
+                            return ScanResult {
+                                verdict: Verdict::Trusted,
+                                threat_name: None,
+                                engines,
+                                yara_x_matches,
+                                ml_malware_probability: ml_verdict.as_ref().map(|m| m.probability),
+                                clamav_result: None,
+                            };
+                        }
+                        if matches!(hv, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua) {
+                            return ScanResult {
+                                verdict: hv,
+                                threat_name: report.threat_name,
+                                engines,
+                                yara_x_matches,
+                                ml_malware_probability: ml_verdict.as_ref().map(|m| m.probability),
+                                clamav_result: None,
+                            };
+                        }
+                    }
+                    Err(e) => {
+                        let elapsed_ms = self
+                            .config
+                            .time_engines
+                            .then(|| t0.elapsed().as_millis() as u64);
+                        engines.push(EngineResult {
+                            engine: "hydradragonstatic",
+                            verdict: Verdict::Clean,
+                            detail: format!("error: {}", e),
+                            elapsed_ms,
+                        });
+                    }
+                }
+            }
+            None => {
+                engines.push(EngineResult {
+                    engine: "hydradragonstatic",
+                    verdict: Verdict::Clean,
+                    detail: "no hydradragonstatic rules loaded".into(),
+                    elapsed_ms: None,
+                });
+            }
+        }
+
+        // --- 3. URL / PHISHING BLOOM CHECK ---
+        if let Some(ref scanner) = self.hash_scanner {
+            let bloom = scanner.bloom();
+            let t0 = Instant::now();
+            if data.len() <= 1_048_576 {
+                let urls = extract_urls_from_bytes(data);
+                let mut phishing_urls: Vec<String> = Vec::new();
+                let mut urlhaus_urls: Vec<String> = Vec::new();
+                for url in &urls {
+                    if bloom.is_phishing(url) {
+                        phishing_urls.push(url.clone());
+                    }
+                    if bloom.is_urlhaus(url) {
+                        urlhaus_urls.push(url.clone());
+                    }
+                }
+                let elapsed_ms = self
+                    .config
+                    .time_engines
+                    .then(|| t0.elapsed().as_millis() as u64);
+                if !phishing_urls.is_empty() {
+                    engines.push(EngineResult {
+                        engine: "phishing_bloom",
+                        verdict: Verdict::Phishing,
+                        detail: phishing_urls.join(", "),
+                        elapsed_ms,
+                    });
+                    return ScanResult {
+                        verdict: Verdict::Phishing,
+                        threat_name: Some("phishing_url".into()),
+                        engines,
+                        yara_x_matches: Vec::new(),
+                        ml_malware_probability: None,
+                        clamav_result: None,
+                    };
+                }
+                if !urlhaus_urls.is_empty() {
+                    engines.push(EngineResult {
+                        engine: "urlhaus_bloom",
+                        verdict: Verdict::Malware,
+                        detail: urlhaus_urls.join(", "),
+                        elapsed_ms,
+                    });
+                    return ScanResult {
+                        verdict: Verdict::Malware,
+                        threat_name: Some("urlhaus_url".into()),
+                        engines,
+                        yara_x_matches: Vec::new(),
+                        ml_malware_probability: None,
+                        clamav_result: None,
+                    };
+                }
+            }
+        }
+
+        // --- 4. YARA-X ---
+        if self.yara_rules.is_empty() {
+            engines.push(EngineResult {
+                engine: "yara_x",
+                verdict: Verdict::Clean,
+                detail: "no rules loaded".into(),
+                elapsed_ms: None,
+            });
+        } else {
+            let t0 = Instant::now();
+            let mut all_matches: Vec<String> = Vec::new();
+            let mut scan_error: Option<String> = None;
+            let is_pe = static_file_type.as_ref().is_some_and(|ft| ft.is_pe);
+            let is_js = static_file_type.as_ref().is_some_and(|ft| ft.is_javascript);
+
+            for (name, rules) in &self.yara_rules {
+                let applies = match name.as_str() {
+                    "machine_learning_pe" => is_pe,
+                    "machine_learning_js" => is_js,
+                    _ => true,
+                };
+                if !applies { continue; }
+                match scan_bytes_yara(data, rules, &self.excluded_yara_rules, self.config.fast_scan) {
+                    Ok(mut m) => all_matches.append(&mut m),
+                    Err(e) => { scan_error = Some(e); break; }
+                }
+            }
+            let yara_elapsed_ms = self
+                .config
+                .time_engines
+                .then(|| t0.elapsed().as_millis() as u64);
+
+            if let Some(e) = scan_error {
+                engines.push(EngineResult {
+                    engine: "yara_x",
+                    verdict: Verdict::Clean,
+                    detail: format!("error: {}", e),
+                    elapsed_ms: yara_elapsed_ms,
+                });
+            } else if !all_matches.is_empty() {
+                yara_x_matches = all_matches.clone();
+                let yara_verdict = if all_matches.iter().any(|m| m.contains("_PUA_") || m.starts_with("PUA_")) {
+                    Verdict::Pua
+                } else {
+                    Verdict::Malware
+                };
+                engines.push(EngineResult {
+                    engine: "yara_x",
+                    verdict: yara_verdict,
+                    detail: all_matches.join(", "),
+                    elapsed_ms: yara_elapsed_ms,
+                });
+                let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
+                if still_detected {
+                    let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
+                    return ScanResult {
+                        verdict: final_verdict,
+                        threat_name: yara_x_matches.first().cloned(),
+                        engines,
+                        yara_x_matches,
+                        ml_malware_probability: ml_verdict.map(|m| m.probability),
+                        clamav_result: None,
+                    };
+                }
+            } else {
+                engines.push(EngineResult {
+                    engine: "yara_x",
+                    verdict: Verdict::Clean,
+                    detail: "no matches".into(),
+                    elapsed_ms: yara_elapsed_ms,
+                });
+            }
+        }
+
+        let engine_verdicts: Vec<Verdict> = engines.iter().map(|e| e.verdict).collect();
+        let final_verdict = Verdict::aggregate(&engine_verdicts);
+
+        ScanResult {
+            verdict: final_verdict,
+            threat_name: None,
+            engines,
+            yara_x_matches,
+            ml_malware_probability: ml_verdict.map(|m| m.probability),
+            clamav_result: None,
+        }
+    }
+
     fn run_ml_inference(&self, path: &Path) -> Option<MlVerdict> {
         let device = NdArrayDevice::default();
         let bytes = std::fs::read(path).ok()?;
@@ -708,8 +978,40 @@ impl Pipeline {
 
         None
     }
+
+    /// ML inference from an already-read byte buffer.
+    fn run_ml_inference_bytes(&self, bytes: &[u8]) -> Option<MlVerdict> {
+        let device = NdArrayDevice::default();
+
+        if let Some(ref model) = self.pe_ml_model {
+            if let Some(prob) =
+                crate::ml::inference::predict_pe::<InferBackend>(bytes, model, &device)
+            {
+                return Some(MlVerdict {
+                    verdict: ml_classify(prob, self.config.ml_threshold),
+                    probability: prob,
+                });
+            }
+        }
+
+        if let Some(ref model) = self.js_ml_model {
+            if let Ok(source) = String::from_utf8(bytes.to_vec()) {
+                if let Some(prob) =
+                    crate::ml::inference::predict_js::<InferBackend>(&source, model, &device)
+                {
+                    return Some(MlVerdict {
+                        verdict: ml_classify(prob, self.config.ml_threshold),
+                        probability: prob,
+                    });
+                }
+            }
+        }
+
+        None
+    }
 }
 
+/// Internal per-file MlVerdict.
 struct MlVerdict {
     verdict: Verdict,
     probability: f32,
@@ -722,6 +1024,20 @@ fn ml_classify(prob: f32, threshold: f32) -> Verdict {
         Verdict::Suspicious
     } else {
         Verdict::Clean
+    }
+}
+
+/// Convert hydradragonstatic's Verdict to hydradragonav's Verdict.
+fn convert_verdict(v: &hydradragonstatic::models::Verdict) -> Verdict {
+    match v {
+        hydradragonstatic::models::Verdict::Clean => Verdict::Clean,
+        hydradragonstatic::models::Verdict::Trusted => Verdict::Trusted,
+        hydradragonstatic::models::Verdict::Pua => Verdict::Pua,
+        hydradragonstatic::models::Verdict::Mining => Verdict::Mining,
+        hydradragonstatic::models::Verdict::Spam => Verdict::Spam,
+        hydradragonstatic::models::Verdict::Abuse => Verdict::Abuse,
+        hydradragonstatic::models::Verdict::Suspicious => Verdict::Suspicious,
+        hydradragonstatic::models::Verdict::Malware => Verdict::Malware,
     }
 }
 

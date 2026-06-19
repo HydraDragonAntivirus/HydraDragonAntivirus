@@ -54,8 +54,11 @@ tempfile = "3"
 # Windows registry access
 winreg = "0.56"
 
-# Heuristic engine (unpacking + extraction + disinfection)
-hydradragonheur = { path = "../hydradragonheur" }
+# Heuristic engine (Unicorn PE unpacking + emulation)
+hydradragonunicorn = { path = "../hydradragonunicorn" }
+
+# Pure-Rust archive/compression extractor (tar, gzip, xz, lzma, 7z)
+hydradragonextractor = { path = "../hydradragonextractor" }
 
 # Other
 regex = "1.12.2"

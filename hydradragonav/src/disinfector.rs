@@ -1,8 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::time::Instant;
 
-use hydradragonheur::extract::{extract_archive, detect_format};
-use hydradragonheur::unpacker::engine::{Sample, UnpackerEngine};
-use hydradragonheur::unpacker::packers::identify_packer_from_bytes;
+use hydradragonextractor::extract_archive_from_bytes;
+use hydradragonunicorn::unpacker::engine::{Sample, UnpackerEngine};
+use hydradragonunicorn::unpacker::packers::identify_packer_from_bytes;
 
 use crate::pipeline::{Pipeline, PipelineConfig};
 use crate::verdict::{EngineResult, ScanResult, Verdict};
@@ -10,18 +11,14 @@ use crate::verdict::{EngineResult, ScanResult, Verdict};
 /// Result of a disinfection attempt.
 #[derive(Debug)]
 pub struct DisinfectResult {
-    /// Final verdict after unpacking + scanning all extracted files.
     pub verdict: Verdict,
-    /// Details per engine.
     pub engines: Vec<EngineResult>,
-    /// Paths to unpacked/extracted files that were scanned.
-    pub extracted_files: Vec<PathBuf>,
-    /// Whether the original file was disinfected (removed/cleaned).
     pub disinfected: bool,
 }
 
 /// The disinfector orchestrates: detect packer → Unicorn-unpack → dump PE →
 /// extract embedded archives → scan extracted files → disinfect.
+/// All intermediate steps operate on in-memory bytes — no temp files.
 pub struct Disinfector {
     pipeline: Pipeline,
     yrc_bytes: &'static [u8],
@@ -35,137 +32,135 @@ impl Disinfector {
         }
     }
 
-    fn build_engine_result(engine: &'static str, verdict: Verdict, detail: String) -> EngineResult {
-        EngineResult {
-            engine,
-            verdict,
-            detail,
-            elapsed_ms: None,
-        }
+    fn engine_result(engine: &'static str, verdict: Verdict, detail: String, elapsed_ms: Option<u64>) -> EngineResult {
+        EngineResult { engine, verdict, detail, elapsed_ms }
     }
 
-    /// Run the full unpack + scan + disinfect pipeline on a single file.
     pub fn disinfect(&self, file_path: &Path) -> DisinfectResult {
-        let mut extracted_files: Vec<PathBuf> = Vec::new();
         let mut engines: Vec<EngineResult> = Vec::new();
-        let file_path_str = file_path.to_string_lossy().to_string();
+        let total_start = Instant::now();
 
-        // ---- Step 1: Read and detect packer ----
+        // ---- Step 1: Read file into memory ----
         let file_data = match std::fs::read(file_path) {
             Ok(d) => d,
-            Err(e) => {
-                return self.fail_result(
-                    engines,
-                    extracted_files,
-                    format!("read error: {e}"),
-                );
-            }
+            Err(e) => return self.fail_result(engines, format!("read error: {e}")),
         };
 
+        // ---- Step 2: Packer detection (from bytes) ----
+        let t0 = Instant::now();
         let (packer_name, matches) = match identify_packer_from_bytes(&file_data, self.yrc_bytes) {
             Ok(r) => r,
-            Err(_) => {
-                return self.fail_result(
-                    engines,
-                    extracted_files,
-                    "not a known packed PE".into(),
-                );
-            }
+            Err(_) => return self.fail_result(engines, "not a known packed PE".into()),
         };
-
-        engines.push(Self::build_engine_result(
+        engines.push(Self::engine_result(
             "packer_detection",
             Verdict::Clean,
             format!("{packer_name} ({})", matches.join(", ")),
+            Some(t0.elapsed().as_millis() as u64),
         ));
 
-        // ---- Step 2: Create Sample and UnpackerEngine ----
-        let sample = match Sample::new(&file_path_str, "") {
+        // ---- Step 3: Create Sample (from path — Sample reads the file internally) ----
+        let path_str = file_path.to_string_lossy();
+        let sample = match Sample::new(&path_str, "") {
             Ok(s) => s,
-            Err(e) => {
-                return self.fail_result(engines, extracted_files, format!("Sample::new: {e}"));
-            }
+            Err(e) => return self.fail_result(engines, format!("Sample::new: {e}")),
         };
 
+        // ---- Step 4: Emulation (timed) ----
+        let t0 = Instant::now();
         let mut engine = UnpackerEngine::new(sample, "");
-
-        engines.push(Self::build_engine_result(
-            "unpacker",
-            Verdict::Clean,
-            format!("emulating {packer_name} packed PE…"),
-        ));
-
-        // ---- Step 3: Init Unicorn and run emulation ----
         if let Err(e) = engine.init_uc() {
-            return self.fail_result(engines, extracted_files, format!("init_uc: {e}"));
+            return self.fail_result(engines, format!("init_uc: {e}"));
         }
         if let Err(e) = engine.emu() {
-            return self.fail_result(engines, extracted_files, format!("emu: {e}"));
+            return self.fail_result(engines, format!("emu: {e}"));
         }
+        engines.push(Self::engine_result(
+            "unpacker",
+            Verdict::Clean,
+            format!("emulated {packer_name} packed PE"),
+            Some(t0.elapsed().as_millis() as u64),
+        ));
 
-        // ---- Step 4: Dump unpacked PE ----
-        let work_dir = match tempfile::tempdir() {
-            Ok(d) => d,
-            Err(e) => {
-                return self.fail_result(engines, extracted_files, format!("tempdir: {e}"));
-            }
+        // ---- Step 5: Dump unpacked PE to memory (no file write) ----
+        let t0 = Instant::now();
+        let dumped_bytes: Vec<u8> = match engine.dump_bytes() {
+            Ok(bytes) => bytes,
+            Err(e) => return self.fail_result(engines, format!("dump_bytes: {e}")),
         };
-        let dump_path = work_dir.path().join("unpacked.exe");
-        let dump_path_str = dump_path.to_string_lossy().to_string();
+        engines.push(Self::engine_result(
+            "dump",
+            Verdict::Clean,
+            format!("unpacked {} bytes", dumped_bytes.len()),
+            Some(t0.elapsed().as_millis() as u64),
+        ));
 
-        if let Err(e) = engine.dump(&dump_path_str) {
-            return self.fail_result(engines, extracted_files, format!("dump: {e}"));
+        // ---- Step 6: Extract embedded archives from memory ----
+        let t0 = Instant::now();
+        let extracted_files = match extract_archive_from_bytes(&dumped_bytes) {
+            Ok(files) => files,
+            Err(_) => Vec::new(), // not an archive, that's fine
+        };
+        engines.push(Self::engine_result(
+            "extractor",
+            Verdict::Clean,
+            if extracted_files.is_empty() {
+                "no embedded archive".into()
+            } else {
+                format!("extracted {} file(s)", extracted_files.len())
+            },
+            Some(t0.elapsed().as_millis() as u64),
+        ));
+
+        // ---- Step 7: Scan dumped bytes with full pipeline ----
+        let t0 = Instant::now();
+        let ScanResult { verdict, engines: pipe_engines, .. } = self.pipeline.scan_bytes(&dumped_bytes);
+        for e in &pipe_engines {
+            engines.push(e.clone());
         }
-        extracted_files.push(dump_path.clone());
+        let scan_elapsed = t0.elapsed().as_millis() as u64;
 
-        // ---- Step 5: Extract embedded archives ----
-        if detect_format(&dump_path).is_some() {
-            let extract_dir = work_dir.path().join("extracted");
-            if let Ok(result) = extract_archive(&dump_path, &extract_dir) {
-                for f in result.files {
-                    extracted_files.push(f);
-                }
-            }
+        if verdict != Verdict::Clean && verdict != Verdict::Trusted {
+            let disinfected = std::fs::remove_file(file_path).is_ok();
+            engines.push(Self::engine_result(
+                "disinfector",
+                verdict,
+                format!("disinfected={disinfected} (scan took {scan_elapsed}ms)"),
+                None,
+            ));
+            return DisinfectResult { verdict, engines, disinfected };
         }
 
-        // ---- Step 6: Scan all extracted files with full pipeline ----
-        for f in &extracted_files {
-            let ScanResult { verdict, engines: pipe_engines, .. } = self.pipeline.scan_file(f);
+        // ---- Step 8: Scan each extracted file in memory too ----
+        for bytes in &extracted_files {
+            let ScanResult { verdict, engines: pipe_engines, .. } = self.pipeline.scan_bytes(bytes);
             for e in &pipe_engines {
                 engines.push(e.clone());
             }
             if verdict != Verdict::Clean && verdict != Verdict::Trusted {
-                // ---- Step 7: Disinfect ----
                 let disinfected = std::fs::remove_file(file_path).is_ok();
-                return DisinfectResult {
+                engines.push(Self::engine_result(
+                    "disinfector",
                     verdict,
-                    engines,
-                    extracted_files,
-                    disinfected,
-                };
+                    format!("extracted file disinfected={disinfected}"),
+                    None,
+                ));
+                return DisinfectResult { verdict, engines, disinfected };
             }
         }
 
-        DisinfectResult {
-            verdict: Verdict::Clean,
-            engines,
-            extracted_files,
-            disinfected: false,
-        }
+        engines.push(Self::engine_result(
+            "disinfector",
+            Verdict::Clean,
+            format!("total {:.2}s", total_start.elapsed().as_secs_f64()),
+            None,
+        ));
+
+        DisinfectResult { verdict: Verdict::Clean, engines, disinfected: false }
     }
 
-    fn fail_result(
-        &self,
-        mut engines: Vec<EngineResult>,
-        extracted_files: Vec<PathBuf>,
-        detail: String,
-    ) -> DisinfectResult {
-        engines.push(Self::build_engine_result("disinfector", Verdict::Clean, detail));
-        DisinfectResult {
-            verdict: Verdict::Clean,
-            engines,
-            extracted_files,
-            disinfected: false,
-        }
+    fn fail_result(&self, mut engines: Vec<EngineResult>, detail: String) -> DisinfectResult {
+        engines.push(Self::engine_result("disinfector", Verdict::Clean, detail, None));
+        DisinfectResult { verdict: Verdict::Clean, engines, disinfected: false }
     }
 }

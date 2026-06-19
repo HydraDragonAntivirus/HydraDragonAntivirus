@@ -1,0 +1,13 @@
+[package]
+name = "hydradragonextractor"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust archive and compression extractor — tar, gzip, xz, lzma, 7z"
+license = "GPL-2.0-or-later"
+
+[dependencies]
+tar = "0.4"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+lzma-rust2 = "0.16"
+sevenz-rust2 = { version = "0.20", features = ["brotli", "deflate", "lz4", "zstd"] }
+thiserror = "2"

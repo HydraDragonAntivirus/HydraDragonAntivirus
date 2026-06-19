@@ -1,6 +1,6 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::HashMap;
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use unicorn_engine::Unicorn;
 
 use crate::unpacker::error::{UnpackerError, UnpackerResult};
@@ -1020,4 +1020,132 @@ pub fn dump_image(
     );
 
     Ok(())
+}
+
+/// Same as `dump_image` but returns the bytes instead of writing to a file.
+pub fn dump_image_to_bytes(
+    uc: &Unicorn<()>,
+    base_addr: u64,
+    virtualmemorysize: u64,
+    ctx: &DumpContext,
+) -> UnpackerResult<Vec<u8>> {
+    // Read the full emulated memory into a buffer
+    let mem_size = virtualmemorysize as usize;
+    let mut image_data = vec![0u8; mem_size];
+
+    uc.mem_read(base_addr, &mut image_data)
+        .map_err(|e| UnpackerError::EmulatorError(format!("failed to read emulated memory: {e}")))?;
+
+    // Parse PE headers to determine format
+    let (opt_hdr_off, is_pe64, _, _, _) = parse_pe_headers(&image_data)
+        .ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers from emulated memory".into()))?;
+
+    // Get section alignment and file alignment from optional header
+    let (section_alignment, file_alignment, _image_size) = if is_pe64 {
+        let section_alignment = read_u32(&image_data, opt_hdr_off + 32);
+        let file_alignment = read_u32(&image_data, opt_hdr_off + 36);
+        let image_size = read_u32(&image_data, opt_hdr_off + 56);
+        (section_alignment, file_alignment, image_size)
+    } else {
+        let section_alignment = read_u32(&image_data, opt_hdr_off + 32);
+        let file_alignment = read_u32(&image_data, opt_hdr_off + 36);
+        let image_size = read_u32(&image_data, opt_hdr_off + 56);
+        (section_alignment, file_alignment, image_size)
+    };
+
+    // Determine the real size of the image (highest section end)
+    let section_hdr_offset = {
+        let sig_offset = pe_signature_offset(&image_data).unwrap();
+        let coff_offset = sig_offset + 4;
+        let size_of_opt_hdr = read_u16(&image_data, coff_offset + 16);
+        (coff_offset + 20 + size_of_opt_hdr as usize) as usize
+    };
+
+    let num_sections = read_u16(&image_data, pe_signature_offset(&image_data).unwrap() + 6);
+    let sections = read_section_headers(&image_data, section_hdr_offset, num_sections);
+
+    // Calculate actual image size from sections
+    let actual_image_size = {
+        let max_end = sections
+            .iter()
+            .map(|s| s.virtual_address.saturating_add(s.virtual_size))
+            .max()
+            .unwrap_or(0);
+        align_up(max_end, section_alignment)
+    };
+
+    // Determine the raw data size needed
+    let raw_size = {
+        if let Some(last) = sections.last() {
+            (last.pointer_to_raw_data + last.size_of_raw_data) as usize
+        } else {
+            0
+        }
+    };
+
+    // Trim buffer to actual used size
+    let mut pe_data = Vec::new();
+    if raw_size > 0 && raw_size <= image_data.len() {
+        pe_data.extend_from_slice(&image_data[..raw_size]);
+    } else {
+        pe_data = image_data;
+    }
+
+    // 1. Fix OEP
+    let ip = if is_pe64 {
+        uc.reg_read(unicorn_engine::RegisterX86::RIP)
+            .map_err(|e| UnpackerError::EmulatorError(format!("failed to read RIP: {e}")))? as u64
+    } else {
+        uc.reg_read(unicorn_engine::RegisterX86::EIP)
+            .map_err(|e| UnpackerError::EmulatorError(format!("failed to read EIP: {e}")))? as u64
+    };
+
+    let oep_rva = (ip - base_addr) as u32;
+    write_u32(&mut pe_data, opt_hdr_off + 16, oep_rva);
+
+    // 2. Fix section sizes
+    fix_sections(&mut pe_data, file_alignment)?;
+
+    // 3. Fix section memory protections
+    fix_section_mem_protections(&mut pe_data, &ctx.allocated_chunks, base_addr)?;
+
+    // 4. Fix imports
+    let _new_imports = fix_imports_by_rebuilding(
+        &mut pe_data,
+        ctx,
+        base_addr,
+        actual_image_size,
+        section_alignment,
+        file_alignment,
+    )?;
+
+    // 5. Fix checksum
+    let (opt_hdr_off, is_pe64, _, _, _) = parse_pe_headers(&pe_data)
+        .ok_or_else(|| UnpackerError::InvalidPeFile("cannot parse PE headers for checksum fix".into()))?;
+    let data_dir_offset = if is_pe64 { opt_hdr_off + 112 } else { opt_hdr_off + 96 };
+    let security_dir_offset = data_dir_offset + IMAGE_DIRECTORY_ENTRY_SECURITY * 8;
+    if security_dir_offset + 8 <= pe_data.len() {
+        write_u32(&mut pe_data, security_dir_offset, 0);
+        write_u32(&mut pe_data, security_dir_offset + 4, 0);
+    }
+
+    let coff_offset = pe_signature_offset(&pe_data).unwrap() + 4;
+    let characteristics = read_u16(&pe_data, coff_offset + 18);
+    write_u16(&mut pe_data, coff_offset + 18, characteristics | IMAGE_FILE_RELOCS_STRIPPED);
+
+    let reloc_dir_offset = data_dir_offset + IMAGE_DIRECTORY_ENTRY_BASERELOC * 8;
+    if reloc_dir_offset + 8 <= pe_data.len() {
+        write_u32(&mut pe_data, reloc_dir_offset, 0);
+        write_u32(&mut pe_data, reloc_dir_offset + 4, 0);
+    }
+
+    fix_checksum(&mut pe_data)?;
+
+    log::info!(
+        "Dumped PE image to memory (size: {}, OEP: {:#x})",
+        pe_data.len(),
+        oep_rva
+    );
+
+    Ok(pe_data)
 }

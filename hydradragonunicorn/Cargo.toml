@@ -1,5 +1,5 @@
 [package]
-name = "hydradragonheur"
+name = "hydradragonunicorn"
 version = "0.1.0"
 edition = "2021"
 description = "Heuristic engine for HydraDragon — Unicorn-based PE CPU emulation and behavioral heuristics, ported from TinyAntivirus"
@@ -34,9 +34,11 @@ byteorder = "1.5"
 # Random number generation (process/thread IDs)
 rand = "0.10"
 
-# Archive extraction (7z, zip, tar, etc.)
-sevenz-rust2 = "0.20"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+# Seven-zip archive extraction
+sevenz-rust2 = { version = "0.20", features = ["brotli", "deflate", "lz4", "zstd"] }
+
+# Standalone pure-Rust archive/compression extractor (tar, gzip, xz, lzma)
+hydradragonextractor = { path = "../hydradragonextractor" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

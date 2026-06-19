@@ -728,6 +728,48 @@ impl UnpackerEngine {
         };
         crate::unpacker::imagedump::dump_image(uc, self.sample.base_addr, self.sample.virtualmemorysize, &ctx, file_path)
     }
+
+    /// Dump the emulated PE image to a byte vector (no file I/O).
+    pub fn dump_bytes(&self) -> UnpackerResult<Vec<u8>> {
+        let uc = self
+            .uc
+            .as_ref()
+            .ok_or_else(|| UnpackerError::EmulatorError("engine not initialized".into()))?;
+        let ctx = crate::unpacker::imagedump::DumpContext {
+            base_addr: self.sample.base_addr,
+            virtualmemorysize: self.sample.virtualmemorysize,
+            hook_addr: self.hook_addr,
+            ntp: HashMap::new(),
+            dllname_to_functionlist: self.sample.dllname_to_functionlist.clone(),
+            allocated_chunks: self.sample.allocated_chunks.clone(),
+            original_imports: self.sample.original_imports.iter().map(|id| {
+                crate::unpacker::imagedump::ImportDescriptor {
+                    characteristics: id.characteristics,
+                    time_date_stamp: id.time_date_stamp,
+                    forwarder_chain: id.forwarder_chain,
+                    name: id.name_rva,
+                    first_thunk: id.first_thunk,
+                    dll_name: id.dll_name.clone(),
+                    imports: id.imports.clone(),
+                }
+            }).collect(),
+            sections: self.sample.sections.iter().map(|s| {
+                crate::unpacker::imagedump::Section {
+                    name: s.name.clone(),
+                    virtual_size: s.virtual_size,
+                    virtual_address: s.virtual_address,
+                    size_of_raw_data: s.size_of_raw_data,
+                    pointer_to_raw_data: s.pointer_to_raw_data,
+                    pointer_to_relocations: 0,
+                    pointer_to_linenumbers: 0,
+                    number_of_relocations: 0,
+                    number_of_linenumbers: 0,
+                    characteristics: s.characteristics,
+                }
+            }).collect(),
+        };
+        crate::unpacker::imagedump::dump_image_to_bytes(uc, self.sample.base_addr, self.sample.virtualmemorysize, &ctx)
+    }
 }
 
 impl Drop for UnpackerEngine {
