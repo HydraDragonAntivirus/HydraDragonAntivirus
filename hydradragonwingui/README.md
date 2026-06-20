@@ -11,6 +11,10 @@ by hand in the `wndproc`; the only real child controls are the two ListViews.
 
 - Light, modern flat theme (Segoe UI, accent blue, danger red), DPI-aware for
   crisp text on high-resolution displays.
+- **Status hero banner** (Kaspersky-style) on the Scan page — a big colored badge
+  + headline that reflects live state: blue "Ready to scan" / "Scanning… (N files,
+  M threats)", **green** "No threats found", or **red** "N threats found". Driven
+  by structured `Begin`/`Progress`/`Done` worker messages, no string parsing.
 - **Gradient header** (single `GradientFill`) with a shield logo tile and a thin
   drop shadow for depth.
 - Sidebar navigation with **Segoe MDL2 Assets icon glyphs** (search / lock /

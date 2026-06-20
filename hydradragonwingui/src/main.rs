@@ -73,6 +73,7 @@ const BTN_W: i32 = 150;
 const BTN_H: i32 = 38;
 const GAP: i32 = 10;
 const NAV_H: i32 = 46;
+const HERO_H: i32 = 104; // status banner height (Scan page)
 
 mod msg {
     pub const LVM_FIRST: u32 = 0x1000;
@@ -540,7 +541,8 @@ unsafe fn layout(hwnd: HWND) {
     let defs = buttons_for(s.page);
     s.buttons.clear();
     let mut x = content_l;
-    let mut y = HEADER_H + PAD;
+    // Scan page reserves a status hero banner above the action buttons.
+    let mut y = HEADER_H + PAD + if s.page == 0 { HERO_H + PAD } else { 0 };
     for (cmd, label, kind) in defs {
         if x + BTN_W > content_r && x > content_l {
             x = content_l;
@@ -641,6 +643,13 @@ unsafe fn paint(hwnd: HWND) {
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
     );
 
+    // --- Hero status banner (Scan page) ---
+    if s.page == 0 {
+        let content_l = SIDEBAR_W + PAD;
+        let hero = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: HEADER_H + PAD + HERO_H };
+        draw_hero(mem, s, hero);
+    }
+
     // --- Buttons ---
     for b in &s.buttons {
         let hot = s.hot_cmd == Some(b.cmd);
@@ -695,6 +704,68 @@ unsafe fn paint(hwnd: HWND) {
     let _ = DeleteObject(bmp.into());
     let _ = DeleteDC(mem);
     let _ = EndPaint(hwnd, &ps);
+}
+
+/// Kaspersky-style status hero: a colored banner with a big badge + headline.
+unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
+    let (bg, accent, glyph, head, sub) = match s.scan_state {
+        ScanState::Idle => (
+            C_ACCENT_SOFT,
+            C_ACCENT,
+            "\u{E83D}", // shield
+            "Ready to scan".to_string(),
+            "Run a scan to check your system for threats.".to_string(),
+        ),
+        ScanState::Scanning => (
+            C_ACCENT_SOFT,
+            C_ACCENT,
+            "\u{E721}", // search
+            "Scanning…".to_string(),
+            format!("{} files scanned · {} threat(s) so far", s.scanned_count, s.threat_count),
+        ),
+        ScanState::Clean => (
+            C_OK_SOFT,
+            C_OK,
+            "\u{E73E}", // checkmark
+            "No threats found".to_string(),
+            format!("{} files scanned — your system looks clean.", s.scanned_count),
+        ),
+        ScanState::Threats => (
+            C_DANGER_SOFT,
+            C_DANGER,
+            "\u{E7BA}", // warning
+            format!("{} threat(s) found", s.threat_count),
+            "Review the detections below, then Clean Selected.".to_string(),
+        ),
+    };
+
+    fill_round(hdc, r, 12, bg);
+    frame_round(hdc, r, 12, C_BORDER);
+
+    let bsize = 64;
+    let bx = r.left + 22;
+    let by = r.top + (r.bottom - r.top - bsize) / 2;
+    let badge = RECT { left: bx, top: by, right: bx + bsize, bottom: by + bsize };
+    fill_round(hdc, badge, bsize / 2, accent); // filled circle
+    text(hdc, glyph, &badge, C_WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    let tx = badge.right + 22;
+    text(
+        hdc,
+        &head,
+        &RECT { left: tx, top: r.top + 24, right: r.right - 20, bottom: r.top + 58 },
+        C_TEXT,
+        s.fonts.hero,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+    );
+    text(
+        hdc,
+        &sub,
+        &RECT { left: tx, top: r.top + 60, right: r.right - 20, bottom: r.bottom - 22 },
+        C_TEXT2,
+        s.fonts.body,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+    );
 }
 
 unsafe fn draw_button(hdc: HDC, b: &UiButton, hot: bool, down: bool, fonts: &Fonts) {
@@ -962,6 +1033,24 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.scan_sev.push(sev);
             }
             ScanMsg::Status(t) => s.status = t,
+            ScanMsg::Begin => {
+                s.scan_state = ScanState::Scanning;
+                s.scanned_count = 0;
+                s.threat_count = 0;
+                s.status = "Scanning…".into();
+            }
+            ScanMsg::Progress { scanned, threats } => {
+                s.scan_state = ScanState::Scanning;
+                s.scanned_count = scanned;
+                s.threat_count = threats;
+                s.status = format!("Scanned {scanned}, {threats} threat(s)…");
+            }
+            ScanMsg::Done { scanned, threats } => {
+                s.scanned_count = scanned;
+                s.threat_count = threats;
+                s.scan_state = if threats > 0 { ScanState::Threats } else { ScanState::Clean };
+                s.status = format!("Done. {scanned} scanned, {threats} threat(s).");
+            }
         }
     }
     if changed {
@@ -1075,13 +1164,15 @@ fn worker(raw: isize, work_rx: Receiver<WorkRequest>, tx: Sender<ScanMsg>, quara
     while let Ok(req) = work_rx.recv() {
         match req {
             WorkRequest::Scan(paths) => {
+                send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
                 let (scanned, threats) = scan_paths(pl, &paths, &tx, hwnd);
                 pl.save_result_caches(); // persist learned good/bad results
-                send(&tx, hwnd, ScanMsg::Status(format!("Done. {scanned} scanned, {threats} threat(s).")));
+                send(&tx, hwnd, ScanMsg::Done { scanned, threats });
             }
             WorkRequest::FullScan(paths) => {
-                // Full mode = memory (in-memory file scan) + registry + logs.
+                // Full mode = files + memory (process RAM) + registry + logs.
+                send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
                 let (scanned, threats) = scan_paths(pl, &paths, &tx, hwnd);
                 pl.save_result_caches();
@@ -1120,8 +1211,10 @@ fn worker(raw: isize, work_rx: Receiver<WorkRequest>, tx: Sender<ScanMsg>, quara
                     });
                 }
 
+                let total = threats + reg.threats_found as usize + logs.len() + mem.len();
+                send(&tx, hwnd, ScanMsg::Done { scanned, threats: total });
                 send(&tx, hwnd, ScanMsg::Status(format!(
-                    "Full scan done. Files: {scanned} scanned, {threats} threat(s); registry: {} threat(s); logs: {} alert(s); memory: {} hit(s).",
+                    "Full scan done. Files {threats}, registry {} threat(s), logs {} alert(s), memory {} hit(s).",
                     reg.threats_found,
                     logs.len(),
                     mem.len()
@@ -1195,7 +1288,7 @@ fn scan_paths(pl: &Pipeline, paths: &[PathBuf], tx: &Sender<ScanMsg>, hwnd: HWND
             });
         }
         if scanned % 25 == 0 {
-            send(tx, hwnd, ScanMsg::Status(format!("Scanned {scanned}, {threats} threat(s)…")));
+            send(tx, hwnd, ScanMsg::Progress { scanned, threats });
         }
     }
     (scanned, threats)
