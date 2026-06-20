@@ -26,7 +26,7 @@ bincode-next = { version = "2.0", features = ["serde"] }
 
 # Hashing
 md-5 = "0.10.6"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 hex = "0.4.3"
 
 # ML / Burn
@@ -78,6 +78,6 @@ hydradragonclamav = { path = "../hydradragonclamav" }
 regex = "1.12.2"
 
 [build-dependencies]
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 winres = "0.1"
 yara-x = "1.18.0"
