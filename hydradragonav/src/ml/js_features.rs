@@ -531,10 +531,19 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
     let ret = Parser::new(&allocator, source, source_type).parse();
     let program = ret.program;
 
-    let parse_success = if ret.errors.is_empty() { 1.0 } else { 0.0 };
+    let parse_errors = ret.errors.len();
+    let parse_success = if parse_errors == 0 { 1.0 } else { 0.0 };
 
     let mut walker = AstWalkerCounts::new();
     walker.walk_statements(&program.body);
+
+    if parse_errors > 0
+        && walker.function_count == 0
+        && walker.call_expressions == 0
+        && walker.variable_declarations == 0
+    {
+        return None;
+    }
 
     let hex_encoded = RE_HEX_ENCODED.find_iter(source).count() as f32;
     let unicode_encoded = RE_UNICODE_ENCODED.find_iter(source).count() as f32;
@@ -717,6 +726,107 @@ fn analyze_lines(source: &str) -> (f32, f32, f32, f32, f32, f32) {
         avg_line,
         max_line,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_plain_text_returns_none() {
+        let text = "The quick brown fox jumps over the lazy dog.";
+        assert!(extract_js_features(text).is_none());
+    }
+
+    #[test]
+    fn test_html_returns_none() {
+        let html = r#"<html><body><h1>Hello</h1><p>This is not JavaScript.</p></body></html>"#;
+        assert!(extract_js_features(html).is_none());
+    }
+
+    #[test]
+    fn test_xml_returns_none() {
+        let xml = r#"<?xml version="1.0"?><root><item id="1">value</item></root>"#;
+        assert!(extract_js_features(xml).is_none());
+    }
+
+    #[test]
+    fn test_json_returns_none() {
+        let json = r#"{"name": "test", "version": 1, "enabled": true}"#;
+        assert!(extract_js_features(json).is_none());
+    }
+
+    #[test]
+    fn test_valid_js_returns_some() {
+        let js = r#"
+function greet(name) {
+    console.log("Hello, " + name);
+}
+greet("world");
+"#;
+        let features = extract_js_features(js);
+        assert!(features.is_some());
+        let f = features.unwrap();
+        assert!(f.function_count > 0.0);
+        assert!(f.call_expressions > 0.0);
+    }
+
+    #[test]
+    fn test_obfuscated_js_returns_some() {
+        let js = r#"
+var _0x1234 = "\\x48\\x65\\x6c\\x6c\\x6f";
+eval(_0x1234);
+"#;
+        let features = extract_js_features(js);
+        assert!(features.is_some());
+        let f = features.unwrap();
+        assert!(f.eval_usage > 0.0);
+        assert!(f.hex_encoded_strings > 0.0);
+    }
+
+    #[test]
+    fn test_empty_string_returns_some() {
+        // Empty string: parser succeeds, all counts are 0, should return Some
+        let features = extract_js_features("");
+        assert!(features.is_some());
+    }
+
+    #[test]
+    fn test_minimal_js_variable_returns_some() {
+        let js = "let x = 1;";
+        let features = extract_js_features(js);
+        assert!(features.is_some());
+        let f = features.unwrap();
+        assert!(f.variable_declarations > 0.0);
+    }
+
+    #[test]
+    fn test_binary_gibberish_returns_none() {
+        let gibberish = "\\x00\\x01\\x02\\xff\\xfe Hello World \\x00\\x00";
+        assert!(extract_js_features(gibberish).is_none());
+    }
+
+    #[test]
+    fn test_css_returns_none() {
+        let css = r#"
+body {
+    background-color: #fff;
+    color: #000;
+    font-family: Arial, sans-serif;
+}
+.container {
+    margin: 0 auto;
+    max-width: 1200px;
+}
+"#;
+        assert!(extract_js_features(css).is_none());
+    }
+
+    #[test]
+    fn test_csv_returns_none() {
+        let csv = "name,age,city\nJohn,30,New York\nJane,25,London";
+        assert!(extract_js_features(csv).is_none());
+    }
 }
 
 fn analyze_identifiers(source: &str) -> (f32, f32, f32, f32, f32, f32) {

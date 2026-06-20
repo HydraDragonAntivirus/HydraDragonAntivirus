@@ -98,6 +98,9 @@ struct Cli {
 
     #[arg(long, env = "JS_ML_MODEL_PATH", global = true)]
     js_ml_model: Option<PathBuf>,
+
+    #[arg(long, env = "ML_THRESHOLD", global = true, default_value_t = 0.95)]
+    ml_threshold: f32,
 }
 
 #[derive(Subcommand)]
@@ -232,6 +235,7 @@ fn cmd_scan_metadata(json: bool, config: &FullConfig) {
         clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
         hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
         scan_mode: ScanMode::NonFiles,
+        ml_threshold: config.ml_threshold,
         ..Default::default()
     });
 
@@ -286,6 +290,7 @@ fn cmd_scan_single(
         clamav_heuristics: heuristics,
         time_engines,
         fast_scan,
+        ml_threshold: config.ml_threshold,
         ..Default::default()
     };
 
@@ -408,6 +413,7 @@ fn cmd_scan_recursive(
         clamav_heuristics: heuristics,
         time_engines,
         fast_scan,
+        ml_threshold: config.ml_threshold,
         ..Default::default()
     };
 
@@ -628,6 +634,7 @@ struct FullConfig {
     pe_ml_model: Option<PathBuf>,
     js_ml_model: Option<PathBuf>,
     reglist: Option<PathBuf>,
+    ml_threshold: f32,
 }
 
 fn main() {
@@ -645,6 +652,7 @@ fn main() {
         pe_ml_model: cli.pe_ml_model.or(Some(pe_ml)),
         js_ml_model: cli.js_ml_model.or(Some(js_ml)),
         reglist: Some(reglist),
+        ml_threshold: cli.ml_threshold,
     };
 
     match &cli.command {
