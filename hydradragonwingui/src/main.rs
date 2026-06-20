@@ -15,7 +15,7 @@
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -77,6 +77,9 @@ const CMD_STOP: usize = 12;
 const CMD_RESUME: usize = 13;
 // Context-menu: copy the selected detection rows to the clipboard.
 const CMD_COPY: usize = 14;
+// Settings page: load / unload the scanning engine.
+const CMD_START_ENGINE: usize = 15;
+const CMD_STOP_ENGINE: usize = 16;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 // Not surfaced by the WindowsAndMessaging glob in this build — define it raw, or
@@ -85,15 +88,16 @@ const WM_MOUSELEAVE: u32 = 0x02A3;
 // Defined locally for the same reason; shadows the glob if present.
 const WM_CONTEXTMENU: u32 = 0x007B;
 
-const HEADER_H: i32 = 68;
-const SIDEBAR_W: i32 = 210;
-const STATUS_H: i32 = 30;
-const PAD: i32 = 16;
-const BTN_W: i32 = 150;
-const BTN_H: i32 = 38;
-const GAP: i32 = 10;
-const NAV_H: i32 = 46;
-const HERO_H: i32 = 104; // status banner height (Scan page)
+const HEADER_H: i32 = 76;
+const SIDEBAR_W: i32 = 216;
+const STATUS_H: i32 = 32;
+const PAD: i32 = 18;
+const BTN_W: i32 = 158;
+const BTN_H: i32 = 42;
+const GAP: i32 = 12;
+const NAV_H: i32 = 44;
+const NAV_TOP: i32 = HEADER_H + 42; // room for the "MENU" caption above the items
+const HERO_H: i32 = 120; // status banner height (Scan page)
 
 mod msg {
     pub const LVM_FIRST: u32 = 0x1000;
@@ -115,6 +119,7 @@ mod sty {
     pub const CLIPCHILDREN: u32 = 0x0200_0000;
     pub const OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
     pub const LVS_REPORT: u32 = 0x0001;
+    pub const LVS_EX_GRIDLINES: u32 = 0x0000_0001;
     pub const LVS_EX_FULLROWSELECT: u32 = 0x0000_0020;
     pub const LVS_EX_DOUBLEBUFFER: u32 = 0x0001_0000;
     pub const LVNI_SELECTED: isize = 0x0002;
@@ -229,6 +234,7 @@ enum Kind {
 struct UiButton {
     cmd: usize,
     label: &'static str,
+    icon: &'static str, // Segoe MDL2 Assets glyph
     kind: Kind,
     rect: RECT,
 }
@@ -249,6 +255,15 @@ enum ScanState {
     Threats,
 }
 
+/// Lifecycle of the scanning engine (pipeline). It is loaded on a loading screen
+/// at startup and can be unloaded/reloaded via Start/Stop Engine.
+#[derive(Clone, Copy, PartialEq)]
+enum EngineState {
+    Loading,
+    Ready,
+    Stopped,
+}
+
 enum ScanMsg {
     Row {
         file: String,
@@ -266,14 +281,20 @@ enum ScanMsg {
         threats: usize,
         discovered: usize,
         speed: f64,
+        mbps: f64,
         eta_secs: f64,
         discovering: bool,
+        current: String,
     },
     Done { scanned: usize, threats: usize },
     /// Scan was stopped mid-run; `remaining` files are queued for Resume.
     Paused { scanned: usize, threats: usize, remaining: usize },
     /// A paused scan has been picked back up.
     Resumed,
+    /// Engine lifecycle (drives the loading screen / status indicator).
+    EngineLoading,
+    EngineReady,
+    EngineStopped,
     /// Result of re-scanning one already-listed file (right-click → Rescan). The
     /// row is updated in place, or removed when it comes back clean.
     Rescanned {
@@ -293,6 +314,10 @@ enum WorkRequest {
     Rescan(Vec<PathBuf>),
     /// Continue a scan that was stopped (the worker keeps the remaining file list).
     Resume,
+    /// Load the engine (pipeline) if not already loaded.
+    StartEngine,
+    /// Unload the engine to free memory.
+    StopEngine,
     Clean(Vec<PathBuf>),
     RemoveTraces(Vec<PathBuf>),
     ClearCache,
@@ -328,11 +353,13 @@ struct AppState {
     tracking: bool,
     status: String,
     scan_state: ScanState,
+    engine: EngineState,
     scanned_count: usize,
     threat_count: usize,
     // Live throughput for the hero banner / status bar (streaming scan).
     scan_discovered: usize,
     scan_speed: f64,
+    scan_mbps: f64,
     scan_eta_secs: f64,
     scan_discovering: bool,
     work_tx: Sender<WorkRequest>,
@@ -557,6 +584,8 @@ unsafe fn on_create(hwnd: HWND) {
     let cancel = Arc::new(AtomicBool::new(false));
     let worker_cancel = cancel.clone();
     std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir, worker_cancel));
+    // Load the engine immediately so the loading screen shows on startup.
+    let _ = work_tx.send(WorkRequest::StartEngine);
 
     let s = Box::new(AppState {
         scan_list,
@@ -578,10 +607,12 @@ unsafe fn on_create(hwnd: HWND) {
         tracking: false,
         status: "Ready.".into(),
         scan_state: ScanState::Idle,
+        engine: EngineState::Loading,
         scanned_count: 0,
         threat_count: 0,
         scan_discovered: 0,
         scan_speed: 0.0,
+        scan_mbps: 0.0,
         scan_eta_secs: 0.0,
         scan_discovering: false,
         work_tx,
@@ -645,7 +676,7 @@ unsafe fn make_list(parent: HWND, hinst: HINSTANCE, style: u32, id: usize, font:
         h,
         msg::LVM_SETEXTENDEDLISTVIEWSTYLE,
         Some(WPARAM(0)),
-        Some(LPARAM((sty::LVS_EX_FULLROWSELECT | sty::LVS_EX_DOUBLEBUFFER) as isize)),
+        Some(LPARAM((sty::LVS_EX_FULLROWSELECT | sty::LVS_EX_DOUBLEBUFFER | sty::LVS_EX_GRIDLINES) as isize)),
     );
     apply_list_theme(h, &LIGHT);
     SendMessageW(h, WM_SETFONT, Some(WPARAM(font.0 as usize)), Some(LPARAM(1)));
@@ -659,35 +690,39 @@ unsafe fn apply_list_theme(h: HWND, t: &Theme) {
     SendMessageW(h, msg::LVM_SETTEXTCOLOR, Some(WPARAM(0)), Some(LPARAM(t.text.0 as isize)));
 }
 
-fn buttons_for(page: usize, state: ScanState) -> Vec<(usize, &'static str, Kind)> {
+fn buttons_for(page: usize, state: ScanState) -> Vec<(usize, &'static str, &'static str, Kind)> {
     match page {
         // Scan page buttons depend on the scan state: a single Stop while a scan
         // runs, Resume (+ the normal actions) once it's paused.
         0 => match state {
-            ScanState::Scanning => vec![(CMD_STOP, "Stop", Kind::Danger)],
+            ScanState::Scanning => vec![(CMD_STOP, "Stop", "\u{E71A}", Kind::Danger)],
             ScanState::Paused => vec![
-                (CMD_RESUME, "Resume", Kind::Primary),
-                (CMD_SCAN_FILE, "Scan File", Kind::Primary),
-                (CMD_SCAN_FOLDER, "Scan Folder", Kind::Primary),
-                (CMD_CLEAN, "Clean Selected", Kind::Primary),
-                (CMD_SAVE_RESULTS, "Save Results", Kind::Neutral),
-                (CMD_TRACES, "Remove Traces", Kind::Danger),
+                (CMD_RESUME, "Resume", "\u{E768}", Kind::Primary),
+                (CMD_SCAN_FILE, "Scan File", "\u{E8A5}", Kind::Primary),
+                (CMD_SCAN_FOLDER, "Scan Folder", "\u{E8B7}", Kind::Primary),
+                (CMD_CLEAN, "Clean Selected", "\u{E74D}", Kind::Primary),
+                (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
+                (CMD_TRACES, "Remove Traces", "\u{E894}", Kind::Danger),
             ],
             _ => vec![
-                (CMD_SCAN_FILE, "Scan File", Kind::Primary),
-                (CMD_SCAN_FOLDER, "Scan Folder", Kind::Primary),
-                (CMD_FULL_SCAN, "Full Scan", Kind::Primary),
-                (CMD_CLEAN, "Clean Selected", Kind::Primary),
-                (CMD_SAVE_RESULTS, "Save Results", Kind::Neutral),
-                (CMD_TRACES, "Remove Traces", Kind::Danger),
+                (CMD_SCAN_FILE, "Scan File", "\u{E8A5}", Kind::Primary),
+                (CMD_SCAN_FOLDER, "Scan Folder", "\u{E8B7}", Kind::Primary),
+                (CMD_FULL_SCAN, "Full Scan", "\u{E721}", Kind::Primary),
+                (CMD_CLEAN, "Clean Selected", "\u{E74D}", Kind::Primary),
+                (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
+                (CMD_TRACES, "Remove Traces", "\u{E894}", Kind::Danger),
             ],
         },
         1 => vec![
-            (CMD_QUAR_REFRESH, "Refresh", Kind::Neutral),
-            (CMD_QUAR_RESTORE, "Restore Selected", Kind::Primary),
-            (CMD_QUAR_DELETE, "Delete Selected", Kind::Danger),
+            (CMD_QUAR_REFRESH, "Refresh", "\u{E72C}", Kind::Neutral),
+            (CMD_QUAR_RESTORE, "Restore Selected", "\u{E777}", Kind::Primary),
+            (CMD_QUAR_DELETE, "Delete Selected", "\u{E74D}", Kind::Danger),
         ],
-        _ => vec![(CMD_CLEAR_CACHE, "Clear Result Cache", Kind::Danger)],
+        _ => vec![
+            (CMD_START_ENGINE, "Start Engine", "\u{E768}", Kind::Primary),
+            (CMD_STOP_ENGINE, "Stop Engine", "\u{E71A}", Kind::Neutral),
+            (CMD_CLEAR_CACHE, "Clear Result Cache", "\u{E894}", Kind::Danger),
+        ],
     }
 }
 
@@ -704,10 +739,10 @@ unsafe fn layout(hwnd: HWND) {
     let w = rc.right;
     let h = rc.bottom;
 
-    // Sidebar nav items.
+    // Sidebar nav items (below the "MENU" caption).
     for (i, item) in s.nav.iter_mut().enumerate() {
-        let top = HEADER_H + 14 + i as i32 * (NAV_H + 6);
-        item.rect = RECT { left: 10, top, right: SIDEBAR_W - 10, bottom: top + NAV_H };
+        let top = NAV_TOP + i as i32 * (NAV_H + 6);
+        item.rect = RECT { left: 12, top, right: SIDEBAR_W - 12, bottom: top + NAV_H };
     }
 
     // Theme toggle in the header (top-right).
@@ -715,15 +750,20 @@ unsafe fn layout(hwnd: HWND) {
     let ty = (HEADER_H - tb) / 2;
     s.theme_btn = RECT { left: w - PAD - tb, top: ty, right: w - PAD, bottom: ty + tb };
 
-    // Content buttons (wrap into rows if narrow).
+    // Content buttons (wrap into rows if narrow). None while the loading screen
+    // is up, so nothing under the overlay is clickable.
     let content_l = SIDEBAR_W + PAD;
     let content_r = w - PAD;
-    let defs = buttons_for(s.page, s.scan_state);
+    let defs = if s.engine == EngineState::Loading {
+        Vec::new()
+    } else {
+        buttons_for(s.page, s.scan_state)
+    };
     s.buttons.clear();
     let mut x = content_l;
     // Scan page reserves a status hero banner above the action buttons.
     let mut y = HEADER_H + PAD + if s.page == 0 { HERO_H + PAD } else { 0 };
-    for (cmd, label, kind) in defs {
+    for (cmd, label, icon, kind) in defs {
         if x + BTN_W > content_r && x > content_l {
             x = content_l;
             y += BTN_H + GAP;
@@ -731,6 +771,7 @@ unsafe fn layout(hwnd: HWND) {
         s.buttons.push(UiButton {
             cmd,
             label,
+            icon,
             kind,
             rect: RECT { left: x, top: y, right: x + BTN_W, bottom: y + BTN_H },
         });
@@ -747,12 +788,14 @@ unsafe fn layout(hwnd: HWND) {
 }
 
 /// Show the active page's ListView, hide the others, refresh quarantine on enter.
+/// While the engine is loading the lists stay hidden so the loading screen shows.
 unsafe fn apply_page(hwnd: HWND) {
     let Some(s) = state(hwnd) else { return };
-    let _ = ShowWindow(s.scan_list, if s.page == 0 { SW_SHOW } else { SW_HIDE });
-    let _ = ShowWindow(s.quar_list, if s.page == 1 { SW_SHOW } else { SW_HIDE });
+    let ready = s.engine != EngineState::Loading;
+    let _ = ShowWindow(s.scan_list, if ready && s.page == 0 { SW_SHOW } else { SW_HIDE });
+    let _ = ShowWindow(s.quar_list, if ready && s.page == 1 { SW_SHOW } else { SW_HIDE });
     layout(hwnd);
-    if s.page == 1 {
+    if ready && s.page == 1 {
         refresh_quarantine(s);
     }
     let _ = InvalidateRect(Some(hwnd), None, false);
@@ -783,34 +826,53 @@ unsafe fn paint(hwnd: HWND) {
     let side = RECT { left: 0, top: 0, right: SIDEBAR_W, bottom: h };
     fill(mem, &side, t.sidebar);
     fill(mem, &RECT { left: SIDEBAR_W - 1, top: 0, right: SIDEBAR_W, bottom: h }, t.border);
+    // Section caption.
+    text(
+        mem,
+        "MENU",
+        &RECT { left: 22, top: HEADER_H + 16, right: SIDEBAR_W - 12, bottom: HEADER_H + 34 },
+        t.text2,
+        s.fonts.status,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+    );
     for (i, item) in s.nav.iter().enumerate() {
         let active = s.page == item.page;
         let hot = s.hot_nav == Some(i);
+        // Modern nav: soft tint + left accent bar when active, light hover tint otherwise.
         if active {
-            fill_round(mem, item.rect, 10, t.accent); // full accent pill
+            fill_round(mem, item.rect, 10, t.accent_soft);
+            let bar = RECT {
+                left: item.rect.left,
+                top: item.rect.top + 9,
+                right: item.rect.left + 4,
+                bottom: item.rect.bottom - 9,
+            };
+            fill_round(mem, bar, 2, t.accent);
         } else if hot {
             fill_round(mem, item.rect, 10, t.nav_hot);
         }
-        let icon_col = if active { WHITE } else { t.accent };
-        let txt_col = if active { WHITE } else { t.text };
-        let icon_r = RECT { left: item.rect.left + 14, right: item.rect.left + 42, ..item.rect };
+        let icon_col = if active { t.accent } else { t.text2 };
+        let txt_col = if active { t.accent } else { t.text };
+        let icon_r = RECT { left: item.rect.left + 16, right: item.rect.left + 44, ..item.rect };
         text(mem, item.icon, &icon_r, icon_col, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        let tr = RECT { left: item.rect.left + 46, ..item.rect };
+        let tr = RECT { left: item.rect.left + 48, ..item.rect };
         text(mem, item.label, &tr, txt_col, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     }
 
-    // --- Header (vertical gradient + thin drop shadow) ---
+    // --- Header (vertical gradient + accent underline) ---
     let head = RECT { left: 0, top: 0, right: w, bottom: HEADER_H };
     gradient_v(mem, &head, t.header_top, t.header_bot);
-    fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 1 }, t.shadow);
-    let logo = RECT { left: PAD, top: (HEADER_H - 40) / 2, right: PAD + 40, bottom: (HEADER_H - 40) / 2 + 40 };
-    fill_round(mem, logo, 11, t.accent);
+    fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 2 }, t.accent);
+    fill(mem, &RECT { left: 0, top: HEADER_H + 2, right: w, bottom: HEADER_H + 3 }, t.shadow);
+    let lsz = 46;
+    let logo = RECT { left: PAD, top: (HEADER_H - lsz) / 2, right: PAD + lsz, bottom: (HEADER_H - lsz) / 2 + lsz };
+    fill_round(mem, logo, 13, t.accent);
     text(mem, "\u{E83D}", &logo, WHITE, s.fonts.icon_lg, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    let tx = logo.right + 14;
+    let tx = logo.right + 16;
     text(
         mem,
         "HydraDragon Antivirus",
-        &RECT { left: tx, top: 12, right: w - PAD, bottom: 38 },
+        &RECT { left: tx, top: 14, right: w - PAD, bottom: 42 },
         WHITE,
         s.fonts.title,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
@@ -818,7 +880,7 @@ unsafe fn paint(hwnd: HWND) {
     text(
         mem,
         "Portable malware scanner",
-        &RECT { left: tx, top: 38, right: w - PAD, bottom: 58 },
+        &RECT { left: tx, top: 42, right: w - PAD, bottom: 64 },
         t.header_sub,
         s.fonts.sub,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
@@ -830,8 +892,20 @@ unsafe fn paint(hwnd: HWND) {
     let toggle_glyph = if s.dark { "\u{E706}" } else { "\u{E708}" };
     text(mem, toggle_glyph, &s.theme_btn, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    // --- Hero status banner (Scan page) ---
-    if s.page == 0 {
+    // Engine status: a colored dot + label, just left of the theme toggle.
+    let (dotc, elabel) = match s.engine {
+        EngineState::Ready => (t.ok, "Engine ready"),
+        EngineState::Loading => (t.warn, "Loading…"),
+        EngineState::Stopped => (t.text2, "Engine stopped"),
+    };
+    let label_right = s.theme_btn.left - 12;
+    let label_box = RECT { left: label_right - 130, top: 0, right: label_right, bottom: HEADER_H };
+    text(mem, elabel, &label_box, t.header_sub, s.fonts.status, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    let dot = RECT { left: label_box.left - 14, top: HEADER_H / 2 - 4, right: label_box.left - 6, bottom: HEADER_H / 2 + 4 };
+    fill_round(mem, dot, 4, dotc);
+
+    // --- Hero status banner (Scan page) — hidden behind the loading screen ---
+    if s.page == 0 && s.engine != EngineState::Loading {
         let content_l = SIDEBAR_W + PAD;
         let hero = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: HEADER_H + PAD + HERO_H };
         draw_hero(mem, s, hero);
@@ -844,13 +918,54 @@ unsafe fn paint(hwnd: HWND) {
         draw_button(mem, b, hot, down, &s.fonts, t);
     }
 
+    // --- Loading screen: while the engine loads, cover the content area ---
+    if s.engine == EngineState::Loading {
+        let content_l = SIDEBAR_W + PAD;
+        let area = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: h - STATUS_H - PAD };
+        fill_round(mem, area, 16, t.surface);
+        frame_round(mem, area, 16, t.border);
+        let cx = (area.left + area.right) / 2;
+        let cy = (area.top + area.bottom) / 2;
+        let bsz = 76;
+        let badge = RECT { left: cx - bsz / 2, top: cy - bsz - 12, right: cx + bsz / 2, bottom: cy - 12 };
+        fill_round(mem, badge, bsz / 2, t.accent);
+        text(mem, "\u{E83D}", &badge, WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        text(
+            mem,
+            "Loading engines…",
+            &RECT { left: area.left, top: cy, right: area.right, bottom: cy + 34 },
+            t.text,
+            s.fonts.hero,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+        );
+        text(
+            mem,
+            "YARA-X rules · ClamAV signatures · ML models",
+            &RECT { left: area.left, top: cy + 38, right: area.right, bottom: cy + 62 },
+            t.text2,
+            s.fonts.body,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+        );
+        // Status bar (into the same back-buffer), then one blit.
+        let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
+        fill(mem, &status, t.surface);
+        fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, t.shadow);
+        text(mem, &s.status, &RECT { left: PAD, top: h - STATUS_H, right: w - PAD, bottom: h }, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        let _ = BitBlt(hdc, 0, 0, w, h, Some(mem), 0, 0, SRCCOPY);
+        SelectObject(mem, old);
+        let _ = DeleteObject(bmp.into());
+        let _ = DeleteDC(mem);
+        let _ = EndPaint(hwnd, &ps);
+        return;
+    }
+
     // --- Content card (flat border around the active ListView / settings text) ---
     let content_l = SIDEBAR_W + PAD;
     let list_top = s.buttons.iter().map(|b| b.rect.bottom).max().unwrap_or(HEADER_H + PAD) + PAD;
     let card = RECT { left: content_l - 1, top: list_top - 1, right: w - PAD + 1, bottom: h - STATUS_H - PAD + 1 };
     if s.page == 2 {
         // Settings page has no list — fill the card and explain the cache.
-        fill_round(mem, card, 8, t.surface);
+        fill_round(mem, card, 12, t.surface);
         let pad = 18;
         let inner = RECT { left: card.left + pad, top: card.top + pad, right: card.right - pad, bottom: card.bottom - pad };
         text(mem, "Result cache", &RECT { bottom: inner.top + 26, ..inner }, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -871,7 +986,7 @@ unsafe fn paint(hwnd: HWND) {
             DT_LEFT | DT_WORDBREAK,
         );
     }
-    frame_round(mem, card, 8, t.border);
+    frame_round(mem, card, 12, t.border);
 
     // --- Status bar ---
     let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
@@ -908,7 +1023,11 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
             t.accent_soft,
             t.accent,
             "\u{E721}", // search
-            "Scanning…".to_string(),
+            if s.threat_count > 0 {
+                format!("Scanning… {} threat(s)", s.threat_count)
+            } else {
+                "Scanning…".to_string()
+            },
             {
                 let eta = if s.scan_discovering {
                     "estimating…".to_string()
@@ -916,8 +1035,8 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
                     format!("ETA {}", fmt_eta(s.scan_eta_secs))
                 };
                 format!(
-                    "{}/{} scanned · {:.0} files/s · {} · {} threat(s)",
-                    s.scanned_count, s.scan_discovered, s.scan_speed, eta, s.threat_count
+                    "{}/{} files · {:.0}/s · {:.1} MB/s · {}",
+                    s.scanned_count, s.scan_discovered, s.scan_speed, s.scan_mbps, eta
                 )
             },
         ),
@@ -944,8 +1063,8 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
         ),
     };
 
-    fill_round(hdc, r, 12, bg);
-    frame_round(hdc, r, 12, t.border);
+    fill_round(hdc, r, 16, bg);
+    frame_round(hdc, r, 16, t.border);
 
     let bsize = 64;
     let bx = r.left + 22;
@@ -954,11 +1073,25 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     fill_round(hdc, badge, bsize / 2, accent); // filled circle
     text(hdc, glyph, &badge, WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
+    // A determinate progress bar shows while scanning or paused.
+    let show_bar = matches!(s.scan_state, ScanState::Scanning | ScanState::Paused);
+    let frac = if s.scan_discovered > 0 {
+        s.scanned_count as f64 / s.scan_discovered as f64
+    } else {
+        0.0
+    };
+
     let tx = badge.right + 22;
+    // Lift the text a little when the bar is shown so they don't collide.
+    let (head_top, sub_top, sub_bot) = if show_bar {
+        (r.top + 18, r.top + 50, r.top + 74)
+    } else {
+        (r.top + 24, r.top + 60, r.bottom - 22)
+    };
     text(
         hdc,
         &head,
-        &RECT { left: tx, top: r.top + 24, right: r.right - 20, bottom: r.top + 58 },
+        &RECT { left: tx, top: head_top, right: r.right - 20, bottom: head_top + 34 },
         t.text,
         s.fonts.hero,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
@@ -966,11 +1099,41 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     text(
         hdc,
         &sub,
-        &RECT { left: tx, top: r.top + 60, right: r.right - 20, bottom: r.bottom - 22 },
+        &RECT { left: tx, top: sub_top, right: r.right - 20, bottom: sub_bot },
         t.text2,
         s.fonts.body,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
     );
+
+    if show_bar {
+        let bar = RECT { left: tx, top: r.bottom - 20, right: r.right - 20, bottom: r.bottom - 12 };
+        draw_progress(hdc, bar, frac, t.border, accent);
+        // Percentage at the right edge of the bar (skip while still discovering,
+        // where the denominator is still growing and the % would be misleading).
+        if !s.scan_discovering {
+            text(
+                hdc,
+                &format!("{:.0}%", (frac * 100.0).clamp(0.0, 100.0)),
+                &RECT { left: r.right - 56, top: sub_top, right: r.right - 20, bottom: sub_bot },
+                t.text2,
+                s.fonts.body,
+                DT_RIGHT | DT_VCENTER | DT_SINGLELINE,
+            );
+        }
+    }
+}
+
+/// A rounded determinate progress bar: a `track` background with an `accent` fill
+/// proportional to `frac` (0.0–1.0).
+unsafe fn draw_progress(hdc: HDC, r: RECT, frac: f64, track: COLORREF, accent: COLORREF) {
+    let radius = ((r.bottom - r.top) / 2).max(1);
+    fill_round(hdc, r, radius, track);
+    let frac = frac.clamp(0.0, 1.0);
+    let w = ((r.right - r.left) as f64 * frac) as i32;
+    if w > radius {
+        let fr = RECT { right: r.left + w, ..r };
+        fill_round(hdc, fr, radius, accent);
+    }
 }
 
 unsafe fn draw_button(hdc: HDC, b: &UiButton, hot: bool, down: bool, fonts: &Fonts, t: &Theme) {
@@ -985,11 +1148,15 @@ unsafe fn draw_button(hdc: HDC, b: &UiButton, hot: bool, down: bool, fonts: &Fon
         ),
         Kind::Neutral => (if down { t.nav_hot } else if hot { t.bg } else { t.surface }, t.text),
     };
-    fill_round(hdc, b.rect, 9, fillc);
+    fill_round(hdc, b.rect, 10, fillc);
     if b.kind == Kind::Neutral {
-        frame_round(hdc, b.rect, 9, t.border);
+        frame_round(hdc, b.rect, 10, t.border);
     }
-    text(hdc, b.label, &b.rect, textc, fonts.button, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    // Leading MDL2 icon + label, drawn as a centered group.
+    let icon_r = RECT { left: b.rect.left + 14, right: b.rect.left + 38, ..b.rect };
+    text(hdc, b.icon, &icon_r, textc, fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    let label_r = RECT { left: b.rect.left + 38, ..b.rect };
+    text(hdc, b.label, &label_r, textc, fonts.button, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
 // GDI helpers --------------------------------------------------------------
@@ -1131,6 +1298,12 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         }
         CMD_RESUME => {
             let _ = s.work_tx.send(WorkRequest::Resume);
+        }
+        CMD_START_ENGINE => {
+            let _ = s.work_tx.send(WorkRequest::StartEngine);
+        }
+        CMD_STOP_ENGINE => {
+            let _ = s.work_tx.send(WorkRequest::StopEngine);
         }
         CMD_TRACES => act_on_selected(hwnd, s, false),
         CMD_QUAR_REFRESH => {
@@ -1533,26 +1706,27 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.threat_count = 0;
                 s.scan_discovered = 0;
                 s.scan_speed = 0.0;
+                s.scan_mbps = 0.0;
                 s.scan_eta_secs = 0.0;
                 s.scan_discovering = true;
                 s.status = "Discovering & scanning…".into();
             }
-            ScanMsg::Progress { scanned, threats, discovered, speed, eta_secs, discovering } => {
+            ScanMsg::Progress { scanned, threats, discovered, speed, mbps, eta_secs, discovering, current } => {
                 s.scan_state = ScanState::Scanning;
                 s.scanned_count = scanned;
                 s.threat_count = threats;
                 s.scan_discovered = discovered;
                 s.scan_speed = speed;
+                s.scan_mbps = mbps;
                 s.scan_eta_secs = eta_secs;
                 s.scan_discovering = discovering;
-                let eta = if discovering {
-                    format!("~{} (discovering)", fmt_eta(eta_secs))
+                // Status bar shows the file currently being scanned; the hero
+                // banner shows the throughput stats.
+                s.status = if current.is_empty() {
+                    "Discovering & scanning…".to_string()
                 } else {
-                    fmt_eta(eta_secs)
+                    format!("Scanning: {current}")
                 };
-                s.status = format!(
-                    "Scanned {scanned}/{discovered} · {speed:.0} files/s · ETA {eta} · {threats} threat(s)"
-                );
             }
             ScanMsg::Done { scanned, threats } => {
                 s.scanned_count = scanned;
@@ -1569,6 +1743,21 @@ unsafe fn drain_results(hwnd: HWND) {
             ScanMsg::Resumed => {
                 s.scan_state = ScanState::Scanning;
                 s.status = "Resuming…".into();
+            }
+            ScanMsg::EngineLoading => {
+                s.engine = EngineState::Loading;
+                s.status = "Loading engines…".into();
+                apply_page(hwnd); // hides the lists so the loading screen shows
+            }
+            ScanMsg::EngineReady => {
+                s.engine = EngineState::Ready;
+                s.status = "Engine ready.".into();
+                apply_page(hwnd); // reveals the active page's list
+            }
+            ScanMsg::EngineStopped => {
+                s.engine = EngineState::Stopped;
+                s.status = "Engine stopped — a scan will start it again.".into();
+                apply_page(hwnd);
             }
             ScanMsg::Rescanned { file, verdict, threat, sev, threat_found } => {
                 let row = s.scan_rows.iter().position(|p| p.to_string_lossy() == file);
@@ -1823,6 +2012,20 @@ fn worker(
                     session = None;
                 }
             }
+            WorkRequest::StartEngine => {
+                ensure_pipeline(&mut pipeline, &tx, hwnd);
+                // Idempotent confirm so the indicator flips to Ready even if it
+                // was already loaded.
+                send(&tx, hwnd, ScanMsg::EngineReady);
+            }
+            WorkRequest::StopEngine => {
+                if let Some(pl) = pipeline.as_ref() {
+                    pl.save_result_caches(); // persist learned results before unloading
+                }
+                pipeline = None; // drop frees the rules/models/db memory
+                session = None; // a stopped engine has no scan to resume
+                send(&tx, hwnd, ScanMsg::EngineStopped);
+            }
             WorkRequest::Resume => {
                 if let Some(sess) = session.as_mut() {
                     send(&tx, hwnd, ScanMsg::Resumed);
@@ -1997,6 +2200,8 @@ fn run_streaming(
     let discovered = AtomicUsize::new(sess.discovered);
     let scanned = AtomicUsize::new(sess.scanned);
     let threats = AtomicUsize::new(sess.threats);
+    let bytes = AtomicU64::new(0); // bytes scanned this run, for MB/s
+    let current = Mutex::new(String::new()); // a sampled "now scanning" path
     let discovery_done = AtomicBool::new(false);
     let scanned_at_start = sess.scanned;
 
@@ -2008,6 +2213,8 @@ fn run_streaming(
     let discovered_ref = &discovered;
     let scanned_ref = &scanned;
     let threats_ref = &threats;
+    let bytes_ref = &bytes;
+    let current_ref = &current;
     let done_ref = &discovery_done;
 
     std::thread::scope(|scope| {
@@ -2061,8 +2268,13 @@ fn run_streaming(
                         std::thread::sleep(Duration::from_millis(2));
                         continue;
                     };
+                    if let Ok(mut c) = current_ref.lock() {
+                        *c = file.display().to_string();
+                    }
+                    let sz = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
                     let r = pl.scan_file_cached(&file);
                     scanned_ref.fetch_add(1, Ordering::Relaxed);
+                    bytes_ref.fetch_add(sz, Ordering::Relaxed);
                     let prio = r.verdict.priority(); // Trusted=0, Clean=1, …, Malware=8
                     if prio > 1 {
                         threats_ref.fetch_add(1, Ordering::Relaxed);
@@ -2091,15 +2303,20 @@ fn run_streaming(
                 let elapsed = start.elapsed().as_secs_f64();
                 let run_scanned = scanned_now.saturating_sub(scanned_at_start) as f64;
                 let speed = if elapsed > 0.0 { run_scanned / elapsed } else { 0.0 };
+                let bytes_now = bytes_ref.load(Ordering::Relaxed) as f64;
+                let mbps = if elapsed > 0.0 { bytes_now / (1024.0 * 1024.0) / elapsed } else { 0.0 };
                 let remaining = discovered_now.saturating_sub(scanned_now);
                 let eta_secs = if speed > 0.0 { remaining as f64 / speed } else { 0.0 };
+                let cur = current_ref.lock().map(|c| c.clone()).unwrap_or_default();
                 send(&txc, hwnd, ScanMsg::Progress {
                     scanned: scanned_now,
                     threats: threats_now,
                     discovered: discovered_now,
                     speed,
+                    mbps,
                     eta_secs,
                     discovering: !done,
+                    current: cur,
                 });
                 if cancel.load(Ordering::Relaxed) {
                     break;
@@ -2144,8 +2361,10 @@ fn detail_summary(r: &hydradragonav::verdict::ScanResult) -> String {
 
 fn ensure_pipeline<'a>(pl: &'a mut Option<Pipeline>, tx: &Sender<ScanMsg>, hwnd: HWND) -> &'a Pipeline {
     if pl.is_none() {
-        send(tx, hwnd, ScanMsg::Status("Loading engines…".into()));
+        // Drives the loading screen: EngineLoading → (blocking load) → EngineReady.
+        send(tx, hwnd, ScanMsg::EngineLoading);
         *pl = Some(Pipeline::new(default_config()));
+        send(tx, hwnd, ScanMsg::EngineReady);
     }
     pl.as_ref().unwrap()
 }
