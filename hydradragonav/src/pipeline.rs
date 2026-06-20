@@ -1356,6 +1356,9 @@ fn load_yara_rules_from_dir(dir: &Path) -> Vec<(String, Rules)> {
 pub struct YaraHit {
     pub name: String,
     pub meta_suspicious: bool,
+    /// Rule carries `rule_category = "greyware_tool_keyword"` — greyware,
+    /// classified as PUA (not malware) to cut false positives.
+    pub is_greyware_tool: bool,
 }
 
 fn yara_hit_names(hits: &[YaraHit]) -> Vec<String> {
@@ -1386,9 +1389,16 @@ fn scan_bytes_yara(
                     || matches!(value, MetaValue::String(s)
                         if s.to_ascii_lowercase().contains("suspicious"))
             });
+            // `rule_category = "greyware_tool_keyword"` → treat as PUA, not malware.
+            let is_greyware_tool = r.metadata().into_iter().any(|(key, value)| {
+                key.eq_ignore_ascii_case("rule_category")
+                    && matches!(value, MetaValue::String(s)
+                        if s.eq_ignore_ascii_case("greyware_tool_keyword"))
+            });
             YaraHit {
                 name: r.identifier().to_string(),
                 meta_suspicious,
+                is_greyware_tool,
             }
         })
         .collect();
@@ -1459,6 +1469,11 @@ fn yara_rule_verdict(hit: &YaraHit) -> Option<Verdict> {
     // handling (INFO rules live in clean_rules and aren't in the active set).
     // Suspicious if the NAME has a SUSP marker or the rule METADATA says
     // suspicious; PUA on a PUA name marker; otherwise Malware.
+    // Greyware (rule_category = "greyware_tool_keyword") is PUA, not malware —
+    // checked first so it isn't escalated by a stray marker.
+    if hit.is_greyware_tool {
+        return Some(Verdict::Pua);
+    }
     let lower = hit.name.to_ascii_lowercase();
     if hit.meta_suspicious
         || has_name_marker(&lower, "susp")

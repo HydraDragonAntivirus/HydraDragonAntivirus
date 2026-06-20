@@ -1914,3 +1914,8 @@ aspack_108c
 INDICATOR_SUSPICIOUS_CAPABILITY_CaptureScreenShot
 Electronic_Arts_TQI_base_table2__8_byt_64_ 
 libavcodec_nuppelvideo_fallback_lquant__8_byt_64_
+kryptor8
+png
+IsZipFile
+PEiD_00351_Borland_Delphi_v6_0_
+shellcode_at_entry_point, n3e9_2db18e42d96b6b32, n3e9_2db31cd6efe91932
