@@ -3,7 +3,6 @@ visual_basic_5_6
 Microsoft_Visual_Basic_v50v60
 Microsoft_Visual_Basic_v50_v60
 IsDLL
-with_images
 SFX_CAB
 math_entropy_1
 dotnet_libraries

@@ -14,7 +14,9 @@
 
 use std::ffi::c_void;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 
 use hydradragonav::disinfector::{self, DisinfectOutcome};
 use hydradragonav::memory_scanner;
@@ -24,7 +26,7 @@ use hydradragonav::registry_scanner::RegistryScanner;
 use hydradragonav::remediation;
 
 use windows::core::{w, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
@@ -37,8 +39,10 @@ use windows::Win32::UI::Controls::{
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
 };
+use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
-    FileOpenDialog, IFileOpenDialog, IShellItem, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    FileOpenDialog, FileSaveDialog, IFileOpenDialog, IFileSaveDialog, IShellItem,
+    FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -59,11 +63,18 @@ const CMD_QUAR_RESTORE: usize = 6;
 const CMD_QUAR_DELETE: usize = 7;
 const CMD_CLEAR_CACHE: usize = 8;
 const CMD_FULL_SCAN: usize = 9;
+const CMD_SAVE_RESULTS: usize = 10;
+// Context-menu-only command (right-click a detection row → re-scan it fresh).
+const CMD_RESCAN: usize = 11;
+const CMD_STOP: usize = 12;
+const CMD_RESUME: usize = 13;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 // Not surfaced by the WindowsAndMessaging glob in this build — define it raw, or
 // its match arm silently becomes a catch-all binding.
 const WM_MOUSELEAVE: u32 = 0x02A3;
+// Defined locally for the same reason; shadows the glob if present.
+const WM_CONTEXTMENU: u32 = 0x007B;
 
 const HEADER_H: i32 = 68;
 const SIDEBAR_W: i32 = 210;
@@ -79,6 +90,7 @@ mod msg {
     pub const LVM_FIRST: u32 = 0x1000;
     pub const LVM_SETBKCOLOR: u32 = LVM_FIRST + 1;
     pub const LVM_GETITEMCOUNT: u32 = LVM_FIRST + 4;
+    pub const LVM_DELETEITEM: u32 = LVM_FIRST + 8;
     pub const LVM_DELETEALLITEMS: u32 = LVM_FIRST + 9;
     pub const LVM_GETNEXTITEM: u32 = LVM_FIRST + 12;
     pub const LVM_SETTEXTCOLOR: u32 = LVM_FIRST + 36;
@@ -223,6 +235,7 @@ struct NavItem {
 enum ScanState {
     Idle,
     Scanning,
+    Paused,
     Clean,
     Threats,
 }
@@ -238,12 +251,29 @@ enum ScanMsg {
     Begin,
     Progress { scanned: usize, threats: usize },
     Done { scanned: usize, threats: usize },
+    /// Scan was stopped mid-run; `remaining` files are queued for Resume.
+    Paused { scanned: usize, threats: usize, remaining: usize },
+    /// A paused scan has been picked back up.
+    Resumed,
+    /// Result of re-scanning one already-listed file (right-click → Rescan). The
+    /// row is updated in place, or removed when it comes back clean.
+    Rescanned {
+        file: String,
+        verdict: String,
+        threat: String,
+        sev: u8,
+        threat_found: bool,
+    },
 }
 
 enum WorkRequest {
     Scan(Vec<PathBuf>),
     /// Full mode: in-memory file scan of the path + registry + Windows event logs.
     FullScan(Vec<PathBuf>),
+    /// Force a fresh (uncached) re-scan of specific files already in the list.
+    Rescan(Vec<PathBuf>),
+    /// Continue a scan that was stopped (the worker keeps the remaining file list).
+    Resume,
     Clean(Vec<PathBuf>),
     RemoveTraces(Vec<PathBuf>),
     ClearCache,
@@ -283,8 +313,16 @@ struct AppState {
     threat_count: usize,
     work_tx: Sender<WorkRequest>,
     result_rx: Receiver<ScanMsg>,
+    /// Set from the UI thread (Stop) and polled by the worker's scan loop to
+    /// abort between files. Shared with the worker thread.
+    cancel: Arc<AtomicBool>,
     scan_rows: Vec<PathBuf>,
     scan_sev: Vec<u8>,
+    // Parallel to scan_rows: the verdict/threat text shown per detection, kept so
+    // the result list can be exported (Save Results) without reading it back
+    // out of the ListView.
+    scan_verdict: Vec<String>,
+    scan_threat: Vec<String>,
     quar_ids: Vec<String>,
     quarantine_dir: PathBuf,
 }
@@ -403,6 +441,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 on_lbutton_up(hwnd, lparam_xy(lp));
                 LRESULT(0)
             }
+            x if x == WM_CONTEXTMENU => {
+                // wParam = the control that was right-clicked; lParam = screen x/y
+                // (both -1 when invoked from the keyboard).
+                let src = HWND(wp.0 as *mut c_void);
+                on_context_menu(hwnd, src, lparam_xy(lp));
+                LRESULT(0)
+            }
             WM_NOTIFY => {
                 let nm = &*(lp.0 as *const NMHDR);
                 if nm.code == NM_CUSTOMDRAW && nm.idFrom == ID_SCAN_LIST {
@@ -485,7 +530,9 @@ unsafe fn on_create(hwnd: HWND) {
     let quarantine_dir = exe_dir().join("quarantine");
     let qdir = quarantine_dir.clone();
     let raw = hwnd.0 as isize;
-    std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let worker_cancel = cancel.clone();
+    std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir, worker_cancel));
 
     let s = Box::new(AppState {
         scan_list,
@@ -511,8 +558,11 @@ unsafe fn on_create(hwnd: HWND) {
         threat_count: 0,
         work_tx,
         result_rx,
+        cancel,
         scan_rows: Vec::new(),
         scan_sev: Vec::new(),
+        scan_verdict: Vec::new(),
+        scan_threat: Vec::new(),
         quar_ids: Vec::new(),
         quarantine_dir,
     });
@@ -581,15 +631,29 @@ unsafe fn apply_list_theme(h: HWND, t: &Theme) {
     SendMessageW(h, msg::LVM_SETTEXTCOLOR, Some(WPARAM(0)), Some(LPARAM(t.text.0 as isize)));
 }
 
-fn buttons_for(page: usize) -> Vec<(usize, &'static str, Kind)> {
+fn buttons_for(page: usize, state: ScanState) -> Vec<(usize, &'static str, Kind)> {
     match page {
-        0 => vec![
-            (CMD_SCAN_FILE, "Scan File", Kind::Primary),
-            (CMD_SCAN_FOLDER, "Scan Folder", Kind::Primary),
-            (CMD_FULL_SCAN, "Full Scan", Kind::Primary),
-            (CMD_CLEAN, "Clean Selected", Kind::Primary),
-            (CMD_TRACES, "Remove Traces", Kind::Danger),
-        ],
+        // Scan page buttons depend on the scan state: a single Stop while a scan
+        // runs, Resume (+ the normal actions) once it's paused.
+        0 => match state {
+            ScanState::Scanning => vec![(CMD_STOP, "Stop", Kind::Danger)],
+            ScanState::Paused => vec![
+                (CMD_RESUME, "Resume", Kind::Primary),
+                (CMD_SCAN_FILE, "Scan File", Kind::Primary),
+                (CMD_SCAN_FOLDER, "Scan Folder", Kind::Primary),
+                (CMD_CLEAN, "Clean Selected", Kind::Primary),
+                (CMD_SAVE_RESULTS, "Save Results", Kind::Neutral),
+                (CMD_TRACES, "Remove Traces", Kind::Danger),
+            ],
+            _ => vec![
+                (CMD_SCAN_FILE, "Scan File", Kind::Primary),
+                (CMD_SCAN_FOLDER, "Scan Folder", Kind::Primary),
+                (CMD_FULL_SCAN, "Full Scan", Kind::Primary),
+                (CMD_CLEAN, "Clean Selected", Kind::Primary),
+                (CMD_SAVE_RESULTS, "Save Results", Kind::Neutral),
+                (CMD_TRACES, "Remove Traces", Kind::Danger),
+            ],
+        },
         1 => vec![
             (CMD_QUAR_REFRESH, "Refresh", Kind::Neutral),
             (CMD_QUAR_RESTORE, "Restore Selected", Kind::Primary),
@@ -626,7 +690,7 @@ unsafe fn layout(hwnd: HWND) {
     // Content buttons (wrap into rows if narrow).
     let content_l = SIDEBAR_W + PAD;
     let content_r = w - PAD;
-    let defs = buttons_for(s.page);
+    let defs = buttons_for(s.page, s.scan_state);
     s.buttons.clear();
     let mut x = content_l;
     // Scan page reserves a status hero banner above the action buttons.
@@ -818,6 +882,13 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
             "\u{E721}", // search
             "Scanning…".to_string(),
             format!("{} files scanned · {} threat(s) so far", s.scanned_count, s.threat_count),
+        ),
+        ScanState::Paused => (
+            t.accent_soft,
+            t.warn,
+            "\u{E769}", // pause
+            "Scan paused".to_string(),
+            format!("{} scanned · {} threat(s) — Resume to continue.", s.scanned_count, s.threat_count),
         ),
         ScanState::Clean => (
             t.ok_soft,
@@ -1012,6 +1083,16 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_SCAN_FOLDER => pick_and_scan(s, true),
         CMD_FULL_SCAN => pick_and_full_scan(s),
         CMD_CLEAN => act_on_selected(hwnd, s, true),
+        CMD_SAVE_RESULTS => save_results(hwnd, s),
+        CMD_RESCAN => rescan_selected(hwnd, s),
+        CMD_STOP => {
+            // Signal the worker's scan loop to stop after the in-flight files.
+            s.cancel.store(true, Ordering::Relaxed);
+            set_status(hwnd, s, "Stopping…");
+        }
+        CMD_RESUME => {
+            let _ = s.work_tx.send(WorkRequest::Resume);
+        }
         CMD_TRACES => act_on_selected(hwnd, s, false),
         CMD_QUAR_REFRESH => {
             refresh_quarantine(s);
@@ -1039,6 +1120,51 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
     }
 }
 
+/// Right-click on the results list → popup menu. Acts on the current selection,
+/// so the user left-clicks the row(s) first, then right-clicks them.
+unsafe fn on_context_menu(hwnd: HWND, src: HWND, (mut x, mut y): (i32, i32)) {
+    let Some(s) = state(hwnd) else { return };
+    // Only the Scan page's results list has a context menu.
+    if src != s.scan_list || s.page != 0 {
+        return;
+    }
+    if lv_selected(s.scan_list).is_empty() {
+        return;
+    }
+    // Keyboard-invoked (Shift+F10 / menu key) gives (-1,-1): use the cursor.
+    if x == -1 && y == -1 {
+        let mut p = POINT::default();
+        let _ = GetCursorPos(&mut p);
+        x = p.x;
+        y = p.y;
+    }
+
+    let menu = CreatePopupMenu().unwrap_or_default();
+    if menu.is_invalid() {
+        return;
+    }
+    let _ = AppendMenuW(menu, MF_STRING, CMD_RESCAN, w!("Rescan Selected"));
+    let _ = AppendMenuW(menu, MF_STRING, CMD_CLEAN, w!("Clean Selected"));
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+    let _ = AppendMenuW(menu, MF_STRING, CMD_SAVE_RESULTS, w!("Save Results\u{2026}"));
+
+    // TPM_RETURNCMD makes TrackPopupMenu return the chosen id instead of posting it.
+    let chosen = TrackPopupMenu(
+        menu,
+        TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
+        x,
+        y,
+        Some(0),
+        hwnd,
+        None,
+    );
+    let _ = DestroyMenu(menu);
+    let cmd = chosen.0 as usize;
+    if cmd != 0 {
+        dispatch(hwnd, cmd);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -1051,8 +1177,7 @@ unsafe fn set_status(hwnd: HWND, s: &mut AppState, text: &str) {
 unsafe fn pick_and_scan(s: &mut AppState, folder: bool) {
     if let Some(path) = pick_path(folder) {
         lv_clear(s.scan_list);
-        s.scan_rows.clear();
-        s.scan_sev.clear();
+        clear_scan_results(s);
         s.status = format!("Scanning {}…", path.display());
         let _ = s.work_tx.send(WorkRequest::Scan(vec![path]));
     }
@@ -1062,11 +1187,121 @@ unsafe fn pick_and_scan(s: &mut AppState, folder: bool) {
 unsafe fn pick_and_full_scan(s: &mut AppState) {
     if let Some(path) = pick_path(true) {
         lv_clear(s.scan_list);
-        s.scan_rows.clear();
-        s.scan_sev.clear();
+        clear_scan_results(s);
         s.status = format!("Full scan: {} + registry + logs…", path.display());
         let _ = s.work_tx.send(WorkRequest::FullScan(vec![path]));
     }
+}
+
+/// Drop every cached scan-result row (kept in sync with `lv_clear(scan_list)`).
+fn clear_scan_results(s: &mut AppState) {
+    s.scan_rows.clear();
+    s.scan_sev.clear();
+    s.scan_verdict.clear();
+    s.scan_threat.clear();
+}
+
+fn sev_label(sev: u8) -> &'static str {
+    match sev {
+        2 => "High",
+        1 => "Medium",
+        _ => "Info",
+    }
+}
+
+/// Quote a CSV field only when it contains a delimiter/quote/newline, doubling
+/// any embedded quotes (RFC 4180).
+fn csv_escape(field: &str) -> String {
+    if field.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        field.to_string()
+    }
+}
+
+/// Build the result report. CSV (machine-readable) unless `txt` is set, in which
+/// case a human-readable plain-text layout is produced.
+fn build_report(s: &AppState, txt: bool) -> String {
+    let mut out = String::new();
+    if txt {
+        out.push_str("HydraDragon Antivirus — scan results\r\n");
+        out.push_str(&format!(
+            "{} file(s) scanned, {} threat(s) found\r\n\r\n",
+            s.scanned_count, s.threat_count
+        ));
+        if s.scan_rows.is_empty() {
+            out.push_str("No threats detected.\r\n");
+            return out;
+        }
+        for i in 0..s.scan_rows.len() {
+            out.push_str(&format!(
+                "[{}] {}\r\n    verdict: {}\r\n    threat : {}\r\n\r\n",
+                sev_label(s.scan_sev.get(i).copied().unwrap_or(0)),
+                s.scan_rows[i].display(),
+                s.scan_verdict.get(i).map(String::as_str).unwrap_or(""),
+                s.scan_threat.get(i).map(String::as_str).unwrap_or(""),
+            ));
+        }
+    } else {
+        out.push_str("# HydraDragon Antivirus scan results\r\n");
+        out.push_str(&format!(
+            "# {} file(s) scanned, {} threat(s) found\r\n",
+            s.scanned_count, s.threat_count
+        ));
+        out.push_str("File,Verdict,Threat,Severity\r\n");
+        for i in 0..s.scan_rows.len() {
+            out.push_str(&format!(
+                "{},{},{},{}\r\n",
+                csv_escape(&s.scan_rows[i].display().to_string()),
+                csv_escape(s.scan_verdict.get(i).map(String::as_str).unwrap_or("")),
+                csv_escape(s.scan_threat.get(i).map(String::as_str).unwrap_or("")),
+                sev_label(s.scan_sev.get(i).copied().unwrap_or(0)),
+            ));
+        }
+    }
+    out
+}
+
+/// Export the current scan results to a CSV/TXT file chosen via the shell Save
+/// dialog. The detection rows are taken from the cached `scan_*` vectors.
+unsafe fn save_results(hwnd: HWND, s: &mut AppState) {
+    if s.scan_state == ScanState::Idle {
+        set_status(hwnd, s, "Run a scan first, then save the results.");
+        return;
+    }
+    let Some(path) = pick_save_path("hydradragon_scan_results.csv") else {
+        return; // user cancelled
+    };
+    let as_txt = path
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("txt"))
+        .unwrap_or(false);
+    let content = build_report(s, as_txt);
+    let msg = match std::fs::write(&path, content) {
+        Ok(_) => format!(
+            "Saved {} detection(s) to {}",
+            s.scan_rows.len(),
+            path.display()
+        ),
+        Err(e) => format!("Save failed: {e}"),
+    };
+    set_status(hwnd, s, &msg);
+}
+
+/// Force a fresh, uncached re-scan of the selected detection rows. Used to
+/// re-verify a hit (e.g. after the file changed, or to rule out a false positive)
+/// without re-running the whole scan.
+unsafe fn rescan_selected(hwnd: HWND, s: &mut AppState) {
+    let paths: Vec<PathBuf> = lv_selected(s.scan_list)
+        .into_iter()
+        .filter_map(|i| s.scan_rows.get(i as usize).cloned())
+        .collect();
+    if paths.is_empty() {
+        set_status(hwnd, s, "Select one or more rows to rescan.");
+        return;
+    }
+    set_status(hwnd, s, &format!("Rescanning {} file(s)…", paths.len()));
+    let _ = s.work_tx.send(WorkRequest::Rescan(paths));
 }
 
 unsafe fn act_on_selected(hwnd: HWND, s: &mut AppState, clean: bool) {
@@ -1131,6 +1366,7 @@ unsafe fn quarantine_action(s: &mut AppState, restore: bool) {
 
 unsafe fn drain_results(hwnd: HWND) {
     let Some(s) = state(hwnd) else { return };
+    let prev_state = s.scan_state;
     let mut changed = false;
     while let Ok(m) = s.result_rx.try_recv() {
         changed = true;
@@ -1139,6 +1375,8 @@ unsafe fn drain_results(hwnd: HWND) {
                 lv_add_row(s.scan_list, &[&file, &verdict, &threat]);
                 s.scan_rows.push(PathBuf::from(file));
                 s.scan_sev.push(sev);
+                s.scan_verdict.push(verdict);
+                s.scan_threat.push(threat);
             }
             ScanMsg::Status(t) => s.status = t,
             ScanMsg::Begin => {
@@ -1159,9 +1397,61 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.scan_state = if threats > 0 { ScanState::Threats } else { ScanState::Clean };
                 s.status = format!("Done. {scanned} scanned, {threats} threat(s).");
             }
+            ScanMsg::Paused { scanned, threats, remaining } => {
+                s.scanned_count = scanned;
+                s.threat_count = threats;
+                s.scan_state = ScanState::Paused;
+                s.status = format!("Paused. {scanned} scanned, {remaining} remaining — Resume to continue.");
+            }
+            ScanMsg::Resumed => {
+                s.scan_state = ScanState::Scanning;
+                s.status = "Resuming…".into();
+            }
+            ScanMsg::Rescanned { file, verdict, threat, sev, threat_found } => {
+                let row = s.scan_rows.iter().position(|p| p.to_string_lossy() == file);
+                s.status = format!("Rescanned {file}.");
+                match (row, threat_found) {
+                    // Still a threat → update the existing row's columns + severity.
+                    (Some(i), true) => {
+                        lv_set_item_text(s.scan_list, i as i32, 1, &verdict);
+                        lv_set_item_text(s.scan_list, i as i32, 2, &threat);
+                        s.scan_sev[i] = sev;
+                        s.scan_verdict[i] = verdict;
+                        s.scan_threat[i] = threat;
+                    }
+                    // Came back clean → drop the row and its parallel metadata.
+                    (Some(i), false) => {
+                        lv_delete_item(s.scan_list, i as i32);
+                        s.scan_rows.remove(i);
+                        s.scan_sev.remove(i);
+                        s.scan_verdict.remove(i);
+                        s.scan_threat.remove(i);
+                    }
+                    // Not currently listed but now flagged → append it.
+                    (None, true) => {
+                        lv_add_row(s.scan_list, &[&file, &verdict, &threat]);
+                        s.scan_rows.push(PathBuf::from(file));
+                        s.scan_sev.push(sev);
+                        s.scan_verdict.push(verdict);
+                        s.scan_threat.push(threat);
+                    }
+                    (None, false) => {}
+                }
+                // Every stored row is a detection, so the threat count is just the
+                // row count; refresh the hero banner to match.
+                s.threat_count = s.scan_rows.len();
+                s.scan_state = if s.threat_count > 0 { ScanState::Threats } else { ScanState::Clean };
+                let _ = InvalidateRect(Some(s.scan_list), None, true);
+            }
         }
     }
     if changed {
+        // Only re-layout on an actual state transition (Scanning/Paused/Done),
+        // since that changes which buttons the Scan page shows. Doing it every
+        // Row/Progress tick would needlessly MoveWindow the list and flicker.
+        if s.scan_state != prev_state {
+            layout(hwnd);
+        }
         let _ = InvalidateRect(Some(hwnd), None, false);
     }
 }
@@ -1207,6 +1497,22 @@ unsafe fn lv_add_row(list: HWND, cols: &[&str]) -> i32 {
 
 unsafe fn lv_clear(list: HWND) {
     SendMessageW(list, msg::LVM_DELETEALLITEMS, None, None);
+}
+
+/// Overwrite the text of one subitem (column) of an existing row.
+unsafe fn lv_set_item_text(list: HWND, row: i32, col: i32, t: &str) {
+    let mut tw = wide(t);
+    let it = LVITEMW {
+        iSubItem: col,
+        pszText: PWSTR(tw.as_mut_ptr()),
+        ..Default::default()
+    };
+    SendMessageW(list, msg::LVM_SETITEMTEXTW, Some(WPARAM(row as usize)), Some(LPARAM(&it as *const _ as isize)));
+}
+
+/// Delete one row by index.
+unsafe fn lv_delete_item(list: HWND, row: i32) {
+    SendMessageW(list, msg::LVM_DELETEITEM, Some(WPARAM(row as usize)), None);
 }
 
 unsafe fn lv_selected(list: HWND) -> Vec<i32> {
@@ -1262,72 +1568,116 @@ unsafe fn pick_path(folder: bool) -> Option<PathBuf> {
     path.map(PathBuf::from)
 }
 
+/// Native shell "Save As" dialog via `IFileSaveDialog`. Offers CSV and TXT
+/// filters; returns the chosen path (with the picked extension) or None on cancel.
+unsafe fn pick_save_path(default_name: &str) -> Option<PathBuf> {
+    let dialog: IFileSaveDialog = CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+
+    // Filter strings must outlive Show(); keep them alive in locals.
+    let csv_name = wide("CSV report (*.csv)");
+    let csv_spec = wide("*.csv");
+    let txt_name = wide("Text report (*.txt)");
+    let txt_spec = wide("*.txt");
+    let filters = [
+        COMDLG_FILTERSPEC { pszName: PCWSTR(csv_name.as_ptr()), pszSpec: PCWSTR(csv_spec.as_ptr()) },
+        COMDLG_FILTERSPEC { pszName: PCWSTR(txt_name.as_ptr()), pszSpec: PCWSTR(txt_spec.as_ptr()) },
+    ];
+    let _ = dialog.SetFileTypes(&filters);
+    let _ = dialog.SetDefaultExtension(w!("csv"));
+    let name = wide(default_name);
+    let _ = dialog.SetFileName(PCWSTR(name.as_ptr()));
+
+    dialog.Show(None).ok()?;
+    let item: IShellItem = dialog.GetResult().ok()?;
+    let pw: PWSTR = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+    let path = pw.to_string().ok();
+    CoTaskMemFree(Some(pw.0 as *const c_void));
+    path.map(PathBuf::from)
+}
+
 // ---------------------------------------------------------------------------
 // Background worker
 // ---------------------------------------------------------------------------
 
-fn worker(raw: isize, work_rx: Receiver<WorkRequest>, tx: Sender<ScanMsg>, quarantine_dir: PathBuf) {
+/// A scan in progress (or stopped). The worker keeps it across requests so a
+/// stopped scan can be resumed from `cursor` without re-reading the file list.
+struct ScanSession {
+    files: Vec<PathBuf>,
+    cursor: usize,  // index of the next file to scan
+    scanned: usize, // files completed so far
+    threats: usize, // detections so far
+    full: bool,     // also run registry/logs/memory after the files complete
+}
+
+fn worker(
+    raw: isize,
+    work_rx: Receiver<WorkRequest>,
+    tx: Sender<ScanMsg>,
+    quarantine_dir: PathBuf,
+    cancel: Arc<AtomicBool>,
+) {
     let hwnd = HWND(raw as *mut c_void);
     let mut pipeline: Option<Pipeline> = None;
+    let mut session: Option<ScanSession> = None;
 
     while let Ok(req) = work_rx.recv() {
         match req {
             WorkRequest::Scan(paths) => {
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                let (scanned, threats) = scan_paths(pl, &paths, &tx, hwnd);
-                pl.save_result_caches(); // persist learned good/bad results
-                send(&tx, hwnd, ScanMsg::Done { scanned, threats });
+                let mut files = Vec::new();
+                for p in &paths {
+                    collect_files(p, &mut files);
+                }
+                session = Some(ScanSession { files, cursor: 0, scanned: 0, threats: 0, full: false });
+                run_session(pl, session.as_mut().unwrap(), &cancel, &tx, hwnd, &quarantine_dir);
+                if session.as_ref().is_some_and(|s| s.cursor >= s.files.len()) {
+                    session = None;
+                }
             }
             WorkRequest::FullScan(paths) => {
-                // Full mode = files + memory (process RAM) + registry + logs.
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                let (scanned, threats) = scan_paths(pl, &paths, &tx, hwnd);
-                pl.save_result_caches();
-
-                send(&tx, hwnd, ScanMsg::Status("Full scan: registry…".into()));
-                let reg = RegistryScanner::default().scan();
-                for e in &reg.entries {
-                    if e.pua_match || e.static_match {
-                        send(&tx, hwnd, ScanMsg::Row {
-                            file: format!("{}\\{}\\{}", e.hive, e.path, e.value_name),
-                            verdict: "Registry".into(),
-                            threat: e.threat_name.clone().unwrap_or_else(|| e.detail.clone()),
-                            sev: if e.static_match { 2 } else { 1 },
-                        });
+                let mut files = Vec::new();
+                for p in &paths {
+                    collect_files(p, &mut files);
+                }
+                session = Some(ScanSession { files, cursor: 0, scanned: 0, threats: 0, full: true });
+                run_session(pl, session.as_mut().unwrap(), &cancel, &tx, hwnd, &quarantine_dir);
+                if session.as_ref().is_some_and(|s| s.cursor >= s.files.len()) {
+                    session = None;
+                }
+            }
+            WorkRequest::Resume => {
+                if let Some(sess) = session.as_mut() {
+                    send(&tx, hwnd, ScanMsg::Resumed);
+                    let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                    run_session(pl, sess, &cancel, &tx, hwnd, &quarantine_dir);
+                    if session.as_ref().is_some_and(|s| s.cursor >= s.files.len()) {
+                        session = None;
                     }
+                } else {
+                    send(&tx, hwnd, ScanMsg::Status("Nothing to resume.".into()));
                 }
-
-                send(&tx, hwnd, ScanMsg::Status("Full scan: Windows event logs…".into()));
-                let logs = scan_hayabusa_once(&exe_dir().join("hayabusa"));
-                for m in &logs {
-                    send(&tx, hwnd, ScanMsg::Row {
-                        file: "Windows Event Logs".into(),
-                        verdict: "Hayabusa".into(),
-                        threat: m.clone(),
-                        sev: 2,
+            }
+            WorkRequest::Rescan(paths) => {
+                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                let n = paths.len();
+                for path in &paths {
+                    // Uncached scan_file so a previously-cached good/bad result
+                    // never short-circuits the re-verification.
+                    let r = pl.scan_file(path);
+                    let prio = r.verdict.priority();
+                    let threat_found = prio > 1;
+                    send(&tx, hwnd, ScanMsg::Rescanned {
+                        file: path.display().to_string(),
+                        verdict: r.verdict.label().to_string(),
+                        threat: detail_summary(&r),
+                        sev: if prio >= 6 { 2 } else if threat_found { 1 } else { 0 },
+                        threat_found,
                     });
                 }
-                send(&tx, hwnd, ScanMsg::Status("Full scan: process memory…".into()));
-                let mem = memory_scanner::scan_process_memory(pl);
-                for d in &mem {
-                    send(&tx, hwnd, ScanMsg::Row {
-                        file: format!("{} (pid {}) @ 0x{:x}", d.process, d.pid, d.address),
-                        verdict: d.verdict.label().to_string(),
-                        threat: d.threat_name.clone(),
-                        sev: if d.verdict.priority() >= 6 { 2 } else { 1 },
-                    });
-                }
-
-                let total = threats + reg.threats_found as usize + logs.len() + mem.len();
-                send(&tx, hwnd, ScanMsg::Done { scanned, threats: total });
-                send(&tx, hwnd, ScanMsg::Status(format!(
-                    "Full scan done. Files {threats}, registry {} threat(s), logs {} alert(s), memory {} hit(s).",
-                    reg.threats_found,
-                    logs.len(),
-                    mem.len()
-                )));
+                send(&tx, hwnd, ScanMsg::Status(format!("Rescan complete ({n} file(s)).")));
             }
             WorkRequest::Clean(paths) => {
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
@@ -1373,34 +1723,162 @@ fn worker(raw: isize, work_rx: Receiver<WorkRequest>, tx: Sender<ScanMsg>, quara
     }
 }
 
-/// Scan every file under `paths` (engine dedups by content hash). Returns
-/// (scanned, threats). Shared by the Scan and Full Scan work items.
-fn scan_paths(pl: &Pipeline, paths: &[PathBuf], tx: &Sender<ScanMsg>, hwnd: HWND) -> (usize, usize) {
-    let mut files = Vec::new();
-    for p in paths {
-        collect_files(p, &mut files);
+/// Drive a scan session: the parallel file phase, then (if completed and this is
+/// a Full Scan) the registry / event-log / memory phases. Sends `Paused` if the
+/// file phase was stopped, otherwise `Done`. Resets the cancel flag on entry so a
+/// previous Stop doesn't immediately abort a fresh run.
+fn run_session(
+    pl: &Pipeline,
+    sess: &mut ScanSession,
+    cancel: &AtomicBool,
+    tx: &Sender<ScanMsg>,
+    hwnd: HWND,
+    _quarantine_dir: &PathBuf,
+) {
+    cancel.store(false, Ordering::Relaxed);
+    let completed = run_files(pl, sess, cancel, tx, hwnd);
+    pl.save_result_caches(); // persist learned good/bad results either way
+
+    if !completed {
+        send(tx, hwnd, ScanMsg::Paused {
+            scanned: sess.scanned,
+            threats: sess.threats,
+            remaining: sess.files.len().saturating_sub(sess.cursor),
+        });
+        return;
     }
-    let (mut scanned, mut threats) = (0usize, 0usize);
-    for file in &files {
-        let r = pl.scan_file_cached(file);
-        scanned += 1;
-        let prio = r.verdict.priority(); // Trusted=0, Clean=1, …, Malware=8
-        if prio > 1 {
-            // amber for PUA/Mining/Spam/Suspicious, red for Phishing/Abuse/Malware.
-            threats += 1;
-            let sev = if prio >= 6 { 2 } else { 1 };
+
+    if !sess.full {
+        send(tx, hwnd, ScanMsg::Done { scanned: sess.scanned, threats: sess.threats });
+        return;
+    }
+
+    // Full mode = files + registry + Windows event logs + process memory. These
+    // phases run to completion (they are not part of the pausable file loop).
+    send(tx, hwnd, ScanMsg::Status("Full scan: registry…".into()));
+    let reg = RegistryScanner::default().scan();
+    for e in &reg.entries {
+        if e.pua_match || e.static_match {
             send(tx, hwnd, ScanMsg::Row {
-                file: file.display().to_string(),
-                verdict: r.verdict.label().to_string(),
-                threat: detail_summary(&r),
-                sev,
+                file: format!("{}\\{}\\{}", e.hive, e.path, e.value_name),
+                verdict: "Registry".into(),
+                threat: e.threat_name.clone().unwrap_or_else(|| e.detail.clone()),
+                sev: if e.static_match { 2 } else { 1 },
             });
         }
-        if scanned % 25 == 0 {
-            send(tx, hwnd, ScanMsg::Progress { scanned, threats });
-        }
     }
-    (scanned, threats)
+
+    send(tx, hwnd, ScanMsg::Status("Full scan: Windows event logs…".into()));
+    let logs = scan_hayabusa_once(&exe_dir().join("hayabusa"));
+    for m in &logs {
+        send(tx, hwnd, ScanMsg::Row {
+            file: "Windows Event Logs".into(),
+            verdict: "Hayabusa".into(),
+            threat: m.clone(),
+            sev: 2,
+        });
+    }
+
+    send(tx, hwnd, ScanMsg::Status("Full scan: process memory…".into()));
+    let mem = memory_scanner::scan_process_memory(pl);
+    for d in &mem {
+        send(tx, hwnd, ScanMsg::Row {
+            file: format!("{} (pid {}) @ 0x{:x}", d.process, d.pid, d.address),
+            verdict: d.verdict.label().to_string(),
+            threat: d.threat_name.clone(),
+            sev: if d.verdict.priority() >= 6 { 2 } else { 1 },
+        });
+    }
+
+    let total = sess.threats + reg.threats_found as usize + logs.len() + mem.len();
+    send(tx, hwnd, ScanMsg::Done { scanned: sess.scanned, threats: total });
+    send(tx, hwnd, ScanMsg::Status(format!(
+        "Full scan done. Files {}, registry {} threat(s), logs {} alert(s), memory {} hit(s).",
+        sess.threats, reg.threats_found, logs.len(), mem.len()
+    )));
+}
+
+/// The pausable, parallel file-scan phase. A fixed pool of worker threads pulls
+/// file indices from a shared atomic cursor (work-stealing), so files are read
+/// and scanned concurrently. Each thread checks `cancel` before claiming the next
+/// file, so a Stop takes effect after the in-flight files finish (a single file
+/// scan is never interrupted mid-way). Updates `sess.scanned/threats/cursor` and
+/// returns true if every file was scanned, false if it was stopped early.
+fn run_files(
+    pl: &Pipeline,
+    sess: &mut ScanSession,
+    cancel: &AtomicBool,
+    tx: &Sender<ScanMsg>,
+    hwnd: HWND,
+) -> bool {
+    let files = &sess.files;
+    let total = files.len();
+    if sess.cursor >= total {
+        return true;
+    }
+
+    let next = AtomicUsize::new(sess.cursor);
+    let scanned = AtomicUsize::new(sess.scanned);
+    let threats = AtomicUsize::new(sess.threats);
+
+    let remaining = total - sess.cursor;
+    let nthreads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(remaining)
+        .max(1);
+
+    // HWND isn't Send, so pass the raw handle and rebuild it inside each thread.
+    let raw = hwnd.0 as isize;
+    let next_ref = &next;
+    let scanned_ref = &scanned;
+    let threats_ref = &threats;
+    let files_ref = files;
+
+    std::thread::scope(|scope| {
+        for _ in 0..nthreads {
+            let txc = tx.clone(); // mpsc Sender is multi-producer via clone
+            scope.spawn(move || {
+                let hwnd = HWND(raw as *mut c_void);
+                loop {
+                    if cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let idx = next_ref.fetch_add(1, Ordering::Relaxed);
+                    if idx >= files_ref.len() {
+                        break;
+                    }
+                    let file = &files_ref[idx];
+                    let r = pl.scan_file_cached(file);
+                    let done = scanned_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                    let prio = r.verdict.priority(); // Trusted=0, Clean=1, …, Malware=8
+                    let th = if prio > 1 {
+                        let t = threats_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                        let sev = if prio >= 6 { 2 } else { 1 };
+                        send(&txc, hwnd, ScanMsg::Row {
+                            file: file.display().to_string(),
+                            verdict: r.verdict.label().to_string(),
+                            threat: detail_summary(&r),
+                            sev,
+                        });
+                        t
+                    } else {
+                        threats_ref.load(Ordering::Relaxed)
+                    };
+                    if done % 25 == 0 {
+                        send(&txc, hwnd, ScanMsg::Progress { scanned: done, threats: th });
+                    }
+                }
+            });
+        }
+    });
+
+    sess.scanned = scanned.load(Ordering::Relaxed);
+    sess.threats = threats.load(Ordering::Relaxed);
+    // Every claimed index was scanned (cancel is checked before claiming, never
+    // after), so the cursor is exactly how far we got. Cap the end-overshoot.
+    sess.cursor = next.load(Ordering::Relaxed).min(total);
+    sess.cursor >= total
 }
 
 /// All engine details for a detection: every engine that flagged it (ClamAV

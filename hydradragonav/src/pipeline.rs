@@ -434,8 +434,13 @@ impl Pipeline {
         }
 
         // --- 2. ML INFERENCE ---
+        // Detect the file class up front so each model only runs on its own type
+        // (the JS model must NOT see XML/HTML/text). Same classifier the static
+        // stage uses, so the flags match the YARA ML-ruleset gating below.
         let t0 = Instant::now();
-        let ml_verdict = self.run_ml_inference_bytes(data);
+        let ml_file_type = hydradragonsig::scanner::filetype::classify_bytes(path, data);
+        let ml_verdict =
+            self.run_ml_inference_bytes(data, ml_file_type.is_pe, ml_file_type.is_javascript);
         let ml_elapsed_ms = self
             .config
             .time_engines
@@ -892,8 +897,12 @@ impl Pipeline {
         }
 
         // --- 1. ML INFERENCE ---
+        // Gate each model on the detected file class (no path here, so classify
+        // from bytes alone) — the JS model must not score non-JS text buffers.
         let t0 = Instant::now();
-        let ml_verdict = self.run_ml_inference_bytes(data);
+        let ml_file_type = hydradragonsig::scanner::filetype::classify_bytes_only(data);
+        let ml_verdict =
+            self.run_ml_inference_bytes(data, ml_file_type.is_pe, ml_file_type.is_javascript);
         let ml_elapsed_ms = self
             .config
             .time_engines
@@ -1147,29 +1156,38 @@ impl Pipeline {
     }
 
     /// ML inference from an already-read byte buffer.
-    fn run_ml_inference_bytes(&self, bytes: &[u8]) -> Option<MlVerdict> {
+    /// Run the type-specific ML models, each gated on the detected file class:
+    /// the PE model only on PE binaries, the JS model only on JavaScript. Without
+    /// the `is_js` gate the JS model would score ANY UTF-8 text file (XML, HTML,
+    /// JSON, plain text, …) and could false-positive on it, since
+    /// `extract_js_features` returns a feature vector even when the JS parse fails.
+    fn run_ml_inference_bytes(&self, bytes: &[u8], is_pe: bool, is_js: bool) -> Option<MlVerdict> {
         let device = NdArrayDevice::default();
 
-        if let Some(ref model) = self.pe_ml_model {
-            if let Some(prob) =
-                crate::ml::inference::predict_pe::<InferBackend>(bytes, model, &device)
-            {
-                return Some(MlVerdict {
-                    verdict: ml_classify(prob, self.config.ml_threshold),
-                    probability: prob,
-                });
-            }
-        }
-
-        if let Some(ref model) = self.js_ml_model {
-            if let Ok(source) = String::from_utf8(bytes.to_vec()) {
+        if is_pe {
+            if let Some(ref model) = self.pe_ml_model {
                 if let Some(prob) =
-                    crate::ml::inference::predict_js::<InferBackend>(&source, model, &device)
+                    crate::ml::inference::predict_pe::<InferBackend>(bytes, model, &device)
                 {
                     return Some(MlVerdict {
                         verdict: ml_classify(prob, self.config.ml_threshold),
                         probability: prob,
                     });
+                }
+            }
+        }
+
+        if is_js {
+            if let Some(ref model) = self.js_ml_model {
+                if let Ok(source) = String::from_utf8(bytes.to_vec()) {
+                    if let Some(prob) =
+                        crate::ml::inference::predict_js::<InferBackend>(&source, model, &device)
+                    {
+                        return Some(MlVerdict {
+                            verdict: ml_classify(prob, self.config.ml_threshold),
+                            probability: prob,
+                        });
+                    }
                 }
             }
         }

@@ -1,7 +1,7 @@
 #![cfg(windows)]
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 use hydradragonclamav::{Engine, ScanOptions, ScanView};
 
@@ -11,7 +11,9 @@ use crate::types::{self, Error, ScanResult};
 /// ClamAV database directory (.ndb/.ndu/.ldb/.ldu) and matched in-process, so
 /// no native ClamAV runtime is required.
 pub struct Scanner {
-    engine: Mutex<Engine>,
+    // RwLock (not Mutex): scans take a shared read lock so many files can be
+    // scanned concurrently; only reload_database takes the write lock.
+    engine: RwLock<Engine>,
     dbpath: PathBuf,
 }
 
@@ -39,7 +41,7 @@ impl Scanner {
         );
 
         Ok(Self {
-            engine: Mutex::new(engine),
+            engine: RwLock::new(engine),
             dbpath,
         })
     }
@@ -62,7 +64,7 @@ impl Scanner {
         let bytes_scanned = path.metadata().map(|m| m.len()).unwrap_or(0);
 
         let matches = {
-            let engine = self.engine.lock().unwrap();
+            let engine = self.engine.read().unwrap();
             engine
                 .scan_path(path, ScanOptions::default())
                 .map_err(Error::Io)?
@@ -100,7 +102,7 @@ impl Scanner {
     pub fn scan_bytes(&self, data: &[u8]) -> Result<ScanResult, Error> {
         let bytes_scanned = data.len() as u64;
         let matches = {
-            let engine = self.engine.lock().unwrap();
+            let engine = self.engine.read().unwrap();
             engine.scan_bytes(data, ScanOptions::default())
         };
         let arenas: Vec<(usize, usize)> = matches
@@ -131,7 +133,7 @@ impl Scanner {
         let (engine, report) = Engine::from_database_dir(&self.dbpath)
             .map_err(|e| Error::DatabaseLoad(e.to_string()))?;
         let signatures_loaded = (report.extended_loaded + report.logical_loaded) as u32;
-        *self.engine.lock().unwrap() = engine;
+        *self.engine.write().unwrap() = engine;
         Ok(signatures_loaded)
     }
 
