@@ -190,16 +190,5 @@ IsNET_DLL
 DotNET_Reactor
 plugx_loader_apphelp
 RTF_Shellcode
-RTFFILE
-MSI
-isLNK
-IsPacked_ren
-NET_executable_
-ttp_lib_openssl_no_version_str_unsigned
-NET_executable
 cn_utf8_windows_terminal
 ttp_pe_size_of_code_gt_filesize
-MinGW_GCC_3x_additional
-BitRock_InstallBuilder
-self_inject
-Sandboxie_Detection

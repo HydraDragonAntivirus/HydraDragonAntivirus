@@ -1907,6 +1907,7 @@ AutoIT_Compiled_ren
 seven_zip_cmdversion
 aspack_108a
 _DodgyPhp
-powershell_ren
 _ObfuscatedPhp
-
+mz_executable
+INDICATOR_SUSPICIOUS_Stomped_PECompilation_Timestamp_InTheFuture 
+aspack_108c

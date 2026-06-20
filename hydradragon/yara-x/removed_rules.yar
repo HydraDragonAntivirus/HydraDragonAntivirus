@@ -1,4 +1,26 @@
 
+rule IsPacked_ren: PE ELF Check {
+  meta:
+    author      = "_pusher_"
+    description = "PE & ELF Entropy Check"
+    date        = "2017.05"
+    version     = "2.0"
+
+  condition:
+    // MZ signature at offset 0 and ...
+    ((IsPE32 or IsPE64) or (IsELF32 or IsELF64)) and
+    math.entropy(0, filesize - pe.overlay.size) >= 7.0
+}
+
+rule mz_executable  // from YARA user's manual
+{
+  condition:
+    // MZ signature at offset 0 and ...
+    uint16(0) == 0x5A4D and
+    // ... PE signature at offset stored in MZ header at 0x3C
+    uint32(uint32(0x3C)) == 0x00004550
+}
+
 private rule capa_create_reverse_shell: CAPA C2 SHELL FUNCTION T1059_003 B0022_001 INCOMPLETE {
   meta:
     description  = "create reverse shell (converted from capa rule)"
