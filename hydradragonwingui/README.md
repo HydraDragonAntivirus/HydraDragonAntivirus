@@ -11,12 +11,18 @@ by hand in the `wndproc`; the only real child controls are the two ListViews.
 
 - Light, modern flat theme (Segoe UI, accent blue, danger red), DPI-aware for
   crisp text on high-resolution displays.
-- Sidebar navigation (**Scan** / **Quarantine**) with hover highlight and an
-  accent active indicator.
+- **Gradient header** (single `GradientFill`) with a shield logo tile and a thin
+  drop shadow for depth.
+- Sidebar navigation with **Segoe MDL2 Assets icon glyphs** (search / lock /
+  gear) and a full **accent pill** for the active page; soft hover highlight.
 - Owner-painted buttons with normal / hover / pressed states; primary (accent),
-  neutral (outlined) and danger (red) styles.
-- Results list with **severity-colored rows** (red = malware/phishing/abuse,
-  amber = PUA/mining/spam/suspicious) via `NM_CUSTOMDRAW`.
+  neutral (outlined) and danger (red) styles. Rounded content card.
+- Results list with **zebra striping** and **severity-colored rows** (red =
+  malware/phishing/abuse, amber = PUA/mining/spam/suspicious) via `NM_CUSTOMDRAW`.
+
+All of this stays cheap: the whole window is painted into one **double-buffered**
+back DC and BitBlt'd in a single pass, and a repaint only happens when hover/active
+state actually changes — so the richer styling adds no perceptible cost.
 
 ## What it does
 

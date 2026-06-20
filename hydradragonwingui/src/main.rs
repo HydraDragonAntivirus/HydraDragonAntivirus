@@ -113,7 +113,6 @@ const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     COLORREF((r as u32) | ((g as u32) << 8) | ((b as u32) << 16))
 }
 const C_BG: COLORREF = rgb(0xF4, 0xF5, 0xF8);
-const C_HEADER: COLORREF = rgb(0x16, 0x20, 0x33);
 const C_HEADER_SUB: COLORREF = rgb(0x9F, 0xB0, 0xCC);
 const C_SIDEBAR: COLORREF = rgb(0xFF, 0xFF, 0xFF);
 const C_BORDER: COLORREF = rgb(0xE3, 0xE6, 0xEC);
@@ -122,13 +121,22 @@ const C_TEXT2: COLORREF = rgb(0x6B, 0x72, 0x80);
 const C_ACCENT: COLORREF = rgb(0x2D, 0x6C, 0xF6);
 const C_ACCENT_HOT: COLORREF = rgb(0x4B, 0x82, 0xF8);
 const C_ACCENT_DOWN: COLORREF = rgb(0x1F, 0x57, 0xD6);
-const C_ACCENT_SOFT: COLORREF = rgb(0xE9, 0xF1, 0xFE);
 const C_NAV_HOT: COLORREF = rgb(0xF1, 0xF3, 0xF7);
 const C_DANGER: COLORREF = rgb(0xD8, 0x2C, 0x2C);
 const C_DANGER_HOT: COLORREF = rgb(0xE5, 0x48, 0x48);
 const C_DANGER_DOWN: COLORREF = rgb(0xB7, 0x20, 0x20);
 const C_WARN: COLORREF = rgb(0xC2, 0x7A, 0x06);
 const C_WHITE: COLORREF = rgb(0xFF, 0xFF, 0xFF);
+// Header vertical gradient + depth/striping accents.
+const C_HEADER_TOP: COLORREF = rgb(0x27, 0x36, 0x57);
+const C_HEADER_BOT: COLORREF = rgb(0x12, 0x19, 0x2A);
+const C_SHADOW: COLORREF = rgb(0xDD, 0xE1, 0xE9);
+const C_STRIPE: COLORREF = rgb(0xF7, 0xF8, 0xFB);
+// Hero status banner tints (Kaspersky-style colored state panel).
+const C_OK: COLORREF = rgb(0x15, 0x9A, 0x52);
+const C_OK_SOFT: COLORREF = rgb(0xE7, 0xF6, 0xEC);
+const C_DANGER_SOFT: COLORREF = rgb(0xFD, 0xEC, 0xEC);
+const C_ACCENT_SOFT: COLORREF = rgb(0xEC, 0xF2, 0xFE);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -147,7 +155,16 @@ struct UiButton {
 struct NavItem {
     page: usize,
     label: &'static str,
+    icon: &'static str, // Segoe MDL2 Assets glyph
     rect: RECT,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ScanState {
+    Idle,
+    Scanning,
+    Clean,
+    Threats,
 }
 
 enum ScanMsg {
@@ -158,6 +175,9 @@ enum ScanMsg {
         sev: u8,
     },
     Status(String),
+    Begin,
+    Progress { scanned: usize, threats: usize },
+    Done { scanned: usize, threats: usize },
 }
 
 enum WorkRequest {
@@ -177,6 +197,10 @@ struct Fonts {
     button: HFONT,
     body: HFONT,
     status: HFONT,
+    icon: HFONT,       // Segoe MDL2 Assets, nav glyph size
+    icon_lg: HFONT,    // larger, header logo glyph
+    hero: HFONT,       // hero headline
+    hero_icon: HFONT,  // big MDL2 badge glyph
 }
 
 struct AppState {
@@ -191,6 +215,9 @@ struct AppState {
     hot_nav: Option<usize>,
     tracking: bool,
     status: String,
+    scan_state: ScanState,
+    scanned_count: usize,
+    threat_count: usize,
     work_tx: Sender<WorkRequest>,
     result_rx: Receiver<ScanMsg>,
     scan_rows: Vec<PathBuf>,
@@ -352,13 +379,17 @@ fn pt_in(r: &RECT, x: i32, y: i32) -> bool {
 unsafe fn on_create(hwnd: HWND) {
     let hinst: HINSTANCE = GetModuleHandleW(None).unwrap_or_default().into();
     let fonts = Fonts {
-        logo: make_font(-21, 700),
-        title: make_font(-21, 600),
+        logo: make_font(-20, 700),
+        title: make_font(-22, 600),
         sub: make_font(-13, 400),
         nav: make_font(-16, 600),
         button: make_font(-15, 600),
-        body: make_font(-15, 400),
+        body: make_font(-16, 400),
         status: make_font(-13, 400),
+        icon: make_font_face(-17, 400, "Segoe MDL2 Assets"),
+        icon_lg: make_font_face(-22, 400, "Segoe MDL2 Assets"),
+        hero: make_font(-26, 600),
+        hero_icon: make_font_face(-30, 400, "Segoe MDL2 Assets"),
     };
 
     let lv = sty::CHILD | sty::VISIBLE | sty::LVS_REPORT;
@@ -386,9 +417,9 @@ unsafe fn on_create(hwnd: HWND) {
         fonts,
         page: 0,
         nav: vec![
-            NavItem { page: 0, label: "Scan", rect: RECT::default() },
-            NavItem { page: 1, label: "Quarantine", rect: RECT::default() },
-            NavItem { page: 2, label: "Settings", rect: RECT::default() },
+            NavItem { page: 0, label: "Scan", icon: "\u{E721}", rect: RECT::default() },
+            NavItem { page: 1, label: "Quarantine", icon: "\u{E72E}", rect: RECT::default() },
+            NavItem { page: 2, label: "Settings", icon: "\u{E713}", rect: RECT::default() },
         ],
         buttons: Vec::new(),
         hot_cmd: None,
@@ -396,6 +427,9 @@ unsafe fn on_create(hwnd: HWND) {
         hot_nav: None,
         tracking: false,
         status: "Ready.".into(),
+        scan_state: ScanState::Idle,
+        scanned_count: 0,
+        threat_count: 0,
         work_tx,
         result_rx,
         scan_rows: Vec::new(),
@@ -409,20 +443,27 @@ unsafe fn on_create(hwnd: HWND) {
 }
 
 unsafe fn make_font(height: i32, weight: i32) -> HFONT {
+    make_font_face(height, weight, "Segoe UI")
+}
+
+unsafe fn make_font_face(height: i32, weight: i32, face: &str) -> HFONT {
     let mut lf = LOGFONTW {
         lfHeight: height,
         lfWeight: weight,
         lfQuality: CLEARTYPE_QUALITY,
         ..Default::default()
     };
-    for (i, c) in "Segoe UI".encode_utf16().enumerate().take(31) {
+    for (i, c) in face.encode_utf16().enumerate().take(31) {
         lf.lfFaceName[i] = c;
     }
     CreateFontIndirectW(&lf)
 }
 
 unsafe fn delete_fonts(f: &Fonts) {
-    for h in [f.logo, f.title, f.sub, f.nav, f.button, f.body, f.status] {
+    for h in [
+        f.logo, f.title, f.sub, f.nav, f.button, f.body, f.status, f.icon, f.icon_lg,
+        f.hero, f.hero_icon,
+    ] {
         let _ = DeleteObject(h.into());
     }
 }
@@ -563,26 +604,25 @@ unsafe fn paint(hwnd: HWND) {
         let active = s.page == item.page;
         let hot = s.hot_nav == Some(i);
         if active {
-            fill_round(mem, item.rect, 9, C_ACCENT_SOFT);
-            fill_round(
-                mem,
-                RECT { left: item.rect.left, top: item.rect.top + 8, right: item.rect.left + 4, bottom: item.rect.bottom - 8 },
-                2,
-                C_ACCENT,
-            );
+            fill_round(mem, item.rect, 10, C_ACCENT); // full accent pill
         } else if hot {
-            fill_round(mem, item.rect, 9, C_NAV_HOT);
+            fill_round(mem, item.rect, 10, C_NAV_HOT);
         }
-        let tr = RECT { left: item.rect.left + 22, ..item.rect };
-        text(mem, item.label, &tr, if active { C_ACCENT } else { C_TEXT }, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        let icon_col = if active { C_WHITE } else { C_ACCENT };
+        let txt_col = if active { C_WHITE } else { C_TEXT };
+        let icon_r = RECT { left: item.rect.left + 14, right: item.rect.left + 42, ..item.rect };
+        text(mem, item.icon, &icon_r, icon_col, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        let tr = RECT { left: item.rect.left + 46, ..item.rect };
+        text(mem, item.label, &tr, txt_col, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     }
 
-    // --- Header ---
+    // --- Header (vertical gradient + thin drop shadow) ---
     let head = RECT { left: 0, top: 0, right: w, bottom: HEADER_H };
-    fill(mem, &head, C_HEADER);
+    gradient_v(mem, &head, C_HEADER_TOP, C_HEADER_BOT);
+    fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 1 }, C_SHADOW);
     let logo = RECT { left: PAD, top: (HEADER_H - 40) / 2, right: PAD + 40, bottom: (HEADER_H - 40) / 2 + 40 };
-    fill_round(mem, logo, 10, C_ACCENT);
-    text(mem, "HD", &logo, C_WHITE, s.fonts.logo, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    fill_round(mem, logo, 11, C_ACCENT);
+    text(mem, "\u{E83D}", &logo, C_WHITE, s.fonts.icon_lg, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     let tx = logo.right + 14;
     text(
         mem,
@@ -614,7 +654,7 @@ unsafe fn paint(hwnd: HWND) {
     let card = RECT { left: content_l - 1, top: list_top - 1, right: w - PAD + 1, bottom: h - STATUS_H - PAD + 1 };
     if s.page == 2 {
         // Settings page has no list — fill the card and explain the cache.
-        fill(mem, &card, C_WHITE);
+        fill_round(mem, card, 8, C_WHITE);
         let pad = 18;
         let inner = RECT { left: card.left + pad, top: card.top + pad, right: card.right - pad, bottom: card.bottom - pad };
         text(mem, "Result cache", &RECT { bottom: inner.top + 26, ..inner }, C_TEXT, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -635,12 +675,12 @@ unsafe fn paint(hwnd: HWND) {
             DT_LEFT | DT_WORDBREAK,
         );
     }
-    frame(mem, &card, C_BORDER);
+    frame_round(mem, card, 8, C_BORDER);
 
     // --- Status bar ---
     let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
     fill(mem, &status, C_WHITE);
-    fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, C_BORDER);
+    fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, C_SHADOW);
     text(
         mem,
         &s.status,
@@ -684,10 +724,23 @@ unsafe fn fill(hdc: HDC, r: &RECT, color: COLORREF) {
     let _ = DeleteObject(br.into());
 }
 
-unsafe fn frame(hdc: HDC, r: &RECT, color: COLORREF) {
-    let br = CreateSolidBrush(color);
-    FrameRect(hdc, r, br);
-    let _ = DeleteObject(br.into());
+/// Vertical (top→bottom) gradient fill — one GDI call, cheap.
+unsafe fn gradient_v(hdc: HDC, r: &RECT, top: COLORREF, bottom: COLORREF) {
+    let chan = |c: COLORREF| {
+        (
+            ((c.0 & 0xFF) as u16) << 8,
+            (((c.0 >> 8) & 0xFF) as u16) << 8,
+            (((c.0 >> 16) & 0xFF) as u16) << 8,
+        )
+    };
+    let (tr, tg, tb) = chan(top);
+    let (br, bg, bb) = chan(bottom);
+    let verts = [
+        TRIVERTEX { x: r.left, y: r.top, Red: tr, Green: tg, Blue: tb, Alpha: 0 },
+        TRIVERTEX { x: r.right, y: r.bottom, Red: br, Green: bg, Blue: bb, Alpha: 0 },
+    ];
+    let mesh = GRADIENT_RECT { UpperLeft: 0, LowerRight: 1 };
+    let _ = GradientFill(hdc, &verts, &mesh as *const _ as *const c_void, 1, GRADIENT_FILL_RECT_V);
 }
 
 unsafe fn fill_round(hdc: HDC, r: RECT, radius: i32, color: COLORREF) {
@@ -979,14 +1032,17 @@ unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
     match cd.nmcd.dwDrawStage.0 {
         CDDS_PREPAINT => CDRF_NOTIFYITEMDRAW,
         CDDS_ITEMPREPAINT => {
+            let item = cd.nmcd.dwItemSpec;
             if let Some(s) = state(hwnd) {
-                let sev = s.scan_sev.get(cd.nmcd.dwItemSpec).copied().unwrap_or(0);
+                let sev = s.scan_sev.get(item).copied().unwrap_or(0);
                 cd.clrText = match sev {
                     2 => C_DANGER,
                     1 => C_WARN,
                     _ => C_TEXT,
                 };
             }
+            // Zebra striping for readability.
+            cd.clrTextBk = if item % 2 == 0 { C_WHITE } else { C_STRIPE };
             CDRF_NEWFONT
         }
         _ => CDRF_DODEFAULT,
