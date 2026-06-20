@@ -22,7 +22,7 @@ base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive"], optional = true }
 colored = { version = "3.1.1", optional = true }
-digest = "0.11.2"
+digest = "0.11.3"
 env_logger = { version = "0.11.10", optional = true }
 goblin = "0.10.5"
 hex = "0.4.3"

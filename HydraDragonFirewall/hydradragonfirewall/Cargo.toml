@@ -33,7 +33,7 @@ fastbloom = { version = "0.17", features = ["serde"] }
 bincode_next = "2.1.0"
 tokio = { version = "1", features = ["full"] }
 url = "2.5.8"
-sha2 = "0.11"
+sha2 = "0.11.0"
 shared_no_std = { path = "../../Sanctum/shared_no_std" }
 tracing = "0.1"
 
