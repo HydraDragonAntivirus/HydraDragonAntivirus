@@ -35,7 +35,7 @@ impl MalwareNetConfig {
     pub fn default_js() -> Self {
         Self {
             input_dim: JsFeatureVector::LEN,
-            hidden_dim: 512,
+            hidden_dim: 256,
             num_classes: 2,
         }
     }
