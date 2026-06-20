@@ -3,6 +3,7 @@
 pub mod bloom_filter;
 pub mod disinfector;
 pub mod hash_scanner;
+pub mod memory_scanner;
 pub mod ml;
 pub mod pipeline;
 pub mod quarantine;

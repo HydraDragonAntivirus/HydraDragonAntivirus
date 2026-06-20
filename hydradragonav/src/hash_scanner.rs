@@ -66,6 +66,25 @@ impl HashScanner {
         Ok(HashScanResult::Unknown)
     }
 
+    /// MD5-only bloom lookup from an **already-computed** MD5 hex digest — no
+    /// hashing at all, so the caller that already has the file's MD5 (e.g. the
+    /// dedup key) can reuse it. The whitelist/blacklist lookups are the fast
+    /// bloom filter (SHA-256 is too slow for the hot scan path).
+    pub fn scan_md5(&self, md5_hex: &str) -> HashScanResult {
+        if self.bloom.is_whitelisted(md5_hex) {
+            return HashScanResult::Whitelisted;
+        }
+        if self.bloom.is_blacklisted(md5_hex) {
+            return HashScanResult::Blacklisted;
+        }
+        HashScanResult::Unknown
+    }
+
+    /// MD5-only bloom lookup over a buffer (hashes it once).
+    pub fn scan_data(&self, data: &[u8]) -> HashScanResult {
+        self.scan_md5(&hex::encode(Md5::digest(data)))
+    }
+
     pub fn compute_and_scan_all(&self, file_path: &Path) -> Result<HashScanResult, String> {
         let mut file = fs::File::open(file_path)
             .map_err(|e| format!("Failed to open {:?}: {}", file_path, e))?;

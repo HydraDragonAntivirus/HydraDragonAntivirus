@@ -3803,6 +3803,7 @@ version = "0.1.0"
 dependencies = [
  "hydradragonav",
  "windows 0.62.2",
+ "winres",
 ]
 
 [[package]]

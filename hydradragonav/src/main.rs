@@ -106,7 +106,8 @@ enum Command {
         /// File or directory to scan
         path: PathBuf,
 
-        /// Scan mode: full (hayabusa + registry + files), files-only, or non-files (hayabusa + registry only)
+        /// Scan mode: full (files + registry + logs), files-only, or non-files (registry + logs, no files).
+        /// "logs" = Windows event logs via Hayabusa. Process-memory scanning is a planned full-mode addition.
         #[arg(long, short, default_value = "files-only")]
         mode: ScanMode,
 

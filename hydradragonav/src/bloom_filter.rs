@@ -10,7 +10,7 @@ const BLACKLIST_BLOOM_NAME: &str = "blacklist.bloom";
 const URLHAUS_BLOOM_NAME: &str = "urlhaus.bloom";
 const PHISHING_BLOOM_NAME: &str = "phishing.bloom";
 
-const DEFAULT_BLOOM_DIR: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\bloom_filter";
+const DEFAULT_BLOOM_DIR: &str = "bloom_filter";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashType {

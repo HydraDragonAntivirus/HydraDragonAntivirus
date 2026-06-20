@@ -94,6 +94,37 @@ impl Scanner {
         Ok(result)
     }
 
+    /// Scan an already-read byte buffer (same engine as [`scan_file`], which is
+    /// itself just `fs::read` + a bytes scan — so this lets the caller read the
+    /// file only once). `hydradragonclamav` does no path-specific unpacking.
+    pub fn scan_bytes(&self, data: &[u8]) -> Result<ScanResult, Error> {
+        let bytes_scanned = data.len() as u64;
+        let matches = {
+            let engine = self.engine.lock().unwrap();
+            engine.scan_bytes(data, ScanOptions::default())
+        };
+        let arenas: Vec<(usize, usize)> = matches
+            .iter()
+            .filter(|m| m.view == ScanView::Raw && !m.object_path.contains('#'))
+            .flat_map(|m| m.arenas.iter().copied())
+            .collect();
+        let result = match matches.first() {
+            Some(first) => ScanResult {
+                result_code: types::CL_VIRUS,
+                virus_name: first.name.clone(),
+                bytes_scanned,
+                arenas,
+            },
+            None => ScanResult {
+                result_code: types::CL_CLEAN,
+                virus_name: String::new(),
+                bytes_scanned,
+                arenas: Vec::new(),
+            },
+        };
+        Ok(result)
+    }
+
     /// Reload signatures from the database directory. Returns the number of
     /// signatures loaded.
     pub fn reload_database(&self) -> Result<u32, Error> {

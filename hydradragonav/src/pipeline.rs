@@ -5,9 +5,11 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::ValueEnum;
+use fastbloom::AtomicBloomFilter;
+use md5::{Digest, Md5};
 use hydradragonsig::models::FileTypeInfo;
 use hydradragonsig::rules::RuleSet;
-use yara_x::{Rules, Scanner as YaraScanner};
+use yara_x::{MetaValue, Rules, Scanner as YaraScanner};
 
 use burn::record::{NamedMpkBytesRecorder, Recorder};
 use burn_ndarray::{NdArray, NdArrayDevice};
@@ -44,6 +46,9 @@ pub struct PipelineConfig {
     pub clamav_heuristics: bool,
     pub time_engines: bool,
     pub fast_scan: bool,
+    /// Directory for the persisted duplicate-dedup result blooms
+    /// (`good_results.bloom` / `bad_results.bloom`). `None` = in-memory only.
+    pub results_cache_dir: Option<PathBuf>,
 }
 
 impl Default for PipelineConfig {
@@ -61,6 +66,7 @@ impl Default for PipelineConfig {
             clamav_heuristics: false,
             time_engines: false,
             fast_scan: true,
+            results_cache_dir: None,
         }
     }
 }
@@ -74,6 +80,62 @@ pub struct Pipeline {
     excluded_yara_rules: HashSet<String>,
     pe_ml_model: Option<crate::ml::model::MalwareNet<InferBackend>>,
     js_ml_model: Option<crate::ml::model::MalwareNet<InferBackend>>,
+    // Duplicate-dedup result cache (see `scan_file_cached`). Clean MD5s go into
+    // `good_bloom`, malicious MD5s into `bad_bloom` (both fast atomic blooms,
+    // `&self` inserts). Persisted to `results_cache_dir` as good_results.bloom /
+    // bad_results.bloom when that dir is configured.
+    good_bloom: AtomicBloomFilter,
+    bad_bloom: AtomicBloomFilter,
+    results_cache_dir: Option<PathBuf>,
+}
+
+const GOOD_BLOOM_FILE: &str = "good_results.bloom";
+const BAD_BLOOM_FILE: &str = "bad_results.bloom";
+
+// Result-cache sizing. Both blooms use a light 1e-4 false-positive rate to keep
+// memory small (~1.2 MB each at the rated capacity). False positives are made
+// harmless by design: a bad-bloom hit is re-scanned (so a clean file is never
+// falsely flagged — see `scan_file_cached`). The rate holds up to ~500k distinct
+// files; past that it gradually degrades.
+const CACHE_CAPACITY: usize = 500_000;
+const CACHE_FP: f64 = 1e-4;
+
+fn fresh_bloom() -> AtomicBloomFilter {
+    AtomicBloomFilter::with_false_pos(CACHE_FP).expected_items(CACHE_CAPACITY)
+}
+
+/// Loads a result bloom from `dir/name`, or a fresh empty one if absent/corrupt.
+fn load_result_bloom(dir: &Option<PathBuf>, name: &str) -> AtomicBloomFilter {
+    if let Some(d) = dir {
+        let path = d.join(name);
+        if let Ok(data) = std::fs::read(&path) {
+            if let Ok((bf, _)) = bincode_next::serde::decode_from_slice::<AtomicBloomFilter, _>(
+                &data,
+                bincode_next::config::standard(),
+            ) {
+                return bf;
+            }
+        }
+    }
+    fresh_bloom()
+}
+
+/// Builds a `ScanResult` served from the dedup cache (a single synthetic "cache"
+/// engine entry), without re-running any engine.
+fn cache_result(verdict: Verdict, threat: Option<String>, detail: &str) -> ScanResult {
+    ScanResult {
+        verdict,
+        threat_name: threat,
+        engines: vec![EngineResult {
+            engine: "cache",
+            verdict,
+            detail: detail.to_string(),
+            elapsed_ms: Some(0),
+        }],
+        yara_x_matches: Vec::new(),
+        ml_malware_probability: None,
+        clamav_result: None,
+    }
 }
 
 impl Pipeline {
@@ -89,6 +151,7 @@ impl Pipeline {
         let hydradragonsig_rules_dir = config.hydradragonsig_rules_dir.clone();
         let pe_ml_model_path = config.pe_ml_model_path.clone();
         let js_ml_model_path = config.js_ml_model_path.clone();
+        let results_cache_dir = config.results_cache_dir.clone();
 
         // Load excluded rules line by line
         let mut excluded_yara_rules = HashSet::new();
@@ -197,15 +260,74 @@ impl Pipeline {
             excluded_yara_rules,
             pe_ml_model,
             js_ml_model,
+            // Result blooms — loaded from disk if a cache dir is configured.
+            good_bloom: load_result_bloom(&results_cache_dir, GOOD_BLOOM_FILE),
+            bad_bloom: load_result_bloom(&results_cache_dir, BAD_BLOOM_FILE),
+            results_cache_dir,
+        }
+    }
+
+    /// Like [`scan_file`](Self::scan_file) but transparently deduplicates by file
+    /// content (MD5). A file whose hash is in the **good** bloom is served as clean
+    /// without re-running the engines (the common case — this is the speed-up). A
+    /// hash in the **bad** bloom is RE-SCANNED to confirm: the bloom is only a
+    /// hint, never trusted for a detection, so a bloom false positive can never
+    /// flag a clean file as malware — it just costs one re-scan. Files over 64 MiB
+    /// bypass the cache. The returned [`ScanResult`] matches `scan_file`.
+    pub fn scan_file_cached(&self, path: &Path) -> ScanResult {
+        const CACHE_FILE_MAX: u64 = 64 * 1024 * 1024;
+
+        // Read the file ONCE and reuse the buffer for both the MD5 dedup key and
+        // the scan — so a cache miss is no slower than a plain scan.
+        let too_big = std::fs::metadata(path)
+            .map(|m| m.len() > CACHE_FILE_MAX)
+            .unwrap_or(true);
+        if let Some(data) = (!too_big).then(|| std::fs::read(path).ok()).flatten() {
+            let h: [u8; 16] = Md5::digest(&data).into();
+            // Known-good → trust it, skip the engines. Known-bad → re-scan to
+            // confirm (the bloom is only a hint, never a detection on its own).
+            if !self.bad_bloom.contains(&h) && self.good_bloom.contains(&h) {
+                return cache_result(Verdict::Clean, None, "cached clean (dedup)");
+            }
+            let result = self.scan_loaded(path, &data, h); // reuse the MD5 we computed
+            if result.verdict.priority() <= 1 {
+                self.good_bloom.insert(&h); // build the bloom while scanning
+            } else {
+                self.bad_bloom.insert(&h);
+            }
+            return result;
+        }
+
+        // Too large / unreadable to cache — plain single-read scan.
+        self.scan_file(path)
+    }
+
+    /// Persists the good/bad result blooms to `results_cache_dir` (if configured)
+    /// so learned results survive across runs. Cheap to call after a scan batch.
+    pub fn save_result_caches(&self) {
+        let Some(dir) = &self.results_cache_dir else { return };
+        let _ = std::fs::create_dir_all(dir);
+        let cfg = bincode_next::config::standard();
+        for (bloom, name) in [(&self.good_bloom, GOOD_BLOOM_FILE), (&self.bad_bloom, BAD_BLOOM_FILE)] {
+            if let Ok(bytes) = bincode_next::serde::encode_to_vec(bloom, cfg) {
+                let _ = std::fs::write(dir.join(name), bytes);
+            }
+        }
+    }
+
+    /// Wipes both result blooms (in memory and on disk). Exposed for an "advanced
+    /// settings" reset — NOT recommended, as the scanner then re-scans everything
+    /// and forgets every learned good/bad result.
+    pub fn clear_result_caches(&mut self) {
+        self.good_bloom = fresh_bloom();
+        self.bad_bloom = fresh_bloom();
+        if let Some(dir) = &self.results_cache_dir {
+            let _ = std::fs::remove_file(dir.join(GOOD_BLOOM_FILE));
+            let _ = std::fs::remove_file(dir.join(BAD_BLOOM_FILE));
         }
     }
 
     pub fn scan_file(&self, path: &Path) -> ScanResult {
-        let mut engines: Vec<EngineResult> = Vec::new();
-        let mut yara_x_matches = Vec::new();
-        let mut clamav_result = None;
-        let mut static_file_type: Option<FileTypeInfo> = None;
-
         let file_size = match path.metadata() {
             Ok(metadata) => metadata.len(),
             Err(err) => {
@@ -241,73 +363,79 @@ impl Pipeline {
             };
         }
 
-        // --- 1. HASH SCANNER ---
+        // Read the file ONCE; every engine then scans this buffer. This speeds up
+        // the first scan too (the file used to be read 6-7 times internally).
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(err) => {
+                return ScanResult {
+                    verdict: Verdict::Clean,
+                    threat_name: None,
+                    engines: vec![EngineResult {
+                        engine: "file_io",
+                        verdict: Verdict::Clean,
+                        detail: format!("read error: {err}"),
+                        elapsed_ms: None,
+                    }],
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: None,
+                    clamav_result: None,
+                };
+            }
+        };
+        let md5: [u8; 16] = Md5::digest(&data).into();
+        self.scan_loaded(path, &data, md5)
+    }
+
+    /// Core scan over an already-read buffer — one gate (single read), one scanner.
+    /// `md5` is the buffer's MD5 digest, computed once by the caller and reused
+    /// here (so the bytes are never hashed twice). `path` is used only for labels
+    /// and the hydradragonsig identifier; every engine runs from `data`.
+    fn scan_loaded(&self, path: &Path, data: &[u8], md5: [u8; 16]) -> ScanResult {
+        let mut engines: Vec<EngineResult> = Vec::new();
+        let mut yara_x_matches = Vec::new();
+        let mut clamav_result = None;
+        let mut static_file_type: Option<FileTypeInfo> = None;
+
+        // --- 1. HASH SCANNER (MD5 bloom; reuses the precomputed digest) ---
         if let Some(ref scanner) = self.hash_scanner {
             let t0 = Instant::now();
-            let bloom_outcome = match scanner.compute_and_scan_all(path) {
-                Ok(first_result) => {
-                    if first_result == crate::hash_scanner::HashScanResult::Unknown {
-                        Ok((Verdict::Clean, "not found".into()))
-                    } else {
-                        match scanner.compute_and_scan_all(path) {
-                            Ok(second_result) if second_result == first_result => {
-                                match first_result {
-                                    crate::hash_scanner::HashScanResult::Whitelisted => {
-                                        Ok((Verdict::Trusted, "MD5 whitelisted (confirmed)".into()))
-                                    }
-                                    crate::hash_scanner::HashScanResult::Blacklisted => Ok((
-                                        Verdict::Malware,
-                                        "Hash blacklisted (confirmed)".into(),
-                                    )),
-                                    crate::hash_scanner::HashScanResult::Unknown => unreachable!(),
-                                }
-                            }
-                            _ => Ok((
-                                Verdict::Clean,
-                                "bloom match not confirmed on re-scan".into(),
-                            )),
-                        }
-                    }
+            let (verdict, detail) = match scanner.scan_md5(&hex::encode(md5)) {
+                crate::hash_scanner::HashScanResult::Whitelisted => {
+                    (Verdict::Trusted, "MD5 whitelisted".to_string())
                 }
-                Err(e) => Err(format!("error: {}", e)),
+                crate::hash_scanner::HashScanResult::Blacklisted => {
+                    (Verdict::Malware, "MD5 blacklisted".to_string())
+                }
+                crate::hash_scanner::HashScanResult::Unknown => {
+                    (Verdict::Clean, "not found".to_string())
+                }
             };
             let elapsed_ms = self
                 .config
                 .time_engines
                 .then(|| t0.elapsed().as_millis() as u64);
-            match bloom_outcome {
-                Ok((verdict, detail)) => {
-                    engines.push(EngineResult {
-                        engine: "bloom_filter",
-                        verdict,
-                        detail,
-                        elapsed_ms,
-                    });
-                    if verdict != Verdict::Clean {
-                        return ScanResult {
-                            verdict,
-                            threat_name: None,
-                            engines,
-                            yara_x_matches: Vec::new(),
-                            ml_malware_probability: None,
-                            clamav_result: None,
-                        };
-                    }
-                }
-                Err(detail) => {
-                    engines.push(EngineResult {
-                        engine: "bloom_filter",
-                        verdict: Verdict::Clean,
-                        detail,
-                        elapsed_ms,
-                    });
-                }
+            engines.push(EngineResult {
+                engine: "bloom_filter",
+                verdict,
+                detail,
+                elapsed_ms,
+            });
+            if verdict != Verdict::Clean {
+                return ScanResult {
+                    verdict,
+                    threat_name: None,
+                    engines,
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: None,
+                    clamav_result: None,
+                };
             }
         }
 
         // --- 2. ML INFERENCE ---
         let t0 = Instant::now();
-        let ml_verdict = self.run_ml_inference(path);
+        let ml_verdict = self.run_ml_inference_bytes(data);
         let ml_elapsed_ms = self
             .config
             .time_engines
@@ -347,11 +475,18 @@ impl Pipeline {
         // --- 3. STATIC RULES ---
         let t0 = Instant::now();
         match &self.hydradragonsig_rules {
-            Some(rules) => match hydradragonsig::scan_path(
-                path,
-                &rules,
-                &hydradragonsig::ScanOptions::default(),
-            ) {
+            Some(rules) => {
+                // One gate, one scanner: scan the in-memory buffer (no file read).
+                let mem_ctx = hydradragonsig::models::MemoryScanContext {
+                    buffer: data.to_vec(),
+                    identifier: path.display().to_string(),
+                    base_address: None,
+                };
+                match hydradragonsig::scan_memory(
+                    &mem_ctx,
+                    &rules,
+                    &hydradragonsig::ScanOptions::default(),
+                ) {
                 Ok(report) => {
                     let elapsed_ms = self
                         .config
@@ -418,7 +553,8 @@ impl Pipeline {
                         elapsed_ms,
                     });
                 }
-            },
+                }
+            }
             None => {
                 engines.push(EngineResult {
                     engine: "hydradragonsig",
@@ -435,9 +571,9 @@ impl Pipeline {
         if let Some(ref scanner) = self.hash_scanner {
             let bloom = scanner.bloom();
             let t0 = Instant::now();
-            if let Ok(bytes) = std::fs::read(path) {
-                if bytes.len() <= 1_048_576 {
-                    let urls = extract_urls_from_bytes(&bytes);
+            if data.len() <= 1_048_576 {
+                {
+                    let urls = extract_urls_from_bytes(data);
 
                     let mut phishing_urls: Vec<String> = Vec::new();
                     let mut urlhaus_urls: Vec<String> = Vec::new();
@@ -493,7 +629,7 @@ impl Pipeline {
         // --- 6. CLAMAV ---
         if let Some(ref clamav) = self.clamav {
             let t0 = Instant::now();
-            match clamav.scan_file(path, self.config.clamav_heuristics) {
+            match clamav.scan_bytes(data) {
                 Ok(result) => {
                     let elapsed_ms = self
                         .config
@@ -560,7 +696,7 @@ impl Pipeline {
             });
         } else {
             let t0 = Instant::now();
-            let mut all_matches: Vec<String> = Vec::new();
+            let mut all_matches: Vec<YaraHit> = Vec::new();
             let mut scan_error: Option<String> = None;
 
             // File type is already known from the hydradragonsig stage (stage 4),
@@ -570,9 +706,9 @@ impl Pipeline {
             let is_pe = static_file_type.as_ref().is_some_and(|ft| ft.is_pe);
             let is_js = static_file_type.as_ref().is_some_and(|ft| ft.is_javascript);
 
-            // Read the file once and reuse the buffer across every ruleset.
-            match std::fs::read(path) {
-                Ok(data) => {
+            // Reuse the single buffer across every ruleset.
+            {
+                {
                     for (name, rules) in &self.yara_rules {
                         let applies = match name.as_str() {
                             "machine_learning_pe" => is_pe,
@@ -583,7 +719,7 @@ impl Pipeline {
                             continue;
                         }
                         match scan_bytes_yara(
-                            &data,
+                            data,
                             rules,
                             &self.excluded_yara_rules,
                             self.config.fast_scan,
@@ -595,9 +731,6 @@ impl Pipeline {
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    scan_error = Some(format!("read error: {}", e));
                 }
             }
             let yara_elapsed_ms = self
@@ -613,13 +746,13 @@ impl Pipeline {
                     elapsed_ms: yara_elapsed_ms,
                 });
             } else if !all_matches.is_empty() {
-                yara_x_matches = all_matches.clone();
+                yara_x_matches = yara_hit_names(&all_matches);
                 match classify_yara_verdict(&all_matches) {
                     Some(yara_verdict) => {
                         engines.push(EngineResult {
                             engine: "yara_x",
                             verdict: yara_verdict,
-                            detail: all_matches.join(", "),
+                            detail: yara_x_matches.join(", "),
                             elapsed_ms: yara_elapsed_ms,
                         });
 
@@ -654,7 +787,7 @@ impl Pipeline {
                         engines.push(EngineResult {
                             engine: "yara_x",
                             verdict: Verdict::Clean,
-                            detail: format!("informational: {}", all_matches.join(", ")),
+                            detail: format!("informational: {}", yara_x_matches.join(", ")),
                             elapsed_ms: yara_elapsed_ms,
                         });
                     }
@@ -928,7 +1061,7 @@ impl Pipeline {
             });
         } else {
             let t0 = Instant::now();
-            let mut all_matches: Vec<String> = Vec::new();
+            let mut all_matches: Vec<YaraHit> = Vec::new();
             let mut scan_error: Option<String> = None;
             let is_pe = static_file_type.as_ref().is_some_and(|ft| ft.is_pe);
             let is_js = static_file_type.as_ref().is_some_and(|ft| ft.is_javascript);
@@ -958,13 +1091,13 @@ impl Pipeline {
                     elapsed_ms: yara_elapsed_ms,
                 });
             } else if !all_matches.is_empty() {
-                yara_x_matches = all_matches.clone();
+                yara_x_matches = yara_hit_names(&all_matches);
                 match classify_yara_verdict(&all_matches) {
                     Some(yara_verdict) => {
                         engines.push(EngineResult {
                             engine: "yara_x",
                             verdict: yara_verdict,
-                            detail: all_matches.join(", "),
+                            detail: yara_x_matches.join(", "),
                             elapsed_ms: yara_elapsed_ms,
                         });
                         let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
@@ -985,7 +1118,7 @@ impl Pipeline {
                         engines.push(EngineResult {
                             engine: "yara_x",
                             verdict: Verdict::Clean,
-                            detail: format!("informational: {}", all_matches.join(", ")),
+                            detail: format!("informational: {}", yara_x_matches.join(", ")),
                             elapsed_ms: yara_elapsed_ms,
                         });
                     }
@@ -1011,37 +1144,6 @@ impl Pipeline {
             ml_malware_probability: ml_verdict.map(|m| m.probability),
             clamav_result: None,
         }
-    }
-
-    fn run_ml_inference(&self, path: &Path) -> Option<MlVerdict> {
-        let device = NdArrayDevice::default();
-        let bytes = std::fs::read(path).ok()?;
-
-        if let Some(ref model) = self.pe_ml_model {
-            if let Some(prob) =
-                crate::ml::inference::predict_pe::<InferBackend>(&bytes, model, &device)
-            {
-                return Some(MlVerdict {
-                    verdict: ml_classify(prob, self.config.ml_threshold),
-                    probability: prob,
-                });
-            }
-        }
-
-        if let Some(ref model) = self.js_ml_model {
-            if let Ok(source) = String::from_utf8(bytes) {
-                if let Some(prob) =
-                    crate::ml::inference::predict_js::<InferBackend>(&source, model, &device)
-                {
-                    return Some(MlVerdict {
-                        verdict: ml_classify(prob, self.config.ml_threshold),
-                        probability: prob,
-                    });
-                }
-            }
-        }
-
-        None
     }
 
     /// ML inference from an already-read byte buffer.
@@ -1129,7 +1231,12 @@ pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
         return Vec::new();
     }
 
-    let evtx_dir = Path::new(r"C:\Windows\System32\winevt\Logs");
+    // Resolve the event-log dir from %SystemRoot% (Windows is not always on C:).
+    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    let evtx_dir = PathBuf::from(system_root)
+        .join("System32")
+        .join("winevt")
+        .join("Logs");
     if !evtx_dir.exists() {
         return Vec::new();
     }
@@ -1226,12 +1333,23 @@ fn load_yara_rules_from_dir(dir: &Path) -> Vec<(String, Rules)> {
 // Scans an already-read byte buffer against one ruleset. Pulling the file read
 // out of here lets scan_file read the bytes once and reuse them across every
 // ruleset instead of re-reading the file per ruleset.
+/// A matched YARA-X rule: its name plus whether its metadata marks it suspicious
+/// (e.g. a `severity`/`category = "suspicious"` meta, not just a `SUSP_` name).
+pub struct YaraHit {
+    pub name: String,
+    pub meta_suspicious: bool,
+}
+
+fn yara_hit_names(hits: &[YaraHit]) -> Vec<String> {
+    hits.iter().map(|h| h.name.clone()).collect()
+}
+
 fn scan_bytes_yara(
     data: &[u8],
     rules: &Rules,
     exclusions: &HashSet<String>,
     fast_scan: bool,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<YaraHit>, String> {
     let mut scanner = YaraScanner::new(rules);
     if fast_scan {
         scanner.fast_scan(true);
@@ -1240,10 +1358,21 @@ fn scan_bytes_yara(
         .scan(data)
         .map_err(|e| format!("scan error: {}", e))?;
 
-    let matches: Vec<String> = results
+    let matches: Vec<YaraHit> = results
         .matching_rules()
-        .map(|r| r.identifier().to_string())
-        .filter(|rule_id| !exclusions.contains(rule_id))
+        .filter(|r| !exclusions.contains(r.identifier()))
+        .map(|r| {
+            // Flag suspicious if any metadata key or string value says "suspicious".
+            let meta_suspicious = r.metadata().into_iter().any(|(key, value)| {
+                key.to_ascii_lowercase().contains("suspicious")
+                    || matches!(value, MetaValue::String(s)
+                        if s.to_ascii_lowercase().contains("suspicious"))
+            });
+            YaraHit {
+                name: r.identifier().to_string(),
+                meta_suspicious,
+            }
+        })
         .collect();
 
     Ok(matches)
@@ -1294,10 +1423,10 @@ fn scan_bytes_yara_ranges(
 ///   `PUA`              -> Pua
 ///   otherwise          -> Malware
 /// When several rules match, the most severe verdict wins.
-fn classify_yara_verdict(matches: &[String]) -> Option<Verdict> {
+fn classify_yara_verdict(matches: &[YaraHit]) -> Option<Verdict> {
     let mut verdict: Option<Verdict> = None;
-    for name in matches {
-        if let Some(v) = yara_rule_verdict(name) {
+    for hit in matches {
+        if let Some(v) = yara_rule_verdict(hit) {
             verdict = Some(match verdict {
                 Some(current) if current.priority() >= v.priority() => current,
                 _ => v,
@@ -1307,12 +1436,16 @@ fn classify_yara_verdict(matches: &[String]) -> Option<Verdict> {
     verdict
 }
 
-fn yara_rule_verdict(rule: &str) -> Option<Verdict> {
-    let lower = rule.to_ascii_lowercase();
-    if has_name_marker(&lower, "info") {
-        return None;
-    }
-    if has_name_marker(&lower, "susp") || has_name_marker(&lower, "suspicious") {
+fn yara_rule_verdict(hit: &YaraHit) -> Option<Verdict> {
+    // YARA-X matches are Suspicious, PUA, or Malware — no INFO/informational
+    // handling (INFO rules live in clean_rules and aren't in the active set).
+    // Suspicious if the NAME has a SUSP marker or the rule METADATA says
+    // suspicious; PUA on a PUA name marker; otherwise Malware.
+    let lower = hit.name.to_ascii_lowercase();
+    if hit.meta_suspicious
+        || has_name_marker(&lower, "susp")
+        || has_name_marker(&lower, "suspicious")
+    {
         return Some(Verdict::Suspicious);
     }
     if has_name_marker(&lower, "pua") {

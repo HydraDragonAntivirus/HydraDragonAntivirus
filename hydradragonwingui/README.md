@@ -1,28 +1,40 @@
 # hydradragonwingui
 
 A native Win32 GUI for the HydraDragon portable antivirus, written from scratch
-in Rust on the `windows` crate — no GUI framework, just `CreateWindowExW`, a
-window-class `wndproc` message loop, and native controls (a tab control, two
-report-mode ListViews, push buttons, a status line).
+in Rust on the `windows` crate — no GUI framework. The entire interface is
+**custom-painted** with double-buffered GDI: a branded header, a left sidebar
+with hover/active navigation, flat rounded accent buttons, and a themed results
+list. All chrome (header, sidebar, buttons, status bar) is drawn and hit-tested
+by hand in the `wndproc`; the only real child controls are the two ListViews.
+
+## Look & feel
+
+- Light, modern flat theme (Segoe UI, accent blue, danger red), DPI-aware for
+  crisp text on high-resolution displays.
+- Sidebar navigation (**Scan** / **Quarantine**) with hover highlight and an
+  accent active indicator.
+- Owner-painted buttons with normal / hover / pressed states; primary (accent),
+  neutral (outlined) and danger (red) styles.
+- Results list with **severity-colored rows** (red = malware/phishing/abuse,
+  amber = PUA/mining/spam/suspicious) via `NM_CUSTOMDRAW`.
 
 ## What it does
 
-A **tab control** switches between two pages:
+The sidebar switches between two pages:
 
-**Scan tab**
-- **Scan File…** / **Scan Folder…** — native `IFileOpenDialog` shell picker
+**Scan**
+- **Scan File / Scan Folder** — native `IFileOpenDialog` shell picker
   (`FOS_PICKFOLDERS` for folders).
-- A report **ListView** (File / Verdict / Threat) that streams detections as
-  they are found, plus a live status line.
+- A report ListView (File / Verdict / Threat) that streams detections live.
 - **Clean Selected** — disinfects the selected detections via the engine
   (`arenas_for_file` → `disinfect_file`): neutralize matched byte regions in
   place (keeping a `.bak`) or quarantine as fallback. Confirmed with a dialog.
-- **Remove Traces** — runs native trace remediation (`find_traces` → `apply`)
-  for the selected files: a System Restore Point + per-key `.reg` backups are
-  made first, then autorun/service/task/prefetch/startup/uninstall traces are
-  removed. Confirmed with a dialog.
+- **Remove Traces** — native trace remediation (`find_traces` → `apply`) for the
+  selected files: a System Restore Point + per-key `.reg` backups are made first,
+  then autorun/service/task/prefetch/startup/uninstall traces are removed.
+  Confirmed with a dialog.
 
-**Quarantine tab**
+**Quarantine**
 - **Refresh / Restore Selected / Delete Selected** — drives
   `hydradragonav::quarantine::Quarantine` (list / restore / delete) over the
   XOR-encoded quarantine store (`<exe>/quarantine`).
@@ -38,6 +50,50 @@ list/restore/delete are fast file ops and run on the UI thread.
 The engine pipeline (ClamAV/YARA/ML/bloom/static) is loaded from paths relative
 to the executable (`database`, `yara-x`, `bloom_filter`, `ml/…`,
 `hydradragonsig_rules`), the same layout the CLI uses.
+
+## Duplicate dedup cache
+
+Dedup is done **in the engine** (`hydradragonav::pipeline::Pipeline::scan_file_cached`),
+not the GUI — the GUI only renders. To avoid re-scanning identical files, the
+pipeline remembers the **MD5** of every file it classifies (files ≤ 64 MiB) in
+two `fastbloom` bloom filters, persisted next to the executable:
+
+- `good_results.bloom` — clean file hashes.
+- `bad_results.bloom` — malicious file hashes.
+
+A file whose hash is in the **good** bloom is served as clean without re-running
+the engines (the common case — this is the dedup speed-up). A hash in the **bad**
+bloom is **re-scanned to confirm**: the bloom is only a hint, never trusted for a
+detection. The blooms are **built while scanning** (every scanned file records
+into the good/bad bloom), saved after each scan and reloaded on launch, so the
+scanner keeps learning across runs. An edited file (new content → new hash) is
+always re-scanned.
+
+**The first scan is faster too**, not just dedup hits: `Pipeline::scan_file`
+now reads the file **exactly once** into a buffer and runs every engine (MD5
+hash-bloom, ML, hydradragonsig via its single in-memory scanner, URL-bloom,
+ClamAV-from-bytes, YARA) over that buffer — it used to read the file 6–7 times.
+A cache miss is therefore no slower than a plain scan.
+
+Both blooms use a light **1e-4** false-positive rate to stay small (~1.2 MB each
+at the rated ~500k-file capacity; constants `CACHE_FP` / `CACHE_CAPACITY` in
+`pipeline.rs`). False positives are made harmless by design: a bad-bloom false
+positive just triggers one extra re-scan (a clean file is never falsely flagged),
+and a good-bloom false positive only means a rare skipped re-scan.
+
+### Settings → Clear Result Cache
+
+The **Settings** page can wipe both blooms (on disk and in memory). This is
+deliberately labelled *not recommended* — afterwards the scanner re-scans
+everything from scratch and forgets every learned good/bad result. It exists for
+the case where you suspect the cache is stale or corrupted.
+
+## Icon
+
+The HydraDragon icon (`hydradragon/assets/HydraDragonAV.ico`, shared with
+`hydradragonav`) is embedded into the executable by `build.rs` (via `winres`) and
+loaded into the window class — so it shows in the title bar, Alt-Tab, taskbar and
+Explorer.
 
 ## Build / run
 

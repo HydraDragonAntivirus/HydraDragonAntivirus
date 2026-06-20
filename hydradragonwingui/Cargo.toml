@@ -10,17 +10,22 @@ name = "hydradragonwingui"
 path = "src/main.rs"
 
 [dependencies]
-# The scanning engine (pipeline, verdicts, quarantine).
+# The scanning engine (pipeline, verdicts, quarantine, dedup cache).
 hydradragonav = { path = "../hydradragonav" }
 
-# Native Win32/COM GUI — controls, message loop, shell file dialog.
+# Native Win32/COM GUI — controls, message loop, shell file dialog, custom GDI paint.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Controls",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
     "Win32_System_Com",
 ] }
+
+[build-dependencies]
+# Embeds the HydraDragon icon into the executable.
+winres = "0.1"
