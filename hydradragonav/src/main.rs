@@ -375,11 +375,8 @@ fn cmd_scan_single(
         && matches!(
             result.verdict,
             hydradragonav::verdict::Verdict::Malware
-                | hydradragonav::verdict::Verdict::Abuse
                 | hydradragonav::verdict::Verdict::Phishing
                 | hydradragonav::verdict::Verdict::Suspicious
-                | hydradragonav::verdict::Verdict::Spam
-                | hydradragonav::verdict::Verdict::Mining
                 | hydradragonav::verdict::Verdict::Pua
         )
     {
@@ -492,11 +489,8 @@ fn cmd_scan_recursive(
                     if matches!(
                         result.verdict,
                         hydradragonav::verdict::Verdict::Malware
-                            | hydradragonav::verdict::Verdict::Abuse
                             | hydradragonav::verdict::Verdict::Phishing
                             | hydradragonav::verdict::Verdict::Suspicious
-                            | hydradragonav::verdict::Verdict::Spam
-                            | hydradragonav::verdict::Verdict::Mining
                             | hydradragonav::verdict::Verdict::Pua
                     ) {
                         harmful_results.push((path, result));

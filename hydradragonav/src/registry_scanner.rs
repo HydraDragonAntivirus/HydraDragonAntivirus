@@ -238,9 +238,6 @@ impl RegistryScanner {
                     hydradragonsig::models::Verdict::Malware
                         | hydradragonsig::models::Verdict::Suspicious
                         | hydradragonsig::models::Verdict::Pua
-                        | hydradragonsig::models::Verdict::Abuse
-                        | hydradragonsig::models::Verdict::Mining
-                        | hydradragonsig::models::Verdict::Spam
                 );
                 (detected, report.threat_name)
             }

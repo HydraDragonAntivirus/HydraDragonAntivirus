@@ -1294,7 +1294,16 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_STOP => {
             // Signal the worker's scan loop to stop after the in-flight files.
             s.cancel.store(true, Ordering::Relaxed);
-            set_status(hwnd, s, "Stopping…");
+            // Switch to the Paused toolbar right away (Resume + the normal
+            // actions) instead of waiting for the worker to finish the in-flight
+            // file and acknowledge with `Paused`. Without this the Stop button
+            // lingers for as long as the current file takes to scan. The worker's
+            // later `Paused` message just refreshes the counts. The sidebar nav is
+            // independent of scan state, so the user can still leave this page.
+            s.scan_state = ScanState::Paused;
+            s.status = "Stopping… (scan paused — Resume to continue)".into();
+            layout(hwnd);
+            let _ = InvalidateRect(Some(hwnd), None, false);
         }
         CMD_RESUME => {
             let _ = s.work_tx.send(WorkRequest::Resume);

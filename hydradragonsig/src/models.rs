@@ -21,9 +21,6 @@ pub enum Verdict {
     Clean,
     Suspicious,
     Pua,
-    Mining,
-    Spam,
-    Abuse,
     Malware,
 }
 
@@ -34,9 +31,6 @@ pub enum ScanResultCode {
     Heuristic = 1,
     Malicious = 2,
     Unwanted = 3,
-    Spam = 4,
-    Mining = 5,
-    Abuse = 6,
     GeneralError = -1,
     WrongHandle = -2,
     UnknownHandle = -3,
@@ -57,9 +51,6 @@ impl ScanResultCode {
             1 => Some(Self::Heuristic),
             2 => Some(Self::Malicious),
             3 => Some(Self::Unwanted),
-            4 => Some(Self::Spam),
-            5 => Some(Self::Mining),
-            6 => Some(Self::Abuse),
             -1 => Some(Self::GeneralError),
             -2 => Some(Self::WrongHandle),
             -3 => Some(Self::UnknownHandle),
@@ -76,7 +67,7 @@ impl ScanResultCode {
     }
 
     pub fn is_infected(self) -> bool {
-        matches!(self, Self::Heuristic | Self::Malicious | Self::Unwanted | Self::Spam | Self::Mining | Self::Abuse)
+        matches!(self, Self::Heuristic | Self::Malicious | Self::Unwanted)
     }
 
     pub fn is_error(self) -> bool {
@@ -89,9 +80,6 @@ impl ScanResultCode {
             Verdict::Clean => Self::Ok,
             Verdict::Suspicious => Self::Heuristic,
             Verdict::Pua => Self::Unwanted,
-            Verdict::Spam => Self::Spam,
-            Verdict::Mining => Self::Mining,
-            Verdict::Abuse => Self::Abuse,
             Verdict::Malware => Self::Malicious,
         }
     }
@@ -225,9 +213,6 @@ impl Verdict {
             Self::Clean => "CLEAN",
             Self::Suspicious => "SUSPICIOUS",
             Self::Pua => "PUA",
-            Self::Mining => "MINING",
-            Self::Spam => "SPAM",
-            Self::Abuse => "ABUSE",
             Self::Malware => "MALWARE",
         }
     }

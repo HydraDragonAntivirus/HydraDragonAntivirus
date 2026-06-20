@@ -397,15 +397,18 @@ impl Pipeline {
         let mut clamav_result = None;
         let mut static_file_type: Option<FileTypeInfo> = None;
 
-        // --- 1. HASH SCANNER (MD5 bloom; reuses the precomputed digest) ---
+        // --- 1. HASH SCANNER (single bloom: md5/sha1/sha256/ssdeep/tlsh) ---
+        // Old-style: every signature type sits in one bloom and is matched by
+        // exact membership; the matched hash type is reported in the detail.
         if let Some(ref scanner) = self.hash_scanner {
             let t0 = Instant::now();
-            let (verdict, detail) = match scanner.scan_md5(&hex::encode(md5)) {
+            let (result, which) = scanner.scan_all_buffer(data, &hex::encode(md5));
+            let (verdict, detail) = match result {
                 crate::hash_scanner::HashScanResult::Whitelisted => {
-                    (Verdict::Trusted, "MD5 whitelisted".to_string())
+                    (Verdict::Trusted, format!("{which} whitelisted"))
                 }
                 crate::hash_scanner::HashScanResult::Blacklisted => {
-                    (Verdict::Malware, "MD5 blacklisted".to_string())
+                    (Verdict::Malware, format!("{which} blacklisted"))
                 }
                 crate::hash_scanner::HashScanResult::Unknown => {
                     (Verdict::Clean, "not found".to_string())
@@ -502,9 +505,6 @@ impl Pipeline {
                         hydradragonsig::models::Verdict::Clean => Verdict::Clean,
                         hydradragonsig::models::Verdict::Trusted => Verdict::Trusted,
                         hydradragonsig::models::Verdict::Pua => Verdict::Pua,
-                        hydradragonsig::models::Verdict::Mining => Verdict::Mining,
-                        hydradragonsig::models::Verdict::Spam => Verdict::Spam,
-                        hydradragonsig::models::Verdict::Abuse => Verdict::Abuse,
                         hydradragonsig::models::Verdict::Suspicious => Verdict::Suspicious,
                         hydradragonsig::models::Verdict::Malware => Verdict::Malware,
                     };
@@ -530,10 +530,7 @@ impl Pipeline {
                     if matches!(
                         hv,
                         Verdict::Malware
-                            | Verdict::Abuse
                             | Verdict::Suspicious
-                            | Verdict::Spam
-                            | Verdict::Mining
                             | Verdict::Pua
                     ) {
                         return ScanResult {
@@ -765,10 +762,7 @@ impl Pipeline {
                             matches!(
                                 e.verdict,
                                 Verdict::Malware
-                                    | Verdict::Abuse
                                     | Verdict::Suspicious
-                                    | Verdict::Spam
-                                    | Verdict::Mining
                                     | Verdict::Pua
                                     | Verdict::Phishing
                             )
@@ -970,7 +964,7 @@ impl Pipeline {
                                 clamav_result: None,
                             };
                         }
-                        if matches!(hv, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua) {
+                        if matches!(hv, Verdict::Malware | Verdict::Suspicious | Verdict::Pua) {
                             return ScanResult {
                                 verdict: hv,
                                 threat_name: report.threat_name,
@@ -1109,7 +1103,7 @@ impl Pipeline {
                             detail: yara_x_matches.join(", "),
                             elapsed_ms: yara_elapsed_ms,
                         });
-                        let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Abuse | Verdict::Suspicious | Verdict::Spam | Verdict::Mining | Verdict::Pua | Verdict::Phishing));
+                        let still_detected = engines.iter().any(|e| matches!(e.verdict, Verdict::Malware | Verdict::Suspicious | Verdict::Pua | Verdict::Phishing));
                         if still_detected {
                             let final_verdict = Verdict::aggregate(&engines.iter().map(|e| e.verdict).collect::<Vec<_>>());
                             return ScanResult {
@@ -1218,9 +1212,6 @@ fn convert_verdict(v: &hydradragonsig::models::Verdict) -> Verdict {
         hydradragonsig::models::Verdict::Clean => Verdict::Clean,
         hydradragonsig::models::Verdict::Trusted => Verdict::Trusted,
         hydradragonsig::models::Verdict::Pua => Verdict::Pua,
-        hydradragonsig::models::Verdict::Mining => Verdict::Mining,
-        hydradragonsig::models::Verdict::Spam => Verdict::Spam,
-        hydradragonsig::models::Verdict::Abuse => Verdict::Abuse,
         hydradragonsig::models::Verdict::Suspicious => Verdict::Suspicious,
         hydradragonsig::models::Verdict::Malware => Verdict::Malware,
     }

@@ -224,7 +224,7 @@ fn finalize_report_metadata(report: &mut ScanReport, rules: &RuleSet, _options: 
         .filter(|finding| {
             matches!(
                 finding.verdict,
-                Verdict::Malware | Verdict::Abuse | Verdict::Pua | Verdict::Mining | Verdict::Spam
+                Verdict::Malware | Verdict::Pua
             )
         })
         .count() as u32;

@@ -3106,6 +3106,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzzyhash"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f79db37cf4b2ca9a6b735f62ca679926ba0d233d47e164147298fd4fa4786db"
+
+[[package]]
 name = "gemm"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3708,6 +3714,7 @@ dependencies = [
  "capstone",
  "clap",
  "fastbloom",
+ "fuzzyhash",
  "goblin",
  "hex",
  "hydradragonclamav",
@@ -3724,8 +3731,10 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha1 0.11.0",
  "sha2 0.11.0",
  "thiserror 2.0.18",
+ "tlsh-rs",
  "windows",
  "winreg",
  "winres",
@@ -6761,6 +6770,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7311,6 +7331,12 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "tlsh-rs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c8f3c6805ba80052aab9545c3dcba2dc2cd344ea5f07a5a26e8dd972b9637a0"
 
 [[package]]
 name = "tokenizers"
@@ -8929,7 +8955,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "serde",
  "serde_json",
- "sha1",
+ "sha1 0.10.6",
  "sha2 0.10.9",
  "simd-adler32",
  "simd_cesu8",
@@ -9109,7 +9135,7 @@ dependencies = [
  "flate2",
  "hmac",
  "pbkdf2",
- "sha1",
+ "sha1 0.10.6",
  "time",
  "zstd 0.11.2+zstd.1.5.2",
 ]

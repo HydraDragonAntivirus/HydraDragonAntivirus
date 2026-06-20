@@ -6,11 +6,8 @@ pub enum Verdict {
     Trusted,
     Clean,
     Pua,
-    Mining,
-    Spam,
     Suspicious,
     Phishing,
-    Abuse,
     Malware,
 }
 
@@ -20,11 +17,8 @@ impl Verdict {
             Verdict::Trusted => "Trusted",
             Verdict::Clean => "Clean",
             Verdict::Pua => "PUA",
-            Verdict::Mining => "Mining",
-            Verdict::Spam => "Spam",
             Verdict::Suspicious => "Suspicious",
             Verdict::Phishing => "Phishing",
-            Verdict::Abuse => "Abuse",
             Verdict::Malware => "Malware",
         }
     }
@@ -34,12 +28,9 @@ impl Verdict {
             Verdict::Trusted => 0,
             Verdict::Clean => 1,
             Verdict::Pua => 2,
-            Verdict::Mining => 3,
-            Verdict::Spam => 4,
-            Verdict::Suspicious => 5,
-            Verdict::Phishing => 6,
-            Verdict::Abuse => 7,
-            Verdict::Malware => 8,
+            Verdict::Suspicious => 3,
+            Verdict::Phishing => 4,
+            Verdict::Malware => 5,
         }
     }
 

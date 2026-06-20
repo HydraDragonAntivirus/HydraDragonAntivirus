@@ -17,6 +17,7 @@
 import os
 import sys
 import re
+import csv
 import datetime
 import tempfile
 from optparse import OptionParser
@@ -49,6 +50,7 @@ def build_cli_parser():
     parser.add_option("-s", "--subdirectories", action="store_true", default=False, help="If --yara-path is a directory, recurse into its subdirectories.")
     parser.add_option("-w", "--workers", dest="workers", type="int", default=os.cpu_count(), help=f"Number of parallel processes to use for scanning. (Default: {os.cpu_count()})")
     parser.add_option("--from-log", action="store_true", dest="from_log", default=False, help="Skip scanning. Read already-identified FP rules from removal.log and remove them directly.")
+    parser.add_option("--from-csv", dest="from_csv", default=None, metavar="CSV", help="Skip scanning. Read FP YARA rule names from a HydraDragon scan-results CSV (the yara_x: entries in the 'Threat' column) and remove them directly.")
     parser.add_option("--skip-yara-files", action="store_true", dest="skip_yara_files", default=False, help="Skip .yar, .yara, and .yrc files when scanning the benign files directory.")
     return parser
 
@@ -195,16 +197,18 @@ def find_rule_end_index(content, start_index):
 
 
 def process_yara_file(filepath, rules_to_remove):
-    """Reads a YARA file, removes the specified rules, and overwrites the file."""
+    """Reads a YARA file, removes the specified rules, and overwrites the file.
+    Returns a list of the removed rule blocks (their full source text), in the
+    order they appeared in the file."""
     try:
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             original_content = f.read()
     except Exception as e:
         log_message(f"Error: Could not read file {filepath}. Skipping. Details: {e}")
-        return
+        return []
 
     modified_content = original_content
-    rules_removed_in_file = 0
+    removed_blocks = []
     rule_pattern = re.compile(r"^\s*(?:private\s+)?rule\s+([a-zA-Z0-9_]+)", re.MULTILINE)
 
     for match in reversed(list(rule_pattern.finditer(original_content))):
@@ -213,18 +217,23 @@ def process_yara_file(filepath, rules_to_remove):
             start_index = match.start()
             end_index = find_rule_end_index(original_content, start_index)
             if end_index != -1:
+                # Capture the exact source of the rule before it is sliced out.
+                removed_blocks.append(original_content[start_index:end_index])
                 modified_content = modified_content[:start_index] + modified_content[end_index:]
-                rules_removed_in_file += 1
             else:
                 log_message(f"Warning: Could not find matching closing brace for rule '{rule_name}' in {filepath}. Skipping.")
 
-    if rules_removed_in_file > 0:
-        log_message(f"INFO: Marked {rules_removed_in_file} rule(s) for removal from {filepath}")
+    if removed_blocks:
+        # Iterated in reverse; restore source order for the archive.
+        removed_blocks.reverse()
+        log_message(f"INFO: Marked {len(removed_blocks)} rule(s) for removal from {filepath}")
         try:
             with open(filepath, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(modified_content)
         except Exception as e:
             log_message(f"Error: Could not write changes to {filepath}. Details: {e}")
+
+    return removed_blocks
 
 
 def parse_fp_rules_from_log(log_path):
@@ -244,27 +253,149 @@ def parse_fp_rules_from_log(log_path):
     return fp_rules
 
 
+def extract_yara_rules_from_threat(threat):
+    """
+    Pulls YARA-X rule names out of a scan-results 'Threat' cell, e.g.
+    'yara_x: rule_a, rule_b  |  ml p=0.000' -> {'rule_a', 'rule_b'}.
+    Only the yara_x:/yara: segment is considered; other engines (ml, clamav,
+    hydradragonsig, ...) are ignored since they are not rule-name based.
+    """
+    rules = set()
+    # Detections from different engines are separated by '|'.
+    for segment in threat.split("|"):
+        match = re.match(r"(?i)\s*yara(?:_x)?\s*:\s*(.+)", segment)
+        if not match:
+            continue
+        for name in match.group(1).split(","):
+            name = name.strip()
+            # Keep only valid YARA rule identifiers (drops stray text/counters).
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                rules.add(name)
+    return rules
+
+
+def parse_fp_rules_from_csv(csv_path):
+    """Parses a HydraDragon scan-results CSV and returns the set of YARA rule
+    names that fired (from the 'Threat' column)."""
+    fp_rules = set()
+    try:
+        with open(csv_path, "r", encoding="utf-8", newline="") as f:
+            # Skip the leading '# ...' comment lines that precede the header row.
+            data_lines = (line for line in f if not line.lstrip().startswith("#"))
+            reader = csv.DictReader(data_lines)
+            if not reader.fieldnames or "Threat" not in reader.fieldnames:
+                log_message(f"Error: CSV '{csv_path}' has no 'Threat' column. Found: {reader.fieldnames}")
+                return fp_rules
+            for row in reader:
+                threat = row.get("Threat") or ""
+                fp_rules.update(extract_yara_rules_from_threat(threat))
+    except FileNotFoundError:
+        log_message(f"Error: CSV file '{csv_path}' not found.")
+    except (IOError, csv.Error) as e:
+        log_message(f"Error: Could not read CSV file '{csv_path}': {e}")
+    return fp_rules
+
+
+def collect_yara_files(yara_path, recursive):
+    """Returns the list of YARA source files to clean for the given path."""
+    if os.path.isfile(yara_path):
+        return [yara_path]
+    files_to_clean = []
+    if recursive:
+        for root, _, files in os.walk(yara_path):
+            for f in files:
+                if f.endswith((".yar", ".yara")):
+                    files_to_clean.append(os.path.join(root, f))
+    else:
+        for f in os.listdir(yara_path):
+            fp = os.path.join(yara_path, f)
+            if os.path.isfile(fp) and f.endswith((".yar", ".yara")):
+                files_to_clean.append(fp)
+    return files_to_clean
+
+
+def clean_yara_files(yara_path, rules_to_remove, recursive):
+    """Removes the named rules from every YARA file under yara_path.
+    Returns the list of removed rule blocks (full source text) across all files."""
+    files_to_clean = collect_yara_files(yara_path, recursive)
+    log_message(f"Cleaning {len(files_to_clean)} YARA file(s)...")
+    removed_blocks = []
+    for f in tqdm(files_to_clean, desc="Cleaning YARA Files"):
+        removed_blocks.extend(process_yara_file(f, rules_to_remove))
+    return removed_blocks
+
+
+def next_available_path(base_name):
+    """Return base_name if it doesn't exist, else base_name with an incrementing
+    _1, _2, ... suffix inserted before the extension (e.g. removed_fp_rules_1.yar)."""
+    if not os.path.exists(base_name):
+        return base_name
+    root, ext = os.path.splitext(base_name)
+    i = 1
+    while os.path.exists(f"{root}_{i}{ext}"):
+        i += 1
+    return f"{root}_{i}{ext}"
+
+
+def write_removed_rules_archive(removed_blocks, base_name="removed_fp_rules.yar"):
+    """Write the removed rule blocks to removed_fp_rules.yar (or _1, _2, ... if it
+    already exists). Returns the path written, or None if there was nothing to write."""
+    if not removed_blocks:
+        log_message("No rules were removed, so no archive file was created.")
+        return None
+    out_path = next_available_path(base_name)
+    header = (
+        f"// {len(removed_blocks)} false-positive rule(s) removed by "
+        f"false_positive_remover.py\n\n"
+    )
+    body = "\n\n".join(block.strip() for block in removed_blocks)
+    try:
+        with open(out_path, "w", encoding="utf-8", errors="ignore") as f:
+            f.write(header + body + "\n")
+        log_message(f"INFO: Archived {len(removed_blocks)} removed rule(s) to {out_path}")
+    except Exception as e:
+        log_message(f"Error: Could not write removed-rules archive {out_path}. Details: {e}")
+        return None
+    return out_path
+
+
 def main():
     """Main function to parse arguments and start the process."""
     parser = build_cli_parser()
     opts, _ = parser.parse_args()
 
-    # Only require fp_path if NOT using --from-log
-    if not opts.from_log and not opts.fp_path:
+    # The "skip scanning" modes (--from-log / --from-csv) don't need benign files.
+    skip_scan = opts.from_log or bool(opts.from_csv)
+
+    # Only require fp_path when actually scanning benign files.
+    if not skip_scan and not opts.fp_path:
         parser.print_help()
         sys.exit(1)
 
     log_message("--- YARA False Positive Remover Started ---")
 
     yara_path = opts.yara_path
-    if not os.path.exists(yara_path):
+    if not yara_path or not os.path.exists(yara_path):
         log_message(f"Error: YARA path does not exist: '{yara_path}'")
         sys.exit(1)
-    # Check benign files path only if NOT using --from-log
-    if not opts.from_log:
+    # Check benign files path only when scanning.
+    if not skip_scan:
         if not os.path.isdir(opts.fp_path):
             log_message(f"Error: Path for benign files must be a directory: '{opts.fp_path}'")
             sys.exit(1)
+
+    # --from-csv mode: skip scanning, parse FP rule names from a scan-results CSV.
+    if opts.from_csv:
+        log_message(f"--- From-CSV Mode: Reading FP rules from '{opts.from_csv}' ---")
+        false_positive_rules = parse_fp_rules_from_csv(opts.from_csv)
+        if not false_positive_rules:
+            log_message("Info: No YARA FP rules found in the CSV. Exiting.")
+            sys.exit(0)
+        log_message(f"Found {len(false_positive_rules)} unique FP rule(s) in the CSV. Proceeding to clean...")
+        removed_blocks = clean_yara_files(yara_path, false_positive_rules, opts.subdirectories)
+        write_removed_rules_archive(removed_blocks)
+        log_message("--- YARA False Positive Remover Finished ---")
+        sys.exit(0)
 
     # --from-log mode: skip scanning, parse rules directly from removal.log
     if opts.from_log:
@@ -274,23 +405,7 @@ def main():
             log_message("Info: No FP rules found in log. Exiting.")
             sys.exit(0)
         log_message(f"Found {len(false_positive_rules)} unique FP rules in log. Proceeding to clean...")
-        files_to_clean = []
-        if os.path.isfile(yara_path):
-            files_to_clean.append(yara_path)
-        else:
-            if opts.subdirectories:
-                for root, _, files in os.walk(yara_path):
-                    for f in files:
-                        if f.endswith((".yar", ".yara")):
-                            files_to_clean.append(os.path.join(root, f))
-            else:
-                for f in os.listdir(yara_path):
-                    fp = os.path.join(yara_path, f)
-                    if os.path.isfile(fp) and f.endswith((".yar", ".yara")):
-                        files_to_clean.append(fp)
-        log_message(f"Cleaning {len(files_to_clean)} YARA file(s)...")
-        for f in tqdm(files_to_clean, desc="Cleaning YARA Files"):
-            process_yara_file(f, false_positive_rules)
+        clean_yara_files(yara_path, false_positive_rules, opts.subdirectories)
         log_message("--- YARA False Positive Remover Finished ---")
         sys.exit(0)
 
@@ -320,24 +435,7 @@ def main():
     log_message(f"Identified {len(false_positive_rules)} unique false positive rules to be removed.")
 
     # 2. Process the YARA path to remove the identified rules
-    files_to_clean = []
-    if os.path.isfile(yara_path):
-        files_to_clean.append(yara_path)
-    else:  # is a directory
-        if opts.subdirectories:
-            for root, _, files in os.walk(yara_path):
-                for f in files:
-                    if f.endswith((".yar", ".yara")):
-                        files_to_clean.append(os.path.join(root, f))
-        else:
-            for f in os.listdir(yara_path):
-                fp = os.path.join(yara_path, f)
-                if os.path.isfile(fp) and f.endswith((".yar", ".yara")):
-                    files_to_clean.append(fp)
-
-    log_message(f"Cleaning {len(files_to_clean)} YARA file(s)...")
-    for f in tqdm(files_to_clean, desc="Cleaning YARA Files"):
-        process_yara_file(f, false_positive_rules)
+    clean_yara_files(yara_path, false_positive_rules, opts.subdirectories)
 
     log_message("--- YARA False Positive Remover Finished ---")
 

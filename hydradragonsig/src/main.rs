@@ -71,15 +71,6 @@ impl FpRemoveSelector {
                 "pua" => {
                     verdicts.insert(Verdict::Pua);
                 }
-                "mining" => {
-                    verdicts.insert(Verdict::Mining);
-                }
-                "spam" => {
-                    verdicts.insert(Verdict::Spam);
-                }
-                "abuse" => {
-                    verdicts.insert(Verdict::Abuse);
-                }
                 "malware" => {
                     verdicts.insert(Verdict::Malware);
                 }
@@ -108,7 +99,7 @@ impl FpRemoveSelector {
             ]
             .into_iter()
             .collect(),
-            verdicts: [Verdict::Trusted, Verdict::Clean, Verdict::Suspicious, Verdict::Pua, Verdict::Mining, Verdict::Spam, Verdict::Abuse, Verdict::Malware]
+            verdicts: [Verdict::Trusted, Verdict::Clean, Verdict::Suspicious, Verdict::Pua, Verdict::Malware]
                 .into_iter()
                 .collect(),
         }
@@ -529,21 +520,12 @@ fn main() -> Result<()> {
     }
 
     let malware = reports.iter().any(|r| r.verdict == Verdict::Malware);
-    let abuse = reports.iter().any(|r| r.verdict == Verdict::Abuse);
     let pua = reports.iter().any(|r| r.verdict == Verdict::Pua);
-    let mining = reports.iter().any(|r| r.verdict == Verdict::Mining);
-    let spam = reports.iter().any(|r| r.verdict == Verdict::Spam);
     let detected = reports.iter().any(|r| !r.findings.is_empty());
     if malware {
         std::process::exit(3);
-    } else if abuse {
-        std::process::exit(5);
     } else if pua {
         std::process::exit(4);
-    } else if mining {
-        std::process::exit(6);
-    } else if spam {
-        std::process::exit(7);
     } else if detected {
         std::process::exit(2);
     }
@@ -1216,10 +1198,7 @@ fn print_pretty(reports: &[hydradragonsig::models::ScanReport]) {
     for report in reports {
         let badge = match report.verdict {
             Verdict::Malware => "[MALWARE]".red().bold(),
-            Verdict::Abuse => "[ABUSE]".red(),
             Verdict::Pua => "[PUA]".yellow(),
-            Verdict::Mining => "[MINING]".yellow(),
-            Verdict::Spam => "[SPAM]".yellow(),
             Verdict::Suspicious => "[SUSPICIOUS]".yellow().bold(),
             Verdict::Trusted => "[TRUSTED]".green(),
             Verdict::Clean => "[CLEAN]".green().bold(),

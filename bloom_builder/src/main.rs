@@ -22,6 +22,7 @@ fn main() {
     build_whitelist_bloom(dir);
     build_urlhaus_bloom(dir);
     build_phishing_bloom(dir);
+    build_malwareurl_bloom(dir);
 }
 
 fn count_plain_lines(path: &Path) -> usize {
@@ -144,9 +145,11 @@ fn build_blacklist_bloom(dir: &str) {
                 Ok(r) => r,
                 Err(_) => continue,
             };
-            // col 1=sha256, col 2=md5, col 3=sha1, col 12=ssdeep, col 13=tlsh
+            // All signatures live in one bloom: col 1=sha256, 2=md5, 3=sha1,
+            // 12=ssdeep, 13=tlsh. The scanner tells them apart by content
+            // (length, ':' for ssdeep, 'T1' prefix for tlsh).
             // skip sha256 if sha256_db present, skip md5 if md5_db present
-            for col in [1usize, 2, 3, 13] {
+            for col in [1usize, 2, 3, 12, 13] {
                 if col == 1 && has_sha256_db {
                     continue;
                 }
@@ -187,7 +190,7 @@ fn build_blacklist_bloom(dir: &str) {
                 Ok(r) => r,
                 Err(_) => continue,
             };
-            for col in [1usize, 2, 3, 13] {
+            for col in [1usize, 2, 3, 12, 13] {
                 if let Some(h) = r.get(col) {
                     let h = h.trim().trim_matches('"');
                     if !h.is_empty() && h != "n/a" {
@@ -465,3 +468,37 @@ fn build_phishing_bloom(dir: &str) {
     }
     save_bloom(&bloom, &format!("{}/phishing.bloom", dir));
 }
+
+// ── malware URLs ─────────────────────────────────────────────────────────────
+
+fn build_malwareurl_bloom(dir: &str) {
+    let path = Path::new(dir).join("MaliciousLinks.txt");
+    if !path.exists() {
+        println!("[!] MaliciousLinks.txt not found, skipping");
+        return;
+    }
+
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("ERROR: {}", e);
+            return;
+        }
+    };
+
+    // Plain text feed: one malicious URL per line, '#' lines are comments.
+    let urls: Vec<&str> = content
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+
+    let total = urls.len();
+    println!("[+] Malware URL expected items: {}", total);
+    let bloom = make_bloom(total);
+    for u in &urls {
+        bloom.insert(*u);
+    }
+    save_bloom(&bloom, &format!("{}/malwareurl.bloom", dir));
+}
+
