@@ -531,6 +531,17 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
     let ret = Parser::new(&allocator, source, source_type).parse();
     let program = ret.program;
 
+    // Mirror extract_pe_features (which returns None for non-PE): only score input
+    // that is actually valid JavaScript. Previously this returned Some() even when
+    // the parse failed, so during TRAINING any non-JS / unparseable file in the
+    // malicious folder was learned as "malware", and at INFERENCE any benign JS the
+    // parser choked on (modern syntax, edge cases) looked like that class → false
+    // positives. Rejecting unparseable input removes that asymmetry with the PE
+    // model, which is exactly why PE rarely false-positives and JS did.
+    if !ret.errors.is_empty() {
+        return None;
+    }
+
     let parse_errors = ret.errors.len();
     let parse_success = if parse_errors == 0 { 1.0 } else { 0.0 };
 
