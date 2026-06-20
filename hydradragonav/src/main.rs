@@ -218,6 +218,23 @@ fn cmd_scan(
 }
 
 fn cmd_scan_metadata(json: bool, config: &FullConfig) {
+    // Non-files mode = memory + registry + logs. The memory scan needs the engine,
+    // so build the pipeline here too (no file scanning happens).
+    let pipeline = Pipeline::new(PipelineConfig {
+        bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
+        yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
+        hydradragonsig_rules_dir: config
+            .hydradragonsig_rules_dir
+            .clone()
+            .filter(|p| p.exists()),
+        pe_ml_model_path: config.pe_ml_model.clone().filter(|p| p.exists()),
+        js_ml_model_path: config.js_ml_model.clone().filter(|p| p.exists()),
+        clamav_db: Some(config.db.clone()).filter(|p| p.exists()),
+        hayabusa_dir: config.hayabusa_dir.clone().filter(|p| p.exists()),
+        scan_mode: ScanMode::NonFiles,
+        ..Default::default()
+    });
+
     if json {
         let mut output = serde_json::json!({});
         let reg_result = scan_registry(config);
@@ -226,6 +243,8 @@ fn cmd_scan_metadata(json: bool, config: &FullConfig) {
             let hayabusa_matches = scan_hayabusa_once(hdir);
             output["hayabusa_matches"] = serde_json::to_value(&hayabusa_matches).unwrap();
         }
+        output["memory_scan"] =
+            serde_json::to_value(memory_scanner::scan_process_memory(&pipeline)).unwrap();
         println!("{}", serde_json::to_string(&output).unwrap());
     } else {
         println!("[Metadata Scan]");
@@ -239,6 +258,7 @@ fn cmd_scan_metadata(json: bool, config: &FullConfig) {
                 }
             }
         }
+        print_memory_scan(&memory_scanner::scan_process_memory(&pipeline));
     }
 }
 
