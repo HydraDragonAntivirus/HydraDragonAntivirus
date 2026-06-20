@@ -299,13 +299,13 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
                 };
 
                 let _ = CertFreeCertificateContext(Some(p_cert_context));
-                let _ = CertCloseStore(store_handle, 0);
+                let _ = CertCloseStore(Some(store_handle), 0);
                 let _ = CryptMsgClose(Some(msg_handle as *const std::ffi::c_void));
 
                 return result;
             }
 
-            let _ = CertCloseStore(store_handle, 0);
+            let _ = CertCloseStore(Some(store_handle), 0);
             let _ = CryptMsgClose(Some(msg_handle as *const std::ffi::c_void));
         }
 
