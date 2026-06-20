@@ -3802,6 +3802,7 @@ name = "hydradragonwingui"
 version = "0.1.0"
 dependencies = [
  "hydradragonav",
+ "md-5 0.11.0",
  "windows",
  "winres",
 ]

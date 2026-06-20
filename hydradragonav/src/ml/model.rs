@@ -25,7 +25,7 @@ impl Default for MalwareNetConfig {
     fn default() -> Self {
         Self {
             input_dim: PeFeatureVector::LEN,
-            hidden_dim: 256,
+            hidden_dim: 512,
             num_classes: 2,
         }
     }
@@ -35,7 +35,7 @@ impl MalwareNetConfig {
     pub fn default_js() -> Self {
         Self {
             input_dim: JsFeatureVector::LEN,
-            hidden_dim: 256,
+            hidden_dim: 512,
             num_classes: 2,
         }
     }

@@ -12,11 +12,13 @@
 //! real child controls are the two ListViews. Scanning / disinfection /
 //! trace-removal run on a background worker driving the `hydradragonav` engine.
 
+use std::collections::VecDeque;
 use std::ffi::c_void;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use hydradragonav::disinfector::{self, DisinfectOutcome};
 use hydradragonav::memory_scanner;
@@ -26,12 +28,17 @@ use hydradragonav::registry_scanner::RegistryScanner;
 use hydradragonav::remediation;
 
 use windows::core::{w, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::UI::Controls::{
     InitCommonControlsEx, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, LVCF_SUBITEM, LVCF_TEXT,
     LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW, NMHDR, NMLVCUSTOMDRAW,
@@ -68,6 +75,8 @@ const CMD_SAVE_RESULTS: usize = 10;
 const CMD_RESCAN: usize = 11;
 const CMD_STOP: usize = 12;
 const CMD_RESUME: usize = 13;
+// Context-menu: copy the selected detection rows to the clipboard.
+const CMD_COPY: usize = 14;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 // Not surfaced by the WindowsAndMessaging glob in this build — define it raw, or
@@ -249,7 +258,17 @@ enum ScanMsg {
     },
     Status(String),
     Begin,
-    Progress { scanned: usize, threats: usize },
+    /// Live progress. `discovered` grows while the tree is still being walked
+    /// (`discovering` = true); `speed` is files/sec and `eta_secs` is the estimate
+    /// for the currently-discovered backlog.
+    Progress {
+        scanned: usize,
+        threats: usize,
+        discovered: usize,
+        speed: f64,
+        eta_secs: f64,
+        discovering: bool,
+    },
     Done { scanned: usize, threats: usize },
     /// Scan was stopped mid-run; `remaining` files are queued for Resume.
     Paused { scanned: usize, threats: usize, remaining: usize },
@@ -311,6 +330,11 @@ struct AppState {
     scan_state: ScanState,
     scanned_count: usize,
     threat_count: usize,
+    // Live throughput for the hero banner / status bar (streaming scan).
+    scan_discovered: usize,
+    scan_speed: f64,
+    scan_eta_secs: f64,
+    scan_discovering: bool,
     work_tx: Sender<WorkRequest>,
     result_rx: Receiver<ScanMsg>,
     /// Set from the UI thread (Stop) and polled by the worker's scan loop to
@@ -556,6 +580,10 @@ unsafe fn on_create(hwnd: HWND) {
         scan_state: ScanState::Idle,
         scanned_count: 0,
         threat_count: 0,
+        scan_discovered: 0,
+        scan_speed: 0.0,
+        scan_eta_secs: 0.0,
+        scan_discovering: false,
         work_tx,
         result_rx,
         cancel,
@@ -881,7 +909,17 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
             t.accent,
             "\u{E721}", // search
             "Scanning…".to_string(),
-            format!("{} files scanned · {} threat(s) so far", s.scanned_count, s.threat_count),
+            {
+                let eta = if s.scan_discovering {
+                    "estimating…".to_string()
+                } else {
+                    format!("ETA {}", fmt_eta(s.scan_eta_secs))
+                };
+                format!(
+                    "{}/{} scanned · {:.0} files/s · {} · {} threat(s)",
+                    s.scanned_count, s.scan_discovered, s.scan_speed, eta, s.threat_count
+                )
+            },
         ),
         ScanState::Paused => (
             t.accent_soft,
@@ -1085,6 +1123,7 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_CLEAN => act_on_selected(hwnd, s, true),
         CMD_SAVE_RESULTS => save_results(hwnd, s),
         CMD_RESCAN => rescan_selected(hwnd, s),
+        CMD_COPY => copy_selected(hwnd, s),
         CMD_STOP => {
             // Signal the worker's scan loop to stop after the in-flight files.
             s.cancel.store(true, Ordering::Relaxed);
@@ -1144,6 +1183,8 @@ unsafe fn on_context_menu(hwnd: HWND, src: HWND, (mut x, mut y): (i32, i32)) {
         return;
     }
     let _ = AppendMenuW(menu, MF_STRING, CMD_RESCAN, w!("Rescan Selected"));
+    let _ = AppendMenuW(menu, MF_STRING, CMD_COPY, w!("Copy"));
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, CMD_CLEAN, w!("Clean Selected"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, CMD_SAVE_RESULTS, w!("Save Results\u{2026}"));
@@ -1201,6 +1242,21 @@ fn clear_scan_results(s: &mut AppState) {
     s.scan_threat.clear();
 }
 
+/// Human-readable ETA from seconds: "12s", "3m 05s", "1h 04m".
+fn fmt_eta(secs: f64) -> String {
+    if !secs.is_finite() || secs <= 0.0 {
+        return "0s".to_string();
+    }
+    let s = secs.round() as u64;
+    if s < 60 {
+        format!("{s}s")
+    } else if s < 3600 {
+        format!("{}m {:02}s", s / 60, s % 60)
+    } else {
+        format!("{}h {:02}m", s / 3600, (s % 3600) / 60)
+    }
+}
+
 fn sev_label(sev: u8) -> &'static str {
     match sev {
         2 => "High",
@@ -1235,12 +1291,20 @@ fn build_report(s: &AppState, txt: bool) -> String {
         }
         for i in 0..s.scan_rows.len() {
             out.push_str(&format!(
-                "[{}] {}\r\n    verdict: {}\r\n    threat : {}\r\n\r\n",
+                "[{}] {}\r\n    verdict: {}\r\n    threat : {}\r\n",
                 sev_label(s.scan_sev.get(i).copied().unwrap_or(0)),
                 s.scan_rows[i].display(),
                 s.scan_verdict.get(i).map(String::as_str).unwrap_or(""),
                 s.scan_threat.get(i).map(String::as_str).unwrap_or(""),
             ));
+            // MD5 only for real files (registry/log/memory rows aren't files), so
+            // the user can look the hash up on VirusTotal. Report only — not in the GUI.
+            if let Some(md5) = file_md5(&s.scan_rows[i]) {
+                out.push_str(&format!(
+                    "    md5    : {md5}  (search on VirusTotal: https://www.virustotal.com/gui/file/{md5})\r\n"
+                ));
+            }
+            out.push_str("\r\n");
         }
     } else {
         out.push_str("# HydraDragon Antivirus scan results\r\n");
@@ -1248,18 +1312,46 @@ fn build_report(s: &AppState, txt: bool) -> String {
             "# {} file(s) scanned, {} threat(s) found\r\n",
             s.scanned_count, s.threat_count
         ));
-        out.push_str("File,Verdict,Threat,Severity\r\n");
+        out.push_str("File,Verdict,Threat,Severity,MD5\r\n");
         for i in 0..s.scan_rows.len() {
             out.push_str(&format!(
-                "{},{},{},{}\r\n",
+                "{},{},{},{},{}\r\n",
                 csv_escape(&s.scan_rows[i].display().to_string()),
                 csv_escape(s.scan_verdict.get(i).map(String::as_str).unwrap_or("")),
                 csv_escape(s.scan_threat.get(i).map(String::as_str).unwrap_or("")),
                 sev_label(s.scan_sev.get(i).copied().unwrap_or(0)),
+                file_md5(&s.scan_rows[i]).unwrap_or_default(),
             ));
         }
     }
     out
+}
+
+/// Stream a file's MD5 as lowercase hex, or None if it isn't a readable file
+/// (registry/event-log/memory detections have no underlying file). Streamed in
+/// chunks so a huge detected file doesn't have to be loaded into memory at once.
+fn file_md5(path: &Path) -> Option<String> {
+    use md5::{Digest, Md5};
+    use std::io::Read;
+    if !path.is_file() {
+        return None;
+    }
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut hasher = Md5::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(32);
+    for b in digest {
+        hex.push_str(&format!("{b:02x}"));
+    }
+    Some(hex)
 }
 
 /// Export the current scan results to a CSV/TXT file chosen via the shell Save
@@ -1302,6 +1394,62 @@ unsafe fn rescan_selected(hwnd: HWND, s: &mut AppState) {
     }
     set_status(hwnd, s, &format!("Rescanning {} file(s)…", paths.len()));
     let _ = s.work_tx.send(WorkRequest::Rescan(paths));
+}
+
+/// Copy the selected detection rows to the clipboard as tab-separated
+/// `file<TAB>verdict<TAB>threat` lines (CRLF between rows).
+unsafe fn copy_selected(hwnd: HWND, s: &mut AppState) {
+    let sel = lv_selected(s.scan_list);
+    if sel.is_empty() {
+        set_status(hwnd, s, "Select one or more rows to copy.");
+        return;
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for i in sel {
+        let i = i as usize;
+        if let Some(p) = s.scan_rows.get(i) {
+            let file = p.display().to_string();
+            let verdict = s.scan_verdict.get(i).cloned().unwrap_or_default();
+            let threat = s.scan_threat.get(i).cloned().unwrap_or_default();
+            lines.push(format!("{file}\t{verdict}\t{threat}"));
+        }
+    }
+    let n = lines.len();
+    let text = lines.join("\r\n");
+    let msg = if set_clipboard_text(hwnd, &text) {
+        format!("Copied {n} row(s) to clipboard.")
+    } else {
+        "Copy failed.".to_string()
+    };
+    set_status(hwnd, s, &msg);
+}
+
+/// Put UTF-16 text on the clipboard via the classic Global-memory dance.
+/// On success ownership of the allocation transfers to the clipboard.
+unsafe fn set_clipboard_text(hwnd: HWND, text: &str) -> bool {
+    let mut utf16: Vec<u16> = text.encode_utf16().collect();
+    utf16.push(0); // NUL terminator the clipboard expects
+    let bytes = utf16.len() * std::mem::size_of::<u16>();
+
+    if OpenClipboard(Some(hwnd)).is_err() {
+        return false;
+    }
+    let mut ok = false;
+    if EmptyClipboard().is_ok() {
+        if let Ok(hmem) = GlobalAlloc(GMEM_MOVEABLE, bytes) {
+            let dst = GlobalLock(hmem) as *mut u16;
+            if !dst.is_null() {
+                std::ptr::copy_nonoverlapping(utf16.as_ptr(), dst, utf16.len());
+                let _ = GlobalUnlock(hmem); // returns Err on success (lock→0); ignore
+                // HGLOBAL and HANDLE are both newtypes over the same pointer.
+                if SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(hmem.0))).is_ok() {
+                    ok = true; // clipboard now owns hmem — must not free it
+                }
+            }
+        }
+    }
+    let _ = CloseClipboard();
+    ok
 }
 
 unsafe fn act_on_selected(hwnd: HWND, s: &mut AppState, clean: bool) {
@@ -1383,13 +1531,28 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.scan_state = ScanState::Scanning;
                 s.scanned_count = 0;
                 s.threat_count = 0;
-                s.status = "Scanning…".into();
+                s.scan_discovered = 0;
+                s.scan_speed = 0.0;
+                s.scan_eta_secs = 0.0;
+                s.scan_discovering = true;
+                s.status = "Discovering & scanning…".into();
             }
-            ScanMsg::Progress { scanned, threats } => {
+            ScanMsg::Progress { scanned, threats, discovered, speed, eta_secs, discovering } => {
                 s.scan_state = ScanState::Scanning;
                 s.scanned_count = scanned;
                 s.threat_count = threats;
-                s.status = format!("Scanned {scanned}, {threats} threat(s)…");
+                s.scan_discovered = discovered;
+                s.scan_speed = speed;
+                s.scan_eta_secs = eta_secs;
+                s.scan_discovering = discovering;
+                let eta = if discovering {
+                    format!("~{} (discovering)", fmt_eta(eta_secs))
+                } else {
+                    fmt_eta(eta_secs)
+                };
+                s.status = format!(
+                    "Scanned {scanned}/{discovered} · {speed:.0} files/s · ETA {eta} · {threats} threat(s)"
+                );
             }
             ScanMsg::Done { scanned, threats } => {
                 s.scanned_count = scanned;
@@ -1599,14 +1762,34 @@ unsafe fn pick_save_path(default_name: &str) -> Option<PathBuf> {
 // Background worker
 // ---------------------------------------------------------------------------
 
-/// A scan in progress (or stopped). The worker keeps it across requests so a
-/// stopped scan can be resumed from `cursor` without re-reading the file list.
+/// A scan in progress (or stopped). The file tree is walked lazily *during* the
+/// scan (not collected up front), so `dirs` holds folders still to descend and
+/// `queue` holds discovered-but-unscanned files. Kept across requests so a
+/// stopped scan can be resumed where it left off.
 struct ScanSession {
-    files: Vec<PathBuf>,
-    cursor: usize,  // index of the next file to scan
-    scanned: usize, // files completed so far
-    threats: usize, // detections so far
-    full: bool,     // also run registry/logs/memory after the files complete
+    dirs: VecDeque<PathBuf>,  // folders not yet walked
+    queue: VecDeque<PathBuf>, // files discovered but not yet scanned
+    scanned: usize,           // files completed so far
+    threats: usize,           // detections so far
+    discovered: usize,        // files discovered so far (running total)
+    full: bool,               // also run registry/logs/memory after the files
+}
+
+/// Seed a session from the chosen roots WITHOUT walking them: directories are
+/// queued for lazy discovery, single picked files go straight to the scan queue.
+fn seed_session(paths: &[PathBuf], full: bool) -> ScanSession {
+    let mut dirs = VecDeque::new();
+    let mut queue = VecDeque::new();
+    let mut discovered = 0;
+    for p in paths {
+        if p.is_dir() {
+            dirs.push_back(p.clone());
+        } else if p.is_file() && p.metadata().map(|m| m.len() >= 12).unwrap_or(false) {
+            queue.push_back(p.clone());
+            discovered += 1;
+        }
+    }
+    ScanSession { dirs, queue, scanned: 0, threats: 0, discovered, full }
 }
 
 fn worker(
@@ -1625,26 +1808,18 @@ fn worker(
             WorkRequest::Scan(paths) => {
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                let mut files = Vec::new();
-                for p in &paths {
-                    collect_files(p, &mut files);
-                }
-                session = Some(ScanSession { files, cursor: 0, scanned: 0, threats: 0, full: false });
-                run_session(pl, session.as_mut().unwrap(), &cancel, &tx, hwnd, &quarantine_dir);
-                if session.as_ref().is_some_and(|s| s.cursor >= s.files.len()) {
+                session = Some(seed_session(&paths, false));
+                let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &tx, hwnd);
+                if completed {
                     session = None;
                 }
             }
             WorkRequest::FullScan(paths) => {
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                let mut files = Vec::new();
-                for p in &paths {
-                    collect_files(p, &mut files);
-                }
-                session = Some(ScanSession { files, cursor: 0, scanned: 0, threats: 0, full: true });
-                run_session(pl, session.as_mut().unwrap(), &cancel, &tx, hwnd, &quarantine_dir);
-                if session.as_ref().is_some_and(|s| s.cursor >= s.files.len()) {
+                session = Some(seed_session(&paths, true));
+                let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &tx, hwnd);
+                if completed {
                     session = None;
                 }
             }
@@ -1652,8 +1827,8 @@ fn worker(
                 if let Some(sess) = session.as_mut() {
                     send(&tx, hwnd, ScanMsg::Resumed);
                     let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                    run_session(pl, sess, &cancel, &tx, hwnd, &quarantine_dir);
-                    if session.as_ref().is_some_and(|s| s.cursor >= s.files.len()) {
+                    let completed = run_session(pl, sess, &cancel, &tx, hwnd);
+                    if completed {
                         session = None;
                     }
                 } else {
@@ -1723,34 +1898,33 @@ fn worker(
     }
 }
 
-/// Drive a scan session: the parallel file phase, then (if completed and this is
-/// a Full Scan) the registry / event-log / memory phases. Sends `Paused` if the
-/// file phase was stopped, otherwise `Done`. Resets the cancel flag on entry so a
-/// previous Stop doesn't immediately abort a fresh run.
+/// Drive a scan session: the streaming parallel file phase, then (if completed
+/// and this is a Full Scan) the registry / event-log / memory phases. Sends
+/// `Paused` if stopped, otherwise `Done`. Returns true when the whole session is
+/// finished (so the caller can drop it). Resets the cancel flag on entry.
 fn run_session(
     pl: &Pipeline,
     sess: &mut ScanSession,
     cancel: &AtomicBool,
     tx: &Sender<ScanMsg>,
     hwnd: HWND,
-    _quarantine_dir: &PathBuf,
-) {
+) -> bool {
     cancel.store(false, Ordering::Relaxed);
-    let completed = run_files(pl, sess, cancel, tx, hwnd);
+    let completed = run_streaming(pl, sess, cancel, tx, hwnd);
     pl.save_result_caches(); // persist learned good/bad results either way
 
     if !completed {
         send(tx, hwnd, ScanMsg::Paused {
             scanned: sess.scanned,
             threats: sess.threats,
-            remaining: sess.files.len().saturating_sub(sess.cursor),
+            remaining: sess.queue.len(),
         });
-        return;
+        return false;
     }
 
     if !sess.full {
         send(tx, hwnd, ScanMsg::Done { scanned: sess.scanned, threats: sess.threats });
-        return;
+        return true;
     }
 
     // Full mode = files + registry + Windows event logs + process memory. These
@@ -1796,64 +1970,102 @@ fn run_session(
         "Full scan done. Files {}, registry {} threat(s), logs {} alert(s), memory {} hit(s).",
         sess.threats, reg.threats_found, logs.len(), mem.len()
     )));
+    true
 }
 
-/// The pausable, parallel file-scan phase. A fixed pool of worker threads pulls
-/// file indices from a shared atomic cursor (work-stealing), so files are read
-/// and scanned concurrently. Each thread checks `cancel` before claiming the next
-/// file, so a Stop takes effect after the in-flight files finish (a single file
-/// scan is never interrupted mid-way). Updates `sess.scanned/threats/cursor` and
-/// returns true if every file was scanned, false if it was stopped early.
-fn run_files(
+/// Streaming, parallel file-scan phase. One producer thread walks the directory
+/// tree lazily (so a whole-drive scan starts immediately instead of enumerating
+/// everything first), pushing discovered files into a shared queue; N consumer
+/// threads pull and scan concurrently; one ticker thread emits speed/ETA progress
+/// a few times a second. Each thread checks `cancel` before taking new work, so a
+/// Stop takes effect after the in-flight files finish (a file scan is never cut
+/// mid-way). Remaining folders + queued files are written back into `sess` for
+/// Resume. Returns true if the tree was fully scanned, false if stopped early.
+fn run_streaming(
     pl: &Pipeline,
     sess: &mut ScanSession,
     cancel: &AtomicBool,
     tx: &Sender<ScanMsg>,
     hwnd: HWND,
 ) -> bool {
-    let files = &sess.files;
-    let total = files.len();
-    if sess.cursor >= total {
+    if sess.dirs.is_empty() && sess.queue.is_empty() {
         return true;
     }
 
-    let next = AtomicUsize::new(sess.cursor);
+    let dirs = Mutex::new(std::mem::take(&mut sess.dirs));
+    let files = Mutex::new(std::mem::take(&mut sess.queue));
+    let discovered = AtomicUsize::new(sess.discovered);
     let scanned = AtomicUsize::new(sess.scanned);
     let threats = AtomicUsize::new(sess.threats);
+    let discovery_done = AtomicBool::new(false);
+    let scanned_at_start = sess.scanned;
 
-    let remaining = total - sess.cursor;
-    let nthreads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .min(remaining)
-        .max(1);
+    let raw = hwnd.0 as isize; // HWND isn't Send; rebuild it inside each thread
+    let nconsumers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).max(1);
 
-    // HWND isn't Send, so pass the raw handle and rebuild it inside each thread.
-    let raw = hwnd.0 as isize;
-    let next_ref = &next;
+    let dirs_ref = &dirs;
+    let files_ref = &files;
+    let discovered_ref = &discovered;
     let scanned_ref = &scanned;
     let threats_ref = &threats;
-    let files_ref = files;
+    let done_ref = &discovery_done;
 
     std::thread::scope(|scope| {
-        for _ in 0..nthreads {
-            let txc = tx.clone(); // mpsc Sender is multi-producer via clone
+        // ---- producer: lazy directory walk ----
+        scope.spawn(move || {
+            'walk: loop {
+                if cancel.load(Ordering::Relaxed) {
+                    break;
+                }
+                let dir = { dirs_ref.lock().unwrap().pop_front() };
+                let Some(dir) = dir else { break };
+                let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+                for entry in rd.flatten() {
+                    if cancel.load(Ordering::Relaxed) {
+                        // Re-walk this dir on Resume (dedup makes re-enqueue cheap).
+                        dirs_ref.lock().unwrap().push_front(dir);
+                        break 'walk;
+                    }
+                    let path = entry.path();
+                    match entry.file_type() {
+                        Ok(ft) if ft.is_dir() => {
+                            dirs_ref.lock().unwrap().push_back(path);
+                        }
+                        Ok(ft) if ft.is_file() => {
+                            if entry.metadata().map(|m| m.len() >= 12).unwrap_or(false) {
+                                files_ref.lock().unwrap().push_back(path);
+                                discovered_ref.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            done_ref.store(true, Ordering::Relaxed);
+        });
+
+        // ---- consumers: scan discovered files concurrently ----
+        for _ in 0..nconsumers {
+            let txc = tx.clone();
             scope.spawn(move || {
                 let hwnd = HWND(raw as *mut c_void);
                 loop {
                     if cancel.load(Ordering::Relaxed) {
                         break;
                     }
-                    let idx = next_ref.fetch_add(1, Ordering::Relaxed);
-                    if idx >= files_ref.len() {
-                        break;
-                    }
-                    let file = &files_ref[idx];
-                    let r = pl.scan_file_cached(file);
-                    let done = scanned_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                    let next = { files_ref.lock().unwrap().pop_front() };
+                    let Some(file) = next else {
+                        if done_ref.load(Ordering::Relaxed) {
+                            break; // discovery finished and queue drained
+                        }
+                        std::thread::sleep(Duration::from_millis(2));
+                        continue;
+                    };
+                    let r = pl.scan_file_cached(&file);
+                    scanned_ref.fetch_add(1, Ordering::Relaxed);
                     let prio = r.verdict.priority(); // Trusted=0, Clean=1, …, Malware=8
-                    let th = if prio > 1 {
-                        let t = threats_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                    if prio > 1 {
+                        threats_ref.fetch_add(1, Ordering::Relaxed);
                         let sev = if prio >= 6 { 2 } else { 1 };
                         send(&txc, hwnd, ScanMsg::Row {
                             file: file.display().to_string(),
@@ -1861,24 +2073,53 @@ fn run_files(
                             threat: detail_summary(&r),
                             sev,
                         });
-                        t
-                    } else {
-                        threats_ref.load(Ordering::Relaxed)
-                    };
-                    if done % 25 == 0 {
-                        send(&txc, hwnd, ScanMsg::Progress { scanned: done, threats: th });
                     }
                 }
             });
         }
+
+        // ---- ticker: emit speed/ETA a few times a second ----
+        let txc = tx.clone();
+        scope.spawn(move || {
+            let hwnd = HWND(raw as *mut c_void);
+            let start = Instant::now();
+            loop {
+                let done = done_ref.load(Ordering::Relaxed);
+                let scanned_now = scanned_ref.load(Ordering::Relaxed);
+                let discovered_now = discovered_ref.load(Ordering::Relaxed);
+                let threats_now = threats_ref.load(Ordering::Relaxed);
+                let elapsed = start.elapsed().as_secs_f64();
+                let run_scanned = scanned_now.saturating_sub(scanned_at_start) as f64;
+                let speed = if elapsed > 0.0 { run_scanned / elapsed } else { 0.0 };
+                let remaining = discovered_now.saturating_sub(scanned_now);
+                let eta_secs = if speed > 0.0 { remaining as f64 / speed } else { 0.0 };
+                send(&txc, hwnd, ScanMsg::Progress {
+                    scanned: scanned_now,
+                    threats: threats_now,
+                    discovered: discovered_now,
+                    speed,
+                    eta_secs,
+                    discovering: !done,
+                });
+                if cancel.load(Ordering::Relaxed) {
+                    break;
+                }
+                if done && scanned_now >= discovered_now {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(350));
+            }
+        });
     });
 
+    // Save remaining work back for a possible Resume (empty if completed).
+    sess.dirs = std::mem::take(&mut *dirs.lock().unwrap());
+    sess.queue = std::mem::take(&mut *files.lock().unwrap());
     sess.scanned = scanned.load(Ordering::Relaxed);
     sess.threats = threats.load(Ordering::Relaxed);
-    // Every claimed index was scanned (cancel is checked before claiming, never
-    // after), so the cursor is exactly how far we got. Cap the end-overshoot.
-    sess.cursor = next.load(Ordering::Relaxed).min(total);
-    sess.cursor >= total
+    sess.discovered = discovered.load(Ordering::Relaxed);
+
+    !cancel.load(Ordering::Relaxed)
 }
 
 /// All engine details for a detection: every engine that flagged it (ClamAV
@@ -1913,22 +2154,6 @@ fn send(tx: &Sender<ScanMsg>, hwnd: HWND, m: ScanMsg) {
     if tx.send(m).is_ok() {
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_APP_RESULT, WPARAM(0), LPARAM(0));
-        }
-    }
-}
-
-fn collect_files(path: &std::path::Path, out: &mut Vec<PathBuf>) {
-    if path.is_file() {
-        if let Ok(meta) = path.metadata() {
-            if meta.len() >= 12 {
-                out.push(path.to_path_buf());
-            }
-        }
-        return;
-    }
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            collect_files(&entry.path(), out);
         }
     }
 }

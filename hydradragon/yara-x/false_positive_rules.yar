@@ -1169,3 +1169,45 @@ rule ASPack_107b_DLL: PEiD {
     $a at pe.entry_point
 
 }
+
+rule RAR_Archive_ren: RarLab {
+  meta:
+    author = "_pusher_"
+    date   = "2016-09"
+
+  strings:
+    //RAR
+    $a0 = { 52 61 72 21 1A 07 (00 | 01) ?? ?? 73 ?? 00 0D 00 00 00 00 00 00 00 }
+    //RAR5
+    $a1 = { 52 61 72 21 1A 07 01 00 ?? ?? ?? ?? ?? 01 05 ?? 00 ?? 01 01 }
+  //$a1 = "RarSFX" wide ascii nocase
+  //$a2 = "GETPASSWORD1" wide ascii nocase
+
+  condition:
+    //$a0 or
+    (
+      any of ($a*)
+      //$a0 
+      //and $a1 and $a2 
+      //and
+      //uint32be( (pe.sections[pe.number_of_sections-1].raw_data_offset+pe.sections[pe.number_of_sections-1].raw_data_size) ) == 0x52617221
+    )
+
+}
+
+rule MSVC2005 {
+  meta:
+    author = "_pusher_"
+    date   = "2016-08"
+    linker = "8.00"
+
+  condition:
+    pe.rich_signature.version(40310) and (pe.rich_signature.version(21022) or pe.rich_signature.version(30729)) and pe.rich_signature.toolid(124) or
+    pe.rich_signature.version(3094) and pe.rich_signature.version(50736) and pe.rich_signature.toolid(113) or
+    pe.rich_signature.version(40310) and pe.rich_signature.version(4035) and pe.rich_signature.toolid(125)
+    //more samples needed 00:21 2017-05-19
+    or (
+      pe.rich_signature.version(50727)
+    )
+    and ((pe.linker_version.major == 8) and (pe.linker_version.minor == 0))
+}
