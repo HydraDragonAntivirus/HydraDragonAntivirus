@@ -1211,3 +1211,14 @@ rule MSVC2005 {
     )
     and ((pe.linker_version.major == 8) and (pe.linker_version.minor == 0))
 }
+
+rule Qemu_Detection_ren1: AntiVM {
+  meta:
+    description = "Looks for Qemu presence"
+
+  strings:
+    $a0 = "qemu" nocase wide ascii
+
+  condition:
+    any of them
+}
