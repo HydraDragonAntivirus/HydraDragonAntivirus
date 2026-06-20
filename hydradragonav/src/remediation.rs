@@ -11,10 +11,11 @@
 
 use std::path::{Path, PathBuf};
 
-use windows::core::{BSTR, PCWSTR, VARIANT};
+use windows::core::{BSTR, PCWSTR};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
 };
+use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::System::Restore::{
     SRSetRestorePointW, BEGIN_SYSTEM_CHANGE, END_SYSTEM_CHANGE, MODIFY_SETTINGS, RESTOREPOINTINFOW,
     STATEMGRSTATUS,
