@@ -1,3 +1,77 @@
+
+private rule capa_create_reverse_shell: CAPA C2 SHELL FUNCTION T1059_003 B0022_001 INCOMPLETE {
+  meta:
+    description  = "create reverse shell (converted from capa rule)"
+    namespace    = "c2/shell"
+    author       = "moritz.raabe@fireeye.com"
+    scope        = "function"
+    attack       = "Execution::Command and Scripting Interpreter::Windows Command Shell [T1059.003]"
+    mbc          = "Impact::Remote Access::Reverse Shell [B0022.001]"
+    hash         = "C91887D861D9BD4A5872249B641BC9F9"
+    reference    = "This YARA rule converted from capa rule: https://github.com/fireeye/capa-rules/blob/master/c2/shell/create-reverse-shell.yml"
+    comment      = "This rule is incomplete because a branch inside an Or-statement had an unsupported feature and was skipped => coverage is reduced compared to the original capa rule. "
+    date         = "2021-05-25"
+    minimum_yara = "3.8"
+    license      = "Apache-2.0 License"
+
+  condition:
+    capa_pe_file and
+    (
+      (
+        capa_create_pipe
+
+        and pe.imports(/kernel32/i, /PeekNamedPipe/)
+        and pe.imports(/kernel32/i, /CreateProcess/)
+        and pe.imports(/kernel32/i, /ReadFile/)
+        and pe.imports(/kernel32/i, /WriteFile/)
+      )
+      or (
+        capa_create_process
+
+        and capa_read_pipe
+
+        and capa_write_pipe
+
+      )
+    )
+}
+
+private rule capa_read_and_send_data_from_client_to_server: CAPA C2 FILE_TRANSFER FUNCTION {
+  meta:
+    description  = "read and send data from client to server (converted from capa rule)"
+    namespace    = "c2/file-transfer"
+    author       = "william.ballenthin@fireeye.com"
+    scope        = "function"
+    reference    = "This YARA rule converted from capa rule: https://github.com/fireeye/capa-rules/blob/master/nursery/read-and-send-data-from-client-to-server.yml"
+    capa_nursery = "True"
+    date         = "2021-05-25"
+    minimum_yara = "3.8"
+    license      = "Apache-2.0 License"
+
+  condition:
+    capa_pe_file and
+    (
+      capa_read_file
+
+      and capa_send_data
+
+    )
+}
+
+rule Potao {
+  meta:
+    Author      = "Anton Cherepanov"
+    Date        = "2015/07/29"
+    Description = "Operation Potao"
+    Reference   = "http://www.welivesecurity.com/wp-content/uploads/2015/07/Operation-Potao-Express_final_v2.pdf"
+    Source      = "https://github.com/eset/malware-ioc/"
+    Contact     = "threatintel@eset.com"
+    License     = "BSD 2-Clause"
+
+  condition:
+     or PotaoDll or PotaoUSB or PotaoSecondStage
+}
+
 rule Check_Dlls
 {
 	meta:

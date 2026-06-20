@@ -113,31 +113,90 @@ const CDRF_NOTIFYITEMDRAW: isize = 0x0000_0020;
 const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     COLORREF((r as u32) | ((g as u32) << 8) | ((b as u32) << 16))
 }
-const C_BG: COLORREF = rgb(0xF4, 0xF5, 0xF8);
-const C_HEADER_SUB: COLORREF = rgb(0x9F, 0xB0, 0xCC);
-const C_SIDEBAR: COLORREF = rgb(0xFF, 0xFF, 0xFF);
-const C_BORDER: COLORREF = rgb(0xE3, 0xE6, 0xEC);
-const C_TEXT: COLORREF = rgb(0x14, 0x1A, 0x24);
-const C_TEXT2: COLORREF = rgb(0x6B, 0x72, 0x80);
-const C_ACCENT: COLORREF = rgb(0x2D, 0x6C, 0xF6);
-const C_ACCENT_HOT: COLORREF = rgb(0x4B, 0x82, 0xF8);
-const C_ACCENT_DOWN: COLORREF = rgb(0x1F, 0x57, 0xD6);
-const C_NAV_HOT: COLORREF = rgb(0xF1, 0xF3, 0xF7);
-const C_DANGER: COLORREF = rgb(0xD8, 0x2C, 0x2C);
-const C_DANGER_HOT: COLORREF = rgb(0xE5, 0x48, 0x48);
-const C_DANGER_DOWN: COLORREF = rgb(0xB7, 0x20, 0x20);
-const C_WARN: COLORREF = rgb(0xC2, 0x7A, 0x06);
-const C_WHITE: COLORREF = rgb(0xFF, 0xFF, 0xFF);
-// Header vertical gradient + depth/striping accents.
-const C_HEADER_TOP: COLORREF = rgb(0x27, 0x36, 0x57);
-const C_HEADER_BOT: COLORREF = rgb(0x12, 0x19, 0x2A);
-const C_SHADOW: COLORREF = rgb(0xDD, 0xE1, 0xE9);
-const C_STRIPE: COLORREF = rgb(0xF7, 0xF8, 0xFB);
-// Hero status banner tints (Kaspersky-style colored state panel).
-const C_OK: COLORREF = rgb(0x15, 0x9A, 0x52);
-const C_OK_SOFT: COLORREF = rgb(0xE7, 0xF6, 0xEC);
-const C_DANGER_SOFT: COLORREF = rgb(0xFD, 0xEC, 0xEC);
-const C_ACCENT_SOFT: COLORREF = rgb(0xEC, 0xF2, 0xFE);
+
+/// Pure white — for text/icons drawn ON the accent/danger fills and the dark
+/// gradient header (constant across themes).
+const WHITE: COLORREF = rgb(0xFF, 0xFF, 0xFF);
+
+/// A full color theme. Two instances exist: [`LIGHT`] and [`DARK`]; the active
+/// one is chosen by `AppState.dark` via `AppState::theme()`.
+struct Theme {
+    bg: COLORREF,
+    header_top: COLORREF,
+    header_bot: COLORREF,
+    header_sub: COLORREF,
+    sidebar: COLORREF,
+    surface: COLORREF, // cards / list background / status bar
+    border: COLORREF,
+    text: COLORREF,
+    text2: COLORREF,
+    accent: COLORREF,
+    accent_hot: COLORREF,
+    accent_down: COLORREF,
+    accent_soft: COLORREF,
+    nav_hot: COLORREF,
+    danger: COLORREF,
+    danger_hot: COLORREF,
+    danger_down: COLORREF,
+    danger_soft: COLORREF,
+    warn: COLORREF,
+    shadow: COLORREF,
+    stripe: COLORREF,
+    ok: COLORREF,
+    ok_soft: COLORREF,
+}
+
+const LIGHT: Theme = Theme {
+    bg: rgb(0xF4, 0xF5, 0xF8),
+    header_top: rgb(0x27, 0x36, 0x57),
+    header_bot: rgb(0x12, 0x19, 0x2A),
+    header_sub: rgb(0x9F, 0xB0, 0xCC),
+    sidebar: rgb(0xFF, 0xFF, 0xFF),
+    surface: rgb(0xFF, 0xFF, 0xFF),
+    border: rgb(0xE3, 0xE6, 0xEC),
+    text: rgb(0x14, 0x1A, 0x24),
+    text2: rgb(0x6B, 0x72, 0x80),
+    accent: rgb(0x2D, 0x6C, 0xF6),
+    accent_hot: rgb(0x4B, 0x82, 0xF8),
+    accent_down: rgb(0x1F, 0x57, 0xD6),
+    accent_soft: rgb(0xEC, 0xF2, 0xFE),
+    nav_hot: rgb(0xF1, 0xF3, 0xF7),
+    danger: rgb(0xD8, 0x2C, 0x2C),
+    danger_hot: rgb(0xE5, 0x48, 0x48),
+    danger_down: rgb(0xB7, 0x20, 0x20),
+    danger_soft: rgb(0xFD, 0xEC, 0xEC),
+    warn: rgb(0xC2, 0x7A, 0x06),
+    shadow: rgb(0xDD, 0xE1, 0xE9),
+    stripe: rgb(0xF7, 0xF8, 0xFB),
+    ok: rgb(0x15, 0x9A, 0x52),
+    ok_soft: rgb(0xE7, 0xF6, 0xEC),
+};
+
+const DARK: Theme = Theme {
+    bg: rgb(0x15, 0x16, 0x1B),
+    header_top: rgb(0x23, 0x26, 0x32),
+    header_bot: rgb(0x0E, 0x0F, 0x14),
+    header_sub: rgb(0x8B, 0x93, 0xA6),
+    sidebar: rgb(0x1B, 0x1D, 0x24),
+    surface: rgb(0x22, 0x25, 0x2D),
+    border: rgb(0x32, 0x35, 0x3F),
+    text: rgb(0xE7, 0xE9, 0xEE),
+    text2: rgb(0x97, 0x9E, 0xAC),
+    accent: rgb(0x4C, 0x8D, 0xFF),
+    accent_hot: rgb(0x6A, 0xA1, 0xFF),
+    accent_down: rgb(0x2D, 0x6C, 0xF6),
+    accent_soft: rgb(0x1C, 0x29, 0x42),
+    nav_hot: rgb(0x2A, 0x2E, 0x39),
+    danger: rgb(0xF0, 0x52, 0x52),
+    danger_hot: rgb(0xF8, 0x71, 0x71),
+    danger_down: rgb(0xDC, 0x26, 0x26),
+    danger_soft: rgb(0x3A, 0x20, 0x24),
+    warn: rgb(0xE0, 0xA1, 0x06),
+    shadow: rgb(0x0A, 0x0B, 0x0E),
+    stripe: rgb(0x1E, 0x21, 0x29),
+    ok: rgb(0x34, 0xC7, 0x59),
+    ok_soft: rgb(0x16, 0x30, 0x1F),
+};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -214,6 +273,9 @@ struct AppState {
     hot_cmd: Option<usize>,
     down_cmd: Option<usize>,
     hot_nav: Option<usize>,
+    hot_theme: bool,
+    theme_btn: RECT,
+    dark: bool,
     tracking: bool,
     status: String,
     scan_state: ScanState,
@@ -225,6 +287,12 @@ struct AppState {
     scan_sev: Vec<u8>,
     quar_ids: Vec<String>,
     quarantine_dir: PathBuf,
+}
+
+impl AppState {
+    fn theme(&self) -> &'static Theme {
+        if self.dark { &DARK } else { &LIGHT }
+    }
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -405,6 +473,13 @@ unsafe fn on_create(hwnd: HWND) {
     lv_col(quar_list, 2, "Detection", 140);
     lv_col(quar_list, 3, "Size", 90);
 
+    // Restore the remembered theme.
+    let dark = load_dark();
+    if dark {
+        apply_list_theme(scan_list, &DARK);
+        apply_list_theme(quar_list, &DARK);
+    }
+
     let (work_tx, work_rx) = channel::<WorkRequest>();
     let (result_tx, result_rx) = channel::<ScanMsg>();
     let quarantine_dir = exe_dir().join("quarantine");
@@ -426,6 +501,9 @@ unsafe fn on_create(hwnd: HWND) {
         hot_cmd: None,
         down_cmd: None,
         hot_nav: None,
+        hot_theme: false,
+        theme_btn: RECT::default(),
+        dark,
         tracking: false,
         status: "Ready.".into(),
         scan_state: ScanState::Idle,
@@ -491,11 +569,16 @@ unsafe fn make_list(parent: HWND, hinst: HINSTANCE, style: u32, id: usize, font:
         Some(WPARAM(0)),
         Some(LPARAM((sty::LVS_EX_FULLROWSELECT | sty::LVS_EX_DOUBLEBUFFER) as isize)),
     );
-    SendMessageW(h, msg::LVM_SETBKCOLOR, Some(WPARAM(0)), Some(LPARAM(C_WHITE.0 as isize)));
-    SendMessageW(h, msg::LVM_SETTEXTBKCOLOR, Some(WPARAM(0)), Some(LPARAM(C_WHITE.0 as isize)));
-    SendMessageW(h, msg::LVM_SETTEXTCOLOR, Some(WPARAM(0)), Some(LPARAM(C_TEXT.0 as isize)));
+    apply_list_theme(h, &LIGHT);
     SendMessageW(h, WM_SETFONT, Some(WPARAM(font.0 as usize)), Some(LPARAM(1)));
     h
+}
+
+/// Re-applies the theme's surface/text colors to a ListView (called on toggle).
+unsafe fn apply_list_theme(h: HWND, t: &Theme) {
+    SendMessageW(h, msg::LVM_SETBKCOLOR, Some(WPARAM(0)), Some(LPARAM(t.surface.0 as isize)));
+    SendMessageW(h, msg::LVM_SETTEXTBKCOLOR, Some(WPARAM(0)), Some(LPARAM(t.surface.0 as isize)));
+    SendMessageW(h, msg::LVM_SETTEXTCOLOR, Some(WPARAM(0)), Some(LPARAM(t.text.0 as isize)));
 }
 
 fn buttons_for(page: usize) -> Vec<(usize, &'static str, Kind)> {
@@ -534,6 +617,11 @@ unsafe fn layout(hwnd: HWND) {
         let top = HEADER_H + 14 + i as i32 * (NAV_H + 6);
         item.rect = RECT { left: 10, top, right: SIDEBAR_W - 10, bottom: top + NAV_H };
     }
+
+    // Theme toggle in the header (top-right).
+    let tb = 36;
+    let ty = (HEADER_H - tb) / 2;
+    s.theme_btn = RECT { left: w - PAD - tb, top: ty, right: w - PAD, bottom: ty + tb };
 
     // Content buttons (wrap into rows if narrow).
     let content_l = SIDEBAR_W + PAD;
@@ -584,6 +672,7 @@ unsafe fn apply_page(hwnd: HWND) {
 
 unsafe fn paint(hwnd: HWND) {
     let Some(s) = state(hwnd) else { return };
+    let t = s.theme();
     let mut ps = PAINTSTRUCT::default();
     let hdc = BeginPaint(hwnd, &mut ps);
     let mut rc = RECT::default();
@@ -596,22 +685,22 @@ unsafe fn paint(hwnd: HWND) {
     let bmp = CreateCompatibleBitmap(hdc, w, h);
     let old = SelectObject(mem, bmp.into());
 
-    fill(mem, &rc, C_BG);
+    fill(mem, &rc, t.bg);
 
     // --- Sidebar ---
     let side = RECT { left: 0, top: 0, right: SIDEBAR_W, bottom: h };
-    fill(mem, &side, C_SIDEBAR);
-    fill(mem, &RECT { left: SIDEBAR_W - 1, top: 0, right: SIDEBAR_W, bottom: h }, C_BORDER);
+    fill(mem, &side, t.sidebar);
+    fill(mem, &RECT { left: SIDEBAR_W - 1, top: 0, right: SIDEBAR_W, bottom: h }, t.border);
     for (i, item) in s.nav.iter().enumerate() {
         let active = s.page == item.page;
         let hot = s.hot_nav == Some(i);
         if active {
-            fill_round(mem, item.rect, 10, C_ACCENT); // full accent pill
+            fill_round(mem, item.rect, 10, t.accent); // full accent pill
         } else if hot {
-            fill_round(mem, item.rect, 10, C_NAV_HOT);
+            fill_round(mem, item.rect, 10, t.nav_hot);
         }
-        let icon_col = if active { C_WHITE } else { C_ACCENT };
-        let txt_col = if active { C_WHITE } else { C_TEXT };
+        let icon_col = if active { WHITE } else { t.accent };
+        let txt_col = if active { WHITE } else { t.text };
         let icon_r = RECT { left: item.rect.left + 14, right: item.rect.left + 42, ..item.rect };
         text(mem, item.icon, &icon_r, icon_col, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         let tr = RECT { left: item.rect.left + 46, ..item.rect };
@@ -620,17 +709,17 @@ unsafe fn paint(hwnd: HWND) {
 
     // --- Header (vertical gradient + thin drop shadow) ---
     let head = RECT { left: 0, top: 0, right: w, bottom: HEADER_H };
-    gradient_v(mem, &head, C_HEADER_TOP, C_HEADER_BOT);
-    fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 1 }, C_SHADOW);
+    gradient_v(mem, &head, t.header_top, t.header_bot);
+    fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 1 }, t.shadow);
     let logo = RECT { left: PAD, top: (HEADER_H - 40) / 2, right: PAD + 40, bottom: (HEADER_H - 40) / 2 + 40 };
-    fill_round(mem, logo, 11, C_ACCENT);
-    text(mem, "\u{E83D}", &logo, C_WHITE, s.fonts.icon_lg, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    fill_round(mem, logo, 11, t.accent);
+    text(mem, "\u{E83D}", &logo, WHITE, s.fonts.icon_lg, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     let tx = logo.right + 14;
     text(
         mem,
         "HydraDragon Antivirus",
         &RECT { left: tx, top: 12, right: w - PAD, bottom: 38 },
-        C_WHITE,
+        WHITE,
         s.fonts.title,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
     );
@@ -638,10 +727,16 @@ unsafe fn paint(hwnd: HWND) {
         mem,
         "Portable malware scanner",
         &RECT { left: tx, top: 38, right: w - PAD, bottom: 58 },
-        C_HEADER_SUB,
+        t.header_sub,
         s.fonts.sub,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
     );
+    // Theme toggle (sun when dark → switch to light; moon when light → dark).
+    if s.hot_theme {
+        fill_round(mem, s.theme_btn, 9, t.accent);
+    }
+    let toggle_glyph = if s.dark { "\u{E706}" } else { "\u{E708}" };
+    text(mem, toggle_glyph, &s.theme_btn, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // --- Hero status banner (Scan page) ---
     if s.page == 0 {
@@ -654,7 +749,7 @@ unsafe fn paint(hwnd: HWND) {
     for b in &s.buttons {
         let hot = s.hot_cmd == Some(b.cmd);
         let down = s.down_cmd == Some(b.cmd);
-        draw_button(mem, b, hot, down, &s.fonts);
+        draw_button(mem, b, hot, down, &s.fonts, t);
     }
 
     // --- Content card (flat border around the active ListView / settings text) ---
@@ -663,10 +758,10 @@ unsafe fn paint(hwnd: HWND) {
     let card = RECT { left: content_l - 1, top: list_top - 1, right: w - PAD + 1, bottom: h - STATUS_H - PAD + 1 };
     if s.page == 2 {
         // Settings page has no list — fill the card and explain the cache.
-        fill_round(mem, card, 8, C_WHITE);
+        fill_round(mem, card, 8, t.surface);
         let pad = 18;
         let inner = RECT { left: card.left + pad, top: card.top + pad, right: card.right - pad, bottom: card.bottom - pad };
-        text(mem, "Result cache", &RECT { bottom: inner.top + 26, ..inner }, C_TEXT, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        text(mem, "Result cache", &RECT { bottom: inner.top + 26, ..inner }, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         let body = RECT { top: inner.top + 34, ..inner };
         text(
             mem,
@@ -679,22 +774,22 @@ unsafe fn paint(hwnd: HWND) {
              bad result. This is not recommended — only clear it if you suspect the cache \
              is stale or corrupted.",
             &body,
-            C_TEXT2,
+            t.text2,
             s.fonts.body,
             DT_LEFT | DT_WORDBREAK,
         );
     }
-    frame_round(mem, card, 8, C_BORDER);
+    frame_round(mem, card, 8, t.border);
 
     // --- Status bar ---
     let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
-    fill(mem, &status, C_WHITE);
-    fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, C_SHADOW);
+    fill(mem, &status, t.surface);
+    fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, t.shadow);
     text(
         mem,
         &s.status,
         &RECT { left: PAD, top: h - STATUS_H, right: w - PAD, bottom: h },
-        C_TEXT2,
+        t.text2,
         s.fonts.status,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
     );
@@ -708,31 +803,32 @@ unsafe fn paint(hwnd: HWND) {
 
 /// Kaspersky-style status hero: a colored banner with a big badge + headline.
 unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
+    let t = s.theme();
     let (bg, accent, glyph, head, sub) = match s.scan_state {
         ScanState::Idle => (
-            C_ACCENT_SOFT,
-            C_ACCENT,
+            t.accent_soft,
+            t.accent,
             "\u{E83D}", // shield
             "Ready to scan".to_string(),
             "Run a scan to check your system for threats.".to_string(),
         ),
         ScanState::Scanning => (
-            C_ACCENT_SOFT,
-            C_ACCENT,
+            t.accent_soft,
+            t.accent,
             "\u{E721}", // search
             "Scanning…".to_string(),
             format!("{} files scanned · {} threat(s) so far", s.scanned_count, s.threat_count),
         ),
         ScanState::Clean => (
-            C_OK_SOFT,
-            C_OK,
+            t.ok_soft,
+            t.ok,
             "\u{E73E}", // checkmark
             "No threats found".to_string(),
             format!("{} files scanned — your system looks clean.", s.scanned_count),
         ),
         ScanState::Threats => (
-            C_DANGER_SOFT,
-            C_DANGER,
+            t.danger_soft,
+            t.danger,
             "\u{E7BA}", // warning
             format!("{} threat(s) found", s.threat_count),
             "Review the detections below, then Clean Selected.".to_string(),
@@ -740,21 +836,21 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     };
 
     fill_round(hdc, r, 12, bg);
-    frame_round(hdc, r, 12, C_BORDER);
+    frame_round(hdc, r, 12, t.border);
 
     let bsize = 64;
     let bx = r.left + 22;
     let by = r.top + (r.bottom - r.top - bsize) / 2;
     let badge = RECT { left: bx, top: by, right: bx + bsize, bottom: by + bsize };
     fill_round(hdc, badge, bsize / 2, accent); // filled circle
-    text(hdc, glyph, &badge, C_WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    text(hdc, glyph, &badge, WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     let tx = badge.right + 22;
     text(
         hdc,
         &head,
         &RECT { left: tx, top: r.top + 24, right: r.right - 20, bottom: r.top + 58 },
-        C_TEXT,
+        t.text,
         s.fonts.hero,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
     );
@@ -762,27 +858,27 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
         hdc,
         &sub,
         &RECT { left: tx, top: r.top + 60, right: r.right - 20, bottom: r.bottom - 22 },
-        C_TEXT2,
+        t.text2,
         s.fonts.body,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
     );
 }
 
-unsafe fn draw_button(hdc: HDC, b: &UiButton, hot: bool, down: bool, fonts: &Fonts) {
+unsafe fn draw_button(hdc: HDC, b: &UiButton, hot: bool, down: bool, fonts: &Fonts, t: &Theme) {
     let (fillc, textc) = match b.kind {
         Kind::Primary => (
-            if down { C_ACCENT_DOWN } else if hot { C_ACCENT_HOT } else { C_ACCENT },
-            C_WHITE,
+            if down { t.accent_down } else if hot { t.accent_hot } else { t.accent },
+            WHITE,
         ),
         Kind::Danger => (
-            if down { C_DANGER_DOWN } else if hot { C_DANGER_HOT } else { C_DANGER },
-            C_WHITE,
+            if down { t.danger_down } else if hot { t.danger_hot } else { t.danger },
+            WHITE,
         ),
-        Kind::Neutral => (if down { C_NAV_HOT } else if hot { C_BG } else { C_WHITE }, C_TEXT),
+        Kind::Neutral => (if down { t.nav_hot } else if hot { t.bg } else { t.surface }, t.text),
     };
     fill_round(hdc, b.rect, 9, fillc);
     if b.kind == Kind::Neutral {
-        frame_round(hdc, b.rect, 9, C_BORDER);
+        frame_round(hdc, b.rect, 9, t.border);
     }
     text(hdc, b.label, &b.rect, textc, fonts.button, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
@@ -861,15 +957,27 @@ unsafe fn on_mouse_move(hwnd: HWND, (x, y): (i32, i32)) {
     }
     let hot_cmd = s.buttons.iter().find(|b| pt_in(&b.rect, x, y)).map(|b| b.cmd);
     let hot_nav = s.nav.iter().position(|n| pt_in(&n.rect, x, y));
-    if hot_cmd != s.hot_cmd || hot_nav != s.hot_nav {
+    let hot_theme = pt_in(&s.theme_btn, x, y);
+    if hot_cmd != s.hot_cmd || hot_nav != s.hot_nav || hot_theme != s.hot_theme {
         s.hot_cmd = hot_cmd;
         s.hot_nav = hot_nav;
+        s.hot_theme = hot_theme;
         let _ = InvalidateRect(Some(hwnd), None, false);
     }
 }
 
 unsafe fn on_lbutton_down(hwnd: HWND, (x, y): (i32, i32)) {
     let Some(s) = state(hwnd) else { return };
+    // Theme toggle (header).
+    if pt_in(&s.theme_btn, x, y) {
+        s.dark = !s.dark;
+        save_dark(s.dark); // remember across launches
+        let t = s.theme();
+        apply_list_theme(s.scan_list, t);
+        apply_list_theme(s.quar_list, t);
+        let _ = InvalidateRect(Some(hwnd), None, false);
+        return;
+    }
     // Nav switches immediately.
     if let Some(i) = s.nav.iter().position(|n| pt_in(&n.rect, x, y)) {
         let page = s.nav[i].page;
@@ -1123,15 +1231,16 @@ unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
         CDDS_ITEMPREPAINT => {
             let item = cd.nmcd.dwItemSpec;
             if let Some(s) = state(hwnd) {
+                let t = s.theme();
                 let sev = s.scan_sev.get(item).copied().unwrap_or(0);
                 cd.clrText = match sev {
-                    2 => C_DANGER,
-                    1 => C_WARN,
-                    _ => C_TEXT,
+                    2 => t.danger,
+                    1 => t.warn,
+                    _ => t.text,
                 };
+                // Zebra striping for readability.
+                cd.clrTextBk = if item % 2 == 0 { t.surface } else { t.stripe };
             }
-            // Zebra striping for readability.
-            cd.clrTextBk = if item % 2 == 0 { C_WHITE } else { C_STRIPE };
             CDRF_NEWFONT
         }
         _ => CDRF_DODEFAULT,
@@ -1351,6 +1460,22 @@ fn exe_dir() -> PathBuf {
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn theme_pref_path() -> PathBuf {
+    exe_dir().join("hydradragon_theme")
+}
+
+/// Loads the remembered theme (defaults to light if absent).
+fn load_dark() -> bool {
+    std::fs::read_to_string(theme_pref_path())
+        .map(|s| s.trim() == "dark")
+        .unwrap_or(false)
+}
+
+/// Remembers the theme choice across launches.
+fn save_dark(dark: bool) {
+    let _ = std::fs::write(theme_pref_path(), if dark { "dark" } else { "light" });
 }
 
 fn default_config() -> PipelineConfig {

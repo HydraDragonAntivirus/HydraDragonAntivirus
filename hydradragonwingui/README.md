@@ -9,8 +9,10 @@ by hand in the `wndproc`; the only real child controls are the two ListViews.
 
 ## Look & feel
 
-- Light, modern flat theme (Segoe UI, accent blue, danger red), DPI-aware for
-  crisp text on high-resolution displays.
+- **Light / Dark themes** with a sun/moon toggle in the header. The whole palette
+  is a `Theme` struct (`LIGHT` / `DARK`) threaded through every painter; switching
+  re-themes the painted chrome *and* the ListViews instantly. Segoe UI, accent
+  blue / danger red, DPI-aware.
 - **Status hero banner** (Kaspersky-style) on the Scan page — a big colored badge
   + headline that reflects live state: blue "Ready to scan" / "Scanning… (N files,
   M threats)", **green** "No threats found", or **red** "N threats found". Driven
