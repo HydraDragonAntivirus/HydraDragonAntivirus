@@ -1,3 +1,6 @@
+// This module is entirely Win32 FFI; the unsafe fns are the unsafe surface.
+#![allow(unsafe_op_in_unsafe_fn)]
+
 //! Process (RAM) memory scanner — the "memory" component of full-mode scanning.
 //!
 //! Enumerates running processes (Toolhelp snapshot), opens each readable one, and
@@ -11,7 +14,7 @@ use std::ffi::c_void;
 
 use serde::Serialize;
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
