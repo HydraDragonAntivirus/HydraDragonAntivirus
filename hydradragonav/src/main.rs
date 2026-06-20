@@ -8,6 +8,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use hydradragonav::disinfector::{self, DisinfectOutcome};
 use hydradragonav::remediation;
+use hydradragonav::memory_scanner;
 use hydradragonav::pipeline::scan_hayabusa_once;
 use hydradragonav::pipeline::{Pipeline, PipelineConfig, ScanMode};
 use hydradragonav::registry_scanner::RegistryScanner;
@@ -106,8 +107,8 @@ enum Command {
         /// File or directory to scan
         path: PathBuf,
 
-        /// Scan mode: full (files + registry + logs), files-only, or non-files (registry + logs, no files).
-        /// "logs" = Windows event logs via Hayabusa. Process-memory scanning is a planned full-mode addition.
+        /// Scan mode: full (files + memory + registry + logs), files-only, or non-files (registry + logs).
+        /// "memory" = running-process RAM (run elevated to reach protected processes); "logs" = Hayabusa event logs.
         #[arg(long, short, default_value = "files-only")]
         mode: ScanMode,
 
@@ -288,6 +289,8 @@ fn cmd_scan_single(
                 let hayabusa_matches = scan_hayabusa_once(hdir);
                 output["hayabusa_matches"] = serde_json::to_value(&hayabusa_matches).unwrap();
             }
+            output["memory_scan"] =
+                serde_json::to_value(memory_scanner::scan_process_memory(&pipeline)).unwrap();
         }
         println!("{}", serde_json::to_string(&output).unwrap());
     } else {
@@ -339,6 +342,7 @@ fn cmd_scan_single(
                     }
                 }
             }
+            print_memory_scan(&memory_scanner::scan_process_memory(&pipeline));
         }
     }
 
@@ -575,6 +579,10 @@ fn cmd_scan_recursive(
                 let hayabusa_matches = scan_hayabusa_once(hdir);
                 println!("{}", serde_json::to_string(&hayabusa_matches).unwrap());
             }
+            println!(
+                "{}",
+                serde_json::to_string(&memory_scanner::scan_process_memory(&pipeline)).unwrap()
+            );
         } else {
             print_registry_scan(&scan_registry(config));
             if let Some(ref hdir) = config.hayabusa_dir {
@@ -586,6 +594,7 @@ fn cmd_scan_recursive(
                     }
                 }
             }
+            print_memory_scan(&memory_scanner::scan_process_memory(&pipeline));
         }
     }
 }
@@ -829,6 +838,25 @@ fn cmd_update_hayabusa(hayabusa_dir: &std::path::Path) {
         Ok(s) if s.success() => eprintln!("[Hayabusa] Rules updated successfully."),
         Ok(s) => eprintln!("[Hayabusa] update-rules exited with: {}", s),
         Err(e) => eprintln!("[Hayabusa] Failed to run update-rules: {}", e),
+    }
+}
+
+fn print_memory_scan(detections: &[hydradragonav::memory_scanner::MemoryDetection]) {
+    println!("[Memory Scan]");
+    if detections.is_empty() {
+        println!("  No threats detected in process memory.");
+        return;
+    }
+    for d in detections {
+        println!(
+            "  [{}] {} (pid {}) @ 0x{:x} ({} bytes): {}",
+            d.verdict.label(),
+            d.process,
+            d.pid,
+            d.address,
+            d.region_size,
+            d.threat_name
+        );
     }
 }
 

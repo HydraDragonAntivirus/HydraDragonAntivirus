@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use hydradragonav::disinfector::{self, DisinfectOutcome};
+use hydradragonav::memory_scanner;
 use hydradragonav::pipeline::{scan_hayabusa_once, Pipeline, PipelineConfig};
 use hydradragonav::quarantine::Quarantine;
 use hydradragonav::registry_scanner::RegistryScanner;
@@ -1052,10 +1053,22 @@ fn worker(raw: isize, work_rx: Receiver<WorkRequest>, tx: Sender<ScanMsg>, quara
                         sev: 2,
                     });
                 }
+                send(&tx, hwnd, ScanMsg::Status("Full scan: process memory…".into()));
+                let mem = memory_scanner::scan_process_memory(pl);
+                for d in &mem {
+                    send(&tx, hwnd, ScanMsg::Row {
+                        file: format!("{} (pid {}) @ 0x{:x}", d.process, d.pid, d.address),
+                        verdict: d.verdict.label().to_string(),
+                        threat: d.threat_name.clone(),
+                        sev: if d.verdict.priority() >= 6 { 2 } else { 1 },
+                    });
+                }
+
                 send(&tx, hwnd, ScanMsg::Status(format!(
-                    "Full scan done. Files: {scanned} scanned, {threats} threat(s); registry: {} threat(s); logs: {} alert(s).",
+                    "Full scan done. Files: {scanned} scanned, {threats} threat(s); registry: {} threat(s); logs: {} alert(s); memory: {} hit(s).",
                     reg.threats_found,
-                    logs.len()
+                    logs.len(),
+                    mem.len()
                 )));
             }
             WorkRequest::Clean(paths) => {
