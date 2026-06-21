@@ -298,11 +298,16 @@ fn parse_pcre(raw: &str) -> Result<(LogicalExpr, Regex, bool), String> {
         .parse()
         .map_err(|e| format!("PCRE trigger expression: {e}"))?;
 
-    // ClamAV escapes forward slashes inside the regex as "\/"; undo that.
-    let pattern = pattern_raw.replace("\\/", "/");
+    // ClamAV escapes forward slashes inside the regex as "\/"; undo that, then
+    // translate ClamAV/PCRE dialect quirks (unknown escapes, literal '[' in a
+    // class, non-quantifier braces) into syntax Rust's regex crate accepts.
+    let pattern = crate::database::sanitize_clamav_regex(&pattern_raw.replace("\\/", "/"));
 
     let mut global = false;
     let mut builder = RegexBuilder::new(&pattern);
+    // ClamAV ships some large compiled regexes; raise the default 10 MB cap so
+    // they aren't rejected for size alone (64 MB compiled program).
+    builder.size_limit(64 * 1024 * 1024);
     for ch in flags.chars() {
         match ch {
             'g' => global = true,

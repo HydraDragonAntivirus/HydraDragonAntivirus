@@ -189,10 +189,29 @@ impl Pipeline {
                     if let Some(c) = existing_clamav {
                         Some(c)
                     } else {
-                        clamav_db
-                            .as_ref()
-                            .filter(|db| db.exists())
-                            .and_then(|db| ClamavScanner::new(db).ok())
+                        match clamav_db.as_ref() {
+                            Some(db) if db.exists() => match ClamavScanner::new(db) {
+                                Ok(scanner) => Some(scanner),
+                                // Don't let a DB problem silently disable ClamAV —
+                                // surface why so it's diagnosable.
+                                Err(e) => {
+                                    log::error!(
+                                        "ClamAV disabled: failed to load database {:?}: {}",
+                                        db, e
+                                    );
+                                    eprintln!(
+                                        "[ClamAV] disabled: failed to load database {:?}: {}",
+                                        db, e
+                                    );
+                                    None
+                                }
+                            },
+                            Some(db) => {
+                                log::warn!("ClamAV disabled: database path {:?} does not exist", db);
+                                None
+                            }
+                            None => None,
+                        }
                     }
                 });
 

@@ -266,11 +266,22 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
     }
 
     let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    for (index, line) in reader.lines().enumerate() {
+    let mut reader = BufReader::new(file);
+    // ClamAV signature databases are NOT guaranteed to be valid UTF-8 — malware
+    // names and some fields can carry stray bytes. Read raw bytes per line and
+    // decode lossily so a single bad byte never aborts the entire database load
+    // (which previously disabled the whole ClamAV engine).
+    let mut raw: Vec<u8> = Vec::new();
+    let mut index = 0usize;
+    loop {
+        raw.clear();
+        if reader.read_until(b'\n', &mut raw)? == 0 {
+            break;
+        }
         let line_number = index + 1;
-        let line = line?;
-        let line = line.trim();
+        index += 1;
+        let decoded = String::from_utf8_lossy(&raw);
+        let line = decoded.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
@@ -347,8 +358,10 @@ fn parse_ftm(line: &str, source: SourceLocation) -> Result<FileTypeMagic, String
         return Err("ftm needs magictype:offset:magicbytes:name:rtype:type".to_string());
     }
     let offset = match parts[0].trim() {
-        // 0 = absolute byte comparison, 1 = body-pattern anywhere.
-        "0" | "1" => OffsetSpec::parse(parts[1].trim()),
+        // 0 = absolute byte comparison, 1 = body-pattern anywhere, 4 = partition
+        // magic (e.g. HFS+/HFSX) — same offset:magic structure, matched as an
+        // absolute-offset type signature.
+        "0" | "1" | "4" => OffsetSpec::parse(parts[1].trim()),
         other => return Err(format!("unsupported ftm magictype '{other}'")),
     };
     let patterns = compile_pattern_variants(parts[2].trim(), Modifiers::default())
@@ -378,9 +391,166 @@ fn parse_filename_regex(raw: &str) -> Result<Option<Regex>, String> {
     if raw.is_empty() || raw == "*" || raw == ".*" {
         return Ok(None);
     }
-    Regex::new(raw)
+    let sanitized = sanitize_clamav_regex(raw);
+    Regex::new(&sanitized)
         .map(Some)
         .map_err(|err| format!("invalid container filename regex: {err}"))
+}
+
+/// Translate a ClamAV / POSIX-ish regex into one Rust's `regex` crate accepts.
+/// ClamAV's engine is more permissive; this normalizes the three differences
+/// that show up in real signature databases so the patterns compile instead of
+/// being dropped, while preserving ClamAV's literal semantics:
+///   1. Unknown escapes — `\i` / `\pdf` mean literal `i` / `pdf`. Rust errors on
+///      unrecognized escapes, so drop the backslash for those.
+///   2. Literal `[` inside a character class — `[[Gg]` means a class containing
+///      `[`, `G`, `g`. Rust would read a nested class, so escape it to `\[`.
+///   3. Non-quantifier braces — `po{` / `}` are literal `{`/`}` in ClamAV, but
+///      Rust treats `{` as a quantifier. Escape braces that aren't a valid
+///      `{n}` / `{n,}` / `{n,m}` quantifier.
+pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
+    // Letters that begin a valid Rust-regex escape — keep the backslash for these.
+    // `p`/`P` (Unicode property classes) are excluded: ClamAV uses `\p` to mean a
+    // literal `p` (e.g. `\pdf` == "pdf").
+    const ESCAPE_LETTERS: &str = "aftnrvbBAzdDsSwWx";
+    let chars: Vec<char> = pattern.chars().collect();
+    let n = chars.len();
+    let mut out = String::with_capacity(n + 8);
+    let mut i = 0;
+    let mut in_class = false;
+    let mut class_pos = 0usize; // position within the current [...] class
+
+    while i < n {
+        let c = chars[i];
+
+        // Escapes: keep recognized ones, drop the backslash from the rest.
+        if c == '\\' {
+            if i + 1 < n {
+                let next = chars[i + 1];
+                if !next.is_ascii_alphanumeric() || ESCAPE_LETTERS.contains(next) {
+                    out.push('\\');
+                }
+                out.push(next);
+                i += 2;
+                if in_class {
+                    class_pos += 1;
+                }
+            } else {
+                out.push('\\'); // trailing backslash — Regex::new will report it
+                i += 1;
+            }
+            continue;
+        }
+
+        if in_class {
+            match c {
+                // A literal ']' at the very start of a class (POSIX) needs escaping.
+                ']' if class_pos == 0 => out.push_str("\\]"),
+                ']' => {
+                    in_class = false;
+                    out.push(']');
+                }
+                // Literal '[' inside a class (but not a POSIX `[:name:]`) — escape
+                // so Rust doesn't parse it as a nested class.
+                '[' if !(i + 1 < n && chars[i + 1] == ':') => out.push_str("\\["),
+                _ => out.push(c),
+            }
+            if !(c == ']' && !in_class) {
+                class_pos += 1;
+            }
+            i += 1;
+            continue;
+        }
+
+        match c {
+            '[' => {
+                in_class = true;
+                class_pos = 0;
+                out.push('[');
+                i += 1;
+                if i < n && chars[i] == '^' {
+                    out.push('^');
+                    i += 1;
+                }
+            }
+            '{' => {
+                if let Some(len) = quantifier_len(&chars, i) {
+                    for ch in &chars[i..i + len] {
+                        out.push(*ch);
+                    }
+                    i += len;
+                } else {
+                    out.push_str("\\{"); // not a quantifier — literal brace
+                    i += 1;
+                }
+            }
+            '}' => {
+                out.push_str("\\}"); // stray closing brace — literal
+                i += 1;
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// If `chars[start]` begins a valid `{n}` / `{n,}` / `{n,m}` quantifier, return
+/// its length (including the braces); otherwise `None` (so it's a literal `{`).
+fn quantifier_len(chars: &[char], start: usize) -> Option<usize> {
+    let n = chars.len();
+    let mut j = start + 1;
+    let digits_start = j;
+    while j < n && chars[j].is_ascii_digit() {
+        j += 1;
+    }
+    if j == digits_start {
+        return None; // need at least one digit
+    }
+    if j < n && chars[j] == ',' {
+        j += 1;
+        while j < n && chars[j].is_ascii_digit() {
+            j += 1;
+        }
+    }
+    if j < n && chars[j] == '}' {
+        Some(j - start + 1)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::sanitize_clamav_regex;
+    use regex::Regex;
+
+    fn assert_compiles(input: &str) {
+        let translated = sanitize_clamav_regex(input);
+        Regex::new(&translated)
+            .unwrap_or_else(|e| panic!("'{input}' -> '{translated}' failed: {e}"));
+    }
+
+    #[test]
+    fn translates_clamav_dialect_to_valid_rust_regex() {
+        // Unknown escapes become literals.
+        assert_eq!(sanitize_clamav_regex(r"\invoice"), "invoice");
+        assert_eq!(sanitize_clamav_regex(r"\pdf"), "pdf");
+        assert_eq!(sanitize_clamav_regex(r"\.exe$"), r"\.exe$");
+        // Literal '[' inside a class is escaped (nested-class avoidance).
+        assert_eq!(sanitize_clamav_regex("[[Gg]"), r"[\[Gg]");
+        // Non-quantifier braces become literal; real quantifiers are preserved.
+        assert_eq!(sanitize_clamav_regex("po{x}"), r"po\{x\}");
+        assert_eq!(sanitize_clamav_regex("a{2,4}"), "a{2,4}");
+
+        // Real failing patterns from foxhole_*.cdb must now compile.
+        assert_compiles(r"(?i)\.ord.\pdf\.exe$");
+        assert_compiles(r"(?i)^po{.{0,30}}\.lnk$");
+        assert_compiles("[. -_]([[Gg][Ii][Ff])(([. _,]){1,})([Ee][Xx][Ee])$");
+        assert_compiles(r"[\* -_]([[Jj][Pp][Gg])(([\*]){1,})([Ss][Cc][Rr])$");
+    }
 }
 
 fn parse_encrypted(raw: &str) -> Result<Option<bool>, String> {

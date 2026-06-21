@@ -80,6 +80,7 @@ const CMD_COPY: usize = 14;
 // Settings page: load / unload the scanning engine.
 const CMD_START_ENGINE: usize = 15;
 const CMD_STOP_ENGINE: usize = 16;
+const CMD_PAUSE: usize = 17;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 // Not surfaced by the WindowsAndMessaging glob in this build — define it raw, or
@@ -287,8 +288,10 @@ enum ScanMsg {
         current: String,
     },
     Done { scanned: usize, threats: usize },
-    /// Scan was stopped mid-run; `remaining` files are queued for Resume.
+    /// Scan was paused mid-run; `remaining` files are queued for Resume.
     Paused { scanned: usize, threats: usize, remaining: usize },
+    /// Scan was stopped (aborted) mid-run; the session is discarded — no Resume.
+    Stopped,
     /// A paused scan has been picked back up.
     Resumed,
     /// Engine lifecycle (drives the loading screen / status indicator).
@@ -364,9 +367,12 @@ struct AppState {
     scan_discovering: bool,
     work_tx: Sender<WorkRequest>,
     result_rx: Receiver<ScanMsg>,
-    /// Set from the UI thread (Stop) and polled by the worker's scan loop to
-    /// abort between files. Shared with the worker thread.
+    /// Set from the UI thread (Pause/Stop) and polled by the worker's scan loop
+    /// to interrupt between files. Shared with the worker thread.
     cancel: Arc<AtomicBool>,
+    /// Distinguishes Stop (abort → discard session, back to home) from Pause
+    /// (keep session for Resume). Set together with `cancel` on Stop.
+    abort: Arc<AtomicBool>,
     scan_rows: Vec<PathBuf>,
     scan_sev: Vec<u8>,
     // Parallel to scan_rows: the verdict/threat text shown per detection, kept so
@@ -583,7 +589,9 @@ unsafe fn on_create(hwnd: HWND) {
     let raw = hwnd.0 as isize;
     let cancel = Arc::new(AtomicBool::new(false));
     let worker_cancel = cancel.clone();
-    std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir, worker_cancel));
+    let abort = Arc::new(AtomicBool::new(false));
+    let worker_abort = abort.clone();
+    std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir, worker_cancel, worker_abort));
     // Load the engine immediately so the loading screen shows on startup.
     let _ = work_tx.send(WorkRequest::StartEngine);
 
@@ -618,6 +626,7 @@ unsafe fn on_create(hwnd: HWND) {
         work_tx,
         result_rx,
         cancel,
+        abort,
         scan_rows: Vec::new(),
         scan_sev: Vec::new(),
         scan_verdict: Vec::new(),
@@ -692,25 +701,23 @@ unsafe fn apply_list_theme(h: HWND, t: &Theme) {
 
 fn buttons_for(page: usize, state: ScanState) -> Vec<(usize, &'static str, &'static str, Kind)> {
     match page {
-        // Scan page buttons depend on the scan state: a single Stop while a scan
-        // runs, Resume (+ the normal actions) once it's paused.
+        // Scan page buttons depend on the scan state: while scanning, Pause +
+        // Stop; while paused, Resume + Stop (Pause's label toggles to Resume).
         0 => match state {
-            ScanState::Scanning => vec![(CMD_STOP, "Stop", "\u{E71A}", Kind::Danger)],
+            ScanState::Scanning => vec![
+                (CMD_PAUSE, "Pause Scan", "\u{E769}", Kind::Primary),
+                (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
+            ],
             ScanState::Paused => vec![
                 (CMD_RESUME, "Resume", "\u{E768}", Kind::Primary),
-                (CMD_SCAN_FILE, "Scan File", "\u{E8A5}", Kind::Primary),
-                (CMD_SCAN_FOLDER, "Scan Folder", "\u{E8B7}", Kind::Primary),
-                (CMD_CLEAN, "Clean Selected", "\u{E74D}", Kind::Primary),
-                (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
-                (CMD_TRACES, "Remove Traces", "\u{E894}", Kind::Danger),
+                (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
             ],
             _ => vec![
                 (CMD_SCAN_FILE, "Scan File", "\u{E8A5}", Kind::Primary),
                 (CMD_SCAN_FOLDER, "Scan Folder", "\u{E8B7}", Kind::Primary),
                 (CMD_FULL_SCAN, "Full Scan", "\u{E721}", Kind::Primary),
-                (CMD_CLEAN, "Clean Selected", "\u{E74D}", Kind::Primary),
+                (CMD_CLEAN, "Clean & Remove Traces", "\u{E74D}", Kind::Primary),
                 (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
-                (CMD_TRACES, "Remove Traces", "\u{E894}", Kind::Danger),
             ],
         },
         1 => vec![
@@ -1287,21 +1294,30 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_SCAN_FILE => pick_and_scan(s, false),
         CMD_SCAN_FOLDER => pick_and_scan(s, true),
         CMD_FULL_SCAN => pick_and_full_scan(s),
-        CMD_CLEAN => act_on_selected(hwnd, s, true),
+        CMD_CLEAN => act_clean_and_traces(hwnd, s),
         CMD_SAVE_RESULTS => save_results(hwnd, s),
         CMD_RESCAN => rescan_selected(hwnd, s),
         CMD_COPY => copy_selected(hwnd, s),
-        CMD_STOP => {
-            // Signal the worker's scan loop to stop after the in-flight files.
+        CMD_PAUSE => {
+            // Pause: interrupt the scan but keep the remaining queue so it can be
+            // resumed. Flip to the Paused toolbar immediately (the Pause button
+            // becomes Resume) instead of waiting for the worker to acknowledge;
+            // the worker's later `Paused` message just refreshes the counts.
             s.cancel.store(true, Ordering::Relaxed);
-            // Switch to the Paused toolbar right away (Resume + the normal
-            // actions) instead of waiting for the worker to finish the in-flight
-            // file and acknowledge with `Paused`. Without this the Stop button
-            // lingers for as long as the current file takes to scan. The worker's
-            // later `Paused` message just refreshes the counts. The sidebar nav is
-            // independent of scan state, so the user can still leave this page.
+            s.abort.store(false, Ordering::Relaxed);
             s.scan_state = ScanState::Paused;
-            s.status = "Stopping… (scan paused — Resume to continue)".into();
+            s.status = "Pausing… (Resume to continue)".into();
+            layout(hwnd);
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        CMD_STOP => {
+            // Stop: abort the scan and go straight back to the home menu. The
+            // session is discarded (no Resume). `abort` tells the worker to drop
+            // the session and emit `Stopped` instead of `Paused`.
+            s.abort.store(true, Ordering::Relaxed);
+            s.cancel.store(true, Ordering::Relaxed);
+            s.scan_state = ScanState::Idle;
+            s.status = "Scan stopped.".into();
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
         }
@@ -1634,6 +1650,30 @@ unsafe fn set_clipboard_text(hwnd: HWND, text: &str) -> bool {
     ok
 }
 
+/// United "Clean & Remove Traces": neutralize/quarantine the selected detections
+/// AND remove their Windows traces, behind a single confirmation.
+unsafe fn act_clean_and_traces(hwnd: HWND, s: &mut AppState) {
+    let paths: Vec<PathBuf> = lv_selected(s.scan_list)
+        .into_iter()
+        .filter_map(|i| s.scan_rows.get(i as usize).cloned())
+        .collect();
+    if paths.is_empty() {
+        set_status(hwnd, s, "Select one or more detected files first.");
+        return;
+    }
+    let prompt = format!(
+        "Clean {} selected file(s) AND remove their Windows traces?\n\
+         Matched regions are neutralized in place (a .bak is kept) or the file is \
+         quarantined; a System Restore Point and per-key .reg backups are created first.",
+        paths.len()
+    );
+    if confirm(hwnd, &prompt) {
+        // Clean first, then remove traces — both run on the worker thread.
+        let _ = s.work_tx.send(WorkRequest::Clean(paths.clone()));
+        let _ = s.work_tx.send(WorkRequest::RemoveTraces(paths));
+    }
+}
+
 unsafe fn act_on_selected(hwnd: HWND, s: &mut AppState, clean: bool) {
     let paths: Vec<PathBuf> = lv_selected(s.scan_list)
         .into_iter()
@@ -1748,6 +1788,11 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.threat_count = threats;
                 s.scan_state = ScanState::Paused;
                 s.status = format!("Paused. {scanned} scanned, {remaining} remaining — Resume to continue.");
+            }
+            ScanMsg::Stopped => {
+                // Aborted scan: session was discarded; return to the home menu.
+                s.scan_state = ScanState::Idle;
+                s.status = "Scan stopped.".into();
             }
             ScanMsg::Resumed => {
                 s.scan_state = ScanState::Scanning;
@@ -1996,6 +2041,7 @@ fn worker(
     tx: Sender<ScanMsg>,
     quarantine_dir: PathBuf,
     cancel: Arc<AtomicBool>,
+    abort: Arc<AtomicBool>,
 ) {
     let hwnd = HWND(raw as *mut c_void);
     let mut pipeline: Option<Pipeline> = None;
@@ -2007,7 +2053,7 @@ fn worker(
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
                 session = Some(seed_session(&paths, false));
-                let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &tx, hwnd);
+                let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &abort, &tx, hwnd);
                 if completed {
                     session = None;
                 }
@@ -2016,7 +2062,7 @@ fn worker(
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
                 session = Some(seed_session(&paths, true));
-                let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &tx, hwnd);
+                let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &abort, &tx, hwnd);
                 if completed {
                     session = None;
                 }
@@ -2039,7 +2085,7 @@ fn worker(
                 if let Some(sess) = session.as_mut() {
                     send(&tx, hwnd, ScanMsg::Resumed);
                     let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                    let completed = run_session(pl, sess, &cancel, &tx, hwnd);
+                    let completed = run_session(pl, sess, &cancel, &abort, &tx, hwnd);
                     if completed {
                         session = None;
                     }
@@ -2118,14 +2164,22 @@ fn run_session(
     pl: &Pipeline,
     sess: &mut ScanSession,
     cancel: &AtomicBool,
+    abort: &AtomicBool,
     tx: &Sender<ScanMsg>,
     hwnd: HWND,
 ) -> bool {
     cancel.store(false, Ordering::Relaxed);
+    abort.store(false, Ordering::Relaxed);
     let completed = run_streaming(pl, sess, cancel, tx, hwnd);
     pl.save_result_caches(); // persist learned good/bad results either way
 
     if !completed {
+        // Interrupted: Stop (abort) discards the session and returns home;
+        // Pause keeps the remaining queue so it can be resumed.
+        if abort.load(Ordering::Relaxed) {
+            send(tx, hwnd, ScanMsg::Stopped);
+            return true; // drop the session — no resume
+        }
         send(tx, hwnd, ScanMsg::Paused {
             scanned: sess.scanned,
             threats: sess.threats,
