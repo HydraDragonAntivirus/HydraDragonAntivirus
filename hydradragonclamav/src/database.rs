@@ -102,6 +102,7 @@ pub struct LoadReport {
     pub hash_files_skipped: usize,
     pub unsupported_files: usize,
     pub unsupported_records: usize,
+    pub bytecodes_loaded: usize,
     pub by_extension: BTreeMap<String, usize>,
     pub errors: Vec<LoadError>,
 }
@@ -423,11 +424,15 @@ pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
     while i < n {
         let c = chars[i];
 
-        // Escapes: keep recognized ones, drop the backslash from the rest.
+        // Escapes: keep recognized ones, drop the backslash only from unknown
+        // *letter* escapes (e.g. `\i`, `\p`) so they become literals. Keep it for
+        // digits (so backreferences like `\1` stay unsupported, not silently
+        // turned into a literal digit), punctuation, and recognized escapes.
         if c == '\\' {
             if i + 1 < n {
                 let next = chars[i + 1];
-                if !next.is_ascii_alphanumeric() || ESCAPE_LETTERS.contains(next) {
+                let drop = next.is_ascii_alphabetic() && !ESCAPE_LETTERS.contains(next);
+                if !drop {
                     out.push('\\');
                 }
                 out.push(next);

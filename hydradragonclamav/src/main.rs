@@ -212,6 +212,7 @@ fn print_report(report: &LoadReport) {
         report.container_loaded
     );
     println!("loaded file-type magic records: {}", report.ftm_loaded);
+    println!("loaded bytecode programs: {}", report.bytecodes_loaded);
     println!("skipped hash database files: {}", report.hash_files_skipped);
     println!("unsupported database files: {}", report.unsupported_files);
     println!("unsupported records: {}", report.unsupported_records);

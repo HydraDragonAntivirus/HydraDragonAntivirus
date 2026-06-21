@@ -31,19 +31,26 @@ pub struct Pattern {
     required_literal: Option<Vec<u8>>,
 }
 
+// Memory: there are hundreds of thousands of signatures, each a `Vec<Token>`,
+// so `Token` is kept small. Jump bounds are `u32` (ClamAV jumps are tiny) and
+// the large alternation variant is boxed, so a token is ~16 bytes instead of
+// ~56 — a literal byte costs ~16 B rather than bloating to the widest variant.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Token {
     Byte(ByteMatcher),
     AnyBytes {
-        min: usize,
-        max: Option<usize>,
+        min: u32,
+        max: Option<u32>,
     },
     Boundary(Boundary),
-    Alternates {
-        branches: Vec<Vec<Token>>,
-        negated: bool,
-        negated_width: Option<usize>,
-    },
+    Alternates(Box<Alternates>),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Alternates {
+    branches: Vec<Vec<Token>>,
+    negated: bool,
+    negated_width: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,6 +101,14 @@ impl Pattern {
 
     pub fn is_match(&self, data: &[u8]) -> bool {
         !self.find_all(data, &[(0, data.len())], 1).is_empty()
+    }
+
+    /// The pattern's longest required literal substring (case-sensitive, exact
+    /// bytes), if any. The pattern cannot match unless this appears in the data,
+    /// so it's usable as an Aho-Corasick prefilter atom. `None` when the pattern
+    /// has no usable literal (e.g. fully wildcard or nocase).
+    pub fn required_atom(&self) -> Option<&[u8]> {
+        self.required_literal.as_deref()
     }
 
     pub fn find_all(
@@ -167,11 +182,13 @@ fn match_tokens(
             }
         }
         Token::AnyBytes { min, max } => {
-            let min_pos = pos.checked_add(*min)?;
+            let min_pos = pos.checked_add(*min as usize)?;
             if min_pos > data.len() {
                 return None;
             }
-            let max_len = max.unwrap_or_else(|| data.len().saturating_sub(pos));
+            let max_len = max
+                .map(|m| m as usize)
+                .unwrap_or_else(|| data.len().saturating_sub(pos));
             let max_pos = pos.saturating_add(max_len).min(data.len());
             for next in min_pos..=max_pos {
                 if let Some(end) = match_tokens(tokens, data, token_index + 1, next, depth + 1) {
@@ -205,11 +222,12 @@ fn match_tokens(
                 None
             }
         }
-        Token::Alternates {
-            branches,
-            negated,
-            negated_width,
-        } => {
+        Token::Alternates(alt) => {
+            let Alternates {
+                branches,
+                negated,
+                negated_width,
+            } = alt.as_ref();
             if *negated {
                 let width = (*negated_width)?;
                 if pos + width > data.len() {
@@ -369,18 +387,21 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok(Token::Alternates {
+        Ok(Token::Alternates(Box::new(Alternates {
             branches,
             negated,
             negated_width,
-        })
+        })))
     }
 
     fn parse_braced_range(&mut self) -> Result<Token, String> {
         self.expect('{')?;
         let content = self.read_until('}')?;
         let (min, max) = parse_range_content(&content)?;
-        Ok(Token::AnyBytes { min, max })
+        Ok(Token::AnyBytes {
+            min: min as u32,
+            max: max.map(|m| m as u32),
+        })
     }
 
     fn parse_bracket_range(&mut self) -> Result<Token, String> {
@@ -388,8 +409,8 @@ impl<'a> Parser<'a> {
         let content = self.read_until(']')?;
         let (min, max) = parse_range_content(&content)?;
         Ok(Token::AnyBytes {
-            min,
-            max: Some(max.unwrap_or(min)),
+            min: min as u32,
+            max: Some(max.unwrap_or(min) as u32),
         })
     }
 
@@ -491,13 +512,10 @@ fn fixed_width(tokens: &[Token]) -> Option<usize> {
             Token::AnyBytes {
                 min,
                 max: Some(max),
-            } if min == max => width += min,
-            Token::Alternates {
-                branches,
-                negated: false,
-                ..
-            } => {
-                let branch_widths = branches
+            } if min == max => width += *min as usize,
+            Token::Alternates(alt) if !alt.negated => {
+                let branch_widths = alt
+                    .branches
                     .iter()
                     .map(|branch| fixed_width(branch))
                     .collect::<Option<Vec<_>>>()?;
@@ -507,10 +525,9 @@ fn fixed_width(tokens: &[Token]) -> Option<usize> {
                     return None;
                 }
             }
-            Token::Alternates {
-                negated_width: Some(alt_width),
-                ..
-            } => width += alt_width,
+            Token::Alternates(alt) if alt.negated_width.is_some() => {
+                width += alt.negated_width.unwrap()
+            }
             _ => return None,
         }
     }
@@ -527,25 +544,22 @@ fn to_wide_tokens(tokens: &[Token]) -> Vec<Token> {
                     out.push(Token::Byte(ByteMatcher::exact(0, false)));
                 }
             }
-            Token::Alternates {
-                branches,
-                negated,
-                negated_width,
-            } => {
-                let branches = branches
+            Token::Alternates(alt) => {
+                let branches = alt
+                    .branches
                     .iter()
                     .map(|branch| to_wide_tokens(branch))
                     .collect::<Vec<_>>();
-                let negated_width = if *negated {
+                let negated_width = if alt.negated {
                     branches.first().and_then(|branch| fixed_width(branch))
                 } else {
-                    *negated_width
+                    alt.negated_width
                 };
-                out.push(Token::Alternates {
+                out.push(Token::Alternates(Box::new(Alternates {
                     branches,
-                    negated: *negated,
+                    negated: alt.negated,
                     negated_width,
-                });
+                })));
             }
             other => out.push(other.clone()),
         }

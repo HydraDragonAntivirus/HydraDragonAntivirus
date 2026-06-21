@@ -1415,6 +1415,10 @@ unsafe fn set_status(hwnd: HWND, s: &mut AppState, text: &str) {
 
 unsafe fn pick_and_scan(s: &mut AppState, folder: bool) {
     if let Some(path) = pick_path(folder) {
+        // Clear any leftover interrupt from a previous Pause/Stop so this scan's
+        // progress isn't gated.
+        s.cancel.store(false, Ordering::Relaxed);
+        s.abort.store(false, Ordering::Relaxed);
         lv_clear(s.scan_list);
         clear_scan_results(s);
         s.status = format!("Scanning {}…", path.display());
@@ -1425,6 +1429,8 @@ unsafe fn pick_and_scan(s: &mut AppState, folder: bool) {
 /// Full mode: pick a folder, then scan its files (in memory) + registry + logs.
 unsafe fn pick_and_full_scan(s: &mut AppState) {
     if let Some(path) = pick_path(true) {
+        s.cancel.store(false, Ordering::Relaxed);
+        s.abort.store(false, Ordering::Relaxed);
         lv_clear(s.scan_list);
         clear_scan_results(s);
         s.status = format!("Full scan: {} + registry + logs…", path.display());
@@ -1761,6 +1767,12 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.status = "Discovering & scanning…".into();
             }
             ScanMsg::Progress { scanned, threats, discovered, speed, mbps, eta_secs, discovering, current } => {
+                // Once the user has hit Pause/Stop, ignore in-flight Progress
+                // ticks — otherwise a late tick flips the UI back to "Scanning"
+                // (the Stop/Pause toolbar) after we've already gone to Paused/home.
+                if s.cancel.load(Ordering::Relaxed) {
+                    continue;
+                }
                 s.scan_state = ScanState::Scanning;
                 s.scanned_count = scanned;
                 s.threat_count = threats;

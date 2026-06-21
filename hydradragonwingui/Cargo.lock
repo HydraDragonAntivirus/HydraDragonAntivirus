@@ -3745,6 +3745,8 @@ dependencies = [
 name = "hydradragonclamav"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
+ "flate2",
  "hydradragonextractor",
  "regex",
 ]

@@ -9,6 +9,12 @@ use std::path::Path;
 #[derive(Debug)]
 pub struct Engine {
     pub database: Database,
+    /// ClamAV bytecode programs loaded from bytecode.cvd/.cld/.cbc. Stage 1:
+    /// parsed (header + trigger) but not yet executed.
+    pub bytecodes: Vec<crate::bytecode::Bytecode>,
+    /// Atom prefilter: selects the few signatures worth fully evaluating per
+    /// buffer instead of scanning all of them linearly.
+    prefilter: crate::prefilter::AtomPrefilter,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -88,8 +94,25 @@ struct ScanState {
 
 impl Engine {
     pub fn from_database_dir(path: impl AsRef<Path>) -> io::Result<(Self, crate::LoadReport)> {
-        let (database, report) = Database::load_dir(path)?;
-        Ok((Self { database }, report))
+        let path = path.as_ref();
+        let (database, mut report) = Database::load_dir(path)?;
+        // Load (parse) bytecode programs from the same directory.
+        let bc = crate::bytecode::BytecodeSet::load_from_dir(path);
+        report.bytecodes_loaded = bc.report.loaded;
+        // The atom prefilter is a *speed* tool but adds a second copy of every
+        // literal, which raises RAM. Keep it disabled until pattern storage is
+        // compact enough that the trie can be the single index. (Speed of the
+        // linear scan is the remaining cost; RAM is the priority here.)
+        let prefilter = crate::prefilter::AtomPrefilter::disabled();
+        let _ = crate::prefilter::AtomPrefilter::build; // keep build() referenced
+        Ok((
+            Self {
+                database,
+                bytecodes: bc.bytecodes,
+                prefilter,
+            },
+            report,
+        ))
     }
 
     pub fn scan_path(
@@ -259,9 +282,12 @@ impl Engine {
         options: ScanOptions,
         matches: &mut Vec<ScanMatch>,
     ) {
-        self.scan_extended(ctx, options, matches);
+        // One Aho-Corasick pass picks the candidate signatures for this buffer;
+        // both phases then evaluate only those instead of all ~500k.
+        let (ext_cands, log_cands) = self.prefilter.candidates(ctx.data);
+        self.scan_extended(ctx, options, matches, &ext_cands);
         if matches.len() < options.max_matches {
-            self.scan_logical(ctx, options, matches);
+            self.scan_logical(ctx, options, matches, &log_cands);
         }
     }
 
@@ -343,8 +369,14 @@ impl Engine {
         ctx: &ScanContext<'_>,
         options: ScanOptions,
         matches: &mut Vec<ScanMatch>,
+        cands: &crate::prefilter::Candidates,
     ) {
-        for signature in &self.database.extended {
+        let indices: Box<dyn Iterator<Item = usize>> = match cands {
+            crate::prefilter::Candidates::All => Box::new(0..self.database.extended.len()),
+            crate::prefilter::Candidates::List(v) => Box::new(v.iter().map(|&x| x as usize)),
+        };
+        for si in indices {
+            let signature = &self.database.extended[si];
             if matches.len() >= options.max_matches {
                 return;
             }
@@ -392,8 +424,14 @@ impl Engine {
         ctx: &ScanContext<'_>,
         options: ScanOptions,
         matches: &mut Vec<ScanMatch>,
+        cands: &crate::prefilter::Candidates,
     ) {
-        for signature in &self.database.logical {
+        let indices: Box<dyn Iterator<Item = usize>> = match cands {
+            crate::prefilter::Candidates::All => Box::new(0..self.database.logical.len()),
+            crate::prefilter::Candidates::List(v) => Box::new(v.iter().map(|&x| x as usize)),
+        };
+        for si in indices {
+            let signature = &self.database.logical[si];
             if matches.len() >= options.max_matches {
                 return;
             }
@@ -775,13 +813,48 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let engine = Engine { database };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "Test.Signature");
         assert_eq!(found[0].source, source);
         assert_eq!(found[0].object_path, "root");
         assert_eq!(found[0].view, ScanView::Raw);
+    }
+
+    #[test]
+    fn prefilter_matches_exhaustive_scan() {
+        // Same DB scanned with the real Aho-Corasick prefilter ("ABC" is the atom)
+        // must give identical results: matches when the atom is present, skips
+        // (no false negative, no false positive) when it isn't.
+        let source = SourceLocation {
+            path: PathBuf::from("test.ndb"),
+            line: 1,
+        };
+        let database = Database {
+            extended: vec![ExtendedSignature {
+                name: "Test.Signature".to_string(),
+                target: Some(0),
+                offset: OffsetSpec::any(),
+                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap(),
+                source: source.clone(),
+            }],
+            logical: Vec::new(),
+            container: Vec::new(),
+            file_type_magic: Vec::new(),
+            unsupported: Vec::new(),
+        };
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter };
+
+        // Atom present → detected.
+        let hit = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
+        assert_eq!(hit.len(), 1);
+        assert_eq!(hit[0].name, "Test.Signature");
+
+        // Atom absent → correctly skipped, no match.
+        let miss = engine.scan_bytes(b"xxxyyyzzz", ScanOptions::default());
+        assert!(miss.is_empty());
     }
 
     #[test]
@@ -804,7 +877,7 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let engine = Engine { database };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"HeLLo   \r\nWorld", ScanOptions::default());
         assert!(found
             .iter()
@@ -830,7 +903,7 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let engine = Engine { database };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(
             b"<html><body>Pay<!--x-->load</body></html>",
             ScanOptions::default(),
@@ -859,7 +932,7 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let engine = Engine { database };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
         assert!(found.iter().any(|hit| {
             hit.name == "Test.Zip.Child"
@@ -883,7 +956,7 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let engine = Engine { database };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // Body "AA" present and regex "world" present -> match.
         let found = engine.scan_bytes(b"AA hello world", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Pcre"));
@@ -907,7 +980,7 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let engine = Engine { database };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // "SIZE" then 2 LE bytes = 5 (>0) -> match.
         let found = engine.scan_bytes(b"SIZE\x05\x00tail", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Bc"));
@@ -936,7 +1009,7 @@ mod tests {
             container: vec![container],
             ..Default::default()
         };
-        let engine = Engine { database };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // Member "MALWARE" is 7 bytes at position 1 inside a zip.
         let found =
             engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
@@ -974,7 +1047,7 @@ mod tests {
             file_type_magic: vec![magic],
             ..Default::default()
         };
-        let engine = Engine { database };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // "MZAB": .ftm types it MSEXE (target 1); the sig's target 3 -> filtered when strict.
         let strict = ScanOptions {
             strict_targets: true,

@@ -305,9 +305,9 @@ fn parse_pcre(raw: &str) -> Result<(LogicalExpr, Regex, bool), String> {
 
     let mut global = false;
     let mut builder = RegexBuilder::new(&pattern);
-    // ClamAV ships some large compiled regexes; raise the default 10 MB cap so
-    // they aren't rejected for size alone (64 MB compiled program).
-    builder.size_limit(64 * 1024 * 1024);
+    // Keep the default 10 MB compiled-size cap: a handful of giant regexes would
+    // otherwise each consume tens of MB, and with this many signatures resident
+    // that adds up fast. Better to skip the 3 oversized ones than balloon RAM.
     for ch in flags.chars() {
         match ch {
             'g' => global = true,

@@ -458,6 +458,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "daachorse"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99251f238b74cd219a86fe6ea9328308ebb223fcbb5b8eb5aa400b847a41dded"
+
+[[package]]
 name = "darling"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -697,6 +703,8 @@ dependencies = [
 name = "hydradragonclamav"
 version = "0.1.0"
 dependencies = [
+ "daachorse",
+ "flate2",
  "hydradragonextractor",
  "regex",
 ]
