@@ -99,12 +99,11 @@ impl Engine {
         // Load (parse) bytecode programs from the same directory.
         let bc = crate::bytecode::BytecodeSet::load_from_dir(path);
         report.bytecodes_loaded = bc.report.loaded;
-        // Atom prefilter (daachorse) is disabled: its *build* over ~1.2M atoms
-        // spikes RAM badly. Speed instead comes from a fast per-pattern literal
-        // pre-check (memchr). A viable prefilter needs one selective atom per
-        // signature + a memory-bounded build first.
-        let prefilter = crate::prefilter::AtomPrefilter::disabled();
-        let _ = crate::prefilter::AtomPrefilter::build; // keep referenced
+        // Atom prefilter (daachorse): one selective required atom per signature,
+        // built via a compact CSR mapping. One pass per buffer picks the few
+        // candidate signatures instead of scanning all ~500k — fast scans and
+        // far fewer page faults.
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
         Ok((
             Self {
                 database,
@@ -284,11 +283,22 @@ impl Engine {
     ) {
         // One Aho-Corasick pass picks the candidate signatures for this buffer;
         // both phases then evaluate only those instead of all ~500k.
+        let _dbg = std::env::var("HDR_DEBUG").is_ok();
+        let _t = std::time::Instant::now();
         let (ext_cands, log_cands) = self.prefilter.candidates(ctx.data);
+        if _dbg {
+            let ec = match &ext_cands { crate::prefilter::Candidates::All => self.database.extended.len(), crate::prefilter::Candidates::List(v) => v.len() };
+            let lc = match &log_cands { crate::prefilter::Candidates::All => self.database.logical.len(), crate::prefilter::Candidates::List(v) => v.len() };
+            eprintln!("[dbg] data={}B prefilter={:?} ext_cands={} log_cands={}", ctx.data.len(), _t.elapsed(), ec, lc);
+        }
+        let _t2 = std::time::Instant::now();
         self.scan_extended(ctx, options, matches, &ext_cands);
+        if _dbg { eprintln!("[dbg] scan_extended={:?}", _t2.elapsed()); }
+        let _t3 = std::time::Instant::now();
         if matches.len() < options.max_matches {
             self.scan_logical(ctx, options, matches, &log_cands);
         }
+        if _dbg { eprintln!("[dbg] scan_logical={:?}", _t3.elapsed()); }
     }
 
     fn scan_normalized_views(

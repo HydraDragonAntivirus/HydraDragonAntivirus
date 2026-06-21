@@ -6,7 +6,7 @@ use hydradragonextractor::extract_archive_from_bytes;
 use hydradragonunicorn::unpacker::engine::{Sample, UnpackerEngine};
 use hydradragonunicorn::unpacker::packers::identify_packer_from_bytes;
 
-use crate::pipeline::{Pipeline, PipelineConfig};
+use crate::pipeline::Pipeline;
 use crate::verdict::{EngineResult, ScanResult, Verdict};
 
 /// Result of a disinfection attempt.
@@ -20,15 +20,17 @@ pub struct DisinfectResult {
 /// The disinfector orchestrates: detect packer → Unicorn-unpack → dump PE →
 /// extract embedded archives → scan extracted files → disinfect.
 /// All intermediate steps operate on in-memory bytes — no temp files.
-pub struct Disinfector {
-    pipeline: Pipeline,
+///
+/// It **borrows the already-loaded pipeline** and rescans the unpacked/extracted
+/// bytes via `scan_bytes` — it must NOT build its own `Pipeline`, which would
+/// reload all ~500k signatures on every disinfect.
+pub struct Disinfector<'a> {
+    pipeline: &'a Pipeline,
 }
 
-impl Disinfector {
-    pub fn new(config: PipelineConfig) -> Self {
-        Self {
-            pipeline: Pipeline::new(config),
-        }
+impl<'a> Disinfector<'a> {
+    pub fn new(pipeline: &'a Pipeline) -> Self {
+        Self { pipeline }
     }
 
     fn engine_result(engine: &'static str, verdict: Verdict, detail: String, elapsed_ms: Option<u64>) -> EngineResult {

@@ -35,6 +35,13 @@ pub struct Pattern {
     /// a fast pre-check / prefilter atom. Stored as an offset (not a byte copy)
     /// since the bytes already live in `lits`.
     required_literal: Option<(u32, u32)>,
+    /// Fixed byte width of the pattern tokens that precede the required literal,
+    /// when every preceding token is fixed-width. Enables ClamAV-style anchored
+    /// verification: locate each occurrence of the literal in the data and try
+    /// matching the whole pattern only at `occurrence - required_prefix`, instead
+    /// of attempting a match at every byte offset. `None` when a preceding token
+    /// is variable-width (`*`, `{n-m}`, …) — then we fall back to a window scan.
+    required_prefix: Option<u32>,
 }
 
 // Memory: there are hundreds of thousands of signatures, each a `Vec<Token>`,
@@ -105,12 +112,13 @@ pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<P
 impl Pattern {
     fn new(tokens: Vec<Token>, fullword: bool) -> Self {
         let (tokens, lits) = compact_tokens(tokens);
-        let required_literal = longest_required_literal(&tokens);
+        let (required_literal, required_prefix) = longest_required_literal(&tokens);
         Self {
             tokens,
             lits: lits.into_boxed_slice(),
             fullword,
             required_literal,
+            required_prefix,
         }
     }
 
@@ -145,6 +153,49 @@ impl Pattern {
 
         let mut out = Vec::new();
         let mut seen = HashSet::new();
+
+        // ClamAV-style anchored verification (matcher-ac.c `bp = i + 1 - depth`):
+        // when the required literal has a fixed-width prefix, jump to each
+        // occurrence of the literal and only try matching the whole pattern at
+        // `occurrence - prefix`. This avoids the catastrophic per-byte scan over
+        // the entire buffer (millions of `match_from` calls) that dominates the
+        // cost on large files once a sig is a prefilter candidate.
+        if let (Some((off, len)), Some(prefix)) = (self.required_literal, self.required_prefix) {
+            let required = &self.lits[off as usize..(off + len) as usize];
+            let prefix = prefix as usize;
+            let mut from = 0usize;
+            while from + required.len() <= data.len() {
+                let Some(rel) = memchr::memmem::find(&data[from..], required) else {
+                    break;
+                };
+                let occurrence = from + rel;
+                from = occurrence + 1; // allow overlapping occurrences
+                let Some(start) = occurrence.checked_sub(prefix) else {
+                    continue;
+                };
+                if !pos_in_ranges(start, ranges, data.len()) {
+                    continue;
+                }
+                if let Some(match_end) = self.match_from(data, start) {
+                    if self.fullword && !is_fullword(data, start, match_end) {
+                        continue;
+                    }
+                    if seen.insert((start, match_end)) {
+                        out.push(MatchRange {
+                            start,
+                            end: match_end,
+                        });
+                        if out.len() >= limit {
+                            return out;
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        // Fallback: variable-width prefix (or no required literal) — scan every
+        // candidate position within the allowed ranges.
         for &(start, end) in ranges {
             let start = start.min(data.len());
             let end = end.min(data.len());
@@ -640,17 +691,35 @@ fn flush_run(run: &mut Vec<u8>, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
     }
 }
 
-fn longest_required_literal(tokens: &[Token]) -> Option<(u32, u32)> {
-    // After compaction, each maximal exact run ≥ 2 bytes is a single `Literal`;
-    // return the longest as an (off, len) slice of the pattern's `lits`.
-    tokens
-        .iter()
-        .filter_map(|t| match t {
-            Token::Literal { off, len } => Some((*off, *len)),
-            _ => None,
-        })
-        .max_by_key(|(_, len)| *len)
-        .filter(|(_, len)| *len >= 2)
+/// Pick the longest exact literal run (≥ 2 bytes) as the required atom, and —
+/// when every token before it is fixed-width — the byte width of that prefix.
+/// Returns `((off, len) into lits, Some(prefix_width))`; the prefix is `None`
+/// when a preceding token is variable-width.
+fn longest_required_literal(tokens: &[Token]) -> (Option<(u32, u32)>, Option<u32>) {
+    // After compaction, each maximal exact run ≥ 2 bytes is a single `Literal`.
+    let mut best: Option<(usize, u32, u32)> = None; // (token_index, off, len)
+    for (idx, token) in tokens.iter().enumerate() {
+        if let Token::Literal { off, len } = token {
+            if *len >= 2 && best.map_or(true, |(_, _, bl)| *len > bl) {
+                best = Some((idx, *off, *len));
+            }
+        }
+    }
+    match best {
+        None => (None, None),
+        Some((idx, off, len)) => {
+            let prefix = fixed_width(&tokens[..idx]).map(|w| w as u32);
+            (Some((off, len)), prefix)
+        }
+    }
+}
+
+fn pos_in_ranges(pos: usize, ranges: &[(usize, usize)], data_len: usize) -> bool {
+    ranges.iter().any(|&(start, end)| {
+        let start = start.min(data_len);
+        let end = end.min(data_len);
+        pos >= start && pos <= end
+    })
 }
 
 fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
