@@ -100,6 +100,10 @@ impl CandidateSet {
         self.sigs.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.sigs.len()
+    }
+
     /// Iterate `(signature_index, atom_offsets)`. An empty offsets slice means
     /// "full scan this signature".
     pub fn iter(&self) -> impl Iterator<Item = (u32, &[u32])> + '_ {
@@ -115,6 +119,16 @@ impl CandidateSet {
 pub enum Candidates {
     All,
     List(CandidateSet),
+}
+
+impl Candidates {
+    /// Candidate count (`usize::MAX` sentinel for `All`), for profiling/logging.
+    pub fn len(&self) -> usize {
+        match self {
+            Candidates::All => usize::MAX,
+            Candidates::List(set) => set.len(),
+        }
+    }
 }
 
 pub struct AtomPrefilter {
@@ -196,7 +210,7 @@ impl AtomPrefilter {
         // bucket the atom belongs in.
         enum Atom<'a> {
             Exact(&'a [u8]),
-            Nocase(&'a [u8]),
+            Nocase(Vec<u8>),
         }
         fn pattern_atom(p: &crate::pattern::Pattern) -> Option<Atom<'_>> {
             if let Some(a) = p.required_atom() {
@@ -204,8 +218,10 @@ impl AtomPrefilter {
                     return Some(Atom::Exact(a));
                 }
             }
+            // `required_atom_nocase` is recomputed on demand (owned) — it's only
+            // ever read here at build time, so the bytes cost no resident memory.
             if let Some(a) = p.required_atom_nocase() {
-                if usable(a) {
+                if usable(&a) {
                     return Some(Atom::Nocase(a));
                 }
             }
@@ -240,7 +256,7 @@ impl AtomPrefilter {
                     match a {
                         Atom::Exact(a) => entries.push((short_atom(a).into(), ext_ref(si))),
                         Atom::Nocase(a) => {
-                            entries_nocase.push((short_atom(a).into(), ext_ref(si)))
+                            entries_nocase.push((short_atom(&a).into(), ext_ref(si)))
                         }
                     }
                 }
@@ -312,7 +328,8 @@ impl AtomPrefilter {
                 let max_len = atoms
                     .iter()
                     .map(|a| match a {
-                        Atom::Exact(a) | Atom::Nocase(a) => a.len(),
+                        Atom::Exact(b) => b.len(),
+                        Atom::Nocase(b) => b.len(),
                     })
                     .max()
                     .unwrap_or(0);
@@ -327,7 +344,7 @@ impl AtomPrefilter {
                         match a {
                             Atom::Exact(a) => entries.push((short_atom(a).into(), log_ref(si))),
                             Atom::Nocase(a) => {
-                                entries_nocase.push((short_atom(a).into(), log_ref(si)))
+                                entries_nocase.push((short_atom(&a).into(), log_ref(si)))
                             }
                         }
                     }

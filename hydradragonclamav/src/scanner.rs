@@ -64,6 +64,12 @@ pub struct ScanMatch {
 /// Upper bound on arenas recorded per signature match, to keep memory bounded.
 const ARENA_CAP: usize = 64;
 
+/// Whether `HDA_PROF` profiling is on (checked once). Gates slow-candidate logs.
+fn prof_enabled() -> bool {
+    static P: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *P.get_or_init(|| std::env::var_os("HDA_PROF").is_some())
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SignatureKind {
     Extended,
@@ -293,6 +299,34 @@ impl Engine {
     ) {
         // One Aho-Corasick pass picks the candidate signatures for this buffer;
         // both phases then evaluate only those instead of all ~500k.
+        if std::env::var_os("HDA_PROF").is_some() {
+            use std::time::Instant;
+            let t0 = Instant::now();
+            let (ext_cands, log_cands) = self.prefilter.candidates(ctx.data);
+            let t1 = Instant::now();
+            let (ne, nl) = (ext_cands.len(), log_cands.len());
+            eprintln!(
+                "[PROF] {}KB view={:?} ext_cands={ne} log_cands={nl} prefilter={}ms (scanning…)",
+                ctx.data.len() / 1024,
+                ctx.view,
+                (t1 - t0).as_millis(),
+            );
+            self.scan_extended(ctx, options, matches, &ext_cands);
+            let t2 = Instant::now();
+            if matches.len() < options.max_matches {
+                self.scan_logical(ctx, options, matches, &log_cands);
+            }
+            let t3 = Instant::now();
+            eprintln!(
+                "[PROF] {}KB view={:?} ext_cands={ne} log_cands={nl} prefilter={}ms ext_scan={}ms log_scan={}ms",
+                ctx.data.len() / 1024,
+                ctx.view,
+                (t1 - t0).as_millis(),
+                (t2 - t1).as_millis(),
+                (t3 - t2).as_millis(),
+            );
+            return;
+        }
         let (ext_cands, log_cands) = self.prefilter.candidates(ctx.data);
         self.scan_extended(ctx, options, matches, &ext_cands);
         if matches.len() < options.max_matches {
@@ -432,6 +466,7 @@ impl Engine {
         if ranges.is_empty() {
             return;
         }
+        let prof = prof_enabled().then(std::time::Instant::now);
         let mut arenas: Vec<(usize, usize)> = Vec::new();
         for pattern in &signature.patterns {
             let hits = match hints {
@@ -443,6 +478,19 @@ impl Engine {
                     break;
                 }
                 arenas.push((hit.start, hit.end));
+            }
+        }
+        if let Some(t) = prof {
+            let ms = t.elapsed().as_millis();
+            if ms >= 20 {
+                eprintln!(
+                    "[SLOW-EXT] {ms}ms {} ({}:{}) hints={} threaded={}",
+                    signature.name,
+                    signature.source.path.display(),
+                    signature.source.line,
+                    hints.map_or(0, |h| h.len()),
+                    hints.is_some(),
+                );
             }
         }
         if !arenas.is_empty() {
@@ -526,6 +574,7 @@ impl Engine {
                 let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
                 if !ranges.is_empty() {
                     let gate_hints = if g.threadable { hints } else { None };
+                    let prof = prof_enabled().then(std::time::Instant::now);
                     let (count, arenas) = body_matches(
                         patterns,
                         ctx.data,
@@ -533,6 +582,19 @@ impl Engine {
                         options.max_subsignature_matches,
                         gate_hints,
                     );
+                    if let Some(t) = prof {
+                        let ms = t.elapsed().as_millis();
+                        if ms >= 20 {
+                            eprintln!(
+                                "[SLOW-GATE] {ms}ms {} ({}:{}) hints={} threadable={}",
+                                signature.name,
+                                signature.source.path.display(),
+                                signature.source.line,
+                                gate_hints.map_or(0, |h| h.len()),
+                                g.threadable,
+                            );
+                        }
+                    }
                     if count == 0 {
                         return; // gate absent → signature cannot match
                     }
@@ -587,17 +649,19 @@ impl Engine {
                     trigger,
                     regex,
                     global,
-                    ..
                 } => {
                     if trigger.eval(&counts).matched {
-                        counts[i] = if *global {
-                            regex
-                                .find_iter(ctx.data)
-                                .take(options.max_subsignature_matches)
-                                .count()
-                        } else {
-                            usize::from(regex.is_match(ctx.data))
-                        };
+                        // Compile the regex on first trigger (lazy — most PCREs
+                        // never fire, so they stay uncompiled and cost no RAM).
+                        if let Some(re) = regex.get() {
+                            counts[i] = if *global {
+                                re.find_iter(ctx.data)
+                                    .take(options.max_subsignature_matches)
+                                    .count()
+                            } else {
+                                usize::from(re.is_match(ctx.data))
+                            };
+                        }
                     }
                 }
                 Subsignature::ByteCompare { spec, .. } => {

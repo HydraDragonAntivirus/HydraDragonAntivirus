@@ -34,9 +34,8 @@ pub struct Pattern {
     /// compaction, so dropping the unused capacity word saves 8 bytes on every
     /// one of the hundreds of thousands of patterns.
     tokens: Box<[Token]>,
-    /// Backing storage for `Token::Literal` runs (exact byte sequences) AND the
-    /// case-folded `nocase` atom, stored once contiguously instead of one token
-    /// per byte / a separate per-pattern allocation.
+    /// Backing storage for `Token::Literal` runs (exact byte sequences), stored
+    /// once contiguously instead of one token per byte.
     lits: Box<[u8]>,
     fullword: bool,
     /// The longest required literal as an `(off, len)` slice of `lits` — used as
@@ -50,14 +49,17 @@ pub struct Pattern {
     /// of attempting a match at every byte offset. `None` when a preceding token
     /// is variable-width (`*`, `{n-m}`, …) — then we fall back to a window scan.
     required_prefix: Option<u32>,
-    /// A case-folded (lowercased) literal atom usable as a prefilter hint for
-    /// `nocase` patterns, stored as an `(off, len)` slice of `lits` (no separate
-    /// allocation). `nocase` bytes never form a `Token::Literal` (see
-    /// `ByteMatcher::exact_value`), so `required_literal`/`required_atom` are
-    /// always `None` for them — without this, every nocase signature would be
-    /// invisible to the Aho-Corasick prefilter and have to be evaluated on
-    /// every single scan regardless of buffer content.
-    required_atom_nocase: Option<(u32, u32)>,
+    /// For a `nocase` pattern (which has no case-sensitive `required_literal`):
+    /// the fixed byte width before its case-folded prefilter atom (the longest
+    /// run of fixed bytes), when that prefix is fixed-width. `Some(p)` lets
+    /// `find_all_at` thread the nocase atom's offsets just like a case-sensitive
+    /// literal — verify the whole pattern at `atom_offset - p` instead of a
+    /// per-candidate full-buffer scan (the big win on large files, since ClamAV
+    /// databases are full of nocase signatures). `None` for case-sensitive
+    /// patterns, or nocase patterns whose atom sits behind a variable-width token.
+    /// The atom *bytes* are NOT stored — they're recomputed once at prefilter
+    /// build time (see `required_atom_nocase`), so they cost no resident memory.
+    required_prefix_nocase: Option<u32>,
 }
 
 // Memory: there are hundreds of thousands of signatures, each a `Vec<Token>`,
@@ -130,24 +132,24 @@ pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<P
 
 impl Pattern {
     fn new(tokens: Vec<Token>, fullword: bool) -> Self {
-        let (tokens, mut lits) = compact_tokens(tokens);
+        let (tokens, lits) = compact_tokens(tokens);
         let (required_literal, required_prefix) = longest_required_literal(&tokens);
-        // Fold the case-folded nocase atom into the same `lits` arena (appended
-        // after the exact-literal bytes; existing `required_literal` offsets stay
-        // valid) instead of giving each nocase pattern its own heap allocation.
-        let required_atom_nocase = longest_nocase_run(&tokens).map(|run| {
-            let off = lits.len() as u32;
-            let len = run.len() as u32;
-            lits.extend_from_slice(&run);
-            (off, len)
-        });
+        // For nocase patterns (no case-sensitive literal), record only the
+        // fixed-width prefix to the nocase atom so `find_all_at` can anchor on it.
+        // The atom bytes themselves are recomputed at prefilter build time
+        // (`required_atom_nocase`), never stored — keeps every Pattern smaller.
+        let required_prefix_nocase = if required_literal.is_none() {
+            nocase_anchor(&tokens).and_then(|(_, prefix)| prefix)
+        } else {
+            None
+        };
         Self {
             tokens: tokens.into_boxed_slice(),
             lits: lits.into_boxed_slice(),
             fullword,
             required_literal,
             required_prefix,
-            required_atom_nocase,
+            required_prefix_nocase,
         }
     }
 
@@ -164,13 +166,16 @@ impl Pattern {
             .map(|(off, len)| &self.lits[off as usize..(off + len) as usize])
     }
 
-    /// A case-folded (lowercased) required atom for `nocase` patterns, usable
-    /// as a prefilter hint against a lowercased copy of the scanned buffer.
-    /// `None` for patterns that already have a case-sensitive `required_atom`,
-    /// or that have no run of ≥2 fixed bytes at all (e.g. fully wildcard).
-    pub fn required_atom_nocase(&self) -> Option<&[u8]> {
-        self.required_atom_nocase
-            .map(|(off, len)| &self.lits[off as usize..(off + len) as usize])
+    /// A case-folded (lowercased) required atom for `nocase` patterns, usable as a
+    /// prefilter hint against a lowercased copy of the scanned buffer. Computed
+    /// on demand (only ever called once, at prefilter build time) so the bytes
+    /// cost no resident memory. `None` for patterns that have a case-sensitive
+    /// `required_atom`, or no run of ≥2 fixed bytes (e.g. fully wildcard).
+    pub fn required_atom_nocase(&self) -> Option<Vec<u8>> {
+        if self.required_literal.is_some() {
+            return None; // case-sensitive: use required_atom() instead
+        }
+        nocase_anchor(&self.tokens).map(|(atom, _)| atom)
     }
 
     pub fn find_all(
@@ -374,6 +379,12 @@ impl Pattern {
         // determine the match start, so we must do the full window scan.
         let (Some((off, len)), Some(prefix)) = (self.required_literal, self.required_prefix)
         else {
+            // No case-sensitive anchor. A `nocase` pattern can still be threaded
+            // on its case-folded atom (hints are positions in the lowercased
+            // buffer, which share coordinates with the original).
+            if let Some(prefix_nocase) = self.required_prefix_nocase {
+                return self.find_all_at_nocase(data, ranges, limit, hints, prefix_nocase as usize);
+            }
             return self.find_all(data, ranges, limit);
         };
         let required = &self.lits[off as usize..(off + len) as usize];
@@ -393,6 +404,49 @@ impl Pattern {
             if lit_end > data.len() || &data[occurrence..lit_end] != required {
                 continue;
             }
+            let Some(start) = occurrence.checked_sub(prefix) else {
+                continue;
+            };
+            if !pos_in_ranges(start, ranges, data.len()) {
+                continue;
+            }
+            if let Some(match_end) = self.match_from(data, start) {
+                if self.fullword && !is_fullword(data, start, match_end) {
+                    continue;
+                }
+                if seen.insert((start, match_end)) {
+                    out.push(MatchRange {
+                        start,
+                        end: match_end,
+                    });
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Offset-threaded verification for a `nocase` pattern. `hints` are positions
+    /// in the lowercased buffer where the pattern's case-folded atom occurred;
+    /// since lowercasing is length-preserving they are valid offsets in `data`
+    /// too. The atom sits `prefix` fixed bytes into the pattern, so the whole
+    /// pattern is verified (case-insensitively, via `match_from`) at
+    /// `occurrence - prefix`. Complete because the prefilter records every atom
+    /// occurrence; match set identical to the full `find_all` first-byte scan.
+    fn find_all_at_nocase(
+        &self,
+        data: &[u8],
+        ranges: &[(usize, usize)],
+        limit: usize,
+        hints: &[u32],
+        prefix: usize,
+    ) -> Vec<MatchRange> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for &hint in hints {
+            let occurrence = hint as usize;
             let Some(start) = occurrence.checked_sub(prefix) else {
                 continue;
             };
@@ -993,36 +1047,52 @@ fn flush_run(run: &mut Vec<u8>, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
     }
 }
 
-/// Longest run of ≥2 consecutive fixed bytes (mask=0xff, any case), folded to
-/// lowercase, for use as a prefilter atom on `nocase` patterns. `nocase`
-/// bytes never compact into `Token::Literal` (matching must stay
-/// case-insensitive at scan time), so they survive as individual
-/// `Token::Byte`s — this just scans those runs and case-folds them, entirely
-/// separately from the exact-match `tokens`/`lits` used by `match_tokens`.
-fn longest_nocase_run(tokens: &[Token]) -> Option<Vec<u8>> {
+/// The longest run of ≥2 consecutive fixed bytes (mask=0xff, any case), folded
+/// to lowercase, plus the fixed byte width *before* that run (its anchor offset),
+/// for use as a prefilter atom + threading anchor on `nocase` patterns.
+///
+/// `nocase` bytes never compact into `Token::Literal` (matching must stay
+/// case-insensitive at scan time), so they survive as individual `Token::Byte`s —
+/// this scans those runs, case-folds them, and tracks how many fixed bytes
+/// precede the chosen run. The prefix is `Some(w)` only when every token before
+/// the run is fixed-width (so `find_all_at` can anchor at `offset - w`); `None`
+/// when something variable-width precedes it (then we fall back to a full scan).
+/// Returns `None` when there is no run of ≥2 fixed bytes (e.g. fully wildcard).
+fn nocase_anchor(tokens: &[Token]) -> Option<(Vec<u8>, Option<u32>)> {
     let mut best: Vec<u8> = Vec::new();
+    let mut best_prefix: Option<u32> = None;
     let mut run: Vec<u8> = Vec::new();
+    let mut run_prefix: Option<u32> = Some(0); // fixed width before the current run
+    let mut acc: Option<u32> = Some(0); // running fixed width from pattern start
     for token in tokens {
         let byte_value = match token {
             Token::Byte(byte) => byte.exact_value_any_case(),
             _ => None,
         };
         match byte_value {
-            Some(value) => run.push(value.to_ascii_lowercase()),
+            Some(value) => {
+                if run.is_empty() {
+                    run_prefix = acc; // width accumulated before this run starts
+                }
+                run.push(value.to_ascii_lowercase());
+            }
             None => {
                 if run.len() > best.len() {
                     best = std::mem::take(&mut run);
+                    best_prefix = run_prefix;
                 } else {
                     run.clear();
                 }
             }
         }
+        acc = acc.and_then(|w| single_token_width(token).map(|tw| w + tw as u32));
     }
     if run.len() > best.len() {
         best = run;
+        best_prefix = run_prefix;
     }
     if best.len() >= 2 {
-        Some(best)
+        Some((best, best_prefix))
     } else {
         None
     }

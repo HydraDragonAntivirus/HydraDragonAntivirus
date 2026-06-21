@@ -1,6 +1,49 @@
 use crate::database::{OffsetAnchor, OffsetSpec, SourceLocation};
 use crate::pattern::{compile_pattern_variants, Modifiers, Pattern};
 use regex::bytes::{Regex, RegexBuilder};
+use std::sync::{Arc, OnceLock};
+
+/// A PCRE subsignature regex compiled **lazily**, on first trigger.
+///
+/// The Rust `regex` crate compiles each pattern into a 30–50 KB NFA/DFA at build
+/// time. ClamAV instead compiles every PCRE to pcre2 bytecode (~4 KB each) at
+/// load, costing ~170 MB for a full DB; the `regex` crate would cost ~700 MB the
+/// same way — the single biggest memory consumer. But a PCRE subsignature only
+/// runs when its trigger (a body subsignature) matches, which is rare. So we keep
+/// only the (small) source text resident and compile on first use — the vast
+/// majority are never compiled, so resident PCRE memory drops to a few MB and DB
+/// load no longer pays to compile tens of thousands of regexes.
+///
+/// `source` already has any inline flags baked in (`(?ims…)`), so a plain
+/// `Regex::new` reproduces the original `RegexBuilder` configuration. A compile
+/// failure (e.g. the default 10 MB size limit, or an unsupported construct) is
+/// cached as `None` and treated as "never matches" — identical in effect to the
+/// old behaviour of dropping such a signature as unsupported.
+#[derive(Clone, Debug)]
+pub struct LazyRegex {
+    source: Arc<str>,
+    compiled: Arc<OnceLock<Option<Regex>>>,
+}
+
+impl LazyRegex {
+    fn new(source: String) -> Self {
+        LazyRegex {
+            source: Arc::from(source),
+            compiled: Arc::new(OnceLock::new()),
+        }
+    }
+
+    /// The compiled regex, compiling it on first call. `None` if it can't compile.
+    pub fn get(&self) -> Option<&Regex> {
+        self.compiled
+            .get_or_init(|| RegexBuilder::new(&self.source).build().ok())
+            .as_ref()
+    }
+
+    pub fn is_match(&self, data: &[u8]) -> bool {
+        self.get().map_or(false, |re| re.is_match(data))
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct LogicalSignature {
@@ -18,9 +61,10 @@ pub enum Subsignature {
         patterns: Vec<Pattern>,
     },
     /// `Trigger/PCRE/Flags` — the regex runs only when `trigger` evaluates true.
+    /// The regex is compiled lazily on first trigger (see [`LazyRegex`]).
     Pcre {
         trigger: LogicalExpr,
-        regex: Regex,
+        regex: LazyRegex,
         global: bool,
     },
     /// `subsigid_trigger(offset#byte_options#comparisons)` — reads bytes relative
@@ -344,7 +388,7 @@ fn looks_like_pcre(raw: &str) -> bool {
     raw.contains('/')
 }
 
-fn parse_pcre(raw: &str) -> Result<(LogicalExpr, Regex, bool), String> {
+fn parse_pcre(raw: &str) -> Result<(LogicalExpr, LazyRegex, bool), String> {
     let first = raw
         .find('/')
         .ok_or_else(|| "PCRE subsignature missing '/'".to_string())?;
@@ -368,37 +412,27 @@ fn parse_pcre(raw: &str) -> Result<(LogicalExpr, Regex, bool), String> {
     // class, non-quantifier braces) into syntax Rust's regex crate accepts.
     let pattern = crate::database::sanitize_clamav_regex(&pattern_raw.replace("\\/", "/"));
 
+    // Bake the supported flags into the source as an inline group `(?ims…)` so the
+    // lazily-built regex reproduces the original `RegexBuilder` configuration
+    // without us having to store the flags separately. `g` (global) is not a
+    // regex flag — it selects find-all vs is-match at scan time. r/e/A/E
+    // (offset/anchoring tuning) and any unknown flag are ignored as before. The
+    // default 10 MB compiled-size cap still applies at lazy-build time.
     let mut global = false;
-    let mut builder = RegexBuilder::new(&pattern);
-    // Keep the default 10 MB compiled-size cap: a handful of giant regexes would
-    // otherwise each consume tens of MB, and with this many signatures resident
-    // that adds up fast. Better to skip the 3 oversized ones than balloon RAM.
+    let mut inline = String::new();
     for ch in flags.chars() {
         match ch {
             'g' => global = true,
-            'i' => {
-                builder.case_insensitive(true);
-            }
-            's' => {
-                builder.dot_matches_new_line(true);
-            }
-            'm' => {
-                builder.multi_line(true);
-            }
-            'x' => {
-                builder.ignore_whitespace(true);
-            }
-            'U' => {
-                builder.swap_greed(true);
-            }
-            // r/e/A/E (offset/anchoring tuning) and any unknown flag: best-effort ignore.
+            'i' | 's' | 'm' | 'x' | 'U' => inline.push(ch),
             _ => {}
         }
     }
-    let regex = builder
-        .build()
-        .map_err(|e| format!("unsupported PCRE regex: {e}"))?;
-    Ok((trigger, regex, global))
+    let source = if inline.is_empty() {
+        pattern
+    } else {
+        format!("(?{inline}){pattern}")
+    };
+    Ok((trigger, LazyRegex::new(source), global))
 }
 
 // ---------------------------------------------------------------------------
@@ -948,10 +982,19 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_pcre_becomes_unsupported_subsig() {
-        // Backreferences are not supported by the regex engine.
+    fn unsupported_pcre_is_inert_not_a_false_match() {
+        // Backreferences aren't supported by the regex crate. With lazy
+        // compilation the subsig is accepted at load (no upfront compile, no
+        // warning), but the regex fails to compile on first use and is treated as
+        // "never matches" — detection-equivalent to the old Unsupported handling.
         let (sub, warning) = parse_subsignature(r"0/(a)\1/");
-        assert!(warning.is_some());
-        assert!(matches!(sub, Subsignature::Unsupported { .. }));
+        assert!(warning.is_none());
+        match sub {
+            Subsignature::Pcre { regex, .. } => {
+                assert!(regex.get().is_none(), "invalid regex must fail to compile");
+                assert!(!regex.is_match(b"aa"));
+            }
+            other => panic!("expected PCRE subsig, got {other:?}"),
+        }
     }
 }
