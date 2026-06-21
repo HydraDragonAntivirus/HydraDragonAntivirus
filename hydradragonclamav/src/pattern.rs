@@ -42,6 +42,13 @@ pub struct Pattern {
     /// of attempting a match at every byte offset. `None` when a preceding token
     /// is variable-width (`*`, `{n-m}`, …) — then we fall back to a window scan.
     required_prefix: Option<u32>,
+    /// A case-folded (lowercased) literal atom usable as a prefilter hint for
+    /// `nocase` patterns. `nocase` bytes never form a `Token::Literal` (see
+    /// `ByteMatcher::exact_value`), so `required_literal`/`required_atom` are
+    /// always `None` for them — without this, every nocase signature would be
+    /// invisible to the Aho-Corasick prefilter and have to be evaluated on
+    /// every single scan regardless of buffer content.
+    required_atom_nocase: Option<Box<[u8]>>,
 }
 
 // Memory: there are hundreds of thousands of signatures, each a `Vec<Token>`,
@@ -113,12 +120,14 @@ impl Pattern {
     fn new(tokens: Vec<Token>, fullword: bool) -> Self {
         let (tokens, lits) = compact_tokens(tokens);
         let (required_literal, required_prefix) = longest_required_literal(&tokens);
+        let required_atom_nocase = longest_nocase_run(&tokens);
         Self {
             tokens,
             lits: lits.into_boxed_slice(),
             fullword,
             required_literal,
             required_prefix,
+            required_atom_nocase,
         }
     }
 
@@ -133,6 +142,14 @@ impl Pattern {
     pub fn required_atom(&self) -> Option<&[u8]> {
         self.required_literal
             .map(|(off, len)| &self.lits[off as usize..(off + len) as usize])
+    }
+
+    /// A case-folded (lowercased) required atom for `nocase` patterns, usable
+    /// as a prefilter hint against a lowercased copy of the scanned buffer.
+    /// `None` for patterns that already have a case-sensitive `required_atom`,
+    /// or that have no run of ≥2 fixed bytes at all (e.g. fully wildcard).
+    pub fn required_atom_nocase(&self) -> Option<&[u8]> {
+        self.required_atom_nocase.as_deref()
     }
 
     pub fn find_all(
@@ -454,6 +471,17 @@ impl ByteMatcher {
 
     fn exact_value(self) -> Option<u8> {
         if self.mask == 0xff && !self.nocase {
+            Some(self.value)
+        } else {
+            None
+        }
+    }
+
+    /// Like `exact_value`, but also accepts `nocase` bytes (the byte still
+    /// matches exactly one value modulo case at scan time; only the *prefilter
+    /// atom* derived from it needs case-folding, via `longest_nocase_run`).
+    fn exact_value_any_case(self) -> Option<u8> {
+        if self.mask == 0xff {
             Some(self.value)
         } else {
             None
@@ -785,6 +813,41 @@ fn flush_run(run: &mut Vec<u8>, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
             });
             run.clear();
         }
+    }
+}
+
+/// Longest run of ≥2 consecutive fixed bytes (mask=0xff, any case), folded to
+/// lowercase, for use as a prefilter atom on `nocase` patterns. `nocase`
+/// bytes never compact into `Token::Literal` (matching must stay
+/// case-insensitive at scan time), so they survive as individual
+/// `Token::Byte`s — this just scans those runs and case-folds them, entirely
+/// separately from the exact-match `tokens`/`lits` used by `match_tokens`.
+fn longest_nocase_run(tokens: &[Token]) -> Option<Box<[u8]>> {
+    let mut best: Vec<u8> = Vec::new();
+    let mut run: Vec<u8> = Vec::new();
+    for token in tokens {
+        let byte_value = match token {
+            Token::Byte(byte) => byte.exact_value_any_case(),
+            _ => None,
+        };
+        match byte_value {
+            Some(value) => run.push(value.to_ascii_lowercase()),
+            None => {
+                if run.len() > best.len() {
+                    best = std::mem::take(&mut run);
+                } else {
+                    run.clear();
+                }
+            }
+        }
+    }
+    if run.len() > best.len() {
+        best = run;
+    }
+    if best.len() >= 2 {
+        Some(best.into_boxed_slice())
+    } else {
+        None
     }
 }
 

@@ -62,6 +62,17 @@ pub struct AtomPrefilter {
     /// CSR: `sig_refs[atom_starts[id]..atom_starts[id+1]]` = candidate sigs for atom id.
     atom_starts: Vec<u32>,
     sig_refs: Vec<u64>,
+    /// Second automaton, over case-folded (lowercased) atoms harvested from
+    /// `nocase` patterns (see `Pattern::required_atom_nocase`). `nocase`
+    /// patterns never produce a `Token::Literal`, so they're invisible to the
+    /// case-sensitive `ac` above; without this they'd all fall into
+    /// `ext_always`/`log_always` and be evaluated on every single scan
+    /// regardless of buffer content. Matched against a lowercased copy of the
+    /// buffer in `candidates()`.
+    ac_nocase: Option<DoubleArrayAhoCorasick<u32>>,
+    num_atoms_nocase: usize,
+    atom_starts_nocase: Vec<u32>,
+    sig_refs_nocase: Vec<u64>,
     ext_always: Vec<u32>,
     log_always: Vec<u32>,
 }
@@ -83,6 +94,10 @@ impl AtomPrefilter {
             num_atoms: 0,
             atom_starts: Vec::new(),
             sig_refs: Vec::new(),
+            ac_nocase: None,
+            num_atoms_nocase: 0,
+            atom_starts_nocase: Vec::new(),
+            sig_refs_nocase: Vec::new(),
             ext_always: Vec::new(),
             log_always: Vec::new(),
         }
@@ -91,17 +106,39 @@ impl AtomPrefilter {
     /// Build the prefilter from a loaded database.
     pub fn build(db: &Database) -> Self {
         let mut entries: Vec<(Box<[u8]>, u64)> = Vec::new();
+        let mut entries_nocase: Vec<(Box<[u8]>, u64)> = Vec::new();
         let mut ext_always: Vec<u32> = Vec::new();
         let mut log_always: Vec<u32> = Vec::new();
 
+        // A pattern is usable for prefiltering via either its case-sensitive
+        // atom or, for `nocase` patterns, its case-folded atom. Returns which
+        // bucket the atom belongs in.
+        enum Atom<'a> {
+            Exact(&'a [u8]),
+            Nocase(&'a [u8]),
+        }
+        fn pattern_atom(p: &crate::pattern::Pattern) -> Option<Atom<'_>> {
+            if let Some(a) = p.required_atom() {
+                if usable(a) {
+                    return Some(Atom::Exact(a));
+                }
+            }
+            if let Some(a) = p.required_atom_nocase() {
+                if usable(a) {
+                    return Some(Atom::Nocase(a));
+                }
+            }
+            None
+        }
+
         // --- Extended signatures: match if ANY pattern matches. ---
         for (si, sig) in db.extended.iter().enumerate() {
-            let mut atoms: Vec<&[u8]> = Vec::with_capacity(sig.patterns.len());
+            let mut atoms: Vec<Atom> = Vec::with_capacity(sig.patterns.len());
             let mut atomless = sig.patterns.is_empty();
             for p in &sig.patterns {
-                match p.required_atom() {
-                    Some(a) if usable(a) => atoms.push(short_atom(a)),
-                    _ => {
+                match pattern_atom(p) {
+                    Some(a) => atoms.push(a),
+                    None => {
                         atomless = true;
                         break;
                     }
@@ -111,7 +148,12 @@ impl AtomPrefilter {
                 ext_always.push(si as u32);
             } else {
                 for a in atoms {
-                    entries.push((a.into(), ext_ref(si)));
+                    match a {
+                        Atom::Exact(a) => entries.push((short_atom(a).into(), ext_ref(si))),
+                        Atom::Nocase(a) => {
+                            entries_nocase.push((short_atom(a).into(), ext_ref(si)))
+                        }
+                    }
                 }
             }
         }
@@ -124,7 +166,7 @@ impl AtomPrefilter {
                 log_always.push(si as u32);
                 continue;
             }
-            let mut best: Option<(usize, Vec<&[u8]>)> = None;
+            let mut best: Option<(usize, Vec<Atom>)> = None;
             for i in 0..n {
                 let Subsignature::Body { patterns, .. } = &sig.subsignatures[i] else {
                     continue;
@@ -132,12 +174,12 @@ impl AtomPrefilter {
                 if patterns.is_empty() {
                     continue;
                 }
-                let mut atoms: Vec<&[u8]> = Vec::with_capacity(patterns.len());
+                let mut atoms: Vec<Atom> = Vec::with_capacity(patterns.len());
                 let mut ok = true;
                 for p in patterns {
-                    match p.required_atom() {
-                        Some(a) if usable(a) => atoms.push(short_atom(a)),
-                        _ => {
+                    match pattern_atom(p) {
+                        Some(a) => atoms.push(a),
+                        None => {
                             ok = false;
                             break;
                         }
@@ -151,7 +193,13 @@ impl AtomPrefilter {
                 if sig.expression.eval(&probe).matched {
                     continue; // not required
                 }
-                let max_len = atoms.iter().map(|a| a.len()).max().unwrap_or(0);
+                let max_len = atoms
+                    .iter()
+                    .map(|a| match a {
+                        Atom::Exact(a) | Atom::Nocase(a) => a.len(),
+                    })
+                    .max()
+                    .unwrap_or(0);
                 if best.as_ref().map_or(true, |(bl, _)| max_len > *bl) {
                     best = Some((max_len, atoms));
                 }
@@ -159,46 +207,31 @@ impl AtomPrefilter {
             match best {
                 Some((_, atoms)) => {
                     for a in atoms {
-                        entries.push((a.into(), log_ref(si)));
+                        match a {
+                            Atom::Exact(a) => entries.push((short_atom(a).into(), log_ref(si))),
+                            Atom::Nocase(a) => {
+                                entries_nocase.push((short_atom(a).into(), log_ref(si)))
+                            }
+                        }
                     }
                 }
                 None => log_always.push(si as u32),
             }
         }
 
-        // --- Unique short atoms + CSR mapping. ---
-        entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-        let mut atoms: Vec<Box<[u8]>> = Vec::new();
-        let mut atom_starts: Vec<u32> = Vec::new();
-        let mut sig_refs: Vec<u64> = Vec::with_capacity(entries.len());
-        let mut i = 0;
-        while i < entries.len() {
-            atom_starts.push(sig_refs.len() as u32);
-            atoms.push(entries[i].0.clone());
-            let cur = &entries[i].0;
-            let mut j = i;
-            while j < entries.len() && &entries[j].0 == cur {
-                sig_refs.push(entries[j].1);
-                j += 1;
-            }
-            i = j;
-        }
-        atom_starts.push(sig_refs.len() as u32); // sentinel
-        drop(entries);
-
-        let num_atoms = atoms.len();
-        let ac = if atoms.is_empty() {
-            None
-        } else {
-            // Short (≤3 byte) atoms → a shallow double-array trie, cheap to build.
-            DoubleArrayAhoCorasick::<u32>::new(&atoms).ok()
-        };
+        let (ac, num_atoms, atom_starts, sig_refs) = build_automaton(entries);
+        let (ac_nocase, num_atoms_nocase, atom_starts_nocase, sig_refs_nocase) =
+            build_automaton(entries_nocase);
 
         AtomPrefilter {
             ac,
             num_atoms,
             atom_starts,
             sig_refs,
+            ac_nocase,
+            num_atoms_nocase,
+            atom_starts_nocase,
+            sig_refs_nocase,
             ext_always,
             log_always,
         }
@@ -206,29 +239,38 @@ impl AtomPrefilter {
 
     /// Candidate (extended, logical) signature sets for `data`.
     pub fn candidates(&self, data: &[u8]) -> (Candidates, Candidates) {
-        let Some(ac) = self.ac.as_ref() else {
+        if self.ac.is_none() && self.ac_nocase.is_none() {
             return (Candidates::All, Candidates::All);
-        };
+        }
 
         let mut ext = self.ext_always.clone();
         let mut log = self.log_always.clone();
-        let mut seen = vec![false; self.num_atoms];
 
-        for m in ac.find_overlapping_iter(data) {
-            let id = m.value() as usize;
-            if seen[id] {
-                continue;
-            }
-            seen[id] = true;
-            let start = self.atom_starts[id] as usize;
-            let end = self.atom_starts[id + 1] as usize;
-            for &r in &self.sig_refs[start..end] {
-                if r & LOG_FLAG != 0 {
-                    log.push((r & !LOG_FLAG) as u32);
-                } else {
-                    ext.push(r as u32);
-                }
-            }
+        if let Some(ac) = self.ac.as_ref() {
+            collect_hits(
+                ac,
+                data,
+                self.num_atoms,
+                &self.atom_starts,
+                &self.sig_refs,
+                &mut ext,
+                &mut log,
+            );
+        }
+
+        if let Some(ac_nocase) = self.ac_nocase.as_ref() {
+            // `nocase` atoms were case-folded to lowercase at build time, so
+            // they must be matched against a lowercased copy of the buffer.
+            let lowered: Vec<u8> = data.iter().map(|b| b.to_ascii_lowercase()).collect();
+            collect_hits(
+                ac_nocase,
+                &lowered,
+                self.num_atoms_nocase,
+                &self.atom_starts_nocase,
+                &self.sig_refs_nocase,
+                &mut ext,
+                &mut log,
+            );
         }
 
         ext.sort_unstable();
@@ -237,4 +279,73 @@ impl AtomPrefilter {
         log.dedup();
         (Candidates::List(ext), Candidates::List(log))
     }
+}
+
+/// Run one Aho-Corasick pass over `haystack` and append matching signature
+/// refs (deduped per atom id) into `ext`/`log`.
+fn collect_hits(
+    ac: &DoubleArrayAhoCorasick<u32>,
+    haystack: &[u8],
+    num_atoms: usize,
+    atom_starts: &[u32],
+    sig_refs: &[u64],
+    ext: &mut Vec<u32>,
+    log: &mut Vec<u32>,
+) {
+    let mut seen = vec![false; num_atoms];
+    for m in ac.find_overlapping_iter(haystack) {
+        let id = m.value() as usize;
+        if seen[id] {
+            continue;
+        }
+        seen[id] = true;
+        let start = atom_starts[id] as usize;
+        let end = atom_starts[id + 1] as usize;
+        for &r in &sig_refs[start..end] {
+            if r & LOG_FLAG != 0 {
+                log.push((r & !LOG_FLAG) as u32);
+            } else {
+                ext.push(r as u32);
+            }
+        }
+    }
+}
+
+/// Unique-atom + CSR mapping, shared by the case-sensitive and nocase
+/// automaton builds.
+#[allow(clippy::type_complexity)]
+fn build_automaton(
+    mut entries: Vec<(Box<[u8]>, u64)>,
+) -> (
+    Option<DoubleArrayAhoCorasick<u32>>,
+    usize,
+    Vec<u32>,
+    Vec<u64>,
+) {
+    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let mut atoms: Vec<Box<[u8]>> = Vec::new();
+    let mut atom_starts: Vec<u32> = Vec::new();
+    let mut sig_refs: Vec<u64> = Vec::with_capacity(entries.len());
+    let mut i = 0;
+    while i < entries.len() {
+        atom_starts.push(sig_refs.len() as u32);
+        atoms.push(entries[i].0.clone());
+        let cur = &entries[i].0;
+        let mut j = i;
+        while j < entries.len() && &entries[j].0 == cur {
+            sig_refs.push(entries[j].1);
+            j += 1;
+        }
+        i = j;
+    }
+    atom_starts.push(sig_refs.len() as u32); // sentinel
+    drop(entries);
+
+    let num_atoms = atoms.len();
+    let ac = if atoms.is_empty() {
+        None
+    } else {
+        DoubleArrayAhoCorasick::<u32>::new(&atoms).ok()
+    };
+    (ac, num_atoms, atom_starts, sig_refs)
 }
