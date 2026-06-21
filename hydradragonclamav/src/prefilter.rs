@@ -168,14 +168,6 @@ impl AtomPrefilter {
         }
 
         let num_atoms = atoms.len();
-        let ext_map_entries: usize = ext_by_atom.iter().map(|v| v.len()).sum();
-        let log_map_entries: usize = log_by_atom.iter().map(|v| v.len()).sum();
-        let atom_bytes: usize = atoms.iter().map(|a| a.len()).sum();
-        eprintln!(
-            "[prefilter] atoms={num_atoms} atom_bytes={atom_bytes} ext_map={ext_map_entries} log_map={log_map_entries} ext_always={} log_always={}",
-            ext_always.len(),
-            log_always.len()
-        );
         // Drop the interning map before building the automaton to keep peak
         // memory down (the double-array build is the other large allocation).
         drop(atom_ids);

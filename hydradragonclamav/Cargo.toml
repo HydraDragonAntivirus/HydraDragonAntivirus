@@ -14,6 +14,9 @@ regex = "1"
 # gzip decompression for ClamAV .cvd/.cld bytecode containers (old V7 tar inside)
 flate2 = "1"
 
+# SIMD substring search for the per-pattern literal pre-check (pure Rust).
+memchr = "2"
+
 # Single shared atom matcher: prefilter which signatures to fully evaluate per
 # file, instead of scanning all ~500k linearly (the RAM/speed bottleneck).
 # daachorse is a compact double-array Aho-Corasick — handles ~1M atoms in a

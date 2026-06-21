@@ -660,9 +660,9 @@ fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
     if needle.len() > haystack.len() {
         return false;
     }
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle)
+    // SIMD substring search — far faster than the naive O(n·m) window scan, and
+    // this runs once per signature per file (the hot pre-filter check).
+    memchr::memmem::find(haystack, needle).is_some()
 }
 
 fn is_fullword(data: &[u8], start: usize, end: usize) -> bool {

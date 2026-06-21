@@ -843,25 +843,27 @@ impl Pipeline {
     pub fn arenas_for_file(&self, path: &Path) -> Vec<(usize, usize)> {
         let mut arenas: Vec<(usize, usize)> = Vec::new();
 
+        // Read the file ONCE; every engine below scans this same buffer.
+        let Ok(data) = std::fs::read(path) else {
+            return arenas;
+        };
+
         if let Some(ref clamav) = self.clamav {
-            if let Ok(result) = clamav.scan_file(path, self.config.clamav_heuristics) {
+            if let Ok(result) = clamav.scan_bytes(&data) {
                 arenas.extend(result.arenas.iter().copied());
             }
         }
 
-        // YARA-X and the URL bloom filters both scan the raw bytes; read once.
         if !self.yara_rules.is_empty() || self.hash_scanner.is_some() {
-            if let Ok(data) = std::fs::read(path) {
-                for (_name, rules) in &self.yara_rules {
-                    arenas.extend(scan_bytes_yara_ranges(
-                        &data,
-                        rules,
-                        &self.excluded_yara_rules,
-                        self.config.fast_scan,
-                    ));
-                }
-                arenas.extend(self.url_bloom_arenas(&data));
+            for (_name, rules) in &self.yara_rules {
+                arenas.extend(scan_bytes_yara_ranges(
+                    &data,
+                    rules,
+                    &self.excluded_yara_rules,
+                    self.config.fast_scan,
+                ));
             }
+            arenas.extend(self.url_bloom_arenas(&data));
         }
 
         arenas

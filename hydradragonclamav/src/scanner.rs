@@ -99,12 +99,12 @@ impl Engine {
         // Load (parse) bytecode programs from the same directory.
         let bc = crate::bytecode::BytecodeSet::load_from_dir(path);
         report.bytecodes_loaded = bc.report.loaded;
-        // The atom prefilter is a *speed* tool but adds a second copy of every
-        // literal, which raises RAM. Keep it disabled until pattern storage is
-        // compact enough that the trie can be the single index. (Speed of the
-        // linear scan is the remaining cost; RAM is the priority here.)
+        // Atom prefilter (daachorse) is disabled: its *build* over ~1.2M atoms
+        // spikes RAM badly. Speed instead comes from a fast per-pattern literal
+        // pre-check (memchr). A viable prefilter needs one selective atom per
+        // signature + a memory-bounded build first.
         let prefilter = crate::prefilter::AtomPrefilter::disabled();
-        let _ = crate::prefilter::AtomPrefilter::build; // keep build() referenced
+        let _ = crate::prefilter::AtomPrefilter::build; // keep referenced
         Ok((
             Self {
                 database,

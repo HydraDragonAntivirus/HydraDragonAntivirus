@@ -15,15 +15,40 @@ pub struct FilterConfig {
     pub exclude_platforms: Vec<String>,
     pub exclude_types: Vec<String>,
     pub ndb_types: Option<Vec<String>>,
+    /// Signature-name prefixes to drop (e.g. ClamAV `ExcludePUA` categories).
+    pub exclude_pua: Vec<String>,
 }
 
 impl FilterConfig {
-    pub fn windows_only_no_hash() -> Self {
+    /// Keep all non-hash signatures across every platform (no Windows-only
+    /// restriction). Hash signatures (.hdb/.hsb/.mdb/.msb and their update
+    /// variants) are dropped — exact-hash detection is handled by the bloom
+    /// filters, and the engine skips hash signature files anyway.
+    pub fn no_hash_all_platforms() -> Self {
         Self {
-            include_platforms: vec!["Win".into()],
+            // Empty include/exclude => keep every platform (Win, Unix, etc.).
+            include_platforms: vec![],
             exclude_platforms: vec![],
-            exclude_types: vec!["hdb".into(), "mdb".into(), "hsb".into()],
+            exclude_types: vec![
+                "hdb".into(),
+                "hdu".into(),
+                "hsb".into(),
+                "hsu".into(),
+                "mdb".into(),
+                "mdu".into(),
+                "msb".into(),
+                "msu".into(),
+            ],
             ndb_types: None,
+            // Only these PUA (packer) categories are dropped; all other PUA and
+            // every non-hash signature are kept.
+            exclude_pua: vec![
+                "PUA.Win.Packer".into(),
+                "PUA.Win.Trojan.Packed".into(),
+                "PUA.Win.Trojan.Molebox".into(),
+                "PUA.Win.Packer.Upx".into(),
+                "PUA.Doc.Packed".into(),
+            ],
         }
     }
 }
@@ -43,6 +68,15 @@ fn should_keep(name: &str, cfg: &FilterConfig) -> bool {
     let lc = name.to_lowercase();
     if lc.contains("eicar") {
         return true;
+    }
+    // Drop the configured PUA categories (prefix match on the signature name),
+    // e.g. "PUA.Win.Packer" also covers "PUA.Win.Packer.Upx-6".
+    if cfg
+        .exclude_pua
+        .iter()
+        .any(|p| name.starts_with(p.as_str()))
+    {
+        return false;
     }
     let prefix = name.split('.').next().unwrap_or("");
     if !cfg.include_platforms.is_empty() {
@@ -174,6 +208,20 @@ pub fn filter_cvd(
 
         let excluded = cfg.exclude_types.iter().any(|t| t == &ext);
 
+        // Drop excluded signature types (hash signatures) entirely, whatever the
+        // extension — write a stub comment so the file is present but inert.
+        if excluded {
+            match ext.as_str() {
+                "hdb" | "hdu" => stats.hdb_excluded = true,
+                "mdb" | "mdu" => stats.mdb_excluded = true,
+                "hsb" | "hsu" | "msb" | "msu" => stats.hsb_excluded = true,
+                _ => {}
+            }
+            fs::write(&dest, format!("# {ext} excluded (hash signature)\n"))
+                .map_err(|e| Error::Other(e.to_string()))?;
+            continue;
+        }
+
         match ext.as_str() {
             "ndb" => {
                 let content = fs::read_to_string(&src).map_err(|e| Error::Other(e.to_string()))?;
@@ -268,7 +316,7 @@ pub fn filter_cvd(
 }
 
 pub fn run_juice(db_dir: &Path, delete_source: bool) {
-    let cfg = FilterConfig::windows_only_no_hash();
+    let cfg = FilterConfig::no_hash_all_platforms();
 
     for cvd in ["main.cvd", "daily.cvd", "main.cld", "daily.cld"] {
         let cvd_path = db_dir.join(cvd);

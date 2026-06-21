@@ -3748,6 +3748,7 @@ dependencies = [
  "daachorse",
  "flate2",
  "hydradragonextractor",
+ "memchr",
  "regex",
 ]
 

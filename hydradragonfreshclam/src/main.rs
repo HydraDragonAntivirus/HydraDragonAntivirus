@@ -20,7 +20,7 @@ fn exe_dir() -> PathBuf {
 #[command(
     name = "hydradragonfreshclam",
     version,
-    about = "Update ClamAV databases via libfreshclam.dll, then filter them with ClamJuice (Windows-only, no hash signatures)"
+    about = "Update ClamAV databases via libfreshclam.dll, then filter them with ClamJuice (all platforms, no hash signatures)"
 )]
 struct Cli {
     /// Path to libfreshclam.dll
@@ -71,7 +71,7 @@ fn main() {
     }
 
     if !cli.no_juice {
-        eprintln!("[ClamJuice] Filtering databases (Windows-only, no hashes)...");
+        eprintln!("[ClamJuice] Filtering databases (all platforms, no hash signatures)...");
         clamjuice::run_juice(&db, !cli.keep_source);
     }
 }
