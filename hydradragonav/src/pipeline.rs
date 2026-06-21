@@ -293,6 +293,19 @@ impl Pipeline {
     /// hint, never trusted for a detection, so a bloom false positive can never
     /// flag a clean file as malware — it just costs one re-scan. Files over 64 MiB
     /// bypass the cache. The returned [`ScanResult`] matches `scan_file`.
+    /// Total signatures/rules loaded across the engines (ClamAV + hydradragonsig
+    /// static rules). Shown in the UI when the engine becomes ready.
+    pub fn loaded_signature_count(&self) -> usize {
+        let clamav = self.clamav.as_ref().map(|c| c.signature_count()).unwrap_or(0);
+        let hds = self
+            .hydradragonsig_rules
+            .as_ref()
+            .map(|r| r.rules().len())
+            .unwrap_or(0);
+        let yara = self.yara_rules.len();
+        clamav + hds + yara
+    }
+
     pub fn scan_file_cached(&self, path: &Path) -> ScanResult {
         const CACHE_FILE_MAX: u64 = 64 * 1024 * 1024;
 

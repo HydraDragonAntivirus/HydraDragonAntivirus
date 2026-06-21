@@ -15,6 +15,15 @@ pub struct Scanner {
     // scanned concurrently; only reload_database takes the write lock.
     engine: RwLock<Engine>,
     dbpath: PathBuf,
+    /// Total ClamAV signatures loaded (extended + logical + container + ftm).
+    signatures_loaded: usize,
+}
+
+impl Scanner {
+    /// Number of ClamAV signatures loaded into this engine.
+    pub fn signature_count(&self) -> usize {
+        self.signatures_loaded
+    }
 }
 
 impl Scanner {
@@ -34,15 +43,23 @@ impl Scanner {
         let (engine, report) =
             Engine::from_database_dir(&dbpath).map_err(|e| Error::DatabaseLoad(e.to_string()))?;
 
-        let signatures_loaded = report.extended_loaded + report.logical_loaded;
+        let signatures_loaded = report.extended_loaded
+            + report.logical_loaded
+            + report.container_loaded
+            + report.ftm_loaded;
         eprintln!(
-            "[ClamAV] hydradragonclamav engine ready. Signatures loaded: {} (extended {}, logical {})",
-            signatures_loaded, report.extended_loaded, report.logical_loaded
+            "[ClamAV] hydradragonclamav engine ready. Signatures loaded: {} (extended {}, logical {}, container {}, ftm {})",
+            signatures_loaded,
+            report.extended_loaded,
+            report.logical_loaded,
+            report.container_loaded,
+            report.ftm_loaded,
         );
 
         Ok(Self {
             engine: RwLock::new(engine),
             dbpath,
+            signatures_loaded,
         })
     }
 

@@ -296,7 +296,7 @@ enum ScanMsg {
     Resumed,
     /// Engine lifecycle (drives the loading screen / status indicator).
     EngineLoading,
-    EngineReady,
+    EngineReady { signatures: usize },
     EngineStopped,
     /// Result of re-scanning one already-listed file (right-click → Rescan). The
     /// row is updated in place, or removed when it comes back clean.
@@ -359,6 +359,8 @@ struct AppState {
     engine: EngineState,
     scanned_count: usize,
     threat_count: usize,
+    /// Total signatures loaded, shown once the engine is ready.
+    sig_count: usize,
     // Live throughput for the hero banner / status bar (streaming scan).
     scan_discovered: usize,
     scan_speed: f64,
@@ -618,6 +620,7 @@ unsafe fn on_create(hwnd: HWND) {
         engine: EngineState::Loading,
         scanned_count: 0,
         threat_count: 0,
+        sig_count: 0,
         scan_discovered: 0,
         scan_speed: 0.0,
         scan_mbps: 0.0,
@@ -1024,7 +1027,11 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
             t.accent,
             "\u{E83D}", // shield
             "Ready to scan".to_string(),
-            "Run a scan to check your system for threats.".to_string(),
+            if s.sig_count > 0 {
+                format!("{} signatures loaded · run a scan to check for threats.", fmt_count(s.sig_count))
+            } else {
+                "Run a scan to check your system for threats.".to_string()
+            },
         ),
         ScanState::Scanning => (
             t.accent_soft,
@@ -1815,9 +1822,10 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.status = "Loading engines…".into();
                 apply_page(hwnd); // hides the lists so the loading screen shows
             }
-            ScanMsg::EngineReady => {
+            ScanMsg::EngineReady { signatures } => {
                 s.engine = EngineState::Ready;
-                s.status = "Engine ready.".into();
+                s.sig_count = signatures;
+                s.status = format!("Engine ready — {} signatures loaded.", fmt_count(signatures));
                 apply_page(hwnd); // reveals the active page's list
             }
             ScanMsg::EngineStopped => {
@@ -2080,10 +2088,11 @@ fn worker(
                 }
             }
             WorkRequest::StartEngine => {
-                ensure_pipeline(&mut pipeline, &tx, hwnd);
+                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
                 // Idempotent confirm so the indicator flips to Ready even if it
                 // was already loaded.
-                send(&tx, hwnd, ScanMsg::EngineReady);
+                let signatures = pl.loaded_signature_count();
+                send(&tx, hwnd, ScanMsg::EngineReady { signatures });
             }
             WorkRequest::StopEngine => {
                 if let Some(pl) = pipeline.as_ref() {
@@ -2438,10 +2447,26 @@ fn ensure_pipeline<'a>(pl: &'a mut Option<Pipeline>, tx: &Sender<ScanMsg>, hwnd:
     if pl.is_none() {
         // Drives the loading screen: EngineLoading → (blocking load) → EngineReady.
         send(tx, hwnd, ScanMsg::EngineLoading);
-        *pl = Some(Pipeline::new(default_config()));
-        send(tx, hwnd, ScanMsg::EngineReady);
+        let pipeline = Pipeline::new(default_config());
+        let signatures = pipeline.loaded_signature_count();
+        *pl = Some(pipeline);
+        send(tx, hwnd, ScanMsg::EngineReady { signatures });
     }
     pl.as_ref().unwrap()
+}
+
+/// Format a count with thousands separators, e.g. 520134 -> "520,134".
+fn fmt_count(n: usize) -> String {
+    let s = n.to_string();
+    let len = s.len();
+    let mut out = String::with_capacity(len + len / 3);
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
 }
 
 fn send(tx: &Sender<ScanMsg>, hwnd: HWND, m: ScanMsg) {
