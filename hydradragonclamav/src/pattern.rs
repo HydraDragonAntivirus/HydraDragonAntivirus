@@ -4,6 +4,12 @@ use std::collections::HashSet;
 /// `Token::AnyBytes::max` so the field can be a plain `u32`.
 const UNBOUNDED: u32 = u32::MAX;
 
+/// Largest start-position window `find_all_at` will probe per literal occurrence
+/// when the required literal sits behind bounded gaps (no fixed prefix). Keeps a
+/// pathological `{-100000}` gap from turning offset-threading back into a buffer
+/// scan; such a literal falls back to the normal `find_all` path instead.
+const MAX_PREFIX_WINDOW: usize = 4096;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Modifiers {
     pub nocase: bool,
@@ -133,7 +139,7 @@ pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<P
 impl Pattern {
     fn new(tokens: Vec<Token>, fullword: bool) -> Self {
         let (tokens, lits) = compact_tokens(tokens);
-        let (required_literal, required_prefix) = longest_required_literal(&tokens);
+        let (required_literal, required_prefix) = best_required_literal(&tokens, &lits);
         // For nocase patterns (no case-sensitive literal), record only the
         // fixed-width prefix to the nocase atom so `find_all_at` can anchor on it.
         // The atom bytes themselves are recomputed at prefilter build time
@@ -374,11 +380,7 @@ impl Pattern {
         if limit == 0 {
             return Vec::new();
         }
-        // Only an atom-anchored pattern can be verified from hints alone. Without
-        // a fixed-width prefix to the required literal, the hint offset doesn't
-        // determine the match start, so we must do the full window scan.
-        let (Some((off, len)), Some(prefix)) = (self.required_literal, self.required_prefix)
-        else {
+        let Some((off, len)) = self.required_literal else {
             // No case-sensitive anchor. A `nocase` pattern can still be threaded
             // on its case-folded atom (hints are positions in the lowercased
             // buffer, which share coordinates with the original).
@@ -387,9 +389,22 @@ impl Pattern {
             }
             return self.find_all(data, ranges, limit);
         };
+        // The match start lies in a window relative to the literal occurrence.
+        // Fixed prefix → a single position (`occurrence - prefix`). Otherwise the
+        // preceding tokens may be bounded gaps (e.g. `(a|b)…{-50}LIT` — extremely
+        // common in phishing/spam sigs): try the SMALL window
+        // `[occurrence - maxprefix, occurrence - minprefix]` rather than scanning
+        // the whole buffer. Only when a preceding token is genuinely unbounded
+        // (leading `*`) or the window would be huge do we fall back to a full scan.
+        let (minp, maxp) = match self.required_prefix {
+            Some(p) => (p as usize, p as usize),
+            None => match self.prefix_bounds_to(off) {
+                Some((mn, mx)) if (mx as usize) <= MAX_PREFIX_WINDOW => (mn as usize, mx as usize),
+                _ => return self.find_all(data, ranges, limit),
+            },
+        };
         let required = &self.lits[off as usize..(off + len) as usize];
         let required_len = required.len();
-        let prefix = prefix as usize;
 
         let mut out = Vec::new();
         let mut seen = HashSet::new();
@@ -404,23 +419,24 @@ impl Pattern {
             if lit_end > data.len() || &data[occurrence..lit_end] != required {
                 continue;
             }
-            let Some(start) = occurrence.checked_sub(prefix) else {
-                continue;
-            };
-            if !pos_in_ranges(start, ranges, data.len()) {
-                continue;
-            }
-            if let Some(match_end) = self.match_from(data, start) {
-                if self.fullword && !is_fullword(data, start, match_end) {
+            let start_hi = occurrence.saturating_sub(minp);
+            let start_lo = occurrence.saturating_sub(maxp);
+            for start in start_lo..=start_hi {
+                if !pos_in_ranges(start, ranges, data.len()) {
                     continue;
                 }
-                if seen.insert((start, match_end)) {
-                    out.push(MatchRange {
-                        start,
-                        end: match_end,
-                    });
-                    if out.len() >= limit {
-                        return out;
+                if let Some(match_end) = self.match_from(data, start) {
+                    if self.fullword && !is_fullword(data, start, match_end) {
+                        continue;
+                    }
+                    if seen.insert((start, match_end)) {
+                        out.push(MatchRange {
+                            start,
+                            end: match_end,
+                        });
+                        if out.len() >= limit {
+                            return out;
+                        }
                     }
                 }
             }
@@ -473,6 +489,68 @@ impl Pattern {
 
     fn match_from(&self, data: &[u8], start: usize) -> Option<usize> {
         match_tokens(&self.tokens, &self.lits, data, 0, start, 0)
+    }
+
+    /// The `(min, max)` total byte width of the tokens before the `Literal` at
+    /// `target_off`, or `None` if any preceding token is unbounded (a leading
+    /// `*` / `{n-}`). Used by `find_all_at` to anchor a literal that sits behind
+    /// bounded gaps: the match start is then in `[occurrence-max, occurrence-min]`.
+    fn prefix_bounds_to(&self, target_off: u32) -> Option<(u32, u32)> {
+        let mut min = 0u32;
+        let mut max = 0u32;
+        for token in self.tokens.iter() {
+            if let Token::Literal { off, .. } = token {
+                if *off == target_off {
+                    return Some((min, max));
+                }
+            }
+            let (tmin, tmax) = token_width_bounds(token)?;
+            min = min.saturating_add(tmin);
+            max = max.saturating_add(tmax);
+        }
+        None
+    }
+}
+
+/// `(min, max)` byte width a single token can consume, or `None` if unbounded.
+/// Like `single_token_width` but admits bounded ranges (`{n-m}`) and
+/// variable-width alternations, returning their span instead of requiring a
+/// single fixed width.
+fn token_width_bounds(token: &Token) -> Option<(u32, u32)> {
+    match token {
+        Token::Literal { len, .. } => Some((*len, *len)),
+        Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => Some((1, 1)),
+        Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => Some((0, 0)),
+        Token::AnyBytes { max, .. } if *max == UNBOUNDED => None,
+        Token::AnyBytes { min, max } => Some((*min, *max)),
+        Token::Alternates(alt) if !alt.negated => {
+            let mut lo = u32::MAX;
+            let mut hi = 0u32;
+            for branch in &alt.branches {
+                let w = fixed_width(branch)? as u32;
+                lo = lo.min(w);
+                hi = hi.max(w);
+            }
+            Some((lo, hi))
+        }
+        Token::Alternates(alt) if alt.negated_width.is_some() => {
+            let w = alt.negated_width.unwrap() as u32;
+            Some((w, w))
+        }
+        _ => None,
+    }
+}
+
+/// True when the token at `idx` ends the pattern or is an unbounded gap (`*` /
+/// `{n-}`). In that case a literal matched just before it can be taken greedily
+/// (leftmost): nothing downstream constrains *where* that literal must sit, so a
+/// failed continuation can never be rescued by a later occurrence. Used to switch
+/// off backtracking in the wildcard fast paths (see `match_tokens`).
+fn open_ended_after(tokens: &[Token], idx: usize) -> bool {
+    match tokens.get(idx) {
+        None => true,
+        Some(Token::AnyBytes { max, .. }) => *max == UNBOUNDED,
+        _ => false,
     }
 }
 
@@ -535,6 +613,17 @@ fn match_tokens(
             match tokens.get(token_index + 1) {
                 Some(Token::Literal { off, len }) => {
                     let lit = &lits[*off as usize..(*off + *len) as usize];
+                    // Greedy short-circuit: when what follows the literal is
+                    // open-ended (end of pattern, or another unbounded gap), the
+                    // LEFTMOST literal occurrence is provably sufficient — a later
+                    // occurrence only shrinks the remaining search window, so if
+                    // the first fails, all later ones fail too. This turns the
+                    // catastrophic `*a*b*c` nested product (O(occ(a)·occ(b)·…))
+                    // into O(occ(a)+occ(b)+…), the difference between a 7-second
+                    // signature and a microsecond one. When the next token is
+                    // fixed-width-constrained (e.g. `*a{5}b`), we must still
+                    // backtrack, so greedy is off.
+                    let greedy = open_ended_after(tokens, token_index + 2);
                     let mut search_from = min_pos;
                     loop {
                         if search_from > max_pos || search_from + lit.len() > data.len() {
@@ -557,19 +646,33 @@ fn match_tokens(
                         ) {
                             return Some(end);
                         }
+                        if greedy {
+                            return None;
+                        }
                         search_from = candidate + 1;
                     }
                 }
-                Some(Token::Byte(byte)) if byte.exact_value().is_some() => {
-                    let target = byte.exact_value().unwrap();
+                // `anchor_bytes()` (not `exact_value()`): the latter is `None`
+                // for `nocase` bytes, so case-insensitive patterns' wildcard gaps
+                // used to fall through to the slow per-position probe below — and
+                // `nocase + *` (a case-insensitive string with a gap) is one of
+                // the most common ClamAV idioms. `anchor_bytes` jumps via memchr2
+                // over both case variants instead.
+                Some(Token::Byte(byte)) if byte.anchor_bytes().is_some() => {
+                    let (b1, b2) = byte.anchor_bytes().unwrap();
+                    let greedy = open_ended_after(tokens, token_index + 2);
                     let mut search_from = min_pos;
                     loop {
                         if search_from > max_pos || search_from >= data.len() {
                             return None;
                         }
                         let scan_end = (max_pos + 1).min(data.len());
-                        let Some(rel) = memchr::memchr(target, &data[search_from..scan_end])
-                        else {
+                        let hay = &data[search_from..scan_end];
+                        let rel = match b2 {
+                            Some(b2) => memchr::memchr2(b1, b2, hay),
+                            None => memchr::memchr(b1, hay),
+                        };
+                        let Some(rel) = rel else {
                             return None;
                         };
                         let candidate = search_from + rel;
@@ -582,6 +685,9 @@ fn match_tokens(
                             depth + 1,
                         ) {
                             return Some(end);
+                        }
+                        if greedy {
+                            return None;
                         }
                         search_from = candidate + 1;
                     }
@@ -1098,36 +1204,37 @@ fn nocase_anchor(tokens: &[Token]) -> Option<(Vec<u8>, Option<u32>)> {
     }
 }
 
-/// Choose the required-literal atom and, when possible, the fixed byte width of
-/// the pattern tokens before it (its anchor offset).
+/// Choose the required-literal atom (the substring that MUST appear for the
+/// pattern to match, used both as the Aho-Corasick prefilter atom and the
+/// verification anchor) and, when it has one, the fixed byte width of the tokens
+/// before it (so `find_all`/`find_all_at` can anchor at `occurrence - prefix`).
 ///
-/// We deliberately prefer the longest literal that has a **fixed-width prefix**
-/// over a longer literal sitting behind a wildcard. A fixed prefix lets
-/// `find_all` jump straight to each `memmem` occurrence and verify the whole
-/// pattern at `occurrence - prefix` (ClamAV's anchored match), instead of
-/// scanning every byte of the buffer. Only patterns whose every ≥2-byte literal
-/// is preceded by a variable-width token (e.g. a leading `*`) fall back to the
-/// per-byte scan; those are rare.
+/// We pick the **most selective** literal by a rarity score, NOT simply the
+/// longest or the first fixed-prefix one. A short, ubiquitous literal like
+/// `00 00 00` (3 zero bytes) occurs millions of times in a real PE's zero
+/// padding; anchoring on it overflows the prefilter and forces a whole-buffer
+/// `memmem` that finds those millions of hits — the dominant scan cost on real
+/// binaries. Penalizing low-entropy atoms (and rewarding length + byte
+/// diversity) makes us anchor on a rare substring instead, exactly as ClamAV's
+/// atom selection does. A fixed-width prefix is a tiebreak bonus (it can be
+/// offset-threaded), but selectivity wins — a rare literal behind a `*` still
+/// beats a common one at the front.
 ///
-/// Returns `((off, len) into lits, prefix_width)`. `prefix_width` is `None` only
-/// when no literal has a fixed-width prefix (then the caller still uses the
-/// returned literal as a coarse `memmem` pre-check before the byte scan).
-fn longest_required_literal(tokens: &[Token]) -> (Option<(u32, u32)>, Option<u32>) {
+/// Returns `((off, len) into lits, prefix_width)`. `prefix_width` is `None` when
+/// the chosen literal sits behind a variable-width token (then the caller uses
+/// it as a coarse `memmem` pre-check / anchor before the window scan).
+fn best_required_literal(tokens: &[Token], lits: &[u8]) -> (Option<(u32, u32)>, Option<u32>) {
     // After compaction, each maximal exact run ≥ 2 bytes is a single `Literal`.
-    let mut anchored: Option<(u32, u32, u32)> = None; // (off, len, prefix) — fixed prefix
-    let mut longest_any: Option<(u32, u32)> = None; // longest ≥2 literal, any prefix
+    let mut best: Option<(i64, u32, u32, Option<u32>)> = None; // (score, off, len, prefix)
     let mut prefix_acc: Option<u32> = Some(0); // running fixed width from pattern start
 
     for token in tokens {
         if let Token::Literal { off, len } = token {
             if *len >= 2 {
-                if longest_any.map_or(true, |(_, bl)| *len > bl) {
-                    longest_any = Some((*off, *len));
-                }
-                if let Some(prefix) = prefix_acc {
-                    if anchored.map_or(true, |(_, bl, _)| *len > bl) {
-                        anchored = Some((*off, *len, prefix));
-                    }
+                let bytes = &lits[*off as usize..(*off + *len) as usize];
+                let score = literal_score(bytes, prefix_acc.is_some());
+                if best.map_or(true, |(bs, ..)| score > bs) {
+                    best = Some((score, *off, *len, prefix_acc));
                 }
             }
         }
@@ -1136,10 +1243,34 @@ fn longest_required_literal(tokens: &[Token]) -> (Option<(u32, u32)>, Option<u32
         prefix_acc = prefix_acc.and_then(|w| single_token_width(token).map(|tw| w + tw as u32));
     }
 
-    match anchored {
-        Some((off, len, prefix)) => (Some((off, len)), Some(prefix)),
-        None => (longest_any, None),
+    match best {
+        Some((_, off, len, prefix)) => (Some((off, len)), prefix),
+        None => (None, None),
     }
+}
+
+/// Selectivity score for a candidate prefilter atom (higher = rarer/better).
+/// Length dominates; byte diversity helps; an all-same-byte run (e.g. `000000`,
+/// `ffffff`) is heavily penalized because it occurs millions of times in real
+/// binaries and makes a useless atom that overflows to a whole-buffer scan. A
+/// fixed-width prefix earns a small bonus (it can be offset-threaded).
+fn literal_score(bytes: &[u8], has_fixed_prefix: bool) -> i64 {
+    let mut seen = [false; 256];
+    let mut distinct = 0i64;
+    for &b in bytes {
+        if !seen[b as usize] {
+            seen[b as usize] = true;
+            distinct += 1;
+        }
+    }
+    let mut score = bytes.len() as i64 * 8 + distinct * 4;
+    if distinct == 1 {
+        score -= 1000; // all-same-byte: avoid unless it's the only literal
+    }
+    if has_fixed_prefix {
+        score += 2;
+    }
+    score
 }
 
 /// Fixed byte width a single token always consumes, or `None` if variable-width.
