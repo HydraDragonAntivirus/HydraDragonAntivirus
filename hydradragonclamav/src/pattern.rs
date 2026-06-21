@@ -194,6 +194,25 @@ impl Pattern {
             return out;
         }
 
+        // A pattern whose very first token is an unbounded `*` (min=0,
+        // max=None) explores, from any starting position X, every later
+        // position as the end of that gap. That search space strictly
+        // shrinks as X increases, so if `match_from(data, X)` fails, every
+        // `match_from(data, X')` for X' > X is searching a subset and must
+        // also fail. Once that happens we can stop scanning immediately
+        // instead of grinding through the rest of the buffer.
+        //
+        // Without this, the per-position fallback loop below combined with
+        // the (also per-position) wildcard search inside `match_from`
+        // degrades to O(n^2): for body subsignatures with a leading
+        // wildcard — a very common ClamAV idiom ("literal anywhere") — this
+        // is what turns a sub-second scan into a many-minute one on large
+        // files once the signature's required-literal prefilter check
+        // passes but the position it actually occurs at is far from the
+        // start of the buffer.
+        let unbounded_leading_wildcard =
+            matches!(self.tokens.first(), Some(Token::AnyBytes { min: 0, max: None }));
+
         // Fallback: variable-width prefix (or no required literal) — scan every
         // candidate position within the allowed ranges.
         for &(start, end) in ranges {
@@ -203,19 +222,23 @@ impl Pattern {
                 continue;
             }
             for pos in start..=end {
-                if let Some(match_end) = self.match_from(data, pos) {
-                    if self.fullword && !is_fullword(data, pos, match_end) {
-                        continue;
-                    }
-                    if seen.insert((pos, match_end)) {
-                        out.push(MatchRange {
-                            start: pos,
-                            end: match_end,
-                        });
-                        if out.len() >= limit {
-                            return out;
+                match self.match_from(data, pos) {
+                    Some(match_end) => {
+                        if self.fullword && !is_fullword(data, pos, match_end) {
+                            continue;
+                        }
+                        if seen.insert((pos, match_end)) {
+                            out.push(MatchRange {
+                                start: pos,
+                                end: match_end,
+                            });
+                            if out.len() >= limit {
+                                return out;
+                            }
                         }
                     }
+                    None if unbounded_leading_wildcard => break,
+                    None => {}
                 }
             }
         }
@@ -268,13 +291,87 @@ fn match_tokens(
                 .map(|m| m as usize)
                 .unwrap_or_else(|| data.len().saturating_sub(pos));
             let max_pos = pos.saturating_add(max_len).min(data.len());
-            for next in min_pos..=max_pos {
-                if let Some(end) = match_tokens(tokens, lits, data, token_index + 1, next, depth + 1)
-                {
-                    return Some(end);
+            if min_pos > max_pos {
+                return None;
+            }
+
+            // Fast path: when the token right after the wildcard is a fixed
+            // literal/byte, jump straight to its occurrences via memchr
+            // instead of probing every byte position in the gap. Without
+            // this, a body subsignature with multiple wildcard gaps (the
+            // common ClamAV `AAAA*BBBB*CCCC` shape) degrades to O(n) work
+            // per gap, nested per gap — O(n^2) or worse for a single
+            // anchor occurrence on large files. Jumping to literal
+            // occurrences instead makes each gap O(occurrences of the next
+            // anchor), which is what keeps multi-wildcard body sigs fast.
+            match tokens.get(token_index + 1) {
+                Some(Token::Literal { off, len }) => {
+                    let lit = &lits[*off as usize..(*off + *len) as usize];
+                    let mut search_from = min_pos;
+                    loop {
+                        if search_from > max_pos || search_from + lit.len() > data.len() {
+                            return None;
+                        }
+                        let Some(rel) = memchr::memmem::find(&data[search_from..], lit) else {
+                            return None;
+                        };
+                        let candidate = search_from + rel;
+                        if candidate > max_pos {
+                            return None;
+                        }
+                        if let Some(end) = match_tokens(
+                            tokens,
+                            lits,
+                            data,
+                            token_index + 2,
+                            candidate + lit.len(),
+                            depth + 1,
+                        ) {
+                            return Some(end);
+                        }
+                        search_from = candidate + 1;
+                    }
+                }
+                Some(Token::Byte(byte)) if byte.exact_value().is_some() => {
+                    let target = byte.exact_value().unwrap();
+                    let mut search_from = min_pos;
+                    loop {
+                        if search_from > max_pos || search_from >= data.len() {
+                            return None;
+                        }
+                        let scan_end = (max_pos + 1).min(data.len());
+                        let Some(rel) = memchr::memchr(target, &data[search_from..scan_end])
+                        else {
+                            return None;
+                        };
+                        let candidate = search_from + rel;
+                        if let Some(end) = match_tokens(
+                            tokens,
+                            lits,
+                            data,
+                            token_index + 2,
+                            candidate + 1,
+                            depth + 1,
+                        ) {
+                            return Some(end);
+                        }
+                        search_from = candidate + 1;
+                    }
+                }
+                _ => {
+                    // Rare: next token is itself variable-width (boundary,
+                    // alternation, another wildcard) — no single byte/literal
+                    // to jump to, so fall back to per-position probing.
+                    for next in min_pos..=max_pos {
+                        if let Some(end) =
+                            match_tokens(tokens, lits, data, token_index + 1, next, depth + 1)
+                        {
+                            return Some(end);
+                        }
+                    }
+                    None
                 }
             }
-            None
         }
         Token::Boundary(Boundary::Word) => {
             if is_word_boundary(data, pos) {
@@ -691,26 +788,74 @@ fn flush_run(run: &mut Vec<u8>, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
     }
 }
 
-/// Pick the longest exact literal run (≥ 2 bytes) as the required atom, and —
-/// when every token before it is fixed-width — the byte width of that prefix.
-/// Returns `((off, len) into lits, Some(prefix_width))`; the prefix is `None`
-/// when a preceding token is variable-width.
+/// Choose the required-literal atom and, when possible, the fixed byte width of
+/// the pattern tokens before it (its anchor offset).
+///
+/// We deliberately prefer the longest literal that has a **fixed-width prefix**
+/// over a longer literal sitting behind a wildcard. A fixed prefix lets
+/// `find_all` jump straight to each `memmem` occurrence and verify the whole
+/// pattern at `occurrence - prefix` (ClamAV's anchored match), instead of
+/// scanning every byte of the buffer. Only patterns whose every ≥2-byte literal
+/// is preceded by a variable-width token (e.g. a leading `*`) fall back to the
+/// per-byte scan; those are rare.
+///
+/// Returns `((off, len) into lits, prefix_width)`. `prefix_width` is `None` only
+/// when no literal has a fixed-width prefix (then the caller still uses the
+/// returned literal as a coarse `memmem` pre-check before the byte scan).
 fn longest_required_literal(tokens: &[Token]) -> (Option<(u32, u32)>, Option<u32>) {
     // After compaction, each maximal exact run ≥ 2 bytes is a single `Literal`.
-    let mut best: Option<(usize, u32, u32)> = None; // (token_index, off, len)
-    for (idx, token) in tokens.iter().enumerate() {
+    let mut anchored: Option<(u32, u32, u32)> = None; // (off, len, prefix) — fixed prefix
+    let mut longest_any: Option<(u32, u32)> = None; // longest ≥2 literal, any prefix
+    let mut prefix_acc: Option<u32> = Some(0); // running fixed width from pattern start
+
+    for token in tokens {
         if let Token::Literal { off, len } = token {
-            if *len >= 2 && best.map_or(true, |(_, _, bl)| *len > bl) {
-                best = Some((idx, *off, *len));
+            if *len >= 2 {
+                if longest_any.map_or(true, |(_, bl)| *len > bl) {
+                    longest_any = Some((*off, *len));
+                }
+                if let Some(prefix) = prefix_acc {
+                    if anchored.map_or(true, |(_, bl, _)| *len > bl) {
+                        anchored = Some((*off, *len, prefix));
+                    }
+                }
             }
         }
+        // Advance the running prefix width; becomes None on the first
+        // variable-width token, disabling anchoring for later literals.
+        prefix_acc = prefix_acc.and_then(|w| single_token_width(token).map(|tw| w + tw as u32));
     }
-    match best {
-        None => (None, None),
-        Some((idx, off, len)) => {
-            let prefix = fixed_width(&tokens[..idx]).map(|w| w as u32);
-            (Some((off, len)), prefix)
+
+    match anchored {
+        Some((off, len, prefix)) => (Some((off, len)), Some(prefix)),
+        None => (longest_any, None),
+    }
+}
+
+/// Fixed byte width a single token always consumes, or `None` if variable-width.
+fn single_token_width(token: &Token) -> Option<usize> {
+    match token {
+        Token::Literal { len, .. } => Some(*len as usize),
+        Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => Some(1),
+        Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => Some(0),
+        Token::AnyBytes {
+            min,
+            max: Some(max),
+        } if min == max => Some(*min as usize),
+        Token::Alternates(alt) if !alt.negated => {
+            let widths = alt
+                .branches
+                .iter()
+                .map(|branch| fixed_width(branch))
+                .collect::<Option<Vec<_>>>()?;
+            if widths.iter().all(|w| *w == widths[0]) {
+                Some(widths[0])
+            } else {
+                None
+            }
         }
+        Token::Alternates(alt) if alt.negated_width.is_some() => alt.negated_width,
+        _ => None,
     }
 }
 

@@ -3745,6 +3745,7 @@ dependencies = [
 name = "hydradragonclamav"
 version = "0.1.0"
 dependencies = [
+ "daachorse",
  "flate2",
  "hydradragonextractor",
  "memchr",

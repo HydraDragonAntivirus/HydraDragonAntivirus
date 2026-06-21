@@ -283,22 +283,11 @@ impl Engine {
     ) {
         // One Aho-Corasick pass picks the candidate signatures for this buffer;
         // both phases then evaluate only those instead of all ~500k.
-        let _dbg = std::env::var("HDR_DEBUG").is_ok();
-        let _t = std::time::Instant::now();
         let (ext_cands, log_cands) = self.prefilter.candidates(ctx.data);
-        if _dbg {
-            let ec = match &ext_cands { crate::prefilter::Candidates::All => self.database.extended.len(), crate::prefilter::Candidates::List(v) => v.len() };
-            let lc = match &log_cands { crate::prefilter::Candidates::All => self.database.logical.len(), crate::prefilter::Candidates::List(v) => v.len() };
-            eprintln!("[dbg] data={}B prefilter={:?} ext_cands={} log_cands={}", ctx.data.len(), _t.elapsed(), ec, lc);
-        }
-        let _t2 = std::time::Instant::now();
         self.scan_extended(ctx, options, matches, &ext_cands);
-        if _dbg { eprintln!("[dbg] scan_extended={:?}", _t2.elapsed()); }
-        let _t3 = std::time::Instant::now();
         if matches.len() < options.max_matches {
             self.scan_logical(ctx, options, matches, &log_cands);
         }
-        if _dbg { eprintln!("[dbg] scan_logical={:?}", _t3.elapsed()); }
     }
 
     fn scan_normalized_views(
