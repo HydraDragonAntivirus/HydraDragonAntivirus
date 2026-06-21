@@ -127,10 +127,22 @@ impl Scanner {
     /// itself just `fs::read` + a bytes scan — so this lets the caller read the
     /// file only once). `hydradragonclamav` does no path-specific unpacking.
     pub fn scan_bytes(&self, data: &[u8]) -> Result<ScanResult, Error> {
+        self.scan_bytes_with(data, first_match_options())
+    }
+
+    /// Scan collecting **all** matches (not just the first), so the returned
+    /// `arenas` cover every malicious byte range. Used by the disinfector to
+    /// neutralize all infected regions — the fast verdict path (`scan_bytes`)
+    /// stops at the first match, which is not enough for disinfection.
+    pub fn scan_bytes_all(&self, data: &[u8]) -> Result<ScanResult, Error> {
+        self.scan_bytes_with(data, ScanOptions::default())
+    }
+
+    fn scan_bytes_with(&self, data: &[u8], options: ScanOptions) -> Result<ScanResult, Error> {
         let bytes_scanned = data.len() as u64;
         let matches = {
             let engine = self.engine.read().unwrap();
-            engine.scan_bytes(data, first_match_options())
+            engine.scan_bytes(data, options)
         };
         let arenas: Vec<(usize, usize)> = matches
             .iter()

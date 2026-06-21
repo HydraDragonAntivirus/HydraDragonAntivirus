@@ -862,7 +862,9 @@ impl Pipeline {
         };
 
         if let Some(ref clamav) = self.clamav {
-            if let Ok(result) = clamav.scan_bytes(&data) {
+            // Disinfection must neutralize EVERY malicious region, so collect all
+            // matches here — not the first-match-only fast verdict scan.
+            if let Ok(result) = clamav.scan_bytes_all(&data) {
                 arenas.extend(result.arenas.iter().copied());
             }
         }
