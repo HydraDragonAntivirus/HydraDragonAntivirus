@@ -251,14 +251,66 @@ impl Pattern {
         let unbounded_leading_wildcard =
             matches!(self.tokens.first(), Some(Token::AnyBytes { min: 0, max }) if *max == UNBOUNDED);
 
-        // Fallback: variable-width prefix (or no required literal) — scan every
-        // candidate position within the allowed ranges.
+        // Anchor the fallback on the first token's concrete byte(s) when we can,
+        // so we only try positions where the pattern could actually start —
+        // `memchr` instead of probing every offset. This is what keeps `nocase`
+        // patterns fast: their bytes never compact into a `Literal`, so they have
+        // no `required_literal` to anchor the fast path above and would otherwise
+        // scan the whole buffer for every candidate (the dominant scan cost).
+        let first_byte_anchor = match self.tokens.first() {
+            Some(Token::Byte(byte)) => byte.anchor_bytes(),
+            _ => None,
+        };
+
         for &(start, end) in ranges {
             let start = start.min(data.len());
             let end = end.min(data.len());
             if start > end {
                 continue;
             }
+
+            if let Some((b1, b2)) = first_byte_anchor {
+                // Only positions where the first byte matches (both cases for a
+                // nocase letter). `match_from` re-checks that byte cheaply.
+                let hay_end = (end + 1).min(data.len());
+                let hay = &data[start..hay_end];
+                let try_pos = |pos: usize,
+                               out: &mut Vec<MatchRange>,
+                               seen: &mut HashSet<(usize, usize)>|
+                 -> bool {
+                    if let Some(match_end) = self.match_from(data, pos) {
+                        if self.fullword && !is_fullword(data, pos, match_end) {
+                            return false;
+                        }
+                        if seen.insert((pos, match_end)) {
+                            out.push(MatchRange { start: pos, end: match_end });
+                            return out.len() >= limit;
+                        }
+                    }
+                    false
+                };
+                match b2 {
+                    Some(b2) => {
+                        for rel in memchr::memchr2_iter(b1, b2, hay) {
+                            if try_pos(start + rel, &mut out, &mut seen) {
+                                return out;
+                            }
+                        }
+                    }
+                    None => {
+                        for rel in memchr::memchr_iter(b1, hay) {
+                            if try_pos(start + rel, &mut out, &mut seen) {
+                                return out;
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // No anchorable first token (leading wildcard/boundary/masked byte) —
+            // probe each position. The unbounded-leading-`*` early-out keeps this
+            // from going quadratic.
             for pos in start..=end {
                 match self.match_from(data, pos) {
                     Some(match_end) => {
@@ -508,6 +560,24 @@ impl ByteMatcher {
             Some(self.value)
         } else {
             None
+        }
+    }
+
+    /// The literal byte value(s) this matcher accepts, for anchoring a scan with
+    /// `memchr`. Returns `(b, None)` for an exact byte, `(lower, Some(upper))`
+    /// for a case-insensitive letter, or `None` when the matcher is masked
+    /// (nibble wildcard `?`) and can't be reduced to one or two concrete bytes.
+    fn anchor_bytes(self) -> Option<(u8, Option<u8>)> {
+        if self.mask != 0xff {
+            return None;
+        }
+        if self.nocase && self.value.is_ascii_alphabetic() {
+            Some((
+                self.value.to_ascii_lowercase(),
+                Some(self.value.to_ascii_uppercase()),
+            ))
+        } else {
+            Some((self.value, None))
         }
     }
 }

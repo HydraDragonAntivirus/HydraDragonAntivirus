@@ -15,6 +15,12 @@ pub struct Engine {
     /// Atom prefilter: selects the few signatures worth fully evaluating per
     /// buffer instead of scanning all of them linearly.
     prefilter: crate::prefilter::AtomPrefilter,
+    /// Per logical signature: the index of a *gating* body subsignature — one the
+    /// expression requires to be present (the expression is false when it has
+    /// zero matches). Evaluating it first lets `scan_logical` skip the entire
+    /// signature when the gate is absent, instead of evaluating every subsig.
+    /// `None` when no single body subsig gates the expression.
+    logical_gating: Vec<Option<u32>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,11 +110,13 @@ impl Engine {
         // candidate signatures instead of scanning all ~500k — fast scans and
         // far fewer page faults.
         let prefilter = crate::prefilter::AtomPrefilter::build(&database);
+        let logical_gating = compute_logical_gating(&database);
         Ok((
             Self {
                 database,
                 bytecodes: bc.bytecodes,
                 prefilter,
+                logical_gating,
             },
             report,
         ))
@@ -445,8 +453,39 @@ impl Engine {
             // Matched byte ranges per body subsignature, for disinfection.
             let mut body_arenas: Vec<Vec<(usize, usize)>> = vec![Vec::new(); subsigs.len()];
 
+            // Early cutoff: evaluate the gating subsig first; if the gate is
+            // absent the expression can't match, so skip every other subsig of
+            // this signature (the big win on logical-heavy databases / large
+            // files, where most candidates are prefilter false positives).
+            let gating = self.logical_gating.get(si).copied().flatten();
+            let mut gating_done: Option<usize> = None;
+            if let Some(g) = gating {
+                let g = g as usize;
+                if let Subsignature::Body { offset, patterns } = &subsigs[g] {
+                    let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+                    if !ranges.is_empty() {
+                        let (count, arenas) = body_matches(
+                            patterns,
+                            ctx.data,
+                            &ranges,
+                            options.max_subsignature_matches,
+                        );
+                        if count == 0 {
+                            continue; // gate absent → signature cannot match
+                        }
+                        counts[g] = count;
+                        first_offsets[g] = arenas.iter().map(|a| a.0).min();
+                        body_arenas[g] = arenas;
+                        gating_done = Some(g);
+                    }
+                }
+            }
+
             // Phase 1: body subsignatures.
             for (i, subsig) in subsigs.iter().enumerate() {
+                if Some(i) == gating_done {
+                    continue; // already evaluated above as the gate
+                }
                 if let Subsignature::Body {
                     offset, patterns, ..
                 } = subsig
@@ -535,6 +574,60 @@ impl Engine {
             }
         }
     }
+}
+
+/// For each logical signature, pick a *gating* body subsignature: a `Body`
+/// subsig (with an evaluable offset) that the expression requires — i.e. the
+/// expression is false when that subsig has zero matches while all others are
+/// present. Evaluating it first in `scan_logical` lets a whole signature be
+/// skipped when the gate is absent. Among the candidates we prefer the one with
+/// the longest required atom (most selective, cheapest to evaluate) — the same
+/// subsig the prefilter anchored on. `None` means no single subsig gates it
+/// (e.g. a pure OR, or it can match at all-zero), so the full scan is used.
+fn compute_logical_gating(db: &Database) -> Vec<Option<u32>> {
+    const PRESENT: usize = 1 << 30;
+    db.logical
+        .iter()
+        .map(|sig| {
+            let n = sig.subsignatures.len();
+            // Can match with nothing present → nothing to gate on.
+            if sig.expression.eval(&vec![0usize; n]).matched {
+                return None;
+            }
+            let mut probe = vec![PRESENT; n];
+            let mut best: Option<(usize, u32)> = None; // (atom_len, index)
+            for i in 0..n {
+                let Subsignature::Body { offset, patterns } = &sig.subsignatures[i] else {
+                    continue;
+                };
+                if patterns.is_empty()
+                    || matches!(
+                        offset.anchor,
+                        OffsetAnchor::Unsupported(_)
+                            | OffsetAnchor::MacroGroup(_)
+                            | OffsetAnchor::VersionInfo
+                    )
+                {
+                    continue;
+                }
+                probe[i] = 0;
+                let required = !sig.expression.eval(&probe).matched;
+                probe[i] = PRESENT;
+                if !required {
+                    continue;
+                }
+                let atom_len = patterns
+                    .iter()
+                    .filter_map(|p| p.required_atom().map(|a| a.len()))
+                    .max()
+                    .unwrap_or(0);
+                if best.map_or(true, |(bl, _)| atom_len > bl) {
+                    best = Some((atom_len, i as u32));
+                }
+            }
+            best.map(|(_, i)| i)
+        })
+        .collect()
 }
 
 /// Count pattern hits within `ranges` and collect the matched byte ranges
@@ -812,7 +905,8 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
         let found = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "Test.Signature");
@@ -844,7 +938,8 @@ mod tests {
             unsupported: Vec::new(),
         };
         let prefilter = crate::prefilter::AtomPrefilter::build(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter, logical_gating };
 
         // Atom present → detected.
         let hit = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
@@ -876,7 +971,8 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
         let found = engine.scan_bytes(b"HeLLo   \r\nWorld", ScanOptions::default());
         assert!(found
             .iter()
@@ -902,7 +998,8 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
         let found = engine.scan_bytes(
             b"<html><body>Pay<!--x-->load</body></html>",
             ScanOptions::default(),
@@ -931,7 +1028,8 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
         let found = engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
         assert!(found.iter().any(|hit| {
             hit.name == "Test.Zip.Child"
@@ -955,7 +1053,8 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
         // Body "AA" present and regex "world" present -> match.
         let found = engine.scan_bytes(b"AA hello world", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Pcre"));
@@ -979,7 +1078,8 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
         // "SIZE" then 2 LE bytes = 5 (>0) -> match.
         let found = engine.scan_bytes(b"SIZE\x05\x00tail", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Bc"));
@@ -1008,7 +1108,8 @@ mod tests {
             container: vec![container],
             ..Default::default()
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
         // Member "MALWARE" is 7 bytes at position 1 inside a zip.
         let found =
             engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
@@ -1046,7 +1147,8 @@ mod tests {
             file_type_magic: vec![magic],
             ..Default::default()
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let logical_gating = compute_logical_gating(&database);
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
         // "MZAB": .ftm types it MSEXE (target 1); the sig's target 3 -> filtered when strict.
         let strict = ScanOptions {
             strict_targets: true,

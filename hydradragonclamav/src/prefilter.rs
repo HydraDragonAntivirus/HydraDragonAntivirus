@@ -25,10 +25,12 @@ const MIN_DEPTH: usize = 2;
 /// threaded through), so a 2–3 byte atom would mark nearly every signature a
 /// candidate on real data and trigger wasted rescans. 8 bytes is the balance:
 /// still selective enough that a candidate almost always truly matches (so the
-/// fast anchored matcher rarely does wasted work), while keeping the double-array
-/// trie roughly half the size of the 16-byte version — the trie is one of the
-/// largest resident structures, so the shorter atom directly cuts idle RAM.
-const MAX_ATOM: usize = 8;
+/// fast anchored matcher rarely does wasted work). NOTE: until verification is
+/// offset-threaded, each candidate costs one full-buffer `memmem`, so candidate
+/// count dominates scan time — and a shorter atom (e.g. 8) is far less selective
+/// (≈5x more candidates ≈5x slower). 16 keeps the candidate set small; the trie
+/// is larger but scans stay fast.
+const MAX_ATOM: usize = 16;
 
 /// A signature reference packed into a u64: top bit = logical, low bits = index.
 const LOG_FLAG: u64 = 1 << 63;
