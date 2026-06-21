@@ -1,5 +1,8 @@
 # Frequently Asked Questions (FAQ)
 
+#### Q: Why I can't disinfect virus on Portable Edition?
+- It's actually showcase of usermode functions the kernel only exists in non portable version right now. So you might need wait.
+
 ### Q: Why is this repository still mostly YARA?
 - This is mainly because auto-generated YARA rules produced through machine learning have not been archived. As a result, the repository still contains a large number of manually created rules.
 - Additionally, the archived rules remain substantial in size because, for many years, malware analysts heavily relied on signature-based detection methods. While effective in certain scenarios, this approach is now considered less optimal compared to more modern techniques.
