@@ -7,6 +7,16 @@ use hydradragonclamav::{Engine, ScanOptions, ScanView};
 
 use crate::types::{self, Error, ScanResult};
 
+/// Scan options tuned for a malware verdict: stop at the first signature match.
+/// A file is malicious as soon as one signature fires, so there's no reason to
+/// keep scanning for more — this is the per-file "stop on first match".
+fn first_match_options() -> ScanOptions {
+    ScanOptions {
+        max_matches: 1,
+        ..ScanOptions::default()
+    }
+}
+
 /// Pure-Rust ClamAV-compatible engine. Signatures are loaded directly from the
 /// ClamAV database directory (.ndb/.ndu/.ldb/.ldu) and matched in-process, so
 /// no native ClamAV runtime is required.
@@ -15,7 +25,7 @@ pub struct Scanner {
     // scanned concurrently; only reload_database takes the write lock.
     engine: RwLock<Engine>,
     dbpath: PathBuf,
-    /// Total ClamAV signatures loaded (extended + logical + container + ftm).
+    /// Total ClamAV detection signatures loaded (extended + logical).
     signatures_loaded: usize,
 }
 
@@ -43,12 +53,12 @@ impl Scanner {
         let (engine, report) =
             Engine::from_database_dir(&dbpath).map_err(|e| Error::DatabaseLoad(e.to_string()))?;
 
-        let signatures_loaded = report.extended_loaded
-            + report.logical_loaded
-            + report.container_loaded
-            + report.ftm_loaded;
+        // Count only actual detection signatures. Container (.cdb) and file-type
+        // magic (.ftm) records are scan-support metadata, not signatures, so
+        // including them made the displayed count larger than the real number.
+        let signatures_loaded = report.extended_loaded + report.logical_loaded;
         eprintln!(
-            "[ClamAV] hydradragonclamav engine ready. Signatures loaded: {} (extended {}, logical {}, container {}, ftm {})",
+            "[ClamAV] hydradragonclamav engine ready. Signatures loaded: {} (extended {}, logical {}; +container {}, ftm {} support records)",
             signatures_loaded,
             report.extended_loaded,
             report.logical_loaded,
@@ -83,7 +93,7 @@ impl Scanner {
         let matches = {
             let engine = self.engine.read().unwrap();
             engine
-                .scan_path(path, ScanOptions::default())
+                .scan_path(path, first_match_options())
                 .map_err(Error::Io)?
         };
 
@@ -120,7 +130,7 @@ impl Scanner {
         let bytes_scanned = data.len() as u64;
         let matches = {
             let engine = self.engine.read().unwrap();
-            engine.scan_bytes(data, ScanOptions::default())
+            engine.scan_bytes(data, first_match_options())
         };
         let arenas: Vec<(usize, usize)> = matches
             .iter()

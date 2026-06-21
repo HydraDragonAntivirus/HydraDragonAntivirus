@@ -1,5 +1,9 @@
 use std::collections::HashSet;
 
+/// Sentinel for an open-ended `AnyBytes` gap (`*` or `{n-}`), stored in
+/// `Token::AnyBytes::max` so the field can be a plain `u32`.
+const UNBOUNDED: u32 = u32::MAX;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Modifiers {
     pub nocase: bool,
@@ -26,9 +30,13 @@ impl Modifiers {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Pattern {
-    tokens: Vec<Token>,
-    /// Backing storage for `Token::Literal` runs (exact byte sequences), stored
-    /// once contiguously instead of one token per byte.
+    /// `Box<[Token]>`, not `Vec<Token>`: the token list is fixed after
+    /// compaction, so dropping the unused capacity word saves 8 bytes on every
+    /// one of the hundreds of thousands of patterns.
+    tokens: Box<[Token]>,
+    /// Backing storage for `Token::Literal` runs (exact byte sequences) AND the
+    /// case-folded `nocase` atom, stored once contiguously instead of one token
+    /// per byte / a separate per-pattern allocation.
     lits: Box<[u8]>,
     fullword: bool,
     /// The longest required literal as an `(off, len)` slice of `lits` — used as
@@ -43,12 +51,13 @@ pub struct Pattern {
     /// is variable-width (`*`, `{n-m}`, …) — then we fall back to a window scan.
     required_prefix: Option<u32>,
     /// A case-folded (lowercased) literal atom usable as a prefilter hint for
-    /// `nocase` patterns. `nocase` bytes never form a `Token::Literal` (see
+    /// `nocase` patterns, stored as an `(off, len)` slice of `lits` (no separate
+    /// allocation). `nocase` bytes never form a `Token::Literal` (see
     /// `ByteMatcher::exact_value`), so `required_literal`/`required_atom` are
     /// always `None` for them — without this, every nocase signature would be
     /// invisible to the Aho-Corasick prefilter and have to be evaluated on
     /// every single scan regardless of buffer content.
-    required_atom_nocase: Option<Box<[u8]>>,
+    required_atom_nocase: Option<(u32, u32)>,
 }
 
 // Memory: there are hundreds of thousands of signatures, each a `Vec<Token>`,
@@ -67,7 +76,10 @@ enum Token {
     },
     AnyBytes {
         min: u32,
-        max: Option<u32>,
+        /// Maximum gap, or `UNBOUNDED` (`u32::MAX`) for an open `*`/`{n-}` gap.
+        /// A plain `u32` (not `Option<u32>`) keeps `Token` at 12 bytes instead
+        /// of 16 — across millions of tokens that's a meaningful resident cut.
+        max: u32,
     },
     Boundary(Boundary),
     Alternates(Box<Alternates>),
@@ -118,11 +130,19 @@ pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<P
 
 impl Pattern {
     fn new(tokens: Vec<Token>, fullword: bool) -> Self {
-        let (tokens, lits) = compact_tokens(tokens);
+        let (tokens, mut lits) = compact_tokens(tokens);
         let (required_literal, required_prefix) = longest_required_literal(&tokens);
-        let required_atom_nocase = longest_nocase_run(&tokens);
+        // Fold the case-folded nocase atom into the same `lits` arena (appended
+        // after the exact-literal bytes; existing `required_literal` offsets stay
+        // valid) instead of giving each nocase pattern its own heap allocation.
+        let required_atom_nocase = longest_nocase_run(&tokens).map(|run| {
+            let off = lits.len() as u32;
+            let len = run.len() as u32;
+            lits.extend_from_slice(&run);
+            (off, len)
+        });
         Self {
-            tokens,
+            tokens: tokens.into_boxed_slice(),
             lits: lits.into_boxed_slice(),
             fullword,
             required_literal,
@@ -149,7 +169,8 @@ impl Pattern {
     /// `None` for patterns that already have a case-sensitive `required_atom`,
     /// or that have no run of ≥2 fixed bytes at all (e.g. fully wildcard).
     pub fn required_atom_nocase(&self) -> Option<&[u8]> {
-        self.required_atom_nocase.as_deref()
+        self.required_atom_nocase
+            .map(|(off, len)| &self.lits[off as usize..(off + len) as usize])
     }
 
     pub fn find_all(
@@ -228,7 +249,7 @@ impl Pattern {
         // passes but the position it actually occurs at is far from the
         // start of the buffer.
         let unbounded_leading_wildcard =
-            matches!(self.tokens.first(), Some(Token::AnyBytes { min: 0, max: None }));
+            matches!(self.tokens.first(), Some(Token::AnyBytes { min: 0, max }) if *max == UNBOUNDED);
 
         // Fallback: variable-width prefix (or no required literal) — scan every
         // candidate position within the allowed ranges.
@@ -304,9 +325,11 @@ fn match_tokens(
             if min_pos > data.len() {
                 return None;
             }
-            let max_len = max
-                .map(|m| m as usize)
-                .unwrap_or_else(|| data.len().saturating_sub(pos));
+            let max_len = if *max == UNBOUNDED {
+                data.len().saturating_sub(pos)
+            } else {
+                *max as usize
+            };
             let max_pos = pos.saturating_add(max_len).min(data.len());
             if min_pos > max_pos {
                 return None;
@@ -527,7 +550,10 @@ impl<'a> Parser<'a> {
             match ch {
                 '*' => {
                     self.pos += 1;
-                    tokens.push(Token::AnyBytes { min: 0, max: None });
+                    tokens.push(Token::AnyBytes {
+                        min: 0,
+                        max: UNBOUNDED,
+                    });
                 }
                 '{' => tokens.push(self.parse_braced_range()?),
                 '[' => tokens.push(self.parse_bracket_range()?),
@@ -606,7 +632,7 @@ impl<'a> Parser<'a> {
         let (min, max) = parse_range_content(&content)?;
         Ok(Token::AnyBytes {
             min: min as u32,
-            max: max.map(|m| m as u32),
+            max: max.map(|m| m as u32).unwrap_or(UNBOUNDED),
         })
     }
 
@@ -616,7 +642,7 @@ impl<'a> Parser<'a> {
         let (min, max) = parse_range_content(&content)?;
         Ok(Token::AnyBytes {
             min: min as u32,
-            max: Some(max.unwrap_or(min) as u32),
+            max: max.unwrap_or(min) as u32,
         })
     }
 
@@ -716,10 +742,9 @@ fn fixed_width(tokens: &[Token]) -> Option<usize> {
             Token::Literal { len, .. } => width += *len as usize,
             Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => width += 1,
             Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => {}
-            Token::AnyBytes {
-                min,
-                max: Some(max),
-            } if min == max => width += *min as usize,
+            Token::AnyBytes { min, max } if min == max && *max != UNBOUNDED => {
+                width += *min as usize
+            }
             Token::Alternates(alt) if !alt.negated => {
                 let branch_widths = alt
                     .branches
@@ -822,7 +847,7 @@ fn flush_run(run: &mut Vec<u8>, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
 /// case-insensitive at scan time), so they survive as individual
 /// `Token::Byte`s — this just scans those runs and case-folds them, entirely
 /// separately from the exact-match `tokens`/`lits` used by `match_tokens`.
-fn longest_nocase_run(tokens: &[Token]) -> Option<Box<[u8]>> {
+fn longest_nocase_run(tokens: &[Token]) -> Option<Vec<u8>> {
     let mut best: Vec<u8> = Vec::new();
     let mut run: Vec<u8> = Vec::new();
     for token in tokens {
@@ -845,7 +870,7 @@ fn longest_nocase_run(tokens: &[Token]) -> Option<Box<[u8]>> {
         best = run;
     }
     if best.len() >= 2 {
-        Some(best.into_boxed_slice())
+        Some(best)
     } else {
         None
     }
@@ -901,10 +926,7 @@ fn single_token_width(token: &Token) -> Option<usize> {
         Token::Literal { len, .. } => Some(*len as usize),
         Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => Some(1),
         Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => Some(0),
-        Token::AnyBytes {
-            min,
-            max: Some(max),
-        } if min == max => Some(*min as usize),
+        Token::AnyBytes { min, max } if min == max && *max != UNBOUNDED => Some(*min as usize),
         Token::Alternates(alt) if !alt.negated => {
             let widths = alt
                 .branches

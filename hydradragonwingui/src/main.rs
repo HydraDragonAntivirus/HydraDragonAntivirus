@@ -719,7 +719,7 @@ fn buttons_for(page: usize, state: ScanState) -> Vec<(usize, &'static str, &'sta
                 (CMD_SCAN_FILE, "Scan File", "\u{E8A5}", Kind::Primary),
                 (CMD_SCAN_FOLDER, "Scan Folder", "\u{E8B7}", Kind::Primary),
                 (CMD_FULL_SCAN, "Full Scan", "\u{E721}", Kind::Primary),
-                (CMD_CLEAN, "Clean & Remove Traces", "\u{E74D}", Kind::Primary),
+                (CMD_CLEAN, "Clean Threats", "\u{E74D}", Kind::Primary),
                 (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
             ],
         },

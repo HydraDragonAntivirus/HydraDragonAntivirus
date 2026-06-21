@@ -23,11 +23,12 @@ const MIN_DEPTH: usize = 2;
 /// its Aho-Corasick pass yields the exact *offset*, so the follow-up verify is
 /// O(1). Our verify re-confirms the full literal with `memmem` (no offset is
 /// threaded through), so a 2–3 byte atom would mark nearly every signature a
-/// candidate on real data and trigger ~65k wasted rescans. A longer atom (up to
-/// 16 bytes, one per signature) is selective enough that a candidate almost
-/// always truly matches — while still indexing every signature, and ~70–150k
-/// atoms of ≤16 bytes build a cheap, shallow trie (no RAM blowup).
-const MAX_ATOM: usize = 16;
+/// candidate on real data and trigger wasted rescans. 8 bytes is the balance:
+/// still selective enough that a candidate almost always truly matches (so the
+/// fast anchored matcher rarely does wasted work), while keeping the double-array
+/// trie roughly half the size of the 16-byte version — the trie is one of the
+/// largest resident structures, so the shorter atom directly cuts idle RAM.
+const MAX_ATOM: usize = 8;
 
 /// A signature reference packed into a u64: top bit = logical, low bits = index.
 const LOG_FLAG: u64 = 1 << 63;
@@ -323,13 +324,18 @@ fn build_automaton(
     Vec<u64>,
 ) {
     entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-    let mut atoms: Vec<Box<[u8]>> = Vec::new();
+    // Collect unique atoms as *borrows* into `entries` (no per-atom `Box`
+    // clone) plus the CSR mapping. daachorse copies the bytes into its trie at
+    // build time, so `entries` can be dropped right after — this avoids holding
+    // a second full copy of every atom during the build (a real peak-RAM spike
+    // when there are hundreds of thousands of atoms).
+    let mut atoms: Vec<&[u8]> = Vec::new();
     let mut atom_starts: Vec<u32> = Vec::new();
     let mut sig_refs: Vec<u64> = Vec::with_capacity(entries.len());
     let mut i = 0;
     while i < entries.len() {
         atom_starts.push(sig_refs.len() as u32);
-        atoms.push(entries[i].0.clone());
+        atoms.push(&entries[i].0);
         let cur = &entries[i].0;
         let mut j = i;
         while j < entries.len() && &entries[j].0 == cur {
@@ -339,7 +345,6 @@ fn build_automaton(
         i = j;
     }
     atom_starts.push(sig_refs.len() as u32); // sentinel
-    drop(entries);
 
     let num_atoms = atoms.len();
     let ac = if atoms.is_empty() {
@@ -347,5 +352,7 @@ fn build_automaton(
     } else {
         DoubleArrayAhoCorasick::<u32>::new(&atoms).ok()
     };
+    drop(atoms);
+    drop(entries);
     (ac, num_atoms, atom_starts, sig_refs)
 }

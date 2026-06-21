@@ -62,6 +62,17 @@ pub struct FilterStats {
     pub hdb_excluded: bool,
     pub mdb_excluded: bool,
     pub hsb_excluded: bool,
+    /// Signatures dropped specifically because their name matched an excluded
+    /// PUA packer category (subset of the total dropped).
+    pub pua_excluded: usize,
+}
+
+/// True when a signature name belongs to one of the excluded PUA packer
+/// categories (prefix match, so `PUA.Win.Packer` also covers
+/// `PUA.Win.Packer.Upx-6`). These flag legitimate packers HydraDragon unpacks
+/// itself, so juice strips them from the database entirely.
+fn is_excluded_pua(name: &str, cfg: &FilterConfig) -> bool {
+    cfg.exclude_pua.iter().any(|p| name.starts_with(p.as_str()))
 }
 
 fn should_keep(name: &str, cfg: &FilterConfig) -> bool {
@@ -99,6 +110,10 @@ fn filter_ndb(content: &str, cfg: &FilterConfig, stats: &mut FilterStats) -> Str
         stats.ndb_original += 1;
         let parts: Vec<&str> = trimmed.splitn(4, ':').collect();
         if parts.len() >= 4 {
+            if is_excluded_pua(parts[0], cfg) {
+                stats.pua_excluded += 1;
+                continue;
+            }
             let keep_name = should_keep(parts[0], cfg);
             let keep_type = cfg
                 .ndb_types
@@ -155,6 +170,10 @@ fn filter_ldb(content: &str, cfg: &FilterConfig, stats: &mut FilterStats) -> Str
         }
         stats.ldb_original += 1;
         let name = trimmed.split(';').next().unwrap_or(trimmed);
+        if is_excluded_pua(name, cfg) {
+            stats.pua_excluded += 1;
+            continue;
+        }
         if should_keep(name, cfg) {
             stats.ldb_kept += 1;
             out.push(line);
@@ -254,34 +273,11 @@ pub fn filter_cvd(
                 }
             }
             "fp" | "sfp" => {
-                // Don't deploy .fp/.sfp files as signatures — extract the hash
-                // (first colon-delimited field) and merge into whitelist.db.
-                // Format: HashString:FileSize:MalwareName
-                let content = fs::read_to_string(&src).map_err(|e| Error::Other(e.to_string()))?;
-                let db_path = output_dir.join("whitelist.db");
-                let mut out = String::new();
-                if db_path.exists() {
-                    out = fs::read_to_string(&db_path).map_err(|e| Error::Other(e.to_string()))?;
-                    if !out.ends_with('\n') {
-                        out.push('\n');
-                    }
-                }
-                for line in content.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() || trimmed.starts_with('#') {
-                        continue;
-                    }
-                    let hash = trimmed.split(':').next().unwrap_or("").trim();
-                    let valid = match hash.len() {
-                        32 | 40 | 64 | 128 => hash.chars().all(|c| c.is_ascii_hexdigit()),
-                        _ => false,
-                    };
-                    if valid {
-                        out.push_str(hash);
-                        out.push('\n');
-                    }
-                }
-                fs::write(&db_path, out).map_err(|e| Error::Other(e.to_string()))?;
+                // Hash-based allow lists. Whitelisting is handled by the bloom
+                // filters now (whitelist.bloom), so juice does NOT build a
+                // `whitelist.db` from these — just drop them with an inert stub.
+                fs::write(&dest, format!("# {ext} excluded (whitelist handled by bloom)\n"))
+                    .map_err(|e| Error::Other(e.to_string()))?;
             }
             "mdb" | "hsb" => {
                 if excluded {
@@ -327,18 +323,85 @@ pub fn run_juice(db_dir: &Path, delete_source: bool) {
         match filter_cvd(&cvd_path, db_dir, &cfg, delete_source) {
             Ok(stats) => {
                 eprintln!(
-                    "[ClamJuice] {} done — ndb kept {}/{}, ldb kept {}/{}, hdb_excl={}, mdb_excl={}, hsb_excl={}",
+                    "[ClamJuice] {} done — ndb kept {}/{}, ldb kept {}/{}, PUA packers removed {}, hdb_excl={}, mdb_excl={}, hsb_excl={}",
                     cvd,
                     stats.ndb_kept,
                     stats.ndb_original,
                     stats.ldb_kept,
                     stats.ldb_original,
+                    stats.pua_excluded,
                     stats.hdb_excluded,
                     stats.mdb_excluded,
                     stats.hsb_excluded,
                 );
             }
             Err(e) => eprintln!("[ClamJuice] Failed to filter {cvd}: {e}"),
+        }
+    }
+
+    // Also strip the excluded PUA packer categories from loose .ndb/.ldb files
+    // already sitting in the database directory (e.g. an already-unpacked DB, or
+    // third-party .ndb/.ldb that never came from a CVD). These are rewritten in
+    // place — without this, the packer signatures survive juice entirely.
+    filter_loose_db_files(db_dir, &cfg);
+
+    // Whitelisting is handled by the bloom filters now, so a leftover
+    // whitelist.db (built by older juice runs from .fp/.sfp files) must go.
+    let whitelist_db = db_dir.join("whitelist.db");
+    if whitelist_db.exists() {
+        match fs::remove_file(&whitelist_db) {
+            Ok(()) => eprintln!("[ClamJuice] removed whitelist.db (whitelist handled by bloom)"),
+            Err(e) => eprintln!("[ClamJuice] failed to remove whitelist.db: {e}"),
+        }
+    }
+}
+
+/// Rewrite the loose `.ndb`/`.ndu`/`.ldb`/`.ldu` files in `db_dir` in place,
+/// removing the excluded PUA packer signatures (and anything else `should_keep`
+/// drops). Used for databases that are not packaged as a CVD/CLD.
+fn filter_loose_db_files(db_dir: &Path, cfg: &FilterConfig) {
+    let entries = match fs::read_dir(db_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("[ClamJuice] cannot read {}: {e}", db_dir.display());
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let is_ndb = matches!(ext.as_str(), "ndb" | "ndu");
+        let is_ldb = matches!(ext.as_str(), "ldb" | "ldu");
+        if !is_ndb && !is_ldb {
+            continue;
+        }
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[ClamJuice] skip {}: {e}", path.display());
+                continue;
+            }
+        };
+        let mut stats = FilterStats::default();
+        let filtered = if is_ndb {
+            filter_ndb(&content, cfg, &mut stats)
+        } else {
+            filter_ldb(&content, cfg, &mut stats)
+        };
+        if stats.pua_excluded == 0 {
+            continue; // nothing to strip — leave the file untouched
+        }
+        match fs::write(&path, filtered) {
+            Ok(()) => eprintln!(
+                "[ClamJuice] {} — removed {} PUA packer signature(s)",
+                path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+                stats.pua_excluded,
+            ),
+            Err(e) => eprintln!("[ClamJuice] failed to rewrite {}: {e}", path.display()),
         }
     }
 }

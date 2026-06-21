@@ -137,6 +137,13 @@ impl Database {
         visit_database_dir(path.as_ref(), &mut |file| {
             load_file(file, &mut database, &mut report)
         })?;
+        // Drop the over-allocated capacity the push-loops left behind (a `Vec`
+        // grows geometrically, so the last doubling can waste up to ~2x). On
+        // half a million signatures that slack is real resident memory.
+        database.extended.shrink_to_fit();
+        database.logical.shrink_to_fit();
+        database.container.shrink_to_fit();
+        database.file_type_magic.shrink_to_fit();
         Ok((database, report))
     }
 }
