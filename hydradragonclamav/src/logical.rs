@@ -61,17 +61,85 @@ pub struct ByteCompareSpec {
     pub comparisons: Vec<(CompareOp, u64)>,
 }
 
+/// Transient recursive form built by the parser, then flattened into the
+/// compact `LogicalExpr` (index arena). Not stored.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LogicalExpr {
+enum ExprTree {
     Subsig(usize),
-    And(Box<LogicalExpr>, Box<LogicalExpr>),
-    Or(Box<LogicalExpr>, Box<LogicalExpr>),
+    And(Box<ExprTree>, Box<ExprTree>),
+    Or(Box<ExprTree>, Box<ExprTree>),
     Compare {
-        expr: Box<LogicalExpr>,
+        expr: Box<ExprTree>,
         op: CompareOp,
         hits: usize,
         distinct: Option<usize>,
     },
+}
+
+/// A logical expression stored as a flat post-order array of nodes that
+/// reference children by index — no per-node `Box`, so 2.6M nodes cost one
+/// allocation per signature instead of millions. The root is the last node.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LogicalExpr {
+    nodes: Box<[ExprNode]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExprNode {
+    Subsig(u32),
+    And(u32, u32),
+    Or(u32, u32),
+    Compare {
+        expr: u32,
+        op: CompareOp,
+        hits: u32,
+        distinct: Option<u32>,
+    },
+}
+
+impl LogicalExpr {
+    fn from_tree(tree: &ExprTree) -> Self {
+        let mut nodes = Vec::new();
+        flatten_tree(tree, &mut nodes);
+        LogicalExpr {
+            nodes: nodes.into_boxed_slice(),
+        }
+    }
+}
+
+/// Append `tree` to `nodes` in post-order (children before parents) and return
+/// the index of its root node.
+fn flatten_tree(tree: &ExprTree, nodes: &mut Vec<ExprNode>) -> u32 {
+    let node = match tree {
+        ExprTree::Subsig(i) => ExprNode::Subsig(*i as u32),
+        ExprTree::And(a, b) => {
+            let ai = flatten_tree(a, nodes);
+            let bi = flatten_tree(b, nodes);
+            ExprNode::And(ai, bi)
+        }
+        ExprTree::Or(a, b) => {
+            let ai = flatten_tree(a, nodes);
+            let bi = flatten_tree(b, nodes);
+            ExprNode::Or(ai, bi)
+        }
+        ExprTree::Compare {
+            expr,
+            op,
+            hits,
+            distinct,
+        } => {
+            let ei = flatten_tree(expr, nodes);
+            ExprNode::Compare {
+                expr: ei,
+                op: *op,
+                hits: *hits as u32,
+                distinct: distinct.map(|d| d as u32),
+            }
+        }
+    };
+    let idx = nodes.len() as u32;
+    nodes.push(node);
+    idx
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,7 +167,7 @@ pub fn parse_logical_signature(
         return Err("logical signature needs name;target-block;expression;subsigs".to_string());
     }
 
-    let expression = ExprParser::new(parts[2]).parse()?;
+    let expression = LogicalExpr::from_tree(&ExprParser::new(parts[2]).parse()?);
     let target = parse_target(parts[1]);
     let mut warnings = Vec::new();
     let mut subsignatures = Vec::new();
@@ -128,48 +196,56 @@ pub fn parse_logical_signature(
 
 impl LogicalExpr {
     pub fn eval(&self, counts: &[usize]) -> EvalStats {
-        match self {
-            LogicalExpr::Subsig(index) => {
-                let hits = counts.get(*index).copied().unwrap_or(0);
+        if self.nodes.is_empty() {
+            return EvalStats::default();
+        }
+        self.eval_at(self.nodes.len() - 1, counts)
+    }
+
+    fn eval_at(&self, idx: usize, counts: &[usize]) -> EvalStats {
+        match self.nodes[idx] {
+            ExprNode::Subsig(index) => {
+                let hits = counts.get(index as usize).copied().unwrap_or(0);
                 EvalStats {
                     matched: hits > 0,
                     hits,
                     distinct: usize::from(hits > 0),
                 }
             }
-            LogicalExpr::And(left, right) => {
-                let left = left.eval(counts);
-                let right = right.eval(counts);
+            ExprNode::And(a, b) => {
+                let left = self.eval_at(a as usize, counts);
+                let right = self.eval_at(b as usize, counts);
                 EvalStats {
                     matched: left.matched && right.matched,
                     hits: left.hits + right.hits,
                     distinct: left.distinct + right.distinct,
                 }
             }
-            LogicalExpr::Or(left, right) => {
-                let left = left.eval(counts);
-                let right = right.eval(counts);
+            ExprNode::Or(a, b) => {
+                let left = self.eval_at(a as usize, counts);
+                let right = self.eval_at(b as usize, counts);
                 EvalStats {
                     matched: left.matched || right.matched,
                     hits: left.hits + right.hits,
                     distinct: left.distinct + right.distinct,
                 }
             }
-            LogicalExpr::Compare {
+            ExprNode::Compare {
                 expr,
                 op,
                 hits,
                 distinct,
             } => {
-                let stats = expr.eval(counts);
+                let stats = self.eval_at(expr as usize, counts);
+                let hits = hits as usize;
                 let hits_match = match op {
-                    CompareOp::Equal => stats.hits == *hits,
-                    CompareOp::Greater => stats.hits > *hits,
-                    CompareOp::GreaterEqual => stats.hits >= *hits,
-                    CompareOp::Less => stats.hits < *hits,
-                    CompareOp::LessEqual => stats.hits <= *hits,
+                    CompareOp::Equal => stats.hits == hits,
+                    CompareOp::Greater => stats.hits > hits,
+                    CompareOp::GreaterEqual => stats.hits >= hits,
+                    CompareOp::Less => stats.hits < hits,
+                    CompareOp::LessEqual => stats.hits <= hits,
                 };
-                let distinct_match = distinct.map_or(true, |min| stats.distinct >= min);
+                let distinct_match = distinct.map_or(true, |min| stats.distinct >= min as usize);
                 EvalStats {
                     matched: hits_match && distinct_match,
                     hits: stats.hits,
@@ -282,9 +358,10 @@ fn parse_pcre(raw: &str) -> Result<(LogicalExpr, Regex, bool), String> {
         return Err("PCRE subsignature has an empty regex".to_string());
     }
 
-    let trigger = ExprParser::new(trigger_str)
+    let trigger_tree = ExprParser::new(trigger_str)
         .parse()
         .map_err(|e| format!("PCRE trigger expression: {e}"))?;
+    let trigger = LogicalExpr::from_tree(&trigger_tree);
 
     // ClamAV escapes forward slashes inside the regex as "\/"; undo that, then
     // translate ClamAV/PCRE dialect quirks (unknown escapes, literal '[' in a
@@ -595,7 +672,7 @@ impl ExprParser {
         }
     }
 
-    fn parse(mut self) -> Result<LogicalExpr, String> {
+    fn parse(mut self) -> Result<ExprTree, String> {
         let expr = self.parse_or()?;
         self.skip_ws();
         if self.pos != self.chars.len() {
@@ -607,7 +684,7 @@ impl ExprParser {
         Ok(expr)
     }
 
-    fn parse_or(&mut self) -> Result<LogicalExpr, String> {
+    fn parse_or(&mut self) -> Result<ExprTree, String> {
         let mut expr = self.parse_and()?;
         loop {
             self.skip_ws();
@@ -616,12 +693,12 @@ impl ExprParser {
             }
             self.pos += 1;
             let right = self.parse_and()?;
-            expr = LogicalExpr::Or(Box::new(expr), Box::new(right));
+            expr = ExprTree::Or(Box::new(expr), Box::new(right));
         }
         Ok(expr)
     }
 
-    fn parse_and(&mut self) -> Result<LogicalExpr, String> {
+    fn parse_and(&mut self) -> Result<ExprTree, String> {
         let mut expr = self.parse_postfix()?;
         loop {
             self.skip_ws();
@@ -630,12 +707,12 @@ impl ExprParser {
             }
             self.pos += 1;
             let right = self.parse_postfix()?;
-            expr = LogicalExpr::And(Box::new(expr), Box::new(right));
+            expr = ExprTree::And(Box::new(expr), Box::new(right));
         }
         Ok(expr)
     }
 
-    fn parse_postfix(&mut self) -> Result<LogicalExpr, String> {
+    fn parse_postfix(&mut self) -> Result<ExprTree, String> {
         let mut expr = self.parse_primary()?;
         self.skip_ws();
         let op = match self.peek() {
@@ -673,7 +750,7 @@ impl ExprParser {
             } else {
                 None
             };
-            expr = LogicalExpr::Compare {
+            expr = ExprTree::Compare {
                 expr: Box::new(expr),
                 op,
                 hits,
@@ -683,7 +760,7 @@ impl ExprParser {
         Ok(expr)
     }
 
-    fn parse_primary(&mut self) -> Result<LogicalExpr, String> {
+    fn parse_primary(&mut self) -> Result<ExprTree, String> {
         self.skip_ws();
         match self.peek() {
             Some('(') => {
@@ -699,7 +776,7 @@ impl ExprParser {
             Some(ch) if ch.is_ascii_digit() => {
                 let index = self.parse_number()?;
                 self.skip_index_suffix();
-                Ok(LogicalExpr::Subsig(index))
+                Ok(ExprTree::Subsig(index))
             }
             Some(other) => Err(format!("unexpected logical expression token '{other}'")),
             None => Err("unexpected end of logical expression".to_string()),
