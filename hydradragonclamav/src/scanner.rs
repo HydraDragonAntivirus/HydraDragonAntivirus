@@ -13,14 +13,12 @@ pub struct Engine {
     /// parsed (header + trigger) but not yet executed.
     pub bytecodes: Vec<crate::bytecode::Bytecode>,
     /// Atom prefilter: selects the few signatures worth fully evaluating per
-    /// buffer instead of scanning all of them linearly.
+    /// buffer instead of scanning all of them linearly, and threads the atom
+    /// match offsets into verification. It also owns the per-logical-signature
+    /// gating info (see `AtomPrefilter::logical_gate`), kept there so the gating
+    /// subsignature is exactly the one whose atoms were indexed — that alignment
+    /// is what makes threading the gate's offsets correct.
     prefilter: crate::prefilter::AtomPrefilter,
-    /// Per logical signature: the index of a *gating* body subsignature — one the
-    /// expression requires to be present (the expression is false when it has
-    /// zero matches). Evaluating it first lets `scan_logical` skip the entire
-    /// signature when the gate is absent, instead of evaluating every subsig.
-    /// `None` when no single body subsig gates the expression.
-    logical_gating: Vec<Option<u32>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,13 +108,11 @@ impl Engine {
         // candidate signatures instead of scanning all ~500k — fast scans and
         // far fewer page faults.
         let prefilter = crate::prefilter::AtomPrefilter::build(&database);
-        let logical_gating = compute_logical_gating(&database);
         Ok((
             Self {
                 database,
                 bytecodes: bc.bytecodes,
                 prefilter,
-                logical_gating,
             },
             report,
         ))
@@ -175,9 +171,11 @@ impl Engine {
             None
         };
 
+        let pe = parse_pe(data);
+        let is_pe = pe.is_some();
         let ctx = ScanContext {
             data,
-            pe: parse_pe(data),
+            pe,
             target_hint: None,
             detected_target,
             object_path,
@@ -185,7 +183,11 @@ impl Engine {
         };
         self.scan_context(&ctx, options, &mut state.matches);
 
-        if options.scan_normalized && state.matches.len() < options.max_matches {
+        // Normalized text/HTML views exist to catch text-like malware (scripts,
+        // HTML). A PE executable is neither text nor HTML, so generating and
+        // rescanning up to four derived copies of it is pure waste — skip it.
+        // (Text/HTML files still go through the views below.)
+        if options.scan_normalized && !is_pe && state.matches.len() < options.max_matches {
             self.scan_normalized_views(data, object_path, options, state);
         }
 
@@ -378,51 +380,80 @@ impl Engine {
         matches: &mut Vec<ScanMatch>,
         cands: &crate::prefilter::Candidates,
     ) {
-        let indices: Box<dyn Iterator<Item = usize>> = match cands {
-            crate::prefilter::Candidates::All => Box::new(0..self.database.extended.len()),
-            crate::prefilter::Candidates::List(v) => Box::new(v.iter().map(|&x| x as usize)),
-        };
-        for si in indices {
-            let signature = &self.database.extended[si];
-            if matches.len() >= options.max_matches {
-                return;
-            }
-            if !target_matches(signature.target, ctx, options.strict_targets) {
-                continue;
-            }
-            if matches!(
-                signature.offset.anchor,
-                OffsetAnchor::Unsupported(_)
-                    | OffsetAnchor::MacroGroup(_)
-                    | OffsetAnchor::VersionInfo
-            ) {
-                continue;
-            }
-            let ranges = signature
-                .offset
-                .scan_ranges(ctx.data.len(), ctx.pe.as_ref());
-            if ranges.is_empty() {
-                continue;
-            }
-            let mut arenas: Vec<(usize, usize)> = Vec::new();
-            for pattern in &signature.patterns {
-                for hit in pattern.find_all(ctx.data, &ranges, ARENA_CAP) {
-                    if arenas.len() >= ARENA_CAP {
-                        break;
+        // Static dispatch (two concrete loops) instead of a `Box<dyn Iterator>`:
+        // the candidate list carries per-signature atom offsets to thread into
+        // verification. An empty offset slice (or the `All` arm) means "no
+        // threading — full scan".
+        match cands {
+            crate::prefilter::Candidates::All => {
+                for si in 0..self.database.extended.len() {
+                    if matches.len() >= options.max_matches {
+                        return;
                     }
-                    arenas.push((hit.start, hit.end));
+                    self.scan_one_extended(si, None, ctx, options, matches);
                 }
             }
-            if !arenas.is_empty() {
-                matches.push(ScanMatch {
-                    name: signature.name.clone(),
-                    kind: SignatureKind::Extended,
-                    source: signature.source.clone(),
-                    object_path: ctx.object_path.to_string(),
-                    view: ctx.view,
-                    arenas,
-                });
+            crate::prefilter::Candidates::List(set) => {
+                for (sig, offsets) in set.iter() {
+                    if matches.len() >= options.max_matches {
+                        return;
+                    }
+                    let hints = (!offsets.is_empty()).then_some(offsets);
+                    self.scan_one_extended(sig as usize, hints, ctx, options, matches);
+                }
             }
+        }
+    }
+
+    /// Evaluate a single extended signature. `hints`, when `Some`, are the buffer
+    /// offsets where this signature's atom occurred — verification is restricted
+    /// to those positions (`find_all_at`); `None` means a full window scan.
+    fn scan_one_extended(
+        &self,
+        si: usize,
+        hints: Option<&[u32]>,
+        ctx: &ScanContext<'_>,
+        options: ScanOptions,
+        matches: &mut Vec<ScanMatch>,
+    ) {
+        let signature = &self.database.extended[si];
+        if !target_matches(signature.target, ctx, options.strict_targets) {
+            return;
+        }
+        if matches!(
+            signature.offset.anchor,
+            OffsetAnchor::Unsupported(_) | OffsetAnchor::MacroGroup(_) | OffsetAnchor::VersionInfo
+        ) {
+            return;
+        }
+        let ranges = signature
+            .offset
+            .scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+        if ranges.is_empty() {
+            return;
+        }
+        let mut arenas: Vec<(usize, usize)> = Vec::new();
+        for pattern in &signature.patterns {
+            let hits = match hints {
+                Some(h) => pattern.find_all_at(ctx.data, &ranges, ARENA_CAP, h),
+                None => pattern.find_all(ctx.data, &ranges, ARENA_CAP),
+            };
+            for hit in hits {
+                if arenas.len() >= ARENA_CAP {
+                    break;
+                }
+                arenas.push((hit.start, hit.end));
+            }
+        }
+        if !arenas.is_empty() {
+            matches.push(ScanMatch {
+                name: signature.name.clone(),
+                kind: SignatureKind::Extended,
+                source: signature.source.clone(),
+                object_path: ctx.object_path.to_string(),
+                view: ctx.view,
+                arenas,
+            });
         }
     }
 
@@ -433,210 +464,190 @@ impl Engine {
         matches: &mut Vec<ScanMatch>,
         cands: &crate::prefilter::Candidates,
     ) {
-        let indices: Box<dyn Iterator<Item = usize>> = match cands {
-            crate::prefilter::Candidates::All => Box::new(0..self.database.logical.len()),
-            crate::prefilter::Candidates::List(v) => Box::new(v.iter().map(|&x| x as usize)),
-        };
-        for si in indices {
-            let signature = &self.database.logical[si];
-            if matches.len() >= options.max_matches {
-                return;
-            }
-            if !target_matches(signature.target, ctx, options.strict_targets) {
-                continue;
-            }
-            let subsigs = &signature.subsignatures;
-            let mut counts = vec![0usize; subsigs.len()];
-            // Match offset of each body subsignature's first hit — PCRE triggers
-            // and byte-compare anchors reference these.
-            let mut first_offsets: Vec<Option<usize>> = vec![None; subsigs.len()];
-            // Matched byte ranges per body subsignature, for disinfection.
-            let mut body_arenas: Vec<Vec<(usize, usize)>> = vec![Vec::new(); subsigs.len()];
-
-            // Early cutoff: evaluate the gating subsig first; if the gate is
-            // absent the expression can't match, so skip every other subsig of
-            // this signature (the big win on logical-heavy databases / large
-            // files, where most candidates are prefilter false positives).
-            let gating = self.logical_gating.get(si).copied().flatten();
-            let mut gating_done: Option<usize> = None;
-            if let Some(g) = gating {
-                let g = g as usize;
-                if let Subsignature::Body { offset, patterns } = &subsigs[g] {
-                    let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
-                    if !ranges.is_empty() {
-                        let (count, arenas) = body_matches(
-                            patterns,
-                            ctx.data,
-                            &ranges,
-                            options.max_subsignature_matches,
-                        );
-                        if count == 0 {
-                            continue; // gate absent → signature cannot match
-                        }
-                        counts[g] = count;
-                        first_offsets[g] = arenas.iter().map(|a| a.0).min();
-                        body_arenas[g] = arenas;
-                        gating_done = Some(g);
+        // Static dispatch (mirrors scan_extended): thread the gating subsig's
+        // atom offsets into its verification when available.
+        match cands {
+            crate::prefilter::Candidates::All => {
+                for si in 0..self.database.logical.len() {
+                    if matches.len() >= options.max_matches {
+                        return;
                     }
+                    self.scan_one_logical(si, None, ctx, options, matches);
                 }
             }
-
-            // Phase 1: body subsignatures.
-            for (i, subsig) in subsigs.iter().enumerate() {
-                if Some(i) == gating_done {
-                    continue; // already evaluated above as the gate
+            crate::prefilter::Candidates::List(set) => {
+                for (sig, offsets) in set.iter() {
+                    if matches.len() >= options.max_matches {
+                        return;
+                    }
+                    let hints = (!offsets.is_empty()).then_some(offsets);
+                    self.scan_one_logical(sig as usize, hints, ctx, options, matches);
                 }
-                if let Subsignature::Body {
-                    offset, patterns, ..
-                } = subsig
-                {
-                    if matches!(
-                        offset.anchor,
-                        OffsetAnchor::Unsupported(_)
-                            | OffsetAnchor::MacroGroup(_)
-                            | OffsetAnchor::VersionInfo
-                    ) {
-                        continue;
-                    }
-                    let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
-                    if ranges.is_empty() {
-                        continue;
-                    }
+            }
+        }
+    }
+
+    /// Evaluate a single logical signature. `hints`, when `Some`, are the buffer
+    /// offsets of the gating subsignature's atom — threaded into that subsig's
+    /// verification when the gate is `threadable` (i.e. the prefilter indexed
+    /// exactly that subsig, so the offsets correspond to it).
+    fn scan_one_logical(
+        &self,
+        si: usize,
+        hints: Option<&[u32]>,
+        ctx: &ScanContext<'_>,
+        options: ScanOptions,
+        matches: &mut Vec<ScanMatch>,
+    ) {
+        let signature = &self.database.logical[si];
+        if !target_matches(signature.target, ctx, options.strict_targets) {
+            return;
+        }
+        let subsigs = &signature.subsignatures;
+        let mut counts = vec![0usize; subsigs.len()];
+        // Match offset of each body subsignature's first hit — PCRE triggers
+        // and byte-compare anchors reference these.
+        let mut first_offsets: Vec<Option<usize>> = vec![None; subsigs.len()];
+        // Matched byte ranges per body subsignature, for disinfection.
+        let mut body_arenas: Vec<Vec<(usize, usize)>> = vec![Vec::new(); subsigs.len()];
+
+        // Early cutoff: evaluate the gating subsig first; if the gate is absent
+        // the expression can't match, so skip every other subsig of this
+        // signature (the big win on logical-heavy databases / large files, where
+        // most candidates are prefilter false positives). The gate comes from the
+        // prefilter, which guarantees it is exactly the subsig whose atoms were
+        // indexed — so when `threadable` the candidate's offsets verify it with
+        // no whole-buffer rescan.
+        let gate = self.prefilter.logical_gate(si);
+        let mut gating_done: Option<usize> = None;
+        if let Some(g) = gate {
+            let gi = g.subsig as usize;
+            if let Some(Subsignature::Body { offset, patterns }) = subsigs.get(gi) {
+                let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+                if !ranges.is_empty() {
+                    let gate_hints = if g.threadable { hints } else { None };
                     let (count, arenas) = body_matches(
                         patterns,
                         ctx.data,
                         &ranges,
                         options.max_subsignature_matches,
+                        gate_hints,
                     );
-                    counts[i] = count;
-                    first_offsets[i] = arenas.iter().map(|a| a.0).min();
-                    body_arenas[i] = arenas;
+                    if count == 0 {
+                        return; // gate absent → signature cannot match
+                    }
+                    counts[gi] = count;
+                    first_offsets[gi] = arenas.iter().map(|a| a.0).min();
+                    body_arenas[gi] = arenas;
+                    gating_done = Some(gi);
                 }
             }
+        }
 
-            // Phase 2: PCRE and byte-compare subsignatures, whose triggers
-            // reference the phase-1 body results.
-            for (i, subsig) in subsigs.iter().enumerate() {
-                match subsig {
-                    Subsignature::Pcre {
-                        trigger,
-                        regex,
-                        global,
-                        ..
-                    } => {
-                        if trigger.eval(&counts).matched {
-                            counts[i] = if *global {
-                                regex
-                                    .find_iter(ctx.data)
-                                    .take(options.max_subsignature_matches)
-                                    .count()
-                            } else {
-                                usize::from(regex.is_match(ctx.data))
-                            };
-                        }
+        // Phase 1: body subsignatures (the gate, if any, is already done).
+        for (i, subsig) in subsigs.iter().enumerate() {
+            if Some(i) == gating_done {
+                continue; // already evaluated above as the gate
+            }
+            if let Subsignature::Body {
+                offset, patterns, ..
+            } = subsig
+            {
+                if matches!(
+                    offset.anchor,
+                    OffsetAnchor::Unsupported(_)
+                        | OffsetAnchor::MacroGroup(_)
+                        | OffsetAnchor::VersionInfo
+                ) {
+                    continue;
+                }
+                let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+                if ranges.is_empty() {
+                    continue;
+                }
+                // Non-gate subsigs have no threaded offsets → full scan.
+                let (count, arenas) = body_matches(
+                    patterns,
+                    ctx.data,
+                    &ranges,
+                    options.max_subsignature_matches,
+                    None,
+                );
+                counts[i] = count;
+                first_offsets[i] = arenas.iter().map(|a| a.0).min();
+                body_arenas[i] = arenas;
+            }
+        }
+
+        // Phase 2: PCRE and byte-compare subsignatures, whose triggers
+        // reference the phase-1 body results.
+        for (i, subsig) in subsigs.iter().enumerate() {
+            match subsig {
+                Subsignature::Pcre {
+                    trigger,
+                    regex,
+                    global,
+                    ..
+                } => {
+                    if trigger.eval(&counts).matched {
+                        counts[i] = if *global {
+                            regex
+                                .find_iter(ctx.data)
+                                .take(options.max_subsignature_matches)
+                                .count()
+                        } else {
+                            usize::from(regex.is_match(ctx.data))
+                        };
                     }
-                    Subsignature::ByteCompare { spec, .. } => {
-                        let trigger_hit =
-                            counts.get(spec.trigger_subsig).copied().unwrap_or(0) > 0;
-                        if trigger_hit {
-                            if let Some(base) =
-                                first_offsets.get(spec.trigger_subsig).copied().flatten()
-                            {
-                                if spec.evaluate(ctx.data, base) {
-                                    counts[i] = 1;
-                                }
+                }
+                Subsignature::ByteCompare { spec, .. } => {
+                    let trigger_hit = counts.get(spec.trigger_subsig).copied().unwrap_or(0) > 0;
+                    if trigger_hit {
+                        if let Some(base) = first_offsets.get(spec.trigger_subsig).copied().flatten()
+                        {
+                            if spec.evaluate(ctx.data, base) {
+                                counts[i] = 1;
                             }
                         }
                     }
-                    _ => {}
                 }
+                _ => {}
             }
+        }
 
-            if signature.expression.eval(&counts).matched {
-                // Collect the matched body arenas (capped) for disinfection.
-                let mut arenas: Vec<(usize, usize)> = Vec::new();
-                for sub in &body_arenas {
-                    for &range in sub {
-                        if arenas.len() >= ARENA_CAP {
-                            break;
-                        }
-                        arenas.push(range);
+        if signature.expression.eval(&counts).matched {
+            // Collect the matched body arenas (capped) for disinfection.
+            let mut arenas: Vec<(usize, usize)> = Vec::new();
+            for sub in &body_arenas {
+                for &range in sub {
+                    if arenas.len() >= ARENA_CAP {
+                        break;
                     }
+                    arenas.push(range);
                 }
-                matches.push(ScanMatch {
-                    name: signature.name.clone(),
-                    kind: SignatureKind::Logical,
-                    source: signature.source.clone(),
-                    object_path: ctx.object_path.to_string(),
-                    view: ctx.view,
-                    arenas,
-                });
             }
+            matches.push(ScanMatch {
+                name: signature.name.clone(),
+                kind: SignatureKind::Logical,
+                source: signature.source.clone(),
+                object_path: ctx.object_path.to_string(),
+                view: ctx.view,
+                arenas,
+            });
         }
     }
 }
 
-/// For each logical signature, pick a *gating* body subsignature: a `Body`
-/// subsig (with an evaluable offset) that the expression requires — i.e. the
-/// expression is false when that subsig has zero matches while all others are
-/// present. Evaluating it first in `scan_logical` lets a whole signature be
-/// skipped when the gate is absent. Among the candidates we prefer the one with
-/// the longest required atom (most selective, cheapest to evaluate) — the same
-/// subsig the prefilter anchored on. `None` means no single subsig gates it
-/// (e.g. a pure OR, or it can match at all-zero), so the full scan is used.
-fn compute_logical_gating(db: &Database) -> Vec<Option<u32>> {
-    const PRESENT: usize = 1 << 30;
-    db.logical
-        .iter()
-        .map(|sig| {
-            let n = sig.subsignatures.len();
-            // Can match with nothing present → nothing to gate on.
-            if sig.expression.eval(&vec![0usize; n]).matched {
-                return None;
-            }
-            let mut probe = vec![PRESENT; n];
-            let mut best: Option<(usize, u32)> = None; // (atom_len, index)
-            for i in 0..n {
-                let Subsignature::Body { offset, patterns } = &sig.subsignatures[i] else {
-                    continue;
-                };
-                if patterns.is_empty()
-                    || matches!(
-                        offset.anchor,
-                        OffsetAnchor::Unsupported(_)
-                            | OffsetAnchor::MacroGroup(_)
-                            | OffsetAnchor::VersionInfo
-                    )
-                {
-                    continue;
-                }
-                probe[i] = 0;
-                let required = !sig.expression.eval(&probe).matched;
-                probe[i] = PRESENT;
-                if !required {
-                    continue;
-                }
-                let atom_len = patterns
-                    .iter()
-                    .filter_map(|p| p.required_atom().map(|a| a.len()))
-                    .max()
-                    .unwrap_or(0);
-                if best.map_or(true, |(bl, _)| atom_len > bl) {
-                    best = Some((atom_len, i as u32));
-                }
-            }
-            best.map(|(_, i)| i)
-        })
-        .collect()
-}
-
 /// Count pattern hits within `ranges` and collect the matched byte ranges
-/// (capped at `ARENA_CAP`) for disinfection.
+/// (capped at `ARENA_CAP`) for disinfection. When `hints` is `Some`, each
+/// pattern is verified only at the prefilter-provided atom offsets
+/// (`find_all_at`) instead of rescanning the whole buffer; `None` is a full scan.
 fn body_matches(
     patterns: &[crate::pattern::Pattern],
     data: &[u8],
     ranges: &[(usize, usize)],
     limit: usize,
+    hints: Option<&[u32]>,
 ) -> (usize, Vec<(usize, usize)>) {
     let mut count = 0usize;
     let mut arenas: Vec<(usize, usize)> = Vec::new();
@@ -645,7 +656,11 @@ fn body_matches(
         if remaining == 0 {
             break;
         }
-        for hit in pattern.find_all(data, ranges, remaining) {
+        let hits = match hints {
+            Some(h) => pattern.find_all_at(data, ranges, remaining, h),
+            None => pattern.find_all(data, ranges, remaining),
+        };
+        for hit in hits {
             count += 1;
             if arenas.len() < ARENA_CAP {
                 arenas.push((hit.start, hit.end));
@@ -883,8 +898,8 @@ mod tests {
     use crate::database::{
         ContainerSignature, ExtendedSignature, FileTypeMagic, NumSpec, OffsetSpec, SourceLocation,
     };
+    use crate::logical::parse_logical_signature;
     use crate::pattern::{compile_pattern_variants, Modifiers};
-    use std::path::PathBuf;
 
     #[test]
     fn scans_extended_signature() {
@@ -905,8 +920,7 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "Test.Signature");
@@ -938,8 +952,7 @@ mod tests {
             unsupported: Vec::new(),
         };
         let prefilter = crate::prefilter::AtomPrefilter::build(&database);
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter, logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter };
 
         // Atom present → detected.
         let hit = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
@@ -971,8 +984,7 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"HeLLo   \r\nWorld", ScanOptions::default());
         assert!(found
             .iter()
@@ -998,8 +1010,7 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(
             b"<html><body>Pay<!--x-->load</body></html>",
             ScanOptions::default(),
@@ -1028,8 +1039,7 @@ mod tests {
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
         };
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
         assert!(found.iter().any(|hit| {
             hit.name == "Test.Zip.Child"
@@ -1053,8 +1063,7 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // Body "AA" present and regex "world" present -> match.
         let found = engine.scan_bytes(b"AA hello world", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Pcre"));
@@ -1078,8 +1087,7 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // "SIZE" then 2 LE bytes = 5 (>0) -> match.
         let found = engine.scan_bytes(b"SIZE\x05\x00tail", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Bc"));
@@ -1108,8 +1116,7 @@ mod tests {
             container: vec![container],
             ..Default::default()
         };
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // Member "MALWARE" is 7 bytes at position 1 inside a zip.
         let found =
             engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
@@ -1147,8 +1154,7 @@ mod tests {
             file_type_magic: vec![magic],
             ..Default::default()
         };
-        let logical_gating = compute_logical_gating(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled(), logical_gating };
+        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // "MZAB": .ftm types it MSEXE (target 1); the sig's target 3 -> filtered when strict.
         let strict = ScanOptions {
             strict_targets: true,
@@ -1160,6 +1166,160 @@ mod tests {
             .scan_bytes(b"MZAB", ScanOptions::default())
             .iter()
             .any(|m| m.name == "Html.Sig"));
+    }
+
+    // --- Offset-threading equivalence: the built prefilter (threaded verify +
+    // gating cutoff) must report EXACTLY the same signatures as a disabled
+    // prefilter (full per-position scan, the ground truth). This is the core
+    // "no detection regression" guarantee for offset-threading. ---
+
+    fn match_keys(found: &[ScanMatch]) -> Vec<String> {
+        let mut v: Vec<String> = found
+            .iter()
+            .map(|m| format!("{}@{}", m.name, m.object_path))
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    fn assert_threading_equiv(build_db: impl Fn() -> Database, data: &[u8]) -> Vec<String> {
+        let opts = ScanOptions {
+            max_matches: 4096,
+            ..ScanOptions::default()
+        };
+        // Ground truth: prefilter disabled → Candidates::All → full scan, no gating.
+        let engine_full = Engine {
+            database: build_db(),
+            bytecodes: Vec::new(),
+            prefilter: crate::prefilter::AtomPrefilter::disabled(),
+        };
+        let full = match_keys(&engine_full.scan_bytes(data, opts));
+        // Threaded: real prefilter → candidate offsets + aligned gating cutoff.
+        let db = build_db();
+        let prefilter = crate::prefilter::AtomPrefilter::build(&db);
+        let engine_thr = Engine {
+            database: db,
+            bytecodes: Vec::new(),
+            prefilter,
+        };
+        let threaded = match_keys(&engine_thr.scan_bytes(data, opts));
+        assert_eq!(
+            full, threaded,
+            "offset-threading changed the match set on {:?}",
+            String::from_utf8_lossy(data)
+        );
+        threaded
+    }
+
+    fn diverse_database() -> Database {
+        let src = SourceLocation {
+            path: std::sync::Arc::from(std::path::Path::new("t.ndb")),
+            line: 1,
+        };
+        let ext = |name: &str, target: u32, offset: OffsetSpec, body: &str, m: Modifiers| {
+            ExtendedSignature {
+                name: name.to_string(),
+                target: Some(target),
+                offset,
+                patterns: compile_pattern_variants(body, m).unwrap(),
+                source: src.clone(),
+            }
+        };
+        let nocase = Modifiers {
+            nocase: true,
+            ..Modifiers::default()
+        };
+        let extended = vec![
+            // Anchored literal, fixed prefix 0.
+            ext("E.Anchored", 0, OffsetSpec::any(), "4141414142424242", Modifiers::default()),
+            // Masked first byte then literal → required_prefix = 1 (threaded at off-1).
+            ext("E.MaskedPrefix", 0, OffsetSpec::any(), "??48495051", Modifiers::default()),
+            // nocase → no required_literal → find_all_at falls back to full scan.
+            ext("E.Nocase", 0, OffsetSpec::any(), "6d616c7761726e", nocase),
+            // nocase atom made of DIGITS only ("012345") — must still match on a
+            // letterless buffer (guards against an "is there a letter?" skip).
+            ext("E.NocaseDigits", 0, OffsetSpec::any(), "303132333435", nocase),
+            // Leading wildcard → required_prefix None → fallback path.
+            ext("E.LeadingWild", 0, OffsetSpec::any(), "*5a5a5a5a", Modifiers::default()),
+            // Absolute offset 0 only: a match elsewhere must be rejected by ranges.
+            ext(
+                "E.AbsZero",
+                0,
+                OffsetSpec { anchor: OffsetAnchor::Absolute(0), max_shift: None },
+                "57575757",
+                Modifiers::default(),
+            ),
+            // EOF-relative: only the tail occurrence is in range.
+            ext(
+                "E.EofTail",
+                0,
+                OffsetSpec { anchor: OffsetAnchor::EofMinus(8), max_shift: Some(8) },
+                "59595959",
+                Modifiers::default(),
+            ),
+        ];
+        let logical: Vec<_> = [
+            "L.And;Target:0;0&1;6b6b6b6b6b6b;6c6c6c6c6c6c", // "kkkkkk" & "llllll"
+            "L.Or;Target:0;0|1;6d6d6d6d6d6d;6e6e6e6e6e6e",  // "mmmmmm" | "nnnnnn"
+            "L.AndWild;Target:0;0&1;*6f6f6f6f6f6f;707070707070", // "*oooooo" & "pppppp"
+        ]
+        .iter()
+        .map(|line| parse_logical_signature(line, src.clone()).unwrap().0)
+        .collect();
+        Database {
+            extended,
+            logical,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn threading_matches_full_scan_across_signature_shapes() {
+        // Kitchen-sink buffer triggering a mix of shapes.
+        let hits = assert_threading_equiv(
+            diverse_database,
+            b"00AAAABBBB00 zHIPQ MALWARN prefix-ZZZZ kkkkkk llllll oooooo pppppp",
+        );
+        // Not vacuous: confirm representative detections actually fired.
+        assert!(hits.iter().any(|k| k.starts_with("E.Anchored@")));
+        assert!(hits.iter().any(|k| k.starts_with("E.MaskedPrefix@")));
+        assert!(hits.iter().any(|k| k.starts_with("E.Nocase@"))); // nocase MALWARN
+        assert!(hits.iter().any(|k| k.starts_with("E.LeadingWild@")));
+        assert!(hits.iter().any(|k| k.starts_with("L.And@")));
+        assert!(hits.iter().any(|k| k.starts_with("L.AndWild@")));
+
+        // Range-sensitive negatives: an out-of-range occurrence must NOT match,
+        // identically for threaded and full scan (catches range-bypass bugs).
+        // "WWWW" only away from offset 0 → E.AbsZero must not fire.
+        let no_abs = assert_threading_equiv(diverse_database, b"....WWWW....");
+        assert!(!no_abs.iter().any(|k| k.starts_with("E.AbsZero@")));
+        // "WWWW" at offset 0 → E.AbsZero fires.
+        let abs = assert_threading_equiv(diverse_database, b"WWWW........");
+        assert!(abs.iter().any(|k| k.starts_with("E.AbsZero@")));
+
+        // "YYYY" only at the start → outside the EOF-8 tail window → no match.
+        let mut early = b"YYYY".to_vec();
+        early.extend(std::iter::repeat(b'.').take(40));
+        let no_eof = assert_threading_equiv(diverse_database, &early);
+        assert!(!no_eof.iter().any(|k| k.starts_with("E.EofTail@")));
+        // "YYYY" in the tail window → match.
+        let mut late = vec![b'.'; 40];
+        late.extend_from_slice(b"YYYY");
+        let eof = assert_threading_equiv(diverse_database, &late);
+        assert!(eof.iter().any(|k| k.starts_with("E.EofTail@")));
+
+        // Logical AND with one operand missing → no match (both engines agree).
+        let partial = assert_threading_equiv(diverse_database, b"kkkkkk but no ell");
+        assert!(!partial.iter().any(|k| k.starts_with("L.And@")));
+
+        // LETTERLESS buffer containing a digit-only nocase atom: the nocase pass
+        // must NOT be skipped (regression guard for the alpha-byte fast-path).
+        let digits = assert_threading_equiv(diverse_database, b"##!!##012345##!!##");
+        assert!(digits.iter().any(|k| k.starts_with("E.NocaseDigits@")));
+
+        // Empty-ish / no-trigger buffer.
+        assert_threading_equiv(diverse_database, b"nothing to see here 12345");
     }
 
     fn stored_zip(name: &str, data: &[u8]) -> Vec<u8> {

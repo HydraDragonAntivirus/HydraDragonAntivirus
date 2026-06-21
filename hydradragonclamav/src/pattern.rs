@@ -335,6 +335,88 @@ impl Pattern {
         out
     }
 
+    /// Like [`find_all`](Self::find_all), but verifies the pattern ONLY at the
+    /// prefilter-provided atom offsets in `hints` (buffer positions where this
+    /// pattern's required-literal atom occurred), instead of re-running a
+    /// whole-buffer `memmem` scan. This is the "offset-threading" fast path: the
+    /// shared Aho-Corasick prefilter already located every occurrence of the
+    /// atom, so a candidate signature is verified at those few positions in O(1)
+    /// each rather than rescanning megabytes per candidate — the change that
+    /// turns a multi-second per-candidate scan into a handful of probes.
+    ///
+    /// Falls back to the full [`find_all`](Self::find_all) when the pattern
+    /// can't be anchored to its literal: no `required_literal` (e.g. a `nocase`
+    /// pattern, whose bytes never compact to a `Literal`), or the literal sits
+    /// behind a variable-width token so `required_prefix` is `None`. There the
+    /// hints don't pin the match start, so a full scan is required to stay
+    /// complete.
+    ///
+    /// Correctness: `hints` must contain EVERY offset where the atom occurs (the
+    /// prefilter records all occurrences, not just the first). Because the atom
+    /// is a prefix of `required_literal`, every occurrence of the full literal is
+    /// among `hints`; we re-confirm the full literal and run `match_from` at
+    /// `occurrence - prefix`, exactly as the anchored `find_all` path does. The
+    /// produced match set is therefore identical to `find_all` — offset-threading
+    /// changes only *where we look*, never *what matches*, so detection is
+    /// preserved. `ranges` and `fullword` are still enforced.
+    pub fn find_all_at(
+        &self,
+        data: &[u8],
+        ranges: &[(usize, usize)],
+        limit: usize,
+        hints: &[u32],
+    ) -> Vec<MatchRange> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        // Only an atom-anchored pattern can be verified from hints alone. Without
+        // a fixed-width prefix to the required literal, the hint offset doesn't
+        // determine the match start, so we must do the full window scan.
+        let (Some((off, len)), Some(prefix)) = (self.required_literal, self.required_prefix)
+        else {
+            return self.find_all(data, ranges, limit);
+        };
+        let required = &self.lits[off as usize..(off + len) as usize];
+        let required_len = required.len();
+        let prefix = prefix as usize;
+
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for &hint in hints {
+            let occurrence = hint as usize;
+            // The indexed atom is only the literal's (<=16-byte) prefix; confirm
+            // the FULL required literal is actually present at this offset before
+            // attempting the (more expensive) whole-pattern match.
+            let Some(lit_end) = occurrence.checked_add(required_len) else {
+                continue;
+            };
+            if lit_end > data.len() || &data[occurrence..lit_end] != required {
+                continue;
+            }
+            let Some(start) = occurrence.checked_sub(prefix) else {
+                continue;
+            };
+            if !pos_in_ranges(start, ranges, data.len()) {
+                continue;
+            }
+            if let Some(match_end) = self.match_from(data, start) {
+                if self.fullword && !is_fullword(data, start, match_end) {
+                    continue;
+                }
+                if seen.insert((start, match_end)) {
+                    out.push(MatchRange {
+                        start,
+                        end: match_end,
+                    });
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn match_from(&self, data: &[u8], start: usize) -> Option<usize> {
         match_tokens(&self.tokens, &self.lits, data, 0, start, 0)
     }
