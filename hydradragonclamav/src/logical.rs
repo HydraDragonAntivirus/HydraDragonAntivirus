@@ -16,24 +16,20 @@ pub enum Subsignature {
     Body {
         offset: OffsetSpec,
         patterns: Vec<Pattern>,
-        raw: String,
     },
     /// `Trigger/PCRE/Flags` — the regex runs only when `trigger` evaluates true.
     Pcre {
         trigger: LogicalExpr,
         regex: Regex,
         global: bool,
-        raw: String,
     },
     /// `subsigid_trigger(offset#byte_options#comparisons)` — reads bytes relative
     /// to the trigger subsignature's match and compares them numerically.
     ByteCompare {
         spec: ByteCompareSpec,
-        raw: String,
     },
     Unsupported {
         reason: String,
-        raw: String,
     },
 }
 
@@ -204,10 +200,7 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
     if looks_like_byte_compare(raw) {
         return match parse_byte_compare(raw) {
             Ok(spec) => (
-                Subsignature::ByteCompare {
-                    spec,
-                    raw: raw.to_string(),
-                },
+                Subsignature::ByteCompare { spec },
                 None,
             ),
             Err(err) => unsupported(raw, &err),
@@ -220,7 +213,6 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
                     trigger,
                     regex,
                     global,
-                    raw: raw.to_string(),
                 },
                 None,
             ),
@@ -261,11 +253,7 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
 
     match compile_pattern_variants(body, modifiers) {
         Ok(patterns) => (
-            Subsignature::Body {
-                offset,
-                patterns,
-                raw: raw.to_string(),
-            },
+            Subsignature::Body { offset, patterns },
             warning,
         ),
         Err(err) => unsupported(raw, &format!("invalid body pattern: {err}")),
@@ -562,10 +550,10 @@ fn take_valid(text: &str, exact: bool, valid: impl Fn(char) -> bool) -> Option<S
 }
 
 fn unsupported(raw: &str, reason: &str) -> (Subsignature, Option<String>) {
+    let _ = raw;
     (
         Subsignature::Unsupported {
             reason: reason.to_string(),
-            raw: raw.to_string(),
         },
         Some(reason.to_string()),
     )
@@ -799,7 +787,7 @@ mod tests {
 
     fn source() -> SourceLocation {
         SourceLocation {
-            path: PathBuf::from("test.ldb"),
+            path: std::sync::Arc::from(std::path::Path::new("test.ldb")),
             line: 1,
         }
     }

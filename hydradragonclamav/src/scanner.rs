@@ -797,7 +797,7 @@ mod tests {
     #[test]
     fn scans_extended_signature() {
         let source = SourceLocation {
-            path: PathBuf::from("test.ndb"),
+            path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
         let database = Database {
@@ -828,7 +828,7 @@ mod tests {
         // must give identical results: matches when the atom is present, skips
         // (no false negative, no false positive) when it isn't.
         let source = SourceLocation {
-            path: PathBuf::from("test.ndb"),
+            path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
         let database = Database {
@@ -860,7 +860,7 @@ mod tests {
     #[test]
     fn scans_normalized_text_target() {
         let source = SourceLocation {
-            path: PathBuf::from("test.ndb"),
+            path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
         let database = Database {
@@ -887,7 +887,7 @@ mod tests {
     #[test]
     fn scans_html_without_tags() {
         let source = SourceLocation {
-            path: PathBuf::from("test.ndb"),
+            path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
         let database = Database {
@@ -916,7 +916,7 @@ mod tests {
     #[test]
     fn scans_extracted_zip_child() {
         let source = SourceLocation {
-            path: PathBuf::from("test.ndb"),
+            path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
         let database = Database {
@@ -946,7 +946,7 @@ mod tests {
         let (sig, warnings) = crate::logical::parse_logical_signature(
             "Test.Pcre;Target:0;0&1;4141;0/world/",
             SourceLocation {
-                path: PathBuf::from("t.ldb"),
+                path: std::sync::Arc::from(std::path::Path::new("t.ldb")),
                 line: 1,
             },
         )
@@ -970,7 +970,7 @@ mod tests {
         let (sig, warnings) = crate::logical::parse_logical_signature(
             "Test.Bc;Target:0;0&1;53495a45;0(>>4#il2#>0)",
             SourceLocation {
-                path: PathBuf::from("t.ldb"),
+                path: std::sync::Arc::from(std::path::Path::new("t.ldb")),
                 line: 1,
             },
         )
@@ -1001,7 +1001,7 @@ mod tests {
             encrypted: None,
             file_pos: NumSpec::Exact(1),
             source: SourceLocation {
-                path: PathBuf::from("t.cdb"),
+                path: std::sync::Arc::from(std::path::Path::new("t.cdb")),
                 line: 1,
             },
         };
@@ -1028,7 +1028,7 @@ mod tests {
             patterns: compile_pattern_variants("4d5a", Modifiers::default()).unwrap(),
             clamav_type: "CL_TYPE_MSEXE".to_string(),
             source: SourceLocation {
-                path: PathBuf::from("t.ftm"),
+                path: std::sync::Arc::from(std::path::Path::new("t.ftm")),
                 line: 1,
             },
         };
@@ -1038,7 +1038,7 @@ mod tests {
             offset: OffsetSpec::any(),
             patterns: compile_pattern_variants("4142", Modifiers::default()).unwrap(),
             source: SourceLocation {
-                path: PathBuf::from("t.ndb"),
+                path: std::sync::Arc::from(std::path::Path::new("t.ndb")),
                 line: 1,
             },
         };

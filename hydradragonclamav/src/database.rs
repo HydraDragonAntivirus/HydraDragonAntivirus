@@ -5,7 +5,8 @@ use regex::Regex;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Default)]
 pub struct Database {
@@ -75,7 +76,9 @@ pub struct FileTypeMagic {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceLocation {
-    pub path: PathBuf,
+    /// Shared so all signatures from one database file point at a single path
+    /// allocation instead of ~500k duplicate `PathBuf`s.
+    pub path: Arc<Path>,
     pub line: usize,
 }
 
@@ -268,6 +271,8 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
 
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
+    // One shared path allocation for every signature from this file.
+    let src_path: Arc<Path> = Arc::from(path);
     // ClamAV signature databases are NOT guaranteed to be valid UTF-8 — malware
     // names and some fields can carry stray bytes. Read raw bytes per line and
     // decode lossily so a single bad byte never aborts the entire database load
@@ -288,7 +293,7 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
         }
         report.lines_seen += 1;
         let source = SourceLocation {
-            path: path.to_path_buf(),
+            path: src_path.clone(),
             line: line_number,
         };
         match ext.as_str() {
@@ -667,7 +672,7 @@ fn push_unsupported(
     report.unsupported_records += 1;
     database.unsupported.push(UnsupportedRecord {
         source: SourceLocation {
-            path: path.to_path_buf(),
+            path: Arc::from(path),
             line,
         },
         reason,

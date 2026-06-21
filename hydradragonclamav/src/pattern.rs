@@ -27,8 +27,14 @@ impl Modifiers {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Pattern {
     tokens: Vec<Token>,
+    /// Backing storage for `Token::Literal` runs (exact byte sequences), stored
+    /// once contiguously instead of one token per byte.
+    lits: Box<[u8]>,
     fullword: bool,
-    required_literal: Option<Vec<u8>>,
+    /// The longest required literal as an `(off, len)` slice of `lits` — used as
+    /// a fast pre-check / prefilter atom. Stored as an offset (not a byte copy)
+    /// since the bytes already live in `lits`.
+    required_literal: Option<(u32, u32)>,
 }
 
 // Memory: there are hundreds of thousands of signatures, each a `Vec<Token>`,
@@ -38,6 +44,13 @@ pub struct Pattern {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Token {
     Byte(ByteMatcher),
+    /// A run of exact, case-sensitive bytes, stored once in the pattern's `lits`
+    /// arena and referenced by offset+length (8 bytes) instead of one ~16-byte
+    /// `Byte` token per byte. This is the key memory win.
+    Literal {
+        off: u32,
+        len: u32,
+    },
     AnyBytes {
         min: u32,
         max: Option<u32>,
@@ -91,9 +104,11 @@ pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<P
 
 impl Pattern {
     fn new(tokens: Vec<Token>, fullword: bool) -> Self {
+        let (tokens, lits) = compact_tokens(tokens);
         let required_literal = longest_required_literal(&tokens);
         Self {
             tokens,
+            lits: lits.into_boxed_slice(),
             fullword,
             required_literal,
         }
@@ -108,7 +123,8 @@ impl Pattern {
     /// so it's usable as an Aho-Corasick prefilter atom. `None` when the pattern
     /// has no usable literal (e.g. fully wildcard or nocase).
     pub fn required_atom(&self) -> Option<&[u8]> {
-        self.required_literal.as_deref()
+        self.required_literal
+            .map(|(off, len)| &self.lits[off as usize..(off + len) as usize])
     }
 
     pub fn find_all(
@@ -120,7 +136,8 @@ impl Pattern {
         if limit == 0 {
             return Vec::new();
         }
-        if let Some(required) = &self.required_literal {
+        if let Some((off, len)) = self.required_literal {
+            let required = &self.lits[off as usize..(off + len) as usize];
             if !contains_subslice(data, required) {
                 return Vec::new();
             }
@@ -155,12 +172,13 @@ impl Pattern {
     }
 
     fn match_from(&self, data: &[u8], start: usize) -> Option<usize> {
-        match_tokens(&self.tokens, data, 0, start, 0)
+        match_tokens(&self.tokens, &self.lits, data, 0, start, 0)
     }
 }
 
 fn match_tokens(
     tokens: &[Token],
+    lits: &[u8],
     data: &[u8],
     token_index: usize,
     pos: usize,
@@ -176,7 +194,16 @@ fn match_tokens(
     match &tokens[token_index] {
         Token::Byte(byte) => {
             if pos < data.len() && byte.matches(data[pos]) {
-                match_tokens(tokens, data, token_index + 1, pos + 1, depth + 1)
+                match_tokens(tokens, lits, data, token_index + 1, pos + 1, depth + 1)
+            } else {
+                None
+            }
+        }
+        Token::Literal { off, len } => {
+            let lit = &lits[*off as usize..(*off + *len) as usize];
+            let end = pos + lit.len();
+            if end <= data.len() && &data[pos..end] == lit {
+                match_tokens(tokens, lits, data, token_index + 1, end, depth + 1)
             } else {
                 None
             }
@@ -191,7 +218,8 @@ fn match_tokens(
                 .unwrap_or_else(|| data.len().saturating_sub(pos));
             let max_pos = pos.saturating_add(max_len).min(data.len());
             for next in min_pos..=max_pos {
-                if let Some(end) = match_tokens(tokens, data, token_index + 1, next, depth + 1) {
+                if let Some(end) = match_tokens(tokens, lits, data, token_index + 1, next, depth + 1)
+                {
                     return Some(end);
                 }
             }
@@ -199,7 +227,7 @@ fn match_tokens(
         }
         Token::Boundary(Boundary::Word) => {
             if is_word_boundary(data, pos) {
-                match_tokens(tokens, data, token_index + 1, pos, depth + 1)
+                match_tokens(tokens, lits, data, token_index + 1, pos, depth + 1)
             } else {
                 None
             }
@@ -210,14 +238,14 @@ fn match_tokens(
                 || data.get(pos.wrapping_sub(1)) == Some(&b'\r')
                 || data.get(pos.wrapping_sub(1)) == Some(&b'\n')
             {
-                match_tokens(tokens, data, token_index + 1, pos, depth + 1)
+                match_tokens(tokens, lits, data, token_index + 1, pos, depth + 1)
             } else {
                 None
             }
         }
         Token::Boundary(Boundary::NonAlphaNum) => {
             if pos < data.len() && !data[pos].is_ascii_alphanumeric() {
-                match_tokens(tokens, data, token_index + 1, pos + 1, depth + 1)
+                match_tokens(tokens, lits, data, token_index + 1, pos + 1, depth + 1)
             } else {
                 None
             }
@@ -228,24 +256,26 @@ fn match_tokens(
                 negated,
                 negated_width,
             } = alt.as_ref();
+            // Alternation branches aren't compacted, so they contain no
+            // `Literal` tokens and don't use `lits` (an empty slice is fine).
             if *negated {
                 let width = (*negated_width)?;
                 if pos + width > data.len() {
                     return None;
                 }
                 let matched = branches.iter().any(|branch| {
-                    match_tokens(branch, data, 0, pos, depth + 1) == Some(pos + width)
+                    match_tokens(branch, &[], data, 0, pos, depth + 1) == Some(pos + width)
                 });
                 if !matched {
-                    match_tokens(tokens, data, token_index + 1, pos + width, depth + 1)
+                    match_tokens(tokens, lits, data, token_index + 1, pos + width, depth + 1)
                 } else {
                     None
                 }
             } else {
                 for branch in branches {
-                    if let Some(branch_end) = match_tokens(branch, data, 0, pos, depth + 1) {
+                    if let Some(branch_end) = match_tokens(branch, &[], data, 0, pos, depth + 1) {
                         if let Some(end) =
-                            match_tokens(tokens, data, token_index + 1, branch_end, depth + 1)
+                            match_tokens(tokens, lits, data, token_index + 1, branch_end, depth + 1)
                         {
                             return Some(end);
                         }
@@ -507,6 +537,7 @@ fn fixed_width(tokens: &[Token]) -> Option<usize> {
     let mut width = 0usize;
     for token in tokens {
         match token {
+            Token::Literal { len, .. } => width += *len as usize,
             Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => width += 1,
             Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => {}
             Token::AnyBytes {
@@ -567,30 +598,59 @@ fn to_wide_tokens(tokens: &[Token]) -> Vec<Token> {
     out
 }
 
-fn longest_required_literal(tokens: &[Token]) -> Option<Vec<u8>> {
-    let mut best = Vec::new();
-    let mut current = Vec::new();
+/// Merge runs of consecutive exact, case-sensitive bytes into a single
+/// `Token::Literal` referencing a shared `lits` arena, instead of one ~16-byte
+/// `Token::Byte` per byte. Runs of length 1 stay `Token::Byte` (a `Literal`
+/// would only add 8 bytes for no gain). Alternation branches are left as-is.
+fn compact_tokens(tokens: Vec<Token>) -> (Vec<Token>, Vec<u8>) {
+    let mut out: Vec<Token> = Vec::with_capacity(tokens.len());
+    let mut lits: Vec<u8> = Vec::new();
+    let mut run: Vec<u8> = Vec::new();
     for token in tokens {
-        if let Token::Byte(byte) = token {
+        if let Token::Byte(byte) = &token {
             if let Some(value) = byte.exact_value() {
-                current.push(value);
+                run.push(value);
                 continue;
             }
         }
-        if current.len() > best.len() {
-            best = std::mem::take(&mut current);
-        } else {
-            current.clear();
+        flush_run(&mut run, &mut lits, &mut out);
+        out.push(token);
+    }
+    flush_run(&mut run, &mut lits, &mut out);
+    out.shrink_to_fit();
+    (out, lits)
+}
+
+fn flush_run(run: &mut Vec<u8>, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
+    match run.len() {
+        0 => {}
+        1 => {
+            out.push(Token::Byte(ByteMatcher::exact(run[0], false)));
+            run.clear();
+        }
+        n => {
+            let off = lits.len() as u32;
+            lits.extend_from_slice(run);
+            out.push(Token::Literal {
+                off,
+                len: n as u32,
+            });
+            run.clear();
         }
     }
-    if current.len() > best.len() {
-        best = current;
-    }
-    if best.len() >= 2 {
-        Some(best)
-    } else {
-        None
-    }
+}
+
+fn longest_required_literal(tokens: &[Token]) -> Option<(u32, u32)> {
+    // After compaction, each maximal exact run ≥ 2 bytes is a single `Literal`;
+    // return the longest as an (off, len) slice of the pattern's `lits`.
+    tokens
+        .iter()
+        .filter_map(|t| match t {
+            Token::Literal { off, len } => Some((*off, *len)),
+            _ => None,
+        })
+        .max_by_key(|(_, len)| *len)
+        .filter(|(_, len)| *len >= 2)
 }
 
 fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
