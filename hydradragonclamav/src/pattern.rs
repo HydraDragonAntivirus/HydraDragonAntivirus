@@ -34,17 +34,27 @@ impl Modifiers {
     }
 }
 
+/// Sentinel for "no anchor prefix" stored in the `u32` prefix fields below, so
+/// they don't pay an `Option` discriminant word. Real prefixes are tiny, so
+/// `u32::MAX` can never collide with a genuine value.
+const NO_PREFIX: u32 = u32::MAX;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Pattern {
     /// Packed tokens (u64 each — 8 bytes instead of 16).
     tokens: Box<[Token]>,
     lits: Box<[u8]>,
-    /// Alternation branches indexed by `Token::TAG_ALTERNATES` data.
-    alternates: Vec<Alternates>,
-    fullword: bool,
+    /// Alternation branches indexed by `Token::TAG_ALTERNATES` data. `Box<[_]>`,
+    /// not `Vec`, to drop the capacity word on every pattern (empty for the vast
+    /// majority, which have no alternation).
+    alternates: Box<[Alternates]>,
+    /// Fixed prefix widths, `NO_PREFIX` when absent — plain `u32` instead of
+    /// `Option<u32>` so each costs 4 bytes, not 8. Read via `required_prefix()` /
+    /// `required_prefix_nocase()`.
+    required_prefix: u32,
+    required_prefix_nocase: u32,
     required_literal: Option<(u32, u32)>,
-    required_prefix: Option<u32>,
-    required_prefix_nocase: Option<u32>,
+    fullword: bool,
 }
 
 /// Packed into 8 bytes (u64) — half the 16-byte enum, saving ~720MB across
@@ -175,6 +185,56 @@ pub struct MatchRange {
     pub end: usize,
 }
 
+/// Aggregated pattern memory, for `--mem-stats` profiling.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MemStats {
+    pub patterns: usize,
+    pub token_bytes: usize,
+    pub lit_bytes: usize,
+    pub struct_bytes: usize,
+    pub n_byte: usize,
+    pub n_literal: usize,
+    pub n_litnocase: usize,
+    pub n_anybytes: usize,
+    pub n_boundary: usize,
+    pub n_alternates: usize,
+}
+
+impl MemStats {
+    pub fn add(&mut self, o: &MemStats) {
+        self.patterns += o.patterns;
+        self.token_bytes += o.token_bytes;
+        self.lit_bytes += o.lit_bytes;
+        self.struct_bytes += o.struct_bytes;
+        self.n_byte += o.n_byte;
+        self.n_literal += o.n_literal;
+        self.n_litnocase += o.n_litnocase;
+        self.n_anybytes += o.n_anybytes;
+        self.n_boundary += o.n_boundary;
+        self.n_alternates += o.n_alternates;
+    }
+    pub fn total_bytes(&self) -> usize {
+        self.token_bytes + self.lit_bytes + self.struct_bytes
+    }
+    pub fn tokens(&self) -> usize {
+        self.n_byte + self.n_literal + self.n_litnocase + self.n_anybytes + self.n_boundary + self.n_alternates
+    }
+}
+
+fn tally_tokens(tokens: &[Token], s: &mut MemStats) {
+    for t in tokens {
+        match t.tag() {
+            Token::TAG_BYTE => s.n_byte += 1,
+            Token::TAG_LITERAL => s.n_literal += 1,
+            Token::TAG_LITNOCASE => s.n_litnocase += 1,
+            Token::TAG_ANYBYTES => s.n_anybytes += 1,
+            Token::TAG_BOUNDARY => s.n_boundary += 1,
+            Token::TAG_ALTERNATES => s.n_alternates += 1,
+            _ => {}
+        }
+    }
+}
+
 pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<Pattern>, String> {
     let mut parser = Parser::new(raw, modifiers.nocase);
     let (tokens, alternates) = parser.parse_all()?;
@@ -213,16 +273,47 @@ impl Pattern {
         Self {
             tokens: tokens.into_boxed_slice(),
             lits: lits.into_boxed_slice(),
-            alternates,
-            fullword,
+            alternates: alternates.into_boxed_slice(),
+            required_prefix: required_prefix.unwrap_or(NO_PREFIX),
+            required_prefix_nocase: required_prefix_nocase.unwrap_or(NO_PREFIX),
             required_literal,
-            required_prefix,
-            required_prefix_nocase,
+            fullword,
         }
+    }
+
+    #[inline]
+    fn required_prefix(&self) -> Option<u32> {
+        (self.required_prefix != NO_PREFIX).then_some(self.required_prefix)
+    }
+
+    #[inline]
+    fn required_prefix_nocase(&self) -> Option<u32> {
+        (self.required_prefix_nocase != NO_PREFIX).then_some(self.required_prefix_nocase)
     }
 
     pub fn is_match(&self, data: &[u8]) -> bool {
         !self.find_all(data, &[(0, data.len())], 1).is_empty()
+    }
+
+    /// Resident heap bytes owned by this pattern, and a per-tag token tally, for
+    /// memory profiling (`--mem-stats`). Counts the boxed token/lits arenas, the
+    /// alternates Vec and its (uncompacted) branch tokens, recursively.
+    pub fn mem_stats(&self) -> MemStats {
+        let mut s = MemStats::default();
+        s.patterns = 1;
+        s.token_bytes += self.tokens.len() * std::mem::size_of::<Token>();
+        s.lit_bytes += self.lits.len();
+        s.struct_bytes += std::mem::size_of::<Pattern>();
+        tally_tokens(&self.tokens, &mut s);
+        for alt in &self.alternates {
+            s.struct_bytes += std::mem::size_of::<Alternates>();
+            for branch in &alt.branches {
+                s.struct_bytes += std::mem::size_of::<Vec<Token>>();
+                s.token_bytes += branch.len() * std::mem::size_of::<Token>();
+                tally_tokens(branch, &mut s);
+            }
+        }
+        s
     }
 
     /// The pattern's longest required literal substring (case-sensitive, exact
@@ -268,7 +359,7 @@ impl Pattern {
         // when the required literal has a fixed-width prefix, jump to each
         // occurrence of the literal and only try matching the whole pattern at
         // `occurrence - prefix`.
-        if let (Some((off, len)), Some(prefix)) = (self.required_literal, self.required_prefix) {
+        if let (Some((off, len)), Some(prefix)) = (self.required_literal, self.required_prefix()) {
             let required = &self.lits[off as usize..(off + len) as usize];
             let prefix = prefix as usize;
             let mut from = 0usize;
@@ -422,7 +513,7 @@ impl Pattern {
             // No case-sensitive anchor. A `nocase` pattern can still be threaded
             // on its case-folded atom (hints are positions in the lowercased
             // buffer, which share coordinates with the original).
-            if let Some(prefix_nocase) = self.required_prefix_nocase {
+            if let Some(prefix_nocase) = self.required_prefix_nocase() {
                 return self.find_all_at_nocase(data, ranges, limit, hints, prefix_nocase as usize);
             }
             return self.find_all(data, ranges, limit);
@@ -434,7 +525,7 @@ impl Pattern {
         // `[occurrence - maxprefix, occurrence - minprefix]` rather than scanning
         // the whole buffer. Only when a preceding token is genuinely unbounded
         // (leading `*`) or the window would be huge do we fall back to a full scan.
-        let (minp, maxp) = match self.required_prefix {
+        let (minp, maxp) = match self.required_prefix() {
             Some(p) => (p as usize, p as usize),
             None => match self.prefix_bounds_to(off) {
                 Some((mn, mx)) if (mx as usize) <= MAX_PREFIX_WINDOW => (mn as usize, mx as usize),

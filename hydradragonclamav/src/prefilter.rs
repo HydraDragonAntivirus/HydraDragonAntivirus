@@ -180,6 +180,28 @@ pub struct AtomPrefilter {
     log_gates: Vec<Option<GateInfo>>,
 }
 
+impl AtomPrefilter {
+    /// Resident heap bytes, broken down, for `--mem-stats` profiling.
+    pub fn mem_report(&self) -> String {
+        let ac = self.ac.as_ref().map_or(0, |a| a.heap_bytes());
+        let ac_nc = self.ac_nocase.as_ref().map_or(0, |a| a.heap_bytes());
+        let v = |n: usize, sz: usize| n * sz;
+        let csr = v(self.atom_starts.len(), 4)
+            + v(self.sig_refs.len(), 8)
+            + v(self.atom_starts_nocase.len(), 4)
+            + v(self.sig_refs_nocase.len(), 8);
+        let always = v(self.ext_always.len(), 4)
+            + v(self.log_always.len(), 4)
+            + v(self.log_gates.len(), std::mem::size_of::<Option<GateInfo>>());
+        let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
+        format!(
+            "ac={:.1}MB ac_nocase={:.1}MB csr(sig_refs+starts)={:.1}MB always/gates={:.1}MB | atoms={} nocase_atoms={} sig_refs={} sig_refs_nc={}",
+            mb(ac), mb(ac_nc), mb(csr), mb(always),
+            self.num_atoms, self.num_atoms_nocase, self.sig_refs.len(), self.sig_refs_nocase.len()
+        )
+    }
+}
+
 impl std::fmt::Debug for AtomPrefilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AtomPrefilter")

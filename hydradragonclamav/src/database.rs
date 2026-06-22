@@ -20,6 +20,36 @@ pub struct Database {
     pub bytecode_programs: Vec<crate::bytecode_vm::Bc>,
 }
 
+impl Database {
+    /// Aggregate pattern memory across every signature, for `--mem-stats`.
+    pub fn pattern_mem_stats(&self) -> crate::pattern::MemStats {
+        let mut s = crate::pattern::MemStats::default();
+        for sig in &self.extended {
+            for p in sig.patterns.iter() {
+                let ps = p.mem_stats();
+                s.add(&ps);
+            }
+        }
+        for sig in &self.file_type_magic {
+            for p in sig.patterns.iter() {
+                let ps = p.mem_stats();
+                s.add(&ps);
+            }
+        }
+        for sig in &self.logical {
+            for sub in &sig.subsignatures {
+                if let crate::logical::Subsignature::Body { patterns, .. } = sub {
+                    for p in patterns.iter() {
+                        let ps = p.mem_stats();
+                        s.add(&ps);
+                    }
+                }
+            }
+        }
+        s
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ExtendedSignature {
     pub name: String,

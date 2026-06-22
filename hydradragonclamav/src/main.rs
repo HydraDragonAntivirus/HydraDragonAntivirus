@@ -39,6 +39,28 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let (engine, report) = Engine::from_database_dir(&cli.database)?;
     print_report(&report);
 
+    // Opt-in memory profiler (set HDC_MEM_STATS=1). Off by default so normal
+    // runs stay quiet; kept because resident memory is an active concern.
+    if std::env::var_os("HDC_MEM_STATS").is_some() {
+        let s = engine.database.pattern_mem_stats();
+        let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
+        eprintln!(
+            "[mem] patterns={} tokens={} ({:.1} MB)  lits={:.1} MB  structs={:.1} MB  TOTAL={:.1} MB",
+            s.patterns, s.tokens(), mb(s.token_bytes), mb(s.lit_bytes), mb(s.struct_bytes), mb(s.total_bytes())
+        );
+        eprintln!(
+            "[mem] tokens by tag: byte(masked/single)={} literal={} litnocase={} anybytes={} boundary={} alternates={}",
+            s.n_byte, s.n_literal, s.n_litnocase, s.n_anybytes, s.n_boundary, s.n_alternates
+        );
+        eprintln!("[mem] prefilter: {}", engine.prefilter_mem_report());
+
+        if std::env::var_os("HDC_HOLD").is_some() {
+            eprintln!("[mem] holding engine alive for 8s (steady-state sampling)…");
+            std::thread::sleep(std::time::Duration::from_secs(8));
+            eprintln!("[mem] held; extended={}", engine.database.extended.len());
+        }
+    }
+
     if cli.show_unsupported {
         for item in &engine.database.unsupported {
             println!(

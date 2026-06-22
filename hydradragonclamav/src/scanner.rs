@@ -105,6 +105,11 @@ struct ScanState {
 }
 
 impl Engine {
+    /// Prefilter heap breakdown, for `--mem-stats` profiling.
+    pub fn prefilter_mem_report(&self) -> String {
+        self.prefilter.mem_report()
+    }
+
     pub fn from_database_dir(path: impl AsRef<Path>) -> io::Result<(Self, crate::LoadReport)> {
         let path = path.as_ref();
         let (mut database, mut report) = Database::load_dir(path)?;
