@@ -29,6 +29,7 @@ use hydradragonav::remediation;
 
 use windows::core::{w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{COLORREF, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
@@ -50,6 +51,8 @@ use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
     FileOpenDialog, FileSaveDialog, IFileOpenDialog, IFileSaveDialog, IShellItem,
     FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    DragAcceptFiles, DragQueryFileW, DragFinish, HDROP,
+    Shell_NotifyIconW, NOTIFYICONDATAW, NOTIFY_ICON_MESSAGE, NOTIFY_ICON_DATA_FLAGS,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -83,18 +86,33 @@ const CMD_STOP_ENGINE: usize = 16;
 const CMD_PAUSE: usize = 17;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
+const WM_APP_TRAY: u32 = WM_APP + 2;
 // Not surfaced by the WindowsAndMessaging glob in this build — define it raw, or
 // its match arm silently becomes a catch-all binding.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 // Defined locally for the same reason; shadows the glob if present.
 const WM_CONTEXTMENU: u32 = 0x007B;
+const WM_TIMER: u32 = 0x0113;
+const WM_DROPFILES: u32 = 0x0233;
+const WM_LBUTTONDBLCLK: u32 = 0x0203;
+
+// Animation timer.
+const ANIM_TIMER: usize = 100;
+const ANIM_INTERVAL_MS: u32 = 33; // ~30 fps
+
+// The number of DWM window corner preference. 2 = DWMWCP_ROUND (small round).
+const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+const DWMWCP_ROUNDSMALL: u32 = 3;
+
+// System tray constants.
+const ID_TRAY: u32 = 1001;
 
 const HEADER_H: i32 = 76;
 const SIDEBAR_W: i32 = 216;
 const STATUS_H: i32 = 32;
 const PAD: i32 = 18;
 const BTN_W: i32 = 158;
-const BTN_H: i32 = 42;
+const BTN_H: i32 = 48;
 const GAP: i32 = 12;
 const NAV_H: i32 = 44;
 const NAV_TOP: i32 = HEADER_H + 42; // room for the "MENU" caption above the items
@@ -174,19 +192,19 @@ struct Theme {
 }
 
 const LIGHT: Theme = Theme {
-    bg: rgb(0xF4, 0xF5, 0xF8),
-    header_top: rgb(0x27, 0x36, 0x57),
-    header_bot: rgb(0x12, 0x19, 0x2A),
-    header_sub: rgb(0x9F, 0xB0, 0xCC),
+    bg: rgb(0xF0, 0xF2, 0xF8),
+    header_top: rgb(0x1E, 0x2A, 0x44),
+    header_bot: rgb(0x0D, 0x12, 0x1E),
+    header_sub: rgb(0x8A, 0x9E, 0xBE),
     sidebar: rgb(0xFF, 0xFF, 0xFF),
     surface: rgb(0xFF, 0xFF, 0xFF),
-    border: rgb(0xE3, 0xE6, 0xEC),
-    text: rgb(0x14, 0x1A, 0x24),
-    text2: rgb(0x6B, 0x72, 0x80),
-    accent: rgb(0x2D, 0x6C, 0xF6),
-    accent_hot: rgb(0x4B, 0x82, 0xF8),
-    accent_down: rgb(0x1F, 0x57, 0xD6),
-    accent_soft: rgb(0xEC, 0xF2, 0xFE),
+    border: rgb(0xE0, 0xE4, 0xEC),
+    text: rgb(0x0F, 0x13, 0x1A),
+    text2: rgb(0x60, 0x68, 0x78),
+    accent: rgb(0x1A, 0x5C, 0xF7),
+    accent_hot: rgb(0x3B, 0x74, 0xF9),
+    accent_down: rgb(0x14, 0x4A, 0xD0),
+    accent_soft: rgb(0xE8, 0xF0, 0xFF),
     nav_hot: rgb(0xF1, 0xF3, 0xF7),
     danger: rgb(0xD8, 0x2C, 0x2C),
     danger_hot: rgb(0xE5, 0x48, 0x48),
@@ -194,33 +212,33 @@ const LIGHT: Theme = Theme {
     danger_soft: rgb(0xFD, 0xEC, 0xEC),
     warn: rgb(0xC2, 0x7A, 0x06),
     shadow: rgb(0xDD, 0xE1, 0xE9),
-    stripe: rgb(0xF7, 0xF8, 0xFB),
+    stripe: rgb(0xF5, 0xF7, 0xFA),
     ok: rgb(0x15, 0x9A, 0x52),
     ok_soft: rgb(0xE7, 0xF6, 0xEC),
 };
 
 const DARK: Theme = Theme {
-    bg: rgb(0x15, 0x16, 0x1B),
-    header_top: rgb(0x23, 0x26, 0x32),
-    header_bot: rgb(0x0E, 0x0F, 0x14),
-    header_sub: rgb(0x8B, 0x93, 0xA6),
-    sidebar: rgb(0x1B, 0x1D, 0x24),
-    surface: rgb(0x22, 0x25, 0x2D),
-    border: rgb(0x32, 0x35, 0x3F),
-    text: rgb(0xE7, 0xE9, 0xEE),
-    text2: rgb(0x97, 0x9E, 0xAC),
+    bg: rgb(0x12, 0x13, 0x18),
+    header_top: rgb(0x1E, 0x21, 0x2D),
+    header_bot: rgb(0x0C, 0x0D, 0x12),
+    header_sub: rgb(0x80, 0x89, 0x9E),
+    sidebar: rgb(0x18, 0x1A, 0x21),
+    surface: rgb(0x1F, 0x22, 0x2A),
+    border: rgb(0x2E, 0x31, 0x3C),
+    text: rgb(0xE4, 0xE6, 0xEC),
+    text2: rgb(0x91, 0x99, 0xA8),
     accent: rgb(0x4C, 0x8D, 0xFF),
     accent_hot: rgb(0x6A, 0xA1, 0xFF),
     accent_down: rgb(0x2D, 0x6C, 0xF6),
-    accent_soft: rgb(0x1C, 0x29, 0x42),
-    nav_hot: rgb(0x2A, 0x2E, 0x39),
+    accent_soft: rgb(0x1A, 0x26, 0x42),
+    nav_hot: rgb(0x27, 0x2B, 0x36),
     danger: rgb(0xF0, 0x52, 0x52),
     danger_hot: rgb(0xF8, 0x71, 0x71),
     danger_down: rgb(0xDC, 0x26, 0x26),
     danger_soft: rgb(0x3A, 0x20, 0x24),
     warn: rgb(0xE0, 0xA1, 0x06),
     shadow: rgb(0x0A, 0x0B, 0x0E),
-    stripe: rgb(0x1E, 0x21, 0x29),
+    stripe: rgb(0x1A, 0x1D, 0x25),
     ok: rgb(0x34, 0xC7, 0x59),
     ok_soft: rgb(0x16, 0x30, 0x1F),
 };
@@ -372,6 +390,11 @@ struct AppState {
     /// Total duration of the last completed scan (set on `Done`), shown in the
     /// status bar and exported in the report.
     scan_elapsed: Option<Duration>,
+    anim_frame: u32,
+    anim_timer_active: bool,
+    /// Button hover animation: (cmd, entering[true]/exiting[false], progress 0-5)
+    hover_anim: Vec<(usize, bool, u32)>,
+    tray_icon_shown: bool,
     work_tx: Sender<WorkRequest>,
     result_rx: Receiver<ScanMsg>,
     /// Set from the UI thread (Pause/Stop) and polled by the worker's scan loop
@@ -480,6 +503,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 mmi.ptMinTrackSize.y = 480;
                 LRESULT(0)
             }
+            WM_SYSCOMMAND if wp.0 as u32 == SC_MINIMIZE => {
+                // Minimize to tray instead of taskbar.
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                if let Some(s) = state(hwnd) {
+                    show_tray_icon(hwnd, s);
+                }
+                LRESULT(0)
+            }
             WM_PAINT => {
                 paint(hwnd);
                 LRESULT(0)
@@ -523,11 +554,53 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 drain_results(hwnd);
                 LRESULT(0)
             }
+            x if x == WM_DROPFILES => {
+                let hdrop = HDROP(wp.0 as *mut c_void);
+                on_dropfiles(hwnd, hdrop);
+                LRESULT(0)
+            }
+            x if x == WM_APP_TRAY => {
+                let hiword = (lp.0 >> 16) as u32;
+                if hiword == WM_LBUTTONUP || hiword == WM_LBUTTONDBLCLK {
+                    let _ = ShowWindow(hwnd, SW_SHOW);
+                    _ = SetForegroundWindow(hwnd);
+                    if let Some(s) = state(hwnd) {
+                        if s.tray_icon_shown {
+                            s.tray_icon_shown = false;
+                            let nid = NOTIFYICONDATAW {
+                                cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+                                uID: ID_TRAY,
+                                uFlags: NOTIFY_ICON_DATA_FLAGS(0),
+                                ..Default::default()
+                            };
+                            _ = Shell_NotifyIconW(NOTIFY_ICON_MESSAGE(2), &nid);
+                        }
+                    }
+                }
+                LRESULT(0)
+            }
+            x if x == WM_TIMER && wp.0 == ANIM_TIMER => {
+                on_anim_tick(hwnd);
+                LRESULT(0)
+            }
             WM_DESTROY => {
                 let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut AppState;
                 if !ptr.is_null() {
                     let s = Box::from_raw(ptr);
                     delete_fonts(&s.fonts);
+                    // Remove tray icon if still showing.
+                    if s.tray_icon_shown {
+                        let nid = NOTIFYICONDATAW {
+                            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+                            uID: ID_TRAY,
+                            uFlags: NOTIFY_ICON_DATA_FLAGS(0),
+                            ..Default::default()
+                        };
+                        _ = Shell_NotifyIconW(NOTIFY_ICON_MESSAGE(2), &nid);
+                    }
+                    if s.anim_timer_active {
+                        let _ = KillTimer(Some(hwnd), ANIM_TIMER);
+                    }
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
                 }
                 PostQuitMessage(0);
@@ -602,7 +675,19 @@ unsafe fn on_create(hwnd: HWND) {
     // Load the engine immediately so the loading screen shows on startup.
     let _ = work_tx.send(WorkRequest::StartEngine);
 
-    let s = Box::new(AppState {
+    // Accept dragged files/folders.
+    let _ = DragAcceptFiles(hwnd, true);
+
+    // Win11 rounded window corners via DWM.
+    let corner_pref = DWMWCP_ROUNDSMALL;
+    let _ = DwmSetWindowAttribute(
+        hwnd,
+        DWMWINDOWATTRIBUTE(DWMWA_WINDOW_CORNER_PREFERENCE as i32),
+        &corner_pref as *const u32 as *const c_void,
+        std::mem::size_of::<u32>() as u32,
+    );
+
+    let mut s = Box::new(AppState {
         scan_list,
         quar_list,
         fonts,
@@ -633,6 +718,10 @@ unsafe fn on_create(hwnd: HWND) {
         scan_discovering: false,
         scan_started_at: None,
         scan_elapsed: None,
+        anim_frame: 0,
+        anim_timer_active: false,
+        hover_anim: Vec::new(),
+        tray_icon_shown: false,
         work_tx,
         result_rx,
         cancel,
@@ -644,6 +733,10 @@ unsafe fn on_create(hwnd: HWND) {
         quar_ids: Vec::new(),
         quarantine_dir,
     });
+    // Start the animation timer (runs during loading and scanning).
+    SetTimer(Some(hwnd), ANIM_TIMER, ANIM_INTERVAL_MS, None);
+    s.anim_timer_active = true;
+
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(s) as isize);
     layout(hwnd);
     apply_page(hwnd);
@@ -925,6 +1018,7 @@ unsafe fn paint(hwnd: HWND) {
     if s.page == 0 && s.engine != EngineState::Loading {
         let content_l = SIDEBAR_W + PAD;
         let hero = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: HEADER_H + PAD + HERO_H };
+        draw_shadow(mem, hero, 16, t);
         draw_hero(mem, s, hero);
     }
 
@@ -939,10 +1033,35 @@ unsafe fn paint(hwnd: HWND) {
     if s.engine == EngineState::Loading {
         let content_l = SIDEBAR_W + PAD;
         let area = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: h - STATUS_H - PAD };
+        draw_shadow(mem, area, 16, t);
         fill_round(mem, area, 16, t.surface);
         frame_round(mem, area, 16, t.border);
         let cx = (area.left + area.right) / 2;
         let cy = (area.top + area.bottom) / 2;
+
+        // Animated spinner: 12 dots rotating above the badge.
+        let spinner_cx = cx;
+        let spinner_cy = cy - 104;
+        let spinner_r = 38;
+        let dot_r = 5;
+        let num_dots: i32 = 12;
+        for i in 0..num_dots {
+            let phase = (i as f64 / num_dots as f64) * std::f64::consts::TAU;
+            let t_offset = (s.anim_frame as f64 * 0.12) * std::f64::consts::TAU;
+            let brightness = ((phase - t_offset).sin() * 0.45 + 0.55).clamp(0.15, 1.0);
+            let angle = (i as f64 / num_dots as f64) * std::f64::consts::TAU;
+            let dx = (spinner_r as f64 * angle.cos()) as i32;
+            let dy = (spinner_r as f64 * angle.sin()) as i32;
+            let dot_color = lerp_color(t.text2, t.accent, brightness);
+            let dot_rect = RECT {
+                left: spinner_cx + dx - dot_r,
+                top: spinner_cy + dy - dot_r,
+                right: spinner_cx + dx + dot_r,
+                bottom: spinner_cy + dy + dot_r,
+            };
+            fill_round(mem, dot_rect, dot_r, dot_color);
+        }
+
         let bsz = 76;
         let badge = RECT { left: cx - bsz / 2, top: cy - bsz - 12, right: cx + bsz / 2, bottom: cy - 12 };
         fill_round(mem, badge, bsz / 2, t.accent);
@@ -980,23 +1099,53 @@ unsafe fn paint(hwnd: HWND) {
     let content_l = SIDEBAR_W + PAD;
     let list_top = s.buttons.iter().map(|b| b.rect.bottom).max().unwrap_or(HEADER_H + PAD) + PAD;
     let card = RECT { left: content_l - 1, top: list_top - 1, right: w - PAD + 1, bottom: h - STATUS_H - PAD + 1 };
+    draw_shadow(mem, card, 12, t);
     if s.page == 2 {
-        // Settings page has no list — fill the card and explain the cache.
+        // Settings page has no list — fill the card and show engine/version info.
         fill_round(mem, card, 12, t.surface);
         let pad = 18;
         let inner = RECT { left: card.left + pad, top: card.top + pad, right: card.right - pad, bottom: card.bottom - pad };
-        text(mem, "Result cache", &RECT { bottom: inner.top + 26, ..inner }, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        let body = RECT { top: inner.top + 34, ..inner };
+
+        // Engine status section with icon.
+        let engine_icon = RECT { left: inner.left, top: inner.top + 2, right: inner.left + 28, bottom: inner.top + 30 };
+        fill_round(mem, engine_icon, 14, match s.engine {
+            EngineState::Ready => t.ok,
+            EngineState::Loading => t.warn,
+            EngineState::Stopped => t.text2,
+        });
+        let glyph = match s.engine {
+            EngineState::Ready => "\u{E7FC}",
+            EngineState::Loading => "\u{E895}",
+            EngineState::Stopped => "\u{E7FC}",
+        };
+        text(mem, glyph, &engine_icon, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        let engine_label = RECT { left: engine_icon.right + 12, top: inner.top, right: inner.right, bottom: inner.top + 26 };
+        let engine_txt = match s.engine {
+            EngineState::Ready => format!("Engine ready — {} signatures", fmt_count(s.sig_count)),
+            EngineState::Loading => "Engine loading…".to_string(),
+            EngineState::Stopped => "Engine stopped — click Start Engine to load".to_string(),
+        };
+        text(mem, &engine_txt, &engine_label, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+        // Separator.
+        let sep_y = inner.top + 40;
+        fill(mem, &RECT { left: inner.left, top: sep_y, right: inner.right, bottom: sep_y + 1 }, t.border);
+
+        // Cache section.
+        let cache_top = sep_y + 16;
+        let cache_icon = RECT { left: inner.left, top: cache_top + 2, right: inner.left + 28, bottom: cache_top + 30 };
+        fill_round(mem, cache_icon, 14, t.text2);
+        text(mem, "\u{E752}", &cache_icon, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        let cache_label = RECT { left: cache_icon.right + 12, top: cache_top, right: inner.right, bottom: cache_top + 26 };
+        text(mem, "Result cache (Bloom filters)", &cache_label, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+        let body_top = cache_top + 34;
+        let body = RECT { top: body_top, bottom: inner.bottom, ..inner };
         text(
             mem,
-            "The scanner remembers the MD5 of every file it has already classified \
-             (good_results.bloom and bad_results.bloom), so identical files are not \
-             re-scanned — this makes repeat and bulk scans much faster, at almost no \
-             memory cost.\r\n\r\n\
-             “Clear Result Cache” wipes both blooms on disk and in memory. The scanner \
-             will then re-scan everything from scratch and forget every learned good and \
-             bad result. This is not recommended — only clear it if you suspect the cache \
-             is stale or corrupted.",
+            "The scanner remembers every file it has already classified, so \
+             repeat scans are nearly instant. “Clear Result Cache” wipes both \
+             blooms — the scanner will re-scan everything from scratch.",
             &body,
             t.text2,
             s.fonts.body,
@@ -1025,23 +1174,22 @@ unsafe fn paint(hwnd: HWND) {
     let _ = EndPaint(hwnd, &ps);
 }
 
-/// Kaspersky-style status hero: a colored banner with a big badge + headline.
+/// Modern status hero: a gradient-backed banner with a large accent badge + italic-free
+/// headline + subtitle. Uses a soft gradient of the accent color instead of a flat fill.
 unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     let t = s.theme();
-    let (bg, accent, glyph, head, sub) = match s.scan_state {
+    let (accent, glyph, head, sub) = match s.scan_state {
         ScanState::Idle => (
-            t.accent_soft,
             t.accent,
             "\u{E83D}", // shield
             "Ready to scan".to_string(),
             if s.sig_count > 0 {
-                format!("{} signatures loaded · run a scan to check for threats.", fmt_count(s.sig_count))
+                format!("{} signatures loaded — run a scan to check for threats.", fmt_count(s.sig_count))
             } else {
                 "Run a scan to check your system for threats.".to_string()
             },
         ),
         ScanState::Scanning => (
-            t.accent_soft,
             t.accent,
             "\u{E721}", // search
             if s.threat_count > 0 {
@@ -1062,21 +1210,18 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
             },
         ),
         ScanState::Paused => (
-            t.accent_soft,
             t.warn,
             "\u{E769}", // pause
             "Scan paused".to_string(),
             format!("{} scanned · {} threat(s) — Resume to continue.", s.scanned_count, s.threat_count),
         ),
         ScanState::Clean => (
-            t.ok_soft,
             t.ok,
             "\u{E73E}", // checkmark
             "No threats found".to_string(),
             format!("{} files scanned — your system looks clean.", s.scanned_count),
         ),
         ScanState::Threats => (
-            t.danger_soft,
             t.danger,
             "\u{E7BA}", // warning
             format!("{} threat(s) found", s.threat_count),
@@ -1084,14 +1229,22 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
         ),
     };
 
-    fill_round(hdc, r, 16, bg);
+    // Soft gradient background: tinted accent top → near-white/bg bottom.
+    let bg_top = lerp_color(accent, t.bg, 0.88);
+    let bg_bot = lerp_color(accent, t.surface, 0.97);
+    gradient_v(hdc, &r, bg_top, bg_bot);
     frame_round(hdc, r, 16, t.border);
 
-    let bsize = 64;
-    let bx = r.left + 22;
+    let bsize = 68;
+    let bx = r.left + 20;
     let by = r.top + (r.bottom - r.top - bsize) / 2;
+    // Outer glow ring.
+    let glow = RECT { left: bx - 3, top: by - 3, right: bx + bsize + 3, bottom: by + bsize + 3 };
+    let glow_col = lerp_color(accent, t.bg, 0.75);
+    fill_round(hdc, glow, (bsize / 2) + 3, glow_col);
+    // Main badge circle.
     let badge = RECT { left: bx, top: by, right: bx + bsize, bottom: by + bsize };
-    fill_round(hdc, badge, bsize / 2, accent); // filled circle
+    fill_round(hdc, badge, bsize / 2, accent);
     text(hdc, glyph, &badge, WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // A determinate progress bar shows while scanning or paused.
@@ -1128,7 +1281,7 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
 
     if show_bar {
         let bar = RECT { left: tx, top: r.bottom - 20, right: r.right - 20, bottom: r.bottom - 12 };
-        draw_progress(hdc, bar, frac, t.border, accent);
+        draw_progress_with_anim(hdc, bar, frac, s.anim_frame, t.border, accent);
         // Percentage at the right edge of the bar (skip while still discovering,
         // where the denominator is still growing and the % would be misleading).
         if !s.scan_discovering {
@@ -1145,8 +1298,9 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
 }
 
 /// A rounded determinate progress bar: a `track` background with an `accent` fill
-/// proportional to `frac` (0.0–1.0).
-unsafe fn draw_progress(hdc: HDC, r: RECT, frac: f64, track: COLORREF, accent: COLORREF) {
+/// proportional to `frac` (0.0–1.0). Includes an animated shimmer highlight that
+/// sweeps across the filled portion for a modern look.
+unsafe fn draw_progress_with_anim(hdc: HDC, r: RECT, frac: f64, anim_frame: u32, track: COLORREF, accent: COLORREF) {
     let radius = ((r.bottom - r.top) / 2).max(1);
     fill_round(hdc, r, radius, track);
     let frac = frac.clamp(0.0, 1.0);
@@ -1154,30 +1308,44 @@ unsafe fn draw_progress(hdc: HDC, r: RECT, frac: f64, track: COLORREF, accent: C
     if w > radius {
         let fr = RECT { right: r.left + w, ..r };
         fill_round(hdc, fr, radius, accent);
+        // Animated shimmer: a light highlight sweeps across the filled width.
+        let cycle_frames = 60u32; // ~2 seconds at 30fps
+        let pos = (anim_frame % cycle_frames) as f64 / cycle_frames as f64;
+        let shimmer_center = r.left + (w as f64 * pos) as i32;
+        let sw = 40i32;
+        let sh_left = (shimmer_center - sw / 2).max(r.left + 2);
+        let sh_right = (shimmer_center + sw / 2).min(r.left + w - 2);
+        if sh_right > sh_left {
+            let sh = RECT { left: sh_left, top: r.top + 1, right: sh_right, bottom: r.bottom - 1 };
+            let light = lerp_color(accent, WHITE, 0.3);
+            fill_round(hdc, sh, radius.saturating_sub(1).max(1), light);
+        }
     }
 }
 
 unsafe fn draw_button(hdc: HDC, b: &UiButton, hot: bool, down: bool, fonts: &Fonts, t: &Theme) {
-    let (fillc, textc) = match b.kind {
-        Kind::Primary => (
-            if down { t.accent_down } else if hot { t.accent_hot } else { t.accent },
-            WHITE,
-        ),
-        Kind::Danger => (
-            if down { t.danger_down } else if hot { t.danger_hot } else { t.danger },
-            WHITE,
-        ),
-        Kind::Neutral => (if down { t.nav_hot } else if hot { t.bg } else { t.surface }, t.text),
+    let (fillc, textc, disabled) = match b.kind {
+        Kind::Primary => (if down { t.accent_down } else if hot { t.accent_hot } else { t.accent }, WHITE, false),
+        Kind::Danger => (if down { t.danger_down } else if hot { t.danger_hot } else { t.danger }, WHITE, false),
+        Kind::Neutral => (if down { t.nav_hot } else if hot { t.bg } else { t.surface }, t.text, false),
     };
+    // Multi-layer shadow below button (only when not obviously disabled).
+    if !disabled {
+        draw_shadow(hdc, b.rect, 10, t);
+    }
     fill_round(hdc, b.rect, 10, fillc);
     if b.kind == Kind::Neutral {
         frame_round(hdc, b.rect, 10, t.border);
     }
-    // Leading MDL2 icon + label, drawn as a centered group.
+    // Leading MDL2 icon + label.
     let icon_r = RECT { left: b.rect.left + 14, right: b.rect.left + 38, ..b.rect };
     text(hdc, b.icon, &icon_r, textc, fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     let label_r = RECT { left: b.rect.left + 38, ..b.rect };
     text(hdc, b.label, &label_r, textc, fonts.button, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    // Disabled overlay: slightly transparent-looking via a thin border.
+    if disabled {
+        frame_round(hdc, b.rect, 10, t.text2);
+    }
 }
 
 // GDI helpers --------------------------------------------------------------
@@ -1223,6 +1391,23 @@ unsafe fn frame_round(hdc: HDC, r: RECT, radius: i32, color: COLORREF) {
     let _ = DeleteObject(rgn.into());
 }
 
+/// Multi-layer material shadow (3 layers) for premium depth.
+/// Draws an outer-soft, mid, and tight-dark shadow at increasing offsets,
+/// simulating the look of modern design systems (Material, Fluent).
+unsafe fn draw_shadow(hdc: HDC, r: RECT, radius: i32, t: &Theme) {
+    // Layer 1 (outermost, softest): large offset, very transparent.
+    let s1 = RECT { left: r.left + 2, top: r.top + 5, right: r.right + 2, bottom: r.bottom + 5 };
+    let c1 = lerp_color(t.shadow, t.bg, 0.55);
+    fill_round(hdc, s1, radius, c1);
+    // Layer 2 (mid): medium offset, standard shadow color.
+    let s2 = RECT { left: r.left + 1, top: r.top + 3, right: r.right + 1, bottom: r.bottom + 3 };
+    fill_round(hdc, s2, radius, t.shadow);
+    // Layer 3 (tightest, darkest): small offset, deeper shadow.
+    let s3 = RECT { left: r.left, top: r.top + 1, right: r.right, bottom: r.bottom + 1 };
+    let c3 = lerp_color(t.shadow, rgb(0, 0, 0), 0.12);
+    fill_round(hdc, s3, radius, c3);
+}
+
 unsafe fn text(hdc: HDC, s: &str, r: &RECT, color: COLORREF, font: HFONT, flags: DRAW_TEXT_FORMAT) {
     if s.is_empty() {
         return;
@@ -1234,6 +1419,114 @@ unsafe fn text(hdc: HDC, s: &str, r: &RECT, color: COLORREF, font: HFONT, flags:
     let mut rr = *r;
     DrawTextW(hdc, &mut chars, &mut rr, flags);
     SelectObject(hdc, old);
+}
+
+// ---------------------------------------------------------------------------
+// Drag-and-drop, tray icon, animation
+// ---------------------------------------------------------------------------
+
+unsafe fn on_dropfiles(hwnd: HWND, hdrop: HDROP) {
+    let Some(s) = state(hwnd) else {
+        DragFinish(hdrop);
+        return;
+    };
+    let count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
+    if count == 0 {
+        DragFinish(hdrop);
+        return;
+    }
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for i in 0..count {
+        let mut buf = vec![0u16; 260];
+        let len = DragQueryFileW(hdrop, i, Some(&mut buf));
+        if len > 0 {
+            buf.truncate(len as usize);
+            if let Ok(p) = String::from_utf16(&buf) {
+                paths.push(PathBuf::from(p));
+            }
+        }
+    }
+    DragFinish(hdrop);
+
+    if paths.is_empty() {
+        return;
+    }
+    s.cancel.store(false, Ordering::Relaxed);
+    s.abort.store(false, Ordering::Relaxed);
+    lv_clear(s.scan_list);
+    clear_scan_results(s);
+    // Navigate to Scan page.
+    if s.page != 0 {
+        s.page = 0;
+        apply_page(hwnd);
+    }
+    if paths.len() == 1 {
+        s.status = format!("Scanning {}…", paths[0].display());
+    } else {
+        s.status = format!("Scanning {} items…", paths.len());
+    }
+    let _ = s.work_tx.send(WorkRequest::Scan(paths));
+}
+
+unsafe fn show_tray_icon(_hwnd: HWND, s: &mut AppState) {
+    if s.tray_icon_shown {
+        return;
+    }
+    let hinst = GetModuleHandleW(None).unwrap_or_default();
+    let hicon = LoadIconW(Some(HINSTANCE::from(hinst)), PCWSTR(1 as *const u16)).unwrap_or_default();
+    let tip: Vec<u16> = "HydraDragon Antivirus".encode_utf16().collect();
+    let mut nid = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        uID: ID_TRAY,
+        uFlags: NOTIFY_ICON_DATA_FLAGS(0x0087), // NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP
+        uCallbackMessage: WM_APP_TRAY,
+        hIcon: hicon,
+        ..Default::default()
+    };
+    // Copy tip into the fixed-size array.
+    for (i, &c) in tip.iter().enumerate().take(128) {
+        nid.szTip[i] = c;
+    }
+    if Shell_NotifyIconW(NOTIFY_ICON_MESSAGE(0), &nid).as_bool() {
+        s.tray_icon_shown = true;
+    }
+}
+
+unsafe fn on_anim_tick(hwnd: HWND) {
+    let Some(s) = state(hwnd) else { return };
+    s.anim_frame = s.anim_frame.wrapping_add(1);
+    // Advance hover animations.
+    s.hover_anim.retain(|(_, entering, frame)| {
+        if *entering {
+            *frame < 5 // remove when fully entered (frame reaches 5)
+        } else {
+            *frame > 1 // keep until frame 1 to interpolate out
+        }
+    });
+    for (_, entering, frame) in &mut s.hover_anim {
+        if *entering && *frame < 5 { *frame += 1; }
+        if !*entering && *frame > 0 { *frame -= 1; }
+    }
+    let hover_active = !s.hover_anim.is_empty();
+    // Only invalidate when there is visible animation.
+    if hover_active || s.engine == EngineState::Loading || matches!(s.scan_state, ScanState::Scanning) {
+        let _ = InvalidateRect(Some(hwnd), None, false);
+    }
+}
+
+fn lerp_color(a: COLORREF, b: COLORREF, t: f64) -> COLORREF {
+    let t = t.clamp(0.0, 1.0);
+    let ra = (a.0 & 0xFF) as f64;
+    let ga = ((a.0 >> 8) & 0xFF) as f64;
+    let ba = ((a.0 >> 16) & 0xFF) as f64;
+    let rb = (b.0 & 0xFF) as f64;
+    let gb = ((b.0 >> 8) & 0xFF) as f64;
+    let bb = ((b.0 >> 16) & 0xFF) as f64;
+    COLORREF(
+        (ra * (1.0 - t) + rb * t) as u32
+            | ((ga * (1.0 - t) + gb * t) as u32) << 8
+            | ((ba * (1.0 - t) + bb * t) as u32) << 16,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1256,9 +1549,33 @@ unsafe fn on_mouse_move(hwnd: HWND, (x, y): (i32, i32)) {
     let hot_nav = s.nav.iter().position(|n| pt_in(&n.rect, x, y));
     let hot_theme = pt_in(&s.theme_btn, x, y);
     if hot_cmd != s.hot_cmd || hot_nav != s.hot_nav || hot_theme != s.hot_theme {
+        // Push hover-out animation for the previously hovered cmd.
+        if let Some(old) = s.hot_cmd {
+            if !s.hover_anim.iter().any(|(id, _, _)| *id == old) {
+                s.hover_anim.push((old, false, 5));
+            }
+        }
+        if let Some(old) = s.hot_nav {
+            let id = 100 + old;
+            if !s.hover_anim.iter().any(|(id2, _, _)| *id2 == id) {
+                s.hover_anim.push((id, false, 5));
+            }
+        }
         s.hot_cmd = hot_cmd;
         s.hot_nav = hot_nav;
         s.hot_theme = hot_theme;
+        // Push hover-in animation for the new hovered element.
+        if let Some(new) = hot_cmd {
+            if !s.hover_anim.iter().any(|(id, _, _)| *id == new) {
+                s.hover_anim.push((new, true, 0));
+            }
+        }
+        if let Some(new) = hot_nav {
+            let id = 100 + new;
+            if !s.hover_anim.iter().any(|(id2, _, _)| *id2 == id) {
+                s.hover_anim.push((id, true, 0));
+            }
+        }
         let _ = InvalidateRect(Some(hwnd), None, false);
     }
 }

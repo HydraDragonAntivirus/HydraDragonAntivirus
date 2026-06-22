@@ -2,7 +2,7 @@ use crate::logical::{parse_logical_signature, LogicalSignature};
 use crate::pattern::{compile_pattern_variants, Modifiers, Pattern};
 use crate::pe::PeInfo;
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
@@ -139,6 +139,10 @@ pub struct LoadReport {
     pub unsupported_files: usize,
     pub unsupported_records: usize,
     pub bytecodes_loaded: usize,
+    /// Signature names collected from `.ign`/`.ign2` ignore lists.
+    pub ign_entries: usize,
+    /// Signatures skipped because their name is in the ignore set.
+    pub ignored_skipped: usize,
     pub by_extension: BTreeMap<String, usize>,
     pub errors: Vec<LoadError>,
 }
@@ -167,8 +171,12 @@ impl Database {
     pub fn load_dir(path: impl AsRef<Path>) -> io::Result<(Self, LoadReport)> {
         let mut database = Database::default();
         let mut report = LoadReport::default();
+        // First pass: collect signature names to ignore from .ign/.ign2 files
+        // (ClamAV engine->ignored), so the second pass can skip them. Must
+        // precede signature loading regardless of directory order.
+        let ignored = collect_ignored(path.as_ref(), &mut report)?;
         visit_database_dir(path.as_ref(), &mut |file| {
-            load_file(file, &mut database, &mut report)
+            load_file(file, &mut database, &mut report, &ignored)
         })?;
         // Drop the over-allocated capacity the push-loops left behind (a `Vec`
         // grows geometrically, so the last doubling can waste up to ~2x). On
@@ -282,13 +290,23 @@ impl OffsetSpec {
     }
 }
 
-fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> io::Result<()> {
+fn load_file(
+    path: &Path,
+    database: &mut Database,
+    report: &mut LoadReport,
+    ignored: &HashSet<String>,
+) -> io::Result<()> {
     report.files_seen += 1;
     let ext = extension_key(path);
     *report.by_extension.entry(ext.clone()).or_insert(0) += 1;
 
     if is_hash_extension(&ext) {
         report.hash_files_skipped += 1;
+        return Ok(());
+    }
+
+    // .ign/.ign2 were consumed in the first pass (collect_ignored).
+    if ext == "ign" || ext == "ign2" {
         return Ok(());
     }
 
@@ -338,6 +356,9 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
         };
         match ext.as_str() {
             "ndb" | "ndu" => match parse_extended_signature(line, source.clone()) {
+                Ok(Some(signature)) if ignored.contains(&signature.name) => {
+                    report.ignored_skipped += 1;
+                }
                 Ok(Some(signature)) => {
                     database.extended.push(signature);
                     report.extended_loaded += 1;
@@ -347,6 +368,9 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
                 Err(message) => push_error(report, source, message),
             },
             "ldb" | "ldu" => match parse_logical_signature(line, source.clone()) {
+                Ok((signature, _)) if ignored.contains(&signature.name) => {
+                    report.ignored_skipped += 1;
+                }
                 Ok((signature, warnings)) => {
                     for warning in warnings {
                         push_unsupported(database, report, path, line_number, warning);
@@ -357,6 +381,9 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
                 Err(message) => push_error(report, source, message),
             },
             "cdb" => match parse_container_signature(line, source.clone()) {
+                Ok(signature) if ignored.contains(&signature.name) => {
+                    report.ignored_skipped += 1;
+                }
                 Ok(signature) => {
                     database.container.push(signature);
                     report.container_loaded += 1;
@@ -440,7 +467,30 @@ fn parse_filename_regex(raw: &str) -> Result<Option<Regex>, String> {
         return Ok(None);
     }
     let sanitized = sanitize_clamav_regex(raw);
-    Regex::new(&sanitized)
+    if let Ok(re) = Regex::new(&sanitized) {
+        return Ok(Some(re));
+    }
+    // Rust's `regex` cannot compile backreferences (`\1`…`\9`). A `.cdb` filename
+    // field with `\<digit>` is almost always an over-escaped literal (e.g.
+    // `\2023.com` == "2023.com"), so retry treating `\<digit>` as the literal
+    // digit — supporting the signature instead of dropping it. (Scoped to
+    // filename regexes; PCRE subsigs keep backreferences inert.)
+    let relaxed: String = {
+        let bytes: Vec<char> = sanitized.chars().collect();
+        let mut out = String::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == '\\' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
+                out.push(bytes[i + 1]);
+                i += 2;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        out
+    };
+    Regex::new(&relaxed)
         .map(Some)
         .map_err(|err| format!("invalid container filename regex: {err}"))
 }
@@ -725,6 +775,56 @@ fn visit_database_dir(
     Ok(())
 }
 
+/// First pass over the database: build the set of signature names to ignore
+/// from every `.ign`/`.ign2` file (ClamAV `cli_loadign` → `engine->ignored`).
+fn collect_ignored(path: &Path, report: &mut LoadReport) -> io::Result<HashSet<String>> {
+    let mut ignored = HashSet::new();
+    visit_database_dir(path, &mut |file| {
+        let ext = extension_key(file);
+        if ext != "ign" && ext != "ign2" {
+            return Ok(());
+        }
+        let f = File::open(file)?;
+        let mut reader = BufReader::new(f);
+        let mut raw: Vec<u8> = Vec::new();
+        loop {
+            raw.clear();
+            if reader.read_until(b'\n', &mut raw)? == 0 {
+                break;
+            }
+            let decoded = String::from_utf8_lossy(&raw);
+            let line = decoded.trim_end_matches(['\r', '\n']);
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(name) = ignored_signame(line) {
+                ignored.insert(name.to_string());
+                report.ign_entries += 1;
+            }
+        }
+        Ok(())
+    })?;
+    Ok(ignored)
+}
+
+/// Extract the signature name from one `.ign`/`.ign2` line, per `cli_loadign`:
+/// 1 field → the whole line; 2 fields → field 0 (field 1 is an MD5 we don't
+/// verify); 3+ fields (old format `db:line:name`) → field 2.
+fn ignored_signame(line: &str) -> Option<&str> {
+    let tokens: Vec<&str> = line.split(':').collect();
+    let name = match tokens.len() {
+        0 => return None,
+        1 => line,
+        2 => tokens[0],
+        _ => tokens[2],
+    };
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
 fn push_error(report: &mut LoadReport, source: SourceLocation, message: String) {
     report.errors.push(LoadError { source, message });
 }
@@ -770,8 +870,6 @@ fn is_known_unsupported_extension(ext: &str) -> bool {
             | "wdb"
             | "fp"
             | "sfp"
-            | "ign"
-            | "ign2"
             | "cfg"
             | "cat"
             | "crb"

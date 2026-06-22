@@ -973,12 +973,21 @@ impl ExprParser {
         };
         if let Some(op) = op {
             let hits = self.parse_number()?;
+            // `=n,m` carries an optional distinct-count. ClamAV's bare-token path
+            // (`sscanf("%u")`) ignores a dangling `,` with no number, e.g.
+            // `0=2,&1&2`, so consume the comma but only read `m` if a digit
+            // follows; otherwise treat it as ignorable trailing junk.
             let distinct = if self.peek() == Some(',') {
                 self.pos += 1;
-                Some(self.parse_number()?)
+                if self.peek().map_or(false, |ch| ch.is_ascii_digit()) {
+                    Some(self.parse_number()?)
+                } else {
+                    None
+                }
             } else {
                 None
             };
+            self.skip_token_junk();
             expr = ExprTree::Compare {
                 expr: Box::new(expr),
                 op,
@@ -1005,6 +1014,9 @@ impl ExprParser {
             Some(ch) if ch.is_ascii_digit() => {
                 let index = self.parse_number()?;
                 self.skip_index_suffix();
+                // ClamAV reads the subsig id with sscanf("%u") and ignores any
+                // trailing junk before the next operator (e.g. `0:4C20…` ⇒ `0`).
+                self.skip_token_junk();
                 Ok(ExprTree::Subsig(index))
             }
             Some(other) => Err(format!("unexpected logical expression token '{other}'")),
@@ -1042,6 +1054,19 @@ impl ExprParser {
         self.chars.get(self.pos + 1).copied()
     }
 
+    /// Skip characters that ClamAV's `sscanf("%u")` would silently ignore: any
+    /// run between a token and the next structural element (`& | ( ) = < >`) or
+    /// end of expression — e.g. the `:4C2020…` in `0:4C2020…`. Whitespace is left
+    /// for `skip_ws`/the operator loops.
+    fn skip_token_junk(&mut self) {
+        while let Some(ch) = self.peek() {
+            if matches!(ch, '&' | '|' | '(' | ')' | '=' | '<' | '>') || ch.is_whitespace() {
+                break;
+            }
+            self.pos += 1;
+        }
+    }
+
     fn skip_index_suffix(&mut self) {
         while self.peek().map_or(false, |ch| ch.is_ascii_alphabetic()) {
             self.pos += 1;
@@ -1064,26 +1089,13 @@ impl ExprParser {
     }
 }
 
+/// ClamAV's `cli_ac_chklsig` parses each bare subsig token with `sscanf("%u")`,
+/// i.e. it reads the leading integer and silently ignores any trailing junk
+/// (e.g. `0:4C2020…` is just subsig `0`). We replicate that leniency inside the
+/// parser (`skip_token_junk`) rather than rewriting the expression up front, so
+/// we no longer mis-strip a leading `0:` into a bogus hex "expression".
 fn strip_expression_anchor(raw: &str) -> &str {
-    let Some((candidate, rest)) = raw.split_once(':') else {
-        return raw;
-    };
-    let upper = candidate.to_ascii_uppercase();
-    let looks_like_anchor = candidate.parse::<usize>().is_ok()
-        || candidate == "*"
-        || upper.starts_with("EOF-")
-        || upper == "EP"
-        || upper.starts_with("EP+")
-        || upper.starts_with("EP-")
-        || upper.starts_with('S')
-        || upper == "SL"
-        || upper.starts_with("SL+")
-        || upper.starts_with("SL-");
-    if looks_like_anchor {
-        rest
-    } else {
-        raw
-    }
+    raw
 }
 
 #[cfg(test)]
