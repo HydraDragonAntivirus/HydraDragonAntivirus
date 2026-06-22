@@ -1759,8 +1759,6 @@ k3e9_51a933360dab6b32
 k3e9_63b4b3c330cc4b17
 k3ec_2d1596c1c4000b32
 k400_1ec313eb48800112
-k3ec_2d1596c1c4000b32
-k400_1ec313eb48800112
 Win_Spyware_Zbot_1279
 bmp_file
 XM_music_file_
@@ -1830,7 +1828,6 @@ m3ed_45b65cd4d992d311
 DOTNET_SingleFileHost_Bundled_App
 SUSP_MinimalImports_LoadLibrary_and_GetProcAddress
 k3f4_13da8799c2200332
-case_5087_3
 n3e9_529993e9c8801912
 TNS_filter_short_tns_max_bands_128__avcodec___8_byt_13_
 SUSP_DotNet_Method_Param_Payload
@@ -1882,7 +1879,6 @@ n3e9_1bc29498dee30b16
 _Tro_595
 SHA384__64_lil_AND_
 SUSP_Export_Offset_Zero
-gpg
 n3e9_4116aba9c8000b12
 INFO_PE_Contains_404_Title
 twofish_exp_to_poly__8_byt_492_
@@ -1894,7 +1890,7 @@ Whirlpool_rc__64_lil_88_
 libntlm_DES_weak_keys_chksum__8_byt_20_
 self_inject
 capa_inject_APC
-Sandboxie_Detection 
+Sandboxie_Detection
 SUSP_PE_RSRCs_Name_Strings_64_and_32_Refs
 RelativeOffsetExample
 TTP_RegOpenKeyExA_HKEY_CURRENT_USER_tight
@@ -1908,14 +1904,27 @@ seven_zip_cmdversion
 aspack_108a
 _DodgyPhp
 _ObfuscatedPhp
-mz_executable
-INDICATOR_SUSPICIOUS_Stomped_PECompilation_Timestamp_InTheFuture 
+INDICATOR_SUSPICIOUS_Stomped_PECompilation_Timestamp_InTheFuture
 aspack_108c
 INDICATOR_SUSPICIOUS_CAPABILITY_CaptureScreenShot
-Electronic_Arts_TQI_base_table2__8_byt_64_ 
+Electronic_Arts_TQI_base_table2__8_byt_64_
 libavcodec_nuppelvideo_fallback_lquant__8_byt_64_
 kryptor8
 png
 IsZipFile
 PEiD_00351_Borland_Delphi_v6_0_
 shellcode_at_entry_point, n3e9_2db18e42d96b6b32, n3e9_2db31cd6efe91932
+APC_Inject
+AtomTable_Inject
+Atom_Bombing
+CTRL_Inject
+MALWARE_Win_RDPCredsStealer
+MASM
+UPX_v0_89_6___v1_02___v1_05___v1_22_DLL
+Win_Trojan_Java_98
+_ACProtect_13x__14x_DLL__Risco_Software_Inc_
+_UPX_v0896__v102__v105__v122_DLL__Laszlo__Markus_
+network_ftp
+spyeye_plugins
+upx_dll
+upx_dll2

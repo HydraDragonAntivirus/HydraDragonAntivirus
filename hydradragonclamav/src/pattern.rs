@@ -718,6 +718,60 @@ fn match_tokens(
                         search_from = candidate + 1;
                     }
                 }
+                // Same fast jump for a case-insensitive literal after the wildcard
+                // (`hello*world` → [LitNocase, *, LitNocase]). There's no SIMD
+                // case-insensitive memmem, so anchor on the first byte's two cases
+                // via memchr/memchr2, then confirm the whole nocase literal. Without
+                // this arm a multi-segment nocase signature with a gap — the MAJORITY
+                // of real nocase sigs — falls through to the O(n^2) per-position probe.
+                Some(Token::LitNocase { off, len }) => {
+                    let lit = &lits[*off as usize..(*off + *len) as usize];
+                    // lit[0] is stored lowercased; anchor on lower+upper case.
+                    let first = lit[0];
+                    let (b1, b2) = if first.is_ascii_alphabetic() {
+                        (first, Some(first.to_ascii_uppercase()))
+                    } else {
+                        (first, None)
+                    };
+                    let greedy = open_ended_after(tokens, token_index + 2);
+                    let mut search_from = min_pos;
+                    loop {
+                        if search_from > max_pos || search_from + lit.len() > data.len() {
+                            return None;
+                        }
+                        let scan_end = (max_pos + 1).min(data.len());
+                        if search_from >= scan_end {
+                            return None;
+                        }
+                        let hay = &data[search_from..scan_end];
+                        let rel = match b2 {
+                            Some(b2) => memchr::memchr2(b1, b2, hay),
+                            None => memchr::memchr(b1, hay),
+                        };
+                        let Some(rel) = rel else {
+                            return None;
+                        };
+                        let candidate = search_from + rel;
+                        let end = candidate + lit.len();
+                        // Confirm the full nocase literal at this candidate.
+                        if end <= data.len()
+                            && data[candidate..end]
+                                .iter()
+                                .zip(lit)
+                                .all(|(d, l)| d.to_ascii_lowercase() == *l)
+                        {
+                            if let Some(e) =
+                                match_tokens(tokens, lits, data, token_index + 2, end, depth)
+                            {
+                                return Some(e);
+                            }
+                            if greedy {
+                                return None;
+                            }
+                        }
+                        search_from = candidate + 1;
+                    }
+                }
                 // `anchor_bytes()` (not `exact_value()`): the latter is `None`
                 // for `nocase` bytes, so case-insensitive patterns' wildcard gaps
                 // used to fall through to the slow per-position probe below — and
@@ -1176,6 +1230,15 @@ fn to_wide_tokens(tokens: &[Token]) -> Vec<Token> {
                     negated_width,
                 })));
             }
+            // `to_wide_tokens` runs on PARSER output, BEFORE `compact_tokens`, so
+            // it never sees Literal/LitNocase — and couldn't widen them anyway,
+            // since those reference the `lits` arena that doesn't exist yet here.
+            // Assert the invariant so a future reordering is caught loudly instead
+            // of silently emitting a non-widened (broken) wide pattern.
+            Token::Literal { .. } | Token::LitNocase { .. } => {
+                debug_assert!(false, "to_wide_tokens received a compacted token");
+                out.push(token.clone());
+            }
             other => out.push(other.clone()),
         }
     }
@@ -1545,6 +1608,26 @@ mod tests {
         assert!(p.is_match(b"xxHeLLoyy"));
         assert!(p.is_match(b"hello"));
         assert!(!p.is_match(b"world"));
+    }
+
+    #[test]
+    fn nocase_literal_after_wildcard_matches() {
+        // "hello*world" nocase → [LitNocase("hello"), AnyBytes{*}, LitNocase("world")].
+        // Exercises the LitNocase arm of the AnyBytes fast path (68=h…6f=o, 2a=*,
+        // 77=w…64=d via the '*' wildcard token).
+        let pat = compile_pattern_variants(
+            "68656c6c6f*776f726c64",
+            Modifiers {
+                nocase: true,
+                ..Modifiers::default()
+            },
+        )
+        .unwrap()
+        .remove(0);
+        assert!(pat.is_match(b"xxHeLLo________WoRLDyy"));
+        assert!(pat.is_match(b"hello world"));
+        assert!(!pat.is_match(b"hello there")); // "world" absent
+        assert!(!pat.is_match(b"hell0 world")); // "hello" absent (0 not o)
     }
 
     #[test]

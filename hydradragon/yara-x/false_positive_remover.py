@@ -40,6 +40,11 @@ except ImportError:
 
 
 LOG_FILE = "removal.log"
+# Master exclusion list (one YARA rule name per line) kept in sync with every
+# removal so the YARA-X engine can skip these rules without re-deriving them.
+EXCLUDED_RULES_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "excluded_yara_x_rules_old.txt"
+)
 
 
 def build_cli_parser():
@@ -359,10 +364,68 @@ def write_removed_rules_archive(removed_blocks, base_name="removed_fp_rules.yar"
     return out_path
 
 
+def update_excluded_rules_file(rule_names, path=EXCLUDED_RULES_FILE):
+    """Append the given FP rule names to the master exclusion list, preserving the
+    existing order and skipping any that are already present. Returns the number
+    of newly added names."""
+    if not rule_names:
+        return 0
+
+    # Keep the first occurrence of each existing name (collapsing any pre-existing
+    # duplicates) and remember what's already present so we never re-add a name.
+    existing = []
+    seen = set()
+    dropped_dupes = 0
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    name = line.strip()
+                    if not name:
+                        continue
+                    if name in seen:
+                        dropped_dupes += 1
+                        continue
+                    seen.add(name)
+                    existing.append(name)
+        except IOError as e:
+            log_message(f"Error: Could not read exclusion list '{path}': {e}")
+            return 0
+
+    new_names = sorted(n for n in rule_names if n and n not in seen)
+    if not new_names and not dropped_dupes:
+        log_message(f"INFO: All {len(rule_names)} FP rule(s) already in {os.path.basename(path)}.")
+        return 0
+
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            for name in existing:
+                f.write(name + "\n")
+            for name in new_names:
+                f.write(name + "\n")
+    except IOError as e:
+        log_message(f"Error: Could not update exclusion list '{path}': {e}")
+        return 0
+
+    if dropped_dupes:
+        log_message(f"INFO: Collapsed {dropped_dupes} pre-existing duplicate(s) in {os.path.basename(path)}.")
+    log_message(f"INFO: Added {len(new_names)} rule(s) to {os.path.basename(path)} "
+                f"(now {len(seen) + len(new_names)} total).")
+    return len(new_names)
+
+
 def main():
     """Main function to parse arguments and start the process."""
     parser = build_cli_parser()
     opts, _ = parser.parse_args()
+
+    # Convenience: if -f points at a .csv file (rather than a benign-files dir),
+    # treat it as --from-csv so `-f results.csv` just works.
+    if opts.fp_path and not opts.from_csv and os.path.isfile(opts.fp_path) \
+            and opts.fp_path.lower().endswith(".csv"):
+        log_message(f"Note: '-f' given a CSV file; routing to --from-csv mode.")
+        opts.from_csv = opts.fp_path
+        opts.fp_path = None
 
     # The "skip scanning" modes (--from-log / --from-csv) don't need benign files.
     skip_scan = opts.from_log or bool(opts.from_csv)
@@ -394,6 +457,7 @@ def main():
         log_message(f"Found {len(false_positive_rules)} unique FP rule(s) in the CSV. Proceeding to clean...")
         removed_blocks = clean_yara_files(yara_path, false_positive_rules, opts.subdirectories)
         write_removed_rules_archive(removed_blocks)
+        update_excluded_rules_file(false_positive_rules)
         log_message("--- YARA False Positive Remover Finished ---")
         sys.exit(0)
 
@@ -406,6 +470,7 @@ def main():
             sys.exit(0)
         log_message(f"Found {len(false_positive_rules)} unique FP rules in log. Proceeding to clean...")
         clean_yara_files(yara_path, false_positive_rules, opts.subdirectories)
+        update_excluded_rules_file(false_positive_rules)
         log_message("--- YARA False Positive Remover Finished ---")
         sys.exit(0)
 
@@ -436,6 +501,7 @@ def main():
 
     # 2. Process the YARA path to remove the identified rules
     clean_yara_files(yara_path, false_positive_rules, opts.subdirectories)
+    update_excluded_rules_file(false_positive_rules)
 
     log_message("--- YARA False Positive Remover Finished ---")
 
