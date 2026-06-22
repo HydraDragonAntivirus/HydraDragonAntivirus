@@ -36,7 +36,12 @@ fn hex_to_u16(hex: &str) -> Result<Vec<u16>, String> {
     while i + 1 < h.len() {
         let hi = h[i];
         let lo = h[i + 1];
-        let inst = if hi == b'?' && lo == b'?' {
+        let inst = if hi == b'(' && lo == b')' {
+            // `()` placeholder emitted by extract_specials for an alternation /
+            // boundary / gap. One CLI_MATCH_SPECIAL indexes the next entry of the
+            // special table (mirrors ClamAV's special_pattern counter).
+            CLI_MATCH_SPECIAL
+        } else if hi == b'?' && lo == b'?' {
             CLI_MATCH_IGNORE
         } else if hi == b'?' {
             let lo_v = u8::from_str_radix(std::str::from_utf8(&[lo]).unwrap(), 16)
@@ -172,8 +177,9 @@ impl Special {
 /// `()` special table.
 #[derive(Clone, Default)]
 pub struct Pattern {
-    pub instructions: Vec<u16>,
-    pub specials: Vec<Special>,
+    /// Exact-fit boxed slice — no overcapacity, smaller header than Vec.
+    pub instructions: Box<[u16]>,
+    pub specials: Box<[Special]>,
     pub fullword: bool,
     /// Byte offset and length of the longest fixed-byte literal in instructions.
     /// No heap copy — bytes are reconstructed from `instructions` on demand.
@@ -187,11 +193,12 @@ impl Pattern {
     }
 
     /// Create a Pattern from parsed instructions and special table.
+    /// Converts Vecs to exact-fit Box<[T]> — eliminates overcapacity.
     pub fn from_parsed(inst: Vec<u16>, specials: Vec<Special>, fullword: bool) -> Self {
         let best_literal = Self::compute_best_literal(&inst);
         Self {
-            instructions: inst,
-            specials,
+            instructions: inst.into_boxed_slice(),
+            specials: specials.into_boxed_slice(),
             fullword,
             best_literal,
         }

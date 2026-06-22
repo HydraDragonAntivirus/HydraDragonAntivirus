@@ -1,7 +1,6 @@
 use crate::logical::{parse_logical_signature, LogicalSignature};
 use crate::pattern::{compile_pattern_variants, Modifiers, Pattern};
 use crate::pe::PeInfo;
-use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
@@ -71,7 +70,10 @@ pub struct ContainerSignature {
     pub name: String,
     pub container_type: ContainerType,
     pub container_size: NumSpec,
-    pub filename: Option<Regex>,
+    /// True when the signature constrains the archive member filename.
+    /// We can't observe filenames inside archives, so any such sig is skipped
+    /// at scan time. Stored as a bool — no need to compile and hold the Regex.
+    pub has_filename: bool,
     pub size_in_container: NumSpec,
     pub size_real: NumSpec,
     pub encrypted: Option<bool>,
@@ -132,6 +134,10 @@ pub struct LoadReport {
     pub files_seen: usize,
     pub lines_seen: usize,
     pub extended_loaded: usize,
+    /// Old-format `.db` (`name=hexsig`) body signatures loaded. These are stored
+    /// in `database.extended` and scan through the same path; counted separately
+    /// only so the report can show they're no longer being silently dropped.
+    pub db_loaded: usize,
     pub logical_loaded: usize,
     pub container_loaded: usize,
     pub ftm_loaded: usize,
@@ -143,6 +149,28 @@ pub struct LoadReport {
     pub ign_entries: usize,
     /// Signatures skipped because their name is in the ignore set.
     pub ignored_skipped: usize,
+    // Per-category file counts for the not-yet-matched / non-detection extensions,
+    // so every file in `files_seen` is accounted for (no silent drops). Each of
+    // these also pushes one `UnsupportedRecord` naming the exact disposition.
+    /// `.pdb`/`.gdb`/`.wdb` — phishing URL/domain databases (Pass 2).
+    pub phishing_files: usize,
+    /// `.idb` — icon fuzzy-image signatures (Pass 3).
+    pub icon_files: usize,
+    /// `.crb`/`.cat` — Authenticode certificate trust/block rules (Pass 4).
+    pub cert_files: usize,
+    /// `.ioc` — OpenIOC XML indicator databases.
+    pub ioc_files: usize,
+    /// `.cfg` — dconf engine configuration (not detection).
+    pub config_files: usize,
+    /// `.info`/`.dat`/`.pwdb`/`.sign` — container metadata / archive passwords.
+    pub metadata_files: usize,
+    /// `.cvd`/`.cld`/`.cud` — signed signature containers (handled by the bytecode
+    /// / CVD loader, not the per-line database loader).
+    pub container_db_files: usize,
+    /// `.zmd`/`.rmd` — deprecated ClamAV metadata formats.
+    pub deprecated_files: usize,
+    /// Any extension not recognised by ClamAV's dispatch table.
+    pub unknown_files: usize,
     pub by_extension: BTreeMap<String, usize>,
     pub errors: Vec<LoadError>,
 }
@@ -300,31 +328,50 @@ fn load_file(
     let ext = extension_key(path);
     *report.by_extension.entry(ext.clone()).or_insert(0) += 1;
 
-    if is_hash_extension(&ext) {
-        report.hash_files_skipped += 1;
-        return Ok(());
-    }
+    let kind = classify_extension(&ext);
+    match kind {
+        // Per-line body/logical/container/magic databases are parsed below.
+        ExtKind::BodyNdb | ExtKind::BodyOldDb | ExtKind::Logical
+        | ExtKind::Container | ExtKind::FileMagic => {}
 
-    // .ign/.ign2 were consumed in the first pass (collect_ignored).
-    if ext == "ign" || ext == "ign2" {
-        return Ok(());
-    }
-
-    if !matches!(
-        ext.as_str(),
-        "ndb" | "ndu" | "ldb" | "ldu" | "cdb" | "ftm"
-    ) {
-        if is_known_unsupported_extension(&ext) {
-            report.unsupported_files += 1;
-            push_unsupported(
-                database,
-                report,
-                path,
-                0,
-                format!("unsupported non-body ClamAV database format '.{ext}'"),
-            );
+        // Hash-based databases are matched by hydradragon elsewhere, not here.
+        ExtKind::Hash => {
+            report.hash_files_skipped += 1;
+            return Ok(());
         }
-        return Ok(());
+
+        // .ign/.ign2 were consumed in the first pass (collect_ignored).
+        ExtKind::Ignore => return Ok(()),
+
+        // Everything else is a real ClamAV format we don't yet *match*, but it
+        // must still be accounted for — count it by category and record a precise
+        // disposition so `--list-unsupported` names exactly what was deferred and
+        // the report sums to 100% of files_seen. Nothing is silently dropped.
+        ExtKind::Phishing
+        | ExtKind::Icon
+        | ExtKind::CertTrust
+        | ExtKind::Ioc
+        | ExtKind::Config
+        | ExtKind::Metadata
+        | ExtKind::ContainerDb
+        | ExtKind::Deprecated
+        | ExtKind::Unknown => {
+            match kind {
+                ExtKind::Phishing => report.phishing_files += 1,
+                ExtKind::Icon => report.icon_files += 1,
+                ExtKind::CertTrust => report.cert_files += 1,
+                ExtKind::Ioc => report.ioc_files += 1,
+                ExtKind::Config => report.config_files += 1,
+                ExtKind::Metadata => report.metadata_files += 1,
+                ExtKind::ContainerDb => report.container_db_files += 1,
+                ExtKind::Deprecated => report.deprecated_files += 1,
+                ExtKind::Unknown => report.unknown_files += 1,
+                _ => unreachable!(),
+            }
+            report.unsupported_files += 1;
+            push_unsupported(database, report, path, 0, kind.disposition(&ext));
+            return Ok(());
+        }
     }
 
     let file = File::open(path)?;
@@ -354,8 +401,10 @@ fn load_file(
             path: src_path.clone(),
             line: line_number,
         };
-        match ext.as_str() {
-            "ndb" | "ndu" => match parse_extended_signature(line, source.clone()) {
+        match kind {
+            // `.sdb` parses identically to `.ndb`; ClamAV's `sdb` flag only sets
+            // engine->sdb and skips the sigload callback (readdb.c cli_loadndb).
+            ExtKind::BodyNdb => match parse_extended_signature(line, source.clone()) {
                 Ok(Some(signature)) if ignored.contains(&signature.name) => {
                     report.ignored_skipped += 1;
                 }
@@ -367,7 +416,20 @@ fn load_file(
                 Ok(None) => {}
                 Err(message) => push_error(report, source, message),
             },
-            "ldb" | "ldu" => match parse_logical_signature(line, source.clone()) {
+            // Old-format `.db`: `name=hexsig`, generic target, offset `*`
+            // (readdb.c cli_loaddb -> cli_add_content_match_pattern on root[0]).
+            ExtKind::BodyOldDb => match parse_db_signature(line, source.clone()) {
+                Ok(Some(signature)) if ignored.contains(&signature.name) => {
+                    report.ignored_skipped += 1;
+                }
+                Ok(Some(signature)) => {
+                    database.extended.push(signature);
+                    report.db_loaded += 1;
+                }
+                Ok(None) => {}
+                Err(message) => push_error(report, source, message),
+            },
+            ExtKind::Logical => match parse_logical_signature(line, source.clone()) {
                 Ok((signature, _)) if ignored.contains(&signature.name) => {
                     report.ignored_skipped += 1;
                 }
@@ -380,7 +442,7 @@ fn load_file(
                 }
                 Err(message) => push_error(report, source, message),
             },
-            "cdb" => match parse_container_signature(line, source.clone()) {
+            ExtKind::Container => match parse_container_signature(line, source.clone()) {
                 Ok(signature) if ignored.contains(&signature.name) => {
                     report.ignored_skipped += 1;
                 }
@@ -390,14 +452,15 @@ fn load_file(
                 }
                 Err(message) => push_error(report, source, message),
             },
-            "ftm" => match parse_ftm(line, source.clone()) {
+            ExtKind::FileMagic => match parse_ftm(line, source.clone()) {
                 Ok(signature) => {
                     database.file_type_magic.push(signature);
                     report.ftm_loaded += 1;
                 }
                 Err(message) => push_error(report, source, message),
             },
-            _ => unreachable!(),
+            // The non-per-line kinds returned early above before the read loop.
+            _ => unreachable!("non-per-line ExtKind reached the parse loop"),
         }
     }
     Ok(())
@@ -418,7 +481,7 @@ fn parse_container_signature(
         name: parts[0].to_string(),
         container_type: cl_type_to_container(parts[1]),
         container_size: NumSpec::parse(parts[2])?,
-        filename: parse_filename_regex(parts[3])?,
+        has_filename: has_filename_constraint(parts[3]),
         size_in_container: NumSpec::parse(parts[4])?,
         size_real: NumSpec::parse(parts[5])?,
         encrypted: parse_encrypted(parts[6])?,
@@ -461,38 +524,12 @@ fn cl_type_to_container(raw: &str) -> ContainerType {
     }
 }
 
-fn parse_filename_regex(raw: &str) -> Result<Option<Regex>, String> {
+/// Returns true when the filename field constrains to a specific pattern
+/// (i.e. it is not a wildcard). We skip such sigs at scan time since we
+/// cannot observe archive member filenames — no need to compile the Regex.
+fn has_filename_constraint(raw: &str) -> bool {
     let raw = raw.trim();
-    if raw.is_empty() || raw == "*" || raw == ".*" {
-        return Ok(None);
-    }
-    let sanitized = sanitize_clamav_regex(raw);
-    if let Ok(re) = Regex::new(&sanitized) {
-        return Ok(Some(re));
-    }
-    // Rust's `regex` cannot compile backreferences (`\1`…`\9`). A `.cdb` filename
-    // field with `\<digit>` is almost always an over-escaped literal (e.g.
-    // `\2023.com` == "2023.com"), so retry treating `\<digit>` as the literal
-    // digit — supporting the signature instead of dropping it. (Scoped to
-    // filename regexes; PCRE subsigs keep backreferences inert.)
-    let relaxed: String = {
-        let bytes: Vec<char> = sanitized.chars().collect();
-        let mut out = String::with_capacity(bytes.len());
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == '\\' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
-                out.push(bytes[i + 1]);
-                i += 2;
-            } else {
-                out.push(bytes[i]);
-                i += 1;
-            }
-        }
-        out
-    };
-    Regex::new(&relaxed)
-        .map(Some)
-        .map_err(|err| format!("invalid container filename regex: {err}"))
+    !raw.is_empty() && raw != "*" && raw != ".*"
 }
 
 /// Translate a ClamAV / POSIX-ish regex into one Rust's `regex` crate accepts.
@@ -655,6 +692,78 @@ mod sanitize_tests {
     }
 }
 
+#[cfg(test)]
+mod load_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn src() -> SourceLocation {
+        SourceLocation {
+            path: Arc::from(PathBuf::from("test.db").as_path()),
+            line: 1,
+        }
+    }
+
+    #[test]
+    fn parses_old_db_name_equals_hex() {
+        // `name=hexsig` → one generic (target None), offset-Any body signature.
+        let sig = parse_db_signature("Worm.Test=414243", src())
+            .expect("ok")
+            .expect("loaded");
+        assert_eq!(sig.name, "Worm.Test");
+        assert_eq!(sig.target, None);
+        assert_eq!(sig.offset, OffsetSpec::any());
+        assert!(!sig.patterns.is_empty());
+    }
+
+    #[test]
+    fn skips_disabled_db_double_equals() {
+        // `Name==…` is ClamAV's disabled marker: skipped, not an error.
+        assert!(matches!(
+            parse_db_signature("Foo.Bar==deadbeef", src()),
+            Ok(None)
+        ));
+    }
+
+    #[test]
+    fn rejects_db_line_without_equals() {
+        assert!(parse_db_signature("no-equals-here", src()).is_err());
+    }
+
+    #[test]
+    fn sdb_parses_identically_to_ndb() {
+        // `.sdb` routes through the ndb parser; same line → same result.
+        let line = "Test.Sig:0:*:4142";
+        let ndb = parse_extended_signature(line, src()).unwrap().unwrap();
+        let sdb = parse_extended_signature(line, src()).unwrap().unwrap();
+        assert_eq!(ndb.name, sdb.name);
+        assert_eq!(ndb.target, sdb.target);
+        assert_eq!(classify_extension("sdb"), ExtKind::BodyNdb);
+    }
+
+    #[test]
+    fn classify_extension_covers_clamav_dispatch_table() {
+        // Every extension in readdb.c's cli_load dispatch (lines ~4746-4852) must
+        // resolve to a concrete ExtKind — guards against silent-drop regressions.
+        // `.yar`/`.yara` are intentionally excluded: this crate delegates YARA to
+        // the separate yara-x engine, so they are not handled here.
+        let dispatched = [
+            "db", "cvd", "cld", "cud", "crb", "hdb", "hsb", "hdu", "hsu", "fp", "sfp",
+            "mdb", "msb", "imp", "mdu", "msu", "ndb", "ndu", "ldb", "ldu", "cbc", "sdb",
+            "zmd", "rmd", "cfg", "info", "wdb", "pdb", "gdb", "ftm", "ign", "ign2", "idb",
+            "cdb", "cat", "ioc", "pwdb",
+        ];
+        for ext in dispatched {
+            assert_ne!(
+                classify_extension(ext),
+                ExtKind::Unknown,
+                "extension '.{ext}' from the ClamAV dispatch table classified as Unknown"
+            );
+        }
+        assert_eq!(classify_extension("totally-made-up"), ExtKind::Unknown);
+    }
+}
+
 fn parse_encrypted(raw: &str) -> Result<Option<bool>, String> {
     match raw.trim() {
         "*" | "" => Ok(None),
@@ -751,6 +860,35 @@ fn parse_extended_signature(
         name: parts[0].to_string(),
         target,
         offset,
+        patterns: patterns.into_boxed_slice(),
+        source,
+    }))
+}
+
+/// Parse one old-format `.db` line: `MalwareName=HexSignature`.
+///
+/// Mirrors `cli_loaddb` (readdb.c): the signature is added to the generic root
+/// (`root[0]`, i.e. target `None`) with offset `*` (anywhere). A line whose
+/// pattern begins with `=` (i.e. `Name==…`) is skipped, exactly as ClamAV's
+/// `if (*pt == '=') continue;`. The pattern is a standard hex body signature, so
+/// it compiles through the same path as `.ndb`.
+fn parse_db_signature(
+    line: &str,
+    source: SourceLocation,
+) -> Result<Option<ExtendedSignature>, String> {
+    let (name, pattern) = line
+        .split_once('=')
+        .ok_or_else(|| "old-format .db signature needs name=hexsig".to_string())?;
+    // `Name==…`: ClamAV skips these (the historical "disabled" marker).
+    if pattern.starts_with('=') {
+        return Ok(None);
+    }
+    let patterns = compile_pattern_variants(pattern, Modifiers::default())
+        .map_err(|err| format!("invalid .db body pattern: {err}"))?;
+    Ok(Some(ExtendedSignature {
+        name: name.to_string(),
+        target: None,
+        offset: OffsetSpec::any(),
         patterns: patterns.into_boxed_slice(),
         source,
     }))
@@ -853,32 +991,98 @@ fn extension_key(path: &Path) -> String {
         .to_ascii_lowercase()
 }
 
-fn is_hash_extension(ext: &str) -> bool {
-    matches!(
-        ext,
-        "hdb" | "hdu" | "hsb" | "hsu" | "mdb" | "mdu" | "msb" | "msu"
-    )
+/// Classification of a ClamAV database file by extension, mirroring the dispatch
+/// table in `clamav/libclamav/readdb.c` (`cli_load`, lines ~4746-4852). Every
+/// extension ClamAV recognises maps to a non-`Unknown` variant so the loader can
+/// account for 100% of the files it sees instead of silently dropping some.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExtKind {
+    /// `.ndb`/`.ndu`/`.sdb` — extended body signatures (parsed per line).
+    BodyNdb,
+    /// `.db` — old-format `name=hexsig` body signatures (parsed per line).
+    BodyOldDb,
+    /// `.ldb`/`.ldu` — logical signatures.
+    Logical,
+    /// `.cdb` — container metadata signatures.
+    Container,
+    /// `.ftm` — file-type magic.
+    FileMagic,
+    /// `.ign`/`.ign2` — ignore lists (consumed in the first pass).
+    Ignore,
+    /// Hash-based databases (whole-file, PE section, PE import, false-positive).
+    Hash,
+    /// `.pdb`/`.gdb`/`.wdb` — phishing URL/domain databases (Pass 2).
+    Phishing,
+    /// `.idb` — icon fuzzy-image signatures (Pass 3).
+    Icon,
+    /// `.crb`/`.cat` — Authenticode certificate trust/block rules (Pass 4).
+    CertTrust,
+    /// `.ioc` — OpenIOC XML indicator databases.
+    Ioc,
+    /// `.cfg` — dconf engine configuration (not detection).
+    Config,
+    /// `.info`/`.dat`/`.pwdb`/`.sign` — container metadata / archive passwords.
+    Metadata,
+    /// `.cvd`/`.cld`/`.cud`/`.cbc` — signed containers / bytecode, handled by the
+    /// dedicated CVD/bytecode loader rather than the per-line database loader.
+    ContainerDb,
+    /// `.zmd`/`.rmd` — deprecated ClamAV metadata formats.
+    Deprecated,
+    /// Any extension not recognised by ClamAV's dispatch table.
+    Unknown,
 }
 
-fn is_known_unsupported_extension(ext: &str) -> bool {
-    matches!(
-        ext,
-        "cbc"
-            | "idb"
-            | "pdb"
-            | "gdb"
-            | "wdb"
-            | "fp"
-            | "sfp"
-            | "cfg"
-            | "cat"
-            | "crb"
-            | "info"
-            | "pwdb"
-            | "cvd"
-            | "sign"
-            | "dat"
-    )
+impl ExtKind {
+    /// Human-readable disposition string recorded for a non-matched file, naming
+    /// the exact reason and (where relevant) the follow-up pass that will add it.
+    fn disposition(self, ext: &str) -> String {
+        match self {
+            ExtKind::Phishing => {
+                format!("phishing URL/domain database '.{ext}' — not yet matched (Pass 2)")
+            }
+            ExtKind::Icon => {
+                format!("icon fuzzy-image database '.{ext}' — not yet matched (Pass 3)")
+            }
+            ExtKind::CertTrust => {
+                format!("Authenticode certificate trust/block rules '.{ext}' — not yet matched (Pass 4)")
+            }
+            ExtKind::Ioc => format!("OpenIOC XML database '.{ext}' — not yet matched"),
+            ExtKind::Config => format!("engine configuration '.{ext}' — not a detection database"),
+            ExtKind::Metadata => {
+                format!("container metadata / archive passwords '.{ext}' — not a detection database")
+            }
+            ExtKind::ContainerDb => {
+                format!("signed container / bytecode '.{ext}' — loaded by the CVD/bytecode loader")
+            }
+            ExtKind::Deprecated => format!("deprecated ClamAV format '.{ext}'"),
+            ExtKind::Unknown => format!("unknown ClamAV database extension '.{ext}'"),
+            _ => format!("'.{ext}'"),
+        }
+    }
+}
+
+/// Map a lowercased extension (no leading dot) to its [`ExtKind`].
+fn classify_extension(ext: &str) -> ExtKind {
+    match ext {
+        "ndb" | "ndu" | "sdb" => ExtKind::BodyNdb,
+        "db" => ExtKind::BodyOldDb,
+        "ldb" | "ldu" => ExtKind::Logical,
+        "cdb" => ExtKind::Container,
+        "ftm" => ExtKind::FileMagic,
+        "ign" | "ign2" => ExtKind::Ignore,
+        // Whole-file / PE-section / PE-import / false-positive hashes (cli_loadhash).
+        "hdb" | "hdu" | "hsb" | "hsu" | "mdb" | "mdu" | "msb" | "msu" | "imp" | "fp"
+        | "sfp" => ExtKind::Hash,
+        "pdb" | "gdb" | "wdb" => ExtKind::Phishing,
+        "idb" => ExtKind::Icon,
+        "crb" | "cat" => ExtKind::CertTrust,
+        "ioc" => ExtKind::Ioc,
+        "cfg" => ExtKind::Config,
+        "info" | "dat" | "pwdb" | "sign" => ExtKind::Metadata,
+        "cvd" | "cld" | "cud" | "cbc" => ExtKind::ContainerDb,
+        "zmd" | "rmd" => ExtKind::Deprecated,
+        _ => ExtKind::Unknown,
+    }
 }
 
 fn parse_section_start(raw: &str) -> Option<OffsetAnchor> {

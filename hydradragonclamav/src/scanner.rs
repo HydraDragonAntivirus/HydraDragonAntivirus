@@ -283,7 +283,7 @@ impl Engine {
             }
             // Skip signatures that constrain metadata we cannot observe, so we
             // never false-positive on unknowable fields.
-            if sig.filename.is_some()
+            if sig.has_filename
                 || sig.encrypted.is_some()
                 || sig.size_in_container.is_constrained()
             {
@@ -1402,7 +1402,7 @@ mod tests {
             name: "Test.Cdb".to_string(),
             container_type: ContainerType::Format("zip"),
             container_size: NumSpec::Any,
-            filename: None,
+            has_filename: false,
             size_in_container: NumSpec::Any,
             size_real: NumSpec::Exact(7),
             encrypted: None,

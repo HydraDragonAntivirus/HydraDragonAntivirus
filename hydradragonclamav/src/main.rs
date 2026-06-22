@@ -4,6 +4,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Debug)]
 struct Cli {
     database: PathBuf,
@@ -39,27 +42,39 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let (engine, report) = Engine::from_database_dir(&cli.database)?;
     print_report(&report);
 
-    // Opt-in memory profiler (set HDC_MEM_STATS=1). Off by default so normal
-    // runs stay quiet; kept because resident memory is an active concern.
+    // Opt-in memory profiler (set HDC_MEM_STATS=1).
     if std::env::var_os("HDC_MEM_STATS").is_some() {
         let s = engine.database.pattern_mem_stats();
         let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
         eprintln!(
-            "[mem] patterns={} tokens={} ({:.1} MB)  lits={:.1} MB  structs={:.1} MB  TOTAL={:.1} MB",
-            s.patterns, s.tokens(), mb(s.token_bytes), mb(s.lit_bytes), mb(s.struct_bytes), mb(s.total_bytes())
-        );
-        eprintln!(
-            "[mem] tokens by tag: byte(masked/single)={} literal={} litnocase={} anybytes={} boundary={} alternates={}",
-            s.n_byte, s.n_literal, s.n_litnocase, s.n_anybytes, s.n_boundary, s.n_alternates
+            "[mem] patterns={} tokens={} ({:.1} MB)  structs={:.1} MB  TOTAL={:.1} MB",
+            s.patterns, s.tokens(), mb(s.token_bytes), mb(s.struct_bytes), mb(s.total_bytes())
         );
         eprintln!("[mem] prefilter: {}", engine.prefilter_mem_report());
+
+        // Account for everything pattern_mem_stats skips.
+        let ext_name_bytes: usize = engine.database.extended.iter()
+            .map(|sig| sig.name.capacity() + 24).sum();
+        let log_name_bytes: usize = engine.database.logical.iter()
+            .map(|sig| sig.name.capacity() + 24).sum();
+        let log_subsig_count: usize = engine.database.logical.iter()
+            .map(|sig| sig.subsignatures.len()).sum();
+        // Vec<Subsignature> header per sig + rough per-subsig overhead
+        let log_subsig_bytes: usize = engine.database.logical.len() * 24
+            + log_subsig_count * 128;
+        let ext_box_bytes: usize = engine.database.extended.len() * 96;
+        eprintln!(
+            "[mem] names: ext={:.1}MB log={:.1}MB | ext_sig_structs={:.1}MB | log_subsigs={:.1}MB (count={})",
+            mb(ext_name_bytes), mb(log_name_bytes), mb(ext_box_bytes), mb(log_subsig_bytes), log_subsig_count
+        );
 
         if std::env::var_os("HDC_HOLD").is_some() {
             eprintln!("[mem] holding engine alive for 8s (steady-state sampling)…");
             std::thread::sleep(std::time::Duration::from_secs(8));
-            eprintln!("[mem] held; extended={}", engine.database.extended.len());
+            eprintln!("[mem] held; extended={} logical={}", engine.database.extended.len(), engine.database.logical.len());
         }
     }
+
 
     if cli.show_unsupported {
         for item in &engine.database.unsupported {
@@ -228,6 +243,7 @@ fn print_report(report: &LoadReport) {
         "loaded extended body signatures: {}",
         report.extended_loaded
     );
+    println!("loaded old-format (.db) signatures: {}", report.db_loaded);
     println!("loaded logical signatures: {}", report.logical_loaded);
     println!(
         "loaded container metadata signatures: {}",
@@ -242,6 +258,46 @@ fn print_report(report: &LoadReport) {
     println!("skipped hash database files: {}", report.hash_files_skipped);
     println!("unsupported database files: {}", report.unsupported_files);
     println!("unsupported records: {}", report.unsupported_records);
+
+    // File-level accounting: every file in `files_seen` lands in exactly one
+    // bucket below, so the totals visibly cover 100% of the database directory
+    // and no signature type is silently ignored.
+    println!(
+        "signature-file accounting (covers all {} files):",
+        report.files_seen
+    );
+    let print_bucket = |label: &str, count: usize, disposition: &str| {
+        if count > 0 {
+            println!("  {label:<24} {count:>7}  ({disposition})");
+        }
+    };
+    print_bucket(
+        "hash databases",
+        report.hash_files_skipped,
+        "skipped — hash-based",
+    );
+    print_bucket("phishing (pdb/gdb/wdb)", report.phishing_files, "deferred — Pass 2");
+    print_bucket("icon (idb)", report.icon_files, "deferred — Pass 3");
+    print_bucket("cert trust (crb/cat)", report.cert_files, "deferred — Pass 4");
+    print_bucket("openioc (ioc)", report.ioc_files, "deferred");
+    print_bucket("config (cfg)", report.config_files, "not a detection database");
+    print_bucket(
+        "metadata/passwords",
+        report.metadata_files,
+        "not a detection database",
+    );
+    print_bucket(
+        "containers (cvd/cld/cbc)",
+        report.container_db_files,
+        "loaded by CVD/bytecode loader",
+    );
+    print_bucket(
+        "deprecated (zmd/rmd)",
+        report.deprecated_files,
+        "dead ClamAV format",
+    );
+    print_bucket("unknown extensions", report.unknown_files, "unrecognised");
+
     println!("parse errors: {}", report.errors.len());
     if !report.errors.is_empty() {
         for error in report.errors.iter().take(20) {
