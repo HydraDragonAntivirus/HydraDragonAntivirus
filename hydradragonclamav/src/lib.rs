@@ -1,5 +1,6 @@
 pub mod bytecode;
 pub mod bytecode_vm;
+pub mod cert;
 pub mod database;
 pub mod icon;
 pub mod logical;

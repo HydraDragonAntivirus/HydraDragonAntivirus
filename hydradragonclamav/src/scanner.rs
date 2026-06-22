@@ -1251,6 +1251,7 @@ mod tests {
             file_type_magic: Vec::new(),
             phishing: crate::phishing::PhishingDb::default(),
             icons: crate::icon::IconMatcher::default(),
+            certs: crate::cert::CertTrustDb::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
@@ -1285,6 +1286,7 @@ mod tests {
             file_type_magic: Vec::new(),
             phishing: crate::phishing::PhishingDb::default(),
             icons: crate::icon::IconMatcher::default(),
+            certs: crate::cert::CertTrustDb::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
@@ -1322,6 +1324,7 @@ mod tests {
             file_type_magic: Vec::new(),
             phishing: crate::phishing::PhishingDb::default(),
             icons: crate::icon::IconMatcher::default(),
+            certs: crate::cert::CertTrustDb::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
@@ -1351,6 +1354,7 @@ mod tests {
             file_type_magic: Vec::new(),
             phishing: crate::phishing::PhishingDb::default(),
             icons: crate::icon::IconMatcher::default(),
+            certs: crate::cert::CertTrustDb::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
@@ -1383,6 +1387,7 @@ mod tests {
             file_type_magic: Vec::new(),
             phishing: crate::phishing::PhishingDb::default(),
             icons: crate::icon::IconMatcher::default(),
+            certs: crate::cert::CertTrustDb::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };

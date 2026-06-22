@@ -279,6 +279,10 @@ fn print_report(report: &LoadReport) {
         "loaded icon fingerprints: {} (from {} .idb files)",
         report.icon_loaded, report.icon_files
     );
+    println!(
+        "loaded certificate trust/block records: {} (.crb)",
+        report.cert_loaded
+    );
     println!("loaded bytecode programs: {}", report.bytecodes_loaded);
     println!(
         "ignore-list entries: {} (signatures skipped: {})",
@@ -315,7 +319,11 @@ fn print_report(report: &LoadReport) {
         report.icon_files,
         "fingerprints loaded — matcher follow-up",
     );
-    print_bucket("cert trust (crb/cat)", report.cert_files, "deferred — Pass 4");
+    print_bucket(
+        "cert trust (crb/cat)",
+        report.cert_files,
+        ".crb records loaded; .cat (binary) follow-up",
+    );
     print_bucket("openioc (ioc)", report.ioc_files, "deferred");
     print_bucket("config (cfg)", report.config_files, "not a detection database");
     print_bucket(

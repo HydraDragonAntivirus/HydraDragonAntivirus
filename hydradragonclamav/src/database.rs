@@ -17,6 +17,9 @@ pub struct Database {
     pub phishing: crate::phishing::PhishingDb,
     /// Icon signatures (`.idb`) — fingerprints loaded; image matcher is follow-up.
     pub icons: crate::icon::IconMatcher,
+    /// Certificate trust/block rules (`.crb`) — records loaded; Authenticode
+    /// verification is a follow-up.
+    pub certs: crate::cert::CertTrustDb,
     pub unsupported: Vec<UnsupportedRecord>,
     /// Decoded + interpreter-prepared ClamBC programs. A logical signature whose
     /// `bytecode` field is `Some(i)` is a bytecode trigger that runs `[i]`.
@@ -164,8 +167,10 @@ pub struct LoadReport {
     pub icon_files: usize,
     /// Icon fingerprints loaded across all `.idb` files.
     pub icon_loaded: usize,
-    /// `.crb`/`.cat` — Authenticode certificate trust/block rules (Pass 4).
+    /// `.crb`/`.cat` — Authenticode certificate trust/block files seen.
     pub cert_files: usize,
+    /// `.crb` certificate records loaded.
+    pub cert_loaded: usize,
     /// `.ioc` — OpenIOC XML indicator databases.
     pub ioc_files: usize,
     /// `.cfg` — dconf engine configuration (not detection).
@@ -338,9 +343,9 @@ fn load_file(
 
     let kind = classify_extension(&ext);
     match kind {
-        // Per-line body/logical/container/magic/phishing/icon databases parsed below.
-        ExtKind::BodyNdb | ExtKind::BodyOldDb | ExtKind::Logical
-        | ExtKind::Container | ExtKind::FileMagic | ExtKind::Phishing | ExtKind::Icon => {}
+        // Per-line text databases parsed below.
+        ExtKind::BodyNdb | ExtKind::BodyOldDb | ExtKind::Logical | ExtKind::Container
+        | ExtKind::FileMagic | ExtKind::Phishing | ExtKind::Icon | ExtKind::CertCrb => {}
 
         // Hash-based databases are matched by hydradragon elsewhere, not here.
         ExtKind::Hash => {
@@ -355,7 +360,7 @@ fn load_file(
         // must still be accounted for — count it by category and record a precise
         // disposition so `--list-unsupported` names exactly what was deferred and
         // the report sums to 100% of files_seen. Nothing is silently dropped.
-        ExtKind::CertTrust
+        ExtKind::CertCat
         | ExtKind::Ioc
         | ExtKind::Config
         | ExtKind::Metadata
@@ -363,7 +368,7 @@ fn load_file(
         | ExtKind::Deprecated
         | ExtKind::Unknown => {
             match kind {
-                ExtKind::CertTrust => report.cert_files += 1,
+                ExtKind::CertCat => report.cert_files += 1,
                 ExtKind::Ioc => report.ioc_files += 1,
                 ExtKind::Config => report.config_files += 1,
                 ExtKind::Metadata => report.metadata_files += 1,
@@ -383,6 +388,9 @@ fn load_file(
     }
     if kind == ExtKind::Icon {
         report.icon_files += 1;
+    }
+    if kind == ExtKind::CertCrb {
+        report.cert_files += 1;
     }
 
     let file = File::open(path)?;
@@ -490,6 +498,16 @@ fn load_file(
                 Ok(()) => report.icon_loaded += 1,
                 Err(message) => push_error(report, source, message),
             },
+            // Certificate trust/block rules (`.crb`): record loaded; Authenticode
+            // verification engine is a follow-up (readdb.c cli_loadcrt).
+            ExtKind::CertCrb => {
+                let flevel = crate::bytecode_vm::ENGINE_FLEVEL;
+                match database.certs.add_line(line, source.clone(), flevel) {
+                    Ok(true) => report.cert_loaded += 1,
+                    Ok(false) => {} // skipped by functionality-level gating
+                    Err(message) => push_error(report, source, message),
+                }
+            }
             // The non-per-line kinds returned early above before the read loop.
             _ => unreachable!("non-per-line ExtKind reached the parse loop"),
         }
@@ -1046,8 +1064,10 @@ enum ExtKind {
     Phishing,
     /// `.idb` — icon fuzzy-image signatures (Pass 3).
     Icon,
-    /// `.crb`/`.cat` — Authenticode certificate trust/block rules (Pass 4).
-    CertTrust,
+    /// `.crb` — Authenticode certificate trust/block rules (text, per-line).
+    CertCrb,
+    /// `.cat` — Authenticode catalog (binary PKCS#7); loader is a follow-up.
+    CertCat,
     /// `.ioc` — OpenIOC XML indicator databases.
     Ioc,
     /// `.cfg` — dconf engine configuration (not detection).
@@ -1074,8 +1094,8 @@ impl ExtKind {
             ExtKind::Icon => {
                 format!("icon fuzzy-image database '.{ext}' — not yet matched (Pass 3)")
             }
-            ExtKind::CertTrust => {
-                format!("Authenticode certificate trust/block rules '.{ext}' — not yet matched (Pass 4)")
+            ExtKind::CertCat => {
+                format!("Authenticode catalog '.{ext}' (binary PKCS#7) — loader is a follow-up")
             }
             ExtKind::Ioc => format!("OpenIOC XML database '.{ext}' — not yet matched"),
             ExtKind::Config => format!("engine configuration '.{ext}' — not a detection database"),
@@ -1106,7 +1126,8 @@ fn classify_extension(ext: &str) -> ExtKind {
         | "sfp" => ExtKind::Hash,
         "pdb" | "gdb" | "wdb" => ExtKind::Phishing,
         "idb" => ExtKind::Icon,
-        "crb" | "cat" => ExtKind::CertTrust,
+        "crb" => ExtKind::CertCrb,
+        "cat" => ExtKind::CertCat,
         "ioc" => ExtKind::Ioc,
         "cfg" => ExtKind::Config,
         "info" | "dat" | "pwdb" | "sign" => ExtKind::Metadata,
