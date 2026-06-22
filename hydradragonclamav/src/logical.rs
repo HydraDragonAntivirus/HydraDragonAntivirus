@@ -59,6 +59,9 @@ pub struct LogicalSignature {
     /// `NumberOfSections:min-max` TDB constraint — the PE's section count must be
     /// in `[min, max]`.
     pub nos: Option<(u32, u32)>,
+    /// `EntryPoint:min-max` TDB constraint — the PE entry point's raw file offset
+    /// must be in `[min, max]` (requires a parsed PE).
+    pub ep: Option<(u32, u32)>,
     /// True when the TDB attribute block carries a constraint we cannot yet
     /// evaluate (IconGroup1/2, HandlerType, Intermediates, …). Such a signature
     /// gates its match on context we don't have, so matching its body alone would
@@ -238,8 +241,21 @@ pub fn parse_logical_signature(
     let expression = LogicalExpr::from_tree(&ExprParser::new(parts[2]).parse()?);
     let target = parse_target(parts[1]);
     let tdb = parse_tdb(parts[1]);
-    let (file_size, container, nos, tdb_unsupported) =
-        (tdb.file_size, tdb.container, tdb.nos, tdb.unsupported);
+    // Engine functionality-level gating (readdb.c init_tdb): a signature whose
+    // required engine f-level excludes ours can't be evaluated correctly, so skip
+    // it (same detection effect as ClamAV not loading it).
+    let engine_out_of_range = tdb
+        .engine
+        .map_or(false, |(min, max)| {
+            crate::bytecode_vm::ENGINE_FLEVEL < min || crate::bytecode_vm::ENGINE_FLEVEL > max
+        });
+    let (file_size, container, nos, ep, tdb_unsupported) = (
+        tdb.file_size,
+        tdb.container,
+        tdb.nos,
+        tdb.ep,
+        tdb.unsupported || engine_out_of_range,
+    );
     let mut warnings = Vec::new();
     if tdb_unsupported {
         warnings.push(format!(
@@ -266,6 +282,7 @@ pub fn parse_logical_signature(
             file_size,
             container,
             nos,
+            ep,
             tdb_unsupported,
             expression,
             subsignatures,
@@ -282,6 +299,10 @@ struct Tdb {
     file_size: Option<(u64, u64)>,
     container: Option<String>,
     nos: Option<(u32, u32)>,
+    /// `EntryPoint:min-max` — the PE entry point's RAW file offset must be in range.
+    ep: Option<(u32, u32)>,
+    /// `Engine:min-max` functionality-level range, for load-time gating.
+    engine: Option<(u32, u32)>,
     unsupported: bool,
 }
 
@@ -303,12 +324,23 @@ fn parse_tdb(block: &str) -> Tdb {
         }
         let (key, val) = item.split_once(':').unwrap_or((item, ""));
         match key {
-            "Target" | "Engine" => {}
+            "Target" => {}
+            // Engine:min-max — a functionality-level gate (not file content);
+            // captured for load-time gating against ENGINE_FLEVEL.
+            "Engine" => match parse_num_range(val) {
+                Some((lo, hi)) => tdb.engine = Some((lo as u32, hi as u32)),
+                None => tdb.unsupported = true,
+            },
             "FileSize" => match parse_num_range(val) {
                 Some(range) => tdb.file_size = Some(range),
                 None => tdb.unsupported = true,
             },
             "Container" if !val.is_empty() => tdb.container = Some(val.to_string()),
+            // EntryPoint:min-max — PE entry point raw file offset (matcher.c:897).
+            "EntryPoint" => match parse_num_range(val) {
+                Some((lo, hi)) => tdb.ep = Some((lo as u32, hi as u32)),
+                None => tdb.unsupported = true,
+            },
             "NumberOfSections" => match parse_num_range(val) {
                 Some((lo, hi)) => tdb.nos = Some((lo as u32, hi as u32)),
                 None => tdb.unsupported = true,
@@ -1075,6 +1107,21 @@ mod tests {
         assert!(warnings.is_empty());
         assert!(sig.expression.eval(&[1, 0, 2, 1]).matched);
         assert!(!sig.expression.eval(&[1, 0, 0, 1]).matched);
+    }
+
+    #[test]
+    fn tdb_entrypoint_parsed_and_engine_gated() {
+        // EntryPoint range is captured for PE-aware gating.
+        let (sig, _) = parse_logical_signature(
+            "T;Engine:51-255,Target:1,EntryPoint:100-200;0;4141",
+            source(),
+        )
+        .unwrap();
+        assert_eq!(sig.ep, Some((100, 200)));
+        assert!(!sig.tdb_unsupported);
+        // An out-of-range Engine f-level marks the signature unsupported (skip).
+        let (old, _) = parse_logical_signature("T;Engine:1-5,Target:0;0;4141", source()).unwrap();
+        assert!(old.tdb_unsupported);
     }
 
     #[test]

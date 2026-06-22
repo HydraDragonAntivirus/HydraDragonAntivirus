@@ -308,10 +308,12 @@ fn load_file(path: &Path, database: &mut Database, report: &mut LoadReport) -> i
         };
         match ext.as_str() {
             "ndb" | "ndu" => match parse_extended_signature(line, source.clone()) {
-                Ok(signature) => {
+                Ok(Some(signature)) => {
                     database.extended.push(signature);
                     report.extended_loaded += 1;
                 }
+                // Out of f-level range or unsupported target → skip (as ClamAV does).
+                Ok(None) => {}
                 Err(message) => push_error(report, source, message),
             },
             "ldb" | "ldu" => match parse_logical_signature(line, source.clone()) {
@@ -629,24 +631,49 @@ fn parse_u64(raw: &str) -> Result<u64, String> {
 fn parse_extended_signature(
     line: &str,
     source: SourceLocation,
-) -> Result<ExtendedSignature, String> {
+) -> Result<Option<ExtendedSignature>, String> {
+    // name:target:offset:hex[:minFL[:maxFL]]
     let parts = line.splitn(6, ':').collect::<Vec<_>>();
     if parts.len() < 4 {
         return Err("extended signature needs name:target:offset:hex".to_string());
     }
 
-    let target = parts[1].parse::<u32>().ok();
+    // Target: '*' → generic (None); a number must be in 0..CLI_MTARGETS, else the
+    // signature is skipped (readdb.c cli_loadndb), as it can never select a root.
+    const CLI_MTARGETS: u32 = 15;
+    let target = match parts[1].trim() {
+        "*" | "" => None,
+        t => match t.parse::<u32>() {
+            Ok(n) if n < CLI_MTARGETS => Some(n),
+            Ok(_) => return Ok(None), // out-of-range target → skip
+            Err(_) => return Err("invalid target field".to_string()),
+        },
+    };
+
+    // Functionality-level gating: skip if minFL > engine or maxFL < engine.
+    let flevel = crate::bytecode_vm::ENGINE_FLEVEL;
+    if let Some(min_fl) = parts.get(4).and_then(|s| s.trim().parse::<u32>().ok()) {
+        if min_fl > flevel {
+            return Ok(None);
+        }
+    }
+    if let Some(max_fl) = parts.get(5).and_then(|s| s.trim().parse::<u32>().ok()) {
+        if max_fl < flevel {
+            return Ok(None);
+        }
+    }
+
     let offset = OffsetSpec::parse(parts[2]);
     let patterns = compile_pattern_variants(parts[3], Modifiers::default())
         .map_err(|err| format!("invalid body pattern: {err}"))?;
 
-    Ok(ExtendedSignature {
+    Ok(Some(ExtendedSignature {
         name: parts[0].to_string(),
         target,
         offset,
         patterns,
         source,
-    })
+    }))
 }
 
 fn visit_database_dir(

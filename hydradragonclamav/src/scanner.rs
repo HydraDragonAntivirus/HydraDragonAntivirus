@@ -643,6 +643,17 @@ impl Engine {
                 return;
             }
         }
+        if let Some((min, max)) = signature.ep {
+            // EntryPoint compares against the PE entry point's RAW file offset
+            // (ClamAV exeinfo.ep = cli_rawaddr(vep,...)); requires a parsed PE.
+            let ep = match ctx.pe.as_ref().and_then(|pe| pe.entry_point_offset) {
+                Some(e) => e as u32,
+                None => return,
+            };
+            if ep < min || ep > max {
+                return;
+            }
+        }
         let subsigs = &signature.subsignatures;
         let mut counts = vec![0usize; subsigs.len()];
         // LAST match offset of each body subsignature (ClamAV's
@@ -1605,6 +1616,19 @@ mod tests {
             .scan_bytes(&zip, ScanOptions::default())
             .iter()
             .any(|m| m.name == "Test.InZip"));
+    }
+
+    #[test]
+    fn tdb_engine_flevel_gates_loading() {
+        // Engine:1-5 excludes our ENGINE_FLEVEL (240) → signature never fires.
+        let (engine, _) = engine_with_logical("Test.OldEngine;Engine:1-5,Target:0;0;4142");
+        assert!(engine.scan_bytes(b"xxAByy", ScanOptions::default()).is_empty());
+        // Engine:51-255 includes 240 → fires normally.
+        let (engine2, _) = engine_with_logical("Test.NewEngine;Engine:51-255,Target:0;0;4142");
+        assert!(engine2
+            .scan_bytes(b"xxAByy", ScanOptions::default())
+            .iter()
+            .any(|m| m.name == "Test.NewEngine"));
     }
 
     #[test]

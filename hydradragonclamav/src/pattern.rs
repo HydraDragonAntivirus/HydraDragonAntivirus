@@ -201,6 +201,12 @@ impl Pattern {
         }
 
         let mut out = Vec::new();
+        // A (start,end) match can only repeat across *overlapping* ranges; within a
+        // single monotonic pass starts strictly increase, so dedup (and its hashing
+        // + allocation) is only needed when there is more than one range. The
+        // `HashSet` is allocation-free until the first insert, so the single-range
+        // path pays nothing.
+        let dedup = ranges.len() > 1;
         let mut seen = HashSet::new();
 
         // ClamAV-style anchored verification (matcher-ac.c `bp = i + 1 - depth`):
@@ -229,14 +235,13 @@ impl Pattern {
                     if self.fullword && !is_fullword(data, start, match_end) {
                         continue;
                     }
-                    if seen.insert((start, match_end)) {
-                        out.push(MatchRange {
-                            start,
-                            end: match_end,
-                        });
-                        if out.len() >= limit {
-                            return out;
-                        }
+                    // Anchored occurrences are strictly increasing → distinct, no dedup.
+                    out.push(MatchRange {
+                        start,
+                        end: match_end,
+                    });
+                    if out.len() >= limit {
+                        return out;
                     }
                 }
             }
@@ -293,7 +298,7 @@ impl Pattern {
                         if self.fullword && !is_fullword(data, pos, match_end) {
                             return false;
                         }
-                        if seen.insert((pos, match_end)) {
+                        if !dedup || seen.insert((pos, match_end)) {
                             out.push(MatchRange { start: pos, end: match_end });
                             return out.len() >= limit;
                         }
@@ -328,7 +333,7 @@ impl Pattern {
                         if self.fullword && !is_fullword(data, pos, match_end) {
                             continue;
                         }
-                        if seen.insert((pos, match_end)) {
+                        if !dedup || seen.insert((pos, match_end)) {
                             out.push(MatchRange {
                                 start: pos,
                                 end: match_end,
@@ -407,7 +412,12 @@ impl Pattern {
         let required_len = required.len();
 
         let mut out = Vec::new();
-        let mut seen = HashSet::new();
+        // Hint windows from different atom occurrences can overlap, so the same
+        // `start` may be reached more than once. Track tried starts and skip the
+        // (expensive) whole-pattern `match_from` on repeats — this both avoids
+        // redundant evaluation and guarantees unique results (no separate
+        // `(start,end)` dedup set needed).
+        let mut tried: HashSet<usize> = HashSet::new();
         for &hint in hints {
             let occurrence = hint as usize;
             // The indexed atom is only the literal's (<=16-byte) prefix; confirm
@@ -425,18 +435,19 @@ impl Pattern {
                 if !pos_in_ranges(start, ranges, data.len()) {
                     continue;
                 }
+                if !tried.insert(start) {
+                    continue; // already evaluated this start (overlapping window)
+                }
                 if let Some(match_end) = self.match_from(data, start) {
                     if self.fullword && !is_fullword(data, start, match_end) {
                         continue;
                     }
-                    if seen.insert((start, match_end)) {
-                        out.push(MatchRange {
-                            start,
-                            end: match_end,
-                        });
-                        if out.len() >= limit {
-                            return out;
-                        }
+                    out.push(MatchRange {
+                        start,
+                        end: match_end,
+                    });
+                    if out.len() >= limit {
+                        return out;
                     }
                 }
             }
@@ -460,7 +471,9 @@ impl Pattern {
         prefix: usize,
     ) -> Vec<MatchRange> {
         let mut out = Vec::new();
-        let mut seen = HashSet::new();
+        // Duplicate hints map to the same start; skip already-tried starts so each
+        // is verified once (avoids redundant match_from and duplicate results).
+        let mut tried: HashSet<usize> = HashSet::new();
         for &hint in hints {
             let occurrence = hint as usize;
             let Some(start) = occurrence.checked_sub(prefix) else {
@@ -469,18 +482,19 @@ impl Pattern {
             if !pos_in_ranges(start, ranges, data.len()) {
                 continue;
             }
+            if !tried.insert(start) {
+                continue;
+            }
             if let Some(match_end) = self.match_from(data, start) {
                 if self.fullword && !is_fullword(data, start, match_end) {
                     continue;
                 }
-                if seen.insert((start, match_end)) {
-                    out.push(MatchRange {
-                        start,
-                        end: match_end,
-                    });
-                    if out.len() >= limit {
-                        return out;
-                    }
+                out.push(MatchRange {
+                    start,
+                    end: match_end,
+                });
+                if out.len() >= limit {
+                    return out;
                 }
             }
         }
