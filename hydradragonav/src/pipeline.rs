@@ -456,7 +456,7 @@ impl Pipeline {
                 detail,
                 elapsed_ms,
             });
-            if verdict != Verdict::Clean {
+            if verdict == Verdict::Trusted {
                 return ScanResult {
                     verdict,
                     threat_name: None,
@@ -494,16 +494,6 @@ impl Pipeline {
                 return ScanResult {
                     verdict: Verdict::Trusted,
                     threat_name: None,
-                    engines,
-                    yara_x_matches: Vec::new(),
-                    ml_malware_probability: Some(mv.probability),
-                    clamav_result: None,
-                };
-            }
-            if mv.verdict != Verdict::Clean {
-                return ScanResult {
-                    verdict: mv.verdict,
-                    threat_name: Some(format!("ml_detected (p={:.4})", mv.probability)),
                     engines,
                     yara_x_matches: Vec::new(),
                     ml_malware_probability: Some(mv.probability),
@@ -954,16 +944,6 @@ impl Pipeline {
                 return ScanResult {
                     verdict: Verdict::Trusted,
                     threat_name: None,
-                    engines,
-                    yara_x_matches: Vec::new(),
-                    ml_malware_probability: Some(mv.probability),
-                    clamav_result: None,
-                };
-            }
-            if mv.verdict != Verdict::Clean {
-                return ScanResult {
-                    verdict: mv.verdict,
-                    threat_name: Some(format!("ml_detected (p={:.4})", mv.probability)),
                     engines,
                     yara_x_matches: Vec::new(),
                     ml_malware_probability: Some(mv.probability),

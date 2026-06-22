@@ -2338,12 +2338,12 @@ pub fn aggregate_verdict(report: &mut ScanReport) {
         .max()
         .unwrap_or(0);
 
-    report.verdict = if report.findings.iter().any(|f| f.verdict == Verdict::Malware) {
+    report.verdict = if report.findings.iter().any(|f| f.verdict == Verdict::Trusted) {
+        Verdict::Trusted
+    } else if report.findings.iter().any(|f| f.verdict == Verdict::Malware) {
         Verdict::Malware
     } else if report.findings.iter().any(|f| f.verdict == Verdict::Pua) {
         Verdict::Pua
-    } else if report.findings.iter().any(|f| f.verdict == Verdict::Trusted) {
-        Verdict::Trusted
     } else if report.findings.iter().any(|f| f.verdict == Verdict::Suspicious) {
         Verdict::Suspicious
     } else {
