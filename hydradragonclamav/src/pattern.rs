@@ -6,7 +6,59 @@
 
 use std::fmt;
 
-use crate::ac::{self, CLI_MATCH_CHAR, CLI_MATCH_METADATA, CLI_MATCH_NOCASE, CLI_MATCH_SPECIAL};
+// ClamAV-compatible u16 instruction metadata bits (mirrors cli_ac_patt flags).
+pub const CLI_MATCH_CHAR: u16 = 0x0000;
+pub const CLI_MATCH_NOCASE: u16 = 0x0100;
+pub const CLI_MATCH_IGNORE: u16 = 0x0200;
+pub const CLI_MATCH_NIBBLE_HIGH: u16 = 0x0300;
+pub const CLI_MATCH_NIBBLE_LOW: u16 = 0x0400;
+pub const CLI_MATCH_SPECIAL: u16 = 0x0700;
+pub const CLI_MATCH_METADATA: u16 = 0x0f00;
+
+/// Match a single u16 instruction against a data byte.
+#[inline]
+fn match_byte(inst: u16, byte: u8) -> bool {
+    match inst & CLI_MATCH_METADATA {
+        CLI_MATCH_CHAR => (inst & 0xff) as u8 == byte,
+        CLI_MATCH_NOCASE => (inst & 0xff) as u8 == byte.to_ascii_lowercase(),
+        CLI_MATCH_IGNORE => true,
+        CLI_MATCH_NIBBLE_HIGH => ((inst & 0xf0) as u8) == (byte & 0xf0),
+        CLI_MATCH_NIBBLE_LOW => ((inst & 0x0f) as u8) == (byte & 0x0f),
+        _ => false,
+    }
+}
+
+/// Parse a hex string (with `??` wildcards and nibble masks) into u16 instructions.
+fn hex_to_u16(hex: &str) -> Result<Vec<u16>, String> {
+    let h = hex.as_bytes();
+    let mut out = Vec::with_capacity(h.len() / 2);
+    let mut i = 0;
+    while i + 1 < h.len() {
+        let hi = h[i];
+        let lo = h[i + 1];
+        let inst = if hi == b'?' && lo == b'?' {
+            CLI_MATCH_IGNORE
+        } else if hi == b'?' {
+            let lo_v = u8::from_str_radix(std::str::from_utf8(&[lo]).unwrap(), 16)
+                .map_err(|_| format!("bad nibble '{:?}'", lo))?;
+            CLI_MATCH_NIBBLE_LOW | lo_v as u16
+        } else if lo == b'?' {
+            let hi_v = u8::from_str_radix(std::str::from_utf8(&[hi]).unwrap(), 16)
+                .map_err(|_| format!("bad nibble '{:?}'", hi))? << 4;
+            CLI_MATCH_NIBBLE_HIGH | hi_v as u16
+        } else {
+            let byte = u8::from_str_radix(
+                std::str::from_utf8(&[hi, lo]).unwrap(),
+                16,
+            )
+            .map_err(|_| format!("bad hex byte '{:?}{:?}'", hi as char, lo as char))?;
+            CLI_MATCH_CHAR | byte as u16
+        };
+        out.push(inst);
+        i += 2;
+    }
+    Ok(out)
+}
 
 /// Signature modifiers parsed from the `::` suffix (nocase, wide, fullword, ascii).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -178,7 +230,7 @@ impl Pattern {
 
     /// Parse a hex string into u16 instructions (like cli_hex2ui).
     pub fn parse_hex(hex: &str) -> Result<Vec<u16>, String> {
-        ac::hex_to_u16(hex)
+        hex_to_u16(hex)
     }
 
     /// Check if the pattern matches anywhere in `data`.
@@ -398,7 +450,7 @@ impl Pattern {
                                     && br
                                         .iter()
                                         .enumerate()
-                                        .all(|(k, &bi)| ac::AcPattern::match_byte(bi, data[dpos + k]))
+                                        .all(|(k, &bi)| match_byte(bi, data[dpos + k]))
                             });
                             if any {
                                 return None;
@@ -413,7 +465,7 @@ impl Pattern {
                                     && br
                                         .iter()
                                         .enumerate()
-                                        .all(|(k, &bi)| ac::AcPattern::match_byte(bi, data[dpos + k]))
+                                        .all(|(k, &bi)| match_byte(bi, data[dpos + k]))
                                 {
                                     if let Some(end) = self.match_rec(data, dpos + blen, ipos + 1, sidx + 1) {
                                         return Some(end);
@@ -425,7 +477,7 @@ impl Pattern {
                     }
                 }
             } else {
-                if dpos >= data.len() || !ac::AcPattern::match_byte(inst, data[dpos]) {
+                if dpos >= data.len() || !match_byte(inst, data[dpos]) {
                     return None;
                 }
                 dpos += 1;
@@ -445,8 +497,8 @@ impl Pattern {
             let meta = inst & CLI_MATCH_METADATA;
             match meta {
                 CLI_MATCH_CHAR | CLI_MATCH_NOCASE => s.n_byte += 1,
-                ac::CLI_MATCH_IGNORE => s.n_anybytes += 1,
-                ac::CLI_MATCH_NIBBLE_HIGH | ac::CLI_MATCH_NIBBLE_LOW => s.n_anybytes += 1,
+                CLI_MATCH_IGNORE => s.n_anybytes += 1,
+                CLI_MATCH_NIBBLE_HIGH | CLI_MATCH_NIBBLE_LOW => s.n_anybytes += 1,
                 CLI_MATCH_SPECIAL => s.n_alternates += 1,
                 _ => {}
             }
@@ -580,7 +632,7 @@ fn parse_with_modifiers(raw: &str, nocase: bool, wide: bool) -> Result<(Vec<u16>
     // extract_specials handles `()` alternations, `[a-b]`, and `*`/`{n-m}` gaps,
     // leaving only hex / `??` / nibble tokens plus `()` special placeholders.
     let (extracted, specials) = extract_specials(raw)?;
-    let mut base = ac::hex_to_u16(&extracted)?;
+    let mut base = hex_to_u16(&extracted)?;
 
     if nocase {
         for inst in &mut base {
@@ -737,7 +789,7 @@ fn parse_alternation(content: &str, negative: bool) -> Result<Special, String> {
         let mut min = usize::MAX;
         for a in &alts {
             let processed = expand_wildcards(a);
-            let u = ac::hex_to_u16(&processed)?;
+            let u = hex_to_u16(&processed)?;
             min = min.min(u.len());
             branches.push(u);
         }

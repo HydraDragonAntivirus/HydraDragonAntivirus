@@ -112,7 +112,7 @@ const SIDEBAR_W: i32 = 216;
 const STATUS_H: i32 = 32;
 const PAD: i32 = 18;
 const BTN_W: i32 = 158;
-const BTN_H: i32 = 48;
+const BTN_H: i32 = 56;
 const GAP: i32 = 12;
 const NAV_H: i32 = 44;
 const NAV_TOP: i32 = HEADER_H + 42; // room for the "MENU" caption above the items
@@ -125,6 +125,7 @@ mod msg {
     pub const LVM_DELETEITEM: u32 = LVM_FIRST + 8;
     pub const LVM_DELETEALLITEMS: u32 = LVM_FIRST + 9;
     pub const LVM_GETNEXTITEM: u32 = LVM_FIRST + 12;
+    pub const LVM_GETSUBITEMRECT: u32 = LVM_FIRST + 56;
     pub const LVM_SETTEXTCOLOR: u32 = LVM_FIRST + 36;
     pub const LVM_SETTEXTBKCOLOR: u32 = LVM_FIRST + 38;
     pub const LVM_INSERTITEMW: u32 = LVM_FIRST + 77;
@@ -147,9 +148,15 @@ mod sty {
 const NM_CUSTOMDRAW: u32 = 0xFFFF_FFF4; // -12
 const CDDS_PREPAINT: u32 = 0x0000_0001;
 const CDDS_ITEMPREPAINT: u32 = 0x0001_0001;
+#[allow(dead_code)]
+const CDDS_SUBITEM: u32 = 0x0002_0000;
+const CDDS_ITEMPOSTPAINT: u32 = 0x0001_0002;
 const CDRF_DODEFAULT: isize = 0x0000_0000;
 const CDRF_NEWFONT: isize = 0x0000_0002;
 const CDRF_NOTIFYITEMDRAW: isize = 0x0000_0020;
+const CDRF_NOTIFYPOSTPAINT: isize = 0x0000_0010;
+#[allow(dead_code)]
+const CDRF_NOTIFYSUBITEMDRAW: isize = 0x0000_0020; // same bit, used for subitems
 
 // ---------------------------------------------------------------------------
 // Palette (light, modern). COLORREF is 0x00BBGGRR.
@@ -183,64 +190,66 @@ struct Theme {
     danger: COLORREF,
     danger_hot: COLORREF,
     danger_down: COLORREF,
+    #[allow(dead_code)]
     danger_soft: COLORREF,
     warn: COLORREF,
     shadow: COLORREF,
     stripe: COLORREF,
     ok: COLORREF,
+    #[allow(dead_code)]
     ok_soft: COLORREF,
 }
 
 const LIGHT: Theme = Theme {
-    bg: rgb(0xF0, 0xF2, 0xF8),
-    header_top: rgb(0x1E, 0x2A, 0x44),
-    header_bot: rgb(0x0D, 0x12, 0x1E),
-    header_sub: rgb(0x8A, 0x9E, 0xBE),
+    bg: rgb(0xF2, 0xF4, 0xF9),        // slightly cooler background
+    header_top: rgb(0x16, 0x22, 0x3A), // deeper navy header
+    header_bot: rgb(0x08, 0x0E, 0x1C),
+    header_sub: rgb(0x7E, 0x95, 0xB8),
     sidebar: rgb(0xFF, 0xFF, 0xFF),
     surface: rgb(0xFF, 0xFF, 0xFF),
-    border: rgb(0xE0, 0xE4, 0xEC),
-    text: rgb(0x0F, 0x13, 0x1A),
-    text2: rgb(0x60, 0x68, 0x78),
-    accent: rgb(0x1A, 0x5C, 0xF7),
-    accent_hot: rgb(0x3B, 0x74, 0xF9),
-    accent_down: rgb(0x14, 0x4A, 0xD0),
-    accent_soft: rgb(0xE8, 0xF0, 0xFF),
-    nav_hot: rgb(0xF1, 0xF3, 0xF7),
-    danger: rgb(0xD8, 0x2C, 0x2C),
-    danger_hot: rgb(0xE5, 0x48, 0x48),
-    danger_down: rgb(0xB7, 0x20, 0x20),
-    danger_soft: rgb(0xFD, 0xEC, 0xEC),
-    warn: rgb(0xC2, 0x7A, 0x06),
-    shadow: rgb(0xDD, 0xE1, 0xE9),
-    stripe: rgb(0xF5, 0xF7, 0xFA),
-    ok: rgb(0x15, 0x9A, 0x52),
-    ok_soft: rgb(0xE7, 0xF6, 0xEC),
+    border: rgb(0xDC, 0xE1, 0xEC),
+    text: rgb(0x0C, 0x10, 0x18),       // near-black, warmer
+    text2: rgb(0x58, 0x62, 0x74),
+    accent: rgb(0x14, 0x57, 0xF5),     // vivid 2026-era blue
+    accent_hot: rgb(0x33, 0x6E, 0xF8),
+    accent_down: rgb(0x0E, 0x46, 0xCE),
+    accent_soft: rgb(0xE6, 0xEE, 0xFF),
+    nav_hot: rgb(0xEF, 0xF2, 0xF8),
+    danger: rgb(0xD6, 0x26, 0x26),
+    danger_hot: rgb(0xE4, 0x44, 0x44),
+    danger_down: rgb(0xB4, 0x1A, 0x1A),
+    danger_soft: rgb(0xFD, 0xEB, 0xEB),
+    warn: rgb(0xBF, 0x78, 0x04),
+    shadow: rgb(0xD8, 0xDE, 0xED),     // slightly deeper for better depth
+    stripe: rgb(0xF5, 0xF7, 0xFB),
+    ok: rgb(0x12, 0x96, 0x4E),
+    ok_soft: rgb(0xE6, 0xF6, 0xED),
 };
 
 const DARK: Theme = Theme {
-    bg: rgb(0x12, 0x13, 0x18),
-    header_top: rgb(0x1E, 0x21, 0x2D),
-    header_bot: rgb(0x0C, 0x0D, 0x12),
-    header_sub: rgb(0x80, 0x89, 0x9E),
-    sidebar: rgb(0x18, 0x1A, 0x21),
-    surface: rgb(0x1F, 0x22, 0x2A),
-    border: rgb(0x2E, 0x31, 0x3C),
-    text: rgb(0xE4, 0xE6, 0xEC),
-    text2: rgb(0x91, 0x99, 0xA8),
-    accent: rgb(0x4C, 0x8D, 0xFF),
-    accent_hot: rgb(0x6A, 0xA1, 0xFF),
-    accent_down: rgb(0x2D, 0x6C, 0xF6),
-    accent_soft: rgb(0x1A, 0x26, 0x42),
-    nav_hot: rgb(0x27, 0x2B, 0x36),
-    danger: rgb(0xF0, 0x52, 0x52),
-    danger_hot: rgb(0xF8, 0x71, 0x71),
-    danger_down: rgb(0xDC, 0x26, 0x26),
-    danger_soft: rgb(0x3A, 0x20, 0x24),
-    warn: rgb(0xE0, 0xA1, 0x06),
-    shadow: rgb(0x0A, 0x0B, 0x0E),
-    stripe: rgb(0x1A, 0x1D, 0x25),
-    ok: rgb(0x34, 0xC7, 0x59),
-    ok_soft: rgb(0x16, 0x30, 0x1F),
+    bg: rgb(0x0F, 0x10, 0x16),         // deeper, crisper dark base
+    header_top: rgb(0x19, 0x1C, 0x29),
+    header_bot: rgb(0x09, 0x0A, 0x10),
+    header_sub: rgb(0x78, 0x83, 0x9E),
+    sidebar: rgb(0x16, 0x18, 0x20),
+    surface: rgb(0x1C, 0x1F, 0x28),
+    border: rgb(0x2A, 0x2E, 0x3C),
+    text: rgb(0xE6, 0xE8, 0xF0),
+    text2: rgb(0x8C, 0x94, 0xA8),
+    accent: rgb(0x47, 0x8C, 0xFF),     // pop against dark bg
+    accent_hot: rgb(0x65, 0xA0, 0xFF),
+    accent_down: rgb(0x2A, 0x6A, 0xF5),
+    accent_soft: rgb(0x17, 0x24, 0x40),
+    nav_hot: rgb(0x24, 0x28, 0x34),
+    danger: rgb(0xF2, 0x50, 0x50),
+    danger_hot: rgb(0xFA, 0x70, 0x70),
+    danger_down: rgb(0xDA, 0x22, 0x22),
+    danger_soft: rgb(0x38, 0x1C, 0x22),
+    warn: rgb(0xE0, 0xA0, 0x05),
+    shadow: rgb(0x07, 0x08, 0x0C),     // very dark for crisp elevation
+    stripe: rgb(0x17, 0x1A, 0x24),
+    ok: rgb(0x30, 0xC8, 0x58),
+    ok_soft: rgb(0x12, 0x2C, 0x1C),
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1026,7 +1035,17 @@ unsafe fn paint(hwnd: HWND) {
     for b in &s.buttons {
         let hot = s.hot_cmd == Some(b.cmd);
         let down = s.down_cmd == Some(b.cmd);
-        draw_button(mem, b, hot, down, &s.fonts, t);
+        // Resolve the animated hover progress for this button (0.0–1.0).
+        let anim_t = s
+            .hover_anim
+            .iter()
+            .find(|(id, _, _)| *id == b.cmd)
+            .map(|(_, entering, frame)| {
+                let f = (*frame as f64) / 5.0;
+                if *entering { f } else { 1.0 - f }
+            })
+            .unwrap_or(if hot { 1.0 } else { 0.0 });
+        draw_button(mem, b, hot, down, anim_t, &s.fonts, t);
     }
 
     // --- Loading screen: while the engine loads, cover the content area ---
@@ -1229,11 +1248,14 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
         ),
     };
 
-    // Soft gradient background: tinted accent top → near-white/bg bottom.
-    let bg_top = lerp_color(accent, t.bg, 0.88);
-    let bg_bot = lerp_color(accent, t.surface, 0.97);
+    // Premium gradient background: accent-tinted top → neutral surface bottom.
+    let bg_top = lerp_color(accent, t.bg, 0.72);
+    let bg_bot = lerp_color(accent, t.surface, 0.96);
     gradient_v(hdc, &r, bg_top, bg_bot);
-    frame_round(hdc, r, 16, t.border);
+    // Left accent stripe for a modern "card with color tag" feel.
+    let stripe_r = RECT { left: r.left, top: r.top, right: r.left + 4, bottom: r.bottom };
+    fill_round(hdc, stripe_r, 0, accent);
+    frame_round(hdc, r, 16, lerp_color(accent, t.border, 0.55));
 
     let bsize = 68;
     let bx = r.left + 20;
@@ -1323,12 +1345,19 @@ unsafe fn draw_progress_with_anim(hdc: HDC, r: RECT, frac: f64, anim_frame: u32,
     }
 }
 
-unsafe fn draw_button(hdc: HDC, b: &UiButton, hot: bool, down: bool, fonts: &Fonts, t: &Theme) {
-    let (fillc, textc, disabled) = match b.kind {
-        Kind::Primary => (if down { t.accent_down } else if hot { t.accent_hot } else { t.accent }, WHITE, false),
-        Kind::Danger => (if down { t.danger_down } else if hot { t.danger_hot } else { t.danger }, WHITE, false),
-        Kind::Neutral => (if down { t.nav_hot } else if hot { t.bg } else { t.surface }, t.text, false),
+unsafe fn draw_button(hdc: HDC, b: &UiButton, _hot: bool, down: bool, anim_t: f64, fonts: &Fonts, t: &Theme) {
+    let (base, hot_c, down_c, textc) = match b.kind {
+        Kind::Primary => (t.accent, t.accent_hot, t.accent_down, WHITE),
+        Kind::Danger => (t.danger, t.danger_hot, t.danger_down, WHITE),
+        Kind::Neutral => (t.surface, t.bg, t.nav_hot, t.text),
     };
+    let fillc = if down {
+        down_c
+    } else {
+        // Smooth interpolation between base and hot_c using anim_t (0.0–1.0).
+        lerp_color(base, hot_c, anim_t)
+    };
+    let disabled = false;
     // Multi-layer shadow below button (only when not obviously disabled).
     if !disabled {
         draw_shadow(hdc, b.rect, 10, t);
@@ -2304,7 +2333,7 @@ unsafe fn lv_selected(list: HWND) -> Vec<i32> {
     out
 }
 
-/// Color scan rows by severity (red = malware, amber = suspicious/pua).
+/// Color scan rows by severity and draw a small severity pill in the Verdict column.
 unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
     let cd = &mut *cd;
     match cd.nmcd.dwDrawStage.0 {
@@ -2322,7 +2351,49 @@ unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
                 // Zebra striping for readability.
                 cd.clrTextBk = if item % 2 == 0 { t.surface } else { t.stripe };
             }
-            CDRF_NEWFONT
+            // Ask for post-paint so we can draw the severity pill over the Verdict cell.
+            CDRF_NEWFONT | CDRF_NOTIFYPOSTPAINT
+        }
+        x if x == CDDS_ITEMPOSTPAINT => {
+            let item = cd.nmcd.dwItemSpec;
+            let hdc = cd.nmcd.hdc;
+            let list_hwnd = cd.nmcd.hdr.hwndFrom;
+            if let Some(s) = state(hwnd) {
+                let t = s.theme();
+                let sev = s.scan_sev.get(item).copied().unwrap_or(0);
+                // Get the bounding rect of subitem 1 (Verdict column).
+                // LVM_GETSUBITEMRECT: wParam = row, lParam = &RECT where top=subitem, left=LVIR_BOUNDS(0)
+                let mut rc = RECT { left: 0, top: 1, right: 0, bottom: 0 }; // top=subitem index
+                SendMessageW(
+                    list_hwnd,
+                    msg::LVM_GETSUBITEMRECT,
+                    Some(WPARAM(item)),
+                    Some(LPARAM(&mut rc as *mut RECT as isize)),
+                );
+                if rc.right > rc.left + 4 {
+                    // Draw pill: small rounded rectangle left-aligned in the cell.
+                    let (pill_color, pill_text) = match sev {
+                        2 => (t.danger, "High"),
+                        1 => (t.warn, "Medium"),
+                        _ => (t.text2, "Info"),
+                    };
+                    // Pill is 48px wide, vertically centered.
+                    let pill_w = 48i32;
+                    let pill_h = 18i32;
+                    let cell_h = rc.bottom - rc.top;
+                    let py = rc.top + (cell_h - pill_h) / 2;
+                    let pill = RECT {
+                        left: rc.left + 6,
+                        top: py,
+                        right: rc.left + 6 + pill_w,
+                        bottom: py + pill_h,
+                    };
+                    fill_round(hdc, pill, pill_h / 2, pill_color);
+                    // White label on the pill.
+                    text(hdc, pill_text, &pill, WHITE, s.fonts.status, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                }
+            }
+            CDRF_DODEFAULT
         }
         _ => CDRF_DODEFAULT,
     }
