@@ -59,9 +59,30 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             .map(|sig| sig.name.capacity() + 24).sum();
         let log_subsig_count: usize = engine.database.logical.iter()
             .map(|sig| sig.subsignatures.len()).sum();
-        // Vec<Subsignature> header per sig + rough per-subsig overhead
-        let log_subsig_bytes: usize = engine.database.logical.len() * 24
-            + log_subsig_count * 128;
+        
+        let mut log_subsig_bytes = engine.database.logical.len() * 24;
+        for sig in &engine.database.logical {
+            log_subsig_bytes += sig.subsignatures.len() * std::mem::size_of::<hydradragonclamav::logical::Subsignature>();
+            for sub in &sig.subsignatures {
+                match sub {
+                    hydradragonclamav::logical::Subsignature::Body { offset, .. } => {
+                        if offset.is_some() {
+                            log_subsig_bytes += std::mem::size_of::<hydradragonclamav::database::OffsetSpec>();
+                        }
+                    }
+                    hydradragonclamav::logical::Subsignature::Pcre(_) => {
+                        log_subsig_bytes += std::mem::size_of::<hydradragonclamav::logical::PcreSubsig>();
+                    }
+                    hydradragonclamav::logical::Subsignature::ByteCompare(_) => {
+                        log_subsig_bytes += std::mem::size_of::<hydradragonclamav::logical::ByteCompareSpec>();
+                    }
+                    hydradragonclamav::logical::Subsignature::Unsupported(s) => {
+                        log_subsig_bytes += s.len();
+                    }
+                }
+            }
+        }
+
         let ext_box_bytes: usize = engine.database.extended.len() * 96;
         eprintln!(
             "[mem] names: ext={:.1}MB log={:.1}MB | ext_sig_structs={:.1}MB | log_subsigs={:.1}MB (count={})",
@@ -250,6 +271,14 @@ fn print_report(report: &LoadReport) {
         report.container_loaded
     );
     println!("loaded file-type magic records: {}", report.ftm_loaded);
+    println!(
+        "loaded phishing URL entries: {} (from {} .pdb/.gdb/.wdb files)",
+        report.phishing_loaded, report.phishing_files
+    );
+    println!(
+        "loaded icon fingerprints: {} (from {} .idb files)",
+        report.icon_loaded, report.icon_files
+    );
     println!("loaded bytecode programs: {}", report.bytecodes_loaded);
     println!(
         "ignore-list entries: {} (signatures skipped: {})",
@@ -276,8 +305,16 @@ fn print_report(report: &LoadReport) {
         report.hash_files_skipped,
         "skipped — hash-based",
     );
-    print_bucket("phishing (pdb/gdb/wdb)", report.phishing_files, "deferred — Pass 2");
-    print_bucket("icon (idb)", report.icon_files, "deferred — Pass 3");
+    print_bucket(
+        "phishing (pdb/gdb/wdb)",
+        report.phishing_files,
+        "loaded — phishing engine",
+    );
+    print_bucket(
+        "icon (idb)",
+        report.icon_files,
+        "fingerprints loaded — matcher follow-up",
+    );
     print_bucket("cert trust (crb/cat)", report.cert_files, "deferred — Pass 4");
     print_bucket("openioc (ioc)", report.ioc_files, "deferred");
     print_bucket("config (cfg)", report.config_files, "not a detection database");

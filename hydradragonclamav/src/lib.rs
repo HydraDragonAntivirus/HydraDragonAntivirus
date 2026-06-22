@@ -1,9 +1,11 @@
 pub mod bytecode;
 pub mod bytecode_vm;
 pub mod database;
+pub mod icon;
 pub mod logical;
 pub mod pattern;
 pub mod pe;
+pub mod phishing;
 pub mod prefilter;
 pub mod scanner;
 

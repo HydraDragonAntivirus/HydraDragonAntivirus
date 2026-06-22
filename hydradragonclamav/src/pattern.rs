@@ -173,20 +173,80 @@ impl Special {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum Instructions {
+    Pure(Box<[u8]>),
+    Complex(Box<[u16]>),
+}
+
+impl Default for Instructions {
+    fn default() -> Self {
+        Instructions::Pure(Box::default())
+    }
+}
+
+impl Instructions {
+    #[inline]
+    pub fn len(&self) -> usize {
+        match self {
+            Instructions::Pure(b) => b.len(),
+            Instructions::Complex(b) => b.len(),
+        }
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Instructions::Pure(b) => b.is_empty(),
+            Instructions::Complex(b) => b.is_empty(),
+        }
+    }
+
+    #[inline]
+    pub fn get_u16(&self, index: usize) -> u16 {
+        match self {
+            Instructions::Pure(b) => b[index] as u16,
+            Instructions::Complex(b) => b[index],
+        }
+    }
+}
+
 /// A compiled pattern: a sequence of ClamAV uint16_t instructions plus its
 /// `()` special table.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Pattern {
-    /// Exact-fit boxed slice — no overcapacity, smaller header than Vec.
-    pub instructions: Box<[u16]>,
+    /// Space-efficient instruction storage: Box<[u8]> for pure literals,
+    /// Box<[u16]> only when wildcards/specials are present.
+    pub instructions: Instructions,
     pub specials: Box<[Special]>,
+    pub best_literal_offset: u16,
+    pub best_literal_len: u16,
     pub fullword: bool,
-    /// Byte offset and length of the longest fixed-byte literal in instructions.
-    /// No heap copy — bytes are reconstructed from `instructions` on demand.
-    pub best_literal: Option<(usize, usize)>,
+}
+
+impl Default for Pattern {
+    fn default() -> Self {
+        Self {
+            instructions: Instructions::default(),
+            specials: Box::default(),
+            best_literal_offset: u16::MAX,
+            best_literal_len: 0,
+            fullword: false,
+        }
+    }
 }
 
 impl Pattern {
+    /// Get the best literal offset and length if present.
+    #[inline]
+    pub fn best_literal(&self) -> Option<(usize, usize)> {
+        if self.best_literal_offset == u16::MAX {
+            None
+        } else {
+            Some((self.best_literal_offset as usize, self.best_literal_len as usize))
+        }
+    }
+
     /// Create a Pattern from parsed instructions with no specials.
     pub fn from_instructions(inst: Vec<u16>, fullword: bool) -> Self {
         Self::from_parsed(inst, Vec::new(), fullword)
@@ -196,11 +256,21 @@ impl Pattern {
     /// Converts Vecs to exact-fit Box<[T]> — eliminates overcapacity.
     pub fn from_parsed(inst: Vec<u16>, specials: Vec<Special>, fullword: bool) -> Self {
         let best_literal = Self::compute_best_literal(&inst);
+        let instructions = if inst.iter().all(|&ins| (ins & CLI_MATCH_METADATA) == CLI_MATCH_CHAR) {
+            Instructions::Pure(inst.iter().map(|&ins| (ins & 0xff) as u8).collect::<Vec<u8>>().into_boxed_slice())
+        } else {
+            Instructions::Complex(inst.into_boxed_slice())
+        };
+        let (best_literal_offset, best_literal_len) = match best_literal {
+            Some((off, len)) => (off as u16, len as u16),
+            None => (u16::MAX, 0),
+        };
         Self {
-            instructions: inst.into_boxed_slice(),
+            instructions,
             specials: specials.into_boxed_slice(),
+            best_literal_offset,
+            best_literal_len,
             fullword,
-            best_literal,
         }
     }
 
@@ -251,7 +321,9 @@ impl Pattern {
     fn min_match_len(&self) -> usize {
         let mut n = 0usize;
         let mut sidx = 0usize;
-        for &inst in &self.instructions {
+        let len = self.instructions.len();
+        for i in 0..len {
+            let inst = self.instructions.get_u16(i);
             if (inst & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
                 n += self.specials.get(sidx).map_or(1, |s| s.min_width());
                 sidx += 1;
@@ -328,7 +400,7 @@ impl Pattern {
             return self.find_all(data, ranges, limit);
         }
 
-        let prefix = self.best_literal.map(|(off, _)| off).unwrap_or(0);
+        let prefix = self.best_literal().map(|(off, _)| off).unwrap_or(0);
         let mut out = Vec::new();
         let mut last_start = None;
 
@@ -375,8 +447,9 @@ impl Pattern {
     /// variable-width `AltStr` alternations; everything else advances linearly.
     fn match_rec(&self, data: &[u8], mut dpos: usize, mut ipos: usize, mut sidx: usize) -> Option<usize> {
         let pat = &self.instructions;
-        while ipos < pat.len() {
-            let inst = pat[ipos];
+        let pat_len = pat.len();
+        while ipos < pat_len {
+            let inst = pat.get_u16(ipos);
             if (inst & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
                 let sp = self.specials.get(sidx)?;
                 match sp {
@@ -417,7 +490,8 @@ impl Pattern {
                         // Fast path: a gap immediately followed by a fixed byte —
                         // jump to each occurrence of that byte in [min, max] with
                         // memchr instead of trying every gap width.
-                        if let Some(&next) = pat.get(ipos + 1) {
+                        if ipos + 1 < pat_len {
+                            let next = pat.get_u16(ipos + 1);
                             if (next & CLI_MATCH_METADATA) == CLI_MATCH_CHAR && !data.is_empty() {
                                 let target = (next & 0xff) as u8;
                                 let lo = dpos + *min;
@@ -499,9 +573,14 @@ impl Pattern {
     pub fn mem_stats(&self) -> MemStats {
         let mut s = MemStats::default();
         s.patterns = 1;
-        s.token_bytes += self.instructions.len() * 2; // u16 = 2 bytes each
+        s.token_bytes += match &self.instructions {
+            Instructions::Pure(b) => b.len(),
+            Instructions::Complex(b) => b.len() * 2,
+        };
         s.struct_bytes += std::mem::size_of::<Pattern>();
-        for &inst in &self.instructions {
+        let len = self.instructions.len();
+        for i in 0..len {
+            let inst = self.instructions.get_u16(i);
             let meta = inst & CLI_MATCH_METADATA;
             match meta {
                 CLI_MATCH_CHAR | CLI_MATCH_NOCASE => s.n_byte += 1,
@@ -516,10 +595,9 @@ impl Pattern {
 
     /// The longest fixed byte sequence for prefilter use (reconstructed on demand).
     pub fn required_atom(&self) -> Option<Vec<u8>> {
-        self.best_literal.map(|(off, len)| {
-            self.instructions[off..off + len]
-                .iter()
-                .map(|&inst| (inst & 0xff) as u8)
+        self.best_literal().map(|(off, len)| {
+            (0..len)
+                .map(|i| (self.instructions.get_u16(off + i) & 0xff) as u8)
                 .collect()
         })
     }
@@ -531,7 +609,9 @@ impl Pattern {
         let mut run_len = 0usize;
         let mut in_run = false;
 
-        for (i, &inst) in self.instructions.iter().enumerate() {
+        let len = self.instructions.len();
+        for i in 0..len {
+            let inst = self.instructions.get_u16(i);
             let meta = inst & CLI_MATCH_METADATA;
             if meta == CLI_MATCH_CHAR || meta == CLI_MATCH_NOCASE {
                 if !in_run {
@@ -552,9 +632,8 @@ impl Pattern {
         }
 
         best.map(|(start, len)| {
-            self.instructions[start..start + len]
-                .iter()
-                .map(|&inst| (inst & 0xff) as u8)
+            (0..len)
+                .map(|i| (self.instructions.get_u16(start + i) & 0xff) as u8)
                 .map(|byte| byte.to_ascii_lowercase())
                 .collect()
         })
@@ -562,10 +641,9 @@ impl Pattern {
 
     /// Find a fixed-byte literal from the pattern for prefilter use.
     pub fn find_literal(&self) -> Option<(Vec<u8>, usize)> {
-        self.best_literal.map(|(off, len)| {
-            let bytes: Vec<u8> = self.instructions[off..off + len]
-                .iter()
-                .map(|&inst| (inst & 0xff) as u8)
+        self.best_literal().map(|(off, len)| {
+            let bytes: Vec<u8> = (0..len)
+                .map(|i| (self.instructions.get_u16(off + i) & 0xff) as u8)
                 .collect();
             (bytes, off)
         })

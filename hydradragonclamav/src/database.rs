@@ -13,6 +13,10 @@ pub struct Database {
     pub logical: Vec<LogicalSignature>,
     pub container: Vec<ContainerSignature>,
     pub file_type_magic: Vec<FileTypeMagic>,
+    /// Phishing URL databases (`.pdb`/`.gdb` protected domains, `.wdb` allow list).
+    pub phishing: crate::phishing::PhishingDb,
+    /// Icon signatures (`.idb`) — fingerprints loaded; image matcher is follow-up.
+    pub icons: crate::icon::IconMatcher,
     pub unsupported: Vec<UnsupportedRecord>,
     /// Decoded + interpreter-prepared ClamBC programs. A logical signature whose
     /// `bytecode` field is `Some(i)` is a bytecode trigger that runs `[i]`.
@@ -152,10 +156,14 @@ pub struct LoadReport {
     // Per-category file counts for the not-yet-matched / non-detection extensions,
     // so every file in `files_seen` is accounted for (no silent drops). Each of
     // these also pushes one `UnsupportedRecord` naming the exact disposition.
-    /// `.pdb`/`.gdb`/`.wdb` — phishing URL/domain databases (Pass 2).
+    /// `.pdb`/`.gdb`/`.wdb` — phishing URL/domain database files seen.
     pub phishing_files: usize,
-    /// `.idb` — icon fuzzy-image signatures (Pass 3).
+    /// Phishing entries loaded across all `.pdb`/`.gdb`/`.wdb` files.
+    pub phishing_loaded: usize,
+    /// `.idb` — icon fuzzy-image signature files seen.
     pub icon_files: usize,
+    /// Icon fingerprints loaded across all `.idb` files.
+    pub icon_loaded: usize,
     /// `.crb`/`.cat` — Authenticode certificate trust/block rules (Pass 4).
     pub cert_files: usize,
     /// `.ioc` — OpenIOC XML indicator databases.
@@ -330,9 +338,9 @@ fn load_file(
 
     let kind = classify_extension(&ext);
     match kind {
-        // Per-line body/logical/container/magic databases are parsed below.
+        // Per-line body/logical/container/magic/phishing/icon databases parsed below.
         ExtKind::BodyNdb | ExtKind::BodyOldDb | ExtKind::Logical
-        | ExtKind::Container | ExtKind::FileMagic => {}
+        | ExtKind::Container | ExtKind::FileMagic | ExtKind::Phishing | ExtKind::Icon => {}
 
         // Hash-based databases are matched by hydradragon elsewhere, not here.
         ExtKind::Hash => {
@@ -347,9 +355,7 @@ fn load_file(
         // must still be accounted for — count it by category and record a precise
         // disposition so `--list-unsupported` names exactly what was deferred and
         // the report sums to 100% of files_seen. Nothing is silently dropped.
-        ExtKind::Phishing
-        | ExtKind::Icon
-        | ExtKind::CertTrust
+        ExtKind::CertTrust
         | ExtKind::Ioc
         | ExtKind::Config
         | ExtKind::Metadata
@@ -357,8 +363,6 @@ fn load_file(
         | ExtKind::Deprecated
         | ExtKind::Unknown => {
             match kind {
-                ExtKind::Phishing => report.phishing_files += 1,
-                ExtKind::Icon => report.icon_files += 1,
                 ExtKind::CertTrust => report.cert_files += 1,
                 ExtKind::Ioc => report.ioc_files += 1,
                 ExtKind::Config => report.config_files += 1,
@@ -372,6 +376,13 @@ fn load_file(
             push_unsupported(database, report, path, 0, kind.disposition(&ext));
             return Ok(());
         }
+    }
+
+    if kind == ExtKind::Phishing {
+        report.phishing_files += 1;
+    }
+    if kind == ExtKind::Icon {
+        report.icon_files += 1;
     }
 
     let file = File::open(path)?;
@@ -457,6 +468,26 @@ fn load_file(
                     database.file_type_magic.push(signature);
                     report.ftm_loaded += 1;
                 }
+                Err(message) => push_error(report, source, message),
+            },
+            // Phishing URL databases: `.pdb`/`.gdb` → protected-domain matcher,
+            // `.wdb` → allow-list matcher (readdb.c cli_loadpdb / cli_loadwdb).
+            ExtKind::Phishing => {
+                let result = if ext == "wdb" {
+                    database.phishing.allow.add_line(line)
+                } else {
+                    database.phishing.protected.add_line(line, source.clone())
+                };
+                match result {
+                    Ok(true) => report.phishing_loaded += 1,
+                    Ok(false) => {} // intentionally skipped (e.g. `S:` hash entry)
+                    Err(message) => push_error(report, source, message),
+                }
+            }
+            // Icon signatures (`.idb`): fingerprint loaded; image matcher is a
+            // follow-up (readdb.c cli_loadidb).
+            ExtKind::Icon => match database.icons.add_line(line, source.clone()) {
+                Ok(()) => report.icon_loaded += 1,
                 Err(message) => push_error(report, source, message),
             },
             // The non-per-line kinds returned early above before the read loop.

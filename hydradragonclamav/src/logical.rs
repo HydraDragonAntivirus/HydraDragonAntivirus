@@ -78,26 +78,25 @@ pub struct LogicalSignature {
 }
 
 #[derive(Clone, Debug)]
+pub struct PcreSubsig {
+    pub trigger: LogicalExpr,
+    pub regex: LazyRegex,
+    pub global: bool,
+}
+
+#[derive(Clone, Debug)]
 pub enum Subsignature {
     Body {
-        offset: OffsetSpec,
+        offset: Option<Box<OffsetSpec>>,
         patterns: Box<[Pattern]>,
     },
     /// `Trigger/PCRE/Flags` — the regex runs only when `trigger` evaluates true.
     /// The regex is compiled lazily on first trigger (see [`LazyRegex`]).
-    Pcre {
-        trigger: LogicalExpr,
-        regex: LazyRegex,
-        global: bool,
-    },
+    Pcre(Box<PcreSubsig>),
     /// `subsigid_trigger(offset#byte_options#comparisons)` — reads bytes relative
     /// to the trigger subsignature's match and compares them numerically.
-    ByteCompare {
-        spec: ByteCompareSpec,
-    },
-    Unsupported {
-        reason: String,
-    },
+    ByteCompare(Box<ByteCompareSpec>),
+    Unsupported(Box<str>),
 }
 
 /// How the bytes read by a byte-compare subsignature are interpreted.
@@ -510,7 +509,7 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
     if looks_like_byte_compare(raw) {
         return match parse_byte_compare(raw) {
             Ok(spec) => (
-                Subsignature::ByteCompare { spec },
+                Subsignature::ByteCompare(Box::new(spec)),
                 None,
             ),
             Err(err) => unsupported(raw, &err),
@@ -519,11 +518,11 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
     if looks_like_pcre(raw) {
         return match parse_pcre(raw) {
             Ok((trigger, regex, global)) => (
-                Subsignature::Pcre {
+                Subsignature::Pcre(Box::new(PcreSubsig {
                     trigger,
                     regex,
                     global,
-                },
+                })),
                 None,
             ),
             Err(err) => unsupported(raw, &err),
@@ -561,9 +560,15 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
         ));
     }
 
+    let offset_opt = if offset == OffsetSpec::any() {
+        None
+    } else {
+        Some(Box::new(offset))
+    };
+
     match compile_pattern_variants(body, modifiers) {
         Ok(patterns) => (
-            Subsignature::Body { offset, patterns: patterns.into() },
+            Subsignature::Body { offset: offset_opt, patterns: patterns.into() },
             warning,
         ),
         Err(err) => unsupported(raw, &format!("invalid body pattern: {err}")),
@@ -858,9 +863,7 @@ fn take_valid(text: &str, exact: bool, valid: impl Fn(char) -> bool) -> Option<S
 fn unsupported(raw: &str, reason: &str) -> (Subsignature, Option<String>) {
     let _ = raw;
     (
-        Subsignature::Unsupported {
-            reason: reason.to_string(),
-        },
+        Subsignature::Unsupported(reason.to_string().into_boxed_str()),
         Some(reason.to_string()),
     )
 }
@@ -1182,7 +1185,7 @@ mod tests {
         let (sub, warning) = parse_subsignature("0(>>4#il2#>0)");
         assert!(warning.is_none(), "unexpected warning: {warning:?}");
         match sub {
-            Subsignature::ByteCompare { spec, .. } => {
+            Subsignature::ByteCompare(spec) => {
                 assert_eq!(spec.trigger_subsig, 0);
                 assert_eq!(spec.offset_sign, 1);
                 assert_eq!(spec.offset_value, 4);
@@ -1202,7 +1205,7 @@ mod tests {
         // 4 ASCII hex digits == 0x00ff. ClamAV rejects an effective offset of 0
         // (`offset + bm->offset > 0`), so anchor at a positive trigger offset.
         let (sub, _) = parse_subsignature("0(>>0#he4#=255)");
-        let Subsignature::ByteCompare { spec, .. } = sub else {
+        let Subsignature::ByteCompare(spec) = sub else {
             panic!("expected byte-compare");
         };
         // Trigger matched at offset 1 → reads "00ff" at pos 1.
@@ -1217,9 +1220,9 @@ mod tests {
         let (sub, warning) = parse_subsignature("0/ab.c/i");
         assert!(warning.is_none(), "unexpected warning: {warning:?}");
         match sub {
-            Subsignature::Pcre { regex, global, .. } => {
-                assert!(!global);
-                assert!(regex.is_match(b"xxAByCzz"));
+            Subsignature::Pcre(pcre) => {
+                assert!(!pcre.global);
+                assert!(pcre.regex.is_match(b"xxAByCzz"));
             }
             other => panic!("expected PCRE, got {other:?}"),
         }
@@ -1234,11 +1237,20 @@ mod tests {
         let (sub, warning) = parse_subsignature(r"0/(a)\1/");
         assert!(warning.is_none());
         match sub {
-            Subsignature::Pcre { regex, .. } => {
-                assert!(regex.get().is_none(), "invalid regex must fail to compile");
-                assert!(!regex.is_match(b"aa"));
+            Subsignature::Pcre(pcre) => {
+                assert!(pcre.regex.get().is_none(), "invalid regex must fail to compile");
+                assert!(!pcre.regex.is_match(b"aa"));
             }
             other => panic!("expected PCRE subsig, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn print_sizes() {
+        println!("Subsignature: {}", std::mem::size_of::<Subsignature>());
+        println!("OffsetSpec: {}", std::mem::size_of::<OffsetSpec>());
+        println!("OffsetAnchor: {}", std::mem::size_of::<OffsetAnchor>());
+        println!("PcreSubsig: {}", std::mem::size_of::<PcreSubsig>());
+        println!("ByteCompareSpec: {}", std::mem::size_of::<ByteCompareSpec>());
     }
 }

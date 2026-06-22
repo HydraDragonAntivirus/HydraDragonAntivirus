@@ -20,7 +20,7 @@
 
 use daachorse::DoubleArrayAhoCorasick;
 
-use crate::database::{Database, OffsetAnchor};
+use crate::database::{Database, OffsetAnchor, OffsetSpec};
 use crate::logical::Subsignature;
 
 /// Shortest literal usable as an atom (ClamAV's AC mindepth is 2).
@@ -327,6 +327,8 @@ impl AtomPrefilter {
                 let Subsignature::Body { offset, patterns } = &sig.subsignatures[i] else {
                     continue;
                 };
+                let default_offset = OffsetSpec::any();
+                let offset = offset.as_deref().unwrap_or(&default_offset);
                 if patterns.is_empty() || !evaluable_offset(&offset.anchor) {
                     continue;
                 }

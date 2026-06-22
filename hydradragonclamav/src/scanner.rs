@@ -1,4 +1,4 @@
-use crate::database::{ContainerType, Database, OffsetAnchor, SourceLocation};
+use crate::database::{ContainerType, Database, OffsetAnchor, OffsetSpec, SourceLocation};
 use crate::logical::Subsignature;
 use crate::pe::{parse_pe, PeInfo};
 use hydradragonextractor::{detect_format, extract_archive_from_bytes};
@@ -72,6 +72,8 @@ pub enum SignatureKind {
     Extended,
     Logical,
     Container,
+    /// Phishing heuristic (`.pdb`/`.gdb`/`.wdb` driven spoofed-domain check).
+    Phishing,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -233,6 +235,17 @@ impl Engine {
             self.scan_normalized_views(data, object_path, container_type, options, state);
         }
 
+        // Phishing heuristic: harvest `<a href>` link pairs from HTML/email and
+        // flag spoofed protected domains (.pdb/.gdb gated by .wdb allow list).
+        // Only meaningful for HTML, and only when a protected-domain DB is loaded.
+        if !is_pe
+            && !self.database.phishing.protected.is_empty()
+            && state.matches.len() < options.max_matches
+            && looks_like_html(data)
+        {
+            self.scan_phishing(data, object_path, options, &mut state.matches);
+        }
+
         if options.scan_archives
             && state.matches.len() < options.max_matches
             && looks_like_supported_archive(data)
@@ -315,6 +328,30 @@ impl Engine {
                     arenas: Vec::new(),
                 });
             }
+        }
+    }
+
+    /// Run the phishing heuristic over an HTML/email object's link pairs,
+    /// appending one `ScanMatch` per detected spoof (`Heuristics.Phishing.*`).
+    fn scan_phishing(
+        &self,
+        data: &[u8],
+        object_path: &str,
+        options: ScanOptions,
+        matches: &mut Vec<ScanMatch>,
+    ) {
+        for hit in self.database.phishing.scan_html(data) {
+            if matches.len() >= options.max_matches {
+                return;
+            }
+            matches.push(ScanMatch {
+                name: hit.name.to_string(),
+                kind: SignatureKind::Phishing,
+                source: hit.source,
+                object_path: object_path.to_string(),
+                view: ScanView::Raw,
+                arenas: Vec::new(),
+            });
         }
     }
 
@@ -674,6 +711,8 @@ impl Engine {
         if let Some(g) = gate {
             let gi = g.subsig as usize;
             if let Some(Subsignature::Body { offset, patterns }) = subsigs.get(gi) {
+                let default_offset = OffsetSpec::any();
+                let offset = offset.as_deref().unwrap_or(&default_offset);
                 let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
                 if !ranges.is_empty() {
                     let gate_hints = if g.threadable { hints } else { None };
@@ -718,6 +757,8 @@ impl Engine {
                 offset, patterns, ..
             } = subsig
             {
+                let any = OffsetSpec::any();
+                let offset = offset.as_deref().unwrap_or(&any);
                 if matches!(
                     offset.anchor,
                     OffsetAnchor::Unsupported(_)
@@ -748,26 +789,22 @@ impl Engine {
         // reference the phase-1 body results.
         for (i, subsig) in subsigs.iter().enumerate() {
             match subsig {
-                Subsignature::Pcre {
-                    trigger,
-                    regex,
-                    global,
-                } => {
-                    if trigger.eval(&counts).matched {
+                Subsignature::Pcre(pcre) => {
+                    if pcre.trigger.eval(&counts).matched {
                         // Compile the regex on first trigger (lazy — most PCREs
                         // never fire, so they stay uncompiled and cost no RAM).
-                        if let Some(re) = regex.get() {
-                            counts[i] = if *global {
+                        if let Some(re) = pcre.regex.get() {
+                            counts[i] = if pcre.global {
                                 re.find_iter(ctx.data)
                                     .take(options.max_subsignature_matches)
                                     .count()
                             } else {
-                                usize::from(re.is_match(ctx.data))
+                                usize::from(pcre.regex.is_match(ctx.data))
                             };
                         }
                     }
                 }
-                Subsignature::ByteCompare { spec, .. } => {
+                Subsignature::ByteCompare(spec) => {
                     // ClamAV (cli_bcomp_scanbuf): the referenced subsig must have
                     // matched, then anchor at its LAST match offset, coercing a
                     // missing offset (CLI_OFF_NONE) to 0 rather than skipping.
@@ -1212,6 +1249,8 @@ mod tests {
             logical: Vec::new(),
             container: Vec::new(),
             file_type_magic: Vec::new(),
+            phishing: crate::phishing::PhishingDb::default(),
+            icons: crate::icon::IconMatcher::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
@@ -1244,6 +1283,8 @@ mod tests {
             logical: Vec::new(),
             container: Vec::new(),
             file_type_magic: Vec::new(),
+            phishing: crate::phishing::PhishingDb::default(),
+            icons: crate::icon::IconMatcher::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
@@ -1279,6 +1320,8 @@ mod tests {
             logical: Vec::new(),
             container: Vec::new(),
             file_type_magic: Vec::new(),
+            phishing: crate::phishing::PhishingDb::default(),
+            icons: crate::icon::IconMatcher::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
@@ -1306,6 +1349,8 @@ mod tests {
             logical: Vec::new(),
             container: Vec::new(),
             file_type_magic: Vec::new(),
+            phishing: crate::phishing::PhishingDb::default(),
+            icons: crate::icon::IconMatcher::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
@@ -1336,6 +1381,8 @@ mod tests {
             logical: Vec::new(),
             container: Vec::new(),
             file_type_magic: Vec::new(),
+            phishing: crate::phishing::PhishingDb::default(),
+            icons: crate::icon::IconMatcher::default(),
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
