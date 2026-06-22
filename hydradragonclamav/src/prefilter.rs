@@ -104,6 +104,14 @@ impl CandidateSet {
         self.sigs.len()
     }
 
+    /// Number of candidates that carry threaded offsets (non-empty span); the
+    /// rest fall back to a full scan. For profiling only.
+    pub fn threaded_count(&self) -> usize {
+        (0..self.sigs.len())
+            .filter(|&k| self.off_starts[k + 1] > self.off_starts[k])
+            .count()
+    }
+
     /// Iterate `(signature_index, atom_offsets)`. An empty offsets slice means
     /// "full scan this signature".
     pub fn iter(&self) -> impl Iterator<Item = (u32, &[u32])> + '_ {
@@ -127,6 +135,14 @@ impl Candidates {
         match self {
             Candidates::All => usize::MAX,
             Candidates::List(set) => set.len(),
+        }
+    }
+
+    /// Candidates carrying threaded offsets (vs full-scan), for profiling.
+    pub fn threaded_count(&self) -> usize {
+        match self {
+            Candidates::All => 0,
+            Candidates::List(set) => set.threaded_count(),
         }
     }
 }

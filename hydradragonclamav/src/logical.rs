@@ -49,6 +49,22 @@ impl LazyRegex {
 pub struct LogicalSignature {
     pub name: String,
     pub target: Option<u32>,
+    /// `FileSize:min-max` TDB constraint, if present. The scanned object's length
+    /// must fall in `[min, max]` for the signature to fire.
+    pub file_size: Option<(u64, u64)>,
+    /// `Container:CL_TYPE_X` TDB constraint — the signature only fires when the
+    /// scanned object's IMMEDIATE parent container is of this type (ClamAV's
+    /// `recursion_stack_get_type(-2)`). `CL_TYPE_ANY` means "any container".
+    pub container: Option<String>,
+    /// `NumberOfSections:min-max` TDB constraint — the PE's section count must be
+    /// in `[min, max]`.
+    pub nos: Option<(u32, u32)>,
+    /// True when the TDB attribute block carries a constraint we cannot yet
+    /// evaluate (IconGroup1/2, HandlerType, Intermediates, …). Such a signature
+    /// gates its match on context we don't have, so matching its body alone would
+    /// FALSE-POSITIVE on every file that satisfies the body — we skip it, exactly
+    /// as ClamAV only applies it when the gate holds.
+    pub tdb_unsupported: bool,
     pub expression: LogicalExpr,
     pub subsignatures: Vec<Subsignature>,
     pub source: SourceLocation,
@@ -213,7 +229,16 @@ pub fn parse_logical_signature(
 
     let expression = LogicalExpr::from_tree(&ExprParser::new(parts[2]).parse()?);
     let target = parse_target(parts[1]);
+    let tdb = parse_tdb(parts[1]);
+    let (file_size, container, nos, tdb_unsupported) =
+        (tdb.file_size, tdb.container, tdb.nos, tdb.unsupported);
     let mut warnings = Vec::new();
+    if tdb_unsupported {
+        warnings.push(format!(
+            "logical signature '{}' has a TDB constraint that can't be evaluated; skipped to avoid false positives",
+            parts[0]
+        ));
+    }
     let mut subsignatures = Vec::new();
     for raw in parts.iter().skip(3) {
         if raw.trim().is_empty() {
@@ -230,12 +255,78 @@ pub fn parse_logical_signature(
         LogicalSignature {
             name: parts[0].to_string(),
             target,
+            file_size,
+            container,
+            nos,
+            tdb_unsupported,
             expression,
             subsignatures,
             source,
         },
         warnings,
     ))
+}
+
+/// Parsed TDB attribute constraints (ClamAV's target description block).
+#[derive(Default)]
+struct Tdb {
+    file_size: Option<(u64, u64)>,
+    container: Option<String>,
+    nos: Option<(u32, u32)>,
+    unsupported: bool,
+}
+
+/// Parse the TDB attribute block (`Engine:51-255,Target:1,Container:CL_TYPE_ZIP,
+/// FileSize:1-2000,NumberOfSections:2-4,…`). We evaluate the constraints we have
+/// the context for — `FileSize` (object length), `Container` (immediate parent
+/// container type), `NumberOfSections` (PE section count) — and treat `Target`
+/// (handled separately) and `Engine` (a ClamAV functionality-level gate, not a
+/// file-content gate) as always-applicable. Anything else (`IconGroup1/2`,
+/// `HandlerType`, `Intermediates`, `EntryPoint`, …) gates the match on context we
+/// don't have yet, so the signature is marked unsupported and skipped rather than
+/// matched on its body alone (which false-positives).
+fn parse_tdb(block: &str) -> Tdb {
+    let mut tdb = Tdb::default();
+    for item in block.split(',') {
+        let item = item.trim();
+        if item.is_empty() {
+            continue;
+        }
+        let (key, val) = item.split_once(':').unwrap_or((item, ""));
+        match key {
+            "Target" | "Engine" => {}
+            "FileSize" => match parse_num_range(val) {
+                Some(range) => tdb.file_size = Some(range),
+                None => tdb.unsupported = true,
+            },
+            "Container" if !val.is_empty() => tdb.container = Some(val.to_string()),
+            "NumberOfSections" => match parse_num_range(val) {
+                Some((lo, hi)) => tdb.nos = Some((lo as u32, hi as u32)),
+                None => tdb.unsupported = true,
+            },
+            _ => tdb.unsupported = true,
+        }
+    }
+    tdb
+}
+
+/// Parse a ClamAV numeric range field: `n`, `n-m`, `-m`, or `n-`.
+fn parse_num_range(raw: &str) -> Option<(u64, u64)> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if let Some((lo, hi)) = raw.split_once('-') {
+        let lo = if lo.is_empty() { 0 } else { lo.parse().ok()? };
+        let hi = if hi.is_empty() { u64::MAX } else { hi.parse().ok()? };
+        if hi < lo {
+            return None;
+        }
+        Some((lo, hi))
+    } else {
+        let n = raw.parse().ok()?;
+        Some((n, n))
+    }
 }
 
 impl LogicalExpr {

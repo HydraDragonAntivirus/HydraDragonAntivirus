@@ -95,6 +95,11 @@ pub(crate) struct ScanContext<'a> {
     pub detected_target: Option<u32>,
     pub object_path: &'a str,
     pub view: ScanView,
+    /// ClamAV `CL_TYPE_*` of this object's IMMEDIATE parent container (the type
+    /// of the archive it was extracted from), or `None` at the top level. Used to
+    /// evaluate logical signatures' `Container:` TDB constraint, mirroring
+    /// ClamAV's `cli_recursion_stack_get_type(ctx, -2)`.
+    pub container_type: Option<&'static str>,
 }
 
 struct ScanState {
@@ -148,7 +153,8 @@ impl Engine {
             matches: Vec::new(),
             objects_seen: 0,
         };
-        self.scan_object(data, object_path, 0, options, &mut state);
+        // Top-level object has no parent container.
+        self.scan_object(data, object_path, None, 0, options, &mut state);
         state.matches
     }
 
@@ -156,6 +162,7 @@ impl Engine {
         &self,
         data: &[u8],
         object_path: &str,
+        container_type: Option<&'static str>,
         depth: usize,
         options: ScanOptions,
         state: &mut ScanState,
@@ -186,6 +193,7 @@ impl Engine {
             detected_target,
             object_path,
             view: ScanView::Raw,
+            container_type,
         };
         self.scan_context(&ctx, options, &mut state.matches);
 
@@ -194,7 +202,7 @@ impl Engine {
         // rescanning up to four derived copies of it is pure waste — skip it.
         // (Text/HTML files still go through the views below.)
         if options.scan_normalized && !is_pe && state.matches.len() < options.max_matches {
-            self.scan_normalized_views(data, object_path, options, state);
+            self.scan_normalized_views(data, object_path, container_type, options, state);
         }
 
         if options.scan_archives
@@ -206,6 +214,8 @@ impl Engine {
                     self.scan_containers(data, &children, object_path, options, &mut state.matches);
                 }
                 if depth < options.max_recursion {
+                    // Children's immediate parent container is THIS archive.
+                    let child_container = clamav_container_type(data);
                     for (index, child) in children.iter().enumerate() {
                         if state.matches.len() >= options.max_matches
                             || state.objects_seen >= options.max_child_objects
@@ -213,7 +223,14 @@ impl Engine {
                             break;
                         }
                         let child_path = format!("{object_path}#archive[{index}]");
-                        self.scan_object(child, &child_path, depth + 1, options, state);
+                        self.scan_object(
+                            child,
+                            &child_path,
+                            child_container,
+                            depth + 1,
+                            options,
+                            state,
+                        );
                     }
                 }
             }
@@ -305,8 +322,9 @@ impl Engine {
             let (ext_cands, log_cands) = self.prefilter.candidates(ctx.data);
             let t1 = Instant::now();
             let (ne, nl) = (ext_cands.len(), log_cands.len());
+            let (te, tl) = (ext_cands.threaded_count(), log_cands.threaded_count());
             eprintln!(
-                "[PROF] {}KB view={:?} ext_cands={ne} log_cands={nl} prefilter={}ms (scanning…)",
+                "[PROF] {}KB view={:?} ext_cands={ne}(threaded {te}) log_cands={nl}(threaded {tl}) prefilter={}ms (scanning…)",
                 ctx.data.len() / 1024,
                 ctx.view,
                 (t1 - t0).as_millis(),
@@ -338,6 +356,7 @@ impl Engine {
         &self,
         data: &[u8],
         object_path: &str,
+        container_type: Option<&'static str>,
         options: ScanOptions,
         state: &mut ScanState,
     ) {
@@ -348,6 +367,7 @@ impl Engine {
                 object_path,
                 7,
                 ScanView::NormalizedText,
+                container_type,
                 options,
                 state,
             );
@@ -360,6 +380,7 @@ impl Engine {
                 object_path,
                 3,
                 ScanView::HtmlNoComments,
+                container_type,
                 options,
                 state,
             );
@@ -368,6 +389,7 @@ impl Engine {
                 object_path,
                 3,
                 ScanView::HtmlNoTags,
+                container_type,
                 options,
                 state,
             );
@@ -377,6 +399,7 @@ impl Engine {
                     object_path,
                     3,
                     ScanView::HtmlScript,
+                    container_type,
                     options,
                     state,
                 );
@@ -390,6 +413,7 @@ impl Engine {
         object_path: &str,
         target_hint: u32,
         view: ScanView,
+        container_type: Option<&'static str>,
         options: ScanOptions,
         state: &mut ScanState,
     ) {
@@ -403,6 +427,7 @@ impl Engine {
             detected_target: None,
             object_path,
             view,
+            container_type,
         };
         self.scan_context(&ctx, options, &mut state.matches);
     }
@@ -550,6 +575,44 @@ impl Engine {
         let signature = &self.database.logical[si];
         if !target_matches(signature.target, ctx, options.strict_targets) {
             return;
+        }
+        // TDB gating (ClamAV's target description block). A signature only fires
+        // when these context constraints hold; matching the body alone would
+        // false-positive on every file satisfying the body.
+        //
+        // `tdb_unsupported` covers constraints we can't yet evaluate (IconGroup,
+        // HandlerType, …) — skip entirely. The rest we evaluate from context.
+        if signature.tdb_unsupported {
+            return;
+        }
+        if let Some((min, max)) = signature.file_size {
+            let len = ctx.data.len() as u64;
+            if len < min || len > max {
+                return;
+            }
+        }
+        if let Some(want) = signature.container.as_deref() {
+            // ClamAV: the immediate parent container type must match (or the sig
+            // accepts any container via CL_TYPE_ANY). A top-level object has no
+            // parent container, so a container-constrained sig can't fire on it.
+            let parent = ctx.container_type;
+            let ok = match parent {
+                Some(t) => want == "CL_TYPE_ANY" || want == t,
+                None => false,
+            };
+            if !ok {
+                return;
+            }
+        }
+        if let Some((min, max)) = signature.nos {
+            // NumberOfSections applies to PE files; without PE info it can't hold.
+            let n = match ctx.pe.as_ref() {
+                Some(pe) => pe.sections.len() as u32,
+                None => return,
+            };
+            if n < min || n > max {
+                return;
+            }
         }
         let subsigs = &signature.subsignatures;
         let mut counts = vec![0usize; subsigs.len()];
@@ -769,6 +832,22 @@ fn detect_container_format(data: &[u8]) -> Option<&'static str> {
         return Some("7z");
     }
     detect_format(data)
+}
+
+/// ClamAV `CL_TYPE_*` for the container format of `data`, used to evaluate
+/// logical signatures' `Container:` TDB constraint on extracted children. Only
+/// the formats we actually extract are mapped; any other container type yields
+/// `None`, so a signature requiring it simply never matches (no false positive),
+/// exactly as if the file weren't inside that container.
+fn clamav_container_type(data: &[u8]) -> Option<&'static str> {
+    match detect_container_format(data) {
+        Some("zip") => Some("CL_TYPE_ZIP"),
+        Some("gz") => Some("CL_TYPE_GZ"),
+        Some("xz") => Some("CL_TYPE_XZ"),
+        Some("7z") => Some("CL_TYPE_7Z"),
+        Some("tar") => Some("CL_TYPE_POSIX_TAR"),
+        _ => None,
+    }
 }
 
 /// Map a ClamAV `CL_TYPE_*` string to a ClamAV logical/extended target number.
@@ -1384,6 +1463,77 @@ mod tests {
 
         // Empty-ish / no-trigger buffer.
         assert_threading_equiv(diverse_database, b"nothing to see here 12345");
+    }
+
+    // --- TDB (target description block) gating: a logical signature only fires
+    // when its Container/FileSize/NumberOfSections context holds, and is skipped
+    // entirely when gated by something we can't evaluate (IconGroup). This is the
+    // fix for the mass false-positive where icon/container-gated heuristics fired
+    // on every file. ---
+
+    fn tdb_src() -> SourceLocation {
+        SourceLocation {
+            path: std::sync::Arc::from(std::path::Path::new("t.ldb")),
+            line: 1,
+        }
+    }
+
+    fn engine_with_logical(line: &str) -> (Engine, Vec<String>) {
+        let (sig, warnings) = parse_logical_signature(line, tdb_src()).unwrap();
+        let database = Database {
+            logical: vec![sig],
+            ..Default::default()
+        };
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
+        (
+            Engine {
+                database,
+                bytecodes: Vec::new(),
+                prefilter,
+            },
+            warnings,
+        )
+    }
+
+    #[test]
+    fn tdb_container_gates_match() {
+        // Sig requires the object to live inside a ZIP container. Body = "MALWARE".
+        let (engine, w) =
+            engine_with_logical("Test.InZip;Engine:1-255,Container:CL_TYPE_ZIP,Target:0;0;4d414c57415245");
+        assert!(w.is_empty());
+        // Top-level "MALWARE" (no parent container) → must NOT fire.
+        assert!(engine
+            .scan_bytes(b"xxMALWAREyy", ScanOptions::default())
+            .is_empty());
+        // Same bytes inside a ZIP → child's parent container is CL_TYPE_ZIP → fires.
+        let zip = stored_zip("c.bin", b"MALWARE");
+        assert!(engine
+            .scan_bytes(&zip, ScanOptions::default())
+            .iter()
+            .any(|m| m.name == "Test.InZip"));
+    }
+
+    #[test]
+    fn tdb_filesize_gates_match() {
+        let (engine, _) =
+            engine_with_logical("Test.Size;Engine:1-255,FileSize:5-10,Target:0;0;4142");
+        // len 3, below FileSize:5-10 → no match.
+        assert!(engine.scan_bytes(b"xAB", ScanOptions::default()).is_empty());
+        // len 7, within range → match.
+        assert!(engine
+            .scan_bytes(b"xxABxxy", ScanOptions::default())
+            .iter()
+            .any(|m| m.name == "Test.Size"));
+    }
+
+    #[test]
+    fn tdb_icongroup_is_skipped_not_false_positive() {
+        // IconGroup can't be evaluated → the sig must be skipped (no FP), even
+        // though its body "AB" is present. This is the mass-FP fix.
+        let (engine, warnings) =
+            engine_with_logical("Test.Icon;Engine:1-255,IconGroup1:BROWSER,Target:0;0;4142");
+        assert!(!warnings.is_empty(), "should warn about unsupported TDB");
+        assert!(engine.scan_bytes(b"xxAByy", ScanOptions::default()).is_empty());
     }
 
     fn stored_zip(name: &str, data: &[u8]) -> Vec<u8> {
