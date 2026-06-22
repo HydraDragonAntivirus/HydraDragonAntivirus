@@ -15,6 +15,9 @@ pub struct Database {
     pub container: Vec<ContainerSignature>,
     pub file_type_magic: Vec<FileTypeMagic>,
     pub unsupported: Vec<UnsupportedRecord>,
+    /// Decoded + interpreter-prepared ClamBC programs. A logical signature whose
+    /// `bytecode` field is `Some(i)` is a bytecode trigger that runs `[i]`.
+    pub bytecode_programs: Vec<crate::bytecode_vm::Bc>,
 }
 
 #[derive(Clone, Debug)]

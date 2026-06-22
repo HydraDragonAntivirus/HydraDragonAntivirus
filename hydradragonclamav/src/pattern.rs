@@ -562,31 +562,45 @@ fn match_tokens(
     pos: usize,
     depth: usize,
 ) -> Option<usize> {
+    // ClamAV's branch matcher (ac_forward/backward_match_branch) advances the
+    // linear spine of a pattern with an explicit `for` loop and only recurses for
+    // the genuinely-recursive dimension — alternation nesting. We mirror that:
+    // Byte/Literal/Boundary advance `token_index`/`pos` IN PLACE inside this loop
+    // (no recursion, so a sub-signature with thousands of `??`/nocase tokens can
+    // never overflow the stack or hit an arbitrary token-count cap), while only
+    // wildcard backtracking and alternation branches recurse. `depth` therefore
+    // counts only alternation nesting, exactly like the C comment "recursion depth
+    // = number of alternate specials"; the cap is pure DoS protection.
     if depth > 2048 {
         return None;
     }
-    if token_index == tokens.len() {
-        return Some(pos);
-    }
+    let mut token_index = token_index;
+    let mut pos = pos;
+    loop {
+        if token_index == tokens.len() {
+            return Some(pos);
+        }
 
-    match &tokens[token_index] {
-        Token::Byte(byte) => {
-            if pos < data.len() && byte.matches(data[pos]) {
-                match_tokens(tokens, lits, data, token_index + 1, pos + 1, depth + 1)
-            } else {
-                None
+        match &tokens[token_index] {
+            Token::Byte(byte) => {
+                if pos < data.len() && byte.matches(data[pos]) {
+                    token_index += 1;
+                    pos += 1;
+                    continue;
+                }
+                return None;
             }
-        }
-        Token::Literal { off, len } => {
-            let lit = &lits[*off as usize..(*off + *len) as usize];
-            let end = pos + lit.len();
-            if end <= data.len() && &data[pos..end] == lit {
-                match_tokens(tokens, lits, data, token_index + 1, end, depth + 1)
-            } else {
-                None
+            Token::Literal { off, len } => {
+                let lit = &lits[*off as usize..(*off + *len) as usize];
+                let end = pos + lit.len();
+                if end <= data.len() && &data[pos..end] == lit {
+                    token_index += 1;
+                    pos = end;
+                    continue;
+                }
+                return None;
             }
-        }
-        Token::AnyBytes { min, max } => {
+            Token::AnyBytes { min, max } => {
             let min_pos = pos.checked_add(*min as usize)?;
             if min_pos > data.len() {
                 return None;
@@ -642,7 +656,7 @@ fn match_tokens(
                             data,
                             token_index + 2,
                             candidate + lit.len(),
-                            depth + 1,
+                            depth,
                         ) {
                             return Some(end);
                         }
@@ -682,7 +696,7 @@ fn match_tokens(
                             data,
                             token_index + 2,
                             candidate + 1,
-                            depth + 1,
+                            depth,
                         ) {
                             return Some(end);
                         }
@@ -698,21 +712,21 @@ fn match_tokens(
                     // to jump to, so fall back to per-position probing.
                     for next in min_pos..=max_pos {
                         if let Some(end) =
-                            match_tokens(tokens, lits, data, token_index + 1, next, depth + 1)
+                            match_tokens(tokens, lits, data, token_index + 1, next, depth)
                         {
                             return Some(end);
                         }
                     }
-                    None
+                    return None;
                 }
             }
         }
         Token::Boundary(Boundary::Word) => {
             if is_word_boundary(data, pos) {
-                match_tokens(tokens, lits, data, token_index + 1, pos, depth + 1)
-            } else {
-                None
+                token_index += 1;
+                continue;
             }
+            return None;
         }
         Token::Boundary(Boundary::Newline) => {
             if pos == 0
@@ -720,17 +734,18 @@ fn match_tokens(
                 || data.get(pos.wrapping_sub(1)) == Some(&b'\r')
                 || data.get(pos.wrapping_sub(1)) == Some(&b'\n')
             {
-                match_tokens(tokens, lits, data, token_index + 1, pos, depth + 1)
-            } else {
-                None
+                token_index += 1;
+                continue;
             }
+            return None;
         }
         Token::Boundary(Boundary::NonAlphaNum) => {
             if pos < data.len() && !data[pos].is_ascii_alphanumeric() {
-                match_tokens(tokens, lits, data, token_index + 1, pos + 1, depth + 1)
-            } else {
-                None
+                token_index += 1;
+                pos += 1;
+                continue;
             }
+            return None;
         }
         Token::Alternates(alt) => {
             let Alternates {
@@ -745,26 +760,27 @@ fn match_tokens(
                 if pos + width > data.len() {
                     return None;
                 }
+                // Branch sub-matches are the genuinely-recursive dimension →
+                // charge depth here; the linear continuation after the special does not.
                 let matched = branches.iter().any(|branch| {
                     match_tokens(branch, &[], data, 0, pos, depth + 1) == Some(pos + width)
                 });
                 if !matched {
-                    match_tokens(tokens, lits, data, token_index + 1, pos + width, depth + 1)
-                } else {
-                    None
+                    return match_tokens(tokens, lits, data, token_index + 1, pos + width, depth);
                 }
-            } else {
-                for branch in branches {
-                    if let Some(branch_end) = match_tokens(branch, &[], data, 0, pos, depth + 1) {
-                        if let Some(end) =
-                            match_tokens(tokens, lits, data, token_index + 1, branch_end, depth + 1)
-                        {
-                            return Some(end);
-                        }
+                return None;
+            }
+            for branch in branches {
+                if let Some(branch_end) = match_tokens(branch, &[], data, 0, pos, depth + 1) {
+                    if let Some(end) =
+                        match_tokens(tokens, lits, data, token_index + 1, branch_end, depth)
+                    {
+                        return Some(end);
                     }
                 }
-                None
             }
+            return None;
+        }
         }
     }
 }
@@ -1083,10 +1099,14 @@ fn to_wide_tokens(tokens: &[Token]) -> Vec<Token> {
     for token in tokens {
         match token {
             Token::Byte(byte) => {
+                // ClamAV's WIDE option (readdb.c sigopts 'w') widens the ENTIRE
+                // pattern to UTF-16LE by interleaving a NUL high byte after EVERY
+                // element — including nibble-wildcard (`?X`/`X?`/`??`) and nocase
+                // bytes, not just exact case-sensitive ones. The injected NUL is
+                // always an exact case-sensitive 0x00 (the `%02x`=00 high byte), so
+                // downstream literal compaction still works.
                 out.push(Token::Byte(*byte));
-                if byte.exact_value().is_some() {
-                    out.push(Token::Byte(ByteMatcher::exact(0, false)));
-                }
+                out.push(Token::Byte(ByteMatcher::exact(0, false)));
             }
             Token::Alternates(alt) => {
                 let branches = alt
@@ -1417,5 +1437,50 @@ mod tests {
         .remove(0);
         assert!(fullword.is_match(b" hi "));
         assert!(!fullword.is_match(b"this"));
+    }
+
+    #[test]
+    fn wide_widens_nibble_wildcard_and_nocase_bytes() {
+        // ClamAV's 'w' interleaves a NUL after EVERY element, including the
+        // nibble-wildcard `??` — `cafe??babe` widens to ca 00 fe 00 ?? 00 ba 00 be 00.
+        let wide_wild = compile_pattern_variants(
+            "cafe??babe",
+            Modifiers {
+                wide: true,
+                ..Modifiers::default()
+            },
+        )
+        .unwrap()
+        .remove(0);
+        assert!(wide_wild.is_match(&[
+            0xca, 0x00, 0xfe, 0x00, 0x99, 0x00, 0xba, 0x00, 0xbe, 0x00,
+        ]));
+        // A non-widened (missing NUL after `??`) sequence must NOT match.
+        assert!(!wide_wild.is_match(&[0xca, 0x00, 0xfe, 0x00, 0x99, 0xba, 0x00, 0xbe, 0x00]));
+
+        // 'i'+'w' together: each exact byte stays nocase, each followed by a NUL.
+        let wide_nocase = compile_pattern_variants(
+            "4141",
+            Modifiers {
+                nocase: true,
+                wide: true,
+                ..Modifiers::default()
+            },
+        )
+        .unwrap()
+        .remove(0);
+        assert!(wide_nocase.is_match(&[0x61, 0x00, 0x41, 0x00])); // "a\0A\0"
+    }
+
+    #[test]
+    fn long_nibble_wildcard_run_still_matches() {
+        // A pattern with > 2048 `??` tokens must match (the recursion cap counts
+        // only alternation nesting now, not linear advancement).
+        let raw = "41".to_string() + &"??".repeat(3000) + "42";
+        let pat = one(&raw);
+        let mut data = vec![0u8; 3002];
+        data[0] = 0x41;
+        data[3001] = 0x42;
+        assert!(pat.is_match(&data));
     }
 }

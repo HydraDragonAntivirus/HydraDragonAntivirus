@@ -1,4 +1,5 @@
 pub mod bytecode;
+pub mod bytecode_vm;
 pub mod database;
 pub mod logical;
 pub mod pattern;

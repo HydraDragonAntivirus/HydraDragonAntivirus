@@ -68,6 +68,10 @@ pub struct LogicalSignature {
     pub expression: LogicalExpr,
     pub subsignatures: Vec<Subsignature>,
     pub source: SourceLocation,
+    /// `Some(i)` when this is a ClamBC trigger signature: on a match, run program
+    /// `database.bytecode_programs[i]` and report its `setvirusname`, mirroring
+    /// ClamAV's `cli_bytecode_runlsig`.
+    pub bytecode: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -214,8 +218,12 @@ pub enum CompareOp {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct EvalStats {
     pub matched: bool,
+    /// Accumulated match count (ClamAV's `*cnt`).
     pub hits: usize,
-    pub distinct: usize,
+    /// Bitmask of matched subsignature ids (ClamAV's `*ids`); the distinct-subsig
+    /// count of a block is `ids.count_ones()`. Subsig index ≥ 64 is capped at bit
+    /// 63, mirroring ClamAV's `uint64_t ids` / `(uint64_t)1 << id`.
+    pub ids: u64,
 }
 
 pub fn parse_logical_signature(
@@ -262,6 +270,7 @@ pub fn parse_logical_signature(
             expression,
             subsignatures,
             source,
+            bytecode: None,
         },
         warnings,
     ))
@@ -339,52 +348,110 @@ impl LogicalExpr {
 
     fn eval_at(&self, idx: usize, counts: &[usize]) -> EvalStats {
         match self.nodes[idx] {
+            // ClamAV leaf (cli_ac_chklsig: matcher-ac.c:900-910): matched iff the
+            // subsig count is non-zero; on match it contributes its count and sets
+            // its id bit. A non-matching leaf contributes nothing.
             ExprNode::Subsig(index) => {
                 let hits = counts.get(index as usize).copied().unwrap_or(0);
-                EvalStats {
-                    matched: hits > 0,
-                    hits,
-                    distinct: usize::from(hits > 0),
+                if hits > 0 {
+                    EvalStats {
+                        matched: true,
+                        hits,
+                        ids: 1u64 << index.min(63),
+                    }
+                } else {
+                    EvalStats::default()
                 }
             }
+            // And/Or (cli_ac_chklsig: matcher-ac.c:955-973): accumulate the count
+            // and id-bitmask ONLY when the combined result is true. Summing
+            // unconditionally (the old behaviour) over-counts when a branch is
+            // false or a subsig appears under both operands.
             ExprNode::And(a, b) => {
                 let left = self.eval_at(a as usize, counts);
                 let right = self.eval_at(b as usize, counts);
-                EvalStats {
-                    matched: left.matched && right.matched,
-                    hits: left.hits + right.hits,
-                    distinct: left.distinct + right.distinct,
+                if left.matched && right.matched {
+                    EvalStats {
+                        matched: true,
+                        hits: left.hits + right.hits,
+                        ids: left.ids | right.ids,
+                    }
+                } else {
+                    EvalStats::default()
                 }
             }
             ExprNode::Or(a, b) => {
                 let left = self.eval_at(a as usize, counts);
                 let right = self.eval_at(b as usize, counts);
-                EvalStats {
-                    matched: left.matched || right.matched,
-                    hits: left.hits + right.hits,
-                    distinct: left.distinct + right.distinct,
+                if left.matched || right.matched {
+                    EvalStats {
+                        matched: true,
+                        hits: left.hits + right.hits,
+                        ids: left.ids | right.ids,
+                    }
+                } else {
+                    EvalStats::default()
                 }
             }
+            // Count comparison. ClamAV has two forms:
+            //  * leaf-mod `id op N` (matcher-ac.c:868-910): tests the RAW subsig
+            //    count (even 0, e.g. `0=0`), and on pass sets the id bit + count.
+            //  * block-mod `(expr) op N,M` (matcher-ac.c:967-1013): the inner
+            //    total is 0/empty when the inner (sub)expression is false; tests
+            //    count N then distinct-subsig popcount M; on pass propagates only
+            //    the count (no id bit) to the parent.
             ExprNode::Compare {
                 expr,
                 op,
-                hits,
-                distinct,
+                hits: n,
+                distinct: m,
             } => {
-                let stats = self.eval_at(expr as usize, counts);
-                let hits = hits as usize;
-                let hits_match = match op {
-                    CompareOp::Equal => stats.hits == hits,
-                    CompareOp::Greater => stats.hits > hits,
-                    CompareOp::GreaterEqual => stats.hits >= hits,
-                    CompareOp::Less => stats.hits < hits,
-                    CompareOp::LessEqual => stats.hits <= hits,
+                let inner = self.eval_at(expr as usize, counts);
+                let is_leaf_mod = matches!(self.nodes[expr as usize], ExprNode::Subsig(_));
+                let n = n as usize;
+                let (tcnt, tids) = if is_leaf_mod {
+                    // `inner.hits` is the raw subsig count (0 when the leaf didn't
+                    // match), exactly the `val = lsigcnt[id]` ClamAV compares.
+                    (inner.hits, inner.ids)
+                } else if inner.matched {
+                    (inner.hits, inner.ids)
+                } else {
+                    (0, 0)
                 };
-                let distinct_match = distinct.map_or(true, |min| stats.distinct >= min as usize);
-                EvalStats {
-                    matched: hits_match && distinct_match,
-                    hits: stats.hits,
-                    distinct: stats.distinct,
+                let cnt_ok = match op {
+                    CompareOp::Equal => tcnt == n,
+                    CompareOp::Greater => tcnt > n,
+                    CompareOp::GreaterEqual => tcnt >= n,
+                    CompareOp::Less => tcnt < n,
+                    CompareOp::LessEqual => tcnt <= n,
+                };
+                if !cnt_ok {
+                    return EvalStats::default();
+                }
+                if let Some(min) = m {
+                    if tids.count_ones() < min {
+                        return EvalStats::default();
+                    }
+                }
+                if is_leaf_mod {
+                    // ClamAV sets the id bit on a passing leaf-mod regardless of
+                    // count (so `0=0` still marks subsig 0 as present).
+                    let id_bit = match self.nodes[expr as usize] {
+                        ExprNode::Subsig(index) => 1u64 << index.min(63),
+                        _ => 0,
+                    };
+                    EvalStats {
+                        matched: true,
+                        hits: tcnt,
+                        ids: id_bit,
+                    }
+                } else {
+                    // block-mod: propagate count only, no id bit (matcher-ac.c:1011).
+                    EvalStats {
+                        matched: true,
+                        hits: tcnt,
+                        ids: 0,
+                    }
                 }
             }
         }
@@ -667,6 +734,11 @@ impl ByteCompareSpec {
         let Some(pos) = pos else {
             return false;
         };
+        // ClamAV (cli_bcomp_compare_check): the effective offset must be strictly
+        // positive (`offset + bm->offset > 0`); position 0 is rejected.
+        if pos == 0 {
+            return false;
+        }
         let Some(value) = self.read_value(data, pos) else {
             return false;
         };
@@ -1006,6 +1078,24 @@ mod tests {
     }
 
     #[test]
+    fn block_count_and_distinct_use_clamav_semantics() {
+        // Block count over a false subexpression is 0 (conditional accumulation).
+        let (a, _) = parse_logical_signature("T;Target:0;(0&1)>2;4141;4242", source()).unwrap();
+        assert!(!a.expression.eval(&[5, 0]).matched); // 1 absent → And false → cnt 0
+        assert!(a.expression.eval(&[3, 3]).matched); // both present → cnt 6 > 2
+
+        // Distinct is popcount of matched-subsig ids, NOT a per-leaf sum: `0|0`
+        // references the SAME subsig, so its distinct count is 1, not 2.
+        let (b, _) = parse_logical_signature("T;Target:0;(0|0)>0,2;4141", source()).unwrap();
+        assert!(!b.expression.eval(&[1]).matched); // cnt 2 > 0 but distinct 1 < 2
+
+        // Two distinct subsigs satisfy the distinct=2 requirement.
+        let (c, _) = parse_logical_signature("T;Target:0;(0|1)>0,2;4141;4242", source()).unwrap();
+        assert!(c.expression.eval(&[1, 1]).matched);
+        assert!(!c.expression.eval(&[2, 0]).matched); // only 1 distinct
+    }
+
+    #[test]
     fn accepts_index_suffix_used_by_legacy_rules() {
         let (sig, _) =
             parse_logical_signature("Test;Target:0;(0&1i)|2;4141;4242;4343", source()).unwrap();
@@ -1050,13 +1140,17 @@ mod tests {
 
     #[test]
     fn evaluates_ascii_byte_compare() {
-        // 4 ASCII hex digits at offset 0 == 0x00ff.
+        // 4 ASCII hex digits == 0x00ff. ClamAV rejects an effective offset of 0
+        // (`offset + bm->offset > 0`), so anchor at a positive trigger offset.
         let (sub, _) = parse_subsignature("0(>>0#he4#=255)");
         let Subsignature::ByteCompare { spec, .. } = sub else {
             panic!("expected byte-compare");
         };
-        assert!(spec.evaluate(b"00ff", 0));
-        assert!(!spec.evaluate(b"00fe", 0));
+        // Trigger matched at offset 1 → reads "00ff" at pos 1.
+        assert!(spec.evaluate(b"X00ff", 1));
+        assert!(!spec.evaluate(b"X00fe", 1));
+        // Effective offset 0 is rejected by ClamAV's strict `> 0` lower bound.
+        assert!(!spec.evaluate(b"00ff", 0));
     }
 
     #[test]

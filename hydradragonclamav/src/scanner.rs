@@ -110,10 +110,39 @@ struct ScanState {
 impl Engine {
     pub fn from_database_dir(path: impl AsRef<Path>) -> io::Result<(Self, crate::LoadReport)> {
         let path = path.as_ref();
-        let (database, mut report) = Database::load_dir(path)?;
-        // Load (parse) bytecode programs from the same directory.
+        let (mut database, mut report) = Database::load_dir(path)?;
+        // Load bytecode containers, then decode + interpreter-prepare each program
+        // and register its trigger as a logical signature linked to the program
+        // (ClamAV's bytecode-lsig wiring). Must happen BEFORE the prefilter is
+        // built so the triggers are indexed as candidates.
         let bc = crate::bytecode::BytecodeSet::load_from_dir(path);
         report.bytecodes_loaded = bc.report.loaded;
+        for prog in &bc.bytecodes {
+            let Some(trigger_line) = prog.trigger.as_deref() else {
+                continue;
+            };
+            let decoded = match crate::bytecode_vm::decode_bytecode(&prog.source) {
+                Ok(Some(mut decoded)) => {
+                    if decoded.prepare_interpreter().is_err() {
+                        continue; // unpreparable → not runnable
+                    }
+                    decoded
+                }
+                _ => continue, // skipped (unsupported level) or malformed
+            };
+            let source_loc = crate::database::SourceLocation {
+                path: std::sync::Arc::from(std::path::Path::new("bytecode")),
+                line: 0,
+            };
+            if let Ok((mut sig, _warnings)) =
+                crate::logical::parse_logical_signature(trigger_line, source_loc)
+            {
+                let bc_idx = database.bytecode_programs.len();
+                database.bytecode_programs.push(decoded);
+                sig.bytecode = Some(bc_idx);
+                database.logical.push(sig);
+            }
+        }
         // Atom prefilter (daachorse): one selective required atom per signature,
         // built via a compact CSR mapping. One pass per buffer picks the few
         // candidate signatures instead of scanning all ~500k — fast scans and
@@ -616,9 +645,10 @@ impl Engine {
         }
         let subsigs = &signature.subsignatures;
         let mut counts = vec![0usize; subsigs.len()];
-        // Match offset of each body subsignature's first hit — PCRE triggers
-        // and byte-compare anchors reference these.
-        let mut first_offsets: Vec<Option<usize>> = vec![None; subsigs.len()];
+        // LAST match offset of each body subsignature (ClamAV's
+        // `lsigsuboff_last[lsig][subsig]`) — byte-compare subsignatures anchor to
+        // this. ClamAV records the realoff of the latest match, so we take the max.
+        let mut last_offsets: Vec<Option<usize>> = vec![None; subsigs.len()];
         // Matched byte ranges per body subsignature, for disinfection.
         let mut body_arenas: Vec<Vec<(usize, usize)>> = vec![Vec::new(); subsigs.len()];
 
@@ -662,7 +692,7 @@ impl Engine {
                         return; // gate absent → signature cannot match
                     }
                     counts[gi] = count;
-                    first_offsets[gi] = arenas.iter().map(|a| a.0).min();
+                    last_offsets[gi] = arenas.iter().map(|a| a.0).max();
                     body_arenas[gi] = arenas;
                     gating_done = Some(gi);
                 }
@@ -699,7 +729,7 @@ impl Engine {
                     None,
                 );
                 counts[i] = count;
-                first_offsets[i] = arenas.iter().map(|a| a.0).min();
+                last_offsets[i] = arenas.iter().map(|a| a.0).max();
                 body_arenas[i] = arenas;
             }
         }
@@ -728,13 +758,18 @@ impl Engine {
                     }
                 }
                 Subsignature::ByteCompare { spec, .. } => {
+                    // ClamAV (cli_bcomp_scanbuf): the referenced subsig must have
+                    // matched, then anchor at its LAST match offset, coercing a
+                    // missing offset (CLI_OFF_NONE) to 0 rather than skipping.
                     let trigger_hit = counts.get(spec.trigger_subsig).copied().unwrap_or(0) > 0;
                     if trigger_hit {
-                        if let Some(base) = first_offsets.get(spec.trigger_subsig).copied().flatten()
-                        {
-                            if spec.evaluate(ctx.data, base) {
-                                counts[i] = 1;
-                            }
+                        let base = last_offsets
+                            .get(spec.trigger_subsig)
+                            .copied()
+                            .flatten()
+                            .unwrap_or(0);
+                        if spec.evaluate(ctx.data, base) {
+                            counts[i] = 1;
                         }
                     }
                 }
@@ -743,6 +778,21 @@ impl Engine {
         }
 
         if signature.expression.eval(&counts).matched {
+            // A bytecode trigger does not alert on its own — it runs the ClamBC
+            // program, which decides the verdict via setvirusname (cli_bytecode_runlsig).
+            if let Some(bc_idx) = signature.bytecode {
+                if let Some(name) = self.run_bytecode(bc_idx, &counts, ctx) {
+                    matches.push(ScanMatch {
+                        name,
+                        kind: SignatureKind::Logical,
+                        source: signature.source.clone(),
+                        object_path: ctx.object_path.to_string(),
+                        view: ctx.view,
+                        arenas: Vec::new(),
+                    });
+                }
+                return;
+            }
             // Collect the matched body arenas (capped) for disinfection.
             let mut arenas: Vec<(usize, usize)> = Vec::new();
             for sub in &body_arenas {
@@ -761,6 +811,45 @@ impl Engine {
                 view: ctx.view,
                 arenas,
             });
+        }
+    }
+
+    /// Run a ClamBC program for a matched trigger, building its context from the
+    /// scan (file buffer, trigger subsig match counts, PE info). Returns the
+    /// program's `setvirusname`, or `None` on no-detection / VM error.
+    fn run_bytecode(
+        &self,
+        bc_idx: usize,
+        counts: &[usize],
+        ctx: &ScanContext<'_>,
+    ) -> Option<String> {
+        let bc = self.database.bytecode_programs.get(bc_idx)?;
+        let mut bctx = crate::bytecode_vm::BcCtx::new(ctx.data);
+        for (i, &c) in counts.iter().take(64).enumerate() {
+            bctx.lsigcnt[i] = c as u32;
+        }
+        if let Some(pe) = ctx.pe.as_ref() {
+            bctx.ep = pe.entry_point_offset.unwrap_or(0) as u32;
+            bctx.nsections = pe.sections.len() as u16;
+            bctx.sections = pe
+                .sections
+                .iter()
+                .map(|s| crate::bytecode_vm::PeSection {
+                    rva: s.virtual_address,
+                    vsz: s.virtual_size,
+                    raw: s.raw_start as u32,
+                    rsz: s.raw_size as u32,
+                    chr: 0,
+                    urva: s.virtual_address,
+                    uvsz: s.virtual_size,
+                    uraw: s.raw_start as u32,
+                    ursz: s.raw_size as u32,
+                })
+                .collect();
+        }
+        match bc.run(&mut bctx) {
+            Ok(_) => bctx.virname,
+            Err(_) => None,
         }
     }
 }
@@ -1062,6 +1151,7 @@ mod tests {
             container: Vec::new(),
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
+            bytecode_programs: Vec::new(),
         };
         let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
@@ -1093,6 +1183,7 @@ mod tests {
             container: Vec::new(),
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
+            bytecode_programs: Vec::new(),
         };
         let prefilter = crate::prefilter::AtomPrefilter::build(&database);
         let engine = Engine { database, bytecodes: Vec::new(), prefilter };
@@ -1126,6 +1217,7 @@ mod tests {
             container: Vec::new(),
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
+            bytecode_programs: Vec::new(),
         };
         let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"HeLLo   \r\nWorld", ScanOptions::default());
@@ -1152,6 +1244,7 @@ mod tests {
             container: Vec::new(),
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
+            bytecode_programs: Vec::new(),
         };
         let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(
@@ -1181,6 +1274,7 @@ mod tests {
             container: Vec::new(),
             file_type_magic: Vec::new(),
             unsupported: Vec::new(),
+            bytecode_programs: Vec::new(),
         };
         let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
