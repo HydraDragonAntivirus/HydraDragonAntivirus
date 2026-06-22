@@ -175,8 +175,9 @@ pub struct Pattern {
     pub instructions: Vec<u16>,
     pub specials: Vec<Special>,
     pub fullword: bool,
-    /// The longest fixed-byte literal for prefilter use, and its byte offset in the pattern.
-    pub best_literal: Option<(Vec<u8>, usize)>,
+    /// Byte offset and length of the longest fixed-byte literal in instructions.
+    /// No heap copy — bytes are reconstructed from `instructions` on demand.
+    pub best_literal: Option<(usize, usize)>,
 }
 
 impl Pattern {
@@ -197,11 +198,11 @@ impl Pattern {
     }
 
     /// Find the longest fixed-byte (CLI_MATCH_CHAR) literal for prefilter use.
-    fn compute_best_literal(inst: &[u16]) -> Option<(Vec<u8>, usize)> {
+    fn compute_best_literal(inst: &[u16]) -> Option<(usize, usize)> {
         let mut best_len = 0usize;
-        let mut best: Option<(Vec<u8>, usize)> = None;
+        let mut best: Option<(usize, usize)> = None;
         let mut run_start: usize = 0;
-        let mut run_bytes: Vec<u8> = Vec::new();
+        let mut run_len = 0usize;
         let mut in_run = false;
 
         for (i, &ins) in inst.iter().enumerate() {
@@ -209,21 +210,21 @@ impl Pattern {
             if meta == CLI_MATCH_CHAR {
                 if !in_run {
                     run_start = i;
-                    run_bytes.clear();
+                    run_len = 0;
                     in_run = true;
                 }
-                run_bytes.push((ins & 0xff) as u8);
+                run_len += 1;
             } else {
-                if in_run && run_bytes.len() >= 2 && run_bytes.len() > best_len {
-                    best_len = run_bytes.len();
-                    best = Some((run_bytes.clone(), run_start));
+                if in_run && run_len >= 2 && run_len > best_len {
+                    best_len = run_len;
+                    best = Some((run_start, run_len));
                 }
                 in_run = false;
-                run_bytes.clear();
+                run_len = 0;
             }
         }
-        if in_run && run_bytes.len() >= 2 && run_bytes.len() > best_len {
-            best = Some((run_bytes, run_start));
+        if in_run && run_len >= 2 && run_len > best_len {
+            best = Some((run_start, run_len));
         }
         best
     }
@@ -320,7 +321,7 @@ impl Pattern {
             return self.find_all(data, ranges, limit);
         }
 
-        let prefix = self.best_literal.as_ref().map(|(_, off)| *off).unwrap_or(0);
+        let prefix = self.best_literal.map(|(off, _)| off).unwrap_or(0);
         let mut out = Vec::new();
         let mut last_start = None;
 
@@ -506,9 +507,14 @@ impl Pattern {
         s
     }
 
-    /// The longest fixed byte sequence for prefilter use.
-    pub fn required_atom(&self) -> Option<&[u8]> {
-        self.best_literal.as_ref().map(|(bytes, _)| &bytes[..])
+    /// The longest fixed byte sequence for prefilter use (reconstructed on demand).
+    pub fn required_atom(&self) -> Option<Vec<u8>> {
+        self.best_literal.map(|(off, len)| {
+            self.instructions[off..off + len]
+                .iter()
+                .map(|&inst| (inst & 0xff) as u8)
+                .collect()
+        })
     }
 
     /// Case-folded atom for nocase prefilter (longest CHAR/NOCASE run, lowered).
@@ -549,7 +555,13 @@ impl Pattern {
 
     /// Find a fixed-byte literal from the pattern for prefilter use.
     pub fn find_literal(&self) -> Option<(Vec<u8>, usize)> {
-        self.best_literal.clone()
+        self.best_literal.map(|(off, len)| {
+            let bytes: Vec<u8> = self.instructions[off..off + len]
+                .iter()
+                .map(|&inst| (inst & 0xff) as u8)
+                .collect();
+            (bytes, off)
+        })
     }
 }
 

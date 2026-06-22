@@ -246,13 +246,13 @@ impl AtomPrefilter {
         // A pattern is usable for prefiltering via either its case-sensitive
         // atom or, for `nocase` patterns, its case-folded atom. Returns which
         // bucket the atom belongs in.
-        enum Atom<'a> {
-            Exact(&'a [u8]),
+        enum Atom {
+            Exact(Vec<u8>),
             Nocase(Vec<u8>),
         }
-        fn pattern_atom(p: &crate::pattern::Pattern) -> Option<Atom<'_>> {
+        fn pattern_atom(p: &crate::pattern::Pattern) -> Option<Atom> {
             if let Some(a) = p.required_atom() {
-                if usable(a) {
+                if usable(&a) {
                     return Some(Atom::Exact(a));
                 }
             }
@@ -292,7 +292,7 @@ impl AtomPrefilter {
             } else {
                 for a in atoms {
                     match a {
-                        Atom::Exact(a) => entries.push((short_atom(a).into(), ext_ref(si))),
+                        Atom::Exact(a) => entries.push((short_atom(&a).into(), ext_ref(si))),
                         Atom::Nocase(a) => {
                             entries_nocase.push((short_atom(&a).into(), ext_ref(si)))
                         }
@@ -380,7 +380,7 @@ impl AtomPrefilter {
                 Some((_, idx, atoms)) => {
                     for a in atoms {
                         match a {
-                            Atom::Exact(a) => entries.push((short_atom(a).into(), log_ref(si))),
+                            Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si))),
                             Atom::Nocase(a) => {
                                 entries_nocase.push((short_atom(&a).into(), log_ref(si)))
                             }
