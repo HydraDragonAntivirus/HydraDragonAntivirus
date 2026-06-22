@@ -81,7 +81,7 @@ pub struct LogicalSignature {
 pub enum Subsignature {
     Body {
         offset: OffsetSpec,
-        patterns: Vec<Pattern>,
+        patterns: Box<[Pattern]>,
     },
     /// `Trigger/PCRE/Flags` — the regex runs only when `trigger` evaluates true.
     /// The regex is compiled lazily on first trigger (see [`LazyRegex`]).
@@ -563,7 +563,7 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
 
     match compile_pattern_variants(body, modifiers) {
         Ok(patterns) => (
-            Subsignature::Body { offset, patterns },
+            Subsignature::Body { offset, patterns: patterns.into() },
             warning,
         ),
         Err(err) => unsupported(raw, &format!("invalid body pattern: {err}")),

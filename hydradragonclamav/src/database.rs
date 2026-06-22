@@ -25,7 +25,7 @@ pub struct ExtendedSignature {
     pub name: String,
     pub target: Option<u32>,
     pub offset: OffsetSpec,
-    pub patterns: Vec<Pattern>,
+    pub patterns: Box<[Pattern]>,
     pub source: SourceLocation,
 }
 
@@ -72,7 +72,7 @@ pub enum NumSpec {
 #[derive(Clone, Debug)]
 pub struct FileTypeMagic {
     pub offset: OffsetSpec,
-    pub patterns: Vec<Pattern>,
+    pub patterns: Box<[Pattern]>,
     pub clamav_type: String,
     pub source: SourceLocation,
 }
@@ -386,7 +386,7 @@ fn parse_ftm(line: &str, source: SourceLocation) -> Result<FileTypeMagic, String
         .map_err(|err| format!("invalid ftm magic bytes: {err}"))?;
     Ok(FileTypeMagic {
         offset,
-        patterns,
+        patterns: patterns.into_boxed_slice(),
         clamav_type: parts[5].trim().to_string(),
         source,
     })
@@ -671,7 +671,7 @@ fn parse_extended_signature(
         name: parts[0].to_string(),
         target,
         offset,
-        patterns,
+        patterns: patterns.into_boxed_slice(),
         source,
     }))
 }

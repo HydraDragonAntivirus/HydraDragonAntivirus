@@ -9,9 +9,6 @@ use std::path::Path;
 #[derive(Debug)]
 pub struct Engine {
     pub database: Database,
-    /// ClamAV bytecode programs loaded from bytecode.cvd/.cld/.cbc. Stage 1:
-    /// parsed (header + trigger) but not yet executed.
-    pub bytecodes: Vec<crate::bytecode::Bytecode>,
     /// Atom prefilter: selects the few signatures worth fully evaluating per
     /// buffer instead of scanning all of them linearly, and threads the atom
     /// match offsets into verification. It also owns the per-logical-signature
@@ -115,27 +112,31 @@ impl Engine {
         // and register its trigger as a logical signature linked to the program
         // (ClamAV's bytecode-lsig wiring). Must happen BEFORE the prefilter is
         // built so the triggers are indexed as candidates.
+        // The raw Bytecode structs (with source strings) are DROPPED after decoding
+        // — their source text is not needed at scan time, saving 50-200 MB.
         let bc = crate::bytecode::BytecodeSet::load_from_dir(path);
         report.bytecodes_loaded = bc.report.loaded;
-        for prog in &bc.bytecodes {
-            let Some(trigger_line) = prog.trigger.as_deref() else {
-                continue;
-            };
+        for prog in bc.bytecodes {
+            // decode_bytecode borrows prog.source, then we move prog.trigger
+            // out. prog is dropped at the end of scope.
             let decoded = match crate::bytecode_vm::decode_bytecode(&prog.source) {
                 Ok(Some(mut decoded)) => {
                     if decoded.prepare_interpreter().is_err() {
-                        continue; // unpreparable → not runnable
+                        continue;
                     }
                     decoded
                 }
-                _ => continue, // skipped (unsupported level) or malformed
+                _ => continue,
+            };
+            let Some(trigger_line) = prog.trigger else {
+                continue;
             };
             let source_loc = crate::database::SourceLocation {
                 path: std::sync::Arc::from(std::path::Path::new("bytecode")),
                 line: 0,
             };
             if let Ok((mut sig, _warnings)) =
-                crate::logical::parse_logical_signature(trigger_line, source_loc)
+                crate::logical::parse_logical_signature(&trigger_line, source_loc)
             {
                 let bc_idx = database.bytecode_programs.len();
                 database.bytecode_programs.push(decoded);
@@ -148,14 +149,7 @@ impl Engine {
         // candidate signatures instead of scanning all ~500k — fast scans and
         // far fewer page faults.
         let prefilter = crate::prefilter::AtomPrefilter::build(&database);
-        Ok((
-            Self {
-                database,
-                bytecodes: bc.bytecodes,
-                prefilter,
-            },
-            report,
-        ))
+        Ok((Self { database, prefilter }, report))
     }
 
     pub fn scan_path(
@@ -1207,7 +1201,7 @@ mod tests {
                 name: "Test.Signature".to_string(),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap(),
+                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
                 source: source.clone(),
             }],
             logical: Vec::new(),
@@ -1216,7 +1210,7 @@ mod tests {
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "Test.Signature");
@@ -1239,7 +1233,7 @@ mod tests {
                 name: "Test.Signature".to_string(),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap(),
+                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
                 source: source.clone(),
             }],
             logical: Vec::new(),
@@ -1249,7 +1243,7 @@ mod tests {
             bytecode_programs: Vec::new(),
         };
         let prefilter = crate::prefilter::AtomPrefilter::build(&database);
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter };
+        let engine = Engine { database, prefilter };
 
         // Atom present → detected.
         let hit = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
@@ -1273,7 +1267,8 @@ mod tests {
                 target: Some(7),
                 offset: OffsetSpec::any(),
                 patterns: compile_pattern_variants("68656c6c6f776f726c64", Modifiers::default())
-                    .unwrap(),
+                    .unwrap()
+                    .into(),
                 source,
             }],
             logical: Vec::new(),
@@ -1282,7 +1277,7 @@ mod tests {
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"HeLLo   \r\nWorld", ScanOptions::default());
         assert!(found
             .iter()
@@ -1300,7 +1295,7 @@ mod tests {
                 name: "Test.Html".to_string(),
                 target: Some(3),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("7061796c6f6164", Modifiers::default()).unwrap(),
+                patterns: compile_pattern_variants("7061796c6f6164", Modifiers::default()).unwrap().into(),
                 source,
             }],
             logical: Vec::new(),
@@ -1309,7 +1304,7 @@ mod tests {
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(
             b"<html><body>Pay<!--x-->load</body></html>",
             ScanOptions::default(),
@@ -1330,7 +1325,7 @@ mod tests {
                 name: "Test.Zip.Child".to_string(),
                 target: Some(0),
                 offset: OffsetSpec::any(),
-                patterns: compile_pattern_variants("4d414c57415245", Modifiers::default()).unwrap(),
+                patterns: compile_pattern_variants("4d414c57415245", Modifiers::default()).unwrap().into(),
                 source,
             }],
             logical: Vec::new(),
@@ -1339,7 +1334,7 @@ mod tests {
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
         assert!(found.iter().any(|hit| {
             hit.name == "Test.Zip.Child"
@@ -1363,7 +1358,7 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // Body "AA" present and regex "world" present -> match.
         let found = engine.scan_bytes(b"AA hello world", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Pcre"));
@@ -1387,7 +1382,7 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // "SIZE" then 2 LE bytes = 5 (>0) -> match.
         let found = engine.scan_bytes(b"SIZE\x05\x00tail", ScanOptions::default());
         assert!(found.iter().any(|m| m.name == "Test.Bc"));
@@ -1416,7 +1411,7 @@ mod tests {
             container: vec![container],
             ..Default::default()
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // Member "MALWARE" is 7 bytes at position 1 inside a zip.
         let found =
             engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
@@ -1432,7 +1427,7 @@ mod tests {
                 anchor: OffsetAnchor::Absolute(0),
                 max_shift: None,
             },
-            patterns: compile_pattern_variants("4d5a", Modifiers::default()).unwrap(),
+            patterns: compile_pattern_variants("4d5a", Modifiers::default()).unwrap().into(),
             clamav_type: "CL_TYPE_MSEXE".to_string(),
             source: SourceLocation {
                 path: std::sync::Arc::from(std::path::Path::new("t.ftm")),
@@ -1443,7 +1438,7 @@ mod tests {
             name: "Html.Sig".to_string(),
             target: Some(3),
             offset: OffsetSpec::any(),
-            patterns: compile_pattern_variants("4142", Modifiers::default()).unwrap(),
+            patterns: compile_pattern_variants("4142", Modifiers::default()).unwrap().into(),
             source: SourceLocation {
                 path: std::sync::Arc::from(std::path::Path::new("t.ndb")),
                 line: 1,
@@ -1454,7 +1449,7 @@ mod tests {
             file_type_magic: vec![magic],
             ..Default::default()
         };
-        let engine = Engine { database, bytecodes: Vec::new(), prefilter: crate::prefilter::AtomPrefilter::disabled() };
+        let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         // "MZAB": .ftm types it MSEXE (target 1); the sig's target 3 -> filtered when strict.
         let strict = ScanOptions {
             strict_targets: true,
@@ -1491,7 +1486,6 @@ mod tests {
         // Ground truth: prefilter disabled → Candidates::All → full scan, no gating.
         let engine_full = Engine {
             database: build_db(),
-            bytecodes: Vec::new(),
             prefilter: crate::prefilter::AtomPrefilter::disabled(),
         };
         let full = match_keys(&engine_full.scan_bytes(data, opts));
@@ -1500,7 +1494,6 @@ mod tests {
         let prefilter = crate::prefilter::AtomPrefilter::build(&db);
         let engine_thr = Engine {
             database: db,
-            bytecodes: Vec::new(),
             prefilter,
         };
         let threaded = match_keys(&engine_thr.scan_bytes(data, opts));
@@ -1522,7 +1515,7 @@ mod tests {
                 name: name.to_string(),
                 target: Some(target),
                 offset,
-                patterns: compile_pattern_variants(body, m).unwrap(),
+                patterns: compile_pattern_variants(body, m).unwrap().into(),
                 source: src.clone(),
             }
         };
@@ -1645,7 +1638,6 @@ mod tests {
         (
             Engine {
                 database,
-                bytecodes: Vec::new(),
                 prefilter,
             },
             warnings,

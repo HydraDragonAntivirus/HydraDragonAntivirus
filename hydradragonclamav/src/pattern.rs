@@ -1,8 +1,8 @@
-use std::collections::HashSet;
-
 /// Sentinel for an open-ended `AnyBytes` gap (`*` or `{n-}`), stored in
 /// `Token::AnyBytes::max` so the field can be a plain `u32`.
-const UNBOUNDED: u32 = u32::MAX;
+/// Packed into 29 bits when stored in Token (bits 35-63). Same semantics as
+/// `u32::MAX` but fits the 29-bit field_b slot.
+const UNBOUNDED: u32 = 0x1FFF_FFFF;
 
 /// Largest start-position window `find_all_at` will probe per literal occurrence
 /// when the required literal sits behind bounded gaps (no fixed prefix). Keeps a
@@ -36,69 +36,116 @@ impl Modifiers {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Pattern {
-    /// `Box<[Token]>`, not `Vec<Token>`: the token list is fixed after
-    /// compaction, so dropping the unused capacity word saves 8 bytes on every
-    /// one of the hundreds of thousands of patterns.
+    /// Packed tokens (u64 each — 8 bytes instead of 16).
     tokens: Box<[Token]>,
-    /// Backing storage for `Token::Literal` runs (exact byte sequences), stored
-    /// once contiguously instead of one token per byte.
     lits: Box<[u8]>,
+    /// Alternation branches indexed by `Token::TAG_ALTERNATES` data.
+    alternates: Vec<Alternates>,
     fullword: bool,
-    /// The longest required literal as an `(off, len)` slice of `lits` — used as
-    /// a fast pre-check / prefilter atom. Stored as an offset (not a byte copy)
-    /// since the bytes already live in `lits`.
     required_literal: Option<(u32, u32)>,
-    /// Fixed byte width of the pattern tokens that precede the required literal,
-    /// when every preceding token is fixed-width. Enables ClamAV-style anchored
-    /// verification: locate each occurrence of the literal in the data and try
-    /// matching the whole pattern only at `occurrence - required_prefix`, instead
-    /// of attempting a match at every byte offset. `None` when a preceding token
-    /// is variable-width (`*`, `{n-m}`, …) — then we fall back to a window scan.
     required_prefix: Option<u32>,
-    /// For a `nocase` pattern (which has no case-sensitive `required_literal`):
-    /// the fixed byte width before its case-folded prefilter atom (the longest
-    /// run of fixed bytes), when that prefix is fixed-width. `Some(p)` lets
-    /// `find_all_at` thread the nocase atom's offsets just like a case-sensitive
-    /// literal — verify the whole pattern at `atom_offset - p` instead of a
-    /// per-candidate full-buffer scan (the big win on large files, since ClamAV
-    /// databases are full of nocase signatures). `None` for case-sensitive
-    /// patterns, or nocase patterns whose atom sits behind a variable-width token.
-    /// The atom *bytes* are NOT stored — they're recomputed once at prefilter
-    /// build time (see `required_atom_nocase`), so they cost no resident memory.
     required_prefix_nocase: Option<u32>,
 }
 
-// Memory: there are hundreds of thousands of signatures, each a `Vec<Token>`,
-// so `Token` is kept small. Jump bounds are `u32` (ClamAV jumps are tiny) and
-// the large alternation variant is boxed, so a token is ~16 bytes instead of
-// ~56 — a literal byte costs ~16 B rather than bloating to the widest variant.
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum Token {
-    Byte(ByteMatcher),
-    /// A run of exact, case-sensitive bytes, stored once in the pattern's `lits`
-    /// arena and referenced by offset+length (8 bytes) instead of one ~16-byte
-    /// `Byte` token per byte. This is the key memory win.
-    Literal {
-        off: u32,
-        len: u32,
-    },
-    /// A run of consecutive `nocase` exact bytes, stored LOWERCASED in `lits` and
-    /// matched case-insensitively. Like `Literal` it costs ~1 byte/element in the
-    /// arena instead of one ~12-byte `Token::Byte` per byte — the key memory win
-    /// for the case-insensitive signatures that dominate ClamAV databases.
-    LitNocase {
-        off: u32,
-        len: u32,
-    },
-    AnyBytes {
-        min: u32,
-        /// Maximum gap, or `UNBOUNDED` (`u32::MAX`) for an open `*`/`{n-}` gap.
-        /// A plain `u32` (not `Option<u32>`) keeps `Token` at 12 bytes instead
-        /// of 16 — across millions of tokens that's a meaningful resident cut.
-        max: u32,
-    },
-    Boundary(Boundary),
-    Alternates(Box<Alternates>),
+/// Packed into 8 bytes (u64) — half the 16-byte enum, saving ~720MB across
+/// ~90M tokens in a full ClamAV database.
+/// Layout: bits 0-2 = tag, bits 3-34 = field_a (u32), bits 35-63 = field_b (u32 masked 29b).
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct Token(u64);
+
+impl Token {
+    const TAG_BYTE: u64 = 0;
+    const TAG_LITERAL: u64 = 1;
+    const TAG_LITNOCASE: u64 = 2;
+    const TAG_ANYBYTES: u64 = 3;
+    const TAG_BOUNDARY: u64 = 4;
+    const TAG_ALTERNATES: u64 = 5;
+
+    fn tag(self) -> u64 { self.0 & 0x7 }
+    fn a(self) -> u32 { (self.0 >> 3) as u32 }
+    fn b(self) -> u32 { (self.0 >> 35) as u32 }
+
+    fn byte(mask: u8, value: u8, nocase: bool) -> Self {
+        let data = (mask as u64) | ((value as u64) << 8) | ((nocase as u64) << 16);
+        Token((data << 3) | Self::TAG_BYTE)
+    }
+    fn as_byte(self) -> Option<(u8, u8, bool)> {
+        (self.tag() == Self::TAG_BYTE).then(|| {
+            let d = self.a();
+            (d as u8, (d >> 8) as u8, (d >> 16) != 0)
+        })
+    }
+
+    fn literal(off: u32, len: u32) -> Self {
+        Token((off as u64) << 3 | (len as u64) << 35 | Self::TAG_LITERAL)
+    }
+    fn as_literal(self) -> Option<(u32, u32)> {
+        (self.tag() == Self::TAG_LITERAL).then(|| (self.a(), self.b()))
+    }
+
+    fn litnocase(off: u32, len: u32) -> Self {
+        Token((off as u64) << 3 | (len as u64) << 35 | Self::TAG_LITNOCASE)
+    }
+    fn as_litnocase(self) -> Option<(u32, u32)> {
+        (self.tag() == Self::TAG_LITNOCASE).then(|| (self.a(), self.b()))
+    }
+
+    fn any_bytes(min: u32, max: u32) -> Self {
+        Token((min as u64) << 3 | (max as u64) << 35 | Self::TAG_ANYBYTES)
+    }
+    fn as_any_bytes(self) -> Option<(u32, u32)> {
+        (self.tag() == Self::TAG_ANYBYTES).then(|| (self.a(), self.b()))
+    }
+
+    fn boundary(kind: Boundary) -> Self {
+        Token((kind as u64) << 3 | Self::TAG_BOUNDARY)
+    }
+    fn as_boundary(self) -> Option<Boundary> {
+        (self.tag() == Self::TAG_BOUNDARY).then(|| match self.a() {
+            0 => Boundary::Word,
+            1 => Boundary::Newline,
+            _ => Boundary::NonAlphaNum,
+        })
+    }
+
+    fn alternates(idx: u32) -> Self {
+        Token((idx as u64) << 3 | Self::TAG_ALTERNATES)
+    }
+    fn as_alternates(self) -> Option<u32> {
+        (self.tag() == Self::TAG_ALTERNATES).then(|| self.a())
+    }
+}
+
+impl std::fmt::Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.tag() {
+            Self::TAG_BYTE => {
+                let (m, v, n) = self.as_byte().unwrap();
+                write!(f, "Byte({:#04x}, {:#04x}, nocase={n})", m, v)
+            }
+            Self::TAG_LITERAL => {
+                let (off, len) = self.as_literal().unwrap();
+                write!(f, "Literal {{ off: {off}, len: {len} }}")
+            }
+            Self::TAG_LITNOCASE => {
+                let (off, len) = self.as_litnocase().unwrap();
+                write!(f, "LitNocase {{ off: {off}, len: {len} }}")
+            }
+            Self::TAG_ANYBYTES => {
+                let (min, max) = self.as_any_bytes().unwrap();
+                write!(f, "AnyBytes {{ min: {min}, max: {max} }}")
+            }
+            Self::TAG_BOUNDARY => {
+                let b = self.as_boundary().unwrap();
+                write!(f, "Boundary({b:?})")
+            }
+            Self::TAG_ALTERNATES => {
+                let idx = self.as_alternates().unwrap();
+                write!(f, "Alternates({idx})")
+            }
+            _ => write!(f, "Token({:#018x})", self.0),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -130,36 +177,43 @@ pub struct MatchRange {
 
 pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<Pattern>, String> {
     let mut parser = Parser::new(raw, modifiers.nocase);
-    let tokens = parser.parse_all()?;
+    let (tokens, alternates) = parser.parse_all()?;
     let mut variants = Vec::new();
 
     if !modifiers.wide || modifiers.ascii {
-        variants.push(Pattern::new(tokens.clone(), modifiers.fullword));
+        variants.push(Pattern::new(tokens.clone(), alternates.clone(), modifiers.fullword));
     }
 
     if modifiers.wide {
-        variants.push(Pattern::new(to_wide_tokens(&tokens), modifiers.fullword));
+        let (wide_tokens, wide_alts) = to_wide_tokens(&tokens, &alternates);
+        variants.push(Pattern::new(wide_tokens, wide_alts, modifiers.fullword));
     }
 
     Ok(variants)
 }
 
 impl Pattern {
-    fn new(tokens: Vec<Token>, fullword: bool) -> Self {
+    fn new(tokens: Vec<Token>, mut alternates: Vec<Alternates>, fullword: bool) -> Self {
         let (tokens, lits) = compact_tokens(tokens);
-        let (required_literal, required_prefix) = best_required_literal(&tokens, &lits);
-        // For nocase patterns (no case-sensitive literal), record only the
-        // fixed-width prefix to the nocase atom so `find_all_at` can anchor on it.
-        // The atom bytes themselves are recomputed at prefilter build time
-        // (`required_atom_nocase`), never stored — keeps every Pattern smaller.
+        // Shrink alternates branch Vecs (parser grows them geometrically; each
+        // branch is tiny and the slack is per-branch Vec overhead × branches ×
+        // alternates × signatures).
+        for alt in &mut alternates {
+            for branch in &mut alt.branches {
+                branch.shrink_to_fit();
+            }
+        }
+        alternates.shrink_to_fit();
+        let (required_literal, required_prefix) = best_required_literal(&tokens, &lits, &alternates);
         let required_prefix_nocase = if required_literal.is_none() {
-            nocase_anchor(&tokens, &lits).and_then(|(_, prefix)| prefix)
+            nocase_anchor(&tokens, &lits, &alternates).and_then(|(_, prefix)| prefix)
         } else {
             None
         };
         Self {
             tokens: tokens.into_boxed_slice(),
             lits: lits.into_boxed_slice(),
+            alternates,
             fullword,
             required_literal,
             required_prefix,
@@ -189,7 +243,7 @@ impl Pattern {
         if self.required_literal.is_some() {
             return None; // case-sensitive: use required_atom() instead
         }
-        nocase_anchor(&self.tokens, &self.lits).map(|(atom, _)| atom)
+        nocase_anchor(&self.tokens, &self.lits, &self.alternates).map(|(atom, _)| atom)
     }
 
     pub fn find_all(
@@ -209,20 +263,11 @@ impl Pattern {
         }
 
         let mut out = Vec::new();
-        // A (start,end) match can only repeat across *overlapping* ranges; within a
-        // single monotonic pass starts strictly increase, so dedup (and its hashing
-        // + allocation) is only needed when there is more than one range. The
-        // `HashSet` is allocation-free until the first insert, so the single-range
-        // path pays nothing.
-        let dedup = ranges.len() > 1;
-        let mut seen = HashSet::new();
 
         // ClamAV-style anchored verification (matcher-ac.c `bp = i + 1 - depth`):
         // when the required literal has a fixed-width prefix, jump to each
         // occurrence of the literal and only try matching the whole pattern at
-        // `occurrence - prefix`. This avoids the catastrophic per-byte scan over
-        // the entire buffer (millions of `match_from` calls) that dominates the
-        // cost on large files once a sig is a prefilter candidate.
+        // `occurrence - prefix`.
         if let (Some((off, len)), Some(prefix)) = (self.required_literal, self.required_prefix) {
             let required = &self.lits[off as usize..(off + len) as usize];
             let prefix = prefix as usize;
@@ -232,7 +277,7 @@ impl Pattern {
                     break;
                 };
                 let occurrence = from + rel;
-                from = occurrence + 1; // allow overlapping occurrences
+                from = occurrence + 1;
                 let Some(start) = occurrence.checked_sub(prefix) else {
                     continue;
                 };
@@ -243,11 +288,7 @@ impl Pattern {
                     if self.fullword && !is_fullword(data, start, match_end) {
                         continue;
                     }
-                    // Anchored occurrences are strictly increasing → distinct, no dedup.
-                    out.push(MatchRange {
-                        start,
-                        end: match_end,
-                    });
+                    out.push(MatchRange { start, end: match_end });
                     if out.len() >= limit {
                         return out;
                     }
@@ -256,38 +297,20 @@ impl Pattern {
             return out;
         }
 
-        // A pattern whose very first token is an unbounded `*` (min=0,
-        // max=None) explores, from any starting position X, every later
-        // position as the end of that gap. That search space strictly
-        // shrinks as X increases, so if `match_from(data, X)` fails, every
-        // `match_from(data, X')` for X' > X is searching a subset and must
-        // also fail. Once that happens we can stop scanning immediately
-        // instead of grinding through the rest of the buffer.
-        //
-        // Without this, the per-position fallback loop below combined with
-        // the (also per-position) wildcard search inside `match_from`
-        // degrades to O(n^2): for body subsignatures with a leading
-        // wildcard — a very common ClamAV idiom ("literal anywhere") — this
-        // is what turns a sub-second scan into a many-minute one on large
-        // files once the signature's required-literal prefilter check
-        // passes but the position it actually occurs at is far from the
-        // start of the buffer.
-        let unbounded_leading_wildcard =
-            matches!(self.tokens.first(), Some(Token::AnyBytes { min: 0, max }) if *max == UNBOUNDED);
+        let unbounded_leading_wildcard = self
+            .tokens
+            .first()
+            .is_some_and(|t| t.as_any_bytes().is_some_and(|(min, max)| min == 0 && max == UNBOUNDED));
 
-        // Anchor the fallback on the first token's concrete byte(s) when we can,
-        // so we only try positions where the pattern could actually start —
-        // `memchr` instead of probing every offset. This is what keeps `nocase`
-        // patterns fast: their bytes never compact into a `Literal`, so they have
-        // no `required_literal` to anchor the fast path above and would otherwise
-        // scan the whole buffer for every candidate (the dominant scan cost).
         let first_byte_anchor = match self.tokens.first() {
-            Some(Token::Byte(byte)) => byte.anchor_bytes(),
-            // A nocase pattern now starts with a `LitNocase`; anchor on the first
-            // (lowercased) byte's two cases so we still memchr instead of probing
-            // every offset.
-            Some(Token::LitNocase { off, .. }) => {
-                let b = self.lits[*off as usize];
+            Some(t) if t.tag() == Token::TAG_BYTE => {
+                let (mask, value, nocase) = t.as_byte().unwrap();
+                let bm = ByteMatcher { mask, value, nocase };
+                bm.anchor_bytes()
+            }
+            Some(t) if t.tag() == Token::TAG_LITNOCASE => {
+                let (off, _) = t.as_litnocase().unwrap();
+                let b = self.lits[off as usize];
                 if b.is_ascii_alphabetic() {
                     Some((b.to_ascii_lowercase(), Some(b.to_ascii_uppercase())))
                 } else {
@@ -305,19 +328,15 @@ impl Pattern {
             }
 
             if let Some((b1, b2)) = first_byte_anchor {
-                // Only positions where the first byte matches (both cases for a
-                // nocase letter). `match_from` re-checks that byte cheaply.
                 let hay_end = (end + 1).min(data.len());
                 let hay = &data[start..hay_end];
-                let try_pos = |pos: usize,
-                               out: &mut Vec<MatchRange>,
-                               seen: &mut HashSet<(usize, usize)>|
-                 -> bool {
+                let try_pos = |pos: usize, out: &mut Vec<MatchRange>| -> bool {
                     if let Some(match_end) = self.match_from(data, pos) {
                         if self.fullword && !is_fullword(data, pos, match_end) {
                             return false;
                         }
-                        if !dedup || seen.insert((pos, match_end)) {
+                        let c = (pos, match_end);
+                        if out.last().map(|m| (m.start, m.end)) != Some(c) {
                             out.push(MatchRange { start: pos, end: match_end });
                             return out.len() >= limit;
                         }
@@ -327,14 +346,14 @@ impl Pattern {
                 match b2 {
                     Some(b2) => {
                         for rel in memchr::memchr2_iter(b1, b2, hay) {
-                            if try_pos(start + rel, &mut out, &mut seen) {
+                            if try_pos(start + rel, &mut out) {
                                 return out;
                             }
                         }
                     }
                     None => {
                         for rel in memchr::memchr_iter(b1, hay) {
-                            if try_pos(start + rel, &mut out, &mut seen) {
+                            if try_pos(start + rel, &mut out) {
                                 return out;
                             }
                         }
@@ -343,20 +362,15 @@ impl Pattern {
                 continue;
             }
 
-            // No anchorable first token (leading wildcard/boundary/masked byte) —
-            // probe each position. The unbounded-leading-`*` early-out keeps this
-            // from going quadratic.
             for pos in start..=end {
                 match self.match_from(data, pos) {
                     Some(match_end) => {
                         if self.fullword && !is_fullword(data, pos, match_end) {
                             continue;
                         }
-                        if !dedup || seen.insert((pos, match_end)) {
-                            out.push(MatchRange {
-                                start: pos,
-                                end: match_end,
-                            });
+                        let c = (pos, match_end);
+                        if out.last().map(|m| (m.start, m.end)) != Some(c) {
+                            out.push(MatchRange { start: pos, end: match_end });
                             if out.len() >= limit {
                                 return out;
                             }
@@ -431,17 +445,9 @@ impl Pattern {
         let required_len = required.len();
 
         let mut out = Vec::new();
-        // Hint windows from different atom occurrences can overlap, so the same
-        // `start` may be reached more than once. Track tried starts and skip the
-        // (expensive) whole-pattern `match_from` on repeats — this both avoids
-        // redundant evaluation and guarantees unique results (no separate
-        // `(start,end)` dedup set needed).
-        let mut tried: HashSet<usize> = HashSet::new();
+        let mut last_start = None;
         for &hint in hints {
             let occurrence = hint as usize;
-            // The indexed atom is only the literal's (<=16-byte) prefix; confirm
-            // the FULL required literal is actually present at this offset before
-            // attempting the (more expensive) whole-pattern match.
             let Some(lit_end) = occurrence.checked_add(required_len) else {
                 continue;
             };
@@ -454,17 +460,15 @@ impl Pattern {
                 if !pos_in_ranges(start, ranges, data.len()) {
                     continue;
                 }
-                if !tried.insert(start) {
-                    continue; // already evaluated this start (overlapping window)
+                if last_start == Some(start) {
+                    continue;
                 }
+                last_start = Some(start);
                 if let Some(match_end) = self.match_from(data, start) {
                     if self.fullword && !is_fullword(data, start, match_end) {
                         continue;
                     }
-                    out.push(MatchRange {
-                        start,
-                        end: match_end,
-                    });
+                    out.push(MatchRange { start, end: match_end });
                     if out.len() >= limit {
                         return out;
                     }
@@ -474,13 +478,6 @@ impl Pattern {
         out
     }
 
-    /// Offset-threaded verification for a `nocase` pattern. `hints` are positions
-    /// in the lowercased buffer where the pattern's case-folded atom occurred;
-    /// since lowercasing is length-preserving they are valid offsets in `data`
-    /// too. The atom sits `prefix` fixed bytes into the pattern, so the whole
-    /// pattern is verified (case-insensitively, via `match_from`) at
-    /// `occurrence - prefix`. Complete because the prefilter records every atom
-    /// occurrence; match set identical to the full `find_all` first-byte scan.
     fn find_all_at_nocase(
         &self,
         data: &[u8],
@@ -490,9 +487,7 @@ impl Pattern {
         prefix: usize,
     ) -> Vec<MatchRange> {
         let mut out = Vec::new();
-        // Duplicate hints map to the same start; skip already-tried starts so each
-        // is verified once (avoids redundant match_from and duplicate results).
-        let mut tried: HashSet<usize> = HashSet::new();
+        let mut last_start = None;
         for &hint in hints {
             let occurrence = hint as usize;
             let Some(start) = occurrence.checked_sub(prefix) else {
@@ -501,17 +496,15 @@ impl Pattern {
             if !pos_in_ranges(start, ranges, data.len()) {
                 continue;
             }
-            if !tried.insert(start) {
+            if last_start == Some(start) {
                 continue;
             }
+            last_start = Some(start);
             if let Some(match_end) = self.match_from(data, start) {
                 if self.fullword && !is_fullword(data, start, match_end) {
                     continue;
                 }
-                out.push(MatchRange {
-                    start,
-                    end: match_end,
-                });
+                out.push(MatchRange { start, end: match_end });
                 if out.len() >= limit {
                     return out;
                 }
@@ -521,7 +514,7 @@ impl Pattern {
     }
 
     fn match_from(&self, data: &[u8], start: usize) -> Option<usize> {
-        match_tokens(&self.tokens, &self.lits, data, 0, start, 0)
+        match_tokens(&self.tokens, &self.lits, data, 0, start, 0, &self.alternates)
     }
 
     /// The `(min, max)` total byte width of the tokens before the `Literal` at
@@ -531,13 +524,11 @@ impl Pattern {
     fn prefix_bounds_to(&self, target_off: u32) -> Option<(u32, u32)> {
         let mut min = 0u32;
         let mut max = 0u32;
-        for token in self.tokens.iter() {
-            if let Token::Literal { off, .. } = token {
-                if *off == target_off {
-                    return Some((min, max));
-                }
+        for &token in self.tokens.iter() {
+            if token.tag() == Token::TAG_LITERAL && token.as_literal().unwrap().0 == target_off {
+                return Some((min, max));
             }
-            let (tmin, tmax) = token_width_bounds(token)?;
+            let (tmin, tmax) = token_width_bounds(token, &self.alternates)?;
             min = min.saturating_add(tmin);
             max = max.saturating_add(tmax);
         }
@@ -546,29 +537,35 @@ impl Pattern {
 }
 
 /// `(min, max)` byte width a single token can consume, or `None` if unbounded.
-/// Like `single_token_width` but admits bounded ranges (`{n-m}`) and
-/// variable-width alternations, returning their span instead of requiring a
-/// single fixed width.
-fn token_width_bounds(token: &Token) -> Option<(u32, u32)> {
-    match token {
-        Token::Literal { len, .. } | Token::LitNocase { len, .. } => Some((*len, *len)),
-        Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => Some((1, 1)),
-        Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => Some((0, 0)),
-        Token::AnyBytes { max, .. } if *max == UNBOUNDED => None,
-        Token::AnyBytes { min, max } => Some((*min, *max)),
-        Token::Alternates(alt) if !alt.negated => {
-            let mut lo = u32::MAX;
-            let mut hi = 0u32;
-            for branch in &alt.branches {
-                let w = fixed_width(branch)? as u32;
-                lo = lo.min(w);
-                hi = hi.max(w);
-            }
-            Some((lo, hi))
+fn token_width_bounds(token: Token, alternates: &[Alternates]) -> Option<(u32, u32)> {
+    match token.tag() {
+        Token::TAG_LITERAL | Token::TAG_LITNOCASE => Some((token.b(), token.b())),
+        Token::TAG_BYTE => Some((1, 1)),
+        Token::TAG_BOUNDARY => match token.as_boundary().unwrap() {
+            Boundary::NonAlphaNum => Some((1, 1)),
+            Boundary::Word | Boundary::Newline => Some((0, 0)),
+        },
+        Token::TAG_ANYBYTES => {
+            let (min, max) = token.as_any_bytes().unwrap();
+            if max == UNBOUNDED { None } else { Some((min, max)) }
         }
-        Token::Alternates(alt) if alt.negated_width.is_some() => {
-            let w = alt.negated_width.unwrap() as u32;
-            Some((w, w))
+        Token::TAG_ALTERNATES => {
+            let idx = token.as_alternates().unwrap() as usize;
+            let alt = &alternates[idx];
+            if !alt.negated {
+                let mut lo = u32::MAX;
+                let mut hi = 0u32;
+                for branch in &alt.branches {
+                    let w = fixed_width(branch, alternates)? as u32;
+                    lo = lo.min(w);
+                    hi = hi.max(w);
+                }
+                Some((lo, hi))
+            } else if let Some(w) = alt.negated_width {
+                Some((w as u32, w as u32))
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -580,11 +577,9 @@ fn token_width_bounds(token: &Token) -> Option<(u32, u32)> {
 /// failed continuation can never be rescued by a later occurrence. Used to switch
 /// off backtracking in the wildcard fast paths (see `match_tokens`).
 fn open_ended_after(tokens: &[Token], idx: usize) -> bool {
-    match tokens.get(idx) {
-        None => true,
-        Some(Token::AnyBytes { max, .. }) => *max == UNBOUNDED,
-        _ => false,
-    }
+    tokens.get(idx).map_or(true, |t| {
+        t.as_any_bytes().is_some_and(|(_, max)| max == UNBOUNDED)
+    })
 }
 
 fn match_tokens(
@@ -594,16 +589,8 @@ fn match_tokens(
     token_index: usize,
     pos: usize,
     depth: usize,
+    alternates: &[Alternates],
 ) -> Option<usize> {
-    // ClamAV's branch matcher (ac_forward/backward_match_branch) advances the
-    // linear spine of a pattern with an explicit `for` loop and only recurses for
-    // the genuinely-recursive dimension — alternation nesting. We mirror that:
-    // Byte/Literal/Boundary advance `token_index`/`pos` IN PLACE inside this loop
-    // (no recursion, so a sub-signature with thousands of `??`/nocase tokens can
-    // never overflow the stack or hit an arbitrary token-count cap), while only
-    // wildcard backtracking and alternation branches recurse. `depth` therefore
-    // counts only alternation nesting, exactly like the C comment "recursion depth
-    // = number of alternate specials"; the cap is pure DoS protection.
     if depth > 2048 {
         return None;
     }
@@ -614,81 +601,74 @@ fn match_tokens(
             return Some(pos);
         }
 
-        match &tokens[token_index] {
-            Token::Byte(byte) => {
-                if pos < data.len() && byte.matches(data[pos]) {
+        let tok = tokens[token_index];
+        let tag = tok.tag();
+
+        if tag == Token::TAG_BYTE {
+            let (mask, value, nocase) = tok.as_byte().unwrap();
+            if pos < data.len() {
+                let bm = ByteMatcher { mask, value, nocase };
+                if bm.matches(data[pos]) {
                     token_index += 1;
                     pos += 1;
                     continue;
                 }
-                return None;
             }
-            Token::Literal { off, len } => {
-                let lit = &lits[*off as usize..(*off + *len) as usize];
-                let end = pos + lit.len();
-                if end <= data.len() && &data[pos..end] == lit {
-                    token_index += 1;
-                    pos = end;
-                    continue;
-                }
-                return None;
+            return None;
+        }
+
+        if tag == Token::TAG_LITERAL {
+            let (off, len) = tok.as_literal().unwrap();
+            let lit = &lits[off as usize..(off + len) as usize];
+            let end = pos + lit.len();
+            if end <= data.len() && &data[pos..end] == lit {
+                token_index += 1;
+                pos = end;
+                continue;
             }
-            Token::LitNocase { off, len } => {
-                // `lit` is stored lowercased; compare case-insensitively. This is
-                // exactly equivalent to a run of nocase `ByteMatcher`s because
-                // `to_ascii_lowercase` only folds A–Z, matching ByteMatcher's
-                // `is_ascii_alphabetic` gate.
-                let lit = &lits[*off as usize..(*off + *len) as usize];
-                let end = pos + lit.len();
-                if end <= data.len()
-                    && data[pos..end]
-                        .iter()
-                        .zip(lit)
-                        .all(|(d, l)| d.to_ascii_lowercase() == *l)
-                {
-                    token_index += 1;
-                    pos = end;
-                    continue;
-                }
-                return None;
+            return None;
+        }
+
+        if tag == Token::TAG_LITNOCASE {
+            let (off, len) = tok.as_litnocase().unwrap();
+            let lit = &lits[off as usize..(off + len) as usize];
+            let end = pos + lit.len();
+            if end <= data.len()
+                && data[pos..end]
+                    .iter()
+                    .zip(lit)
+                    .all(|(d, l)| d.to_ascii_lowercase() == *l)
+            {
+                token_index += 1;
+                pos = end;
+                continue;
             }
-            Token::AnyBytes { min, max } => {
-            let min_pos = pos.checked_add(*min as usize)?;
+            return None;
+        }
+
+        if tag == Token::TAG_ANYBYTES {
+            let (min, max) = tok.as_any_bytes().unwrap();
+            let min_pos = pos.checked_add(min as usize)?;
             if min_pos > data.len() {
                 return None;
             }
-            let max_len = if *max == UNBOUNDED {
+            let max_len = if max == UNBOUNDED {
                 data.len().saturating_sub(pos)
             } else {
-                *max as usize
+                max as usize
             };
             let max_pos = pos.saturating_add(max_len).min(data.len());
             if min_pos > max_pos {
                 return None;
             }
 
-            // Fast path: when the token right after the wildcard is a fixed
-            // literal/byte, jump straight to its occurrences via memchr
-            // instead of probing every byte position in the gap. Without
-            // this, a body subsignature with multiple wildcard gaps (the
-            // common ClamAV `AAAA*BBBB*CCCC` shape) degrades to O(n) work
-            // per gap, nested per gap — O(n^2) or worse for a single
-            // anchor occurrence on large files. Jumping to literal
-            // occurrences instead makes each gap O(occurrences of the next
-            // anchor), which is what keeps multi-wildcard body sigs fast.
-            match tokens.get(token_index + 1) {
-                Some(Token::Literal { off, len }) => {
-                    let lit = &lits[*off as usize..(*off + *len) as usize];
-                    // Greedy short-circuit: when what follows the literal is
-                    // open-ended (end of pattern, or another unbounded gap), the
-                    // LEFTMOST literal occurrence is provably sufficient — a later
-                    // occurrence only shrinks the remaining search window, so if
-                    // the first fails, all later ones fail too. This turns the
-                    // catastrophic `*a*b*c` nested product (O(occ(a)·occ(b)·…))
-                    // into O(occ(a)+occ(b)+…), the difference between a 7-second
-                    // signature and a microsecond one. When the next token is
-                    // fixed-width-constrained (e.g. `*a{5}b`), we must still
-                    // backtrack, so greedy is off.
+            let next_tok = tokens.get(token_index + 1);
+
+            // Fast path: literal after wildcard
+            if let Some(nt) = next_tok {
+                if nt.tag() == Token::TAG_LITERAL {
+                    let (n_off, n_len) = nt.as_literal().unwrap();
+                    let lit = &lits[n_off as usize..(n_off + n_len) as usize];
                     let greedy = open_ended_after(tokens, token_index + 2);
                     let mut search_from = min_pos;
                     loop {
@@ -703,12 +683,7 @@ fn match_tokens(
                             return None;
                         }
                         if let Some(end) = match_tokens(
-                            tokens,
-                            lits,
-                            data,
-                            token_index + 2,
-                            candidate + lit.len(),
-                            depth,
+                            tokens, lits, data, token_index + 2, candidate + lit.len(), depth, alternates,
                         ) {
                             return Some(end);
                         }
@@ -718,15 +693,11 @@ fn match_tokens(
                         search_from = candidate + 1;
                     }
                 }
-                // Same fast jump for a case-insensitive literal after the wildcard
-                // (`hello*world` → [LitNocase, *, LitNocase]). There's no SIMD
-                // case-insensitive memmem, so anchor on the first byte's two cases
-                // via memchr/memchr2, then confirm the whole nocase literal. Without
-                // this arm a multi-segment nocase signature with a gap — the MAJORITY
-                // of real nocase sigs — falls through to the O(n^2) per-position probe.
-                Some(Token::LitNocase { off, len }) => {
-                    let lit = &lits[*off as usize..(*off + *len) as usize];
-                    // lit[0] is stored lowercased; anchor on lower+upper case.
+
+                // LitNocase after wildcard
+                if nt.tag() == Token::TAG_LITNOCASE {
+                    let (n_off, n_len) = nt.as_litnocase().unwrap();
+                    let lit = &lits[n_off as usize..(n_off + n_len) as usize];
                     let first = lit[0];
                     let (b1, b2) = if first.is_ascii_alphabetic() {
                         (first, Some(first.to_ascii_uppercase()))
@@ -748,181 +719,134 @@ fn match_tokens(
                             Some(b2) => memchr::memchr2(b1, b2, hay),
                             None => memchr::memchr(b1, hay),
                         };
-                        let Some(rel) = rel else {
-                            return None;
-                        };
+                        let Some(rel) = rel else { return None };
                         let candidate = search_from + rel;
-                        let end = candidate + lit.len();
-                        // Confirm the full nocase literal at this candidate.
-                        if end <= data.len()
-                            && data[candidate..end]
+                        let cend = candidate + lit.len();
+                        if cend <= data.len()
+                            && data[candidate..cend]
                                 .iter()
                                 .zip(lit)
                                 .all(|(d, l)| d.to_ascii_lowercase() == *l)
                         {
-                            if let Some(e) =
-                                match_tokens(tokens, lits, data, token_index + 2, end, depth)
-                            {
+                            if let Some(e) = match_tokens(
+                                tokens, lits, data, token_index + 2, cend, depth, alternates,
+                            ) {
                                 return Some(e);
                             }
-                            if greedy {
+                            if greedy { return None; }
+                        }
+                        search_from = candidate + 1;
+                    }
+                }
+
+                // Byte after wildcard (with anchor)
+                if nt.tag() == Token::TAG_BYTE {
+                    let (nmask, nval, nnocase) = nt.as_byte().unwrap();
+                    let bm = ByteMatcher { mask: nmask, value: nval, nocase: nnocase };
+                    if let Some((b1, b2)) = bm.anchor_bytes() {
+                        let greedy = open_ended_after(tokens, token_index + 2);
+                        let mut search_from = min_pos;
+                        loop {
+                            if search_from > max_pos || search_from >= data.len() {
                                 return None;
                             }
+                            let scan_end = (max_pos + 1).min(data.len());
+                            let hay = &data[search_from..scan_end];
+                            let rel = match b2 {
+                                Some(b2) => memchr::memchr2(b1, b2, hay),
+                                None => memchr::memchr(b1, hay),
+                            };
+                            let Some(rel) = rel else { return None };
+                            let candidate = search_from + rel;
+                            if let Some(end) = match_tokens(
+                                tokens, lits, data, token_index + 2, candidate + 1, depth, alternates,
+                            ) {
+                                return Some(end);
+                            }
+                            if greedy { return None; }
+                            search_from = candidate + 1;
                         }
-                        search_from = candidate + 1;
                     }
                 }
-                // `anchor_bytes()` (not `exact_value()`): the latter is `None`
-                // for `nocase` bytes, so case-insensitive patterns' wildcard gaps
-                // used to fall through to the slow per-position probe below — and
-                // `nocase + *` (a case-insensitive string with a gap) is one of
-                // the most common ClamAV idioms. `anchor_bytes` jumps via memchr2
-                // over both case variants instead.
-                Some(Token::Byte(byte)) if byte.anchor_bytes().is_some() => {
-                    let (b1, b2) = byte.anchor_bytes().unwrap();
-                    let greedy = open_ended_after(tokens, token_index + 2);
-                    let mut search_from = min_pos;
-                    loop {
-                        if search_from > max_pos || search_from >= data.len() {
-                            return None;
-                        }
-                        let scan_end = (max_pos + 1).min(data.len());
-                        let hay = &data[search_from..scan_end];
-                        let rel = match b2 {
-                            Some(b2) => memchr::memchr2(b1, b2, hay),
-                            None => memchr::memchr(b1, hay),
-                        };
-                        let Some(rel) = rel else {
-                            return None;
-                        };
-                        let candidate = search_from + rel;
-                        if let Some(end) = match_tokens(
-                            tokens,
-                            lits,
-                            data,
-                            token_index + 2,
-                            candidate + 1,
-                            depth,
-                        ) {
-                            return Some(end);
-                        }
-                        if greedy {
-                            return None;
-                        }
-                        search_from = candidate + 1;
-                    }
+            }
+
+            // Fallback per-position probe
+            for next in min_pos..=max_pos {
+                if let Some(end) = match_tokens(
+                    tokens, lits, data, token_index + 1, next, depth, alternates,
+                ) {
+                    return Some(end);
                 }
-                _ => {
-                    // Rare: next token is itself variable-width (boundary,
-                    // alternation, another wildcard) — no single byte/literal
-                    // to jump to, so fall back to per-position probing.
-                    for next in min_pos..=max_pos {
-                        if let Some(end) =
-                            match_tokens(tokens, lits, data, token_index + 1, next, depth)
-                        {
-                            return Some(end);
-                        }
+            }
+            return None;
+        }
+
+        if tag == Token::TAG_BOUNDARY {
+            match tok.as_boundary().unwrap() {
+                Boundary::Word => {
+                    if is_word_boundary(data, pos) {
+                        token_index += 1;
+                        continue;
+                    }
+                    return None;
+                }
+                Boundary::Newline => {
+                    if pos == 0 || pos == data.len()
+                        || data.get(pos.wrapping_sub(1)) == Some(&b'\r')
+                        || data.get(pos.wrapping_sub(1)) == Some(&b'\n')
+                    {
+                        token_index += 1;
+                        continue;
+                    }
+                    return None;
+                }
+                Boundary::NonAlphaNum => {
+                    if pos < data.len() && !data[pos].is_ascii_alphanumeric() {
+                        token_index += 1;
+                        pos += 1;
+                        continue;
                     }
                     return None;
                 }
             }
         }
-        Token::Boundary(Boundary::Word) => {
-            if is_word_boundary(data, pos) {
-                token_index += 1;
-                continue;
-            }
-            return None;
-        }
-        Token::Boundary(Boundary::Newline) => {
-            if pos == 0
-                || pos == data.len()
-                || data.get(pos.wrapping_sub(1)) == Some(&b'\r')
-                || data.get(pos.wrapping_sub(1)) == Some(&b'\n')
-            {
-                token_index += 1;
-                continue;
-            }
-            return None;
-        }
-        Token::Boundary(Boundary::NonAlphaNum) => {
-            if pos < data.len() && !data[pos].is_ascii_alphanumeric() {
-                token_index += 1;
-                pos += 1;
-                continue;
-            }
-            return None;
-        }
-        Token::Alternates(alt) => {
-            let Alternates {
-                branches,
-                negated,
-                negated_width,
-            } = alt.as_ref();
-            // Alternation branches aren't compacted, so they contain no
-            // `Literal` tokens and don't use `lits` (an empty slice is fine).
-            if *negated {
-                let width = (*negated_width)?;
+
+        if tag == Token::TAG_ALTERNATES {
+            let idx = tok.as_alternates().unwrap() as usize;
+            let alt = &alternates[idx];
+            if alt.negated {
+                let width = alt.negated_width?;
                 if pos + width > data.len() {
                     return None;
                 }
-                // Branch sub-matches are the genuinely-recursive dimension →
-                // charge depth here; the linear continuation after the special does not.
-                let matched = branches.iter().any(|branch| {
-                    match_tokens(branch, &[], data, 0, pos, depth + 1) == Some(pos + width)
+                let matched = alt.branches.iter().any(|branch| {
+                    match_tokens(branch, &[], data, 0, pos, depth + 1, &[]) == Some(pos + width)
                 });
                 if !matched {
-                    return match_tokens(tokens, lits, data, token_index + 1, pos + width, depth);
+                    return match_tokens(tokens, lits, data, token_index + 1, pos + width, depth, alternates);
                 }
                 return None;
             }
-            for branch in branches {
-                if let Some(branch_end) = match_tokens(branch, &[], data, 0, pos, depth + 1) {
-                    if let Some(end) =
-                        match_tokens(tokens, lits, data, token_index + 1, branch_end, depth)
-                    {
+            for branch in &alt.branches {
+                if let Some(branch_end) = match_tokens(branch, &[], data, 0, pos, depth + 1, &[]) {
+                    if let Some(end) = match_tokens(tokens, lits, data, token_index + 1, branch_end, depth, alternates) {
                         return Some(end);
                     }
                 }
             }
             return None;
         }
-        }
+
+        return None;
     }
 }
 
 impl ByteMatcher {
-    fn exact(value: u8, nocase: bool) -> Self {
-        Self {
-            mask: 0xff,
-            value,
-            nocase,
-        }
-    }
-
     fn matches(self, byte: u8) -> bool {
         if self.mask == 0xff && self.nocase && self.value.is_ascii_alphabetic() {
             byte.to_ascii_lowercase() == self.value.to_ascii_lowercase()
         } else {
             (byte & self.mask) == self.value
-        }
-    }
-
-    fn exact_value(self) -> Option<u8> {
-        if self.mask == 0xff && !self.nocase {
-            Some(self.value)
-        } else {
-            None
-        }
-    }
-
-    /// The value of a fully-specified `nocase` byte (mask 0xff, nocase set), for
-    /// compaction into a `LitNocase` run.
-    fn nocase_exact_value(self) -> Option<u8> {
-        if self.mask == 0xff && self.nocase {
-            Some(self.value)
-        } else {
-            None
         }
     }
 
@@ -950,6 +874,7 @@ struct Parser<'a> {
     pos: usize,
     nocase: bool,
     raw: &'a str,
+    alternates: Vec<Alternates>,
 }
 
 impl<'a> Parser<'a> {
@@ -959,10 +884,11 @@ impl<'a> Parser<'a> {
             pos: 0,
             nocase,
             raw,
+            alternates: Vec::new(),
         }
     }
 
-    fn parse_all(&mut self) -> Result<Vec<Token>, String> {
+    fn parse_all(&mut self) -> Result<(Vec<Token>, Vec<Alternates>), String> {
         let tokens = self.parse_sequence(false)?;
         if self.pos != self.chars.len() {
             return Err(format!(
@@ -970,7 +896,7 @@ impl<'a> Parser<'a> {
                 self.chars[self.pos]
             ));
         }
-        Ok(tokens)
+        Ok((tokens, std::mem::take(&mut self.alternates)))
     }
 
     fn parse_sequence(&mut self, stop_for_alt: bool) -> Result<Vec<Token>, String> {
@@ -983,10 +909,7 @@ impl<'a> Parser<'a> {
             match ch {
                 '*' => {
                     self.pos += 1;
-                    tokens.push(Token::AnyBytes {
-                        min: 0,
-                        max: UNBOUNDED,
-                    });
+                    tokens.push(Token::any_bytes(0, UNBOUNDED));
                 }
                 '{' => tokens.push(self.parse_braced_range()?),
                 '[' => tokens.push(self.parse_bracket_range()?),
@@ -1007,15 +930,15 @@ impl<'a> Parser<'a> {
     fn parse_paren(&mut self) -> Result<Token, String> {
         if self.peek(1) == Some('B') && self.peek(2) == Some(')') {
             self.pos += 3;
-            return Ok(Token::Boundary(Boundary::Word));
+            return Ok(Token::boundary(Boundary::Word));
         }
         if self.peek(1) == Some('L') && self.peek(2) == Some(')') {
             self.pos += 3;
-            return Ok(Token::Boundary(Boundary::Newline));
+            return Ok(Token::boundary(Boundary::Newline));
         }
         if self.peek(1) == Some('W') && self.peek(2) == Some(')') {
             self.pos += 3;
-            return Ok(Token::Boundary(Boundary::NonAlphaNum));
+            return Ok(Token::boundary(Boundary::NonAlphaNum));
         }
         self.parse_alternate(false)
     }
@@ -1040,7 +963,7 @@ impl<'a> Parser<'a> {
         let negated_width = if negated {
             let widths = branches
                 .iter()
-                .map(|branch| fixed_width(branch))
+                .map(|branch| fixed_width(branch, &self.alternates))
                 .collect::<Option<Vec<_>>>()
                 .ok_or_else(|| "negated alternates must have fixed widths".to_string())?;
             if widths.iter().all(|width| *width == widths[0]) {
@@ -1052,31 +975,23 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok(Token::Alternates(Box::new(Alternates {
-            branches,
-            negated,
-            negated_width,
-        })))
+        let idx = self.alternates.len() as u32;
+        self.alternates.push(Alternates { branches, negated, negated_width });
+        Ok(Token::alternates(idx))
     }
 
     fn parse_braced_range(&mut self) -> Result<Token, String> {
         self.expect('{')?;
         let content = self.read_until('}')?;
         let (min, max) = parse_range_content(&content)?;
-        Ok(Token::AnyBytes {
-            min: min as u32,
-            max: max.map(|m| m as u32).unwrap_or(UNBOUNDED),
-        })
+        Ok(Token::any_bytes(min as u32, max.map(|m| m as u32).unwrap_or(UNBOUNDED)))
     }
 
     fn parse_bracket_range(&mut self) -> Result<Token, String> {
         self.expect('[')?;
         let content = self.read_until(']')?;
         let (min, max) = parse_range_content(&content)?;
-        Ok(Token::AnyBytes {
-            min: min as u32,
-            max: max.unwrap_or(min) as u32,
-        })
+        Ok(Token::any_bytes(min as u32, max.unwrap_or(min) as u32))
     }
 
     fn parse_byte_pair(&mut self) -> Result<Token, String> {
@@ -1092,25 +1007,16 @@ impl<'a> Parser<'a> {
         }
 
         self.pos += 2;
-        let matcher = match (high, low) {
-            ('?', '?') => ByteMatcher {
-                mask: 0x00,
-                value: 0x00,
-                nocase: false,
-            },
-            ('?', lo) => ByteMatcher {
-                mask: 0x0f,
-                value: hex_value(lo)?,
-                nocase: false,
-            },
-            (hi, '?') => ByteMatcher {
-                mask: 0xf0,
-                value: hex_value(hi)? << 4,
-                nocase: false,
-            },
-            (hi, lo) => ByteMatcher::exact((hex_value(hi)? << 4) | hex_value(lo)?, self.nocase),
+        let (mask, value, nocase) = match (high, low) {
+            ('?', '?') => (0x00, 0x00, false),
+            ('?', lo) => (0x0f, hex_value(lo)?, false),
+            (hi, '?') => (0xf0, hex_value(hi)? << 4, false),
+            (hi, lo) => {
+                let v = (hex_value(hi)? << 4) | hex_value(lo)?;
+                (0xff, v, self.nocase)
+            }
         };
-        Ok(Token::Byte(matcher))
+        Ok(Token::byte(mask, value, nocase))
     }
 
     fn read_until(&mut self, end: char) -> Result<String, String> {
@@ -1168,97 +1074,124 @@ fn parse_usize(raw: &str) -> Result<usize, String> {
         .map_err(|_| format!("invalid decimal number '{raw}'"))
 }
 
-fn fixed_width(tokens: &[Token]) -> Option<usize> {
+fn fixed_width(tokens: &[Token], alternates: &[Alternates]) -> Option<usize> {
     let mut width = 0usize;
-    for token in tokens {
-        match token {
-            Token::Literal { len, .. } | Token::LitNocase { len, .. } => width += *len as usize,
-            Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => width += 1,
-            Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => {}
-            Token::AnyBytes { min, max } if min == max && *max != UNBOUNDED => {
-                width += *min as usize
+    for &token in tokens {
+        let tag = token.tag();
+        if tag == Token::TAG_LITERAL || tag == Token::TAG_LITNOCASE {
+            let (_, len) = if tag == Token::TAG_LITERAL {
+                token.as_literal().unwrap()
+            } else {
+                token.as_litnocase().unwrap()
+            };
+            width += len as usize;
+        } else if tag == Token::TAG_BYTE || (tag == Token::TAG_BOUNDARY && token.as_boundary().unwrap() == Boundary::NonAlphaNum) {
+            width += 1;
+        } else if tag == Token::TAG_BOUNDARY {
+            // Word or Newline — zero width
+        } else if tag == Token::TAG_ANYBYTES {
+            let (min, max) = token.as_any_bytes().unwrap();
+            if min == max && max != UNBOUNDED {
+                width += min as usize;
+            } else {
+                return None;
             }
-            Token::Alternates(alt) if !alt.negated => {
+        } else if tag == Token::TAG_ALTERNATES {
+            let idx = token.as_alternates().unwrap() as usize;
+            let alt = &alternates[idx];
+            if !alt.negated {
                 let branch_widths = alt
                     .branches
                     .iter()
-                    .map(|branch| fixed_width(branch))
+                    .map(|branch| fixed_width(branch, alternates))
                     .collect::<Option<Vec<_>>>()?;
                 if branch_widths.iter().all(|item| *item == branch_widths[0]) {
                     width += branch_widths[0];
                 } else {
                     return None;
                 }
+            } else if alt.negated_width.is_some() {
+                width += alt.negated_width.unwrap();
+            } else {
+                return None;
             }
-            Token::Alternates(alt) if alt.negated_width.is_some() => {
-                width += alt.negated_width.unwrap()
-            }
-            _ => return None,
+        } else {
+            return None;
         }
     }
     Some(width)
 }
 
-fn to_wide_tokens(tokens: &[Token]) -> Vec<Token> {
+fn to_wide_tokens(
+    tokens: &[Token],
+    alternates: &[Alternates],
+) -> (Vec<Token>, Vec<Alternates>) {
     let mut out = Vec::new();
-    for token in tokens {
-        match token {
-            Token::Byte(byte) => {
-                // ClamAV's WIDE option (readdb.c sigopts 'w') widens the ENTIRE
-                // pattern to UTF-16LE by interleaving a NUL high byte after EVERY
-                // element — including nibble-wildcard (`?X`/`X?`/`??`) and nocase
-                // bytes, not just exact case-sensitive ones. The injected NUL is
-                // always an exact case-sensitive 0x00 (the `%02x`=00 high byte), so
-                // downstream literal compaction still works.
-                out.push(Token::Byte(*byte));
-                out.push(Token::Byte(ByteMatcher::exact(0, false)));
-            }
-            Token::Alternates(alt) => {
-                let branches = alt
-                    .branches
-                    .iter()
-                    .map(|branch| to_wide_tokens(branch))
-                    .collect::<Vec<_>>();
-                let negated_width = if alt.negated {
-                    branches.first().and_then(|branch| fixed_width(branch))
-                } else {
-                    alt.negated_width
-                };
-                out.push(Token::Alternates(Box::new(Alternates {
-                    branches,
-                    negated: alt.negated,
-                    negated_width,
-                })));
-            }
-            // `to_wide_tokens` runs on PARSER output, BEFORE `compact_tokens`, so
-            // it never sees Literal/LitNocase — and couldn't widen them anyway,
-            // since those reference the `lits` arena that doesn't exist yet here.
-            // Assert the invariant so a future reordering is caught loudly instead
-            // of silently emitting a non-widened (broken) wide pattern.
-            Token::Literal { .. } | Token::LitNocase { .. } => {
-                debug_assert!(false, "to_wide_tokens received a compacted token");
-                out.push(token.clone());
-            }
-            other => out.push(other.clone()),
+    let mut alt_out = Vec::new();
+    for &token in tokens {
+        let tag = token.tag();
+        if tag == Token::TAG_BYTE {
+            out.push(token);
+            out.push(Token::byte(0xff, 0x00, false));
+        } else if tag == Token::TAG_ALTERNATES {
+            let idx = token.as_alternates().unwrap() as usize;
+            let alt = &alternates[idx];
+            let branches = alt
+                .branches
+                .iter()
+                .map(|branch| to_wide_tokens(branch, alternates).0)
+                .collect::<Vec<_>>();
+            let negated_width = if alt.negated {
+                branches.first().and_then(|branch| fixed_width(branch, &[]))
+            } else {
+                alt.negated_width
+            };
+            let new_idx = alt_out.len() as u32;
+            alt_out.push(Alternates {
+                branches,
+                negated: alt.negated,
+                negated_width,
+            });
+            out.push(Token::alternates(new_idx));
+        } else {
+            // Boundary, AnyBytes — none contain sub-tokens needing widening.
+            // Also catches the invariant: to_wide_tokens runs before compact_tokens
+            // so we must never see Literal/LitNocase here.
+            debug_assert!(
+                tag != Token::TAG_LITERAL && tag != Token::TAG_LITNOCASE,
+                "to_wide_tokens received a compacted token"
+            );
+            out.push(token);
         }
     }
-    out
+    (out, alt_out)
 }
 
 /// Merge runs of consecutive exact, case-sensitive bytes into a single
 /// `Token::Literal` referencing a shared `lits` arena, instead of one ~16-byte
 /// `Token::Byte` per byte. Runs of length 1 stay `Token::Byte` (a `Literal`
 /// would only add 8 bytes for no gain). Alternation branches are left as-is.
+///
+/// Also collapses gaps: a full-wildcard `??` parses to `Token::byte(0,0)`, i.e.
+/// one 8-byte token *per wildcard byte* (`Byte(0x00,0x00)` matches every byte —
+/// `(b & 0) == 0` — so it is exactly an `AnyBytes` of width 1). A run of `N`
+/// such bytes, or several adjacent explicit `{m}`/`*` gaps, are folded into a
+/// single `AnyBytes{min,max}`. This is the semantic identity of `????…` and
+/// `{N}`; without it a long `??` run cost one token each (the 3000-`?` test
+/// alone would resident 24 KB for one gap). Widths are additive and unchanged,
+/// so prefix/anchor accounting (`single_token_width`) is preserved exactly.
 fn compact_tokens(tokens: Vec<Token>) -> (Vec<Token>, Vec<u8>) {
     let mut out: Vec<Token> = Vec::with_capacity(tokens.len());
     let mut lits: Vec<u8> = Vec::new();
     let mut run: Vec<u8> = Vec::new();
-    // `false` = case-sensitive exact run → Literal; `true` = nocase run → LitNocase
-    // (stored lowercased). A run must not mix the two, so a kind change flushes.
     let mut run_nocase = false;
+    // Pending coalesced gap `(min, max)` from consecutive `??`/`AnyBytes` tokens.
+    let mut gap: Option<(u32, u32)> = None;
     for token in tokens {
-        if let Token::Byte(byte) = &token {
-            if let Some(value) = byte.exact_value() {
+        if token.tag() == Token::TAG_BYTE {
+            let (mask, value, nocase) = token.as_byte().unwrap();
+            if mask == 0xff && !nocase {
+                flush_gap(&mut gap, &mut out);
                 if !run.is_empty() && run_nocase {
                     flush_run(&mut run, run_nocase, &mut lits, &mut out);
                 }
@@ -1266,7 +1199,8 @@ fn compact_tokens(tokens: Vec<Token>) -> (Vec<Token>, Vec<u8>) {
                 run.push(value);
                 continue;
             }
-            if let Some(value) = byte.nocase_exact_value() {
+            if mask == 0xff && nocase {
+                flush_gap(&mut gap, &mut out);
                 if !run.is_empty() && !run_nocase {
                     flush_run(&mut run, run_nocase, &mut lits, &mut out);
                 }
@@ -1274,31 +1208,64 @@ fn compact_tokens(tokens: Vec<Token>) -> (Vec<Token>, Vec<u8>) {
                 run.push(value.to_ascii_lowercase());
                 continue;
             }
+            if mask == 0x00 {
+                // `??` — full-byte wildcard, identical to a 1-wide `AnyBytes`.
+                flush_run(&mut run, run_nocase, &mut lits, &mut out);
+                add_gap(&mut gap, 1, 1);
+                continue;
+            }
+        }
+        if let Some((min, max)) = token.as_any_bytes() {
+            flush_run(&mut run, run_nocase, &mut lits, &mut out);
+            add_gap(&mut gap, min, max);
+            continue;
         }
         flush_run(&mut run, run_nocase, &mut lits, &mut out);
+        flush_gap(&mut gap, &mut out);
         out.push(token);
     }
     flush_run(&mut run, run_nocase, &mut lits, &mut out);
+    flush_gap(&mut gap, &mut out);
     out.shrink_to_fit();
     (out, lits)
+}
+
+/// Accumulate one more gap onto the pending coalesced gap. Widths add; an
+/// `UNBOUNDED` max stays unbounded (consecutive variable gaps compose).
+fn add_gap(gap: &mut Option<(u32, u32)>, min: u32, max: u32) {
+    *gap = Some(match *gap {
+        None => (min, max),
+        Some((pmin, pmax)) => {
+            let nmax = if pmax == UNBOUNDED || max == UNBOUNDED {
+                UNBOUNDED
+            } else {
+                pmax.saturating_add(max)
+            };
+            (pmin.saturating_add(min), nmax)
+        }
+    });
+}
+
+fn flush_gap(gap: &mut Option<(u32, u32)>, out: &mut Vec<Token>) {
+    if let Some((min, max)) = gap.take() {
+        out.push(Token::any_bytes(min, max));
+    }
 }
 
 fn flush_run(run: &mut Vec<u8>, nocase: bool, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
     match run.len() {
         0 => {}
-        // A single byte stays a `Token::Byte` (a literal token would cost more for
-        // one byte). Re-tag nocase so case-insensitive matching is preserved.
         1 => {
-            out.push(Token::Byte(ByteMatcher::exact(run[0], nocase)));
+            out.push(Token::byte(0xff, run[0], nocase));
             run.clear();
         }
         n => {
             let off = lits.len() as u32;
             lits.extend_from_slice(run);
             let token = if nocase {
-                Token::LitNocase { off, len: n as u32 }
+                Token::litnocase(off, n as u32)
             } else {
-                Token::Literal { off, len: n as u32 }
+                Token::literal(off, n as u32)
             };
             out.push(token);
             run.clear();
@@ -1321,16 +1288,17 @@ fn flush_run(run: &mut Vec<u8>, nocase: bool, lits: &mut Vec<u8>, out: &mut Vec<
 /// lowercased), so this just picks the longest such run and the fixed byte width
 /// before it (the threading anchor); `None` prefix when a variable-width token
 /// precedes it.
-fn nocase_anchor(tokens: &[Token], lits: &[u8]) -> Option<(Vec<u8>, Option<u32>)> {
-    let mut best: Option<(u32, u32, Option<u32>)> = None; // (off, len, prefix)
-    let mut acc: Option<u32> = Some(0); // running fixed width from pattern start
-    for token in tokens {
-        if let Token::LitNocase { off, len } = token {
-            if *len >= 2 && best.map_or(true, |(_, blen, _)| *len > blen) {
-                best = Some((*off, *len, acc));
+fn nocase_anchor(tokens: &[Token], lits: &[u8], alternates: &[Alternates]) -> Option<(Vec<u8>, Option<u32>)> {
+    let mut best: Option<(u32, u32, Option<u32>)> = None;
+    let mut acc: Option<u32> = Some(0);
+    for &token in tokens {
+        if token.tag() == Token::TAG_LITNOCASE {
+            let (off, len) = token.as_litnocase().unwrap();
+            if len >= 2 && best.map_or(true, |(_, blen, _)| len > blen) {
+                best = Some((off, len, acc));
             }
         }
-        acc = acc.and_then(|w| single_token_width(token).map(|tw| w + tw as u32));
+        acc = acc.and_then(|w| single_token_width(token, alternates).map(|tw| w + tw as u32));
     }
     best.map(|(off, len, prefix)| {
         (
@@ -1359,24 +1327,25 @@ fn nocase_anchor(tokens: &[Token], lits: &[u8]) -> Option<(Vec<u8>, Option<u32>)
 /// Returns `((off, len) into lits, prefix_width)`. `prefix_width` is `None` when
 /// the chosen literal sits behind a variable-width token (then the caller uses
 /// it as a coarse `memmem` pre-check / anchor before the window scan).
-fn best_required_literal(tokens: &[Token], lits: &[u8]) -> (Option<(u32, u32)>, Option<u32>) {
+fn best_required_literal(tokens: &[Token], lits: &[u8], alternates: &[Alternates]) -> (Option<(u32, u32)>, Option<u32>) {
     // After compaction, each maximal exact run ≥ 2 bytes is a single `Literal`.
     let mut best: Option<(i64, u32, u32, Option<u32>)> = None; // (score, off, len, prefix)
     let mut prefix_acc: Option<u32> = Some(0); // running fixed width from pattern start
 
-    for token in tokens {
-        if let Token::Literal { off, len } = token {
-            if *len >= 2 {
-                let bytes = &lits[*off as usize..(*off + *len) as usize];
+    for &token in tokens {
+        if token.tag() == Token::TAG_LITERAL {
+            let (off, len) = token.as_literal().unwrap();
+            if len >= 2 {
+                let bytes = &lits[off as usize..(off + len) as usize];
                 let score = literal_score(bytes, prefix_acc.is_some());
                 if best.map_or(true, |(bs, ..)| score > bs) {
-                    best = Some((score, *off, *len, prefix_acc));
+                    best = Some((score, off, len, prefix_acc));
                 }
             }
         }
         // Advance the running prefix width; becomes None on the first
         // variable-width token, disabling anchoring for later literals.
-        prefix_acc = prefix_acc.and_then(|w| single_token_width(token).map(|tw| w + tw as u32));
+        prefix_acc = prefix_acc.and_then(|w| single_token_width(token, alternates).map(|tw| w + tw as u32));
     }
 
     match best {
@@ -1410,26 +1379,39 @@ fn literal_score(bytes: &[u8], has_fixed_prefix: bool) -> i64 {
 }
 
 /// Fixed byte width a single token always consumes, or `None` if variable-width.
-fn single_token_width(token: &Token) -> Option<usize> {
-    match token {
-        Token::Literal { len, .. } | Token::LitNocase { len, .. } => Some(*len as usize),
-        Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => Some(1),
-        Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => Some(0),
-        Token::AnyBytes { min, max } if min == max && *max != UNBOUNDED => Some(*min as usize),
-        Token::Alternates(alt) if !alt.negated => {
+fn single_token_width(token: Token, alternates: &[Alternates]) -> Option<usize> {
+    let tag = token.tag();
+    if tag == Token::TAG_LITERAL || tag == Token::TAG_LITNOCASE {
+        let (_, len) = if tag == Token::TAG_LITERAL {
+            token.as_literal().unwrap()
+        } else {
+            token.as_litnocase().unwrap()
+        };
+        Some(len as usize)
+    } else if tag == Token::TAG_BYTE || (tag == Token::TAG_BOUNDARY && token.as_boundary().unwrap() == Boundary::NonAlphaNum) {
+        Some(1)
+    } else if tag == Token::TAG_BOUNDARY {
+        Some(0) // Word or Newline
+    } else if tag == Token::TAG_ANYBYTES {
+        let (min, max) = token.as_any_bytes().unwrap();
+        if min == max && max != UNBOUNDED { Some(min as usize) } else { None }
+    } else if tag == Token::TAG_ALTERNATES {
+        let idx = token.as_alternates().unwrap() as usize;
+        let alt = &alternates[idx];
+        if !alt.negated {
             let widths = alt
                 .branches
                 .iter()
-                .map(|branch| fixed_width(branch))
+                .map(|branch| fixed_width(branch, alternates))
                 .collect::<Option<Vec<_>>>()?;
-            if widths.iter().all(|w| *w == widths[0]) {
-                Some(widths[0])
-            } else {
-                None
-            }
+            if widths.iter().all(|w| *w == widths[0]) { Some(widths[0]) } else { None }
+        } else if alt.negated_width.is_some() {
+            alt.negated_width
+        } else {
+            None
         }
-        Token::Alternates(alt) if alt.negated_width.is_some() => alt.negated_width,
-        _ => None,
+    } else {
+        None
     }
 }
 
@@ -1602,7 +1584,7 @@ mod tests {
         .unwrap()
         .remove(0);
         assert_eq!(p.tokens.len(), 1, "nocase run should be one token");
-        assert!(matches!(p.tokens[0], Token::LitNocase { len: 5, .. }));
+        assert!(p.tokens[0].tag() == Token::TAG_LITNOCASE && p.tokens[0].as_litnocase().unwrap().1 == 5);
         assert_eq!(p.lits.len(), 5);
         // And it still matches case-insensitively.
         assert!(p.is_match(b"xxHeLLoyy"));
@@ -1628,6 +1610,30 @@ mod tests {
         assert!(pat.is_match(b"hello world"));
         assert!(!pat.is_match(b"hello there")); // "world" absent
         assert!(!pat.is_match(b"hell0 world")); // "hello" absent (0 not o)
+    }
+
+    #[test]
+    fn wildcard_run_collapses_to_one_gap_token() {
+        // `????????` (4 full-wildcard bytes) is semantically `{4}`. It must
+        // compact to a SINGLE AnyBytes token, not 4 Token::Byte(0,0) — the
+        // resident-memory win for wildcard-run-heavy signatures.
+        let p = one("41????????42"); // A {4} B
+        assert_eq!(
+            p.tokens.len(),
+            3,
+            "expected [Byte(41), AnyBytes{{4,4}}, Byte(42)], got {:?}",
+            p.tokens
+        );
+        assert_eq!(p.tokens[1].as_any_bytes(), Some((4, 4)));
+        // And it matches exactly like the equivalent `{4}` braced gap.
+        assert!(p.is_match(b"AwxyzB")); // 4 gap bytes: w x y z
+        assert!(one("41{4}42").is_match(b"AwxyzB"));
+        assert!(!p.is_match(b"AwxyB")); // only 3 gap bytes
+
+        // Adjacent gaps also coalesce: `*` then `??` → one AnyBytes{1,UNBOUNDED}.
+        let q = one("41*??42");
+        assert_eq!(q.tokens.len(), 3, "got {:?}", q.tokens);
+        assert_eq!(q.tokens[1].as_any_bytes(), Some((1, UNBOUNDED)));
     }
 
     #[test]
