@@ -82,6 +82,14 @@ enum Token {
         off: u32,
         len: u32,
     },
+    /// A run of consecutive `nocase` exact bytes, stored LOWERCASED in `lits` and
+    /// matched case-insensitively. Like `Literal` it costs ~1 byte/element in the
+    /// arena instead of one ~12-byte `Token::Byte` per byte — the key memory win
+    /// for the case-insensitive signatures that dominate ClamAV databases.
+    LitNocase {
+        off: u32,
+        len: u32,
+    },
     AnyBytes {
         min: u32,
         /// Maximum gap, or `UNBOUNDED` (`u32::MAX`) for an open `*`/`{n-}` gap.
@@ -145,7 +153,7 @@ impl Pattern {
         // The atom bytes themselves are recomputed at prefilter build time
         // (`required_atom_nocase`), never stored — keeps every Pattern smaller.
         let required_prefix_nocase = if required_literal.is_none() {
-            nocase_anchor(&tokens).and_then(|(_, prefix)| prefix)
+            nocase_anchor(&tokens, &lits).and_then(|(_, prefix)| prefix)
         } else {
             None
         };
@@ -181,7 +189,7 @@ impl Pattern {
         if self.required_literal.is_some() {
             return None; // case-sensitive: use required_atom() instead
         }
-        nocase_anchor(&self.tokens).map(|(atom, _)| atom)
+        nocase_anchor(&self.tokens, &self.lits).map(|(atom, _)| atom)
     }
 
     pub fn find_all(
@@ -275,6 +283,17 @@ impl Pattern {
         // scan the whole buffer for every candidate (the dominant scan cost).
         let first_byte_anchor = match self.tokens.first() {
             Some(Token::Byte(byte)) => byte.anchor_bytes(),
+            // A nocase pattern now starts with a `LitNocase`; anchor on the first
+            // (lowercased) byte's two cases so we still memchr instead of probing
+            // every offset.
+            Some(Token::LitNocase { off, .. }) => {
+                let b = self.lits[*off as usize];
+                if b.is_ascii_alphabetic() {
+                    Some((b.to_ascii_lowercase(), Some(b.to_ascii_uppercase())))
+                } else {
+                    Some((b, None))
+                }
+            }
             _ => None,
         };
 
@@ -532,7 +551,7 @@ impl Pattern {
 /// single fixed width.
 fn token_width_bounds(token: &Token) -> Option<(u32, u32)> {
     match token {
-        Token::Literal { len, .. } => Some((*len, *len)),
+        Token::Literal { len, .. } | Token::LitNocase { len, .. } => Some((*len, *len)),
         Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => Some((1, 1)),
         Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => Some((0, 0)),
         Token::AnyBytes { max, .. } if *max == UNBOUNDED => None,
@@ -608,6 +627,25 @@ fn match_tokens(
                 let lit = &lits[*off as usize..(*off + *len) as usize];
                 let end = pos + lit.len();
                 if end <= data.len() && &data[pos..end] == lit {
+                    token_index += 1;
+                    pos = end;
+                    continue;
+                }
+                return None;
+            }
+            Token::LitNocase { off, len } => {
+                // `lit` is stored lowercased; compare case-insensitively. This is
+                // exactly equivalent to a run of nocase `ByteMatcher`s because
+                // `to_ascii_lowercase` only folds A–Z, matching ByteMatcher's
+                // `is_ascii_alphabetic` gate.
+                let lit = &lits[*off as usize..(*off + *len) as usize];
+                let end = pos + lit.len();
+                if end <= data.len()
+                    && data[pos..end]
+                        .iter()
+                        .zip(lit)
+                        .all(|(d, l)| d.to_ascii_lowercase() == *l)
+                {
                     token_index += 1;
                     pos = end;
                     continue;
@@ -824,11 +862,10 @@ impl ByteMatcher {
         }
     }
 
-    /// Like `exact_value`, but also accepts `nocase` bytes (the byte still
-    /// matches exactly one value modulo case at scan time; only the *prefilter
-    /// atom* derived from it needs case-folding, via `longest_nocase_run`).
-    fn exact_value_any_case(self) -> Option<u8> {
-        if self.mask == 0xff {
+    /// The value of a fully-specified `nocase` byte (mask 0xff, nocase set), for
+    /// compaction into a `LitNocase` run.
+    fn nocase_exact_value(self) -> Option<u8> {
+        if self.mask == 0xff && self.nocase {
             Some(self.value)
         } else {
             None
@@ -1081,7 +1118,7 @@ fn fixed_width(tokens: &[Token]) -> Option<usize> {
     let mut width = 0usize;
     for token in tokens {
         match token {
-            Token::Literal { len, .. } => width += *len as usize,
+            Token::Literal { len, .. } | Token::LitNocase { len, .. } => width += *len as usize,
             Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => width += 1,
             Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => {}
             Token::AnyBytes { min, max } if min == max && *max != UNBOUNDED => {
@@ -1153,35 +1190,54 @@ fn compact_tokens(tokens: Vec<Token>) -> (Vec<Token>, Vec<u8>) {
     let mut out: Vec<Token> = Vec::with_capacity(tokens.len());
     let mut lits: Vec<u8> = Vec::new();
     let mut run: Vec<u8> = Vec::new();
+    // `false` = case-sensitive exact run → Literal; `true` = nocase run → LitNocase
+    // (stored lowercased). A run must not mix the two, so a kind change flushes.
+    let mut run_nocase = false;
     for token in tokens {
         if let Token::Byte(byte) = &token {
             if let Some(value) = byte.exact_value() {
+                if !run.is_empty() && run_nocase {
+                    flush_run(&mut run, run_nocase, &mut lits, &mut out);
+                }
+                run_nocase = false;
                 run.push(value);
                 continue;
             }
+            if let Some(value) = byte.nocase_exact_value() {
+                if !run.is_empty() && !run_nocase {
+                    flush_run(&mut run, run_nocase, &mut lits, &mut out);
+                }
+                run_nocase = true;
+                run.push(value.to_ascii_lowercase());
+                continue;
+            }
         }
-        flush_run(&mut run, &mut lits, &mut out);
+        flush_run(&mut run, run_nocase, &mut lits, &mut out);
         out.push(token);
     }
-    flush_run(&mut run, &mut lits, &mut out);
+    flush_run(&mut run, run_nocase, &mut lits, &mut out);
     out.shrink_to_fit();
     (out, lits)
 }
 
-fn flush_run(run: &mut Vec<u8>, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
+fn flush_run(run: &mut Vec<u8>, nocase: bool, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
     match run.len() {
         0 => {}
+        // A single byte stays a `Token::Byte` (a literal token would cost more for
+        // one byte). Re-tag nocase so case-insensitive matching is preserved.
         1 => {
-            out.push(Token::Byte(ByteMatcher::exact(run[0], false)));
+            out.push(Token::Byte(ByteMatcher::exact(run[0], nocase)));
             run.clear();
         }
         n => {
             let off = lits.len() as u32;
             lits.extend_from_slice(run);
-            out.push(Token::Literal {
-                off,
-                len: n as u32,
-            });
+            let token = if nocase {
+                Token::LitNocase { off, len: n as u32 }
+            } else {
+                Token::Literal { off, len: n as u32 }
+            };
+            out.push(token);
             run.clear();
         }
     }
@@ -1197,45 +1253,28 @@ fn flush_run(run: &mut Vec<u8>, lits: &mut Vec<u8>, out: &mut Vec<Token>) {
 /// precede the chosen run. The prefix is `Some(w)` only when every token before
 /// the run is fixed-width (so `find_all_at` can anchor at `offset - w`); `None`
 /// when something variable-width precedes it (then we fall back to a full scan).
-/// Returns `None` when there is no run of ≥2 fixed bytes (e.g. fully wildcard).
-fn nocase_anchor(tokens: &[Token]) -> Option<(Vec<u8>, Option<u32>)> {
-    let mut best: Vec<u8> = Vec::new();
-    let mut best_prefix: Option<u32> = None;
-    let mut run: Vec<u8> = Vec::new();
-    let mut run_prefix: Option<u32> = Some(0); // fixed width before the current run
+/// Returns `None` when there is no `LitNocase` run of ≥2 bytes (e.g. fully
+/// wildcard). `nocase` exact runs are compacted into `LitNocase` (already stored
+/// lowercased), so this just picks the longest such run and the fixed byte width
+/// before it (the threading anchor); `None` prefix when a variable-width token
+/// precedes it.
+fn nocase_anchor(tokens: &[Token], lits: &[u8]) -> Option<(Vec<u8>, Option<u32>)> {
+    let mut best: Option<(u32, u32, Option<u32>)> = None; // (off, len, prefix)
     let mut acc: Option<u32> = Some(0); // running fixed width from pattern start
     for token in tokens {
-        let byte_value = match token {
-            Token::Byte(byte) => byte.exact_value_any_case(),
-            _ => None,
-        };
-        match byte_value {
-            Some(value) => {
-                if run.is_empty() {
-                    run_prefix = acc; // width accumulated before this run starts
-                }
-                run.push(value.to_ascii_lowercase());
-            }
-            None => {
-                if run.len() > best.len() {
-                    best = std::mem::take(&mut run);
-                    best_prefix = run_prefix;
-                } else {
-                    run.clear();
-                }
+        if let Token::LitNocase { off, len } = token {
+            if *len >= 2 && best.map_or(true, |(_, blen, _)| *len > blen) {
+                best = Some((*off, *len, acc));
             }
         }
         acc = acc.and_then(|w| single_token_width(token).map(|tw| w + tw as u32));
     }
-    if run.len() > best.len() {
-        best = run;
-        best_prefix = run_prefix;
-    }
-    if best.len() >= 2 {
-        Some((best, best_prefix))
-    } else {
-        None
-    }
+    best.map(|(off, len, prefix)| {
+        (
+            lits[off as usize..(off + len) as usize].to_vec(),
+            prefix,
+        )
+    })
 }
 
 /// Choose the required-literal atom (the substring that MUST appear for the
@@ -1310,7 +1349,7 @@ fn literal_score(bytes: &[u8], has_fixed_prefix: bool) -> i64 {
 /// Fixed byte width a single token always consumes, or `None` if variable-width.
 fn single_token_width(token: &Token) -> Option<usize> {
     match token {
-        Token::Literal { len, .. } => Some(*len as usize),
+        Token::Literal { len, .. } | Token::LitNocase { len, .. } => Some(*len as usize),
         Token::Byte(_) | Token::Boundary(Boundary::NonAlphaNum) => Some(1),
         Token::Boundary(Boundary::Word) | Token::Boundary(Boundary::Newline) => Some(0),
         Token::AnyBytes { min, max } if min == max && *max != UNBOUNDED => Some(*min as usize),
@@ -1484,6 +1523,28 @@ mod tests {
         .unwrap()
         .remove(0);
         assert!(wide_nocase.is_match(&[0x61, 0x00, 0x41, 0x00])); // "a\0A\0"
+    }
+
+    #[test]
+    fn nocase_run_compacts_to_one_token() {
+        // A 5-byte nocase pattern must compact to a SINGLE LitNocase token (plus
+        // its 5 lowercased bytes in `lits`) — not 5 separate ~12-byte Token::Byte.
+        let p = compile_pattern_variants(
+            "68656c6c6f", // "hello"
+            Modifiers {
+                nocase: true,
+                ..Modifiers::default()
+            },
+        )
+        .unwrap()
+        .remove(0);
+        assert_eq!(p.tokens.len(), 1, "nocase run should be one token");
+        assert!(matches!(p.tokens[0], Token::LitNocase { len: 5, .. }));
+        assert_eq!(p.lits.len(), 5);
+        // And it still matches case-insensitively.
+        assert!(p.is_match(b"xxHeLLoyy"));
+        assert!(p.is_match(b"hello"));
+        assert!(!p.is_match(b"world"));
     }
 
     #[test]

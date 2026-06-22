@@ -678,8 +678,14 @@ impl Pipeline {
                         };
                         engines.push(EngineResult {
                             engine: "clamav",
+                            // Tag detections from unofficial third-party databases so
+                            // the report/CSV shows e.g. "clamav: Name (unofficial)".
                             verdict: cv,
-                            detail: result.virus_name.clone(),
+                            detail: if result.unofficial {
+                                format!("{} (unofficial)", result.virus_name)
+                            } else {
+                                result.virus_name.clone()
+                            },
                             elapsed_ms,
                         });
 

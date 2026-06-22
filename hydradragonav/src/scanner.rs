@@ -17,6 +17,19 @@ fn first_match_options() -> ScanOptions {
     }
 }
 
+/// Classify the database a matched signature came from. ClamAV's official
+/// databases are `main`, `daily`, and `bytecode` (any extracted/versioned form);
+/// every other database file (Sanesecurity, SecuriteInfo, MiscreantPunch, …) is
+/// an unofficial third-party source, which the UI tags so users can weigh it.
+fn is_unofficial_db(path: &Path) -> bool {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    !(stem.starts_with("main") || stem.starts_with("daily") || stem.starts_with("bytecode"))
+}
+
 /// Pure-Rust ClamAV-compatible engine. Signatures are loaded directly from the
 /// ClamAV database directory (.ndb/.ndu/.ldb/.ldu) and matched in-process, so
 /// no native ClamAV runtime is required.
@@ -111,12 +124,14 @@ impl Scanner {
                 virus_name: first.name.clone(),
                 bytes_scanned,
                 arenas,
+                unofficial: is_unofficial_db(&first.source.path),
             },
             None => ScanResult {
                 result_code: types::CL_CLEAN,
                 virus_name: String::new(),
                 bytes_scanned,
                 arenas: Vec::new(),
+                unofficial: false,
             },
         };
 
@@ -155,12 +170,14 @@ impl Scanner {
                 virus_name: first.name.clone(),
                 bytes_scanned,
                 arenas,
+                unofficial: is_unofficial_db(&first.source.path),
             },
             None => ScanResult {
                 result_code: types::CL_CLEAN,
                 virus_name: String::new(),
                 bytes_scanned,
                 arenas: Vec::new(),
+                unofficial: false,
             },
         };
         Ok(result)

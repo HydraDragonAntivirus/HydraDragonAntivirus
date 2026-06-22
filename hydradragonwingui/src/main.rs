@@ -367,6 +367,11 @@ struct AppState {
     scan_mbps: f64,
     scan_eta_secs: f64,
     scan_discovering: bool,
+    /// Wall-clock start of the current scan (set on `Begin`).
+    scan_started_at: Option<Instant>,
+    /// Total duration of the last completed scan (set on `Done`), shown in the
+    /// status bar and exported in the report.
+    scan_elapsed: Option<Duration>,
     work_tx: Sender<WorkRequest>,
     result_rx: Receiver<ScanMsg>,
     /// Set from the UI thread (Pause/Stop) and polled by the worker's scan loop
@@ -626,6 +631,8 @@ unsafe fn on_create(hwnd: HWND) {
         scan_mbps: 0.0,
         scan_eta_secs: 0.0,
         scan_discovering: false,
+        scan_started_at: None,
+        scan_elapsed: None,
         work_tx,
         result_rx,
         cancel,
@@ -1478,6 +1485,20 @@ fn sev_label(sev: u8) -> &'static str {
 
 /// Quote a CSV field only when it contains a delimiter/quote/newline, doubling
 /// any embedded quotes (RFC 4180).
+/// Human-readable scan duration, e.g. `850ms`, `12.3s`, `2m 05s`.
+fn fmt_duration(d: Duration) -> String {
+    let secs = d.as_secs_f64();
+    if secs < 1.0 {
+        format!("{}ms", d.as_millis())
+    } else if secs < 60.0 {
+        format!("{secs:.1}s")
+    } else {
+        let m = (secs / 60.0).floor() as u64;
+        let s = secs - (m as f64) * 60.0;
+        format!("{m}m {s:04.1}s")
+    }
+}
+
 fn csv_escape(field: &str) -> String {
     if field.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", field.replace('"', "\"\""))
@@ -1490,10 +1511,14 @@ fn csv_escape(field: &str) -> String {
 /// case a human-readable plain-text layout is produced.
 fn build_report(s: &AppState, txt: bool) -> String {
     let mut out = String::new();
+    let dur = s
+        .scan_elapsed
+        .map(|d| format!(", scan time {}", fmt_duration(d)))
+        .unwrap_or_default();
     if txt {
         out.push_str("HydraDragon Antivirus — scan results\r\n");
         out.push_str(&format!(
-            "{} file(s) scanned, {} threat(s) found\r\n\r\n",
+            "{} file(s) scanned, {} threat(s) found{dur}\r\n\r\n",
             s.scanned_count, s.threat_count
         ));
         if s.scan_rows.is_empty() {
@@ -1520,7 +1545,7 @@ fn build_report(s: &AppState, txt: bool) -> String {
     } else {
         out.push_str("# HydraDragon Antivirus scan results\r\n");
         out.push_str(&format!(
-            "# {} file(s) scanned, {} threat(s) found\r\n",
+            "# {} file(s) scanned, {} threat(s) found{dur}\r\n",
             s.scanned_count, s.threat_count
         ));
         out.push_str("File,Verdict,Threat,Severity,MD5\r\n");
@@ -1764,6 +1789,8 @@ unsafe fn drain_results(hwnd: HWND) {
             ScanMsg::Status(t) => s.status = t,
             ScanMsg::Begin => {
                 s.scan_state = ScanState::Scanning;
+                s.scan_started_at = Some(Instant::now());
+                s.scan_elapsed = None;
                 s.scanned_count = 0;
                 s.threat_count = 0;
                 s.scan_discovered = 0;
@@ -1799,8 +1826,13 @@ unsafe fn drain_results(hwnd: HWND) {
             ScanMsg::Done { scanned, threats } => {
                 s.scanned_count = scanned;
                 s.threat_count = threats;
+                s.scan_elapsed = s.scan_started_at.map(|t| t.elapsed());
                 s.scan_state = if threats > 0 { ScanState::Threats } else { ScanState::Clean };
-                s.status = format!("Done. {scanned} scanned, {threats} threat(s).");
+                let dur = s
+                    .scan_elapsed
+                    .map(|d| format!(" in {}", fmt_duration(d)))
+                    .unwrap_or_default();
+                s.status = format!("Done. {scanned} scanned, {threats} threat(s){dur}.");
             }
             ScanMsg::Paused { scanned, threats, remaining } => {
                 s.scanned_count = scanned;
@@ -2134,15 +2166,45 @@ fn worker(
                 send(&tx, hwnd, ScanMsg::Status(format!("Rescan complete ({n} file(s)).")));
             }
             WorkRequest::Clean(paths) => {
+                use hydradragonav::restart_disinfect::{escalated_disinfect, reboot_for_disinfection, EscalationOutcome};
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                let mut restart_pending: Vec<(PathBuf, String)> = Vec::new();
                 for path in &paths {
                     let arenas = pl.arenas_for_file(path);
                     let line = match disinfector::disinfect_file(path, &arenas, &quarantine_dir) {
                         DisinfectOutcome::Neutralized { bytes, .. } => format!("neutralized {bytes} byte(s) in {}", path.display()),
                         DisinfectOutcome::Quarantined { to } => format!("quarantined {} -> {}", path.display(), to.display()),
-                        DisinfectOutcome::Failed { reason } => format!("FAILED {}: {reason}", path.display()),
+                        DisinfectOutcome::Failed { reason } => {
+                            // Locked/critical/driver: escalate (kill process or stop+
+                            // delete a .sys service; clear critical flag; else defer to
+                            // reboot). Don't reboot here — confirm with the user after.
+                            match escalated_disinfect(path, &quarantine_dir, "GUI disinfect", false) {
+                                EscalationOutcome::Quarantined => format!("quarantined (escalated) {}", path.display()),
+                                EscalationOutcome::KilledAndQuarantined(n) => format!("stopped {n} blocker(s), quarantined {}", path.display()),
+                                EscalationOutcome::ScheduledForRestart { detail, .. } => {
+                                    restart_pending.push((path.clone(), detail.clone()));
+                                    format!("deferred to restart: {} ({detail})", path.display())
+                                }
+                                EscalationOutcome::Failed(e) => format!("FAILED {}: {reason}; escalation: {e}", path.display()),
+                            }
+                        }
                     };
                     send(&tx, hwnd, ScanMsg::Status(line));
+                }
+                // If anything was deferred to reboot, ask the user to restart now.
+                if !restart_pending.is_empty() {
+                    let msg = format!(
+                        "{} threat(s) could not be removed while running and were scheduled for cleanup at the next restart (a RunOnce task will finish the job).\r\n\r\nRestart this computer now to complete disinfection?",
+                        restart_pending.len()
+                    );
+                    if unsafe { confirm(hwnd, &msg) } {
+                        match reboot_for_disinfection("GUI disinfect") {
+                            Ok(_) => send(&tx, hwnd, ScanMsg::Status("Restarting in 30s to finish disinfection (run 'shutdown /a' to cancel).".into())),
+                            Err(e) => send(&tx, hwnd, ScanMsg::Status(format!("Restart failed (run as admin): {e}"))),
+                        }
+                    } else {
+                        send(&tx, hwnd, ScanMsg::Status("Restart skipped — cleanup will run automatically at next boot.".into()));
+                    }
                 }
                 send(&tx, hwnd, ScanMsg::Status("Clean complete.".into()));
             }

@@ -9,6 +9,7 @@ pub mod pipeline;
 pub mod quarantine;
 pub mod registry_scanner;
 pub mod remediation;
+pub mod restart_disinfect;
 pub mod scanner;
 pub mod types;
 pub mod verdict;

@@ -21,6 +21,10 @@ pub struct ScanResult {
     /// for in-place disinfection. Only populated for raw top-level matches.
     #[serde(default)]
     pub arenas: Vec<(usize, usize)>,
+    /// True when the matching signature came from an **unofficial** database
+    /// (i.e. not ClamAV's official main/daily/bytecode), so the UI can tag it.
+    #[serde(default)]
+    pub unofficial: bool,
 }
 
 impl ScanResult {
@@ -44,6 +48,7 @@ impl Default for ScanResult {
             virus_name: String::new(),
             bytes_scanned: 0,
             arenas: Vec::new(),
+            unofficial: false,
         }
     }
 }

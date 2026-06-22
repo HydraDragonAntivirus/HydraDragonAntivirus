@@ -147,6 +147,10 @@ enum Command {
         #[command(subcommand)]
         action: QuarantineAction,
     },
+
+    /// Finish a disinfection that was deferred to reboot (invoked by the RunOnce
+    /// key created when a locked/critical malware couldn't be cleaned live).
+    DisinfectPending,
 }
 
 #[derive(Subcommand)]
@@ -674,6 +678,16 @@ fn main() {
         },
         Command::Version => println!("{}", env!("CARGO_PKG_VERSION")),
         Command::Quarantine { action } => cmd_quarantine(action, &config.db),
+        Command::DisinfectPending => {
+            let dir = config
+                .db
+                .parent()
+                .map(|p| p.join("quarantine"))
+                .unwrap_or_else(|| PathBuf::from("quarantine"));
+            for line in hydradragonav::restart_disinfect::run_pending_disinfection(&dir) {
+                println!("[Disinfect/boot] {line}");
+            }
+        }
     }
 }
 
@@ -778,7 +792,27 @@ fn offer_disinfection(
                         to.display()
                     ),
                     DisinfectOutcome::Failed { reason } => {
-                        eprintln!("[Disinfect] FAILED for {}: {reason}", path.display())
+                        eprintln!("[Disinfect] FAILED for {}: {reason}", path.display());
+                        // Escalate: the file is likely locked by a running (possibly
+                        // self-critical) process. Kill it (clearing the critical flag
+                        // if needed), retry; if still stuck, defer to next boot via a
+                        // RunOnce + marker. CLI does not force a reboot.
+                        use hydradragonav::restart_disinfect::{escalated_disinfect, EscalationOutcome};
+                        match escalated_disinfect(path, &quarantine_dir, label, false) {
+                            EscalationOutcome::Quarantined => {
+                                eprintln!("[Disinfect] escalation quarantined {}", path.display())
+                            }
+                            EscalationOutcome::KilledAndQuarantined(n) => eprintln!(
+                                "[Disinfect] killed {n} blocking process(es), quarantined {}",
+                                path.display()
+                            ),
+                            EscalationOutcome::ScheduledForRestart { detail, .. } => eprintln!(
+                                "[Disinfect] could not clean live; {detail}. Restart to finish (run `hydradragonav disinfect-pending` after reboot, or it runs automatically via RunOnce)."
+                            ),
+                            EscalationOutcome::Failed(e) => {
+                                eprintln!("[Disinfect] escalation failed for {}: {e}", path.display())
+                            }
+                        }
                     }
                 }
                 // After cleaning the file, hunt down and remove its traces.

@@ -534,7 +534,7 @@ pub fn create_restore_point(description: &str) -> Result<String, String> {
 
 /// Stop and delete a service via the Service Control Manager API (advapi32) —
 /// no `sc.exe`.
-fn delete_service(name: &str) -> Result<(), String> {
+pub(crate) fn delete_service(name: &str) -> Result<(), String> {
     let name_w = wide(name);
     const DELETE_ACCESS: u32 = 0x0001_0000; // standard DELETE right
     unsafe {

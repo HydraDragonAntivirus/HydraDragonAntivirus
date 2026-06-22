@@ -898,32 +898,84 @@ fn body_matches(
 }
 
 fn target_matches(target: Option<u32>, ctx: &ScanContext<'_>, strict: bool) -> bool {
+    let want = target.unwrap_or(0);
+
+    // A normalized view forces its target (text=7, html=3).
     if let Some(hint) = ctx.target_hint {
-        let target = target.unwrap_or(0);
-        return target == 0 || target == hint;
+        return want == 0 || want == hint;
     }
-
-    if !strict {
+    // Target 0 = generic: applies to every file type.
+    if want == 0 {
         return true;
     }
-
-    let target = target.unwrap_or(0);
-    if target == 0 {
-        return true;
-    }
-
-    // Prefer the precise `.ftm`-derived type when available.
+    // Prefer the precise `.ftm`-derived type when available (strict typing).
     if let Some(detected) = ctx.detected_target {
-        return target == detected;
+        return want == detected;
     }
+    // Concrete magic-based typing. ClamAV always types the file and only runs a
+    // signature whose Target matches; without this, a type-specific signature
+    // (e.g. a SWF `Target:11` exploit rule) fires on unrelated files (a PE DLL
+    // that merely contains the same strings) — a real false positive. So if the
+    // file is a KNOWN type different from the signature's target, reject it. This
+    // gate applies even in non-strict mode; it only rejects clear cross-type
+    // mismatches, never an indeterminate type (which stays permissive to avoid
+    // false negatives).
+    if let Some(detected) = detect_builtin_target(ctx) {
+        return want == detected;
+    }
+    // Indeterminate file type: strict mode still applies the positive checks it
+    // can; non-strict stays permissive.
+    if strict {
+        match want {
+            1 => ctx.pe.is_some(),
+            3 => looks_like_html(ctx.data),
+            7 => looks_like_ascii_text(ctx.data),
+            _ => true,
+        }
+    } else {
+        true
+    }
+}
 
-    // Fall back to lightweight built-in heuristics.
-    match target {
-        1 => ctx.pe.is_some(),
-        3 => looks_like_html(ctx.data),
-        7 => looks_like_ascii_text(ctx.data),
-        _ => true,
+/// Best-effort concrete file-type detection by magic → ClamAV target number.
+/// Returns `Some` only for confident detections (so callers reject clear
+/// cross-type mismatches); `None` when indeterminate (callers stay permissive).
+fn detect_builtin_target(ctx: &ScanContext<'_>) -> Option<u32> {
+    let d = ctx.data;
+    if ctx.pe.is_some() {
+        return Some(1); // CL_TYPE_MSEXE (PE)
     }
+    if d.starts_with(b"\x7fELF") {
+        return Some(6); // CL_TYPE_ELF
+    }
+    if d.starts_with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) {
+        return Some(2); // CL_TYPE_OLE2
+    }
+    if d.starts_with(b"%PDF") {
+        return Some(10); // CL_TYPE_PDF
+    }
+    if d.starts_with(b"FWS") || d.starts_with(b"CWS") || d.starts_with(b"ZWS") {
+        return Some(11); // CL_TYPE_SWF
+    }
+    // Mach-O thin (the fat magic 0xcafebabe collides with a Java class, so skip it).
+    if d.len() >= 4
+        && matches!(
+            d[..4],
+            [0xfe, 0xed, 0xfa, 0xce]
+                | [0xce, 0xfa, 0xed, 0xfe]
+                | [0xfe, 0xed, 0xfa, 0xcf]
+                | [0xcf, 0xfa, 0xed, 0xfe]
+        )
+    {
+        return Some(9); // CL_TYPE_MACHO
+    }
+    if d.starts_with(b"GIF8")
+        || d.starts_with(&[0x89, b'P', b'N', b'G'])
+        || d.starts_with(&[0xff, 0xd8, 0xff])
+    {
+        return Some(5); // CL_TYPE_GRAPHICS
+    }
+    None
 }
 
 /// Detect the container format for `.cdb` matching (extractor formats plus 7z).
@@ -1616,6 +1668,51 @@ mod tests {
             .scan_bytes(&zip, ScanOptions::default())
             .iter()
             .any(|m| m.name == "Test.InZip"));
+    }
+
+    /// Build a minimal but `parse_pe`-valid PE32 (MZ + PE header + 1 section).
+    fn minimal_pe() -> Vec<u8> {
+        let mut d = vec![0u8; 0x160];
+        d[0] = b'M';
+        d[1] = b'Z';
+        d[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes()); // e_lfanew
+        d[0x40..0x44].copy_from_slice(b"PE\0\0");
+        let coff = 0x44;
+        d[coff + 2..coff + 4].copy_from_slice(&1u16.to_le_bytes()); // NumberOfSections
+        d[coff + 16..coff + 18].copy_from_slice(&0xE0u16.to_le_bytes()); // SizeOfOptionalHeader
+        let opt = coff + 20; // 0x58
+        d[opt..opt + 2].copy_from_slice(&0x10bu16.to_le_bytes()); // PE32 magic
+        d[opt + 16..opt + 20].copy_from_slice(&0x1000u32.to_le_bytes()); // AddressOfEntryPoint
+        let sect = opt + 0xE0; // 0x138
+        d[sect + 8..sect + 12].copy_from_slice(&0x1000u32.to_le_bytes()); // VirtualSize
+        d[sect + 12..sect + 16].copy_from_slice(&0x1000u32.to_le_bytes()); // VirtualAddress
+        d[sect + 16..sect + 20].copy_from_slice(&0x200u32.to_le_bytes()); // SizeOfRawData
+        d[sect + 20..sect + 24].copy_from_slice(&0x200u32.to_le_bytes()); // PointerToRawData
+        d
+    }
+
+    #[test]
+    fn swf_target_signature_does_not_match_pe() {
+        // Regression: a Target:11 (SWF) signature must NOT fire on a PE file even
+        // in non-strict mode (the MiscreantPunch.SWF.Exploit false positive on DLLs
+        // that merely contain "VirtualProtect"+"Kernel32").
+        let (engine, _) = engine_with_logical(
+            "Test.Swf;Engine:81-255,Target:11;(0&1);5669727475616c50726f74656374::i;4b65726e656c3332::i",
+        );
+        // A minimal but valid PE that contains both strings.
+        let mut pe = minimal_pe();
+        pe.extend_from_slice(b"...VirtualProtect...Kernel32...");
+        assert!(
+            engine.scan_bytes(&pe, ScanOptions::default()).is_empty(),
+            "SWF-targeted signature must not match a PE file"
+        );
+        // The same strings inside an actual SWF (FWS magic) DO match.
+        let mut swf = b"FWS\x06\x00\x00\x00\x00".to_vec();
+        swf.extend_from_slice(b"...VirtualProtect...Kernel32...");
+        assert!(engine
+            .scan_bytes(&swf, ScanOptions::default())
+            .iter()
+            .any(|m| m.name == "Test.Swf"));
     }
 
     #[test]
