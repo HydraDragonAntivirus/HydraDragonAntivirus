@@ -107,16 +107,16 @@ const DWMWCP_ROUNDSMALL: u32 = 3;
 // System tray constants.
 const ID_TRAY: u32 = 1001;
 
-const HEADER_H: i32 = 76;
-const SIDEBAR_W: i32 = 216;
-const STATUS_H: i32 = 32;
-const PAD: i32 = 18;
-const BTN_W: i32 = 158;
-const BTN_H: i32 = 56;
-const GAP: i32 = 12;
-const NAV_H: i32 = 44;
-const NAV_TOP: i32 = HEADER_H + 42; // room for the "MENU" caption above the items
-const HERO_H: i32 = 120; // status banner height (Scan page)
+const HEADER_H: i32 = 68;           // slimmer header — cleaner top bar feel
+const SIDEBAR_W: i32 = 220;         // slightly wider for breathing room
+const STATUS_H: i32 = 28;           // slim status bar
+const PAD: i32 = 16;
+const BTN_W: i32 = 152;             // slightly narrower — fits more per row
+const BTN_H: i32 = 48;              // slimmer pill-style buttons
+const GAP: i32 = 10;
+const NAV_H: i32 = 42;              // tighter nav items
+const NAV_TOP: i32 = HEADER_H + 38;
+const HERO_H: i32 = 114;            // hero banner height (Scan page)
 
 mod msg {
     pub const LVM_FIRST: u32 = 0x1000;
@@ -201,55 +201,55 @@ struct Theme {
 }
 
 const LIGHT: Theme = Theme {
-    bg: rgb(0xF2, 0xF4, 0xF9),        // slightly cooler background
-    header_top: rgb(0x16, 0x22, 0x3A), // deeper navy header
-    header_bot: rgb(0x08, 0x0E, 0x1C),
-    header_sub: rgb(0x7E, 0x95, 0xB8),
-    sidebar: rgb(0xFF, 0xFF, 0xFF),
+    bg: rgb(0xF0, 0xF2, 0xF8),         // cool blue-grey canvas
+    header_top: rgb(0x0D, 0x11, 0x1F), // near-black navy top
+    header_bot: rgb(0x06, 0x08, 0x12), // pure deep bottom
+    header_sub: rgb(0x68, 0x82, 0xAC), // muted steel blue
+    sidebar: rgb(0xFA, 0xFB, 0xFD),    // almost white, slight blue tint
     surface: rgb(0xFF, 0xFF, 0xFF),
-    border: rgb(0xDC, 0xE1, 0xEC),
-    text: rgb(0x0C, 0x10, 0x18),       // near-black, warmer
-    text2: rgb(0x58, 0x62, 0x74),
-    accent: rgb(0x14, 0x57, 0xF5),     // vivid 2026-era blue
-    accent_hot: rgb(0x33, 0x6E, 0xF8),
-    accent_down: rgb(0x0E, 0x46, 0xCE),
-    accent_soft: rgb(0xE6, 0xEE, 0xFF),
-    nav_hot: rgb(0xEF, 0xF2, 0xF8),
-    danger: rgb(0xD6, 0x26, 0x26),
-    danger_hot: rgb(0xE4, 0x44, 0x44),
-    danger_down: rgb(0xB4, 0x1A, 0x1A),
-    danger_soft: rgb(0xFD, 0xEB, 0xEB),
-    warn: rgb(0xBF, 0x78, 0x04),
-    shadow: rgb(0xD8, 0xDE, 0xED),     // slightly deeper for better depth
-    stripe: rgb(0xF5, 0xF7, 0xFB),
-    ok: rgb(0x12, 0x96, 0x4E),
-    ok_soft: rgb(0xE6, 0xF6, 0xED),
+    border: rgb(0xD8, 0xDD, 0xEA),     // cooler, slightly stronger
+    text: rgb(0x08, 0x0C, 0x18),       // near-black with blue undertone
+    text2: rgb(0x52, 0x5D, 0x72),      // cool mid-grey
+    accent: rgb(0x06, 0x4F, 0xF0),     // electric indigo-blue
+    accent_hot: rgb(0x26, 0x67, 0xF5),
+    accent_down: rgb(0x04, 0x3A, 0xC8),
+    accent_soft: rgb(0xE4, 0xED, 0xFF),
+    nav_hot: rgb(0xEC, 0xF0, 0xFA),
+    danger: rgb(0xCC, 0x1F, 0x3A),     // vivid crimson
+    danger_hot: rgb(0xDE, 0x3A, 0x52),
+    danger_down: rgb(0xAA, 0x14, 0x2E),
+    danger_soft: rgb(0xFD, 0xE8, 0xEC),
+    warn: rgb(0xB8, 0x6E, 0x00),       // amber-orange
+    shadow: rgb(0xC8, 0xD0, 0xE4),     // cool blue shadow
+    stripe: rgb(0xF4, 0xF6, 0xFB),
+    ok: rgb(0x0A, 0x8F, 0x4A),         // saturated emerald
+    ok_soft: rgb(0xE2, 0xF5, 0xEC),
 };
 
 const DARK: Theme = Theme {
-    bg: rgb(0x0F, 0x10, 0x16),         // deeper, crisper dark base
-    header_top: rgb(0x19, 0x1C, 0x29),
-    header_bot: rgb(0x09, 0x0A, 0x10),
-    header_sub: rgb(0x78, 0x83, 0x9E),
-    sidebar: rgb(0x16, 0x18, 0x20),
-    surface: rgb(0x1C, 0x1F, 0x28),
-    border: rgb(0x2A, 0x2E, 0x3C),
-    text: rgb(0xE6, 0xE8, 0xF0),
-    text2: rgb(0x8C, 0x94, 0xA8),
-    accent: rgb(0x47, 0x8C, 0xFF),     // pop against dark bg
-    accent_hot: rgb(0x65, 0xA0, 0xFF),
-    accent_down: rgb(0x2A, 0x6A, 0xF5),
-    accent_soft: rgb(0x17, 0x24, 0x40),
-    nav_hot: rgb(0x24, 0x28, 0x34),
-    danger: rgb(0xF2, 0x50, 0x50),
-    danger_hot: rgb(0xFA, 0x70, 0x70),
-    danger_down: rgb(0xDA, 0x22, 0x22),
-    danger_soft: rgb(0x38, 0x1C, 0x22),
-    warn: rgb(0xE0, 0xA0, 0x05),
-    shadow: rgb(0x07, 0x08, 0x0C),     // very dark for crisp elevation
-    stripe: rgb(0x17, 0x1A, 0x24),
-    ok: rgb(0x30, 0xC8, 0x58),
-    ok_soft: rgb(0x12, 0x2C, 0x1C),
+    bg: rgb(0x0C, 0x0E, 0x14),         // deep space base
+    header_top: rgb(0x12, 0x15, 0x22), // slightly lifted from bg
+    header_bot: rgb(0x07, 0x08, 0x0E),
+    header_sub: rgb(0x6A, 0x76, 0x96), // cool slate
+    sidebar: rgb(0x11, 0x14, 0x1D),    // subtle separation from bg
+    surface: rgb(0x18, 0x1C, 0x28),    // card surface
+    border: rgb(0x25, 0x2A, 0x3A),     // visible but not harsh
+    text: rgb(0xE8, 0xEA, 0xF2),       // cool white
+    text2: rgb(0x84, 0x8E, 0xA8),      // desaturated blue-grey
+    accent: rgb(0x4A, 0x90, 0xFF),     // bright periwinkle blue
+    accent_hot: rgb(0x68, 0xA6, 0xFF),
+    accent_down: rgb(0x2C, 0x6E, 0xF5),
+    accent_soft: rgb(0x14, 0x22, 0x44),
+    nav_hot: rgb(0x20, 0x26, 0x36),
+    danger: rgb(0xF0, 0x4C, 0x62),     // neon crimson
+    danger_hot: rgb(0xF8, 0x6C, 0x7E),
+    danger_down: rgb(0xD4, 0x20, 0x3A),
+    danger_soft: rgb(0x38, 0x18, 0x22),
+    warn: rgb(0xF0, 0xA8, 0x00),       // clean amber
+    shadow: rgb(0x05, 0x06, 0x0A),     // near-black crisp shadow
+    stripe: rgb(0x15, 0x18, 0x24),
+    ok: rgb(0x28, 0xD4, 0x6A),         // vivid emerald
+    ok_soft: rgb(0x0E, 0x28, 0x1C),
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -639,17 +639,17 @@ fn pt_in(r: &RECT, x: i32, y: i32) -> bool {
 unsafe fn on_create(hwnd: HWND) {
     let hinst: HINSTANCE = GetModuleHandleW(None).unwrap_or_default().into();
     let fonts = Fonts {
-        logo: make_font(-20, 700),
-        title: make_font(-22, 600),
-        sub: make_font(-13, 400),
-        nav: make_font(-16, 600),
-        button: make_font(-15, 600),
-        body: make_font(-16, 400),
-        status: make_font(-13, 400),
-        icon: make_font_face(-17, 400, "Segoe MDL2 Assets"),
-        icon_lg: make_font_face(-22, 400, "Segoe MDL2 Assets"),
-        hero: make_font(-26, 600),
-        hero_icon: make_font_face(-30, 400, "Segoe MDL2 Assets"),
+        logo: make_font(-18, 700),
+        title: make_font(-20, 600),      // header title — tighter
+        sub: make_font(-12, 400),        // header subtitle
+        nav: make_font(-14, 600),        // nav labels — slightly smaller
+        button: make_font(-13, 600),     // button labels — compact
+        body: make_font(-14, 400),       // list body text
+        status: make_font(-12, 400),     // slim status bar
+        icon: make_font_face(-16, 400, "Segoe MDL2 Assets"),
+        icon_lg: make_font_face(-20, 400, "Segoe MDL2 Assets"),
+        hero: make_font(-22, 600),       // hero headline
+        hero_icon: make_font_face(-26, 400, "Segoe MDL2 Assets"),
     };
 
     let lv = sty::CHILD | sty::VISIBLE | sty::LVS_REPORT;
@@ -945,11 +945,13 @@ unsafe fn paint(hwnd: HWND) {
     let side = RECT { left: 0, top: 0, right: SIDEBAR_W, bottom: h };
     fill(mem, &side, t.sidebar);
     fill(mem, &RECT { left: SIDEBAR_W - 1, top: 0, right: SIDEBAR_W, bottom: h }, t.border);
-    // Section caption.
+    // Sidebar top separator line under header.
+    fill(mem, &RECT { left: 0, top: HEADER_H, right: SIDEBAR_W, bottom: HEADER_H + 1 }, t.border);
+    // Compact section label.
     text(
         mem,
-        "MENU",
-        &RECT { left: 22, top: HEADER_H + 16, right: SIDEBAR_W - 12, bottom: HEADER_H + 34 },
+        "NAVIGATION",
+        &RECT { left: 18, top: HEADER_H + 14, right: SIDEBAR_W - 12, bottom: HEADER_H + 30 },
         t.text2,
         s.fonts.status,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
@@ -957,71 +959,94 @@ unsafe fn paint(hwnd: HWND) {
     for (i, item) in s.nav.iter().enumerate() {
         let active = s.page == item.page;
         let hot = s.hot_nav == Some(i);
-        // Modern nav: soft tint + left accent bar when active, light hover tint otherwise.
+        // Active: full-width rounded pill with accent tint + left 3px bar.
         if active {
-            fill_round(mem, item.rect, 10, t.accent_soft);
+            fill_round(mem, item.rect, 8, t.accent_soft);
             let bar = RECT {
                 left: item.rect.left,
-                top: item.rect.top + 9,
-                right: item.rect.left + 4,
-                bottom: item.rect.bottom - 9,
+                top: item.rect.top + 8,
+                right: item.rect.left + 3,
+                bottom: item.rect.bottom - 8,
             };
             fill_round(mem, bar, 2, t.accent);
         } else if hot {
-            fill_round(mem, item.rect, 10, t.nav_hot);
+            fill_round(mem, item.rect, 8, t.nav_hot);
         }
         let icon_col = if active { t.accent } else { t.text2 };
         let txt_col = if active { t.accent } else { t.text };
-        let icon_r = RECT { left: item.rect.left + 16, right: item.rect.left + 44, ..item.rect };
+        // Icon in a small accent-tinted badge when active.
+        let icon_r = RECT { left: item.rect.left + 14, right: item.rect.left + 38, ..item.rect };
+        if active {
+            let ibadge = RECT { left: icon_r.left - 2, top: item.rect.top + 9, right: icon_r.right + 2, bottom: item.rect.bottom - 9 };
+            fill_round(mem, ibadge, 6, lerp_color(t.accent_soft, t.accent, 0.18));
+        }
         text(mem, item.icon, &icon_r, icon_col, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        let tr = RECT { left: item.rect.left + 48, ..item.rect };
+        let tr = RECT { left: item.rect.left + 44, right: item.rect.right - 8, ..item.rect };
         text(mem, item.label, &tr, txt_col, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     }
 
-    // --- Header (vertical gradient + accent underline) ---
+    // --- Header: flat dark bar, no gradient on the sidebar portion ---
     let head = RECT { left: 0, top: 0, right: w, bottom: HEADER_H };
-    gradient_v(mem, &head, t.header_top, t.header_bot);
-    fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 2 }, t.accent);
-    fill(mem, &RECT { left: 0, top: HEADER_H + 2, right: w, bottom: HEADER_H + 3 }, t.shadow);
-    let lsz = 46;
-    let logo = RECT { left: PAD, top: (HEADER_H - lsz) / 2, right: PAD + lsz, bottom: (HEADER_H - lsz) / 2 + lsz };
-    fill_round(mem, logo, 13, t.accent);
+    fill(mem, &RECT { left: 0, top: 0, right: SIDEBAR_W, bottom: HEADER_H }, t.header_top);
+    gradient_v(mem, &RECT { left: SIDEBAR_W, top: 0, right: w, bottom: HEADER_H }, t.header_top, t.header_bot);
+    // Thin accent line at bottom of header.
+    fill(mem, &RECT { left: SIDEBAR_W, top: HEADER_H - 2, right: w, bottom: HEADER_H }, t.accent);
+    // Bottom border across full header.
+    fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 1 }, t.border);
+
+    // Logo: rounded-square badge with shield icon (smaller, tighter).
+    let lsz = 38;
+    let lpad = (HEADER_H - lsz) / 2;
+    let logo = RECT { left: PAD, top: lpad, right: PAD + lsz, bottom: lpad + lsz };
+    fill_round(mem, logo, 10, t.accent);
     text(mem, "\u{E83D}", &logo, WHITE, s.fonts.icon_lg, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    let tx = logo.right + 16;
+
+    // App name + tagline.
+    let tx = logo.right + 12;
+    let title_mid = HEADER_H / 2;
     text(
         mem,
-        "HydraDragon Antivirus",
-        &RECT { left: tx, top: 14, right: w - PAD, bottom: 42 },
+        "HydraDragon",
+        &RECT { left: tx, top: title_mid - 22, right: SIDEBAR_W - PAD, bottom: title_mid },
         WHITE,
         s.fonts.title,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
     );
     text(
         mem,
-        "Portable malware scanner",
-        &RECT { left: tx, top: 42, right: w - PAD, bottom: 64 },
+        "Antivirus",
+        &RECT { left: tx, top: title_mid, right: SIDEBAR_W - PAD, bottom: title_mid + 18 },
         t.header_sub,
         s.fonts.sub,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
     );
-    // Theme toggle (sun when dark → switch to light; moon when light → dark).
-    if s.hot_theme {
-        fill_round(mem, s.theme_btn, 9, t.accent);
-    }
-    let toggle_glyph = if s.dark { "\u{E706}" } else { "\u{E708}" };
-    text(mem, toggle_glyph, &s.theme_btn, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    // Engine status: a colored dot + label, just left of the theme toggle.
+    // Right side: engine status pill + theme toggle.
+    // Engine pill.
     let (dotc, elabel) = match s.engine {
         EngineState::Ready => (t.ok, "Engine ready"),
         EngineState::Loading => (t.warn, "Loading…"),
-        EngineState::Stopped => (t.text2, "Engine stopped"),
+        EngineState::Stopped => (t.text2, "Stopped"),
     };
-    let label_right = s.theme_btn.left - 12;
-    let label_box = RECT { left: label_right - 130, top: 0, right: label_right, bottom: HEADER_H };
-    text(mem, elabel, &label_box, t.header_sub, s.fonts.status, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-    let dot = RECT { left: label_box.left - 14, top: HEADER_H / 2 - 4, right: label_box.left - 6, bottom: HEADER_H / 2 + 4 };
+    let pill_right = s.theme_btn.left - 14;
+    let pill_h = 24;
+    let pill_top = (HEADER_H - pill_h) / 2;
+    let pill_w = 110;
+    let pill = RECT { left: pill_right - pill_w, top: pill_top, right: pill_right, bottom: pill_top + pill_h };
+    fill_round(mem, pill, pill_h / 2, lerp_color(t.header_top, dotc, 0.14));
+    let dot = RECT { left: pill.left + 10, top: pill_top + (pill_h / 2) - 4, right: pill.left + 18, bottom: pill_top + (pill_h / 2) + 4 };
     fill_round(mem, dot, 4, dotc);
+    text(mem, elabel, &RECT { left: dot.right + 6, top: pill_top, right: pill.right - 8, bottom: pill_top + pill_h }, t.header_sub, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    // Theme toggle button.
+    let toggle_bg = if s.hot_theme {
+        lerp_color(t.header_top, t.accent, 0.35)
+    } else {
+        lerp_color(t.header_top, WHITE, 0.08)
+    };
+    fill_round(mem, s.theme_btn, 8, toggle_bg);
+    let toggle_glyph = if s.dark { "\u{E706}" } else { "\u{E708}" };
+    text(mem, toggle_glyph, &s.theme_btn, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // --- Hero status banner (Scan page) — hidden behind the loading screen ---
     if s.page == 0 && s.engine != EngineState::Loading {
@@ -1173,14 +1198,25 @@ unsafe fn paint(hwnd: HWND) {
     }
     frame_round(mem, card, 12, t.border);
 
-    // --- Status bar ---
+    // --- Status bar: slim, with a colored state dot ---
     let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
     fill(mem, &status, t.surface);
-    fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, t.shadow);
+    fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, t.border);
+    // State dot color.
+    let state_dot_c = match s.scan_state {
+        ScanState::Idle => t.text2,
+        ScanState::Scanning => t.accent,
+        ScanState::Paused => t.warn,
+        ScanState::Clean => t.ok,
+        ScanState::Threats => t.danger,
+    };
+    let dot_cy = h - STATUS_H / 2;
+    let sdot = RECT { left: PAD, top: dot_cy - 3, right: PAD + 6, bottom: dot_cy + 3 };
+    fill_round(mem, sdot, 3, state_dot_c);
     text(
         mem,
         &s.status,
-        &RECT { left: PAD, top: h - STATUS_H, right: w - PAD, bottom: h },
+        &RECT { left: PAD + 12, top: h - STATUS_H, right: w - PAD, bottom: h },
         t.text2,
         s.fonts.status,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
@@ -1248,22 +1284,22 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
         ),
     };
 
-    // Premium gradient background: accent-tinted top → neutral surface bottom.
-    let bg_top = lerp_color(accent, t.bg, 0.72);
-    let bg_bot = lerp_color(accent, t.surface, 0.96);
+    // Flat surface background with subtle accent tint.
+    let bg_top = lerp_color(accent, t.surface, 0.90);
+    let bg_bot = lerp_color(accent, t.surface, 0.97);
     gradient_v(hdc, &r, bg_top, bg_bot);
-    // Left accent stripe for a modern "card with color tag" feel.
-    let stripe_r = RECT { left: r.left, top: r.top, right: r.left + 4, bottom: r.bottom };
+    // 3px left accent stripe.
+    let stripe_r = RECT { left: r.left, top: r.top, right: r.left + 3, bottom: r.bottom };
     fill_round(hdc, stripe_r, 0, accent);
-    frame_round(hdc, r, 16, lerp_color(accent, t.border, 0.55));
+    frame_round(hdc, r, 12, lerp_color(accent, t.border, 0.45));
 
-    let bsize = 68;
-    let bx = r.left + 20;
+    let bsize = 58;  // slightly smaller to fit the slimmer HERO_H
+    let bx = r.left + 18;
     let by = r.top + (r.bottom - r.top - bsize) / 2;
-    // Outer glow ring.
-    let glow = RECT { left: bx - 3, top: by - 3, right: bx + bsize + 3, bottom: by + bsize + 3 };
-    let glow_col = lerp_color(accent, t.bg, 0.75);
-    fill_round(hdc, glow, (bsize / 2) + 3, glow_col);
+    // Soft outer halo.
+    let glow = RECT { left: bx - 4, top: by - 4, right: bx + bsize + 4, bottom: by + bsize + 4 };
+    let glow_col = lerp_color(accent, t.surface, 0.70);
+    fill_round(hdc, glow, (bsize / 2) + 4, glow_col);
     // Main badge circle.
     let badge = RECT { left: bx, top: by, right: bx + bsize, bottom: by + bsize };
     fill_round(hdc, badge, bsize / 2, accent);
@@ -1346,35 +1382,40 @@ unsafe fn draw_progress_with_anim(hdc: HDC, r: RECT, frac: f64, anim_frame: u32,
 }
 
 unsafe fn draw_button(hdc: HDC, b: &UiButton, _hot: bool, down: bool, anim_t: f64, fonts: &Fonts, t: &Theme) {
+    let btn_h = b.rect.bottom - b.rect.top;
+    let radius = btn_h / 2; // pill shape
     let (base, hot_c, down_c, textc) = match b.kind {
         Kind::Primary => (t.accent, t.accent_hot, t.accent_down, WHITE),
         Kind::Danger => (t.danger, t.danger_hot, t.danger_down, WHITE),
-        Kind::Neutral => (t.surface, t.bg, t.nav_hot, t.text),
+        Kind::Neutral => (t.surface, lerp_color(t.surface, t.accent_soft, 0.5), t.nav_hot, t.text),
     };
     let fillc = if down {
         down_c
     } else {
-        // Smooth interpolation between base and hot_c using anim_t (0.0–1.0).
         lerp_color(base, hot_c, anim_t)
     };
-    let disabled = false;
-    // Multi-layer shadow below button (only when not obviously disabled).
-    if !disabled {
-        draw_shadow(hdc, b.rect, 10, t);
-    }
-    fill_round(hdc, b.rect, 10, fillc);
+    // Single subtle shadow layer only.
+    let shadow_r = RECT { left: b.rect.left + 1, top: b.rect.top + 2, right: b.rect.right + 1, bottom: b.rect.bottom + 2 };
+    let shadow_c = lerp_color(t.shadow, t.bg, 0.6);
+    fill_round(hdc, shadow_r, radius, shadow_c);
+
+    fill_round(hdc, b.rect, radius, fillc);
+
+    // Neutral buttons get a 1px border.
     if b.kind == Kind::Neutral {
-        frame_round(hdc, b.rect, 10, t.border);
+        frame_round(hdc, b.rect, radius, t.border);
     }
-    // Leading MDL2 icon + label.
-    let icon_r = RECT { left: b.rect.left + 14, right: b.rect.left + 38, ..b.rect };
+    // Subtle top highlight on primary/danger for a slight 3D lift.
+    if b.kind != Kind::Neutral && !down {
+        let highlight_r = RECT { left: b.rect.left + 2, top: b.rect.top + 1, right: b.rect.right - 2, bottom: b.rect.top + btn_h / 2 };
+        let light = lerp_color(fillc, WHITE, 0.12);
+        fill_round(hdc, highlight_r, radius.saturating_sub(1), light);
+    }
+    // Leading icon (small, tight to text).
+    let icon_r = RECT { left: b.rect.left + 12, right: b.rect.left + 30, ..b.rect };
     text(hdc, b.icon, &icon_r, textc, fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    let label_r = RECT { left: b.rect.left + 38, ..b.rect };
-    text(hdc, b.label, &label_r, textc, fonts.button, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    // Disabled overlay: slightly transparent-looking via a thin border.
-    if disabled {
-        frame_round(hdc, b.rect, 10, t.text2);
-    }
+    let label_r = RECT { left: b.rect.left + 30, right: b.rect.right - 8, ..b.rect };
+    text(hdc, b.label, &label_r, textc, fonts.button, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 }
 
 // GDI helpers --------------------------------------------------------------
