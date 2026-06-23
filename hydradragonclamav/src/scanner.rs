@@ -578,16 +578,26 @@ impl Engine {
         }
         if matches!(
             signature.offset.anchor,
-            OffsetAnchor::Unsupported(_) | OffsetAnchor::MacroGroup(_) | OffsetAnchor::VersionInfo
+            OffsetAnchor::Unsupported(_) | OffsetAnchor::MacroGroup(_)
         ) {
             return;
         }
-        let ranges = signature
-            .offset
-            .scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+        // `VI:` (CLI_OFF_VERSION) scans anywhere, then keeps only matches starting
+        // inside the PE's version-info string offsets (same as the logical path).
+        let is_vinfo = matches!(signature.offset.anchor, OffsetAnchor::VersionInfo);
+        let ranges = if is_vinfo {
+            vec![(0, ctx.data.len())]
+        } else {
+            signature.offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref())
+        };
         if ranges.is_empty() {
             return;
         }
+        let vinfo: &[u32] = if is_vinfo {
+            ctx.pe.as_ref().map(|p| p.vinfo.as_slice()).unwrap_or(&[])
+        } else {
+            &[]
+        };
         let prof = prof_enabled().then(std::time::Instant::now);
         let mut arenas: Vec<(usize, usize)> = Vec::new();
         for pattern in &signature.patterns {
@@ -596,6 +606,9 @@ impl Engine {
                 None => pattern.find_all(ctx.data, &ranges, ARENA_CAP),
             };
             for hit in hits {
+                if is_vinfo && vinfo.binary_search(&(hit.start as u32)).is_err() {
+                    continue; // VI: match must start at a version-info offset
+                }
                 if arenas.len() >= ARENA_CAP {
                     break;
                 }

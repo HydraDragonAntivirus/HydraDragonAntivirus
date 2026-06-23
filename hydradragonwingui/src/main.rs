@@ -1002,7 +1002,7 @@ unsafe fn paint(hwnd: HWND) {
     }
 
     // --- Header: flat dark bar, no gradient on the sidebar portion ---
-    let head = RECT { left: 0, top: 0, right: w, bottom: HEADER_H };
+    let _head = RECT { left: 0, top: 0, right: w, bottom: HEADER_H };
     fill(mem, &RECT { left: 0, top: 0, right: SIDEBAR_W, bottom: HEADER_H }, t.header_top);
     gradient_v(mem, &RECT { left: SIDEBAR_W, top: 0, right: w, bottom: HEADER_H }, t.header_top, t.header_bot);
     // Thin accent line at bottom of header.
@@ -1015,7 +1015,7 @@ unsafe fn paint(hwnd: HWND) {
     let lpad = (HEADER_H - lsz) / 2;
     let logo = RECT { left: PAD, top: lpad, right: PAD + lsz, bottom: lpad + lsz };
     fill_round(mem, logo, 10, t.accent);
-    text(mem, "\u{E83D}", &logo, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    text(mem, "\u{1F6E1}", &logo, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // App name + tagline.
     let tx = logo.right + 12;
@@ -1125,7 +1125,7 @@ unsafe fn paint(hwnd: HWND) {
         let bsz = 76;
         let badge = RECT { left: cx - bsz / 2, top: cy - bsz - 12, right: cx + bsz / 2, bottom: cy - 12 };
         fill_round(mem, badge, bsz / 2, t.accent);
-        text(mem, "\u{E83D}", &badge, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        text(mem, "\u{1F6E1}", &badge, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         text(
             mem,
             "Loading engines…",
@@ -1252,7 +1252,7 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     let (accent, glyph, head, sub) = match s.scan_state {
         ScanState::Idle => (
             t.accent,
-            "\u{E83D}",
+            "\u{1F6E1}",
             "Ready to scan".to_string(),
             if s.sig_count > 0 {
                 format!("{} signatures loaded — run a scan to check for threats.", fmt_count(s.sig_count))
@@ -1892,10 +1892,20 @@ fn fmt_eta(secs: f64) -> String {
 
 fn sev_label(sev: u8) -> &'static str {
     match sev {
-        2 => "High",
-        1 => "Medium",
-        _ => "Info",
+        0..=10 => "Info",
+        11..=30 => "Low",
+        31..=50 => "Moderate",
+        51..=70 => "Elevated",
+        71..=90 => "High",
+        _ => "Critical",
     }
+}
+
+fn sev_color(t: &Theme, sev: u8) -> COLORREF {
+    if sev >= 80 { t.danger }
+    else if sev >= 55 { t.warn }
+    else if sev >= 30 { t.accent }
+    else { t.ok }
 }
 
 /// Quote a CSV field only when it contains a delimiter/quote/newline, doubling
@@ -2451,7 +2461,7 @@ unsafe fn lv_check_all(list: HWND, checked: bool) {
     }
 }
 
-/// Color scan rows by severity and draw a small severity pill in the Verdict column.
+/// Color scan rows by severity and draw a small severity bar in the Verdict column.
 unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
     let cd = &mut *cd;
     match cd.nmcd.dwDrawStage.0 {
@@ -2461,15 +2471,11 @@ unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
             if let Some(s) = state(hwnd) {
                 let t = s.theme();
                 let sev = s.scan_sev.get(item).copied().unwrap_or(0);
-                cd.clrText = match sev {
-                    2 => t.danger,
-                    1 => t.warn,
-                    _ => t.text,
-                };
+                cd.clrText = sev_color(t, sev);
                 // Zebra striping for readability.
                 cd.clrTextBk = if item % 2 == 0 { t.surface } else { t.stripe };
             }
-            // Ask for post-paint so we can draw the severity pill over the Verdict cell.
+            // Ask for post-paint so we can draw the severity bar over the Verdict cell.
             CDRF_NEWFONT | CDRF_NOTIFYPOSTPAINT
         }
         x if x == CDDS_ITEMPOSTPAINT => {
@@ -2480,8 +2486,7 @@ unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
                 let t = s.theme();
                 let sev = s.scan_sev.get(item).copied().unwrap_or(0);
                 // Get the bounding rect of subitem 1 (Verdict column).
-                // LVM_GETSUBITEMRECT: wParam = row, lParam = &RECT where top=subitem, left=LVIR_BOUNDS(0)
-                let mut rc = RECT { left: 0, top: 1, right: 0, bottom: 0 }; // top=subitem index
+                let mut rc = RECT { left: 0, top: 1, right: 0, bottom: 0 };
                 SendMessageW(
                     list_hwnd,
                     msg::LVM_GETSUBITEMRECT,
@@ -2489,26 +2494,26 @@ unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
                     Some(LPARAM(&mut rc as *mut RECT as isize)),
                 );
                 if rc.right > rc.left + 4 {
-                    // Draw pill: small rounded rectangle left-aligned in the cell.
-                    let (pill_color, pill_text) = match sev {
-                        2 => (t.danger, "High"),
-                        1 => (t.warn, "Medium"),
-                        _ => (t.text2, "Info"),
-                    };
-                    // Pill is 48px wide, vertically centered.
-                    let pill_w = 48i32;
-                    let pill_h = 18i32;
+                    // Severity bar: horizontal colored bar with width proportional to score.
+                    let bar_h = 14i32;
+                    let max_w = 64i32;
                     let cell_h = rc.bottom - rc.top;
-                    let py = rc.top + (cell_h - pill_h) / 2;
-                    let pill = RECT {
-                        left: rc.left + 6,
-                        top: py,
-                        right: rc.left + 6 + pill_w,
-                        bottom: py + pill_h,
-                    };
-                    fill_round(hdc, pill, pill_h / 2, pill_color);
-                    // White label on the pill.
-                    text(hdc, pill_text, &pill, WHITE, s.fonts.status, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    let py = rc.top + (cell_h - bar_h) / 2;
+                    let bar_left = rc.left + 4;
+                    let bar_top = py;
+                    // Background track
+                    let track = RECT { left: bar_left, top: bar_top, right: bar_left + max_w, bottom: bar_top + bar_h };
+                    fill_round(hdc, track, 3, t.surface);
+                    // Fill portion
+                    if sev > 0 {
+                        let fill_w = ((max_w as u16).saturating_sub(2) as u32 * sev as u32 / 100).min(max_w as u32 - 2) as i32;
+                        let fill = RECT { left: bar_left + 1, top: bar_top + 1, right: bar_left + 1 + fill_w, bottom: bar_top + bar_h - 1 };
+                        fill_round(hdc, fill, 2, sev_color(t, sev));
+                    }
+                    // Score label
+                    let label = format!("{}", sev);
+                    let lr = RECT { left: bar_left + max_w + 4, top: rc.top, right: rc.right - 2, bottom: rc.bottom };
+                    text(hdc, &label, &lr, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
                 }
             }
             CDRF_DODEFAULT
@@ -2665,7 +2670,13 @@ fn worker(
                         file: path.display().to_string(),
                         verdict: r.verdict.label().to_string(),
                         threat: detail_summary(&r),
-                        sev: if prio >= 6 { 2 } else if threat_found { 1 } else { 0 },
+                        sev: match prio {
+                            0..=1 => 0,
+                            2 => 30,
+                            3 => 50,
+                            4 => 75,
+                            _ => 100,
+                        },
                         threat_found,
                     });
                 }
@@ -2792,7 +2803,7 @@ fn run_session(
                 file: format!("{}\\{}\\{}", e.hive, e.path, e.value_name),
                 verdict: "Registry".into(),
                 threat: e.threat_name.clone().unwrap_or_else(|| e.detail.clone()),
-                sev: if e.static_match { 2 } else { 1 },
+                sev: if e.static_match { 80 } else { 35 },
             });
         }
     }
@@ -2804,18 +2815,24 @@ fn run_session(
             file: "Windows Event Logs".into(),
             verdict: "Hayabusa".into(),
             threat: m.clone(),
-            sev: 2,
+            sev: 85,
         });
     }
 
     send(tx, hwnd, ScanMsg::Status("Full scan: process memory…".into()));
     let mem = memory_scanner::scan_process_memory(pl);
     for d in &mem {
+        let prio = d.verdict.priority();
         send(tx, hwnd, ScanMsg::Row {
             file: format!("{} (pid {}) @ 0x{:x}", d.process, d.pid, d.address),
             verdict: d.verdict.label().to_string(),
             threat: d.threat_name.clone(),
-            sev: if d.verdict.priority() >= 6 { 2 } else { 1 },
+            sev: match prio {
+                2 => 30,
+                3 => 50,
+                4 => 75,
+                _ => 100,
+            },
         });
     }
 
@@ -2927,10 +2944,16 @@ fn run_streaming(
                     let r = pl.scan_file_cached(&file);
                     scanned_ref.fetch_add(1, Ordering::Relaxed);
                     bytes_ref.fetch_add(sz, Ordering::Relaxed);
-                    let prio = r.verdict.priority(); // Trusted=0, Clean=1, …, Malware=8
-                    if prio > 1 {
+                    let prio = r.verdict.priority(); // Trusted=0, Clean=1, Pua=2, Suspicious=3, Phishing=4, Malware=5
+                    let threat_found = prio > 1;
+                    if threat_found {
                         threats_ref.fetch_add(1, Ordering::Relaxed);
-                        let sev = if prio >= 6 { 2 } else { 1 };
+                        let sev = match prio {
+                            2 => 30,
+                            3 => 50,
+                            4 => 75,
+                            _ => 100,
+                        };
                         send(&txc, hwnd, ScanMsg::Row {
                             file: file.display().to_string(),
                             verdict: r.verdict.label().to_string(),

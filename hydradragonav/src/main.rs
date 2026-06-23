@@ -164,6 +164,9 @@ enum Command {
     /// Finish a disinfection that was deferred to reboot (invoked by the RunOnce
     /// key created when a locked/critical malware couldn't be cleaned live).
     DisinfectPending,
+
+    /// Install Explorer right-click context menu entries for scanning
+    InstallContextMenu,
 }
 
 #[derive(Subcommand)]
@@ -210,7 +213,25 @@ struct FullConfig {
     ml_threshold: f32,
 }
 
-fn cmd_scan(
+fn severity_from_verdict(v: hydradragonav::verdict::Verdict) -> u8 {
+    use hydradragonav::verdict::Verdict;
+    match v {
+        Verdict::Trusted | Verdict::Clean => 0,
+        Verdict::Pua => 30,
+        Verdict::Suspicious => 50,
+        Verdict::Phishing => 75,
+        Verdict::Malware => 100,
+    }
+}
+
+fn severity_bar(sev: u8) -> String {
+    let filled = (sev as u16).saturating_mul(10).min(1000) / 100;
+    let empty = 10usize.saturating_sub(filled as usize);
+    let bar: String = std::iter::repeat('█').take(filled as usize).chain(std::iter::repeat('░').take(empty)).collect();
+    format!("{} {}%", bar, sev)
+}
+
+fn cmd_custom_scan(
     paths: &[PathBuf],
     categories: Vec<ScanCategory>,
     json: bool,
@@ -219,39 +240,7 @@ fn cmd_scan(
     fast_scan: bool,
     config: &FullConfig,
 ) {
-    let cats = if categories.is_empty() {
-        // No CLI flags → load settings for defaults
-        let settings = Settings::load(&exe_dir());
-        if !settings.default_categories.is_empty() {
-            settings.default_categories.iter().filter_map(|s| {
-                match s.to_lowercase().as_str() {
-                    "files" => Some(ScanCategory::Files),
-                    "memory" => Some(ScanCategory::Memory),
-                    "registry" => Some(ScanCategory::Registry),
-                    "sigma" => Some(ScanCategory::Sigma),
-                    "pum" => Some(ScanCategory::Pum),
-                    _ => { eprintln!("[Settings] Unknown category '{s}'"); None }
-                }
-            }).collect()
-        } else {
-            ScanCategory::all()
-        }
-    } else {
-        // CLI flags given → also add settings extras for context-menu categories
-        let settings = Settings::load(&exe_dir());
-        let mut cats = categories;
-        if settings.scan_with_registry {
-            if !cats.contains(&ScanCategory::Registry) { cats.push(ScanCategory::Registry); }
-            if !cats.contains(&ScanCategory::Pum) { cats.push(ScanCategory::Pum); }
-        }
-        if settings.scan_with_memory && !cats.contains(&ScanCategory::Memory) {
-            cats.push(ScanCategory::Memory);
-        }
-        if settings.scan_with_sigma && !cats.contains(&ScanCategory::Sigma) {
-            cats.push(ScanCategory::Sigma);
-        }
-        cats
-    };
+    let cats = resolve_categories(categories);
     let has_cat = |c| cats.contains(&c);
 
     let pipeline_config = PipelineConfig {
@@ -277,16 +266,7 @@ fn cmd_scan(
     let mut engine_totals: std::collections::HashMap<&'static str, u64> =
         std::collections::HashMap::new();
 
-    if has_cat(ScanCategory::Files) && !paths.is_empty() {
-        for p in paths {
-            if p.is_dir() {
-                scan_dir(p, &pipeline, json, output, &mut harmful_results, &mut engine_totals, time_engines);
-            } else {
-                scan_file(p, &pipeline, json, &mut harmful_results, &mut engine_totals, time_engines);
-            }
-        }
-    }
-
+    // Non-file scans
     if has_cat(ScanCategory::Registry) || has_cat(ScanCategory::Pum) {
         if json {
             let reg_result = scan_registry(config);
@@ -318,6 +298,17 @@ fn cmd_scan(
         }
     }
 
+    // File scans
+    if has_cat(ScanCategory::Files) && !paths.is_empty() {
+        // Single scan (1 file, no dirs) → no progress bar
+        let is_single_file = paths.len() == 1 && paths[0].is_file();
+        if is_single_file {
+            scan_and_print(paths[0].as_path(), &pipeline, json, &mut harmful_results, &mut engine_totals, time_engines);
+        } else {
+            scan_paths(paths, &pipeline, json, output, &mut harmful_results, &mut engine_totals, time_engines);
+        }
+    }
+
     if !json && !harmful_results.is_empty() {
         let infected: Vec<(PathBuf, Option<String>)> = harmful_results
             .iter()
@@ -327,7 +318,41 @@ fn cmd_scan(
     }
 }
 
-fn scan_file(
+fn resolve_categories(mut categories: Vec<ScanCategory>) -> Vec<ScanCategory> {
+    if categories.is_empty() {
+        let settings = Settings::load(&exe_dir());
+        if !settings.default_categories.is_empty() {
+            settings.default_categories.iter().filter_map(|s| {
+                match s.to_lowercase().as_str() {
+                    "files" => Some(ScanCategory::Files),
+                    "memory" => Some(ScanCategory::Memory),
+                    "registry" => Some(ScanCategory::Registry),
+                    "sigma" => Some(ScanCategory::Sigma),
+                    "pum" => Some(ScanCategory::Pum),
+                    _ => { eprintln!("[Settings] Unknown category '{s}'"); None }
+                }
+            }).collect()
+        } else {
+            ScanCategory::all()
+        }
+    } else {
+        let settings = Settings::load(&exe_dir());
+        if settings.scan_with_registry {
+            if !categories.contains(&ScanCategory::Registry) { categories.push(ScanCategory::Registry); }
+            if !categories.contains(&ScanCategory::Pum) { categories.push(ScanCategory::Pum); }
+        }
+        if settings.scan_with_memory && !categories.contains(&ScanCategory::Memory) {
+            categories.push(ScanCategory::Memory);
+        }
+        if settings.scan_with_sigma && !categories.contains(&ScanCategory::Sigma) {
+            categories.push(ScanCategory::Sigma);
+        }
+        categories
+    }
+}
+
+/// Scan a single file and print its result inline.
+fn scan_and_print(
     path: &std::path::Path,
     pipeline: &Pipeline,
     json: bool,
@@ -348,7 +373,8 @@ fn scan_file(
             "scan_time_ms": elapsed.as_millis(),
         })).unwrap());
     } else {
-        println!("[{}] {} ({:.0?})", result.verdict.label(), path.display(), elapsed);
+        let sev = severity_from_verdict(result.verdict);
+        println!("[{}] {} ({:.0?})  severity: {}", result.verdict.label(), path.display(), elapsed, severity_bar(sev));
         if let Some(ref tn) = result.threat_name {
             println!("  threat: {}", tn);
         }
@@ -379,8 +405,9 @@ fn scan_file(
     }
 }
 
-fn scan_dir(
-    root_path: &std::path::Path,
+/// Walk multiple paths with a progress bar, printing threats as they are found.
+fn scan_paths(
+    paths: &[PathBuf],
     pipeline: &Pipeline,
     json: bool,
     output: Option<&std::path::Path>,
@@ -392,6 +419,10 @@ fn scan_dir(
     let pb = ProgressBar::new_spinner();
     pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {pos} files scanned | {msg}").unwrap());
 
+    let mut files_scanned = 0u64;
+    let mut threats_found = 0u64;
+    let scan_start = Instant::now();
+
     fn walk(
         dir: &std::path::Path,
         pipeline: &Pipeline,
@@ -400,7 +431,6 @@ fn scan_dir(
         threats: &mut u64,
         harmful: &mut Vec<(PathBuf, hydradragonav::verdict::ScanResult)>,
         engine_totals: &mut std::collections::HashMap<&'static str, u64>,
-        time_engines: bool,
         pb: &ProgressBar,
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
@@ -427,7 +457,8 @@ fn scan_dir(
                         })).unwrap());
                     } else if result.verdict.label() != "Clean" && result.verdict.label() != "Trusted" {
                         *threats += 1;
-                        println!("[{}] {}", result.verdict.label(), path.display());
+                        let sev = severity_from_verdict(result.verdict);
+                        println!("[{}] {}  severity: {}", result.verdict.label(), path.display(), severity_bar(sev));
                         if let Some(ref tn) = result.threat_name {
                             println!("  └─ threat: {}", tn);
                         }
@@ -439,16 +470,51 @@ fn scan_dir(
                         | hydradragonav::verdict::Verdict::Pua
                     ) { harmful.push((path, result)); }
                 } else if path.is_dir() {
-                    walk(&path, pipeline, json, files_scanned, threats, harmful, engine_totals, time_engines, pb);
+                    walk(&path, pipeline, json, files_scanned, threats, harmful, engine_totals, pb);
                 }
             }
         }
     }
 
-    let mut files_scanned = 0u64;
-    let mut threats_found = 0u64;
-    let scan_start = Instant::now();
-    walk(root_path, pipeline, json, &mut files_scanned, &mut threats_found, harmful_results, engine_totals, time_engines, &pb);
+    for p in paths {
+        if p.is_dir() {
+            walk(p, pipeline, json, &mut files_scanned, &mut threats_found, harmful_results, engine_totals, &pb);
+        } else {
+            let meta = match std::fs::metadata(p) { Ok(m) => m, Err(_) => continue };
+            if meta.len() < 12 { continue; }
+            let result = pipeline.scan_file(p);
+            files_scanned += 1;
+            for e in &result.engines {
+                if let Some(ms) = e.elapsed_ms {
+                    *engine_totals.entry(e.engine).or_insert(0) += ms;
+                }
+            }
+            pb.set_message(format!("{} threats | {}", threats_found, p.display()));
+            pb.inc(1);
+            if json {
+                println!("{}", serde_json::to_string(&serde_json::json!({
+                    "file": p.to_string_lossy(),
+                    "verdict": result.verdict.label(),
+                    "threat_name": result.threat_name,
+                    "engines": result.engines,
+                })).unwrap());
+            } else if result.verdict.label() != "Clean" && result.verdict.label() != "Trusted" {
+                threats_found += 1;
+                let sev = severity_from_verdict(result.verdict);
+                println!("[{}] {}  severity: {}", result.verdict.label(), p.display(), severity_bar(sev));
+                if let Some(ref tn) = result.threat_name {
+                    println!("  └─ threat: {}", tn);
+                }
+            }
+            if matches!(result.verdict,
+                hydradragonav::verdict::Verdict::Malware
+                | hydradragonav::verdict::Verdict::Phishing
+                | hydradragonav::verdict::Verdict::Suspicious
+                | hydradragonav::verdict::Verdict::Pua
+            ) { harmful_results.push((p.to_path_buf(), result)); }
+        }
+    }
+
     let elapsed = scan_start.elapsed();
     pb.finish_and_clear();
 
@@ -457,7 +523,8 @@ fn scan_dir(
             serde_json::json!({"file": p.to_string_lossy(), "verdict": r.verdict.label(), "threat_name": r.threat_name, "engines": r.engines})
         }).collect();
         if let Err(e) = std::fs::write(output_path, serde_json::to_string_pretty(&serde_json::json!({
-            "scan_root": root_path.to_string_lossy(), "files_scanned": files_scanned, "threats_found": threats_found, "results": entries,
+            "scan_root": paths.iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>(),
+            "files_scanned": files_scanned, "threats_found": threats_found, "results": entries,
         })).unwrap()) {
             eprintln!("[Scan] Failed to write report to {}: {}", output_path.display(), e);
         } else { eprintln!("[Scan] Malware report written to {}", output_path.display()); }
@@ -516,7 +583,12 @@ fn main() {
             if *registry { cats.push(ScanCategory::Registry); }
             if *sigma { cats.push(ScanCategory::Sigma); }
             if *pum { cats.push(ScanCategory::Pum); }
-            cmd_scan(paths, cats, *json, output.as_deref(), *time_engines, *fast_scan, &config)
+            cmd_custom_scan(paths, cats, *json, output.as_deref(), *time_engines, *fast_scan, &config)
+        }
+        Command::InstallContextMenu => {
+            if let Err(e) = cmd_install_context_menu() {
+                eprintln!("[ContextMenu] Failed to install: {e}");
+            }
         }
         Command::Update => match config.hayabusa_dir.as_deref() {
             Some(hdir) => cmd_update_hayabusa(hdir),
@@ -804,4 +876,33 @@ fn print_registry_scan(result: &hydradragonav::registry_scanner::RegistryScanRes
     if result.threats_found == 0 {
         println!("  No threats detected.");
     }
+}
+
+fn cmd_install_context_menu() -> std::io::Result<()> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let exe = std::env::current_exe()?;
+    let exe_str = exe.to_string_lossy().to_string();
+    let cmd = format!("\"{}\" scan --files \"%1\"", exe_str);
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
+
+    // File context menu
+    let (file_shell, _) = classes.create_subkey("*\\shell\\HydraDragonAV")?;
+    file_shell.set_value("", &"Scan with HydraDragonAV")?;
+    file_shell.set_value("Icon", &exe_str)?;
+    let (file_cmd, _) = file_shell.create_subkey("command")?;
+    file_cmd.set_value("", &cmd)?;
+
+    // Directory context menu
+    let (dir_shell, _) = classes.create_subkey("Directory\\shell\\HydraDragonAV")?;
+    dir_shell.set_value("", &"Scan with HydraDragonAV")?;
+    dir_shell.set_value("Icon", &exe_str)?;
+    let (dir_cmd, _) = dir_shell.create_subkey("command")?;
+    dir_cmd.set_value("", &cmd)?;
+
+    println!("[ContextMenu] Right-click 'Scan with HydraDragonAV' installed (HKCU).");
+    Ok(())
 }
