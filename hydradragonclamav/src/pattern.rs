@@ -373,6 +373,14 @@ impl Pattern {
         if limit == 0 || self.instructions.is_empty() {
             return Vec::new();
         }
+
+        // Patterns with a variable-width gap are matched part-by-part (ClamAV's
+        // partno / offmatrix): each gap-free part is found independently with a
+        // SIMD-anchored search and the parts are stitched by their gap distance
+        // constraints — linear, with no per-occurrence backtracking explosion.
+        if self.has_gap() {
+            return self.find_all_gapped(data, ranges, limit);
+        }
         let min_len = self.min_match_len().max(1);
 
         // Fast path: anchor the scan on the pattern's best fixed literal via SIMD
@@ -443,23 +451,30 @@ impl Pattern {
     /// by summing per-byte rarity, and the highest-scoring run wins. `None` only
     /// when no fixed byte has a constant offset (all-wildcard / nibble-only, or
     /// every fixed byte sits behind a gap) — those must scan every position.
-    fn best_anchor(&self) -> Option<(usize, Vec<u8>)> {
+    fn best_anchor(&self) -> Option<(usize, Vec<(u8, bool)>)> {
         // Approximate per-byte rarity (~ -log2 frequency in executables). Filler
         // bytes score low (poor anchors); arbitrary bytes score high. Summed over a
         // run, this rewards length only when the bytes aren't ubiquitous, so a long
-        // `00` run loses to a short run containing a rare byte.
-        fn weight(b: u8) -> u32 {
-            match b {
+        // `00` run loses to a short run containing a rare byte. A `nocase` byte is
+        // slightly less selective (it matches two values), so it scores a touch
+        // lower — but a `nocase` run is still vastly better than scanning every byte.
+        fn weight(b: u8, nc: bool) -> u32 {
+            let base: u32 = match b {
                 0x00 => 1,
                 0xff => 2,
                 0x90 | 0xcc => 3,
                 0x20..=0x7e => 5, // printable: common in text-bearing files
                 _ => 8,
+            };
+            if nc {
+                base.saturating_sub(1).max(1)
+            } else {
+                base
             }
         }
 
-        let mut best: Option<(u32, usize, Vec<u8>)> = None; // (score, offset, needle)
-        let mut run: Vec<u8> = Vec::new();
+        let mut best: Option<(u32, usize, Vec<(u8, bool)>)> = None; // (score, offset, needle)
+        let mut run: Vec<(u8, bool)> = Vec::new();
         let mut run_off = 0usize;
         let mut bytes = 0usize;
         let mut sidx = 0usize;
@@ -470,7 +485,15 @@ impl Pattern {
                     if run.is_empty() {
                         run_off = bytes;
                     }
-                    run.push((inst & 0xff) as u8);
+                    run.push(((inst & 0xff) as u8, false));
+                    bytes += 1;
+                    continue;
+                }
+                CLI_MATCH_NOCASE => {
+                    if run.is_empty() {
+                        run_off = bytes;
+                    }
+                    run.push(((inst & 0xff) as u8, true));
                     bytes += 1;
                     continue;
                 }
@@ -559,13 +582,19 @@ impl Pattern {
         min_len: usize,
         limit: usize,
         byte_prefix: usize,
-        needle: &[u8],
+        needle: &[(u8, bool)],
     ) -> Vec<MatchRange> {
         if needle.is_empty() {
             return Vec::new();
         }
         let lit_len = needle.len();
-        let literal = needle;
+        // All-case-sensitive needles use a single selective multi-byte SIMD search;
+        // needles with a `nocase` byte memchr the first byte (both cases) and verify
+        // the run inline (still far better than scanning every position).
+        let all_cs = needle.iter().all(|&(_, nc)| !nc);
+        let cs_needle: Vec<u8> = needle.iter().map(|&(b, _)| b).collect();
+        let (lo0, nc0) = needle[0];
+        let up0 = if nc0 { lo0.to_ascii_uppercase() } else { lo0 };
         // Shared per-signature backtracking budget (see `find_all`).
         let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
         let mut out = Vec::new();
@@ -576,30 +605,56 @@ impl Pattern {
             if start > end {
                 continue;
             }
-            // Valid match-start positions are [start, max_pos], identical to the
-            // naive loop's bound. (For absolute/EOF offset specs the range bounds
-            // the *start*, while the match itself may read past `end`.)
+            // Valid match-start positions are [start, max_pos]. The needle of a match
+            // starting at `pos` sits at [pos + byte_prefix, + lit_len), so its START
+            // ranges over [start+byte_prefix, max_pos+byte_prefix]; search exactly
+            // that band so a match whose needle lies past `end` is still found.
             let max_pos = end.saturating_sub(min_len).max(start);
-            // The literal of a match starting at `pos` sits at
-            // [pos + byte_prefix, pos + byte_prefix + lit_len). Search exactly the band of
-            // data that can hold the literal for some valid start, so a match whose
-            // literal lies past `end` (absolute/EOF specs) is still found.
             let lo = (start + byte_prefix).min(data.len());
-            let hi = max_pos.saturating_add(byte_prefix).saturating_add(lit_len).min(data.len());
-            if lo >= hi {
+            let hi = max_pos
+                .saturating_add(byte_prefix)
+                .saturating_add(lit_len)
+                .min(data.len());
+            if lo >= hi || lit_len > data.len() {
                 continue;
             }
-            let window = &data[lo..hi];
-            // Overlapping occurrences: advance by one byte after each hit. A
-            // literal can self-overlap (e.g. "AA" in "AAA"), so the non-overlapping
-            // `find_iter` would skip a valid anchor; stepping by 1 keeps every one.
-            let mut from = 0usize;
-            while from < window.len() {
-                let Some(rel) = memchr::memmem::find(&window[from..], literal) else {
+            let last_occ = hi - lit_len; // last needle-start position that fits
+            let mut search = lo;
+            while search <= last_occ {
+                let f = fuel.get();
+                if f == 0 {
+                    return out;
+                }
+                fuel.set(f - 1);
+                let win = &data[search..hi];
+                let rel = if all_cs {
+                    memchr::memmem::find(win, &cs_needle)
+                } else if lo0 == up0 {
+                    memchr::memchr(lo0, win)
+                } else {
+                    memchr::memchr2(lo0, up0, win)
+                };
+                let Some(rel) = rel else {
                     break;
                 };
-                let occ = lo + from + rel;
-                from += rel + 1;
+                let occ = search + rel;
+                search = occ + 1;
+                if occ > last_occ {
+                    break;
+                }
+                // For the memchr (nocase) path, verify the whole run inline.
+                if !all_cs
+                    && !needle.iter().enumerate().all(|(k, &(b, nc))| {
+                        let d = data[occ + k];
+                        if nc {
+                            d.to_ascii_lowercase() == b
+                        } else {
+                            d == b
+                        }
+                    })
+                {
+                    continue;
+                }
                 let Some(pos) = occ.checked_sub(byte_prefix) else {
                     continue;
                 };
@@ -607,9 +662,6 @@ impl Pattern {
                     continue;
                 }
                 last_start = Some(pos);
-                if fuel.get() == 0 {
-                    return out;
-                }
                 if let Some(match_end) = self.match_rec(data, pos, 0, 0, &fuel) {
                     if self.fullword && !is_fullword(data, pos, match_end) {
                         continue;
@@ -627,6 +679,139 @@ impl Pattern {
         out
     }
 
+    /// Whether the pattern contains a variable-width gap (`*` / `{n-m}`).
+    fn has_gap(&self) -> bool {
+        self.specials
+            .iter()
+            .any(|s| matches!(s, Special::Gap { .. }))
+    }
+
+    /// Split this pattern at its variable-width gaps into gap-free parts, each
+    /// paired with the gap `(min, max)` that precedes it (`None` for the first).
+    /// Mirrors ClamAV splitting a signature into `partno` parts at load time.
+    fn split_gap_parts(&self) -> Vec<(Pattern, Option<(usize, usize)>)> {
+        let mut parts: Vec<(Pattern, Option<(usize, usize)>)> = Vec::new();
+        let mut part_inst: Vec<u16> = Vec::new();
+        let mut part_specials: Vec<Special> = Vec::new();
+        let mut gap_before: Option<(usize, usize)> = None;
+        let mut sidx = 0usize;
+        for i in 0..self.instructions.len() {
+            let e = self.instructions.get_u16(i);
+            if (e & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
+                let sp = &self.specials[sidx];
+                sidx += 1;
+                if let Special::Gap { min, max } = sp {
+                    let p = Pattern::from_parsed(
+                        std::mem::take(&mut part_inst),
+                        std::mem::take(&mut part_specials),
+                        false,
+                    );
+                    parts.push((p, gap_before));
+                    gap_before = Some((*min, *max));
+                    continue;
+                }
+                part_inst.push(e);
+                part_specials.push(sp.clone());
+            } else {
+                part_inst.push(e);
+            }
+        }
+        let p = Pattern::from_parsed(part_inst, part_specials, false);
+        parts.push((p, gap_before));
+        parts
+    }
+
+    /// Match a gappy pattern part-by-part (ClamAV's `partno` / `offmatrix`). Each
+    /// gap-free part is found with its own anchored search; a sweep keeps only the
+    /// part matches reachable from a previous-part match within the gap distance,
+    /// carrying the original (first-part) start through to the final part. This is
+    /// linear in the buffer per part — no per-occurrence gap backtracking.
+    fn find_all_gapped(&self, data: &[u8], ranges: &[(usize, usize)], limit: usize) -> Vec<MatchRange> {
+        // Cap matches tracked per part (bounds work like ClamAV's offmatrix slots).
+        const PART_CAP: usize = 2048;
+        let parts: Vec<(Pattern, Option<(usize, usize)>)> = self
+            .split_gap_parts()
+            .into_iter()
+            .filter(|(p, _)| !p.instructions.is_empty())
+            .collect();
+        if parts.is_empty() {
+            return Vec::new();
+        }
+
+        // Part 0: its start IS the full-match start, so honour `ranges` here.
+        let p0 = parts[0].0.find_all(data, ranges, PART_CAP);
+        // `(orig_start, cur_end)`, kept sorted by `cur_end`.
+        let mut cur: Vec<(usize, usize)> = p0.iter().map(|m| (m.start, m.end)).collect();
+        cur.sort_unstable_by_key(|&(_, e)| e);
+        cur.dedup();
+
+        for (part, gap) in parts.iter().skip(1) {
+            if cur.is_empty() {
+                return Vec::new();
+            }
+            let (gmin, gmax) = gap.unwrap_or((0, 0));
+            let min_end = cur.first().map(|&(_, e)| e).unwrap();
+            let max_end = cur.last().map(|&(_, e)| e).unwrap();
+            // This part may start in [min_end + gmin, max_end + gmax].
+            let lo = min_end.saturating_add(gmin);
+            let hi = if gmax == UNBOUNDED_GAP {
+                data.len()
+            } else {
+                max_end.saturating_add(gmax).min(data.len())
+            };
+            if lo > hi {
+                return Vec::new();
+            }
+            // Allow part starts up to `hi` (find_all bounds start by end - min_len).
+            let part_min = part.min_match_len().max(1);
+            let search_end = hi.saturating_add(part_min).min(data.len());
+            let pmatches = part.find_all(data, &[(lo, search_end)], PART_CAP);
+
+            let ends: Vec<usize> = cur.iter().map(|&(_, e)| e).collect();
+            let mut next: Vec<(usize, usize)> = Vec::new();
+            for m in &pmatches {
+                let ps = m.start;
+                // A previous-part end must lie in [ps - gmax, ps - gmin].
+                let lo_ce = if gmax == UNBOUNDED_GAP {
+                    0
+                } else {
+                    ps.saturating_sub(gmax)
+                };
+                let hi_ce = ps.saturating_sub(gmin);
+                let a = ends.partition_point(|&e| e < lo_ce);
+                let b = ends.partition_point(|&e| e <= hi_ce);
+                for &(orig, _) in &cur[a..b] {
+                    next.push((orig, m.end));
+                    if next.len() >= PART_CAP * 4 {
+                        break;
+                    }
+                }
+            }
+            next.sort_unstable();
+            next.dedup();
+            next.sort_unstable_by_key(|&(_, e)| e);
+            if next.len() > PART_CAP {
+                next.truncate(PART_CAP);
+            }
+            cur = next;
+        }
+
+        // `cur` now holds full matches `(orig_start, final_end)`.
+        cur.sort_unstable();
+        cur.dedup();
+        let mut out = Vec::new();
+        for (s, e) in cur {
+            if self.fullword && !is_fullword(data, s, e) {
+                continue;
+            }
+            out.push(MatchRange { start: s, end: e });
+            if out.len() >= limit {
+                break;
+            }
+        }
+        out
+    }
+
     /// Find all matches using prefilter hints (positions of a required literal).
     /// Respects `ranges` to enforce offset spec restrictions.
     pub fn find_all_at(
@@ -638,6 +823,11 @@ impl Pattern {
     ) -> Vec<MatchRange> {
         if limit == 0 || hints.is_empty() || self.instructions.is_empty() {
             return Vec::new();
+        }
+        // Gappy patterns are matched part-by-part (partno), which is linear and
+        // ignores the hints — the parts are found by their own anchored searches.
+        if self.has_gap() {
+            return self.find_all_gapped(data, ranges, limit);
         }
         // Each hint is an occurrence of this pattern's prefilter atom (its best
         // literal); a match anchors at `occurrence - prefix`, where `prefix` is the
@@ -1380,14 +1570,14 @@ fn expand_wildcards(raw: &str) -> String {
 /// keep it if it beats the current best. A run starting at byte offset `off`.
 fn consider_anchor(
     off: usize,
-    run: &[u8],
-    best: &mut Option<(u32, usize, Vec<u8>)>,
-    weight: fn(u8) -> u32,
+    run: &[(u8, bool)],
+    best: &mut Option<(u32, usize, Vec<(u8, bool)>)>,
+    weight: fn(u8, bool) -> u32,
 ) {
     if run.is_empty() {
         return;
     }
-    let score: u32 = run.iter().map(|&b| weight(b)).sum();
+    let score: u32 = run.iter().map(|&(b, nc)| weight(b, nc)).sum();
     if best.as_ref().is_none_or(|(bs, _, _)| score > *bs) {
         *best = Some((score, off, run.to_vec()));
     }
