@@ -389,6 +389,25 @@ impl AtomPrefilter {
             }
             None
         }
+        // The atoms to index for one pattern. A gappy pattern (`partno`) is indexed
+        // by EVERY one of its gap-free parts' atoms — all in the single AC — so the
+        // scanner can verify each part at its own AC-found offsets and stitch them
+        // (ClamAV's part matching). `None` if the pattern isn't fully indexable: a
+        // gappy pattern is only indexable when EVERY part has a usable atom (every
+        // part must match, so any atom-less part would let it match unseen).
+        fn pattern_atoms(p: &crate::pattern::Pattern) -> Option<Vec<Atom>> {
+            if !p.has_gap() {
+                return pattern_atom(p).map(|a| vec![a]);
+            }
+            let mut atoms = Vec::new();
+            for (part, _) in p.gap_parts() {
+                if part.instructions.is_empty() {
+                    continue; // empty part (leading/trailing gap) — no atom needed
+                }
+                atoms.push(pattern_atom(&part)?);
+            }
+            (!atoms.is_empty()).then_some(atoms)
+        }
         fn evaluable_offset(anchor: &OffsetAnchor) -> bool {
             !matches!(
                 anchor,
@@ -403,8 +422,8 @@ impl AtomPrefilter {
             let mut atoms: Vec<Atom> = Vec::with_capacity(sig.patterns.len());
             let mut atomless = sig.patterns.is_empty();
             for p in &sig.patterns {
-                match pattern_atom(p) {
-                    Some(a) => atoms.push(a),
+                match pattern_atoms(p) {
+                    Some(a) => atoms.extend(a),
                     None => {
                         atomless = true;
                         break;
@@ -448,12 +467,13 @@ impl AtomPrefilter {
                 if patterns.is_empty() || !evaluable_offset(&offset.anchor) {
                     continue;
                 }
-                // Indexable iff EVERY variant has a usable atom.
+                // Indexable iff EVERY variant is fully indexable (gappy variants
+                // require every part to have an atom — see `pattern_atoms`).
                 let mut atoms: Vec<Atom> = Vec::with_capacity(patterns.len());
                 let mut ok = true;
                 for p in patterns {
-                    match pattern_atom(p) {
-                        Some(a) => atoms.push(a),
+                    match pattern_atoms(p) {
+                        Some(a) => atoms.extend(a),
                         None => {
                             ok = false;
                             break;

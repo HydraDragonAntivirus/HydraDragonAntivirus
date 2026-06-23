@@ -920,12 +920,13 @@ fn body_matches(
         if remaining == 0 {
             break;
         }
-        // Thread the per-subsig hint offsets only into patterns with an exact atom
-        // (their own occurrences are among the hints). A `nocase`/atomless variant's
-        // hits aren't aligned to the raw buffer, so it falls back to a full scan.
+        // Thread the per-subsig hint offsets into the pattern: `find_all_at` routes
+        // a gappy pattern to part-by-part matching at the AC-found part offsets, a
+        // nocase pattern to its nocase-atom anchor, and an atomless pattern to a
+        // full scan — so passing the hints unconditionally is always correct.
         let hits = match hints {
-            Some(h) if pattern.has_atom() => pattern.find_all_at(data, ranges, remaining, h),
-            _ => pattern.find_all(data, ranges, remaining),
+            Some(h) => pattern.find_all_at(data, ranges, remaining, h),
+            None => pattern.find_all(data, ranges, remaining),
         };
         for hit in hits {
             count += 1;
