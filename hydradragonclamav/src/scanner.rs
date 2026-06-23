@@ -185,7 +185,12 @@ impl Engine {
         // built via a compact CSR mapping. One pass per buffer picks the few
         // candidate signatures instead of scanning all ~500k — fast scans and
         // far fewer page faults.
-        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
+        // Cache the built Aho-Corasick automata next to the database, keyed by a
+        // hash of the database files + a format version, so the heavy AC build
+        // (which spikes ~500 MB of transient RAM the allocator never returns)
+        // happens once instead of on every load.
+        let key = crate::prefilter::db_cache_key(path);
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database, Some((path, key)));
         Ok((Self { database, prefilter }, report))
     }
 
@@ -1395,7 +1400,7 @@ mod tests {
             unsupported: Vec::new(),
             bytecode_programs: Vec::new(),
         };
-        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database, None);
         let engine = Engine { database, prefilter };
 
         // Atom present → detected.
@@ -1653,7 +1658,7 @@ mod tests {
         let full = match_keys(&engine_full.scan_bytes(data, opts));
         // Threaded: real prefilter → candidate offsets + aligned gating cutoff.
         let db = build_db();
-        let prefilter = crate::prefilter::AtomPrefilter::build(&db);
+        let prefilter = crate::prefilter::AtomPrefilter::build(&db, None);
         let engine_thr = Engine {
             database: db,
             prefilter,
@@ -1796,7 +1801,7 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database, None);
         (
             Engine {
                 database,

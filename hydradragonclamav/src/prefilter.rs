@@ -236,7 +236,11 @@ impl AtomPrefilter {
     }
 
     /// Build the prefilter from a loaded database.
-    pub fn build(db: &Database) -> Self {
+    /// Build the prefilter. `cache` is an optional `(dir, key)`: when set, each
+    /// Aho-Corasick automaton is loaded from / saved to `dir` keyed by `key` (a
+    /// hash of the database + format version), so the ~500 MB build transient is
+    /// paid only once across loads.
+    pub fn build(db: &Database, cache: Option<(&std::path::Path, u64)>) -> Self {
         let mut entries: Vec<(Box<[u8]>, u64)> = Vec::new();
         let mut entries_nocase: Vec<(Box<[u8]>, u64)> = Vec::new();
         let mut ext_always: Vec<u32> = Vec::new();
@@ -471,9 +475,16 @@ impl AtomPrefilter {
             }
         }
 
-        let (ac, num_atoms, atom_starts, sig_refs) = build_automaton(entries);
+        let (case_cache, nocase_cache) = match cache {
+            Some((dir, key)) => (
+                Some(dir.join(format!("hdc_ac_case_{key:016x}.bin"))),
+                Some(dir.join(format!("hdc_ac_nocase_{key:016x}.bin"))),
+            ),
+            None => (None, None),
+        };
+        let (ac, num_atoms, atom_starts, sig_refs) = build_automaton(entries, case_cache);
         let (ac_nocase, num_atoms_nocase, atom_starts_nocase, sig_refs_nocase) =
-            build_automaton(entries_nocase);
+            build_automaton(entries_nocase, nocase_cache);
 
         AtomPrefilter {
             ac,
@@ -658,8 +669,44 @@ fn build_candidate_set(mut hits: Vec<(u32, u32)>, always: &[u32]) -> CandidateSe
 /// Unique-atom + CSR mapping, shared by the case-sensitive and nocase
 /// automaton builds.
 #[allow(clippy::type_complexity)]
+/// Hash of the database directory (each non-cache file's name + size + mtime) plus
+/// a format version, used to key the cached automata. A changed database — or a
+/// bumped `VERSION` when the atom-extraction logic changes — misses the cache and
+/// rebuilds. The cache files themselves are excluded, or writing one would
+/// invalidate the key on the next load.
+pub fn db_cache_key(dir: &std::path::Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    const VERSION: u64 = 1;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    VERSION.hash(&mut h);
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        let mut entries: Vec<_> = rd.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let name = e.file_name();
+            if name.to_string_lossy().starts_with("hdc_ac_") {
+                continue; // our own cache files
+            }
+            if let Ok(md) = e.metadata() {
+                if md.is_file() {
+                    name.hash(&mut h);
+                    md.len().hash(&mut h);
+                    if let Ok(secs) = md
+                        .modified()
+                        .and_then(|m| Ok(m.duration_since(std::time::UNIX_EPOCH).unwrap_or_default()))
+                    {
+                        secs.as_secs().hash(&mut h);
+                    }
+                }
+            }
+        }
+    }
+    h.finish()
+}
+
 fn build_automaton(
     mut entries: Vec<(Box<[u8]>, u64)>,
+    cache: Option<std::path::PathBuf>,
 ) -> (
     Option<DoubleArrayAhoCorasick<u32>>,
     usize,
@@ -690,10 +737,28 @@ fn build_automaton(
     atom_starts.push(sig_refs.len() as u32); // sentinel
 
     let num_atoms = atoms.len();
-    let ac = if atoms.is_empty() {
+    // Building the double-array AC over hundreds of thousands of atoms allocates a
+    // ~500 MB trie transient that the OS allocator never returns (the "ghost RAM").
+    // daachorse can (de)serialize the finished automaton, so we build it once and
+    // cache the bytes; later loads deserialize (no trie, no transient). The CSR
+    // above is rebuilt deterministically from the same sorted atoms, so its atom
+    // IDs match the cached AC. The cache filename embeds a DB+format hash, so a
+    // changed database simply misses the cache and rebuilds.
+    let cached_ac: Option<DoubleArrayAhoCorasick<u32>> = cache.as_ref().and_then(|p| {
+        let bytes = std::fs::read(p).ok()?;
+        let (ac, _) = DoubleArrayAhoCorasick::<u32>::deserialize(&bytes).ok()?;
+        Some(ac)
+    });
+    let ac: Option<DoubleArrayAhoCorasick<u32>> = if atoms.is_empty() {
         None
+    } else if let Some(ac) = cached_ac {
+        Some(ac)
     } else {
-        DoubleArrayAhoCorasick::<u32>::new(&atoms).ok()
+        let built = DoubleArrayAhoCorasick::<u32>::new(&atoms).ok();
+        if let (Some(ac), Some(p)) = (&built, &cache) {
+            let _ = std::fs::write(p, ac.serialize());
+        }
+        built
     };
     drop(atoms);
     drop(entries);
