@@ -701,6 +701,18 @@ impl Engine {
                 return;
             }
         }
+        if !signature.intermediates.is_empty() {
+            // ClamAV intermediates_eval: the ancestor container-type chain must
+            // match the recursion stack (innermost = the immediate parent). We
+            // track only the immediate parent, so a single-level intermediate is
+            // checked against it; a multi-level chain we cannot confirm and so do
+            // not fire on (avoids a false positive, never alerts spuriously).
+            let inner = signature.intermediates.last().map(String::as_str).unwrap_or("");
+            let inner_ok = inner == "CL_TYPE_ANY" || ctx.container_type == Some(inner);
+            if !inner_ok || signature.intermediates.len() > 1 {
+                return;
+            }
+        }
         if let Some((min, max)) = signature.nos {
             // NumberOfSections applies to PE files; without PE info it can't hold.
             let n = match ctx.pe.as_ref() {
@@ -719,6 +731,25 @@ impl Engine {
                 None => return,
             };
             if ep < min || ep > max {
+                return;
+            }
+        }
+        // IconGroup1/2 (ClamAV matchicon): the PE must carry an icon matching an
+        // `.idb` fingerprint in the requested groups, else the signature can't fire.
+        if signature.icongrp1.is_some() || signature.icongrp2.is_some() {
+            let pe = match ctx.pe.as_ref() {
+                Some(pe) => pe,
+                None => return,
+            };
+            if !crate::icon_match::matchicon(
+                ctx.data,
+                &pe.sections,
+                pe.size_of_headers,
+                pe.res_rva,
+                &self.database.icons,
+                signature.icongrp1.as_deref(),
+                signature.icongrp2.as_deref(),
+            ) {
                 return;
             }
         }
@@ -879,6 +910,13 @@ impl Engine {
         }
 
         if signature.expression.eval(&counts).matched {
+            // HandlerType (ClamAV lsig_eval): a matching signature does NOT alert.
+            // Instead ClamAV re-types the file and rescans as `handlertype`. We
+            // faithfully suppress the alert; the re-typed rescan would only surface
+            // a *different* nested detection, never this signature's name.
+            if signature.handlertype.is_some() {
+                return;
+            }
             // A bytecode trigger does not alert on its own — it runs the ClamBC
             // program, which decides the verdict via setvirusname (cli_bytecode_runlsig).
             if let Some(bc_idx) = signature.bytecode {
@@ -1845,12 +1883,17 @@ mod tests {
     }
 
     #[test]
-    fn tdb_icongroup_is_skipped_not_false_positive() {
-        // IconGroup can't be evaluated → the sig must be skipped (no FP), even
-        // though its body "AB" is present. This is the mass-FP fix.
+    fn tdb_icongroup_evaluated_no_false_positive() {
+        // IconGroup is now evaluated by the icon matcher (matchicon). It is no
+        // longer an "unsupported" TDB, so it produces no warning; and on a non-PE
+        // buffer the icon constraint can't hold, so the sig does NOT fire even
+        // though its body "AB" is present — still no false positive.
         let (engine, warnings) =
             engine_with_logical("Test.Icon;Engine:1-255,IconGroup1:BROWSER,Target:0;0;4142");
-        assert!(!warnings.is_empty(), "should warn about unsupported TDB");
+        assert!(
+            warnings.is_empty(),
+            "IconGroup is supported now; no unsupported-TDB warning"
+        );
         assert!(engine.scan_bytes(b"xxAByy", ScanOptions::default()).is_empty());
     }
 

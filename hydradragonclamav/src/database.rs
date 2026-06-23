@@ -15,7 +15,8 @@ pub struct Database {
     pub file_type_magic: Vec<FileTypeMagic>,
     /// Phishing URL databases (`.pdb`/`.gdb` protected domains, `.wdb` allow list).
     pub phishing: crate::phishing::PhishingDb,
-    /// Icon signatures (`.idb`) — fingerprints loaded; image matcher is follow-up.
+    /// Icon signatures (`.idb`) — fingerprints loaded and matched against PE icons
+    /// by `icon_match` (evaluates `IconGroup1/2` TDB constraints).
     pub icons: crate::icon::IconMatcher,
     /// Certificate trust/block rules (`.crb`) — records loaded; Authenticode
     /// verification is a follow-up.

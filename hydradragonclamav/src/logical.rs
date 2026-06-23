@@ -62,6 +62,17 @@ pub struct LogicalSignature {
     /// `EntryPoint:min-max` TDB constraint — the PE entry point's raw file offset
     /// must be in `[min, max]` (requires a parsed PE).
     pub ep: Option<(u32, u32)>,
+    /// `IconGroup1`/`IconGroup2` TDB constraints — the PE must carry an icon
+    /// matching an `.idb` fingerprint in these groups (evaluated by the icon
+    /// matcher; `None` means the constraint is absent).
+    pub icongrp1: Option<String>,
+    pub icongrp2: Option<String>,
+    /// `HandlerType:CL_TYPE_X` — when the signature matches, ClamAV re-types the
+    /// file and rescans rather than alerting, so a match here must NOT alert.
+    pub handlertype: Option<String>,
+    /// `Intermediates:A>B` — the ancestor container-type chain the recursion
+    /// stack must match (innermost last), or empty if absent.
+    pub intermediates: Vec<String>,
     /// True when the TDB attribute block carries a constraint we cannot yet
     /// evaluate (IconGroup1/2, HandlerType, Intermediates, …). Such a signature
     /// gates its match on context we don't have, so matching its body alone would
@@ -293,11 +304,15 @@ pub fn parse_logical_signature(
         .map_or(false, |(min, max)| {
             crate::bytecode_vm::ENGINE_FLEVEL < min || crate::bytecode_vm::ENGINE_FLEVEL > max
         });
-    let (file_size, container, nos, ep, tdb_unsupported) = (
+    let (file_size, container, nos, ep, icongrp1, icongrp2, handlertype, intermediates, tdb_unsupported) = (
         tdb.file_size,
         tdb.container,
         tdb.nos,
         tdb.ep,
+        tdb.icongrp1,
+        tdb.icongrp2,
+        tdb.handlertype,
+        tdb.intermediates,
         tdb.unsupported || engine_out_of_range,
     );
     let mut warnings = Vec::new();
@@ -327,6 +342,10 @@ pub fn parse_logical_signature(
             container,
             nos,
             ep,
+            icongrp1,
+            icongrp2,
+            handlertype,
+            intermediates,
             tdb_unsupported,
             expression,
             subsignatures,
@@ -347,6 +366,14 @@ struct Tdb {
     ep: Option<(u32, u32)>,
     /// `Engine:min-max` functionality-level range, for load-time gating.
     engine: Option<(u32, u32)>,
+    /// `IconGroup1`/`IconGroup2` — the PE must carry an icon matching an `.idb`
+    /// fingerprint in these groups (evaluated by the icon matcher).
+    icongrp1: Option<String>,
+    icongrp2: Option<String>,
+    /// `HandlerType:CL_TYPE_X` — re-type + rescan instead of alerting.
+    handlertype: Option<String>,
+    /// `Intermediates:A>B` — required ancestor container-type chain.
+    intermediates: Vec<String>,
     unsupported: bool,
 }
 
@@ -389,6 +416,18 @@ fn parse_tdb(block: &str) -> Tdb {
                 Some((lo, hi)) => tdb.nos = Some((lo as u32, hi as u32)),
                 None => tdb.unsupported = true,
             },
+            // Icon group constraints — evaluated by the icon matcher (matchicon).
+            "IconGroup1" if !val.is_empty() => tdb.icongrp1 = Some(val.to_string()),
+            "IconGroup2" if !val.is_empty() => tdb.icongrp2 = Some(val.to_string()),
+            // HandlerType: ClamAV re-types and rescans the file as this type
+            // *instead of alerting* (matcher.c lsig_eval). We record it so the
+            // scanner suppresses the alert exactly like ClamAV.
+            "HandlerType" if !val.is_empty() => tdb.handlertype = Some(val.to_string()),
+            // Intermediates: `A>B` chain of ancestor container types that the
+            // recursion stack must match (matcher.c intermediates_eval).
+            "Intermediates" if !val.is_empty() => {
+                tdb.intermediates = val.split('>').map(|s| s.trim().to_string()).collect();
+            }
             _ => tdb.unsupported = true,
         }
     }

@@ -5,6 +5,11 @@ pub struct PeInfo {
     /// ClamAV's `vinfo`: sorted file offsets where `VS_VERSION_INFO` string
     /// entries begin. A `VI`-anchored signature matches only at one of these.
     pub vinfo: Vec<u32>,
+    /// Resource data-directory RVA (`dirs[2].VirtualAddress`), 0 if none — used by
+    /// the icon matcher to walk `RT_GROUP_ICON`/`RT_ICON`.
+    pub res_rva: u32,
+    /// PE `SizeOfHeaders`, for `cli_rawaddr` RVA→offset mapping in resource walks.
+    pub size_of_headers: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -80,6 +85,8 @@ pub fn parse_pe(data: &[u8]) -> Option<PeInfo> {
         entry_point_offset,
         sections,
         vinfo,
+        res_rva,
+        size_of_headers,
     })
 }
 

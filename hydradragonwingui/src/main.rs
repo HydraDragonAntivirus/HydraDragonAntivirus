@@ -42,7 +42,7 @@ use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM
 use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::UI::Controls::{
     InitCommonControlsEx, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, LVCF_SUBITEM, LVCF_TEXT,
-    LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW, NMHDR, NMLVCUSTOMDRAW,
+    LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LIST_VIEW_ITEM_STATE_FLAGS, LVITEMW, NMHDR, NMLVCUSTOMDRAW,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
@@ -84,6 +84,8 @@ const CMD_COPY: usize = 14;
 const CMD_START_ENGINE: usize = 15;
 const CMD_STOP_ENGINE: usize = 16;
 const CMD_PAUSE: usize = 17;
+const CMD_SELECT_ALL: usize = 18;
+const CMD_DESELECT_ALL: usize = 19;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
@@ -132,6 +134,8 @@ mod msg {
     pub const LVM_SETITEMTEXTW: u32 = LVM_FIRST + 116;
     pub const LVM_INSERTCOLUMNW: u32 = LVM_FIRST + 97;
     pub const LVM_SETEXTENDEDLISTVIEWSTYLE: u32 = LVM_FIRST + 54;
+    pub const LVM_GETITEMSTATE: u32 = LVM_FIRST + 44;
+    pub const LVM_SETITEMSTATE: u32 = LVM_FIRST + 43;
 }
 mod sty {
     pub const CHILD: u32 = 0x4000_0000;
@@ -142,6 +146,7 @@ mod sty {
     pub const LVS_EX_GRIDLINES: u32 = 0x0000_0001;
     pub const LVS_EX_FULLROWSELECT: u32 = 0x0000_0020;
     pub const LVS_EX_DOUBLEBUFFER: u32 = 0x0001_0000;
+    pub const LVS_EX_CHECKBOXES: u32 = 0x0000_0004;
     pub const LVNI_SELECTED: isize = 0x0002;
 }
 // Custom-draw notification + stages (raw NM/CDDS/CDRF values).
@@ -157,6 +162,9 @@ const CDRF_NOTIFYITEMDRAW: isize = 0x0000_0020;
 const CDRF_NOTIFYPOSTPAINT: isize = 0x0000_0010;
 #[allow(dead_code)]
 const CDRF_NOTIFYSUBITEMDRAW: isize = 0x0000_0020; // same bit, used for subitems
+
+/// State-image mask for ListView checkbox state (bits 12-15).
+const LVIS_STATEIMAGEMASK: usize = 0xF000;
 
 // ---------------------------------------------------------------------------
 // Palette (light, modern). COLORREF is 0x00BBGGRR.
@@ -654,6 +662,14 @@ unsafe fn on_create(hwnd: HWND) {
 
     let lv = sty::CHILD | sty::VISIBLE | sty::LVS_REPORT;
     let scan_list = make_list(hwnd, hinst, lv, ID_SCAN_LIST, fonts.body);
+    // Enable checkboxes on the scan results list so the user can select which
+    // threats to clean — the check state is independent of selection highlights.
+    SendMessageW(
+        scan_list,
+        msg::LVM_SETEXTENDEDLISTVIEWSTYLE,
+        Some(WPARAM(sty::LVS_EX_CHECKBOXES as usize)),
+        Some(LPARAM(sty::LVS_EX_CHECKBOXES as isize)),
+    );
     lv_col(scan_list, 0, "File", 470);
     lv_col(scan_list, 1, "Verdict", 120);
     lv_col(scan_list, 2, "Threat", 240);
@@ -994,12 +1010,12 @@ unsafe fn paint(hwnd: HWND) {
     // Bottom border across full header.
     fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 1 }, t.border);
 
-    // Logo: rounded-square badge with HydraDragon H (smaller, tighter).
+    // Logo: rounded-square badge with a shield icon.
     let lsz = 38;
     let lpad = (HEADER_H - lsz) / 2;
     let logo = RECT { left: PAD, top: lpad, right: PAD + lsz, bottom: lpad + lsz };
     fill_round(mem, logo, 10, t.accent);
-    text(mem, "H", &logo, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    text(mem, "\u{E83D}", &logo, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // App name + tagline.
     let tx = logo.right + 12;
@@ -1109,7 +1125,7 @@ unsafe fn paint(hwnd: HWND) {
         let bsz = 76;
         let badge = RECT { left: cx - bsz / 2, top: cy - bsz - 12, right: cx + bsz / 2, bottom: cy - 12 };
         fill_round(mem, badge, bsz / 2, t.accent);
-        text(mem, "H", &badge, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        text(mem, "\u{E83D}", &badge, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         text(
             mem,
             "Loading engines…",
@@ -1236,7 +1252,7 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     let (accent, glyph, head, sub) = match s.scan_state {
         ScanState::Idle => (
             t.accent,
-            "H",
+            "\u{E83D}",
             "Ready to scan".to_string(),
             if s.sig_count > 0 {
                 format!("{} signatures loaded — run a scan to check for threats.", fmt_count(s.sig_count))
@@ -1744,6 +1760,14 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             quarantine_action(s, false);
             let _ = InvalidateRect(Some(hwnd), None, false);
         }
+        CMD_SELECT_ALL => {
+            lv_check_all(s.scan_list, true);
+            let _ = InvalidateRect(Some(s.scan_list), None, true);
+        }
+        CMD_DESELECT_ALL => {
+            lv_check_all(s.scan_list, false);
+            let _ = InvalidateRect(Some(s.scan_list), None, true);
+        }
         CMD_CLEAR_CACHE => {
             if confirm(
                 hwnd,
@@ -1766,7 +1790,8 @@ unsafe fn on_context_menu(hwnd: HWND, src: HWND, (mut x, mut y): (i32, i32)) {
     if src != s.scan_list || s.page != 0 {
         return;
     }
-    if lv_selected(s.scan_list).is_empty() {
+    let item_count = SendMessageW(s.scan_list, msg::LVM_GETITEMCOUNT, None, None).0;
+    if item_count == 0 {
         return;
     }
     // Keyboard-invoked (Shift+F10 / menu key) gives (-1,-1): use the cursor.
@@ -1781,10 +1806,13 @@ unsafe fn on_context_menu(hwnd: HWND, src: HWND, (mut x, mut y): (i32, i32)) {
     if menu.is_invalid() {
         return;
     }
+    let _ = AppendMenuW(menu, MF_STRING, CMD_SELECT_ALL, w!("Select All"));
+    let _ = AppendMenuW(menu, MF_STRING, CMD_DESELECT_ALL, w!("Deselect All"));
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, CMD_RESCAN, w!("Rescan Selected"));
     let _ = AppendMenuW(menu, MF_STRING, CMD_COPY, w!("Copy"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = AppendMenuW(menu, MF_STRING, CMD_CLEAN, w!("Clean Selected"));
+    let _ = AppendMenuW(menu, MF_STRING, CMD_CLEAN, w!("Clean Checked"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, CMD_SAVE_RESULTS, w!("Save Results\u{2026}"));
 
@@ -2075,19 +2103,19 @@ unsafe fn set_clipboard_text(hwnd: HWND, text: &str) -> bool {
     ok
 }
 
-/// United "Clean & Remove Traces": neutralize/quarantine the selected detections
+/// United "Clean & Remove Traces": neutralize/quarantine the checked detections
 /// AND remove their Windows traces, behind a single confirmation.
 unsafe fn act_clean_and_traces(hwnd: HWND, s: &mut AppState) {
-    let paths: Vec<PathBuf> = lv_selected(s.scan_list)
+    let paths: Vec<PathBuf> = lv_checked(s.scan_list)
         .into_iter()
         .filter_map(|i| s.scan_rows.get(i as usize).cloned())
         .collect();
     if paths.is_empty() {
-        set_status(hwnd, s, "Select one or more detected files first.");
+        set_status(hwnd, s, "Check one or more detected files first.");
         return;
     }
     let prompt = format!(
-        "Clean {} selected file(s) AND remove their Windows traces?\n\
+        "Clean {} checked file(s) AND remove their Windows traces?\n\
          Matched regions are neutralized in place (a .bak is kept) or the file is \
          quarantined; a System Restore Point and per-key .reg backups are created first.",
         paths.len()
@@ -2372,6 +2400,55 @@ unsafe fn lv_selected(list: HWND) -> Vec<i32> {
         idx = r;
     }
     out
+}
+
+/// Return the indices of all checked (checkbox-ticked) rows. Each row's state
+/// image index is stored in bits 12-15 of the item state (1 = unchecked, 2 = checked).
+unsafe fn lv_checked(list: HWND) -> Vec<i32> {
+    let mut out = Vec::new();
+    let count = SendMessageW(list, msg::LVM_GETITEMCOUNT, None, None).0 as i32;
+    for i in 0..count {
+        let state = SendMessageW(
+            list,
+            msg::LVM_GETITEMSTATE,
+            Some(WPARAM(i as usize)),
+            Some(LPARAM(LVIS_STATEIMAGEMASK as isize)),
+        )
+        .0;
+        if (state >> 12) == 2 {
+            out.push(i);
+        }
+    }
+    out
+}
+
+/// Set the checkbox state of one row (true = checked, false = unchecked).
+unsafe fn lv_set_check(list: HWND, index: i32, checked: bool) {
+    let state = if checked {
+        LIST_VIEW_ITEM_STATE_FLAGS(0x2000)
+    } else {
+        LIST_VIEW_ITEM_STATE_FLAGS(0x1000)
+    };
+    let item = LVITEMW {
+        stateMask: LIST_VIEW_ITEM_STATE_FLAGS(0xF000),
+        state,
+        iItem: index,
+        ..Default::default()
+    };
+    SendMessageW(
+        list,
+        msg::LVM_SETITEMSTATE,
+        Some(WPARAM(index as usize)),
+        Some(LPARAM(&item as *const _ as isize)),
+    );
+}
+
+/// Check or uncheck every row in the list.
+unsafe fn lv_check_all(list: HWND, checked: bool) {
+    let count = SendMessageW(list, msg::LVM_GETITEMCOUNT, None, None).0 as i32;
+    for i in 0..count {
+        lv_set_check(list, i, checked);
+    }
 }
 
 /// Color scan rows by severity and draw a small severity pill in the Verdict column.

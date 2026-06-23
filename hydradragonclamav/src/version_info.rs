@@ -154,7 +154,7 @@ fn parse_version_resource(
     // Clamp the resource to what's actually present in the buffer.
     let start = vi_off as usize;
     let avail = data.len().saturating_sub(start);
-    let mut res_sz = (res_sz as usize).min(avail) as u32;
+    let res_sz = (res_sz as usize).min(avail) as u32;
     // `pos` tracks the absolute file offset (ClamAV's `vptr - baseptr`).
     let mut pos = vi_off;
 

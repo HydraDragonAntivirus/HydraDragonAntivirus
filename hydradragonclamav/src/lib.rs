@@ -4,6 +4,7 @@ pub mod cert;
 pub mod database;
 pub mod fuzzy;
 pub mod icon;
+pub mod icon_match;
 pub mod logical;
 pub mod pattern;
 pub mod pe;

@@ -319,7 +319,7 @@ fn print_report(report: &LoadReport) {
     print_bucket(
         "icon (idb)",
         report.icon_files,
-        "fingerprints loaded — matcher follow-up",
+        "fingerprints loaded + matched (IconGroup1/2)",
     );
     print_bucket(
         "cert trust (crb/cat)",
