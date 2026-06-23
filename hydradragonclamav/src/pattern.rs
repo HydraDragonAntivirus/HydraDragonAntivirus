@@ -1135,12 +1135,14 @@ fn extract_specials(raw: &str) -> Result<(String, Vec<Special>), String> {
 /// Parse a `|`-separated alternation body into a [`Special`].
 fn parse_alternation(content: &str, negative: bool) -> Result<Special, String> {
     let alts: Vec<&str> = content.split('|').collect();
-    if alts.iter().any(|a| a.is_empty()) {
-        return Err("empty alternation branch".to_string());
-    }
-    let all_hex = alts
-        .iter()
-        .all(|a| a.len() % 2 == 0 && a.bytes().all(|c| c.is_ascii_hexdigit()));
+    // An empty branch (`(aa|)`) makes the alternation optional — ClamAV allows it.
+    // It is handled by the generic `AltStr` matcher, where a zero-length branch
+    // matches zero-width, so we exclude the fixed-width fast paths in that case.
+    let has_empty = alts.iter().any(|a| a.is_empty());
+    let all_hex = !has_empty
+        && alts
+            .iter()
+            .all(|a| a.len() % 2 == 0 && a.bytes().all(|c| c.is_ascii_hexdigit()));
     let all_single = all_hex && alts.iter().all(|a| a.len() == 2);
     let all_same = all_hex && alts.iter().all(|a| a.len() == alts[0].len());
 

@@ -157,6 +157,10 @@ pub struct LoadReport {
     pub ign_entries: usize,
     /// Signatures skipped because their name is in the ignore set.
     pub ignored_skipped: usize,
+    /// Logical signatures skipped because they carry an unrecognised TDB attribute
+    /// (typically a typo'd key). ClamAV's `init_tdb` returns `CL_BREAK` and skips
+    /// these too — not a detection gap, so tracked separately from parse errors.
+    pub tdb_attr_skipped: usize,
     // Per-category file counts for the not-yet-matched / non-detection extensions,
     // so every file in `files_seen` is accounted for (no silent drops). Each of
     // these also pushes one `UnsupportedRecord` naming the exact disposition.
@@ -357,22 +361,32 @@ fn load_file(
         // .ign/.ign2 were consumed in the first pass (collect_ignored).
         ExtKind::Ignore => return Ok(()),
 
-        // Everything else is a real ClamAV format we don't yet *match*, but it
-        // must still be accounted for — count it by category and record a precise
-        // disposition so `--list-unsupported` names exactly what was deferred and
-        // the report sums to 100% of files_seen. Nothing is silently dropped.
+        // `.cfg` (engine config) and `.info`/`.dat`/`.pwdb`/`.sign` (container
+        // metadata / archive passwords) are NOT detection databases — ClamAV
+        // produces no detections from them either. They are accounted for in their
+        // own buckets and shown in the report, but they are not a detection gap, so
+        // they are not counted as "unsupported".
+        ExtKind::Config => {
+            report.config_files += 1;
+            return Ok(());
+        }
+        ExtKind::Metadata => {
+            report.metadata_files += 1;
+            return Ok(());
+        }
+
+        // Everything else is a real ClamAV detection format we don't yet *match*,
+        // but it must still be accounted for — count it by category and record a
+        // precise disposition so `--list-unsupported` names exactly what was
+        // deferred and the report sums to 100% of files_seen.
         ExtKind::CertCat
         | ExtKind::Ioc
-        | ExtKind::Config
-        | ExtKind::Metadata
         | ExtKind::ContainerDb
         | ExtKind::Deprecated
         | ExtKind::Unknown => {
             match kind {
                 ExtKind::CertCat => report.cert_files += 1,
                 ExtKind::Ioc => report.ioc_files += 1,
-                ExtKind::Config => report.config_files += 1,
-                ExtKind::Metadata => report.metadata_files += 1,
                 ExtKind::ContainerDb => report.container_db_files += 1,
                 ExtKind::Deprecated => report.deprecated_files += 1,
                 ExtKind::Unknown => report.unknown_files += 1,
@@ -459,6 +473,11 @@ fn load_file(
                     }
                     database.logical.push(signature);
                     report.logical_loaded += 1;
+                }
+                // An unrecognised TDB attribute is a clean skip (ClamAV CL_BREAK),
+                // not a malformed-parse error — count it as such.
+                Err(message) if message.starts_with("unrecognised TDB attribute") => {
+                    report.tdb_attr_skipped += 1;
                 }
                 Err(message) => push_error(report, source, message),
             },

@@ -492,6 +492,7 @@ fn evaluate_one_rule(
                 family: rule.family.clone(),
                 evidence,
                 mitre,
+                expected_reverted_value: rule.expected_reverted_value.clone(),
             }
         })
     };

@@ -1,0 +1,1368 @@
+name: PUM Registry Modification Rules
+version: "1.0"
+# Potentially Unwanted Modifications (PUM) — system policy/security settings that
+# malware or unwanted software changes to weaken the system, disable tools, or
+# lock out the user. Each rule includes the expected "reverted" value so the
+# remediation step knows what to restore.
+rules:
+  - id: PUM_0001
+    title: "DisableTaskMgr — Task Manager disabled"
+    description: >
+      Task Manager has been disabled via policy. This is a common malware
+      technique to prevent the user from terminating malicious processes.
+      Expected reverted value: 0 (DWORD)
+    severity: high
+    verdict: pua
+    confidence: 85
+    family: PUM.DisableTaskMgr
+    score: 50
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - anti_analysis
+      - disable_task_mgr
+    mitre:
+      - id: T1562.001
+        name: Disable or Modify Tools
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableTaskMgr"
+        nocase: true
+      - type: string_contains
+        value: "Policies\\System"
+        nocase: true
+
+  - id: PUM_0002
+    title: "DisableCMD — Command Prompt disabled"
+    description: >
+      Access to the command prompt (cmd.exe) has been disabled via policy.
+      Malware often does this to prevent users from running repair tools.
+      Expected reverted value: 0 (DWORD)
+    severity: high
+    verdict: pua
+    confidence: 80
+    family: PUM.DisableCMD
+    score: 45
+    expected_reverted_value: "0"
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - anti_analysis
+      - disable_cmd
+    mitre:
+      - id: T1562.001
+        name: Disable or Modify Tools
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableCMD"
+        nocase: true
+      - type: string_contains
+        value: "Policies\\System"
+        nocase: true
+
+  - id: PUM_0003
+    title: "NoFolderOptions — Folder Options hidden"
+    description: >
+      The Folder Options menu item has been removed from File Explorer,
+      preventing users from viewing hidden and system files.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 75
+    family: PUM.NoFolderOptions
+    score: 40
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - hide_files
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoFolderOptions"
+        nocase: true
+
+  - id: PUM_0004
+    title: "NoControlPanel — Control Panel disabled"
+    description: >
+      Access to the Control Panel has been disabled via policy, preventing
+      users from changing system settings.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 75
+    family: PUM.NoControlPanel
+    score: 40
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - lockdown
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoControlPanel"
+        nocase: true
+
+  - id: PUM_0005
+    title: "DisableRegistryTools — Registry Editor disabled"
+    description: >
+      The Registry Editor (regedit.exe) has been disabled via policy,
+      preventing users from viewing or repairing registry settings.
+      Expected reverted value: 0 (DWORD)
+    severity: high
+    verdict: pua
+    confidence: 85
+    family: PUM.DisableRegistryTools
+    score: 50
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - anti_analysis
+      - lockout
+    mitre:
+      - id: T1562.001
+        name: Disable or Modify Tools
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableRegistryTools"
+        nocase: true
+
+  - id: PUM_0006
+    title: "NoDriveTypeAutoRun — AutoRun disabled for all drives"
+    description: >
+      Malware may disable AutoRun for all drives to prevent its own
+      propagation from triggering alerts, or to lock out USB autorun.
+      Expected reverted value: 0x91 or 0xFF (DWORD, depending on policy)
+    severity: low
+    verdict: suspicious
+    confidence: 40
+    family: PUM.AutoRunPolicy
+    score: 20
+    expected_reverted_value: "0x91"
+    tags:
+      - pum
+      - registry
+      - autorun
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoDriveTypeAutoRun"
+        nocase: true
+
+  - id: PUM_0007
+    title: "NoViewOnDrive — Drive hiding policy active"
+    description: >
+      Specific drives have been hidden from File Explorer via policy,
+      possibly to conceal malicious content.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: suspicious
+    confidence: 50
+    family: PUM.DriveHidePolicy
+    score: 30
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - hide_files
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoViewOnDrive"
+        nocase: true
+
+  - id: PUM_0008
+    title: "DisableSystemRestore — System Restore disabled"
+    description: >
+      System Restore has been disabled via policy, preventing recovery
+      from malware infection. Expected reverted value: 0 (DWORD)
+    severity: high
+    verdict: pua
+    confidence: 85
+    family: PUM.DisableSystemRestore
+    score: 55
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - sabotage
+    mitre:
+      - id: T1490
+        name: Inhibit System Recovery
+        tactic: Impact
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableSystemRestore"
+        nocase: true
+
+  - id: PUM_0009
+    title: "HideSCAHealth — Security Center notifications hidden"
+    description: >
+      Windows Security Center (Action Center) health notifications have
+      been disabled, allowing malware to operate without alerts.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 70
+    family: PUM.HideSecurityCenter
+    score: 35
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - stealth
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "HideSCAHealth"
+        nocase: true
+
+  - id: PUM_0010
+    title: "EnableLUA — UAC disabled"
+    description: >
+      User Account Control (UAC) has been disabled. This dramatically
+      reduces security and is a common malware technique.
+      Expected reverted value: 1 (DWORD)
+    severity: critical
+    verdict: malware
+    confidence: 90
+    family: PUM.UACDisabled
+    score: 70
+    expected_reverted_value: "1"
+    tags:
+      - pum
+      - registry
+      - uac
+      - privilege_escalation
+    mitre:
+      - id: T1548
+        name: Abuse Elevation Control Mechanism
+        tactic: Privilege Escalation
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "EnableLUA"
+        nocase: true
+      - type: string_contains
+        value: "0"
+      - type: string_contains
+        value: "Policies\\System"
+        nocase: true
+
+  - id: PUM_0011
+    title: "ConsentPromptBehaviorAdmin — Silent UAC elevation"
+    description: >
+      UAC is configured to auto-approve elevation requests without
+      prompting (value 0), bypassing all admin consent checks.
+      Expected reverted value: 2 or 5 (DWORD)
+    severity: high
+    verdict: malware
+    confidence: 85
+    family: PUM.UACAutoElevate
+    score: 60
+    expected_reverted_value: "5"
+    tags:
+      - pum
+      - registry
+      - uac
+      - privilege_escalation
+    mitre:
+      - id: T1548
+        name: Abuse Elevation Control Mechanism
+        tactic: Privilege Escalation
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "ConsentPromptBehaviorAdmin"
+        nocase: true
+
+  - id: PUM_0012
+    title: "EnableFirewall — Windows Firewall disabled"
+    description: >
+      The Windows Firewall has been disabled via policy, leaving the
+      system exposed to network-based attacks.
+      Expected reverted value: 1 (DWORD)
+    severity: high
+    verdict: malware
+    confidence: 85
+    family: PUM.FirewallDisabled
+    score: 60
+    expected_reverted_value: "1"
+    tags:
+      - pum
+      - registry
+      - firewall
+      - network
+    mitre:
+      - id: T1562.004
+        name: Disable or Modify System Firewall
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "EnableFirewall"
+        nocase: true
+
+  - id: PUM_0013
+    title: "DisableAntiSpyware — Windows Defender disabled"
+    description: >
+      Windows Defender (Microsoft Defender Antivirus) has been disabled
+      via registry, removing real-time protection.
+      Expected reverted value: 0 (DWORD)
+    severity: critical
+    verdict: malware
+    confidence: 95
+    family: PUM.DefenderDisabled
+    score: 80
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - defender
+      - antivirus_disable
+    mitre:
+      - id: T1562.001
+        name: Disable or Modify Tools
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableAntiSpyware"
+        nocase: true
+      - type: string_contains
+        value: "1"
+
+  - id: PUM_0014
+    title: "TamperProtectionDisabled — Defender Tamper Protection off"
+    description: >
+      Microsoft Defender's Tamper Protection has been disabled. This allows
+      malware to modify Defender settings without triggering alerts.
+      Expected reverted value: 0 (DWORD)
+    severity: critical
+    verdict: malware
+    confidence: 95
+    family: PUM.TamperProtectionOff
+    score: 85
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - defender
+      - tamper_protection
+    mitre:
+      - id: T1562.001
+        name: Disable or Modify Tools
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "TamperProtection"
+        nocase: true
+
+  - id: PUM_0015
+    title: "NoPublishingWizard — Windows Remote Assistance locked"
+    description: >
+      Windows Remote Assistance and related publishing features have been
+      disabled via policy.
+      Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 30
+    family: PUM.RemoteAssistanceDisabled
+    score: 15
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoPublishingWizard"
+        nocase: true
+
+  - id: PUM_0016
+    title: "AutoAdminLogon — Automatic admin logon enabled"
+    description: >
+      The system is configured to automatically log on as an administrator,
+      storing the password in the registry. This is a major security risk.
+      Expected reverted value: 0 (DWORD)
+    severity: high
+    verdict: pua
+    confidence: 80
+    family: PUM.AutoAdminLogon
+    score: 50
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - credentials
+    mitre:
+      - id: T1552
+        name: Unsecured Credentials
+        tactic: Credential Access
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "AutoAdminLogon"
+        nocase: true
+      - type: string_contains
+        value: "1"
+
+  - id: PUM_0017
+    title: "NoDriveTypeAutoRun — AutoRun disabled for specific drives"
+    description: >
+      AutoRun has been disabled on specific drive types, which may be used
+      by malware to disable USB propagation or by administrators.
+      Expected reverted value: 0x91 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 35
+    family: PUM.NoDriveTypeAutoRun
+    score: 20
+    expected_reverted_value: "0x91"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+        nocase: true
+      - type: string_contains
+        value: "NoDriveTypeAutoRun"
+        nocase: true
+
+  - id: PUM_0018
+    title: "DisableLockWorkstation — Workstation lock disabled"
+    description: >
+      The ability to lock the workstation has been disabled via policy.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 60
+    family: PUM.LockDisabled
+    score: 30
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableLockWorkstation"
+        nocase: true
+
+  - id: PUM_0019
+    title: "NoClose — Shut down disabled"
+    description: >
+      The ability to shut down the system has been disabled via policy.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 70
+    family: PUM.ShutdownDisabled
+    score: 35
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - lockout
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoClose"
+        nocase: true
+
+  - id: PUM_0020
+    title: "RestrictAnonymous — Anonymous access restricted"
+    description: >
+      Anonymous access to the system has been restricted via policy.
+      While sometimes intentional, it can also be used by malware to
+      prevent other security tools from querying the system.
+      Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 20
+    family: PUM.RestrictAnonymous
+    score: 15
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "RestrictAnonymous"
+        nocase: true
+
+  - id: PUM_0021
+    title: "DisableChangePassword — Password change disabled"
+    description: >
+      Users are prevented from changing their Windows password via
+      Ctrl+Alt+Del. Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 70
+    family: PUM.PasswordChangeDisabled
+    score: 35
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableChangePassword"
+        nocase: true
+      - type: string_contains
+        value: "Policies\\System"
+        nocase: true
+
+  - id: PUM_0022
+    title: "SCAEnable — Security Center disabled entirely"
+    description: >
+      Windows Security Center has been disabled entirely, preventing
+      the system from monitoring firewall, antivirus, and update status.
+      Expected reverted value: 1 (DWORD)
+    severity: high
+    verdict: pua
+    confidence: 75
+    family: PUM.SecurityCenterDisabled
+    score: 45
+    expected_reverted_value: "1"
+    tags:
+      - pum
+      - registry
+      - stealth
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "SCAEnable"
+        nocase: true
+
+  - id: PUM_0023
+    title: "HideSCAHealth — Action Center notification area hidden"
+    description: >
+      Windows Security Center alert icon has been hidden from the
+      notification area (system tray). Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 65
+    family: PUM.HideSCAHealth
+    score: 35
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - stealth
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "HideSCAHealth"
+        nocase: true
+
+  - id: PUM_0024
+    title: "ServiceDLL — Security Center service DLL altered"
+    description: >
+      The Security Center Service DLL path has been altered, which could
+      be used by malware to disable security monitoring via code injection.
+      Expected reverted value: %windir%\\System32\\wscsvc.dll
+    severity: high
+    verdict: malware
+    confidence: 90
+    family: PUM.SCSvcDLLHijack
+    score: 70
+    expected_reverted_value: "%windir%\\System32\\wscsvc.dll"
+    tags:
+      - pum
+      - registry
+      - hijack
+    mitre:
+      - id: T1574
+        name: Hijack Execution Flow
+        tactic: Persistence
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "ServiceDLL"
+        nocase: true
+      - type: string_contains
+        value: "SecurityCenter"
+        nocase: true
+
+  - id: PUM_0025
+    title: "NotificationIcon — System notification icons suppressed"
+    description: >
+      System notification icons (network, volume, battery) have been
+      suppressed via policy. Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 30
+    family: PUM.NotificationSuppressed
+    score: 15
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "{F02C1A0D-BE21-4350-A35B-6C1D3C5B2411}"
+        nocase: true
+
+  - id: PUM_0026
+    title: "NoRun — Run command removed from Start Menu"
+    description: >
+      The Run command has been removed from the Start Menu, preventing
+      users from running diagnostic tools.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 65
+    family: PUM.NoRun
+    score: 30
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - lockdown
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoRun"
+        nocase: true
+
+  - id: PUM_0027
+    title: "NoFind — Search/Find feature disabled"
+    description: >
+      The Search and Find features have been disabled via policy.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 60
+    family: PUM.NoFind
+    score: 30
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - lockdown
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoFind"
+        nocase: true
+
+  - id: PUM_0028
+    title: "NoDesktop — Desktop icons hidden"
+    description: >
+      All desktop icons have been hidden via policy.
+      Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 40
+    family: PUM.NoDesktop
+    score: 20
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoDesktop"
+        nocase: true
+
+  - id: PUM_0029
+    title: "NoTrayContextMenu — Taskbar context menu disabled"
+    description: >
+      The taskbar and system tray context menus have been disabled.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 60
+    family: PUM.NoTrayContextMenu
+    score: 30
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - lockdown
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoTrayContextMenu"
+        nocase: true
+
+  - id: PUM_0030
+    title: "NoSetTaskbar — Taskbar settings disabled"
+    description: >
+      Taskbar properties and settings access has been disabled.
+      Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 40
+    family: PUM.NoSetTaskbar
+    score: 20
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoSetTaskbar"
+        nocase: true
+
+  - id: PUM_0031
+    title: "ActiveDesktop — Active Desktop enabled"
+    description: >
+      Active Desktop (Web content on desktop) has been enabled. While
+      legitimate, malware can use this to display persistent wallpaper
+      warnings or track users.
+      Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 25
+    family: PUM.ActiveDesktop
+    score: 15
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "ActiveDesktop"
+        nocase: true
+
+  - id: PUM_0032
+    title: "Wallpaper — Desktop wallpaper forced via policy"
+    description: >
+      Desktop wallpaper has been forced via Group Policy. Malicious
+      software may use this to display ransom notes or social engineering
+      messages. Expected reverted value: empty string or policy removal
+    severity: low
+    verdict: suspicious
+    confidence: 25
+    family: PUM.ForcedWallpaper
+    score: 20
+    expected_reverted_value: ""
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "Wallpaper"
+        nocase: true
+      - type: string_contains
+        value: "Policies\\System"
+        nocase: true
+
+  - id: PUM_0033
+    title: "NoDispBackgroundPage — Display background settings hidden"
+    description: >
+      The Desktop Background settings page has been removed from the
+      Personalization Control Panel. Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 30
+    family: PUM.NoDispBackgroundPage
+    score: 15
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoDispBackgroundPage"
+        nocase: true
+
+  - id: PUM_0034
+    title: "NoDispAppearancePage — Appearance settings hidden"
+    description: >
+      The Appearance settings page has been removed from the
+      Personalization Control Panel. Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 30
+    family: PUM.NoDispAppearancePage
+    score: 15
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoDispAppearancePage"
+        nocase: true
+
+  - id: PUM_0035
+    title: "NoDispCPL — Display Control Panel hidden"
+    description: >
+      The entire Display Control Panel has been disabled.
+      Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 35
+    family: PUM.NoDispCPL
+    score: 20
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoDispCPL"
+        nocase: true
+
+  - id: PUM_0036
+    title: "NoDispScrSavPage — Screen Saver settings hidden"
+    description: >
+      The Screen Saver settings page has been removed from the
+      Personalization Control Panel. Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 30
+    family: PUM.NoDispScrSavPage
+    score: 15
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoDispScrSavPage"
+        nocase: true
+
+  - id: PUM_0037
+    title: "ScreenSaveActive — Screen saver forced active"
+    description: >
+      Screen saver has been forced to a specific (possibly malicious)
+      executable. This is a known hijack technique.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 60
+    family: PUM.ScreenSaverHijack
+    score: 35
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - hijack
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "ScreenSaveActive"
+        nocase: true
+
+  - id: PUM_0038
+    title: "SCRNSAVE.EXE — Screen saver executable hijacked"
+    description: >
+      The screen saver executable has been changed to a different file.
+      This is a classic malware persistence technique.
+      Expected reverted value: %windir%\\System32\\ssbezier.scr (or default)
+    severity: high
+    verdict: pua
+    confidence: 75
+    family: PUM.ScreenSaverEXEHijack
+    score: 45
+    expected_reverted_value: ""
+    tags:
+      - pum
+      - registry
+      - persistence
+      - hijack
+    mitre:
+      - id: T1546.002
+        name: Screensaver
+        tactic: Persistence
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "SCRNSAVE.EXE"
+        nocase: true
+
+  - id: PUM_0039
+    title: "NoLogonUI — Logon UI disabled"
+    description: >
+      The interactive logon UI has been disabled, preventing normal user
+      logon. Expected reverted value: 0 (DWORD)
+    severity: critical
+    verdict: malware
+    confidence: 90
+    family: PUM.NoLogonUI
+    score: 75
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - lockout
+    mitre:
+      - id: T1562
+        name: Impair Defenses
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoLogonUI"
+        nocase: true
+
+  - id: PUM_0040
+    title: "LegalNoticeCaption — Legal notice caption set"
+    description: >
+      A logon legal notice caption has been configured. While
+      organizational use is legitimate, malware may use this for
+      ransomware-style messaging.
+    severity: low
+    verdict: suspicious
+    confidence: 20
+    family: PUM.LegalNotice
+    score: 10
+    expected_reverted_value: ""
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "LegalNoticeCaption"
+        nocase: true
+
+  - id: PUM_0041
+    title: "LegalNoticeText — Legal notice text set"
+    description: >
+      Logon legal notice text has been configured.
+    severity: low
+    verdict: suspicious
+    confidence: 20
+    family: PUM.LegalNotice
+    score: 10
+    expected_reverted_value: ""
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "LegalNoticeText"
+        nocase: true
+
+  - id: PUM_0042
+    title: "CachedLogonsCount — Cached logon count limited"
+    description: >
+      The number of cached interactive logons has been set to a very low
+      value, potentially preventing logon if a domain controller is
+      unavailable. Expected reverted value: 10 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 30
+    family: PUM.CachedLogonsCount
+    score: 20
+    expected_reverted_value: "10"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "CachedLogonsCount"
+        nocase: true
+
+  - id: PUM_0043
+    title: "DisableCAD — Ctrl+Alt+Del security sequence disabled"
+    description: >
+      The secure attention sequence (Ctrl+Alt+Del) has been disabled for
+      automatic logon, which can bypass a key Windows security mechanism.
+      Expected reverted value: 0 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 60
+    family: PUM.DisableCAD
+    score: 30
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableCAD"
+        nocase: true
+
+  - id: PUM_0044
+    title: "ShutdownWithoutLogon — Shutdown available without logon"
+    description: >
+      The ability to shut down the system from the logon screen has been
+      removed via policy. Expected reverted value: 0 (DWORD)
+    severity: low
+    verdict: suspicious
+    confidence: 25
+    family: PUM.ShutdownWithoutLogon
+    score: 15
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "ShutdownWithoutLogon"
+        nocase: true
+
+  - id: PUM_0045
+    title: "FilterAdministratorToken — Admin filter token enabled"
+    description: >
+      Administrator filter token has been enabled via policy, which can
+      be used to restrict admin privileges.
+    severity: low
+    verdict: harmless
+    confidence: 10
+    family: PUM.AdminFilterToken
+    score: 5
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "FilterAdministratorToken"
+        nocase: true
+
+  - id: PUM_0046
+    title: "EnableInstallerDetection — Installer detection disabled"
+    description: >
+      Windows Installer detection has been disabled, potentially allowing
+      malicious installations to bypass UAC.
+      Expected reverted value: 1 (DWORD)
+    severity: medium
+    verdict: pua
+    confidence: 55
+    family: PUM.InstallerDetectionDisabled
+    score: 30
+    expected_reverted_value: "1"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "EnableInstallerDetection"
+        nocase: true
+
+  - id: PUM_0047
+    title: "RunAsPPLBoot — LSA protection disabled at boot"
+    description: >
+      LSA (Local Security Authority) protection has been disabled at boot
+      time, allowing malware to dump credentials from LSASS.
+      Expected reverted value: 0 (DWORD)
+    severity: high
+    verdict: malware
+    confidence: 85
+    family: PUM.RunasPPLBoot
+    score: 65
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - credential_access
+    mitre:
+      - id: T1555
+        name: Credentials from Password Stores
+        tactic: Credential Access
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "RunAsPPLBoot"
+        nocase: true
+
+  - id: PUM_0048
+    title: "LimitBlankPasswordUse — Blank passwords restricted"
+    description: >
+      The policy restricting use of blank passwords has been modified.
+    severity: low
+    verdict: suspicious
+    confidence: 20
+    family: PUM.BlankPasswordPolicy
+    score: 10
+    expected_reverted_value: "1"
+    tags:
+      - pum
+      - registry
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "LimitBlankPasswordUse"
+        nocase: true
+
+  - id: PUM_0049
+    title: "Enabled — Windows Defender Real-time Protection off"
+    description: >
+      Microsoft Defender real-time monitoring has been disabled.
+      Expected reverted value: 1 (DWORD)
+    severity: high
+    verdict: pua
+    confidence: 80
+    family: PUM.DefenderRealTimeOff
+    score: 60
+    expected_reverted_value: "1"
+    tags:
+      - pum
+      - registry
+      - defender
+    mitre:
+      - id: T1562.001
+        name: Disable or Modify Tools
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "Real-Time"
+        nocase: true
+      - type: string_contains
+        value: "DisableRealtimeMonitoring"
+        nocase: true
+
+  - id: PUM_0050
+    title: "EnableComponents — Windows Defender components disabled"
+    description: >
+      Microsoft Defender core components have been disabled via registry.
+      Expected reverted value: 0 (DWORD) per component
+    severity: high
+    verdict: malware
+    confidence: 85
+    family: PUM.DefenderCompDisabled
+    score: 65
+    expected_reverted_value: "1"
+    tags:
+      - pum
+      - registry
+      - defender
+    mitre:
+      - id: T1562.001
+        name: Disable or Modify Tools
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "EnableComponents"
+        nocase: true
+
+  - id: PUM_0051
+    title: "Patching — Windows Update patching disabled"
+    description: >
+      Windows Update has been configured to never check for or apply
+      updates, leaving the system vulnerable.
+      Expected reverted value: 3 (DWORD, "Auto check and download")
+    severity: high
+    verdict: pua
+    confidence: 75
+    family: PUM.WindowsUpdateDisabled
+    score: 55
+    expected_reverted_value: "3"
+    tags:
+      - pum
+      - registry
+      - update
+    mitre:
+      - id: T1562
+        name: Impair Defenses
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "DisableWindowsUpdateAccess"
+        nocase: true
+      - type: string_contains
+        value: "AUOptions"
+        nocase: true
+
+  - id: PUM_0052
+    title: "NoWindowsUpdate — Windows Update access blocked"
+    description: >
+      Access to Windows Update has been completely blocked via policy.
+      Expected reverted value: 0 (DWORD)
+    severity: high
+    verdict: pua
+    confidence: 75
+    family: PUM.NoWindowsUpdate
+    score: 50
+    expected_reverted_value: "0"
+    tags:
+      - pum
+      - registry
+      - update
+    mitre:
+      - id: T1562
+        name: Impair Defenses
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "NoWindowsUpdate"
+        nocase: true
+
+  - id: PUM_0053
+    title: "HKCU Default — Default user settings hijacked"
+    description: >
+      The HKCU Default user profile has been modified, potentially
+      applying malicious settings to all new users.
+    severity: high
+    verdict: malware
+    confidence: 80
+    family: PUM.HKCUDefaultHijack
+    score: 60
+    expected_reverted_value: ""
+    tags:
+      - pum
+      - registry
+      - persistence
+    mitre:
+      - id: T1547
+        name: Boot or Logon Autostart Execution
+        tactic: Persistence
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "HKEY_USERS\\.Default"
+        nocase: true
+      - type: string_contains
+        value: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        nocase: true
+
+  - id: PUM_0054
+    title: "Image File Execution Options — Debugger persistence"
+    description: >
+      An Image File Execution Options (IFEO) debugger key has been set
+      for a system executable. This is a known persistence and process
+      hijacking technique. Expected reverted value: remove the value
+    severity: high
+    verdict: malware
+    confidence: 90
+    family: PUM.IFEODebugger
+    score: 65
+    expected_reverted_value: ""
+    tags:
+      - pum
+      - registry
+      - persistence
+      - ifeo
+    mitre:
+      - id: T1546.012
+        name: Image File Execution Options Injection
+        tactic: Persistence
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "Image File Execution Options"
+        nocase: true
+      - type: string_contains
+        value: "Debugger"
+        nocase: true
+
+  - id: PUM_0055
+    title: "SilentProcessExit — Silent process exit monitoring"
+    description: >
+      SilentProcessExit monitoring has been configured with a custom
+      reporting DLL or command. This can be used for process injection
+      and persistence.
+    severity: high
+    verdict: malware
+    confidence: 85
+    family: PUM.SilentProcessExit
+    score: 65
+    expected_reverted_value: ""
+    tags:
+      - pum
+      - registry
+      - persistence
+    mitre:
+      - id: T1546
+        name: Event Triggered Execution
+        tactic: Persistence
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "SilentProcessExit"
+        nocase: true
+      - type: string_contains
+        value: "ReportingMode"
+        nocase: true
+
+  - id: PUM_0057
+    title: "HostsFile — DataBasePath modified (hosts file hijack)"
+    description: >
+      The hosts file database path has been changed from its default location.
+      Malware does this to redirect the hosts file to a malicious copy.
+      Expected reverted value: %SystemRoot%\System32\drivers\etc
+    severity: high
+    verdict: pua
+    confidence: 85
+    family: PUM.HostsFile
+    score: 50
+    expected_reverted_value: ""
+    tags:
+      - pum
+      - registry
+      - hosts
+      - network
+    mitre:
+      - id: T1562
+        name: Impair Defenses
+        tactic: Defense Evasion
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "Tcpip\\Parameters"
+        nocase: true
+      - type: string_contains
+        value: "DataBasePath"
+        nocase: true
+
+  - id: PUM_0056
+    title: "Shell — Alternate Windows Shell configured"
+    description: >
+      An alternate Windows shell has been configured (non-explorer.exe).
+      This is a classic malware persistence and system lockout technique.
+      Expected reverted value: explorer.exe
+    severity: critical
+    verdict: malware
+    confidence: 95
+    family: PUM.AlternateShell
+    score: 85
+    expected_reverted_value: "explorer.exe"
+    tags:
+      - pum
+      - registry
+      - persistence
+      - shell_replace
+    mitre:
+      - id: T1547
+        name: Boot or Logon Autostart Execution
+        tactic: Persistence
+    logic: any
+    conditions:
+      - type: string_contains
+        value: "Shell"
+        nocase: true
+      - type: string_contains
+        value: "Winlogon"
+        nocase: true

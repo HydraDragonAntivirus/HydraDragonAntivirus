@@ -65,6 +65,13 @@ pub struct Rule {
     pub threshold: Option<usize>,
     #[serde(default)]
     pub conditions: Vec<RuleCondition>,
+    /// The safe/default value that should be restored when this rule matches a
+    /// registry-based PUM (Potentially Unwanted Modification). For example,
+    /// DisableTaskMgr=1 should be reverted to "0", UAC disabled (=0) to "1".
+    /// This is propagated through the Finding so remediation tools know what
+    /// to write back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_reverted_value: Option<String>,
 }
 
 fn default_score() -> u32 {

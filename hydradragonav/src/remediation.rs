@@ -29,6 +29,9 @@ use winreg::enums::*;
 use winreg::{RegKey, RegValue};
 
 use crate::disinfector::quarantine_file;
+use crate::fix_registry;
+use crate::takeown;
+use crate::registry_scanner::RegistryEntry;
 
 /// Autorun value keys where the *whole value* is a command line, so deleting the
 /// matching value is safe. (Winlogon Shell/Userinit are intentionally excluded —
@@ -106,6 +109,13 @@ pub enum TraceAction {
     },
     /// Reported only — needs manual review (e.g. Winlogon Shell/Userinit).
     ManualReview,
+    /// Fix a PUM registry entry: revert value and restore ACL.
+    FixPumRegistry {
+        hive_label: String,
+        subkey: String,
+        value_name: String,
+        expected_reverted_value: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -152,6 +162,30 @@ impl Target {
 
 /// Find all traces of `malware` across registry, services, tasks, prefetch and
 /// startup. Read-only.
+/// Create a fix action from a PUM registry entry.
+pub fn fix_pum(entry: &RegistryEntry) -> Option<Trace> {
+    if !entry.pum {
+        return None;
+    }
+    let expected = entry.expected_reverted_value.as_deref()?;
+    if expected.is_empty() {
+        return None;
+    }
+    Some(Trace {
+        category: "pum_registry",
+        description: format!(
+            "{}\\{}\\{} -> {expected}",
+            entry.hive, entry.path, entry.value_name
+        ),
+        action: TraceAction::FixPumRegistry {
+            hive_label: entry.hive.clone(),
+            subkey: entry.path.clone(),
+            value_name: entry.value_name.clone(),
+            expected_reverted_value: expected.to_string(),
+        },
+    })
+}
+
 pub fn find_traces(malware: &Path) -> Vec<Trace> {
     let target = Target::new(malware);
     let mut traces = Vec::new();
@@ -217,6 +251,19 @@ pub fn apply(trace: &Trace, quarantine_dir: &Path) -> Result<String, String> {
             let to = quarantine_file(path, quarantine_dir)
                 .map_err(|e| format!("quarantine {}: {e}", path.display()))?;
             Ok(format!("quarantined {} -> {}", path.display(), to.display()))
+        }
+        TraceAction::FixPumRegistry {
+            hive_label,
+            subkey,
+            value_name,
+            expected_reverted_value,
+        } => {
+            let r1 = fix_registry::revert_value(
+                hive_label, subkey, value_name, expected_reverted_value,
+            )?;
+            let r2 = fix_registry::restore_acl(hive_label, subkey)?;
+            let r3 = takeown::takeown_registry_key(hive_label, subkey)?;
+            Ok(format!("{r1}; {r2}; {r3}"))
         }
         TraceAction::ManualReview => {
             Err("manual review required; not removed automatically".into())

@@ -65,7 +65,9 @@ windows = { version = "0.62", features = [
     "Win32_System_Memory",
     "Win32_Storage_FileSystem",
     "Win32_System_Shutdown",
+    "Win32_System_Registry",
     "Win32_Security",
+    "Win32_Security_Authorization",
     "Win32_System_LibraryLoader",
 ] }
 
@@ -79,6 +81,7 @@ hydradragonextractor = { path = "../hydradragonextractor" }
 hydradragonclamav = { path = "../hydradragonclamav" }
 
 # Other
+yaml_serde = "0.10.4"
 regex = "1.12.2"
 sha1 = "0.11.0"
 tlsh-rs = "0.1.0"

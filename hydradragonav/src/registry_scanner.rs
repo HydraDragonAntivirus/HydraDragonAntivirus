@@ -1,10 +1,11 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use serde::Serialize;
 use winreg::enums::*;
 use winreg::RegKey;
 
+use crate::file_pum_scanner;
 use hydradragonsig::rules::RuleSet;
 use hydradragonsig::trusted_signers::PuaRegistryList;
 
@@ -16,6 +17,12 @@ pub struct RegistryEntry {
     pub value_data: String,
     pub pua_match: bool,
     pub static_match: bool,
+    /// True when the match is a PUM (Potentially Unwanted Modification) —
+    /// a registry setting that weakens security or disables tools.
+    pub pum: bool,
+    /// The safe/default value that should be restored to undo this PUM.
+    /// For example DisableTaskMgr=1 should be reverted to "0".
+    pub expected_reverted_value: Option<String>,
     pub threat_name: Option<String>,
     pub detail: String,
 }
@@ -69,6 +76,37 @@ static PERSISTENCE_PATHS_HKCU: &[&str] = &[
     r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
 ];
 
+/// PUM (Potentially Unwanted Modification) registry paths — policy and security
+/// settings that malware commonly alters to weaken the system.
+static PUM_PATHS_HKLM: &[&str] = &[
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\System",
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\ActiveDesktop",
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\WindowsUpdate",
+    r"Software\Policies\Microsoft\Windows\WindowsUpdate",
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\Windows\Safer",
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\Attachments",
+    r"Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options",
+    r"Software\Microsoft\Windows NT\CurrentVersion\SilentProcessExit",
+    r"Software\Microsoft\Windows NT\CurrentVersion\Winlogon",
+    r"Software\Microsoft\Windows Defender",
+    r"Software\Microsoft\Windows Defender\Real-Time Protection",
+    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+    r"System\CurrentControlSet\Control\Lsa",
+    r"System\CurrentControlSet\Control\Lsa\MSV1_0",
+    r"System\CurrentControlSet\Services\Tcpip\Parameters",
+];
+
+static PUM_PATHS_HKCU: &[&str] = &[
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\System",
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\ActiveDesktop",
+    r"Software\Microsoft\Windows\CurrentVersion\Policies\WindowsUpdate",
+    r"Software\Microsoft\Windows NT\CurrentVersion\Winlogon",
+    r"Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options",
+    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+];
+
 impl RegistryScanner {
     pub fn new(pua_list: PuaRegistryList, rules: Option<RuleSet>) -> Self {
         Self { pua_list, rules }
@@ -90,13 +128,21 @@ impl RegistryScanner {
 
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         for &rel_path in PERSISTENCE_PATHS_HKLM {
-            self.scan_subkey(&hklm, "HKLM", rel_path, &mut entries, &mut seen);
+            self.scan_subkey(&hklm, "HKLM", rel_path, false, &mut entries, &mut seen);
+        }
+        for &rel_path in PUM_PATHS_HKLM {
+            self.scan_subkey(&hklm, "HKLM", rel_path, true, &mut entries, &mut seen);
         }
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         for &rel_path in PERSISTENCE_PATHS_HKCU {
-            self.scan_subkey(&hkcu, "HKCU", rel_path, &mut entries, &mut seen);
+            self.scan_subkey(&hkcu, "HKCU", rel_path, false, &mut entries, &mut seen);
         }
+        for &rel_path in PUM_PATHS_HKCU {
+            self.scan_subkey(&hkcu, "HKCU", rel_path, true, &mut entries, &mut seen);
+        }
+
+        self.scan_file_pum_rules(&mut entries, &mut seen);
 
         let threats = entries
             .iter()
@@ -115,6 +161,7 @@ impl RegistryScanner {
         hive: &RegKey,
         hive_name: &str,
         rel_path: &str,
+        _is_pum_path: bool,
         entries: &mut Vec<RegistryEntry>,
         seen: &mut std::collections::HashSet<String>,
     ) {
@@ -166,7 +213,7 @@ impl RegistryScanner {
 
             let pua_match = self.pua_list.is_pua(hive_name, &sub_path);
 
-            let (static_match, static_threat) =
+            let (static_match, static_threat, is_pum, expected_reverted_value) =
                 self.run_static_scan(hive_name, rel_path, &name, &value.bytes);
 
             let threat_name = static_threat.or_else(|| {
@@ -203,6 +250,8 @@ impl RegistryScanner {
                 value_data: data_str,
                 pua_match,
                 static_match,
+                pum: is_pum,
+                expected_reverted_value,
                 threat_name,
                 detail,
             });
@@ -215,10 +264,10 @@ impl RegistryScanner {
         rel_path: &str,
         value_name: &str,
         value_bytes: &[u8],
-    ) -> (bool, Option<String>) {
+    ) -> (bool, Option<String>, bool, Option<String>) {
         let rules = match &self.rules {
             Some(r) => r,
-            None => return (false, None),
+            None => return (false, None, false, None),
         };
 
         let ctx = hydradragonsig::models::RegistryScanContext {
@@ -239,10 +288,42 @@ impl RegistryScanner {
                         | hydradragonsig::models::Verdict::Suspicious
                         | hydradragonsig::models::Verdict::Pua
                 );
-                (detected, report.threat_name)
+                // Check if any finding family matches a known PUM pattern.
+                let is_pum = report.findings.iter().any(|f| {
+                    f.family.as_deref().map_or(false, |fam| {
+                        fam.starts_with("PUM.")
+                    })
+                });
+                let expected = report.findings.first().and_then(|f| {
+                    f.expected_reverted_value.clone()
+                });
+                (detected, report.threat_name, is_pum, expected)
             }
-            Err(_) => (false, None),
+            Err(_) => (false, None, false, None),
         }
+    }
+    /// Load and apply file PUM rules from `file_pum_rules.yaml`.
+    fn scan_file_pum_rules(
+        &self,
+        entries: &mut Vec<RegistryEntry>,
+        seen: &mut std::collections::HashSet<String>,
+    ) {
+        let rules_dir = std::env::var("HYDRADRAGONSIG_RULES_DIR")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("hydradragonsig_rules")))
+            });
+        let Some(dir) = rules_dir else { return };
+        let rules_file = dir.join("file_pum_rules.yaml");
+        let rules = match file_pum_scanner::load_rules(&rules_file) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        let file_hits = file_pum_scanner::scan_file_pums(&rules, seen);
+        entries.extend(file_hits);
     }
 }
 

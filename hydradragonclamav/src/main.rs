@@ -345,6 +345,12 @@ fn print_report(report: &LoadReport) {
     );
     print_bucket("unknown extensions", report.unknown_files, "unrecognised");
 
+    if report.tdb_attr_skipped > 0 {
+        println!(
+            "logical sigs skipped (unrecognised TDB attribute — as ClamAV CL_BREAK): {}",
+            report.tdb_attr_skipped
+        );
+    }
     println!("parse errors: {}", report.errors.len());
     if !report.errors.is_empty() {
         for error in report.errors.iter().take(20) {

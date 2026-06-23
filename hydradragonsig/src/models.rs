@@ -438,6 +438,11 @@ pub struct Finding {
     /// MITRE ATT&CK techniques triggered by this specific finding.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre: Vec<MitreTechnique>,
+    /// The safe/default registry value to restore when this finding represents a
+    /// PUM (Potentially Unwanted Modification). Populated from the rule's
+    /// `expected_reverted_value` field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_reverted_value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

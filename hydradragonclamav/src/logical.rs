@@ -296,6 +296,13 @@ pub fn parse_logical_signature(
     let expression = LogicalExpr::from_tree(&ExprParser::new(parts[2]).parse()?);
     let target = parse_target(parts[1]);
     let tdb = parse_tdb(parts[1]);
+    // ClamAV `init_tdb` returns CL_BREAK on an unrecognised attribute, skipping
+    // the signature (it isn't a detection gap — neither engine loads it).
+    if let Some(attr) = &tdb.unknown_attr {
+        return Err(format!(
+            "unrecognised TDB attribute '{attr}' — skipped, as ClamAV does (CL_BREAK)"
+        ));
+    }
     // Engine functionality-level gating (readdb.c init_tdb): a signature whose
     // required engine f-level excludes ours can't be evaluated correctly, so skip
     // it (same detection effect as ClamAV not loading it).
@@ -374,6 +381,9 @@ struct Tdb {
     handlertype: Option<String>,
     /// `Intermediates:A>B` — required ancestor container-type chain.
     intermediates: Vec<String>,
+    /// An unrecognised TDB attribute key (a malformed/typo'd signature). ClamAV's
+    /// `init_tdb` returns `CL_BREAK` and skips such signatures; we do the same.
+    unknown_attr: Option<String>,
     unsupported: bool,
 }
 
@@ -428,7 +438,8 @@ fn parse_tdb(block: &str) -> Tdb {
             "Intermediates" if !val.is_empty() => {
                 tdb.intermediates = val.split('>').map(|s| s.trim().to_string()).collect();
             }
-            _ => tdb.unsupported = true,
+            // Unrecognised attribute → ClamAV `init_tdb` CL_BREAK (skip the sig).
+            _ => tdb.unknown_attr = Some(key.to_string()),
         }
     }
     tdb
@@ -676,7 +687,10 @@ fn parse_pcre(raw: &str) -> Result<(LogicalExpr, LazyRegex, bool), String> {
     // mistaken for the offset separator. The offset is parsed but not yet applied
     // (the regex still runs over the whole buffer, gated by its trigger).
     let toks = ldb_tokenize(raw, b':', 0);
-    let raw = if toks.len() >= 2 {
+    // An offset prefix sits BEFORE the trigger, i.e. before the first `/`. If the
+    // first token already contains a `/`, the leading `:` came from inside/after
+    // the regex (e.g. trailing `/flags::i`), so there is no offset to strip.
+    let raw = if toks.len() >= 2 && !toks[0].contains('/') {
         &raw[toks[0].len() + 1..]
     } else {
         raw

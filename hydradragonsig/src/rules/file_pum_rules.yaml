@@ -1,0 +1,77 @@
+name: File PUM Modification Rules
+version: "1.0"
+# Potentially Unwanted Modifications (PUM) detected through file content
+# inspection — system text files that malware tampers with to impair
+# defenses, redirect traffic, or interfere with security tools.
+rules:
+  - id: PUM_FILE_0001
+    title: "HostsFile — Non-comment entries in hosts file"
+    description: >
+      The hosts file contains entries that are not comments (not starting with #).
+      Malware adds redirects here to block security updates or redirect
+      legitimate domains to malicious IPs.
+    severity: medium
+    verdict: pua
+    confidence: 70
+    family: PUM.HostsFile
+    score: 35
+    file_path: "%SystemRoot%\\System32\\drivers\\etc\\hosts"
+    detection:
+      check: non_comment_lines
+      min_lines: 1
+    tags:
+      - pum
+      - hosts
+      - network
+      - dns
+    mitre:
+      - id: T1562
+        name: Impair Defenses
+        tactic: Defense Evasion
+
+  - id: PUM_FILE_0002
+    title: "ServicesFile — Non-comment port mappings in services file"
+    description: >
+      The services file contains non-comment port mappings. Malware adds
+      entries here to hijack well-known service ports for redirection or
+      to interfere with network security tools.
+    severity: medium
+    verdict: pua
+    confidence: 60
+    family: PUM.ServicesFile
+    score: 30
+    file_path: "%SystemRoot%\\System32\\drivers\\etc\\services"
+    detection:
+      check: non_comment_lines
+      min_lines: 5
+    tags:
+      - pum
+      - services
+      - network
+    mitre:
+      - id: T1562
+        name: Impair Defenses
+        tactic: Defense Evasion
+
+  - id: PUM_FILE_0003
+    title: "NetworksFile — Non-comment entries in networks file"
+    description: >
+      The networks file contains non-comment network protocol mappings.
+      Malware adds entries to hijack network name resolution.
+    severity: medium
+    verdict: pua
+    confidence: 60
+    family: PUM.NetworksFile
+    score: 30
+    file_path: "%SystemRoot%\\System32\\drivers\\etc\\networks"
+    detection:
+      check: non_comment_lines
+      min_lines: 1
+    tags:
+      - pum
+      - networks
+      - network
+    mitre:
+      - id: T1562
+        name: Impair Defenses
+        tactic: Defense Evasion
