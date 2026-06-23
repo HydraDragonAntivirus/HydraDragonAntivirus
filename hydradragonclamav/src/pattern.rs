@@ -492,15 +492,48 @@ impl Pattern {
         best.map(|(_, off, needle)| (off, needle))
     }
 
-    /// The constant byte distance from the pattern start to its best literal (the
-    /// run the prefilter indexes as this pattern's atom), or `None` when a
-    /// variable-width element (open gap / unequal-length alternation) precedes it,
-    /// so the distance isn't constant and prefilter hints can't be aligned.
-    fn literal_byte_prefix(&self) -> Option<usize> {
-        let (lit_off, _) = self.best_literal()?;
+    /// Instruction index + length of the longest `CHAR`/`NOCASE` run — the atom the
+    /// prefilter indexes for a `nocase` pattern (`required_atom_nocase`).
+    fn nocase_run(&self) -> Option<(usize, usize)> {
+        let mut best: Option<(usize, usize)> = None;
+        let mut run_start = 0usize;
+        let mut run_len = 0usize;
+        let mut in_run = false;
+        for i in 0..self.instructions.len() {
+            let meta = self.instructions.get_u16(i) & CLI_MATCH_METADATA;
+            if meta == CLI_MATCH_CHAR || meta == CLI_MATCH_NOCASE {
+                if !in_run {
+                    run_start = i;
+                    run_len = 0;
+                    in_run = true;
+                }
+                run_len += 1;
+            } else {
+                if in_run && run_len >= 2 && best.is_none_or(|(_, bl)| run_len > bl) {
+                    best = Some((run_start, run_len));
+                }
+                in_run = false;
+            }
+        }
+        if in_run && run_len >= 2 && best.is_none_or(|(_, bl)| run_len > bl) {
+            best = Some((run_start, run_len));
+        }
+        best
+    }
+
+    /// The constant byte distance from the pattern start to the run the prefilter
+    /// indexes as this pattern's atom — its exact best literal if it has one, else
+    /// its longest `nocase` run (mirroring `pattern_atom`). `None` when a
+    /// variable-width element precedes that run (the distance isn't constant) or the
+    /// pattern has no atom, so prefilter hints can't be aligned.
+    fn atom_byte_prefix(&self) -> Option<usize> {
+        let run_off = match self.best_literal() {
+            Some((off, _)) => off,
+            None => self.nocase_run()?.0,
+        };
         let mut bytes = 0usize;
         let mut sidx = 0usize;
-        for i in 0..lit_off {
+        for i in 0..run_off {
             let inst = self.instructions.get_u16(i);
             if (inst & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
                 bytes += self.specials.get(sidx)?.fixed_width()?;
@@ -613,14 +646,12 @@ impl Pattern {
         // — so specials no longer force a full re-scan, only a variable-width gap
         // *before* the literal does (then the distance isn't constant and the hints
         // can't be aligned, so fall back to a correct full scan).
-        let prefix = if self.specials.is_empty() {
-            // No specials: instruction index == byte offset.
-            self.best_literal().map(|(off, _)| off).unwrap_or(0)
-        } else {
-            match self.literal_byte_prefix() {
-                Some(p) => p,
-                None => return self.find_all(data, ranges, limit),
-            }
+        // Byte distance from the pattern start to its indexed atom (exact literal or
+        // nocase run). `match_at` verifies case-insensitively for nocase patterns, so
+        // a nocase pattern threads correctly here too. A variable-width element
+        // before the atom makes the distance non-constant → full scan.
+        let Some(prefix) = self.atom_byte_prefix() else {
+            return self.find_all(data, ranges, limit);
         };
         // Shared per-signature backtracking budget (see `find_all`).
         let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
@@ -870,6 +901,38 @@ impl Pattern {
             }
         }
         s
+    }
+
+    /// Whether this pattern has an exact (case-sensitive) literal atom, so the
+    /// prefilter indexed it in the case-sensitive automaton at a known byte offset
+    /// and `find_all_at` can thread the per-subsig hint offsets into it. `nocase`/
+    /// atomless patterns return false and are verified with a full scan instead.
+    pub fn has_exact_atom(&self) -> bool {
+        self.best_literal().is_some()
+    }
+
+    /// Whether the prefilter can index this pattern at all — it has a usable atom,
+    /// either an exact literal (`has_exact_atom`) or a ≥2-byte `nocase` run. Mirrors
+    /// the prefilter's `pattern_atom`, so the scanner can tell "indexable subsig
+    /// whose atom is absent (cannot match)" from "atom-less subsig (must full-scan)".
+    pub fn has_atom(&self) -> bool {
+        if self.best_literal().is_some() {
+            return true;
+        }
+        // Longest CHAR/NOCASE run ≥ 2? (matches `required_atom_nocase` usability)
+        let mut run = 0usize;
+        for i in 0..self.instructions.len() {
+            let meta = self.instructions.get_u16(i) & CLI_MATCH_METADATA;
+            if meta == CLI_MATCH_CHAR || meta == CLI_MATCH_NOCASE {
+                run += 1;
+                if run >= 2 {
+                    return true;
+                }
+            } else {
+                run = 0;
+            }
+        }
+        false
     }
 
     /// The longest fixed byte sequence for prefilter use (reconstructed on demand).

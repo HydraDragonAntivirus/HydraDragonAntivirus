@@ -3817,6 +3817,7 @@ dependencies = [
  "hydradragonav",
  "md-5 0.11.0",
  "windows",
+ "windows-numerics",
  "winres",
 ]
 

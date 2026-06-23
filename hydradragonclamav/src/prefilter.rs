@@ -42,16 +42,29 @@ const MAX_OFFSETS_PER_SIG: usize = 256;
 /// Safe because scanned buffers are < 2 GiB, so a real offset never reaches it.
 const OFFSET_OVERFLOW: u32 = u32::MAX;
 
-/// A signature reference packed into a u64: top bit = logical, low bits = index.
+/// An atom's owner reference packed into a u64. Bit 63 = logical. For an extended
+/// signature the low 40 bits are its index. For a logical signature the low 40
+/// bits are the lsig index and bits 40..62 are the *subsignature* index — so the
+/// one AC pass tells us exactly which `(lsig, subsig)` an atom belongs to and we
+/// can verify and count that subsig directly (ClamAV's per-subsig AC counting),
+/// instead of re-scanning the whole buffer for every candidate.
 const LOG_FLAG: u64 = 1 << 63;
+const SUBSIG_SHIFT: u64 = 40;
+const SIG_MASK: u64 = (1 << SUBSIG_SHIFT) - 1;
 
 #[inline]
 fn ext_ref(i: usize) -> u64 {
     i as u64
 }
 #[inline]
-fn log_ref(i: usize) -> u64 {
-    i as u64 | LOG_FLAG
+fn log_ref(sig: usize, subsig: usize) -> u64 {
+    (sig as u64) | ((subsig as u64) << SUBSIG_SHIFT) | LOG_FLAG
+}
+/// Unpack a logical ref into `(sig, subsig)`.
+#[inline]
+fn log_unpack(r: u64) -> (u32, u32) {
+    let r = r & !LOG_FLAG;
+    ((r & SIG_MASK) as u32, (r >> SUBSIG_SHIFT) as u32)
 }
 /// The atom indexed for a literal: its first `MAX_ATOM` bytes.
 #[inline]
@@ -63,15 +76,129 @@ fn usable(a: &[u8]) -> bool {
     a.len() >= MIN_DEPTH
 }
 
-/// Per-logical-signature gating info: which body subsignature to evaluate first
-/// (the cutoff), and whether the prefilter indexed *exactly* that subsignature
-/// (so the candidate's threaded offsets line up with it and can be used to verify
-/// it). When `threadable` is false the gate is still evaluated first for the
-/// early cutoff, but with a full scan (no offsets correspond to it).
-#[derive(Clone, Copy, Debug)]
-pub struct GateInfo {
-    pub subsig: u32,
-    pub threadable: bool,
+/// Logical candidates with **per-subsignature** atom offsets — the core of
+/// ClamAV-style matching. One AC pass records, for each candidate lsig, the
+/// offsets where *each* of its subsignatures' atoms occurred, so a subsig is
+/// verified only at those offsets (`find_all_at`) instead of re-scanning the whole
+/// buffer. A candidate appears here only when ≥1 of its subsig atoms hit.
+///
+/// CSR layout for candidate `k`: its hit subsigs are `entry_subsig[e]` for
+/// `e in entry_starts[k]..entry_starts[k+1]`, and that entry's offsets are
+/// `offsets[off_starts[e]..off_starts[e+1]]`. An empty offset span for an entry
+/// means that subsig's atom overflowed the cap → verify it by full scan.
+pub struct LogCandidateSet {
+    sigs: Vec<u32>,
+    entry_starts: Vec<u32>,
+    entry_subsig: Vec<u32>,
+    off_starts: Vec<u32>,
+    offsets: Vec<u32>,
+}
+
+/// Which logical signatures to evaluate. `All` (prefilter disabled / no atoms)
+/// means evaluate every logical signature by full scan — the ground truth.
+pub enum LogCandidates {
+    All,
+    List(LogCandidateSet),
+}
+
+/// The hit subsignatures + offsets for one logical candidate.
+pub struct SubHits<'a> {
+    subsigs: &'a [u32],
+    off_starts: &'a [u32],
+    offsets: &'a [u32],
+    base: usize,
+}
+
+impl SubHits<'static> {
+    /// A candidate with no recorded hits — every indexable subsig is treated as
+    /// "atom absent" (count 0), used to evaluate an always-scanned signature whose
+    /// atoms didn't hit this buffer without re-scanning its indexable body subsigs.
+    pub fn empty() -> Self {
+        SubHits {
+            subsigs: &[],
+            off_starts: &[],
+            offsets: &[],
+            base: 0,
+        }
+    }
+}
+
+impl SubHits<'_> {
+    /// Offsets recorded for subsignature `i`, or `None` if its atom did not hit.
+    /// An empty slice means "overflowed — full scan". For an indexed subsig `None`
+    /// means its required atom is absent, so that subsig cannot match.
+    pub fn offsets_for(&self, i: usize) -> Option<&[u32]> {
+        let i = i as u32;
+        self.subsigs.iter().position(|&s| s == i).map(|k| {
+            let e = self.base + k;
+            &self.offsets[self.off_starts[e] as usize..self.off_starts[e + 1] as usize]
+        })
+    }
+}
+
+impl LogCandidates {
+    fn empty() -> Self {
+        LogCandidates::List(LogCandidateSet {
+            sigs: Vec::new(),
+            entry_starts: vec![0],
+            entry_subsig: Vec::new(),
+            off_starts: vec![0],
+            offsets: Vec::new(),
+        })
+    }
+
+    /// Candidate count (`usize::MAX` for `All`), for profiling/logging.
+    pub fn len(&self) -> usize {
+        match self {
+            LogCandidates::All => usize::MAX,
+            LogCandidates::List(s) => s.sigs.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        matches!(self, LogCandidates::List(s) if s.sigs.is_empty())
+    }
+
+    /// Whether `sig` is among the atom-hit candidates (its `sigs` are sorted).
+    pub fn contains(&self, sig: u32) -> bool {
+        match self {
+            LogCandidates::All => true,
+            LogCandidates::List(s) => s.sigs.binary_search(&sig).is_ok(),
+        }
+    }
+
+    /// Candidates carrying any threaded offsets (for profiling).
+    pub fn threaded_count(&self) -> usize {
+        match self {
+            LogCandidates::All => 0,
+            LogCandidates::List(s) => (0..s.sigs.len())
+                .filter(|&k| s.entry_starts[k + 1] > s.entry_starts[k])
+                .count(),
+        }
+    }
+
+    /// Iterate `(lsig_index, per-subsig hit offsets)`. Empty for `All`.
+    pub fn iter(&self) -> impl Iterator<Item = (u32, SubHits<'_>)> + '_ {
+        let set = match self {
+            LogCandidates::All => None,
+            LogCandidates::List(s) => Some(s),
+        };
+        set.into_iter().flat_map(|s| {
+            s.sigs.iter().enumerate().map(move |(k, &sig)| {
+                let es = s.entry_starts[k] as usize;
+                let ee = s.entry_starts[k + 1] as usize;
+                (
+                    sig,
+                    SubHits {
+                        subsigs: &s.entry_subsig[es..ee],
+                        off_starts: &s.off_starts,
+                        offsets: &s.offsets,
+                        base: es,
+                    },
+                )
+            })
+        })
+    }
 }
 
 /// Candidate signatures for a buffer, each carrying the buffer offsets where its
@@ -173,11 +300,11 @@ pub struct AtomPrefilter {
     /// exist — this is why an "is there a letter?" guard would be unsafe.)
     nocase_first_bytes: [bool; 256],
     ext_always: Vec<u32>,
+    /// Logical signatures that cannot be gated by an atom (a non-indexable subsig —
+    /// e.g. an `OR` branch that is a PCRE — could satisfy the expression on its
+    /// own), so they are full-scanned on every buffer. Kept small by the gating
+    /// analysis in `build`.
     log_always: Vec<u32>,
-    /// Per logical signature (indexed by logical sig index): the gating subsig
-    /// and whether its offsets are threadable. `None` when no single subsig gates
-    /// the expression (pure OR / matches-at-zero).
-    log_gates: Vec<Option<GateInfo>>,
 }
 
 impl AtomPrefilter {
@@ -190,9 +317,7 @@ impl AtomPrefilter {
             + v(self.sig_refs.len(), 8)
             + v(self.atom_starts_nocase.len(), 4)
             + v(self.sig_refs_nocase.len(), 8);
-        let always = v(self.ext_always.len(), 4)
-            + v(self.log_always.len(), 4)
-            + v(self.log_gates.len(), std::mem::size_of::<Option<GateInfo>>());
+        let always = v(self.ext_always.len(), 4) + v(self.log_always.len(), 4);
         let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
         format!(
             "ac={:.1}MB ac_nocase={:.1}MB csr(sig_refs+starts)={:.1}MB always/gates={:.1}MB | atoms={} nocase_atoms={} sig_refs={} sig_refs_nc={}",
@@ -226,13 +351,13 @@ impl AtomPrefilter {
             nocase_first_bytes: [false; 256],
             ext_always: Vec::new(),
             log_always: Vec::new(),
-            log_gates: Vec::new(),
         }
     }
 
-    /// The gating subsignature for logical signature `si`, if any.
-    pub fn logical_gate(&self, si: usize) -> Option<GateInfo> {
-        self.log_gates.get(si).copied().flatten()
+    /// Logical signatures that must be evaluated on every buffer (no atom gates
+    /// them — see `log_always`).
+    pub fn log_always(&self) -> &[u32] {
+        &self.log_always
     }
 
     /// Build the prefilter from a loaded database.
@@ -241,12 +366,10 @@ impl AtomPrefilter {
         let mut entries_nocase: Vec<(Box<[u8]>, u64)> = Vec::new();
         let mut ext_always: Vec<u32> = Vec::new();
         let mut log_always: Vec<u32> = Vec::new();
-        let mut log_gates: Vec<Option<GateInfo>> = Vec::with_capacity(db.logical.len());
 
         // A pattern is usable for prefiltering via either its case-sensitive
         // atom or, for `nocase` patterns, its case-folded atom. Returns which
         // bucket the atom belongs in.
-        #[derive(Clone)]
         enum Atom {
             Exact(Vec<u8>),
             Nocase(Vec<u8>),
@@ -302,42 +425,22 @@ impl AtomPrefilter {
             }
         }
 
-        // --- Logical signatures: index ONE *required* subsignature's atoms, and
-        // make that exact subsignature the gate (so its threaded offsets line up
-        // for verification). ---
+        // --- Logical signatures (ClamAV-style per-subsignature indexing): index
+        // EVERY indexable subsignature's atoms keyed to `(lsig, subsig)`, so the one
+        // AC pass records, per candidate, the offsets where each subsig's atom
+        // occurred and each subsig is verified only there. A sig is `log_always`
+        // (full-scanned every buffer) only when its expression could be satisfied
+        // *without* any indexable subsig — e.g. an `OR` branch that is a PCRE — so
+        // an atom hit isn't necessary. `subsig_indexable` (a body subsig whose every
+        // variant has a usable atom and an evaluable offset) is mirrored exactly by
+        // the scanner, so the per-subsig offset threading lines up. ---
         let probe_present = 1usize << 30;
         for (si, sig) in db.logical.iter().enumerate() {
             let n = sig.subsignatures.len();
-            if sig.expression.eval(&vec![0usize; n]).matched {
-                // Can fire with nothing present → nothing to gate or index on.
-                log_always.push(si as u32);
-                log_gates.push(None);
-                continue;
-            }
-
-            // Mirror ClamAV: every *indexable* subsignature is put in the
-            // automaton keyed to this logical sig, so the sig becomes a candidate
-            // only when one of its subsig atoms actually occurs — there is no
-            // "evaluate on every buffer" set unless a subsig genuinely has no atom
-            // (ClamAV rejects those at load; we keep them as a small `log_always`).
-            // We additionally pick, when one exists, a single *required* indexable
-            // subsig as a *threadable* gate (its offsets line up for verification);
-            // that is the tightest possible gate, so when present we index only it.
-            //
-            // `best_index`  — best (longest-atom) REQUIRED indexable subsig: index
-            //                 it alone, thread its offsets (early cutoff + verify).
-            // `set_atoms`   — atoms of ALL indexable subsigs: used to gate sigs with
-            //                 no single required subsig (`0|1`, `(0|1)&pcre`, …).
-            // `set_mask`    — which subsigs are indexable (for the gating probe).
-            // `best_gate`   — best required subsig w/ evaluable offset for a non-
-            //                 threadable early cutoff when nothing is threadable.
-            let mut best_index: Option<(usize, usize, Vec<Atom>)> = None; // (atom_len, idx, atoms)
-            let mut best_gate: Option<(usize, usize)> = None; // (exact_atom_len, idx)
-            let mut set_atoms: Vec<Atom> = Vec::new();
-            let mut set_mask = vec![false; n];
-
-            for i in 0..n {
-                let Subsignature::Body { offset, patterns } = &sig.subsignatures[i] else {
+            let mut indexable_mask = vec![false; n];
+            let mut subsig_atoms: Vec<(usize, Vec<Atom>)> = Vec::new();
+            for (i, subsig) in sig.subsignatures.iter().enumerate() {
+                let Subsignature::Body { offset, patterns } = subsig else {
                     continue;
                 };
                 let default_offset = OffsetSpec::any();
@@ -345,63 +448,31 @@ impl AtomPrefilter {
                 if patterns.is_empty() || !evaluable_offset(&offset.anchor) {
                     continue;
                 }
-
-                // Indexable iff EVERY variant has a usable atom — otherwise a variant
-                // could match with no indexed atom present and the prefilter would
-                // wrongly skip the signature.
+                // Indexable iff EVERY variant has a usable atom.
                 let mut atoms: Vec<Atom> = Vec::with_capacity(patterns.len());
-                let mut indexable = true;
+                let mut ok = true;
                 for p in patterns {
                     match pattern_atom(p) {
                         Some(a) => atoms.push(a),
                         None => {
-                            indexable = false;
+                            ok = false;
                             break;
                         }
                     }
                 }
-                indexable &= !atoms.is_empty();
-
-                // Required? (expression false when only this subsig is absent.)
-                let mut probe = vec![probe_present; n];
-                probe[i] = 0;
-                let required = !sig.expression.eval(&probe).matched;
-
-                if required {
-                    let exact_len = patterns
-                        .iter()
-                        .filter_map(|p| p.required_atom().map(|a| a.len()))
-                        .max()
-                        .unwrap_or(0);
-                    if best_gate.map_or(true, |(bl, _)| exact_len > bl) {
-                        best_gate = Some((exact_len, i));
-                    }
-                }
-
-                if indexable {
-                    set_mask[i] = true;
-                    let max_len = atoms
-                        .iter()
-                        .map(|a| match a {
-                            Atom::Exact(b) | Atom::Nocase(b) => b.len(),
-                        })
-                        .max()
-                        .unwrap_or(0);
-                    if required && best_index.as_ref().map_or(true, |(bl, _, _)| max_len > *bl) {
-                        best_index = Some((max_len, i, atoms.clone()));
-                    }
-                    set_atoms.extend(atoms);
+                if ok && !atoms.is_empty() {
+                    indexable_mask[i] = true;
+                    subsig_atoms.push((i, atoms));
                 }
             }
 
-            // A logical sig needs no unconditional evaluation when its expression is
-            // false with every indexable subsig absent (non-indexable subsigs treated
-            // as possibly present): then a hit on some indexed atom is *necessary*,
-            // so it can be gated. This generalizes the single-required-subsig case to
-            // OR / mixed expressions, which is what empties the always-scanned set.
-            let gateable_by_set = !set_atoms.is_empty() && {
+            // Gateable iff the expression is false when every indexable subsig is
+            // absent (non-indexable subsigs assumed present): then an atom hit on
+            // some indexed subsig is necessary for a match, so when none hit the
+            // signature provably cannot match and is safely skipped.
+            let gateable = !subsig_atoms.is_empty() && {
                 let mut probe = vec![probe_present; n];
-                for (i, &on) in set_mask.iter().enumerate() {
+                for (i, &on) in indexable_mask.iter().enumerate() {
                     if on {
                         probe[i] = 0;
                     }
@@ -409,40 +480,24 @@ impl AtomPrefilter {
                 !sig.expression.eval(&probe).matched
             };
 
-            // Prefer the *tightest* gate: a single required indexable subsig. Index
-            // only it (fewest candidates) and thread its offsets for an early cutoff.
-            // Otherwise (OR / no single required subsig) index the whole indexable
-            // set when the expression can't be satisfied without one of them, so the
-            // sig is still a candidate only when a branch atom appears. Only sigs
-            // that genuinely can fire via a non-indexable subsig stay always-scanned.
-            let index_atoms = |atoms: Vec<Atom>,
-                               entries: &mut Vec<(Box<[u8]>, u64)>,
-                               entries_nocase: &mut Vec<(Box<[u8]>, u64)>| {
+            // Index every indexable subsig's atoms keyed `(sig, subsig)` — for
+            // gateable AND always sigs. For an always sig (one whose expression a
+            // non-indexable subsig could satisfy alone) this still lets its body
+            // subsigs verify cheaply at their atom offsets; it's merely *also*
+            // evaluated when none of its atoms hit, to check its non-indexable
+            // branch (`log_always`).
+            for (subsig, atoms) in subsig_atoms {
                 for a in atoms {
                     match a {
-                        Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si))),
-                        Atom::Nocase(a) => entries_nocase.push((short_atom(&a).into(), log_ref(si))),
+                        Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si, subsig))),
+                        Atom::Nocase(a) => {
+                            entries_nocase.push((short_atom(&a).into(), log_ref(si, subsig)))
+                        }
                     }
                 }
-            };
-            if let Some((_, idx, atoms)) = best_index {
-                index_atoms(atoms, &mut entries, &mut entries_nocase);
-                log_gates.push(Some(GateInfo {
-                    subsig: idx as u32,
-                    threadable: true,
-                }));
-            } else if gateable_by_set {
-                index_atoms(set_atoms, &mut entries, &mut entries_nocase);
-                log_gates.push(best_gate.map(|(_, idx)| GateInfo {
-                    subsig: idx as u32,
-                    threadable: false,
-                }));
-            } else {
+            }
+            if !gateable {
                 log_always.push(si as u32);
-                log_gates.push(best_gate.map(|(_, idx)| GateInfo {
-                    subsig: idx as u32,
-                    threadable: false,
-                }));
             }
         }
 
@@ -472,19 +527,19 @@ impl AtomPrefilter {
             nocase_first_bytes,
             ext_always,
             log_always,
-            log_gates,
         }
     }
 
-    /// Candidate (extended, logical) signature sets for `data`, each with the
-    /// atom offsets to thread into verification.
-    pub fn candidates(&self, data: &[u8]) -> (Candidates, Candidates) {
+    /// Extended candidate set + logical per-subsignature candidates for `data`,
+    /// from one AC pass (plus the nocase pass). Extended carries per-signature atom
+    /// offsets; logical carries per-`(sig, subsig)` offsets (`LogCandidates`).
+    pub fn candidates(&self, data: &[u8]) -> (Candidates, LogCandidates) {
         if self.ac.is_none() && self.ac_nocase.is_none() {
-            return (Candidates::All, Candidates::All);
+            return (Candidates::All, LogCandidates::All);
         }
 
         let mut ext_hits: Vec<(u32, u32)> = Vec::new();
-        let mut log_hits: Vec<(u32, u32)> = Vec::new();
+        let mut log_hits: Vec<(u64, u32)> = Vec::new(); // (sig<<8|subsig, offset)
 
         if let Some(ac) = self.ac.as_ref() {
             collect_hits(
@@ -524,8 +579,8 @@ impl AtomPrefilter {
         }
 
         let ext = build_candidate_set(ext_hits, &self.ext_always);
-        let log = build_candidate_set(log_hits, &self.log_always);
-        (Candidates::List(ext), Candidates::List(log))
+        let log = build_log_candidates(log_hits);
+        (Candidates::List(ext), log)
     }
 }
 
@@ -544,7 +599,7 @@ fn collect_hits(
     atom_starts: &[u32],
     sig_refs: &[u64],
     ext_hits: &mut Vec<(u32, u32)>,
-    log_hits: &mut Vec<(u32, u32)>,
+    log_hits: &mut Vec<(u64, u32)>,
 ) {
     let mut counts = vec![0u32; num_atoms];
     for m in ac.find_overlapping_iter(haystack) {
@@ -562,12 +617,68 @@ fn collect_hits(
         let end = atom_starts[id + 1] as usize;
         for &r in &sig_refs[start..end] {
             if r & LOG_FLAG != 0 {
-                log_hits.push(((r & !LOG_FLAG) as u32, off));
+                // Pack `(sig, subsig)` into a sort key so hits group by signature
+                // and then subsignature in `build_log_candidates`.
+                let (sig, subsig) = log_unpack(r);
+                log_hits.push((((sig as u64) << 8) | subsig as u64, off));
             } else {
                 ext_hits.push((r as u32, off));
             }
         }
     }
+}
+
+/// Group per-`(sig, subsig)` logical hits into `LogCandidates`. `key = sig<<8 |
+/// subsig`. Within each `(sig, subsig)`, an `OFFSET_OVERFLOW` sentinel (or more
+/// than `MAX_OFFSETS_PER_SIG` offsets) collapses that subsig's offsets to an empty
+/// span, meaning "verify by full scan".
+fn build_log_candidates(mut hits: Vec<(u64, u32)>) -> LogCandidates {
+    if hits.is_empty() {
+        return LogCandidates::empty();
+    }
+    hits.sort_unstable();
+    hits.dedup();
+
+    let mut sigs: Vec<u32> = Vec::new();
+    let mut entry_starts: Vec<u32> = vec![0];
+    let mut entry_subsig: Vec<u32> = Vec::new();
+    let mut off_starts: Vec<u32> = vec![0];
+    let mut offsets: Vec<u32> = Vec::new();
+
+    let mut i = 0usize;
+    while i < hits.len() {
+        let sig = (hits[i].0 >> 8) as u32;
+        while i < hits.len() && (hits[i].0 >> 8) as u32 == sig {
+            let key = hits[i].0;
+            let subsig = (key & 0xff) as u32;
+            let base = offsets.len();
+            let mut overflow = false;
+            while i < hits.len() && hits[i].0 == key {
+                let off = hits[i].1;
+                if off == OFFSET_OVERFLOW {
+                    overflow = true;
+                } else if !overflow {
+                    offsets.push(off);
+                }
+                i += 1;
+            }
+            if overflow || offsets.len() - base > MAX_OFFSETS_PER_SIG {
+                offsets.truncate(base); // empty span → full scan this subsig
+            }
+            entry_subsig.push(subsig);
+            off_starts.push(offsets.len() as u32);
+        }
+        sigs.push(sig);
+        entry_starts.push(entry_subsig.len() as u32);
+    }
+
+    LogCandidates::List(LogCandidateSet {
+        sigs,
+        entry_starts,
+        entry_subsig,
+        off_starts,
+        offsets,
+    })
 }
 
 /// Group `(sig, offset)` hits by signature into a CSR `CandidateSet`, merging in

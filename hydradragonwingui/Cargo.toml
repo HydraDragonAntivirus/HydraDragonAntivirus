@@ -39,6 +39,8 @@ windows = { version = "0.62", features = [
     "Win32_System_Ole",
 ] }
 
+windows-numerics = "0.3"
+
 [build-dependencies]
 # Embeds the HydraDragon icon into the executable.
 winres = "0.1"

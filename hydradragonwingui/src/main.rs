@@ -1354,62 +1354,12 @@ unsafe fn draw_button(rt: &ID2D1HwndRenderTarget, b: &UiButton, _hot: bool, down
 
 // GDI helpers --------------------------------------------------------------
 
-unsafe fn fill(hdc: HDC, r: &RECT, color: COLORREF) {
-    let br = CreateSolidBrush(color);
-    FillRect(hdc, r, br);
-    let _ = DeleteObject(br.into());
-}
-
-/// Vertical (top→bottom) gradient fill — one GDI call, cheap.
-unsafe fn gradient_v(hdc: HDC, r: &RECT, top: COLORREF, bottom: COLORREF) {
-    let chan = |c: COLORREF| {
-        (
-            ((c.0 & 0xFF) as u16) << 8,
-            (((c.0 >> 8) & 0xFF) as u16) << 8,
-            (((c.0 >> 16) & 0xFF) as u16) << 8,
-        )
-    };
-    let (tr, tg, tb) = chan(top);
-    let (br, bg, bb) = chan(bottom);
-    let verts = [
-        TRIVERTEX { x: r.left, y: r.top, Red: tr, Green: tg, Blue: tb, Alpha: 0 },
-        TRIVERTEX { x: r.right, y: r.bottom, Red: br, Green: bg, Blue: bb, Alpha: 0 },
-    ];
-    let mesh = GRADIENT_RECT { UpperLeft: 0, LowerRight: 1 };
-    let _ = GradientFill(hdc, &verts, &mesh as *const _ as *const c_void, 1, GRADIENT_FILL_RECT_V);
-}
-
 unsafe fn fill_round(hdc: HDC, r: RECT, radius: i32, color: COLORREF) {
     let rgn = CreateRoundRectRgn(r.left, r.top, r.right, r.bottom, radius * 2, radius * 2);
     let br = CreateSolidBrush(color);
     let _ = FillRgn(hdc, rgn, br);
     let _ = DeleteObject(br.into());
     let _ = DeleteObject(rgn.into());
-}
-
-unsafe fn frame_round(hdc: HDC, r: RECT, radius: i32, color: COLORREF) {
-    let rgn = CreateRoundRectRgn(r.left, r.top, r.right, r.bottom, radius * 2, radius * 2);
-    let br = CreateSolidBrush(color);
-    let _ = FrameRgn(hdc, rgn, br, 1, 1);
-    let _ = DeleteObject(br.into());
-    let _ = DeleteObject(rgn.into());
-}
-
-/// Multi-layer material shadow (3 layers) for premium depth.
-/// Draws an outer-soft, mid, and tight-dark shadow at increasing offsets,
-/// simulating the look of modern design systems (Material, Fluent).
-unsafe fn draw_shadow(hdc: HDC, r: RECT, radius: i32, t: &Theme) {
-    // Layer 1 (outermost, softest): large offset, very transparent.
-    let s1 = RECT { left: r.left + 2, top: r.top + 5, right: r.right + 2, bottom: r.bottom + 5 };
-    let c1 = lerp_color(t.shadow, t.bg, 0.55);
-    fill_round(hdc, s1, radius, c1);
-    // Layer 2 (mid): medium offset, standard shadow color.
-    let s2 = RECT { left: r.left + 1, top: r.top + 3, right: r.right + 1, bottom: r.bottom + 3 };
-    fill_round(hdc, s2, radius, t.shadow);
-    // Layer 3 (tightest, darkest): small offset, deeper shadow.
-    let s3 = RECT { left: r.left, top: r.top + 1, right: r.right, bottom: r.bottom + 1 };
-    let c3 = lerp_color(t.shadow, rgb(0, 0, 0), 0.12);
-    fill_round(hdc, s3, radius, c3);
 }
 
 unsafe fn text(hdc: HDC, s: &str, r: &RECT, color: COLORREF, font: HFONT, flags: DRAW_TEXT_FORMAT) {
@@ -1434,10 +1384,6 @@ fn d2d_color(c: COLORREF) -> D2D1_COLOR_F {
         b: ((c.0 >> 16) & 0xFF) as f32 / 255.0,
         a: 1.0,
     }
-}
-
-fn d2d_color_a(c: COLORREF, alpha: f32) -> D2D1_COLOR_F {
-    D2D1_COLOR_F { a: alpha, ..d2d_color(c) }
 }
 
 fn rect_to_d2d(r: &RECT) -> D2D_RECT_F {
@@ -1485,8 +1431,8 @@ unsafe fn d2d_gradient_v(rt: &ID2D1HwndRenderTarget, r: D2D_RECT_F, top: D2D1_CO
     let coll = rt.CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP).unwrap();
     let brush = rt.CreateLinearGradientBrush(
         &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
-            startPoint: D2D_POINT_2F { x: r.left, y: r.top },
-            endPoint:   D2D_POINT_2F { x: r.left, y: r.bottom },
+            startPoint: windows_numerics::Vector2 { X: r.left, Y: r.top },
+            endPoint:   windows_numerics::Vector2 { X: r.left, Y: r.bottom },
         },
         None, &coll,
     ).unwrap();
@@ -1509,7 +1455,7 @@ unsafe fn d2d_shadow(rt: &ID2D1HwndRenderTarget, r: D2D_RECT_F, radius: f32) {
 unsafe fn create_d2d_rt(factory: &ID2D1Factory1, hwnd: HWND) -> ID2D1HwndRenderTarget {
     factory.CreateHwndRenderTarget(
         &D2D1_RENDER_TARGET_PROPERTIES {
-            r#type: D2D_RENDER_TARGET_TYPE_DEFAULT,
+            r#type: D2D1_RENDER_TARGET_TYPE_DEFAULT,
             pixelFormat: D2D1_PIXEL_FORMAT {
                 format: DXGI_FORMAT_UNKNOWN,
                 alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
