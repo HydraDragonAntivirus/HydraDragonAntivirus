@@ -669,7 +669,14 @@ impl Engine {
                         return;
                     }
                     let hints = (!offsets.is_empty()).then_some(offsets);
+                    let t = prof_enabled().then(std::time::Instant::now);
                     self.scan_one_logical(sig as usize, hints, ctx, options, matches);
+                    if let Some(t) = t {
+                        let ms = t.elapsed().as_millis();
+                        if ms >= 50 {
+                            eprintln!("[SLOW-LOG] {ms}ms {}", self.database.logical[sig as usize].name);
+                        }
+                    }
                 }
             }
         }

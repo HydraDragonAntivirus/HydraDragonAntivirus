@@ -24,7 +24,7 @@ use hydradragonav::disinfector::{self, DisinfectOutcome};
 use hydradragonav::memory_scanner;
 use hydradragonav::pipeline::{scan_hayabusa_once, Pipeline, PipelineConfig};
 use hydradragonav::quarantine::Quarantine;
-use hydradragonav::registry_scanner::RegistryScanner;
+use hydradragonav::registry_scanner::{RegistryEntry, RegistryScanner};
 use hydradragonav::remediation;
 
 use windows::core::{w, PCWSTR, PWSTR};
@@ -87,10 +87,8 @@ const CMD_DESELECT_ALL: usize = 19;
 // Settings page: context menu install / uninstall
 const CMD_INSTALL_MENU: usize = 20;
 const CMD_UNINSTALL_MENU: usize = 21;
-// Scan category toggles
-const CMD_TOGGLE_REGISTRY: usize = 22;
-const CMD_TOGGLE_MEMORY: usize = 23;
-const CMD_TOGGLE_SIGMA: usize = 24;
+// Option-panel buttons (shown in scan_option_mode)
+const CMD_START_SCAN: usize = 22;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
@@ -365,7 +363,10 @@ enum WorkRequest {
     /// Unload the engine to free memory.
     StopEngine,
     Clean(Vec<PathBuf>),
+    /// Remove Windows traces of given files (registry autoruns, scheduled tasks, etc.)
     RemoveTraces(Vec<PathBuf>),
+    /// Fix PUM registry entries: revert values and restore ACLs.
+    FixPum(Vec<RegistryEntry>),
     ClearCache,
 }
 
@@ -435,10 +436,12 @@ struct AppState {
     // out of the ListView.
     scan_verdict: Vec<String>,
     scan_threat: Vec<String>,
-    // Scan category preferences for Custom Scan
-    pref_registry: bool,
-    pref_memory: bool,
-    pref_sigma: bool,
+    /// When true, show scan option checkboxes (Registry / Memory / Sigma) + Start button
+    scan_option_mode: bool,
+    /// Current category selection in option panel
+    opt_cats: u8,
+    /// Hit rects for the 3 checkbox labels stored during layout
+    opt_check_rects: [RECT; 3],
     quar_ids: Vec<String>,
     quarantine_dir: PathBuf,
 }
@@ -767,9 +770,9 @@ unsafe fn on_create(hwnd: HWND) {
         scan_sev: Vec::new(),
         scan_verdict: Vec::new(),
         scan_threat: Vec::new(),
-        pref_registry: false,
-        pref_memory: false,
-        pref_sigma: false,
+        scan_option_mode: false,
+        opt_cats: 0,
+        opt_check_rects: [RECT::default(); 3],
         quar_ids: Vec::new(),
         quarantine_dir,
     });
@@ -842,28 +845,30 @@ unsafe fn apply_list_theme(h: HWND, t: &Theme) {
     SendMessageW(h, msg::LVM_SETTEXTCOLOR, Some(WPARAM(0)), Some(LPARAM(t.text.0 as isize)));
 }
 
-fn buttons_for(page: usize, state: ScanState) -> Vec<(usize, &'static str, &'static str, Kind)> {
+fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'static str, &'static str, Kind)> {
     match page {
-        // Scan page buttons depend on the scan state: while scanning, Pause +
-        // Stop; while paused, Resume + Stop (Pause's label toggles to Resume).
-        0 => match state {
-            ScanState::Scanning => vec![
-                (CMD_PAUSE, "Pause Scan", "\u{E769}", Kind::Primary),
-                (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
-            ],
-            ScanState::Paused => vec![
-                (CMD_RESUME, "Resume", "\u{E768}", Kind::Primary),
-                (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
-            ],
-            _ => vec![
-                (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
-                (CMD_CLEAN, "Clean Threats", "\u{E74D}", Kind::Primary),
-                (CMD_TOGGLE_REGISTRY, "Registry", "\u{E70B}", Kind::Neutral),
-                (CMD_TOGGLE_MEMORY, "Memory", "\u{E770}", Kind::Neutral),
-                (CMD_TOGGLE_SIGMA, "Sigma", "\u{E721}", Kind::Neutral),
-                (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
-            ],
-        },
+        0 => {
+            if opt_mode {
+                return vec![
+                    (CMD_START_SCAN, "Start Scan", "\u{E768}", Kind::Primary),
+                ];
+            }
+            match state {
+                ScanState::Scanning => vec![
+                    (CMD_PAUSE, "Pause Scan", "\u{E769}", Kind::Primary),
+                    (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
+                ],
+                ScanState::Paused => vec![
+                    (CMD_RESUME, "Resume", "\u{E768}", Kind::Primary),
+                    (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
+                ],
+                _ => vec![
+                    (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
+                    (CMD_CLEAN, "Clean Threats", "\u{E74D}", Kind::Primary),
+                    (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
+                ],
+            }
+        }
         1 => vec![
             (CMD_QUAR_REFRESH, "Refresh", "\u{E72C}", Kind::Neutral),
             (CMD_QUAR_RESTORE, "Restore Selected", "\u{E777}", Kind::Primary),
@@ -908,20 +913,13 @@ unsafe fn layout(hwnd: HWND) {
     let defs = if s.engine == EngineState::Loading {
         Vec::new()
     } else {
-        buttons_for(s.page, s.scan_state)
+        buttons_for(s.page, s.scan_state, s.scan_option_mode)
     };
     s.buttons.clear();
     let mut x = content_l;
     // Scan page reserves a status hero banner above the action buttons.
     let mut y = HEADER_H + PAD + if s.page == 0 { HERO_H + PAD } else { 0 };
     for (cmd, label, icon, kind) in defs {
-        // Toggle buttons: active = Primary, inactive = Neutral
-        let kind = match cmd {
-            CMD_TOGGLE_REGISTRY if s.pref_registry => Kind::Primary,
-            CMD_TOGGLE_MEMORY if s.pref_memory => Kind::Primary,
-            CMD_TOGGLE_SIGMA if s.pref_sigma => Kind::Primary,
-            _ => kind,
-        };
         if x + BTN_W > content_r && x > content_l {
             x = content_l;
             y += BTN_H + GAP;
@@ -1110,6 +1108,33 @@ unsafe fn paint(hwnd: HWND) {
             })
             .unwrap_or(if hot { 1.0 } else { 0.0 });
         draw_button(mem, b, hot, down, anim_t, &s.fonts, t);
+    }
+
+    // --- Scan option checkboxes (shown in option mode) ---
+    if s.scan_option_mode && s.page == 0 {
+        let cx = SIDEBAR_W + PAD;
+        let mut oy = HEADER_H + PAD + HERO_H + PAD + BTN_H + GAP + 8;
+        let opts: [(&'static str, u8); 3] = [
+            ("Scan Registry (PUM detection)", CAT_REGISTRY),
+            ("Scan process memory", CAT_MEMORY),
+            ("Scan Windows event logs (Sigma/Hayabusa)", CAT_SIGMA),
+        ];
+        for (i, (label, bit)) in opts.iter().enumerate() {
+            let checked = s.opt_cats & bit != 0;
+            let box_r = RECT { left: cx, top: oy + 2, right: cx + 18, bottom: oy + 20 };
+            // Draw checkbox square
+            frame_round(mem, box_r, 3, if checked { t.accent } else { t.text2 });
+            if checked {
+                // Filled square with checkmark
+                fill_round(mem, RECT { left: box_r.left + 2, top: box_r.top + 2, right: box_r.right - 2, bottom: box_r.bottom - 2 }, 2, t.accent);
+                text(mem, "\u{E73E}", &box_r, WHITE, s.fonts.status, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            }
+            // Label text (clickable area includes box + label)
+            let label_r = RECT { left: box_r.right + 6, top: oy, right: 800, bottom: oy + 22 };
+            text(mem, label, &label_r, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            s.opt_check_rects[i] = RECT { left: cx, top: oy, right: label_r.right, bottom: oy + 22 };
+            oy += 28;
+        }
     }
 
     // --- Loading screen: while the engine loads, cover the content area ---
@@ -1735,6 +1760,16 @@ unsafe fn on_lbutton_down(hwnd: HWND, (x, y): (i32, i32)) {
 
 unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
     let Some(s) = state(hwnd) else { return };
+    // Checkboxes in scan option mode
+    if s.scan_option_mode && s.page == 0 {
+        for (i, bit) in [CAT_REGISTRY, CAT_MEMORY, CAT_SIGMA].iter().enumerate() {
+            if pt_in(&s.opt_check_rects[i], x, y) {
+                s.opt_cats ^= bit; // toggle
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+        }
+    }
     let Some(cmd) = s.down_cmd.take() else { return };
     let _ = ReleaseCapture();
     let _ = InvalidateRect(Some(hwnd), None, false);
@@ -1747,7 +1782,26 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
 unsafe fn dispatch(hwnd: HWND, cmd: usize) {
     let Some(s) = state(hwnd) else { return };
     match cmd {
-        CMD_CUSTOM_SCAN => pick_and_custom_scan(s),
+        CMD_CUSTOM_SCAN => {
+            s.scan_option_mode = true;
+            s.opt_cats = CAT_REGISTRY | CAT_MEMORY | CAT_SIGMA; // default: all on
+            layout(hwnd);
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        CMD_START_SCAN => {
+            let cats = s.opt_cats;
+            s.scan_option_mode = false;
+            layout(hwnd);
+            let _ = InvalidateRect(Some(hwnd), None, false);
+            if let Some(path) = pick_path(true) {
+                s.cancel.store(false, Ordering::Relaxed);
+                s.abort.store(false, Ordering::Relaxed);
+                lv_clear(s.scan_list);
+                clear_scan_results(s);
+                s.status = format!("Scanning {}…", path.display());
+                let _ = s.work_tx.send(WorkRequest::FullScan(vec![path], cats));
+            }
+        }
         CMD_CLEAN => act_clean_and_traces(hwnd, s),
         CMD_SAVE_RESULTS => save_results(hwnd, s),
         CMD_RESCAN => rescan_selected(hwnd, s),
@@ -1842,18 +1896,6 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             }
             let _ = InvalidateRect(Some(hwnd), None, false);
         }
-        CMD_TOGGLE_REGISTRY => {
-            s.pref_registry = !s.pref_registry;
-            let _ = InvalidateRect(Some(hwnd), None, false);
-        }
-        CMD_TOGGLE_MEMORY => {
-            s.pref_memory = !s.pref_memory;
-            let _ = InvalidateRect(Some(hwnd), None, false);
-        }
-        CMD_TOGGLE_SIGMA => {
-            s.pref_sigma = !s.pref_sigma;
-            let _ = InvalidateRect(Some(hwnd), None, false);
-        }
         _ => {}
     }
 }
@@ -1944,21 +1986,6 @@ fn uninstall_context_menu_impl() -> std::io::Result<()> {
     let _ = classes.delete_subkey_all("*\\shell\\HydraDragonAV");
     let _ = classes.delete_subkey_all("Directory\\shell\\HydraDragonAV");
     Ok(())
-}
-
-unsafe fn pick_and_custom_scan(s: &mut AppState) {
-    if let Some(path) = pick_path(true) {
-        s.cancel.store(false, Ordering::Relaxed);
-        s.abort.store(false, Ordering::Relaxed);
-        lv_clear(s.scan_list);
-        clear_scan_results(s);
-        let mut cats = 0u8;
-        if s.pref_registry { cats |= CAT_REGISTRY; }
-        if s.pref_memory { cats |= CAT_MEMORY; }
-        if s.pref_sigma { cats |= CAT_SIGMA; }
-        s.status = format!("Scanning {}…", path.display());
-        let _ = s.work_tx.send(WorkRequest::FullScan(vec![path], cats));
-    }
 }
 
 /// Drop every cached scan-result row (kept in sync with `lv_clear(scan_list)`).
@@ -2225,8 +2252,13 @@ unsafe fn act_clean_and_traces(hwnd: HWND, s: &mut AppState) {
         paths.len()
     );
     if confirm(hwnd, &prompt) {
-        // Clean first, then remove traces — both run on the worker thread.
+        // Also scan for registry PUM entries and fix them.
+        let reg = RegistryScanner::default().scan();
+        let pum_entries: Vec<RegistryEntry> = reg.entries.into_iter().filter(|e| e.pum).collect();
         let _ = s.work_tx.send(WorkRequest::Clean(paths.clone()));
+        if !pum_entries.is_empty() {
+            let _ = s.work_tx.send(WorkRequest::FixPum(pum_entries));
+        }
         let _ = s.work_tx.send(WorkRequest::RemoveTraces(paths));
     }
 }
@@ -2810,6 +2842,22 @@ fn worker(
                 }
                 send(&tx, hwnd, ScanMsg::Status("Clean complete.".into()));
             }
+            WorkRequest::FixPum(entries) => {
+                let mut fixed = 0usize;
+                for e in &entries {
+                    match hydradragonav::remediation::fix_pum(e) {
+                        Some(trace) => match hydradragonav::remediation::apply(&trace, &quarantine_dir) {
+                            Ok(_) => {
+                                fixed += 1;
+                                send(&tx, hwnd, ScanMsg::Status(format!("PUM fixed: {} -> {}", e.hive, e.value_name)));
+                            }
+                            Err(err) => send(&tx, hwnd, ScanMsg::Status(format!("PUM failed {}: {err}", e.value_name))),
+                        },
+                        None => send(&tx, hwnd, ScanMsg::Status(format!("PUM skipped {} (no fix value)", e.value_name))),
+                    }
+                }
+                send(&tx, hwnd, ScanMsg::Status(format!("PUM fix complete: {fixed} / {} entries.", entries.len())));
+            }
             WorkRequest::RemoveTraces(paths) => {
                 match remediation::create_restore_point("HydraDragon GUI remediation") {
                     Ok(_) => send(&tx, hwnd, ScanMsg::Status("Restore point created.".into())),
@@ -2901,13 +2949,12 @@ fn run_session(
     }
 
     if sess.cats & CAT_SIGMA != 0 {
-        send(tx, hwnd, ScanMsg::Status("Custom scan: Windows event logs…".into()));
         let logs = scan_hayabusa_once(&exe_dir().join("hayabusa"));
-        for m in &logs {
+        if !logs.is_empty() {
             send(tx, hwnd, ScanMsg::Row {
                 file: "Windows Event Logs".into(),
                 verdict: "Hayabusa".into(),
-                threat: m.clone(),
+                threat: format!("{} event log alert(s)", logs.len()),
                 sev: 85,
             });
         }
@@ -2915,7 +2962,6 @@ fn run_session(
     }
 
     if sess.cats & CAT_MEMORY != 0 {
-        send(tx, hwnd, ScanMsg::Status("Custom scan: process memory…".into()));
         let mem = memory_scanner::scan_process_memory(pl);
         for d in &mem {
             let prio = d.verdict.priority();

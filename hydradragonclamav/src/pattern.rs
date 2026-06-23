@@ -443,40 +443,35 @@ impl Pattern {
     /// by summing per-byte rarity, and the highest-scoring run wins. `None` only
     /// when no fixed byte has a constant offset (all-wildcard / nibble-only, or
     /// every fixed byte sits behind a gap) — those must scan every position.
-    fn best_anchor(&self) -> Option<(usize, Vec<u8>)> {
-        // Approximate per-byte rarity (~ -log2 frequency in executables). Filler
-        // bytes score low (poor anchors); arbitrary bytes score high. Summed over a
-        // run, this rewards length only when the bytes aren't ubiquitous, so a long
-        // `00` run loses to a short run containing a rare byte.
-        fn weight(b: u8) -> u32 {
-            match b {
-                0x00 => 1,
-                0xff => 2,
-                0x90 | 0xcc => 3,
-                0x20..=0x7e => 5, // printable: common in text-bearing files
-                _ => 8,
-            }
-        }
-
-        let mut best: Option<(u32, usize, Vec<u8>)> = None; // (score, offset, needle)
-        let mut run: Vec<u8> = Vec::new();
+    fn best_anchor(&self) -> Option<(usize, Vec<(u8, bool)>)> {
+        // A run is a maximal sequence of constant-offset bytes that must match: each
+        // is either an exact byte (`CLI_MATCH_CHAR`, `is_nocase=false`) or a
+        // case-insensitive byte (`CLI_MATCH_NOCASE`, `true`). Including nocase bytes
+        // is what keeps nocase / wide literals out of the every-position fallback —
+        // without it a `::i` literal has no anchor and `find_all` brute-forces
+        // `match_rec` at all ~N positions (the dominant scan cost on large files).
+        let mut best: Option<(u32, usize, Vec<(u8, bool)>)> = None; // (score, offset, run)
+        let mut run: Vec<(u8, bool)> = Vec::new();
         let mut run_off = 0usize;
         let mut bytes = 0usize;
         let mut sidx = 0usize;
         for i in 0..self.instructions.len() {
             let inst = self.instructions.get_u16(i);
             match inst & CLI_MATCH_METADATA {
-                CLI_MATCH_CHAR => {
+                CLI_MATCH_CHAR | CLI_MATCH_NOCASE => {
                     if run.is_empty() {
                         run_off = bytes;
                     }
-                    run.push((inst & 0xff) as u8);
+                    run.push((
+                        (inst & 0xff) as u8,
+                        (inst & CLI_MATCH_METADATA) == CLI_MATCH_NOCASE,
+                    ));
                     bytes += 1;
                     continue;
                 }
                 CLI_MATCH_SPECIAL => {
                     let Some(w) = self.specials.get(sidx)?.fixed_width() else {
-                        consider_anchor(run_off, &run, &mut best, weight);
+                        consider_anchor(run_off, &run, &mut best);
                         break; // variable width — no constant offset past here
                     };
                     bytes += w;
@@ -484,11 +479,10 @@ impl Pattern {
                 }
                 _ => bytes += 1, // wildcard / nibble — breaks the run, one fixed byte
             }
-            // Any non-CHAR element ends the current run.
-            consider_anchor(run_off, &run, &mut best, weight);
+            consider_anchor(run_off, &run, &mut best);
             run.clear();
         }
-        consider_anchor(run_off, &run, &mut best, weight);
+        consider_anchor(run_off, &run, &mut best);
         best.map(|(_, off, needle)| (off, needle))
     }
 
@@ -526,48 +520,68 @@ impl Pattern {
         min_len: usize,
         limit: usize,
         byte_prefix: usize,
-        needle: &[u8],
+        needle: &[(u8, bool)],
     ) -> Vec<MatchRange> {
         if needle.is_empty() {
             return Vec::new();
         }
-        let lit_len = needle.len();
-        let literal = needle;
-        // Shared per-signature backtracking budget (see `find_all`).
         let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
         let mut out = Vec::new();
         let mut last_start: Option<usize> = None;
+
+        // All-exact run → search the whole literal with SIMD memmem (most
+        // selective). A run containing a case-insensitive byte can't memmem, so
+        // anchor on its single most-selective byte, found case-insensitively with
+        // memchr2; `match_rec` (which itself handles nocase/wide) then verifies the
+        // full match, so the result is identical to the every-position fallback.
+        let all_exact = needle.iter().all(|&(_, nc)| !nc);
+        let exact: Vec<u8> = needle.iter().map(|&(b, _)| b).collect();
+        let (anc_idx, anc_byte, anc_nocase) = needle
+            .iter()
+            .enumerate()
+            .max_by_key(|&(_, &(b, nc))| byte_weight(b, nc))
+            .map(|(i, &(b, nc))| (i, b, nc))
+            .expect("needle non-empty");
+        let anc_lo = anc_byte.to_ascii_lowercase();
+        let anc_up = anc_byte.to_ascii_uppercase();
+
         for &(start, end) in ranges {
             let start = start.min(data.len());
             let end = end.min(data.len());
             if start > end {
                 continue;
             }
-            // Valid match-start positions are [start, max_pos], identical to the
-            // naive loop's bound. (For absolute/EOF offset specs the range bounds
-            // the *start*, while the match itself may read past `end`.)
             let max_pos = end.saturating_sub(min_len).max(start);
-            // The literal of a match starting at `pos` sits at
-            // [pos + byte_prefix, pos + byte_prefix + lit_len). Search exactly the band of
-            // data that can hold the literal for some valid start, so a match whose
-            // literal lies past `end` (absolute/EOF specs) is still found.
-            let lo = (start + byte_prefix).min(data.len());
-            let hi = max_pos.saturating_add(byte_prefix).saturating_add(lit_len).min(data.len());
+            // Offset from match start to the searched element, and its length.
+            let (search_off, search_len) = if all_exact {
+                (byte_prefix, exact.len())
+            } else {
+                (byte_prefix + anc_idx, 1)
+            };
+            let lo = (start + search_off).min(data.len());
+            let hi = max_pos
+                .saturating_add(search_off)
+                .saturating_add(search_len)
+                .min(data.len());
             if lo >= hi {
                 continue;
             }
             let window = &data[lo..hi];
-            // Overlapping occurrences: advance by one byte after each hit. A
-            // literal can self-overlap (e.g. "AA" in "AAA"), so the non-overlapping
-            // `find_iter` would skip a valid anchor; stepping by 1 keeps every one.
             let mut from = 0usize;
             while from < window.len() {
-                let Some(rel) = memchr::memmem::find(&window[from..], literal) else {
+                let rel = if all_exact {
+                    memchr::memmem::find(&window[from..], &exact)
+                } else if anc_nocase && anc_lo != anc_up {
+                    memchr::memchr2(anc_lo, anc_up, &window[from..])
+                } else {
+                    memchr::memchr(anc_byte, &window[from..])
+                };
+                let Some(rel) = rel else {
                     break;
                 };
                 let occ = lo + from + rel;
                 from += rel + 1;
-                let Some(pos) = occ.checked_sub(byte_prefix) else {
+                let Some(pos) = occ.checked_sub(search_off) else {
                     continue;
                 };
                 if pos < start || pos > max_pos || last_start == Some(pos) {
@@ -1256,16 +1270,33 @@ fn expand_wildcards(raw: &str) -> String {
 
 /// Score a candidate anchor run (`best_anchor`) by summed per-byte rarity and
 /// keep it if it beats the current best. A run starting at byte offset `off`.
+/// Approximate per-byte rarity (~ -log2 frequency in executables). Filler bytes
+/// score low (poor anchors); arbitrary bytes score high. A nocase byte is searched
+/// as two cases, so it's slightly less selective — discounted below.
+fn byte_weight(b: u8, nocase: bool) -> u32 {
+    let base: u32 = match b {
+        0x00 => 1,
+        0xff => 2,
+        0x90 | 0xcc => 3,
+        0x20..=0x7e => 5, // printable: common in text-bearing files
+        _ => 8,
+    };
+    if nocase {
+        base.saturating_sub(1).max(1)
+    } else {
+        base
+    }
+}
+
 fn consider_anchor(
     off: usize,
-    run: &[u8],
-    best: &mut Option<(u32, usize, Vec<u8>)>,
-    weight: fn(u8) -> u32,
+    run: &[(u8, bool)],
+    best: &mut Option<(u32, usize, Vec<(u8, bool)>)>,
 ) {
     if run.is_empty() {
         return;
     }
-    let score: u32 = run.iter().map(|&b| weight(b)).sum();
+    let score: u32 = run.iter().map(|&(b, nc)| byte_weight(b, nc)).sum();
     if best.as_ref().is_none_or(|(bs, _, _)| score > *bs) {
         *best = Some((score, off, run.to_vec()));
     }
