@@ -775,43 +775,104 @@ impl Pattern {
                         // what stops a gappy pattern (`…{gap}/link.html`) from probing
                         // thousands of false positions per gap and blowing up.
                         if ipos + 1 < pat_len && !data.is_empty() {
-                            let mut run: Vec<u8> = Vec::new();
+                            // Collect the fixed run after the gap as case-insensitive
+                            // elements `(lowercased_byte, is_nocase)` — this handles
+                            // `nocase`/wide runs (`http*b\0i\0t\0…::awi`) that a
+                            // CHAR-only run would miss, dropping them into the
+                            // O(gap-width) general path.
+                            let mut run: Vec<(u8, bool)> = Vec::new();
                             let mut j = ipos + 1;
                             while j < pat_len && run.len() < 64 {
                                 let e = pat.get_u16(j);
-                                if (e & CLI_MATCH_METADATA) == CLI_MATCH_CHAR {
-                                    run.push((e & 0xff) as u8);
-                                    j += 1;
-                                } else {
-                                    break;
+                                match e & CLI_MATCH_METADATA {
+                                    CLI_MATCH_CHAR => {
+                                        run.push(((e & 0xff) as u8, false));
+                                        j += 1;
+                                    }
+                                    CLI_MATCH_NOCASE => {
+                                        run.push(((e & 0xff) as u8, true));
+                                        j += 1;
+                                    }
+                                    _ => break,
                                 }
                             }
                             if !run.is_empty() {
-                                let lo = dpos + *min;
+                                let los = dpos + *min;
                                 // The run must START in the gap window and fully fit.
                                 let last_start =
                                     (dpos + hi).min(data.len().saturating_sub(run.len()));
-                                if lo > last_start {
+                                if los > last_start {
                                     return None;
                                 }
-                                let win_end = last_start + run.len();
-                                let mut search = lo;
+                                let nocase_in_run = run.iter().any(|&(_, nc)| nc);
+                                if !nocase_in_run {
+                                    // Case-sensitive run: one selective multi-byte SIMD
+                                    // search (the whole run is the needle) — the fast,
+                                    // selective path. Bound by fuel defensively.
+                                    let needle: Vec<u8> = run.iter().map(|&(b, _)| b).collect();
+                                    let win_end = last_start + run.len();
+                                    let mut search = los;
+                                    while search <= last_start {
+                                        let fr = fuel.get();
+                                        if fr == 0 {
+                                            return None;
+                                        }
+                                        fuel.set(fr - 1);
+                                        match memchr::memmem::find(&data[search..win_end], &needle) {
+                                            Some(rel) => {
+                                                let p = search + rel;
+                                                if let Some(end) =
+                                                    self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
+                                                {
+                                                    return Some(end);
+                                                }
+                                                search = p + 1;
+                                            }
+                                            None => break,
+                                        }
+                                    }
+                                    return None;
+                                }
+                                // Nocase run: jump to the next first-byte match (either
+                                // case) and verify the whole run inline before
+                                // recursing. Fuel is decremented *every* probe — a
+                                // common first byte over an unbounded gap whose run is
+                                // absent must not scan the whole buffer per anchor.
+                                let (lo0, nc0) = run[0];
+                                let up0 = if nc0 { lo0.to_ascii_uppercase() } else { lo0 };
+                                let mut search = los;
                                 while search <= last_start {
-                                    if fuel.get() == 0 {
+                                    let f = fuel.get();
+                                    if f == 0 {
                                         return None;
                                     }
-                                    match memchr::memmem::find(&data[search..win_end], &run) {
-                                        Some(rel) => {
-                                            let p = search + rel;
-                                            if let Some(end) =
-                                                self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
-                                            {
-                                                return Some(end);
-                                            }
-                                            search = p + 1;
+                                    fuel.set(f - 1);
+                                    let win = &data[search..=last_start];
+                                    let hit = if lo0 == up0 {
+                                        memchr::memchr(lo0, win)
+                                    } else {
+                                        memchr::memchr2(lo0, up0, win)
+                                    };
+                                    let Some(rel) = hit else {
+                                        break;
+                                    };
+                                    let p = search + rel;
+                                    let matched = run.iter().enumerate().all(|(k, &(b, nc))| {
+                                        let d = data[p + k];
+                                        if nc {
+                                            d.to_ascii_lowercase() == b
+                                        } else {
+                                            d == b
                                         }
-                                        None => break,
+                                    });
+                                    if matched {
+                                        if let Some(end) =
+                                            self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
+                                        {
+                                            return Some(end);
+                                        }
                                     }
+                                    search = p + 1;
                                 }
                                 return None;
                             }

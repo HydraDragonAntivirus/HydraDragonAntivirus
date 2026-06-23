@@ -619,7 +619,14 @@ impl Engine {
                     if matches.len() >= options.max_matches {
                         return;
                     }
+                    let pr = prof_enabled().then(std::time::Instant::now);
                     self.scan_one_logical(sig as usize, Some(&subhits), ctx, options, matches);
+                    if let Some(t) = pr {
+                        let us = t.elapsed().as_micros();
+                        if us > 5000 {
+                            eprintln!("[SL] {us} {}", self.database.logical[sig as usize].name);
+                        }
+                    }
                 }
                 // Always-scanned signatures (a non-indexable branch could satisfy
                 // them) that had no atom hit this buffer: still evaluate them, but
@@ -764,9 +771,31 @@ impl Engine {
             body_arenas[i] = arenas;
         }
 
+        // Phase 2 cutoff: if the expression is already false even assuming every
+        // PCRE / byte-compare subsig matches, a required body subsig is absent and
+        // no Phase-2 work can change the verdict — skip it. This is the big win on
+        // PCRE-heavy logical sigs (the `0 & 1 & … & pcre` shape): the regex's cheap
+        // trigger fires on any buffer, but the whole signature already cannot fire,
+        // so running the (multi-megabyte) regex would be pure waste.
+        let phase2_relevant = {
+            let mut probe = counts.clone();
+            for (i, sub) in subsigs.iter().enumerate() {
+                if matches!(
+                    sub,
+                    Subsignature::Pcre(_) | Subsignature::ByteCompare(_)
+                ) {
+                    probe[i] = probe[i].max(1);
+                }
+            }
+            signature.expression.eval(&probe).matched
+        };
+
         // Phase 2: PCRE and byte-compare subsignatures, whose triggers
         // reference the phase-1 body results.
         for (i, subsig) in subsigs.iter().enumerate() {
+            if !phase2_relevant {
+                break;
+            }
             match subsig {
                 Subsignature::Pcre(pcre) => {
                     if pcre.trigger.eval(&counts).matched {
