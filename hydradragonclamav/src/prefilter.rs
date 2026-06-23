@@ -48,23 +48,33 @@ const OFFSET_OVERFLOW: u32 = u32::MAX;
 /// one AC pass tells us exactly which `(lsig, subsig)` an atom belongs to and we
 /// can verify and count that subsig directly (ClamAV's per-subsig AC counting),
 /// instead of re-scanning the whole buffer for every candidate.
+// sig: bits 0..31, subsig: bits 32..39, partno: bits 40..47, logical flag: bit 63.
+// `partno` is the gap-part index for a gappy subsig (0 for non-gappy), so the one
+// AC pass records, per `(lsig, subsig, part)`, exactly where each PART occurred —
+// the scanner then verifies each part at its own offsets and stitches them by gap
+// distance (ClamAV's `offmatrix`), instead of lumping all parts into one offset
+// list that overflows the cap for multi-part patterns.
 const LOG_FLAG: u64 = 1 << 63;
-const SUBSIG_SHIFT: u64 = 40;
-const SIG_MASK: u64 = (1 << SUBSIG_SHIFT) - 1;
+const SUBSIG_SHIFT: u64 = 32;
+const PART_SHIFT: u64 = 40;
 
 #[inline]
 fn ext_ref(i: usize) -> u64 {
     i as u64
 }
 #[inline]
-fn log_ref(sig: usize, subsig: usize) -> u64 {
-    (sig as u64) | ((subsig as u64) << SUBSIG_SHIFT) | LOG_FLAG
+fn log_ref(sig: usize, subsig: usize, partno: usize) -> u64 {
+    (sig as u64) | ((subsig as u64) << SUBSIG_SHIFT) | ((partno as u64) << PART_SHIFT) | LOG_FLAG
 }
-/// Unpack a logical ref into `(sig, subsig)`.
+/// Unpack a logical ref into `(sig, subsig, partno)`.
 #[inline]
-fn log_unpack(r: u64) -> (u32, u32) {
+fn log_unpack(r: u64) -> (u32, u32, u32) {
     let r = r & !LOG_FLAG;
-    ((r & SIG_MASK) as u32, (r >> SUBSIG_SHIFT) as u32)
+    (
+        (r & 0xFFFF_FFFF) as u32,
+        ((r >> SUBSIG_SHIFT) & 0xFF) as u32,
+        ((r >> PART_SHIFT) & 0xFF) as u32,
+    )
 }
 /// The atom indexed for a literal: its first `MAX_ATOM` bytes.
 #[inline]
@@ -124,12 +134,13 @@ impl SubHits<'static> {
 }
 
 impl SubHits<'_> {
-    /// Offsets recorded for subsignature `i`, or `None` if its atom did not hit.
-    /// An empty slice means "overflowed — full scan". For an indexed subsig `None`
-    /// means its required atom is absent, so that subsig cannot match.
-    pub fn offsets_for(&self, i: usize) -> Option<&[u32]> {
-        let i = i as u32;
-        self.subsigs.iter().position(|&s| s == i).map(|k| {
+    /// Offsets recorded for `(subsig, partno)`, or `None` if that part's atom did
+    /// not hit. An empty slice means "overflowed — full scan". For an indexed part
+    /// `None` means its required atom is absent, so the part (and thus the subsig)
+    /// cannot match. `partno` is 0 for a non-gappy subsig.
+    pub fn offsets_for(&self, subsig: usize, partno: usize) -> Option<&[u32]> {
+        let key = ((subsig as u32) << 8) | partno as u32;
+        self.subsigs.iter().position(|&s| s == key).map(|k| {
             let e = self.base + k;
             &self.offsets[self.off_starts[e] as usize..self.off_starts[e + 1] as usize]
         })
@@ -395,16 +406,16 @@ impl AtomPrefilter {
         // (ClamAV's part matching). `None` if the pattern isn't fully indexable: a
         // gappy pattern is only indexable when EVERY part has a usable atom (every
         // part must match, so any atom-less part would let it match unseen).
-        fn pattern_atoms(p: &crate::pattern::Pattern) -> Option<Vec<Atom>> {
+        fn pattern_atoms(p: &crate::pattern::Pattern) -> Option<Vec<(usize, Atom)>> {
             if !p.has_gap() {
-                return pattern_atom(p).map(|a| vec![a]);
+                return pattern_atom(p).map(|a| vec![(0, a)]);
             }
             let mut atoms = Vec::new();
-            for (part, _) in p.gap_parts() {
+            for (pi, (part, _)) in p.gap_parts().iter().enumerate() {
                 if part.instructions.is_empty() {
                     continue; // empty part (leading/trailing gap) — no atom needed
                 }
-                atoms.push(pattern_atom(&part)?);
+                atoms.push((pi, pattern_atom(part)?));
             }
             (!atoms.is_empty()).then_some(atoms)
         }
@@ -422,8 +433,11 @@ impl AtomPrefilter {
             let mut atoms: Vec<Atom> = Vec::with_capacity(sig.patterns.len());
             let mut atomless = sig.patterns.is_empty();
             for p in &sig.patterns {
-                match pattern_atoms(p) {
-                    Some(a) => atoms.extend(a),
+                // Extended sigs key by signature only; index ONE atom per pattern
+                // (a gappy extended sig is verified by the inline matcher at that
+                // atom's offsets — part-by-part offmatrix is the logical path).
+                match pattern_atom(p) {
+                    Some(a) => atoms.push(a),
                     None => {
                         atomless = true;
                         break;
@@ -457,7 +471,8 @@ impl AtomPrefilter {
         for (si, sig) in db.logical.iter().enumerate() {
             let n = sig.subsignatures.len();
             let mut indexable_mask = vec![false; n];
-            let mut subsig_atoms: Vec<(usize, Vec<Atom>)> = Vec::new();
+            // `(subsig, partno, atom)` for every indexable part of every body subsig.
+            let mut subsig_atoms: Vec<(usize, usize, Atom)> = Vec::new();
             for (i, subsig) in sig.subsignatures.iter().enumerate() {
                 let Subsignature::Body { offset, patterns } = subsig else {
                     continue;
@@ -469,7 +484,7 @@ impl AtomPrefilter {
                 }
                 // Indexable iff EVERY variant is fully indexable (gappy variants
                 // require every part to have an atom — see `pattern_atoms`).
-                let mut atoms: Vec<Atom> = Vec::with_capacity(patterns.len());
+                let mut atoms: Vec<(usize, Atom)> = Vec::with_capacity(patterns.len());
                 let mut ok = true;
                 for p in patterns {
                     match pattern_atoms(p) {
@@ -482,7 +497,9 @@ impl AtomPrefilter {
                 }
                 if ok && !atoms.is_empty() {
                     indexable_mask[i] = true;
-                    subsig_atoms.push((i, atoms));
+                    for (partno, a) in atoms {
+                        subsig_atoms.push((i, partno, a));
+                    }
                 }
             }
 
@@ -506,13 +523,13 @@ impl AtomPrefilter {
             // subsigs verify cheaply at their atom offsets; it's merely *also*
             // evaluated when none of its atoms hit, to check its non-indexable
             // branch (`log_always`).
-            for (subsig, atoms) in subsig_atoms {
-                for a in atoms {
-                    match a {
-                        Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si, subsig))),
-                        Atom::Nocase(a) => {
-                            entries_nocase.push((short_atom(&a).into(), log_ref(si, subsig)))
-                        }
+            for (subsig, partno, a) in subsig_atoms {
+                match a {
+                    Atom::Exact(a) => {
+                        entries.push((short_atom(&a).into(), log_ref(si, subsig, partno)))
+                    }
+                    Atom::Nocase(a) => {
+                        entries_nocase.push((short_atom(&a).into(), log_ref(si, subsig, partno)))
                     }
                 }
             }
@@ -637,10 +654,11 @@ fn collect_hits(
         let end = atom_starts[id + 1] as usize;
         for &r in &sig_refs[start..end] {
             if r & LOG_FLAG != 0 {
-                // Pack `(sig, subsig)` into a sort key so hits group by signature
-                // and then subsignature in `build_log_candidates`.
-                let (sig, subsig) = log_unpack(r);
-                log_hits.push((((sig as u64) << 8) | subsig as u64, off));
+                // Sort key groups hits by sig, then by `(subsig, partno)` (the low 16
+                // bits), so `build_log_candidates` produces per-part offset lists.
+                let (sig, subsig, partno) = log_unpack(r);
+                let key = ((sig as u64) << 16) | ((subsig as u64) << 8) | partno as u64;
+                log_hits.push((key, off));
             } else {
                 ext_hits.push((r as u32, off));
             }
@@ -648,10 +666,10 @@ fn collect_hits(
     }
 }
 
-/// Group per-`(sig, subsig)` logical hits into `LogCandidates`. `key = sig<<8 |
-/// subsig`. Within each `(sig, subsig)`, an `OFFSET_OVERFLOW` sentinel (or more
-/// than `MAX_OFFSETS_PER_SIG` offsets) collapses that subsig's offsets to an empty
-/// span, meaning "verify by full scan".
+/// Group per-`(sig, subsig, partno)` logical hits into `LogCandidates`. `key =
+/// sig<<16 | subsig<<8 | partno`; each `(subsig, partno)` becomes one entry keyed by
+/// its low 16 bits. An `OFFSET_OVERFLOW` sentinel (or more than `MAX_OFFSETS_PER_SIG`
+/// offsets) collapses that part's offsets to an empty span, meaning "full scan".
 fn build_log_candidates(mut hits: Vec<(u64, u32)>) -> LogCandidates {
     if hits.is_empty() {
         return LogCandidates::empty();
@@ -667,10 +685,10 @@ fn build_log_candidates(mut hits: Vec<(u64, u32)>) -> LogCandidates {
 
     let mut i = 0usize;
     while i < hits.len() {
-        let sig = (hits[i].0 >> 8) as u32;
-        while i < hits.len() && (hits[i].0 >> 8) as u32 == sig {
+        let sig = (hits[i].0 >> 16) as u32;
+        while i < hits.len() && (hits[i].0 >> 16) as u32 == sig {
             let key = hits[i].0;
-            let subsig = (key & 0xff) as u32;
+            let subpart = (key & 0xffff) as u32; // subsig<<8 | partno
             let base = offsets.len();
             let mut overflow = false;
             while i < hits.len() && hits[i].0 == key {
@@ -683,9 +701,9 @@ fn build_log_candidates(mut hits: Vec<(u64, u32)>) -> LogCandidates {
                 i += 1;
             }
             if overflow || offsets.len() - base > MAX_OFFSETS_PER_SIG {
-                offsets.truncate(base); // empty span → full scan this subsig
+                offsets.truncate(base); // empty span → full scan this part
             }
-            entry_subsig.push(subsig);
+            entry_subsig.push(subpart);
             off_starts.push(offsets.len() as u32);
         }
         sigs.push(sig);

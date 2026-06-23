@@ -739,26 +739,7 @@ impl Engine {
             if ranges.is_empty() {
                 continue;
             }
-            let (count, arenas) = match subhits.and_then(|sh| sh.offsets_for(i)) {
-                // Atom hit → verify only at its offsets.
-                Some(offs) if !offs.is_empty() => {
-                    body_matches(patterns, ctx.data, &ranges, limit, Some(offs))
-                }
-                // Atom overflowed the per-scan cap → full scan.
-                Some(_) => body_matches(patterns, ctx.data, &ranges, limit, None),
-                None => {
-                    if subhits.is_some()
-                        && !patterns.is_empty()
-                        && patterns.iter().all(|p| p.has_atom())
-                    {
-                        // Indexable subsig, atom absent → cannot match.
-                        (0, Vec::new())
-                    } else {
-                        // Atom-less subsig, or an always-scanned sig → full scan.
-                        body_matches(patterns, ctx.data, &ranges, limit, None)
-                    }
-                }
-            };
+            let (count, arenas) = verify_subsig(patterns, ctx.data, &ranges, limit, subhits, i);
             counts[i] = count;
             last_offsets[i] = arenas.iter().map(|a| a.0).max();
             body_arenas[i] = arenas;
@@ -902,16 +883,18 @@ impl Engine {
     }
 }
 
-/// Count pattern hits within `ranges` and collect the matched byte ranges
-/// (capped at `ARENA_CAP`) for disinfection. When `hints` is `Some`, each
-/// pattern is verified only at the prefilter-provided atom offsets
-/// (`find_all_at`) instead of rescanning the whole buffer; `None` is a full scan.
-fn body_matches(
+/// Count matches of one body subsignature and collect matched ranges (capped at
+/// `ARENA_CAP`). Each variant pattern is verified at its own prefilter-found atom
+/// offsets — `find_all_at` for a plain pattern, or part-by-part `find_all_gapped_with`
+/// for a gappy one (each gap-part keyed `(subsig, partno)` in the AC). `subhits ==
+/// None` (always-scanned sig / disabled prefilter) full-scans every variant.
+fn verify_subsig(
     patterns: &[crate::pattern::Pattern],
     data: &[u8],
     ranges: &[(usize, usize)],
     limit: usize,
-    hints: Option<&[u32]>,
+    subhits: Option<&crate::prefilter::SubHits<'_>>,
+    subsig: usize,
 ) -> (usize, Vec<(usize, usize)>) {
     let mut count = 0usize;
     let mut arenas: Vec<(usize, usize)> = Vec::new();
@@ -920,13 +903,44 @@ fn body_matches(
         if remaining == 0 {
             break;
         }
-        // Thread the per-subsig hint offsets into the pattern: `find_all_at` routes
-        // a gappy pattern to part-by-part matching at the AC-found part offsets, a
-        // nocase pattern to its nocase-atom anchor, and an atomless pattern to a
-        // full scan — so passing the hints unconditionally is always correct.
-        let hits = match hints {
-            Some(h) => pattern.find_all_at(data, ranges, remaining, h),
+        let hits: Vec<crate::pattern::MatchRange> = match subhits {
+            // Full scan (always-scanned sig / disabled prefilter).
             None => pattern.find_all(data, ranges, remaining),
+            Some(sh) if pattern.has_gap() => {
+                // Gather each gap-part's own offsets (keyed `(subsig, partno)`). If a
+                // part's atom is absent, this variant cannot match.
+                let parts = pattern.gap_parts();
+                let mut part_offs: Vec<&[u32]> = Vec::new();
+                let mut absent = false;
+                for (pi, (part, _)) in parts.iter().enumerate() {
+                    if part.instructions.is_empty() {
+                        continue;
+                    }
+                    match sh.offsets_for(subsig, pi) {
+                        Some(o) => part_offs.push(o), // empty slice = overflow → bounded scan
+                        None => {
+                            absent = true;
+                            break;
+                        }
+                    }
+                }
+                if absent {
+                    Vec::new()
+                } else {
+                    pattern.find_all_gapped_with(data, ranges, remaining, &part_offs)
+                }
+            }
+            Some(sh) => match sh.offsets_for(subsig, 0) {
+                Some(o) if !o.is_empty() => pattern.find_all_at(data, ranges, remaining, o),
+                Some(_) => pattern.find_all(data, ranges, remaining), // overflow → full scan
+                None => {
+                    if pattern.has_atom() {
+                        Vec::new() // indexable, atom absent → cannot match
+                    } else {
+                        pattern.find_all(data, ranges, remaining) // atom-less → full scan
+                    }
+                }
+            },
         };
         for hit in hits {
             count += 1;

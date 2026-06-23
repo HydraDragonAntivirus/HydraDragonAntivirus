@@ -715,20 +715,19 @@ impl Pattern {
         parts
     }
 
-    /// Match a gappy pattern part-by-part (ClamAV's `partno` / `offmatrix`), using
-    /// the prefilter `hints` — the offsets where ANY of the pattern's part atoms
-    /// occurred in the single AC pass. Each gap-free part is verified **only at
-    /// those offsets** (`find_all_at` on the part picks out its own occurrences;
-    /// other parts' offsets fail fast), then a sweep keeps the part matches
-    /// reachable from a previous part within the gap distance, carrying the first
-    /// part's start through to the last. Linear in the hits — no buffer re-scan, no
-    /// per-occurrence gap backtracking.
-    fn find_all_gapped_threaded(
+    /// Match a gappy pattern part-by-part (ClamAV's `partno` / `offmatrix`).
+    /// `part_offsets[k]` is the AC-found offset list for the k-th (non-empty) part —
+    /// each part is verified **only at its own offsets** (`find_all_at`), or by a
+    /// bounded scan if that part's offsets overflowed (an empty slice). A sweep then
+    /// keeps the part matches reachable from a previous part within the gap distance,
+    /// carrying the first part's start to the last. Linear — no per-occurrence gap
+    /// backtracking, and no single lumped offset list that overflows for many parts.
+    pub(crate) fn find_all_gapped_with(
         &self,
         data: &[u8],
         ranges: &[(usize, usize)],
         limit: usize,
-        hints: &[u32],
+        part_offsets: &[&[u32]],
     ) -> Vec<MatchRange> {
         const PART_CAP: usize = 2048;
         let parts: Vec<(Pattern, Option<(usize, usize)>)> = self
@@ -736,16 +735,24 @@ impl Pattern {
             .into_iter()
             .filter(|(p, _)| !p.instructions.is_empty())
             .collect();
-        if parts.is_empty() {
+        if parts.is_empty() || parts.len() != part_offsets.len() {
             return Vec::new();
         }
+        let part_find = |part: &Pattern, rng: &[(usize, usize)], offs: &[u32]| -> Vec<MatchRange> {
+            if offs.is_empty() {
+                part.find_all(data, rng, PART_CAP) // overflowed → bounded scan of this part
+            } else {
+                part.find_all_at(data, rng, PART_CAP, offs)
+            }
+        };
+
         // Part 0: its start is the full-match start, so honour `ranges`.
-        let p0 = parts[0].0.find_all_at(data, ranges, PART_CAP, hints);
+        let p0 = part_find(&parts[0].0, ranges, part_offsets[0]);
         let mut cur: Vec<(usize, usize)> = p0.iter().map(|m| (m.start, m.end)).collect();
         cur.sort_unstable_by_key(|&(_, e)| e);
         cur.dedup();
 
-        for (part, gap) in parts.iter().skip(1) {
+        for (idx, (part, gap)) in parts.iter().enumerate().skip(1) {
             if cur.is_empty() {
                 return Vec::new();
             }
@@ -763,7 +770,7 @@ impl Pattern {
             }
             let part_min = part.min_match_len().max(1);
             let send = hi.saturating_add(part_min).min(data.len());
-            let pmatches = part.find_all_at(data, &[(lo, send)], PART_CAP, hints);
+            let pmatches = part_find(part, &[(lo, send)], part_offsets[idx]);
 
             let ends: Vec<usize> = cur.iter().map(|&(_, e)| e).collect();
             let mut next: Vec<(usize, usize)> = Vec::new();
@@ -819,10 +826,6 @@ impl Pattern {
     ) -> Vec<MatchRange> {
         if limit == 0 || hints.is_empty() || self.instructions.is_empty() {
             return Vec::new();
-        }
-        // Gappy pattern: match part-by-part at the AC-found part-atom offsets.
-        if self.has_gap() {
-            return self.find_all_gapped_threaded(data, ranges, limit, hints);
         }
         // Each hint is an occurrence of this pattern's prefilter atom (its best
         // literal); a match anchors at `occurrence - prefix`, where `prefix` is the
