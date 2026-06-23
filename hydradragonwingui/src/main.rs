@@ -87,6 +87,10 @@ const CMD_DESELECT_ALL: usize = 19;
 // Settings page: context menu install / uninstall
 const CMD_INSTALL_MENU: usize = 20;
 const CMD_UNINSTALL_MENU: usize = 21;
+// Scan category toggles
+const CMD_TOGGLE_REGISTRY: usize = 22;
+const CMD_TOGGLE_MEMORY: usize = 23;
+const CMD_TOGGLE_SIGMA: usize = 24;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
@@ -345,9 +349,13 @@ enum ScanMsg {
     },
 }
 
+const CAT_REGISTRY: u8 = 0x01;
+const CAT_MEMORY: u8 = 0x02;
+const CAT_SIGMA: u8 = 0x04;
+
 enum WorkRequest {
-    /// Full scan: files + registry + Windows event logs + process memory
-    FullScan(Vec<PathBuf>),
+    /// Full scan: files + optional registry/memory/sigma (controlled by `cats`).
+    FullScan(Vec<PathBuf>, u8),
     /// Force a fresh (uncached) re-scan of specific files already in the list.
     Rescan(Vec<PathBuf>),
     /// Continue a scan that was stopped (the worker keeps the remaining file list).
@@ -427,6 +435,10 @@ struct AppState {
     // out of the ListView.
     scan_verdict: Vec<String>,
     scan_threat: Vec<String>,
+    // Scan category preferences for Custom Scan
+    pref_registry: bool,
+    pref_memory: bool,
+    pref_sigma: bool,
     quar_ids: Vec<String>,
     quarantine_dir: PathBuf,
 }
@@ -755,6 +767,9 @@ unsafe fn on_create(hwnd: HWND) {
         scan_sev: Vec::new(),
         scan_verdict: Vec::new(),
         scan_threat: Vec::new(),
+        pref_registry: false,
+        pref_memory: false,
+        pref_sigma: false,
         quar_ids: Vec::new(),
         quarantine_dir,
     });
@@ -843,6 +858,9 @@ fn buttons_for(page: usize, state: ScanState) -> Vec<(usize, &'static str, &'sta
             _ => vec![
                 (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
                 (CMD_CLEAN, "Clean Threats", "\u{E74D}", Kind::Primary),
+                (CMD_TOGGLE_REGISTRY, "Registry", "\u{E70B}", Kind::Neutral),
+                (CMD_TOGGLE_MEMORY, "Memory", "\u{E770}", Kind::Neutral),
+                (CMD_TOGGLE_SIGMA, "Sigma", "\u{E721}", Kind::Neutral),
                 (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
             ],
         },
@@ -897,6 +915,13 @@ unsafe fn layout(hwnd: HWND) {
     // Scan page reserves a status hero banner above the action buttons.
     let mut y = HEADER_H + PAD + if s.page == 0 { HERO_H + PAD } else { 0 };
     for (cmd, label, icon, kind) in defs {
+        // Toggle buttons: active = Primary, inactive = Neutral
+        let kind = match cmd {
+            CMD_TOGGLE_REGISTRY if s.pref_registry => Kind::Primary,
+            CMD_TOGGLE_MEMORY if s.pref_memory => Kind::Primary,
+            CMD_TOGGLE_SIGMA if s.pref_sigma => Kind::Primary,
+            _ => kind,
+        };
         if x + BTN_W > content_r && x > content_l {
             x = content_l;
             y += BTN_H + GAP;
@@ -1565,7 +1590,7 @@ unsafe fn on_dropfiles(hwnd: HWND, hdrop: HDROP) {
     } else {
         s.status = format!("Scanning {} items…", paths.len());
     }
-    let _ = s.work_tx.send(WorkRequest::FullScan(paths));
+    let _ = s.work_tx.send(WorkRequest::FullScan(paths, 0));
 }
 
 unsafe fn show_tray_icon(_hwnd: HWND, s: &mut AppState) {
@@ -1817,6 +1842,18 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             }
             let _ = InvalidateRect(Some(hwnd), None, false);
         }
+        CMD_TOGGLE_REGISTRY => {
+            s.pref_registry = !s.pref_registry;
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        CMD_TOGGLE_MEMORY => {
+            s.pref_memory = !s.pref_memory;
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        CMD_TOGGLE_SIGMA => {
+            s.pref_sigma = !s.pref_sigma;
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
         _ => {}
     }
 }
@@ -1910,14 +1947,17 @@ fn uninstall_context_menu_impl() -> std::io::Result<()> {
 }
 
 unsafe fn pick_and_custom_scan(s: &mut AppState) {
-    // Pick file or folder
     if let Some(path) = pick_path(true) {
         s.cancel.store(false, Ordering::Relaxed);
         s.abort.store(false, Ordering::Relaxed);
         lv_clear(s.scan_list);
         clear_scan_results(s);
+        let mut cats = 0u8;
+        if s.pref_registry { cats |= CAT_REGISTRY; }
+        if s.pref_memory { cats |= CAT_MEMORY; }
+        if s.pref_sigma { cats |= CAT_SIGMA; }
         s.status = format!("Scanning {}…", path.display());
-        let _ = s.work_tx.send(WorkRequest::FullScan(vec![path]));
+        let _ = s.work_tx.send(WorkRequest::FullScan(vec![path], cats));
     }
 }
 
@@ -2632,12 +2672,12 @@ struct ScanSession {
     scanned: usize,           // files completed so far
     threats: usize,           // detections so far
     discovered: usize,        // files discovered so far (running total)
-    full: bool,               // also run registry/logs/memory after the files
+    cats: u8,                 // bitmask: CAT_REGISTRY | CAT_MEMORY | CAT_SIGMA
 }
 
 /// Seed a session from the chosen roots WITHOUT walking them: directories are
 /// queued for lazy discovery, single picked files go straight to the scan queue.
-fn seed_session(paths: &[PathBuf], full: bool) -> ScanSession {
+fn seed_session(paths: &[PathBuf], cats: u8) -> ScanSession {
     let mut dirs = VecDeque::new();
     let mut queue = VecDeque::new();
     let mut discovered = 0;
@@ -2649,7 +2689,7 @@ fn seed_session(paths: &[PathBuf], full: bool) -> ScanSession {
             discovered += 1;
         }
     }
-    ScanSession { dirs, queue, scanned: 0, threats: 0, discovered, full }
+    ScanSession { dirs, queue, scanned: 0, threats: 0, discovered, cats }
 }
 
 fn worker(
@@ -2666,10 +2706,10 @@ fn worker(
 
     while let Ok(req) = work_rx.recv() {
         match req {
-            WorkRequest::FullScan(paths) => {
+            WorkRequest::FullScan(paths, cats) => {
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                session = Some(seed_session(&paths, true));
+                session = Some(seed_session(&paths, cats));
                 let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &abort, &tx, hwnd);
                 if completed {
                     session = None;
@@ -2833,59 +2873,72 @@ fn run_session(
         return false;
     }
 
-    if !sess.full {
+    if sess.cats == 0 {
+        // No registry/memory/sigma selected → done after file scan
         send(tx, hwnd, ScanMsg::Done { scanned: sess.scanned, threats: sess.threats });
         return true;
     }
 
-    // Full mode = files + registry + Windows event logs + process memory. These
-    // phases run to completion (they are not part of the pausable file loop).
-    send(tx, hwnd, ScanMsg::Status("Full scan: registry…".into()));
-    let reg = RegistryScanner::default().scan();
-    for e in &reg.entries {
-        if e.pua_match || e.static_match {
+    // Run selected extra phases.
+    let mut reg_threats = 0usize;
+    let mut log_hits = 0usize;
+    let mut mem_hits = 0usize;
+
+    if sess.cats & CAT_REGISTRY != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: registry…".into()));
+        let reg = RegistryScanner::default().scan();
+        for e in &reg.entries {
+            if e.pua_match || e.static_match {
+                send(tx, hwnd, ScanMsg::Row {
+                    file: format!("{}\\{}\\{}", e.hive, e.path, e.value_name),
+                    verdict: "Registry".into(),
+                    threat: e.threat_name.clone().unwrap_or_else(|| e.detail.clone()),
+                    sev: if e.static_match { 80 } else { 35 },
+                });
+            }
+        }
+        reg_threats = reg.threats_found as usize;
+    }
+
+    if sess.cats & CAT_SIGMA != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: Windows event logs…".into()));
+        let logs = scan_hayabusa_once(&exe_dir().join("hayabusa"));
+        for m in &logs {
             send(tx, hwnd, ScanMsg::Row {
-                file: format!("{}\\{}\\{}", e.hive, e.path, e.value_name),
-                verdict: "Registry".into(),
-                threat: e.threat_name.clone().unwrap_or_else(|| e.detail.clone()),
-                sev: if e.static_match { 80 } else { 35 },
+                file: "Windows Event Logs".into(),
+                verdict: "Hayabusa".into(),
+                threat: m.clone(),
+                sev: 85,
             });
         }
+        log_hits = logs.len();
     }
 
-    send(tx, hwnd, ScanMsg::Status("Full scan: Windows event logs…".into()));
-    let logs = scan_hayabusa_once(&exe_dir().join("hayabusa"));
-    for m in &logs {
-        send(tx, hwnd, ScanMsg::Row {
-            file: "Windows Event Logs".into(),
-            verdict: "Hayabusa".into(),
-            threat: m.clone(),
-            sev: 85,
-        });
+    if sess.cats & CAT_MEMORY != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: process memory…".into()));
+        let mem = memory_scanner::scan_process_memory(pl);
+        for d in &mem {
+            let prio = d.verdict.priority();
+            send(tx, hwnd, ScanMsg::Row {
+                file: format!("{} (pid {}) @ 0x{:x}", d.process, d.pid, d.address),
+                verdict: d.verdict.label().to_string(),
+                threat: d.threat_name.clone(),
+                sev: match prio {
+                    2 => 30,
+                    3 => 50,
+                    4 => 75,
+                    _ => 100,
+                },
+            });
+        }
+        mem_hits = mem.len();
     }
 
-    send(tx, hwnd, ScanMsg::Status("Full scan: process memory…".into()));
-    let mem = memory_scanner::scan_process_memory(pl);
-    for d in &mem {
-        let prio = d.verdict.priority();
-        send(tx, hwnd, ScanMsg::Row {
-            file: format!("{} (pid {}) @ 0x{:x}", d.process, d.pid, d.address),
-            verdict: d.verdict.label().to_string(),
-            threat: d.threat_name.clone(),
-            sev: match prio {
-                2 => 30,
-                3 => 50,
-                4 => 75,
-                _ => 100,
-            },
-        });
-    }
-
-    let total = sess.threats + reg.threats_found as usize + logs.len() + mem.len();
+    let total = sess.threats + reg_threats + log_hits + mem_hits;
     send(tx, hwnd, ScanMsg::Done { scanned: sess.scanned, threats: total });
     send(tx, hwnd, ScanMsg::Status(format!(
-        "Full scan done. Files {}, registry {} threat(s), logs {} alert(s), memory {} hit(s).",
-        sess.threats, reg.threats_found, logs.len(), mem.len()
+        "Scan done. Files {}, registry {} threat(s), logs {} alert(s), memory {} hit(s).",
+        sess.threats, reg_threats, log_hits, mem_hits
     )));
     true
 }
