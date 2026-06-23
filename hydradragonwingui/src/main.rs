@@ -994,12 +994,12 @@ unsafe fn paint(hwnd: HWND) {
     // Bottom border across full header.
     fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 1 }, t.border);
 
-    // Logo: rounded-square badge with shield icon (smaller, tighter).
+    // Logo: rounded-square badge with HydraDragon H (smaller, tighter).
     let lsz = 38;
     let lpad = (HEADER_H - lsz) / 2;
     let logo = RECT { left: PAD, top: lpad, right: PAD + lsz, bottom: lpad + lsz };
     fill_round(mem, logo, 10, t.accent);
-    text(mem, "\u{E83D}", &logo, WHITE, s.fonts.icon_lg, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    text(mem, "H", &logo, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // App name + tagline.
     let tx = logo.right + 12;
@@ -1109,7 +1109,7 @@ unsafe fn paint(hwnd: HWND) {
         let bsz = 76;
         let badge = RECT { left: cx - bsz / 2, top: cy - bsz - 12, right: cx + bsz / 2, bottom: cy - 12 };
         fill_round(mem, badge, bsz / 2, t.accent);
-        text(mem, "\u{E83D}", &badge, WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        text(mem, "H", &badge, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         text(
             mem,
             "Loading engines…",
@@ -1236,7 +1236,7 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     let (accent, glyph, head, sub) = match s.scan_state {
         ScanState::Idle => (
             t.accent,
-            "\u{E83D}", // shield
+            "H",
             "Ready to scan".to_string(),
             if s.sig_count > 0 {
                 format!("{} signatures loaded — run a scan to check for threats.", fmt_count(s.sig_count))
