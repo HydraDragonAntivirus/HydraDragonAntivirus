@@ -1,5 +1,8 @@
 # Frequently Asked Questions (FAQ)
 
+#### Q: Why this antivirus uses so much of RAM?
+- We don't believe hiding RAM usage is not good idea for marketing. Read here: https://www.emsisoft.com/en/blog/22176/why-antivirus-uses-so-much-ram-and-why-that-is-actually-a-good-thing/ Please count the kernel level usage of antiviruses.
+
 #### Q: Why I can't disinfect virus on Portable Edition?
 - It's actually showcase of usermode functions the kernel only exists in non portable version right now. So you might need wait.
 
