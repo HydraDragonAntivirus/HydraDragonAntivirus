@@ -619,14 +619,7 @@ impl Engine {
                     if matches.len() >= options.max_matches {
                         return;
                     }
-                    let pr = prof_enabled().then(std::time::Instant::now);
                     self.scan_one_logical(sig as usize, Some(&subhits), ctx, options, matches);
-                    if let Some(t) = pr {
-                        let us = t.elapsed().as_micros();
-                        if us > 5000 {
-                            eprintln!("[SL] {us} {}", self.database.logical[sig as usize].name);
-                        }
-                    }
                 }
                 // Always-scanned signatures (a non-indexable branch could satisfy
                 // them) that had no atom hit this buffer: still evaluate them, but
