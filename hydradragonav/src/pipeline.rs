@@ -4,7 +4,6 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use clap::ValueEnum;
 use fastbloom::AtomicBloomFilter;
 use md5::{Digest, Md5};
 use hydradragonsig::models::FileTypeInfo;
@@ -24,12 +23,24 @@ type InferBackend = NdArray<f32>;
 /// Maximum file size (in bytes) for content scanning (2 GiB).
 const MAX_SCAN_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
-pub enum ScanMode {
-    #[default]
-    Full,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
+pub enum ScanCategory {
+    /// Scan files and directories (ClamAV, YARA-X, ML, static analysis)
     Files,
-    NonFiles,
+    /// Scan running process memory
+    Memory,
+    /// Scan registry for PUMs and persistence
+    Registry,
+    /// Scan event logs with Sigma/Hayabusa rules
+    Sigma,
+    /// Scan for PUM (Potentially Unwanted Modifications) — file and registry
+    Pum,
+}
+
+impl ScanCategory {
+    pub fn all() -> Vec<Self> {
+        vec![Self::Files, Self::Memory, Self::Registry, Self::Sigma, Self::Pum]
+    }
 }
 
 #[derive(Clone)]
@@ -41,7 +52,8 @@ pub struct PipelineConfig {
     pub js_ml_model_path: Option<PathBuf>,
     pub clamav_db: Option<PathBuf>,
     pub hayabusa_dir: Option<PathBuf>,
-    pub scan_mode: ScanMode,
+    /// Selected scan categories. Empty = all categories enabled.
+    pub scan_categories: Vec<ScanCategory>,
     pub ml_threshold: f32,
     pub clamav_heuristics: bool,
     pub time_engines: bool,
@@ -49,6 +61,13 @@ pub struct PipelineConfig {
     /// Directory for the persisted duplicate-dedup result blooms
     /// (`good_results.bloom` / `bad_results.bloom`). `None` = in-memory only.
     pub results_cache_dir: Option<PathBuf>,
+}
+
+impl PipelineConfig {
+    /// Returns true if the given category is active.
+    pub fn has_category(&self, cat: ScanCategory) -> bool {
+        self.scan_categories.is_empty() || self.scan_categories.contains(&cat)
+    }
 }
 
 impl Default for PipelineConfig {
@@ -61,7 +80,7 @@ impl Default for PipelineConfig {
             js_ml_model_path: None,
             clamav_db: None,
             hayabusa_dir: None,
-            scan_mode: ScanMode::default(),
+            scan_categories: Vec::new(),
             ml_threshold: 0.8,
             clamav_heuristics: false,
             time_engines: false,

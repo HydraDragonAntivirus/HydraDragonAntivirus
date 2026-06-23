@@ -11,6 +11,7 @@ pub mod file_pum_scanner;
 pub mod fix_registry;
 pub mod registry_scanner;
 pub mod remediation;
+pub mod settings;
 pub mod takeown;
 pub mod restart_disinfect;
 pub mod scanner;

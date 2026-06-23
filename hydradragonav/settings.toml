@@ -1,0 +1,22 @@
+# HydraDragonAV user settings
+# This file controls default scan behaviour for right-click and CLI scans.
+#
+# When no --files/--memory/--registry/--sigma/--pum flags are given on the
+# CLI, the default_categories list below is used. If empty, all categories
+# are enabled.
+#
+# The scan_with_* options add categories to any file/directory scan invoked
+# via the Explorer context menu (right-click → Scan with HydraDragonAV).
+
+# Default categories when none specified on CLI.
+# Valid values: "Files", "Memory", "Registry", "Sigma", "Pum"
+# default_categories = ["Files", "Registry"]
+
+# Scan registry (PUM detection) alongside file scans in right-click context menu
+scan_with_registry = false
+
+# Scan process memory alongside file scans in right-click context menu
+scan_with_memory = false
+
+# Scan event logs (Hayabusa/Sigma) alongside file scans in right-click context menu
+scan_with_sigma = false

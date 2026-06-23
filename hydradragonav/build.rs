@@ -1,4 +1,18 @@
 fn main() {
+    // Copy settings.toml next to the executable
+    let settings_src = std::path::Path::new("settings.toml");
+    if settings_src.exists() {
+        let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+        let settings_dst = out.join("settings.toml");
+        let _ = std::fs::copy(settings_src, &settings_dst);
+        // Instruct cargo to also copy to the target dir next to the binary
+        let target_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+        let bin_dir = target_dir.join("..").join("target").join(std::env::var("PROFILE").unwrap());
+        let _ = std::fs::create_dir_all(&bin_dir);
+        let _ = std::fs::copy(settings_src, bin_dir.join("settings.toml"));
+        println!("cargo:rerun-if-changed=settings.toml");
+    }
+
     let yar_path = std::path::Path::new("../unipacker/unipacker/packer_signatures.yar");
     if !yar_path.exists() {
         eprintln!("[build] WARNING: {} not found — packer detection will be unavailable", yar_path.display());

@@ -82,6 +82,7 @@ hydradragonclamav = { path = "../hydradragonclamav" }
 
 # Other
 yaml_serde = "0.10.4"
+toml = "0.5"
 regex = "1.12.2"
 sha1 = "0.11.0"
 tlsh-rs = "0.1.0"

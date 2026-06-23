@@ -3738,6 +3738,7 @@ dependencies = [
  "windows",
  "winreg",
  "winres",
+ "yaml_serde",
  "yara-x",
 ]
 

@@ -4,9 +4,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[derive(Debug)]
 struct Cli {
     database: PathBuf,

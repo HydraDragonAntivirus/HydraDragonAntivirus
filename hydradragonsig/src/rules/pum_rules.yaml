@@ -1,0 +1,6 @@
+name: PUM Rules — Registry
+version: "1.0"
+# Master PUM rule file for the registry rules engine.
+# Includes registry-based PUM detection rules.
+
+!include pum_registry_rules.yaml
