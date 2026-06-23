@@ -96,6 +96,10 @@ pub enum Subsignature {
     /// `subsigid_trigger(offset#byte_options#comparisons)` — reads bytes relative
     /// to the trigger subsignature's match and compares them numerically.
     ByteCompare(Box<ByteCompareSpec>),
+    /// `fuzzy_img#<hex>` — matches when the scanned file's image fuzzy hash
+    /// (perceptual pHash) equals this 8-byte hash exactly (ClamAV supports only
+    /// hamming distance 0). See [`crate::fuzzy`].
+    Fuzzy([u8; 8]),
     Unsupported(Box<str>),
 }
 
@@ -228,11 +232,52 @@ pub struct EvalStats {
     pub ids: u64,
 }
 
+/// Faithful port of ClamAV's `cli_ldbtokenize` (str.c): split `line` on `delim`,
+/// but never split on a delimiter inside a PCRE region. A PCRE region is toggled
+/// by an unescaped `/` once more than `token_skip` tokens have begun — so the
+/// leading `name;tdb` fields (and any `/` there) are unaffected, while a `;`
+/// inside a PCRE subsignature's regex (e.g. `&amp\;`) is kept, not used as a
+/// delimiter. With no `/` present this behaves exactly like `split(delim)`.
+fn ldb_tokenize(line: &str, delim: u8, token_skip: usize) -> Vec<&str> {
+    let bytes = line.as_bytes();
+    let mut tokens = Vec::new();
+    let mut i = 0usize;
+    let mut within_pcre = false;
+    let mut tokens_found = 0usize;
+    loop {
+        tokens_found += 1;
+        let start = i;
+        while i < bytes.len() {
+            let c = bytes[i];
+            if !within_pcre && c == delim {
+                break;
+            } else if tokens_found > token_skip
+                && i > 0
+                && bytes[i - 1] != b'\\'
+                && c == b'/'
+            {
+                within_pcre = !within_pcre;
+            }
+            i += 1;
+        }
+        tokens.push(&line[start..i]);
+        if i < bytes.len() {
+            i += 1; // skip the delimiter
+        } else {
+            break;
+        }
+    }
+    tokens
+}
+
 pub fn parse_logical_signature(
     line: &str,
     source: SourceLocation,
 ) -> Result<(LogicalSignature, Vec<String>), String> {
-    let parts = line.split(';').collect::<Vec<_>>();
+    // ClamAV: `cli_ldbtokenize(buffer, ';', LDB_TOKENS+1, tokens, 2)` — the two
+    // skipped tokens are the name and the TDB block; the expression and the
+    // subsignatures follow, where `;` inside a PCRE regex must be preserved.
+    let parts = ldb_tokenize(line, b';', 2);
     if parts.len() < 4 {
         return Err("logical signature needs name;target-block;expression;subsigs".to_string());
     }
@@ -498,10 +543,10 @@ fn parse_target(block: &str) -> Option<u32> {
 
 fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
     if raw.starts_with("fuzzy_img#") {
-        return unsupported(
-            raw,
-            "image fuzzy hash subsignatures are not file-body signatures",
-        );
+        return match crate::fuzzy::parse_fuzzy_img(raw) {
+            Ok(hash) => (Subsignature::Fuzzy(hash), None),
+            Err(err) => unsupported(raw, &err),
+        };
     }
     if raw.starts_with("${") {
         return unsupported(raw, "macro subsignatures are not expanded yet");
@@ -550,9 +595,11 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
     };
 
     let mut warning = None;
+    // `VI:` (VersionInfo) is now scannable (matches inside the PE version-info
+    // offset set); only macro-group and genuinely unsupported anchors remain.
     if matches!(
         offset.anchor,
-        OffsetAnchor::VersionInfo | OffsetAnchor::MacroGroup(_) | OffsetAnchor::Unsupported(_)
+        OffsetAnchor::MacroGroup(_) | OffsetAnchor::Unsupported(_)
     ) {
         warning = Some(format!(
             "subsignature offset '{}' is not scannable yet",
@@ -584,6 +631,18 @@ fn looks_like_pcre(raw: &str) -> bool {
 }
 
 fn parse_pcre(raw: &str) -> Result<(LogicalExpr, LazyRegex, bool), String> {
+    // ClamAV (readdb_load_regex_subsignature): a PCRE subsignature is
+    // `[offset:]trigger/pcre/flags`. Split off an optional leading `offset:` with
+    // the PCRE-aware tokenizer so a `:` inside the regex (e.g. `(?:...)`) is not
+    // mistaken for the offset separator. The offset is parsed but not yet applied
+    // (the regex still runs over the whole buffer, gated by its trigger).
+    let toks = ldb_tokenize(raw, b':', 0);
+    let raw = if toks.len() >= 2 {
+        &raw[toks[0].len() + 1..]
+    } else {
+        raw
+    };
+
     let first = raw
         .find('/')
         .ok_or_else(|| "PCRE subsignature missing '/'".to_string())?;

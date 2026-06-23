@@ -2,6 +2,7 @@ pub mod bytecode;
 pub mod bytecode_vm;
 pub mod cert;
 pub mod database;
+pub mod fuzzy;
 pub mod icon;
 pub mod logical;
 pub mod pattern;
@@ -9,6 +10,7 @@ pub mod pe;
 pub mod phishing;
 pub mod prefilter;
 pub mod scanner;
+pub mod version_info;
 
 pub use bytecode::{Bytecode, BytecodeSet};
 pub use database::{

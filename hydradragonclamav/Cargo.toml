@@ -25,3 +25,9 @@ daachorse = "3.0.2"
 # under millions of small Vec allocations). mimalloc keeps fragmentation < 1.5x
 # and is the same allocator used by yara-x and Firefox.
 mimalloc = { version = "0.1", default-features = false }
+
+# Image decoding for `fuzzy_img#` logical subsignatures (ClamAV's image fuzzy
+# hash). Same crates ClamAV's libclamav_rust uses, so the perceptual hash is
+# byte-identical. Only the common raster formats are enabled.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
+rustdct = "0.7"

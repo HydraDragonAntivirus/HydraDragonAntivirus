@@ -2,6 +2,9 @@
 pub struct PeInfo {
     pub entry_point_offset: Option<usize>,
     pub sections: Vec<Section>,
+    /// ClamAV's `vinfo`: sorted file offsets where `VS_VERSION_INFO` string
+    /// entries begin. A `VI`-anchored signature matches only at one of these.
+    pub vinfo: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,9 +59,27 @@ pub fn parse_pe(data: &[u8]) -> Option<PeInfo> {
     }
 
     let entry_point_offset = rva_to_offset(entry_point_rva, &sections);
+
+    // Resource data directory (dirs[2]) + SizeOfHeaders, for version-info
+    // extraction. Data-directory layout differs between PE32 and PE32+.
+    let size_of_headers = read_u32(data, optional + 60).unwrap_or(0);
+    let (data_dir_off, num_dirs_off) = if magic == 0x20b {
+        (optional + 112, optional + 108)
+    } else {
+        (optional + 96, optional + 92)
+    };
+    let num_dirs = read_u32(data, num_dirs_off).unwrap_or(0);
+    let res_rva = if num_dirs > 2 {
+        read_u32(data, data_dir_off + 2 * 8).unwrap_or(0)
+    } else {
+        0
+    };
+    let vinfo = crate::version_info::version_info_offsets(data, res_rva, &sections, size_of_headers);
+
     Some(PeInfo {
         entry_point_offset,
         sections,
+        vinfo,
     })
 }
 

@@ -99,6 +99,36 @@ pub(crate) struct ScanContext<'a> {
     /// evaluate logical signatures' `Container:` TDB constraint, mirroring
     /// ClamAV's `cli_recursion_stack_get_type(ctx, -2)`.
     pub container_type: Option<&'static str>,
+    /// The file's image fuzzy hash (perceptual pHash), computed lazily once and
+    /// only when a `fuzzy_img#` subsignature is actually evaluated. `None` inside
+    /// the cell means "computed, not a decodable image".
+    pub image_fuzzy_hash: std::cell::OnceCell<Option<[u8; 8]>>,
+}
+
+impl ScanContext<'_> {
+    /// Lazily compute (and cache) this file's image fuzzy hash, mirroring
+    /// ClamAV's per-fmap `fuzzy_hash_calculate_image`. Guarded by an image-magic
+    /// check so non-image files never pay the decode cost.
+    pub(crate) fn image_fuzzy_hash(&self) -> Option<[u8; 8]> {
+        *self.image_fuzzy_hash.get_or_init(|| {
+            if looks_like_image(self.data) {
+                crate::fuzzy::calculate_image(self.data)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+/// Quick magic-byte test for the raster formats the `image` crate decodes, so we
+/// only attempt the (relatively expensive) fuzzy-hash decode on plausible images.
+fn looks_like_image(d: &[u8]) -> bool {
+    d.starts_with(b"\x89PNG\r\n\x1a\n")            // PNG
+        || d.starts_with(&[0xFF, 0xD8, 0xFF])      // JPEG
+        || d.starts_with(b"GIF87a")
+        || d.starts_with(b"GIF89a")
+        || d.starts_with(b"BM")                    // BMP
+        || (d.len() >= 12 && d.starts_with(b"RIFF") && &d[8..12] == b"WEBP")
 }
 
 struct ScanState {
@@ -224,6 +254,7 @@ impl Engine {
             object_path,
             view: ScanView::Raw,
             container_type,
+            image_fuzzy_hash: Default::default(),
         };
         self.scan_context(&ctx, options, &mut state.matches);
 
@@ -493,6 +524,7 @@ impl Engine {
             object_path,
             view,
             container_type,
+            image_fuzzy_hash: Default::default(),
         };
         self.scan_context(&ctx, options, &mut state.matches);
     }
@@ -761,27 +793,49 @@ impl Engine {
                 let offset = offset.as_deref().unwrap_or(&any);
                 if matches!(
                     offset.anchor,
-                    OffsetAnchor::Unsupported(_)
-                        | OffsetAnchor::MacroGroup(_)
-                        | OffsetAnchor::VersionInfo
+                    OffsetAnchor::Unsupported(_) | OffsetAnchor::MacroGroup(_)
                 ) {
                     continue;
                 }
-                let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+                // `VI:` (ClamAV `CLI_OFF_VERSION`) scans anywhere, then keeps only
+                // matches starting inside the PE's version-info string offsets
+                // (matcher-ac.c: `cli_hashset_contains(mdata->vinfo, realoff)`).
+                let is_vinfo = matches!(offset.anchor, OffsetAnchor::VersionInfo);
+                let ranges = if is_vinfo {
+                    vec![(0, ctx.data.len())]
+                } else {
+                    offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref())
+                };
                 if ranges.is_empty() {
                     continue;
                 }
                 // Non-gate subsigs have no threaded offsets → full scan.
-                let (count, arenas) = body_matches(
+                let (mut count, mut arenas) = body_matches(
                     patterns,
                     ctx.data,
                     &ranges,
                     options.max_subsignature_matches,
                     None,
                 );
+                if is_vinfo {
+                    let vinfo = ctx.pe.as_ref().map(|p| p.vinfo.as_slice()).unwrap_or(&[]);
+                    arenas.retain(|&(s, _)| vinfo.binary_search(&(s as u32)).is_ok());
+                    count = arenas.len();
+                }
                 counts[i] = count;
                 last_offsets[i] = arenas.iter().map(|a| a.0).max();
                 body_arenas[i] = arenas;
+            }
+        }
+
+        // Image fuzzy-hash subsignatures: match when the file's perceptual image
+        // hash equals the subsig hash exactly (ClamAV's `fuzzy_hash_check`, which
+        // supports only hamming distance 0). The hash is computed once per file.
+        for (i, subsig) in subsigs.iter().enumerate() {
+            if let Subsignature::Fuzzy(hash) = subsig {
+                if ctx.image_fuzzy_hash() == Some(*hash) {
+                    counts[i] = 1;
+                }
             }
         }
 

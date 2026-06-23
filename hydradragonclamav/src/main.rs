@@ -79,6 +79,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
                     hydradragonclamav::logical::Subsignature::Unsupported(s) => {
                         log_subsig_bytes += s.len();
                     }
+                    // Fuzzy hash is a fixed [u8; 8] inline in the enum — no heap.
+                    hydradragonclamav::logical::Subsignature::Fuzzy(_) => {}
                 }
             }
         }
