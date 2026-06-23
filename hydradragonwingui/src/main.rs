@@ -27,15 +27,10 @@ use hydradragonav::quarantine::Quarantine;
 use hydradragonav::registry_scanner::RegistryScanner;
 use hydradragonav::remediation;
 
-use windows::core::{w, HRESULT, PCWSTR, PWSTR};
+use windows::core::{w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{COLORREF, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Direct2D::Common::*;
-use windows::Win32::Graphics::Direct2D::*;
-use windows::Win32::Graphics::DirectWrite::*;
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 use windows::Win32::Graphics::Gdi::*;
-// Not used with D2D migration: use windows::Win32::Graphics::Imaging::D2D::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
@@ -100,9 +95,6 @@ const WM_CONTEXTMENU: u32 = 0x007B;
 const WM_TIMER: u32 = 0x0113;
 const WM_DROPFILES: u32 = 0x0233;
 const WM_LBUTTONDBLCLK: u32 = 0x0203;
-
-// Direct2D error: device lost — recreate the render target.
-const D2DERR_RECREATE_TARGET: HRESULT = HRESULT(0x8899000Cu32 as i32);
 
 // Animation timer.
 const ANIM_TIMER: usize = 100;
@@ -362,32 +354,23 @@ enum WorkRequest {
 }
 
 struct Fonts {
+    logo: HFONT,
+    title: HFONT,
+    sub: HFONT,
+    nav: HFONT,
+    button: HFONT,
     body: HFONT,
     status: HFONT,
-}
-
-struct DwFonts {
-    factory: IDWriteFactory,
-    title: IDWriteTextFormat,
-    nav: IDWriteTextFormat,
-    body: IDWriteTextFormat,
-    button: IDWriteTextFormat,
-    caption: IDWriteTextFormat,
-    hero: IDWriteTextFormat,
-    mono: IDWriteTextFormat,
-    icon: IDWriteTextFormat,
-    icon_lg: IDWriteTextFormat,
-    hero_icon: IDWriteTextFormat,
+    icon: HFONT,       // Segoe MDL2 Assets, nav glyph size
+    icon_lg: HFONT,    // larger, header logo glyph
+    hero: HFONT,       // hero headline
+    hero_icon: HFONT,  // big MDL2 badge glyph
 }
 
 struct AppState {
     scan_list: HWND,
     quar_list: HWND,
     fonts: Fonts,
-    d2d_factory: ID2D1Factory1,
-    dw_factory: IDWriteFactory,
-    render_target: Option<ID2D1HwndRenderTarget>,
-    dw_fonts: DwFonts,
     page: usize, // 0 = Scan, 1 = Quarantine
     nav: Vec<NavItem>,
     buttons: Vec<UiButton>,
@@ -519,13 +502,6 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             }
             WM_ERASEBKGND => LRESULT(1),
             WM_SIZE => {
-                let w = (lp.0 & 0xFFFF) as u32;
-                let h = ((lp.0 >> 16) & 0xFFFF) as u32;
-                if let Some(s) = state(hwnd) {
-                    if let Some(rt) = &s.render_target {
-                        let _ = rt.Resize(&D2D_SIZE_U { width: w, height: h });
-                    }
-                }
                 layout(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 LRESULT(0)
@@ -545,10 +521,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 LRESULT(0)
             }
             WM_PAINT => {
-                let mut ps = PAINTSTRUCT::default();
-                let _ = BeginPaint(hwnd, &mut ps);
                 paint(hwnd);
-                let _ = EndPaint(hwnd, &ps);
                 LRESULT(0)
             }
             WM_MOUSEMOVE => {
@@ -665,17 +638,19 @@ fn pt_in(r: &RECT, x: i32, y: i32) -> bool {
 
 unsafe fn on_create(hwnd: HWND) {
     let hinst: HINSTANCE = GetModuleHandleW(None).unwrap_or_default().into();
-    // Minimal HFONTs for ListView controls (which use GDI internally).
     let fonts = Fonts {
-        body: make_font(-14, 400),
-        status: make_font(-12, 400),
+        logo: make_font(-18, 700),
+        title: make_font(-20, 600),      // header title — tighter
+        sub: make_font(-12, 400),        // header subtitle
+        nav: make_font(-14, 600),        // nav labels — slightly smaller
+        button: make_font(-13, 600),     // button labels — compact
+        body: make_font(-14, 400),       // list body text
+        status: make_font(-12, 400),     // slim status bar
+        icon: make_font_face(-16, 400, "Segoe MDL2 Assets"),
+        icon_lg: make_font_face(-20, 400, "Segoe MDL2 Assets"),
+        hero: make_font(-22, 600),       // hero headline
+        hero_icon: make_font_face(-26, 400, "Segoe MDL2 Assets"),
     };
-
-    // Initialize Direct2D + DirectWrite.
-    let d2d_factory = create_d2d_factory();
-    let dw_factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
-    let render_target = Some(create_d2d_rt(&d2d_factory, hwnd));
-    let dw_fonts = create_dwrite_fonts(&dw_factory);
 
     let lv = sty::CHILD | sty::VISIBLE | sty::LVS_REPORT;
     let scan_list = make_list(hwnd, hinst, lv, ID_SCAN_LIST, fonts.body);
@@ -725,10 +700,6 @@ unsafe fn on_create(hwnd: HWND) {
         scan_list,
         quar_list,
         fonts,
-        d2d_factory,
-        dw_factory,
-        render_target,
-        dw_fonts,
         page: 0,
         nav: vec![
             NavItem { page: 0, label: "Scan", icon: "\u{E721}", rect: RECT::default() },
@@ -798,7 +769,10 @@ unsafe fn make_font_face(height: i32, weight: i32, face: &str) -> HFONT {
 }
 
 unsafe fn delete_fonts(f: &Fonts) {
-    for h in [f.body, f.status] {
+    for h in [
+        f.logo, f.title, f.sub, f.nav, f.button, f.body, f.status, f.icon, f.icon_lg,
+        f.hero, f.hero_icon,
+    ] {
         let _ = DeleteObject(h.into());
     }
 }
@@ -953,110 +927,140 @@ unsafe fn apply_page(hwnd: HWND) {
 unsafe fn paint(hwnd: HWND) {
     let Some(s) = state(hwnd) else { return };
     let t = s.theme();
+    let mut ps = PAINTSTRUCT::default();
+    let hdc = BeginPaint(hwnd, &mut ps);
     let mut rc = RECT::default();
     let _ = GetClientRect(hwnd, &mut rc);
     let w = rc.right.max(1);
     let h = rc.bottom.max(1);
 
-    let rt = s.render_target.as_ref().expect("render target");
-    rt.BeginDraw();
-    rt.Clear(Some(&d2d_color(t.bg)));
+    // Double buffer.
+    let mem = CreateCompatibleDC(Some(hdc));
+    let bmp = CreateCompatibleBitmap(hdc, w, h);
+    let old = SelectObject(mem, bmp.into());
+
+    fill(mem, &rc, t.bg);
 
     // --- Sidebar ---
-    let side = rect_to_d2d(&RECT { left: 0, top: 0, right: SIDEBAR_W, bottom: h });
-    d2d_fill_rect(rt, side, d2d_color(t.sidebar));
-    d2d_fill_rect(rt, D2D_RECT_F { left: SIDEBAR_W as f32 - 1.0, top: 0.0, right: SIDEBAR_W as f32, bottom: h as f32 }, d2d_color(t.border));
-    d2d_fill_rect(rt, D2D_RECT_F { left: 0.0, top: HEADER_H as f32, right: SIDEBAR_W as f32, bottom: HEADER_H as f32 + 1.0 }, d2d_color(t.border));
-    d2d_text(rt, "NAVIGATION",
-        D2D_RECT_F { left: 18.0, top: (HEADER_H + 14) as f32, right: (SIDEBAR_W - 12) as f32, bottom: (HEADER_H + 30) as f32 },
-        d2d_color(t.text2), &s.dw_fonts.caption);
-
+    let side = RECT { left: 0, top: 0, right: SIDEBAR_W, bottom: h };
+    fill(mem, &side, t.sidebar);
+    fill(mem, &RECT { left: SIDEBAR_W - 1, top: 0, right: SIDEBAR_W, bottom: h }, t.border);
+    // Sidebar top separator line under header.
+    fill(mem, &RECT { left: 0, top: HEADER_H, right: SIDEBAR_W, bottom: HEADER_H + 1 }, t.border);
+    // Compact section label.
+    text(
+        mem,
+        "NAVIGATION",
+        &RECT { left: 18, top: HEADER_H + 14, right: SIDEBAR_W - 12, bottom: HEADER_H + 30 },
+        t.text2,
+        s.fonts.status,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+    );
     for (i, item) in s.nav.iter().enumerate() {
-        let r = rect_to_d2d(&item.rect);
         let active = s.page == item.page;
         let hot = s.hot_nav == Some(i);
+        // Active: full-width rounded pill with accent tint + left 3px bar.
         if active {
-            d2d_fill_rrect(rt, r, 8.0, d2d_color(t.accent_soft));
-            let bar = D2D_RECT_F { left: r.left, top: r.top + 8.0, right: r.left + 3.0, bottom: r.bottom - 8.0 };
-            d2d_fill_rrect(rt, bar, 2.0, d2d_color(t.accent));
+            fill_round(mem, item.rect, 8, t.accent_soft);
+            let bar = RECT {
+                left: item.rect.left,
+                top: item.rect.top + 8,
+                right: item.rect.left + 3,
+                bottom: item.rect.bottom - 8,
+            };
+            fill_round(mem, bar, 2, t.accent);
         } else if hot {
-            d2d_fill_rrect(rt, r, 8.0, d2d_color(t.nav_hot));
+            fill_round(mem, item.rect, 8, t.nav_hot);
         }
-        let icon_col = if active { d2d_color(t.accent) } else { d2d_color(t.text2) };
-        let txt_col = if active { d2d_color(t.accent) } else { d2d_color(t.text) };
-        let icon_r = D2D_RECT_F { left: r.left + 14.0, right: r.left + 38.0, top: r.top, bottom: r.bottom };
+        let icon_col = if active { t.accent } else { t.text2 };
+        let txt_col = if active { t.accent } else { t.text };
+        // Icon in a small accent-tinted badge when active.
+        let icon_r = RECT { left: item.rect.left + 14, right: item.rect.left + 38, ..item.rect };
         if active {
-            let ibadge = D2D_RECT_F { left: icon_r.left - 2.0, top: r.top + 9.0, right: icon_r.right + 2.0, bottom: r.bottom - 9.0 };
-            d2d_fill_rrect(rt, ibadge, 6.0, d2d_color(lerp_color(t.accent_soft, t.accent, 0.18)));
+            let ibadge = RECT { left: icon_r.left - 2, top: item.rect.top + 9, right: icon_r.right + 2, bottom: item.rect.bottom - 9 };
+            fill_round(mem, ibadge, 6, lerp_color(t.accent_soft, t.accent, 0.18));
         }
-        d2d_text(rt, item.icon, icon_r, icon_col, &s.dw_fonts.icon);
-        let tr = D2D_RECT_F { left: r.left + 44.0, right: r.right - 8.0, top: r.top, bottom: r.bottom };
-        d2d_text(rt, item.label, tr, txt_col, &s.dw_fonts.nav);
+        text(mem, item.icon, &icon_r, icon_col, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        let tr = RECT { left: item.rect.left + 44, right: item.rect.right - 8, ..item.rect };
+        text(mem, item.label, &tr, txt_col, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     }
 
-    // --- Header ---
-    d2d_fill_rect(rt, D2D_RECT_F { left: 0.0, top: 0.0, right: SIDEBAR_W as f32, bottom: HEADER_H as f32 }, d2d_color(t.header_top));
-    d2d_gradient_v(rt, D2D_RECT_F { left: SIDEBAR_W as f32, top: 0.0, right: w as f32, bottom: HEADER_H as f32 }, d2d_color(t.header_top), d2d_color(t.header_bot));
-    d2d_fill_rect(rt, D2D_RECT_F { left: SIDEBAR_W as f32, top: (HEADER_H - 2) as f32, right: w as f32, bottom: HEADER_H as f32 }, d2d_color(t.accent));
-    d2d_fill_rect(rt, D2D_RECT_F { left: 0.0, top: HEADER_H as f32, right: w as f32, bottom: HEADER_H as f32 + 1.0 }, d2d_color(t.border));
+    // --- Header: flat dark bar, no gradient on the sidebar portion ---
+    let head = RECT { left: 0, top: 0, right: w, bottom: HEADER_H };
+    fill(mem, &RECT { left: 0, top: 0, right: SIDEBAR_W, bottom: HEADER_H }, t.header_top);
+    gradient_v(mem, &RECT { left: SIDEBAR_W, top: 0, right: w, bottom: HEADER_H }, t.header_top, t.header_bot);
+    // Thin accent line at bottom of header.
+    fill(mem, &RECT { left: SIDEBAR_W, top: HEADER_H - 2, right: w, bottom: HEADER_H }, t.accent);
+    // Bottom border across full header.
+    fill(mem, &RECT { left: 0, top: HEADER_H, right: w, bottom: HEADER_H + 1 }, t.border);
 
-    // Logo badge
-    let lsz = 38.0;
-    let lpad = ((HEADER_H as f32) - lsz) / 2.0;
-    let logo = D2D_RECT_F { left: PAD as f32, top: lpad, right: PAD as f32 + lsz, bottom: lpad + lsz };
-    d2d_fill_rrect(rt, logo, 10.0, d2d_color(t.accent));
-    d2d_text(rt, "\u{E83D}", logo, d2d_color(WHITE), &s.dw_fonts.icon_lg);
+    // Logo: rounded-square badge with shield icon (smaller, tighter).
+    let lsz = 38;
+    let lpad = (HEADER_H - lsz) / 2;
+    let logo = RECT { left: PAD, top: lpad, right: PAD + lsz, bottom: lpad + lsz };
+    fill_round(mem, logo, 10, t.accent);
+    text(mem, "\u{E83D}", &logo, WHITE, s.fonts.icon_lg, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    let tx = logo.right + 12.0;
-    let title_mid = (HEADER_H / 2) as f32;
-    d2d_text(rt, "HydraDragon",
-        D2D_RECT_F { left: tx, top: title_mid - 22.0, right: (SIDEBAR_W - PAD) as f32, bottom: title_mid },
-        d2d_color(WHITE), &s.dw_fonts.title);
-    d2d_text(rt, "Antivirus",
-        D2D_RECT_F { left: tx, top: title_mid, right: (SIDEBAR_W - PAD) as f32, bottom: title_mid + 18.0 },
-        d2d_color(t.header_sub), &s.dw_fonts.caption);
+    // App name + tagline.
+    let tx = logo.right + 12;
+    let title_mid = HEADER_H / 2;
+    text(
+        mem,
+        "HydraDragon",
+        &RECT { left: tx, top: title_mid - 22, right: SIDEBAR_W - PAD, bottom: title_mid },
+        WHITE,
+        s.fonts.title,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+    );
+    text(
+        mem,
+        "Antivirus",
+        &RECT { left: tx, top: title_mid, right: SIDEBAR_W - PAD, bottom: title_mid + 18 },
+        t.header_sub,
+        s.fonts.sub,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+    );
 
-    // Engine status pill
+    // Right side: engine status pill + theme toggle.
+    // Engine pill.
     let (dotc, elabel) = match s.engine {
         EngineState::Ready => (t.ok, "Engine ready"),
-        EngineState::Loading => (t.warn, "Loading\u{2026}"),
+        EngineState::Loading => (t.warn, "Loading…"),
         EngineState::Stopped => (t.text2, "Stopped"),
     };
     let pill_right = s.theme_btn.left - 14;
-    let pill_h = 24.0;
-    let pill_top = ((HEADER_H as f32) - pill_h) / 2.0;
-    let pill_w = 110.0;
-    let pill = D2D_RECT_F { left: pill_right as f32 - pill_w, top: pill_top, right: pill_right as f32, bottom: pill_top + pill_h };
-    d2d_fill_rrect(rt, pill, pill_h / 2.0, d2d_color(lerp_color(t.header_top, dotc, 0.14)));
-    let dot_r = D2D_RECT_F { left: pill.left + 10.0, top: pill_top + (pill_h / 2.0) - 4.0, right: pill.left + 18.0, bottom: pill_top + (pill_h / 2.0) + 4.0 };
-    d2d_fill_rrect(rt, dot_r, 4.0, d2d_color(dotc));
-    d2d_text(rt, elabel,
-        D2D_RECT_F { left: dot_r.right + 6.0, top: pill_top, right: pill.right - 8.0, bottom: pill_top + pill_h },
-        d2d_color(t.header_sub), &s.dw_fonts.caption);
+    let pill_h = 24;
+    let pill_top = (HEADER_H - pill_h) / 2;
+    let pill_w = 110;
+    let pill = RECT { left: pill_right - pill_w, top: pill_top, right: pill_right, bottom: pill_top + pill_h };
+    fill_round(mem, pill, pill_h / 2, lerp_color(t.header_top, dotc, 0.14));
+    let dot = RECT { left: pill.left + 10, top: pill_top + (pill_h / 2) - 4, right: pill.left + 18, bottom: pill_top + (pill_h / 2) + 4 };
+    fill_round(mem, dot, 4, dotc);
+    text(mem, elabel, &RECT { left: dot.right + 6, top: pill_top, right: pill.right - 8, bottom: pill_top + pill_h }, t.header_sub, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-    // Theme toggle
+    // Theme toggle button.
     let toggle_bg = if s.hot_theme {
         lerp_color(t.header_top, t.accent, 0.35)
     } else {
         lerp_color(t.header_top, WHITE, 0.08)
     };
-    let tb = rect_to_d2d(&s.theme_btn);
-    d2d_fill_rrect(rt, tb, 8.0, d2d_color(toggle_bg));
+    fill_round(mem, s.theme_btn, 8, toggle_bg);
     let toggle_glyph = if s.dark { "\u{E706}" } else { "\u{E708}" };
-    d2d_text(rt, toggle_glyph, tb, d2d_color(WHITE), &s.dw_fonts.icon);
+    text(mem, toggle_glyph, &s.theme_btn, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    // --- Hero status banner ---
+    // --- Hero status banner (Scan page) — hidden behind the loading screen ---
     if s.page == 0 && s.engine != EngineState::Loading {
         let content_l = SIDEBAR_W + PAD;
-        let hero = D2D_RECT_F { left: content_l as f32, top: (HEADER_H + PAD) as f32, right: (w - PAD) as f32, bottom: (HEADER_H + PAD + HERO_H) as f32 };
-        d2d_shadow(rt, hero, 16.0);
-        draw_hero(rt, s, hero);
+        let hero = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: HEADER_H + PAD + HERO_H };
+        draw_shadow(mem, hero, 16, t);
+        draw_hero(mem, s, hero);
     }
 
     // --- Buttons ---
     for b in &s.buttons {
         let hot = s.hot_cmd == Some(b.cmd);
         let down = s.down_cmd == Some(b.cmd);
+        // Resolve the animated hover progress for this button (0.0–1.0).
         let anim_t = s
             .hover_anim
             .iter()
@@ -1066,207 +1070,242 @@ unsafe fn paint(hwnd: HWND) {
                 if *entering { f } else { 1.0 - f }
             })
             .unwrap_or(if hot { 1.0 } else { 0.0 });
-        draw_button(rt, b, hot, down, anim_t, &s.dw_fonts, t);
+        draw_button(mem, b, hot, down, anim_t, &s.fonts, t);
     }
 
-    // --- Loading screen ---
+    // --- Loading screen: while the engine loads, cover the content area ---
     if s.engine == EngineState::Loading {
         let content_l = SIDEBAR_W + PAD;
-        let area = D2D_RECT_F { left: content_l as f32, top: (HEADER_H + PAD) as f32, right: (w - PAD) as f32, bottom: (h - STATUS_H - PAD) as f32 };
-        d2d_shadow(rt, area, 16.0);
-        d2d_fill_rrect(rt, area, 16.0, d2d_color(t.surface));
-        d2d_stroke_rrect(rt, area, 16.0, d2d_color(t.border), 1.0);
-        let cx = (area.left + area.right) / 2.0;
-        let cy = (area.top + area.bottom) / 2.0;
+        let area = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: h - STATUS_H - PAD };
+        draw_shadow(mem, area, 16, t);
+        fill_round(mem, area, 16, t.surface);
+        frame_round(mem, area, 16, t.border);
+        let cx = (area.left + area.right) / 2;
+        let cy = (area.top + area.bottom) / 2;
 
-        // Animated spinner: 12 dots
+        // Animated spinner: 12 dots rotating above the badge.
         let spinner_cx = cx;
-        let spinner_cy = cy - 104.0;
-        let spinner_r = 38.0;
-        let dot_r = 5.0;
+        let spinner_cy = cy - 104;
+        let spinner_r = 38;
+        let dot_r = 5;
         let num_dots: i32 = 12;
         for i in 0..num_dots {
             let phase = (i as f64 / num_dots as f64) * std::f64::consts::TAU;
             let t_offset = (s.anim_frame as f64 * 0.12) * std::f64::consts::TAU;
             let brightness = ((phase - t_offset).sin() * 0.45 + 0.55).clamp(0.15, 1.0);
             let angle = (i as f64 / num_dots as f64) * std::f64::consts::TAU;
-            let dx = (spinner_r as f64 * angle.cos()) as f32;
-            let dy = (spinner_r as f64 * angle.sin()) as f32;
-            let dot_color = d2d_color(lerp_color(t.text2, t.accent, brightness));
-            let dot_rect = D2D_RECT_F { left: spinner_cx + dx - dot_r, top: spinner_cy + dy - dot_r, right: spinner_cx + dx + dot_r, bottom: spinner_cy + dy + dot_r };
-            d2d_fill_rrect(rt, dot_rect, dot_r, dot_color);
+            let dx = (spinner_r as f64 * angle.cos()) as i32;
+            let dy = (spinner_r as f64 * angle.sin()) as i32;
+            let dot_color = lerp_color(t.text2, t.accent, brightness);
+            let dot_rect = RECT {
+                left: spinner_cx + dx - dot_r,
+                top: spinner_cy + dy - dot_r,
+                right: spinner_cx + dx + dot_r,
+                bottom: spinner_cy + dy + dot_r,
+            };
+            fill_round(mem, dot_rect, dot_r, dot_color);
         }
 
-        let bsz = 76.0;
-        let badge = D2D_RECT_F { left: cx - bsz / 2.0, top: cy - bsz - 12.0, right: cx + bsz / 2.0, bottom: cy - 12.0 };
-        d2d_fill_rrect(rt, badge, bsz / 2.0, d2d_color(t.accent));
-        d2d_text(rt, "\u{E83D}", badge, d2d_color(WHITE), &s.dw_fonts.hero_icon);
-        d2d_text(rt, "Loading engines\u{2026}",
-            D2D_RECT_F { left: area.left, top: cy, right: area.right, bottom: cy + 34.0 },
-            d2d_color(t.text), &s.dw_fonts.nav);
-        d2d_text(rt, "YARA-X rules \u{B7} ClamAV signatures \u{B7} ML models",
-            D2D_RECT_F { left: area.left, top: cy + 38.0, right: area.right, bottom: cy + 62.0 },
-            d2d_color(t.text2), &s.dw_fonts.body);
-
-        // Status bar
-        let sb = D2D_RECT_F { left: 0.0, top: (h - STATUS_H) as f32, right: w as f32, bottom: h as f32 };
-        d2d_fill_rect(rt, sb, d2d_color(t.surface));
-        d2d_fill_rect(rt, D2D_RECT_F { left: 0.0, top: sb.top, right: w as f32, bottom: sb.top + 1.0 }, d2d_color(t.shadow));
-        d2d_text(rt, &s.status,
-            D2D_RECT_F { left: PAD as f32, top: sb.top, right: sb.right - PAD as f32, bottom: sb.bottom },
-            d2d_color(t.text2), &s.dw_fonts.caption);
-
-        let _ = rt.EndDraw(None, None);
+        let bsz = 76;
+        let badge = RECT { left: cx - bsz / 2, top: cy - bsz - 12, right: cx + bsz / 2, bottom: cy - 12 };
+        fill_round(mem, badge, bsz / 2, t.accent);
+        text(mem, "\u{E83D}", &badge, WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        text(
+            mem,
+            "Loading engines…",
+            &RECT { left: area.left, top: cy, right: area.right, bottom: cy + 34 },
+            t.text,
+            s.fonts.hero,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+        );
+        text(
+            mem,
+            "YARA-X rules · ClamAV signatures · ML models",
+            &RECT { left: area.left, top: cy + 38, right: area.right, bottom: cy + 62 },
+            t.text2,
+            s.fonts.body,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+        );
+        // Status bar (into the same back-buffer), then one blit.
+        let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
+        fill(mem, &status, t.surface);
+        fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, t.shadow);
+        text(mem, &s.status, &RECT { left: PAD, top: h - STATUS_H, right: w - PAD, bottom: h }, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        let _ = BitBlt(hdc, 0, 0, w, h, Some(mem), 0, 0, SRCCOPY);
+        SelectObject(mem, old);
+        let _ = DeleteObject(bmp.into());
+        let _ = DeleteDC(mem);
+        let _ = EndPaint(hwnd, &ps);
         return;
     }
 
-    // --- Content card ---
+    // --- Content card (flat border around the active ListView / settings text) ---
     let content_l = SIDEBAR_W + PAD;
     let list_top = s.buttons.iter().map(|b| b.rect.bottom).max().unwrap_or(HEADER_H + PAD) + PAD;
-    let card = D2D_RECT_F { left: (content_l - 1) as f32, top: (list_top - 1) as f32, right: (w - PAD + 1) as f32, bottom: (h - STATUS_H - PAD + 1) as f32 };
-    d2d_shadow(rt, card, 12.0);
+    let card = RECT { left: content_l - 1, top: list_top - 1, right: w - PAD + 1, bottom: h - STATUS_H - PAD + 1 };
+    draw_shadow(mem, card, 12, t);
     if s.page == 2 {
-        d2d_fill_rrect(rt, card, 12.0, d2d_color(t.surface));
-        let pad = 18.0;
-        let inner = D2D_RECT_F { left: card.left + pad, top: card.top + pad, right: card.right - pad, bottom: card.bottom - pad };
+        // Settings page has no list — fill the card and show engine/version info.
+        fill_round(mem, card, 12, t.surface);
+        let pad = 18;
+        let inner = RECT { left: card.left + pad, top: card.top + pad, right: card.right - pad, bottom: card.bottom - pad };
 
-        // Engine status
-        let engine_icon = D2D_RECT_F { left: inner.left, top: inner.top + 2.0, right: inner.left + 28.0, bottom: inner.top + 30.0 };
-        let eng_color = match s.engine {
-            EngineState::Ready => d2d_color(t.ok),
-            EngineState::Loading => d2d_color(t.warn),
-            EngineState::Stopped => d2d_color(t.text2),
-        };
-        d2d_fill_rrect(rt, engine_icon, 14.0, eng_color);
+        // Engine status section with icon.
+        let engine_icon = RECT { left: inner.left, top: inner.top + 2, right: inner.left + 28, bottom: inner.top + 30 };
+        fill_round(mem, engine_icon, 14, match s.engine {
+            EngineState::Ready => t.ok,
+            EngineState::Loading => t.warn,
+            EngineState::Stopped => t.text2,
+        });
         let glyph = match s.engine {
             EngineState::Ready => "\u{E7FC}",
             EngineState::Loading => "\u{E895}",
             EngineState::Stopped => "\u{E7FC}",
         };
-        d2d_text(rt, glyph, engine_icon, d2d_color(WHITE), &s.dw_fonts.icon);
-        let engine_label = D2D_RECT_F { left: engine_icon.right + 12.0, top: inner.top, right: inner.right, bottom: inner.top + 26.0 };
+        text(mem, glyph, &engine_icon, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        let engine_label = RECT { left: engine_icon.right + 12, top: inner.top, right: inner.right, bottom: inner.top + 26 };
         let engine_txt = match s.engine {
-            EngineState::Ready => format!("Engine ready \u{2014} {} signatures", fmt_count(s.sig_count)),
-            EngineState::Loading => "Engine loading\u{2026}".to_string(),
-            EngineState::Stopped => "Engine stopped \u{2014} click Start Engine to load".to_string(),
+            EngineState::Ready => format!("Engine ready — {} signatures", fmt_count(s.sig_count)),
+            EngineState::Loading => "Engine loading…".to_string(),
+            EngineState::Stopped => "Engine stopped — click Start Engine to load".to_string(),
         };
-        d2d_text(rt, &engine_txt, engine_label, d2d_color(t.text), &s.dw_fonts.nav);
+        text(mem, &engine_txt, &engine_label, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-        // Separator
-        let sep_y = inner.top + 40.0;
-        d2d_fill_rect(rt, D2D_RECT_F { left: inner.left, top: sep_y, right: inner.right, bottom: sep_y + 1.0 }, d2d_color(t.border));
+        // Separator.
+        let sep_y = inner.top + 40;
+        fill(mem, &RECT { left: inner.left, top: sep_y, right: inner.right, bottom: sep_y + 1 }, t.border);
 
-        // Cache section
-        let cache_top = sep_y + 16.0;
-        let cache_icon = D2D_RECT_F { left: inner.left, top: cache_top + 2.0, right: inner.left + 28.0, bottom: cache_top + 30.0 };
-        d2d_fill_rrect(rt, cache_icon, 14.0, d2d_color(t.text2));
-        d2d_text(rt, "\u{E752}", cache_icon, d2d_color(WHITE), &s.dw_fonts.icon);
-        let cache_label = D2D_RECT_F { left: cache_icon.right + 12.0, top: cache_top, right: inner.right, bottom: cache_top + 26.0 };
-        d2d_text(rt, "Result cache (Bloom filters)", cache_label, d2d_color(t.text), &s.dw_fonts.nav);
+        // Cache section.
+        let cache_top = sep_y + 16;
+        let cache_icon = RECT { left: inner.left, top: cache_top + 2, right: inner.left + 28, bottom: cache_top + 30 };
+        fill_round(mem, cache_icon, 14, t.text2);
+        text(mem, "\u{E752}", &cache_icon, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        let cache_label = RECT { left: cache_icon.right + 12, top: cache_top, right: inner.right, bottom: cache_top + 26 };
+        text(mem, "Result cache (Bloom filters)", &cache_label, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-        let body_top = cache_top + 34.0;
-        let body = D2D_RECT_F { left: inner.left, top: body_top, right: inner.right, bottom: inner.bottom };
-        d2d_text(rt,
+        let body_top = cache_top + 34;
+        let body = RECT { top: body_top, bottom: inner.bottom, ..inner };
+        text(
+            mem,
             "The scanner remembers every file it has already classified, so \
-             repeat scans are nearly instant. \u{201C}Clear Result Cache\u{201D} wipes both \
-             blooms \u{2014} the scanner will re-scan everything from scratch.",
-            body, d2d_color(t.text2), &s.dw_fonts.body);
+             repeat scans are nearly instant. “Clear Result Cache” wipes both \
+             blooms — the scanner will re-scan everything from scratch.",
+            &body,
+            t.text2,
+            s.fonts.body,
+            DT_LEFT | DT_WORDBREAK,
+        );
     }
-    d2d_stroke_rrect(rt, card, 12.0, d2d_color(t.border), 1.0);
+    frame_round(mem, card, 12, t.border);
 
-    // --- Status bar ---
-    let sb = D2D_RECT_F { left: 0.0, top: (h - STATUS_H) as f32, right: w as f32, bottom: h as f32 };
-    d2d_fill_rect(rt, sb, d2d_color(t.surface));
-    d2d_fill_rect(rt, D2D_RECT_F { left: 0.0, top: sb.top, right: w as f32, bottom: sb.top + 1.0 }, d2d_color(t.border));
+    // --- Status bar: slim, with a colored state dot ---
+    let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
+    fill(mem, &status, t.surface);
+    fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, t.border);
+    // State dot color.
     let state_dot_c = match s.scan_state {
-        ScanState::Idle => d2d_color(t.text2),
-        ScanState::Scanning => d2d_color(t.accent),
-        ScanState::Paused => d2d_color(t.warn),
-        ScanState::Clean => d2d_color(t.ok),
-        ScanState::Threats => d2d_color(t.danger),
+        ScanState::Idle => t.text2,
+        ScanState::Scanning => t.accent,
+        ScanState::Paused => t.warn,
+        ScanState::Clean => t.ok,
+        ScanState::Threats => t.danger,
     };
-    let dot_cy = (h - STATUS_H / 2) as f32;
-    let sdot = D2D_RECT_F { left: PAD as f32, top: dot_cy - 3.0, right: (PAD + 6) as f32, bottom: dot_cy + 3.0 };
-    d2d_fill_rrect(rt, sdot, 3.0, state_dot_c);
-    d2d_text(rt, &s.status,
-        D2D_RECT_F { left: (PAD + 12) as f32, top: sb.top, right: sb.right - PAD as f32, bottom: sb.bottom },
-        d2d_color(t.text2), &s.dw_fonts.caption);
+    let dot_cy = h - STATUS_H / 2;
+    let sdot = RECT { left: PAD, top: dot_cy - 3, right: PAD + 6, bottom: dot_cy + 3 };
+    fill_round(mem, sdot, 3, state_dot_c);
+    text(
+        mem,
+        &s.status,
+        &RECT { left: PAD + 12, top: h - STATUS_H, right: w - PAD, bottom: h },
+        t.text2,
+        s.fonts.status,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+    );
 
-    let result = rt.EndDraw(None, None);
-    if let Err(e) = result {
-        if e.code() == D2DERR_RECREATE_TARGET {
-            s.render_target = Some(create_d2d_rt(&s.d2d_factory, hwnd));
-        }
-    }
-}unsafe fn draw_hero(rt: &ID2D1HwndRenderTarget, s: &AppState, r: D2D_RECT_F) {
+    let _ = BitBlt(hdc, 0, 0, w, h, Some(mem), 0, 0, SRCCOPY);
+    SelectObject(mem, old);
+    let _ = DeleteObject(bmp.into());
+    let _ = DeleteDC(mem);
+    let _ = EndPaint(hwnd, &ps);
+}
+
+/// Modern status hero: a gradient-backed banner with a large accent badge + italic-free
+/// headline + subtitle. Uses a soft gradient of the accent color instead of a flat fill.
+unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     let t = s.theme();
     let (accent, glyph, head, sub) = match s.scan_state {
         ScanState::Idle => (
             t.accent,
-            "\u{E83D}",
+            "\u{E83D}", // shield
             "Ready to scan".to_string(),
             if s.sig_count > 0 {
-                format!("{} signatures loaded \u{2014} run a scan to check for threats.", fmt_count(s.sig_count))
+                format!("{} signatures loaded — run a scan to check for threats.", fmt_count(s.sig_count))
             } else {
                 "Run a scan to check your system for threats.".to_string()
             },
         ),
         ScanState::Scanning => (
             t.accent,
-            "\u{E721}",
+            "\u{E721}", // search
             if s.threat_count > 0 {
-                format!("Scanning\u{2026} {} threat(s)", s.threat_count)
+                format!("Scanning… {} threat(s)", s.threat_count)
             } else {
-                "Scanning\u{2026}".to_string()
+                "Scanning…".to_string()
             },
             {
                 let eta = if s.scan_discovering {
-                    "estimating\u{2026}".to_string()
+                    "estimating…".to_string()
                 } else {
                     format!("ETA {}", fmt_eta(s.scan_eta_secs))
                 };
                 format!(
-                    "{}/{} files \u{B7} {:.0}/s \u{B7} {:.1} MB/s \u{B7} {}",
+                    "{}/{} files · {:.0}/s · {:.1} MB/s · {}",
                     s.scanned_count, s.scan_discovered, s.scan_speed, s.scan_mbps, eta
                 )
             },
         ),
         ScanState::Paused => (
             t.warn,
-            "\u{E769}",
+            "\u{E769}", // pause
             "Scan paused".to_string(),
-            format!("{} scanned \u{B7} {} threat(s) \u{2014} Resume to continue.", s.scanned_count, s.threat_count),
+            format!("{} scanned · {} threat(s) — Resume to continue.", s.scanned_count, s.threat_count),
         ),
         ScanState::Clean => (
             t.ok,
-            "\u{E73E}",
+            "\u{E73E}", // checkmark
             "No threats found".to_string(),
-            format!("{} files scanned \u{2014} your system looks clean.", s.scanned_count),
+            format!("{} files scanned — your system looks clean.", s.scanned_count),
         ),
         ScanState::Threats => (
             t.danger,
-            "\u{E7BA}",
+            "\u{E7BA}", // warning
             format!("{} threat(s) found", s.threat_count),
             "Review the detections below, then Clean Selected.".to_string(),
         ),
     };
 
-    let bg_top = d2d_color(lerp_color(accent, t.surface, 0.90));
-    let bg_bot = d2d_color(lerp_color(accent, t.surface, 0.97));
-    d2d_gradient_v(rt, r, bg_top, bg_bot);
-    let stripe_r = D2D_RECT_F { left: r.left, top: r.top, right: r.left + 3.0, bottom: r.bottom };
-    d2d_fill_rrect(rt, stripe_r, 0.0, d2d_color(accent));
-    d2d_stroke_rrect(rt, r, 12.0, d2d_color(lerp_color(accent, t.border, 0.45)), 1.0);
+    // Flat surface background with subtle accent tint.
+    let bg_top = lerp_color(accent, t.surface, 0.90);
+    let bg_bot = lerp_color(accent, t.surface, 0.97);
+    gradient_v(hdc, &r, bg_top, bg_bot);
+    // 3px left accent stripe.
+    let stripe_r = RECT { left: r.left, top: r.top, right: r.left + 3, bottom: r.bottom };
+    fill_round(hdc, stripe_r, 0, accent);
+    frame_round(hdc, r, 12, lerp_color(accent, t.border, 0.45));
 
-    let bsize = 58.0;
-    let bx = r.left + 18.0;
-    let by = r.top + (r.bottom - r.top - bsize) / 2.0;
-    let glow = D2D_RECT_F { left: bx - 4.0, top: by - 4.0, right: bx + bsize + 4.0, bottom: by + bsize + 4.0 };
-    d2d_fill_rrect(rt, glow, (bsize / 2.0) + 4.0, d2d_color(lerp_color(accent, t.surface, 0.70)));
-    let badge = D2D_RECT_F { left: bx, top: by, right: bx + bsize, bottom: by + bsize };
-    d2d_fill_rrect(rt, badge, bsize / 2.0, d2d_color(accent));
-    d2d_text(rt, glyph, badge, d2d_color(WHITE), &s.dw_fonts.hero_icon);
+    let bsize = 58;  // slightly smaller to fit the slimmer HERO_H
+    let bx = r.left + 18;
+    let by = r.top + (r.bottom - r.top - bsize) / 2;
+    // Soft outer halo.
+    let glow = RECT { left: bx - 4, top: by - 4, right: bx + bsize + 4, bottom: by + bsize + 4 };
+    let glow_col = lerp_color(accent, t.surface, 0.70);
+    fill_round(hdc, glow, (bsize / 2) + 4, glow_col);
+    // Main badge circle.
+    let badge = RECT { left: bx, top: by, right: bx + bsize, bottom: by + bsize };
+    fill_round(hdc, badge, bsize / 2, accent);
+    text(hdc, glyph, &badge, WHITE, s.fonts.hero_icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
+    // A determinate progress bar shows while scanning or paused.
     let show_bar = matches!(s.scan_state, ScanState::Scanning | ScanState::Paused);
     let frac = if s.scan_discovered > 0 {
         s.scanned_count as f64 / s.scan_discovered as f64
@@ -1274,85 +1313,137 @@ unsafe fn paint(hwnd: HWND) {
         0.0
     };
 
-    let tx = badge.right + 22.0;
+    let tx = badge.right + 22;
+    // Lift the text a little when the bar is shown so they don't collide.
     let (head_top, sub_top, sub_bot) = if show_bar {
-        (r.top + 18.0, r.top + 50.0, r.top + 74.0)
+        (r.top + 18, r.top + 50, r.top + 74)
     } else {
-        (r.top + 24.0, r.top + 60.0, r.bottom - 22.0)
+        (r.top + 24, r.top + 60, r.bottom - 22)
     };
-    d2d_text(rt, &head,
-        D2D_RECT_F { left: tx, top: head_top, right: r.right - 20.0, bottom: head_top + 34.0 },
-        d2d_color(t.text), &s.dw_fonts.nav);
-    d2d_text(rt, &sub,
-        D2D_RECT_F { left: tx, top: sub_top, right: r.right - 20.0, bottom: sub_bot },
-        d2d_color(t.text2), &s.dw_fonts.body);
+    text(
+        hdc,
+        &head,
+        &RECT { left: tx, top: head_top, right: r.right - 20, bottom: head_top + 34 },
+        t.text,
+        s.fonts.hero,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+    );
+    text(
+        hdc,
+        &sub,
+        &RECT { left: tx, top: sub_top, right: r.right - 20, bottom: sub_bot },
+        t.text2,
+        s.fonts.body,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+    );
 
     if show_bar {
-        let bar = D2D_RECT_F { left: tx, top: r.bottom - 20.0, right: r.right - 20.0, bottom: r.bottom - 12.0 };
-        draw_progress_with_anim(rt, bar, frac, s.anim_frame, t.border, accent);
+        let bar = RECT { left: tx, top: r.bottom - 20, right: r.right - 20, bottom: r.bottom - 12 };
+        draw_progress_with_anim(hdc, bar, frac, s.anim_frame, t.border, accent);
+        // Percentage at the right edge of the bar (skip while still discovering,
+        // where the denominator is still growing and the % would be misleading).
         if !s.scan_discovering {
-            d2d_text(rt, &format!("{:.0}%", (frac * 100.0).clamp(0.0, 100.0)),
-                D2D_RECT_F { left: r.right - 56.0, top: sub_top, right: r.right - 20.0, bottom: sub_bot },
-                d2d_color(t.text2), &s.dw_fonts.body);
-        }
-    }
-}/// A rounded determinate progress bar: a `track` background with an `accent` fill
-/// proportional to `frac` (0.0–1.0). Includes an animated shimmer highlight that
-/// sweeps across the filled portion for a modern look.
-unsafe fn draw_progress_with_anim(rt: &ID2D1HwndRenderTarget, r: D2D_RECT_F, frac: f64, anim_frame: u32, track: COLORREF, accent: COLORREF) {
-    let radius = ((r.bottom - r.top) / 2.0).max(1.0);
-    d2d_fill_rrect(rt, r, radius, d2d_color(track));
-    let frac = frac.clamp(0.0, 1.0);
-    let w = (r.right - r.left) * frac as f32;
-    if w > radius {
-        let fr = D2D_RECT_F { right: r.left + w, ..r };
-        d2d_fill_rrect(rt, fr, radius, d2d_color(accent));
-        let cycle_frames = 60u32;
-        let pos = (anim_frame % cycle_frames) as f64 / cycle_frames as f64;
-        let shimmer_center = r.left + (w * pos as f32);
-        let sw = 40.0;
-        let sh_left = (shimmer_center - sw / 2.0).max(r.left + 2.0);
-        let sh_right = (shimmer_center + sw / 2.0).min(r.left + w - 2.0);
-        if sh_right > sh_left {
-            let sh = D2D_RECT_F { left: sh_left, top: r.top + 1.0, right: sh_right, bottom: r.bottom - 1.0 };
-            let light = d2d_color(lerp_color(accent, WHITE, 0.3));
-            d2d_fill_rrect(rt, sh, (radius - 1.0).max(1.0), light);
+            text(
+                hdc,
+                &format!("{:.0}%", (frac * 100.0).clamp(0.0, 100.0)),
+                &RECT { left: r.right - 56, top: sub_top, right: r.right - 20, bottom: sub_bot },
+                t.text2,
+                s.fonts.body,
+                DT_RIGHT | DT_VCENTER | DT_SINGLELINE,
+            );
         }
     }
 }
 
-unsafe fn draw_button(rt: &ID2D1HwndRenderTarget, b: &UiButton, _hot: bool, down: bool, anim_t: f64, fonts: &DwFonts, t: &Theme) {
-    let btn_h = (b.rect.bottom - b.rect.top) as f32;
-    let radius = btn_h / 2.0;
+/// A rounded determinate progress bar: a `track` background with an `accent` fill
+/// proportional to `frac` (0.0–1.0). Includes an animated shimmer highlight that
+/// sweeps across the filled portion for a modern look.
+unsafe fn draw_progress_with_anim(hdc: HDC, r: RECT, frac: f64, anim_frame: u32, track: COLORREF, accent: COLORREF) {
+    let radius = ((r.bottom - r.top) / 2).max(1);
+    fill_round(hdc, r, radius, track);
+    let frac = frac.clamp(0.0, 1.0);
+    let w = ((r.right - r.left) as f64 * frac) as i32;
+    if w > radius {
+        let fr = RECT { right: r.left + w, ..r };
+        fill_round(hdc, fr, radius, accent);
+        // Animated shimmer: a light highlight sweeps across the filled width.
+        let cycle_frames = 60u32; // ~2 seconds at 30fps
+        let pos = (anim_frame % cycle_frames) as f64 / cycle_frames as f64;
+        let shimmer_center = r.left + (w as f64 * pos) as i32;
+        let sw = 40i32;
+        let sh_left = (shimmer_center - sw / 2).max(r.left + 2);
+        let sh_right = (shimmer_center + sw / 2).min(r.left + w - 2);
+        if sh_right > sh_left {
+            let sh = RECT { left: sh_left, top: r.top + 1, right: sh_right, bottom: r.bottom - 1 };
+            let light = lerp_color(accent, WHITE, 0.3);
+            fill_round(hdc, sh, radius.saturating_sub(1).max(1), light);
+        }
+    }
+}
+
+unsafe fn draw_button(hdc: HDC, b: &UiButton, _hot: bool, down: bool, anim_t: f64, fonts: &Fonts, t: &Theme) {
+    let btn_h = b.rect.bottom - b.rect.top;
+    let radius = btn_h / 2; // pill shape
     let (base, hot_c, down_c, textc) = match b.kind {
         Kind::Primary => (t.accent, t.accent_hot, t.accent_down, WHITE),
         Kind::Danger => (t.danger, t.danger_hot, t.danger_down, WHITE),
         Kind::Neutral => (t.surface, lerp_color(t.surface, t.accent_soft, 0.5), t.nav_hot, t.text),
     };
-    let fillc = if down { down_c } else { lerp_color(base, hot_c, anim_t) };
-    let br = rect_to_d2d(&b.rect);
-    // Shadow
-    let shadow_r = D2D_RECT_F { left: br.left + 1.0, top: br.top + 2.0, right: br.right + 1.0, bottom: br.bottom + 2.0 };
-    d2d_fill_rrect(rt, shadow_r, radius, d2d_color(lerp_color(t.shadow, t.bg, 0.6)));
-    // Fill
-    d2d_fill_rrect(rt, br, radius, d2d_color(fillc));
-    // Neutral border
+    let fillc = if down {
+        down_c
+    } else {
+        lerp_color(base, hot_c, anim_t)
+    };
+    // Single subtle shadow layer only.
+    let shadow_r = RECT { left: b.rect.left + 1, top: b.rect.top + 2, right: b.rect.right + 1, bottom: b.rect.bottom + 2 };
+    let shadow_c = lerp_color(t.shadow, t.bg, 0.6);
+    fill_round(hdc, shadow_r, radius, shadow_c);
+
+    fill_round(hdc, b.rect, radius, fillc);
+
+    // Neutral buttons get a 1px border.
     if b.kind == Kind::Neutral {
-        d2d_stroke_rrect(rt, br, radius, d2d_color(t.border), 1.0);
+        frame_round(hdc, b.rect, radius, t.border);
     }
-    // Top highlight
+    // Subtle top highlight on primary/danger for a slight 3D lift.
     if b.kind != Kind::Neutral && !down {
-        let hr = D2D_RECT_F { left: br.left + 2.0, top: br.top + 1.0, right: br.right - 2.0, bottom: br.top + btn_h / 2.0 };
-        d2d_fill_rrect(rt, hr, (radius - 1.0).max(1.0), d2d_color(lerp_color(fillc, WHITE, 0.12)));
+        let highlight_r = RECT { left: b.rect.left + 2, top: b.rect.top + 1, right: b.rect.right - 2, bottom: b.rect.top + btn_h / 2 };
+        let light = lerp_color(fillc, WHITE, 0.12);
+        fill_round(hdc, highlight_r, radius.saturating_sub(1), light);
     }
-    // Icon + label
-    let icon_r = D2D_RECT_F { left: br.left + 12.0, right: br.left + 30.0, top: br.top, bottom: br.bottom };
-    d2d_text(rt, b.icon, icon_r, d2d_color(textc), &fonts.icon);
-    let label_r = D2D_RECT_F { left: br.left + 30.0, right: br.right - 8.0, top: br.top, bottom: br.bottom };
-    d2d_text(rt, b.label, label_r, d2d_color(textc), &fonts.button);
+    // Leading icon (small, tight to text).
+    let icon_r = RECT { left: b.rect.left + 12, right: b.rect.left + 30, ..b.rect };
+    text(hdc, b.icon, &icon_r, textc, fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    let label_r = RECT { left: b.rect.left + 30, right: b.rect.right - 8, ..b.rect };
+    text(hdc, b.label, &label_r, textc, fonts.button, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 }
 
 // GDI helpers --------------------------------------------------------------
+
+unsafe fn fill(hdc: HDC, r: &RECT, color: COLORREF) {
+    let br = CreateSolidBrush(color);
+    FillRect(hdc, r, br);
+    let _ = DeleteObject(br.into());
+}
+
+/// Vertical (top→bottom) gradient fill — one GDI call, cheap.
+unsafe fn gradient_v(hdc: HDC, r: &RECT, top: COLORREF, bottom: COLORREF) {
+    let chan = |c: COLORREF| {
+        (
+            ((c.0 & 0xFF) as u16) << 8,
+            (((c.0 >> 8) & 0xFF) as u16) << 8,
+            (((c.0 >> 16) & 0xFF) as u16) << 8,
+        )
+    };
+    let (tr, tg, tb) = chan(top);
+    let (br, bg, bb) = chan(bottom);
+    let verts = [
+        TRIVERTEX { x: r.left, y: r.top, Red: tr, Green: tg, Blue: tb, Alpha: 0 },
+        TRIVERTEX { x: r.right, y: r.bottom, Red: br, Green: bg, Blue: bb, Alpha: 0 },
+    ];
+    let mesh = GRADIENT_RECT { UpperLeft: 0, LowerRight: 1 };
+    let _ = GradientFill(hdc, &verts, &mesh as *const _ as *const c_void, 1, GRADIENT_FILL_RECT_V);
+}
 
 unsafe fn fill_round(hdc: HDC, r: RECT, radius: i32, color: COLORREF) {
     let rgn = CreateRoundRectRgn(r.left, r.top, r.right, r.bottom, radius * 2, radius * 2);
@@ -1360,6 +1451,31 @@ unsafe fn fill_round(hdc: HDC, r: RECT, radius: i32, color: COLORREF) {
     let _ = FillRgn(hdc, rgn, br);
     let _ = DeleteObject(br.into());
     let _ = DeleteObject(rgn.into());
+}
+
+unsafe fn frame_round(hdc: HDC, r: RECT, radius: i32, color: COLORREF) {
+    let rgn = CreateRoundRectRgn(r.left, r.top, r.right, r.bottom, radius * 2, radius * 2);
+    let br = CreateSolidBrush(color);
+    let _ = FrameRgn(hdc, rgn, br, 1, 1);
+    let _ = DeleteObject(br.into());
+    let _ = DeleteObject(rgn.into());
+}
+
+/// Multi-layer material shadow (3 layers) for premium depth.
+/// Draws an outer-soft, mid, and tight-dark shadow at increasing offsets,
+/// simulating the look of modern design systems (Material, Fluent).
+unsafe fn draw_shadow(hdc: HDC, r: RECT, radius: i32, t: &Theme) {
+    // Layer 1 (outermost, softest): large offset, very transparent.
+    let s1 = RECT { left: r.left + 2, top: r.top + 5, right: r.right + 2, bottom: r.bottom + 5 };
+    let c1 = lerp_color(t.shadow, t.bg, 0.55);
+    fill_round(hdc, s1, radius, c1);
+    // Layer 2 (mid): medium offset, standard shadow color.
+    let s2 = RECT { left: r.left + 1, top: r.top + 3, right: r.right + 1, bottom: r.bottom + 3 };
+    fill_round(hdc, s2, radius, t.shadow);
+    // Layer 3 (tightest, darkest): small offset, deeper shadow.
+    let s3 = RECT { left: r.left, top: r.top + 1, right: r.right, bottom: r.bottom + 1 };
+    let c3 = lerp_color(t.shadow, rgb(0, 0, 0), 0.12);
+    fill_round(hdc, s3, radius, c3);
 }
 
 unsafe fn text(hdc: HDC, s: &str, r: &RECT, color: COLORREF, font: HFONT, flags: DRAW_TEXT_FORMAT) {
@@ -1373,139 +1489,6 @@ unsafe fn text(hdc: HDC, s: &str, r: &RECT, color: COLORREF, font: HFONT, flags:
     let mut rr = *r;
     DrawTextW(hdc, &mut chars, &mut rr, flags);
     SelectObject(hdc, old);
-}
-
-// D2D helpers ----------------------------------------------------------------
-
-fn d2d_color(c: COLORREF) -> D2D1_COLOR_F {
-    D2D1_COLOR_F {
-        r: (c.0 & 0xFF) as f32 / 255.0,
-        g: ((c.0 >> 8) & 0xFF) as f32 / 255.0,
-        b: ((c.0 >> 16) & 0xFF) as f32 / 255.0,
-        a: 1.0,
-    }
-}
-
-fn rect_to_d2d(r: &RECT) -> D2D_RECT_F {
-    D2D_RECT_F {
-        left: r.left as f32,
-        top: r.top as f32,
-        right: r.right as f32,
-        bottom: r.bottom as f32,
-    }
-}
-
-unsafe fn d2d_fill_rrect(rt: &ID2D1HwndRenderTarget, r: D2D_RECT_F, radius: f32, color: D2D1_COLOR_F) {
-    let brush: ID2D1SolidColorBrush = rt.CreateSolidColorBrush(&color, None).unwrap();
-    rt.FillRoundedRectangle(
-        &D2D1_ROUNDED_RECT { rect: r, radiusX: radius, radiusY: radius },
-        &brush,
-    );
-}
-
-unsafe fn d2d_stroke_rrect(rt: &ID2D1HwndRenderTarget, r: D2D_RECT_F, radius: f32, color: D2D1_COLOR_F, width: f32) {
-    let brush: ID2D1SolidColorBrush = rt.CreateSolidColorBrush(&color, None).unwrap();
-    rt.DrawRoundedRectangle(
-        &D2D1_ROUNDED_RECT { rect: r, radiusX: radius, radiusY: radius },
-        &brush, width, None,
-    );
-}
-
-unsafe fn d2d_fill_rect(rt: &ID2D1HwndRenderTarget, r: D2D_RECT_F, color: D2D1_COLOR_F) {
-    let brush: ID2D1SolidColorBrush = rt.CreateSolidColorBrush(&color, None).unwrap();
-    rt.FillRectangle(&r, &brush);
-}
-
-unsafe fn d2d_text(rt: &ID2D1HwndRenderTarget, s: &str, r: D2D_RECT_F, color: D2D1_COLOR_F, fmt: &IDWriteTextFormat) {
-    if s.is_empty() { return; }
-    let brush: ID2D1SolidColorBrush = rt.CreateSolidColorBrush(&color, None).unwrap();
-    let wide: Vec<u16> = s.encode_utf16().collect();
-    rt.DrawText(&wide, fmt, &r, &brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, DWRITE_MEASURING_MODE_NATURAL);
-}
-
-unsafe fn d2d_gradient_v(rt: &ID2D1HwndRenderTarget, r: D2D_RECT_F, top: D2D1_COLOR_F, bot: D2D1_COLOR_F) {
-    let stops = [
-        D2D1_GRADIENT_STOP { position: 0.0, color: top },
-        D2D1_GRADIENT_STOP { position: 1.0, color: bot },
-    ];
-    let coll = rt.CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP).unwrap();
-    let brush = rt.CreateLinearGradientBrush(
-        &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
-            startPoint: windows_numerics::Vector2 { X: r.left, Y: r.top },
-            endPoint:   windows_numerics::Vector2 { X: r.left, Y: r.bottom },
-        },
-        None, &coll,
-    ).unwrap();
-    rt.FillRectangle(&r, &brush);
-}
-
-unsafe fn d2d_shadow(rt: &ID2D1HwndRenderTarget, r: D2D_RECT_F, radius: f32) {
-    for (dy, alpha) in [(6.0_f32, 0.06_f32), (3.0, 0.10), (1.5, 0.16)] {
-        let sr = D2D_RECT_F { left: r.left, top: r.top + dy, right: r.right, bottom: r.bottom + dy };
-        let shadow_brush: ID2D1SolidColorBrush = rt.CreateSolidColorBrush(
-            &D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: alpha },
-            None,
-        ).unwrap();
-        rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: sr, radiusX: radius, radiusY: radius }, &shadow_brush);
-    }
-}
-
-// D2D initialization ---------------------------------------------------------
-
-unsafe fn create_d2d_rt(factory: &ID2D1Factory1, hwnd: HWND) -> ID2D1HwndRenderTarget {
-    factory.CreateHwndRenderTarget(
-        &D2D1_RENDER_TARGET_PROPERTIES {
-            r#type: D2D1_RENDER_TARGET_TYPE_DEFAULT,
-            pixelFormat: D2D1_PIXEL_FORMAT {
-                format: DXGI_FORMAT_UNKNOWN,
-                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
-            },
-            dpiX: 0.0, dpiY: 0.0,
-            usage: D2D1_RENDER_TARGET_USAGE_NONE,
-            minLevel: D2D1_FEATURE_LEVEL_DEFAULT,
-        },
-        &D2D1_HWND_RENDER_TARGET_PROPERTIES {
-            hwnd,
-            pixelSize: D2D_SIZE_U { width: 0, height: 0 },
-            presentOptions: D2D1_PRESENT_OPTIONS_NONE,
-        },
-    ).unwrap()
-}
-
-unsafe fn create_d2d_factory() -> ID2D1Factory1 {
-    D2D1CreateFactory::<ID2D1Factory1>(
-        D2D1_FACTORY_TYPE_SINGLE_THREADED, None
-    ).unwrap()
-}
-
-unsafe fn create_dwrite_font(factory: &IDWriteFactory, face: windows::core::PCWSTR, size: f32, weight: DWRITE_FONT_WEIGHT) -> IDWriteTextFormat {
-    factory.CreateTextFormat(
-        face, None, weight,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        size, w!("en-us"),
-    ).unwrap()
-}
-
-unsafe fn create_dwrite_fonts(factory: &IDWriteFactory) -> DwFonts {
-    let face = w!("Segoe UI");
-    let mdl2 = w!("Segoe MDL2 Assets");
-    let make = |size: f32, weight: DWRITE_FONT_WEIGHT| -> IDWriteTextFormat {
-        create_dwrite_font(factory, face, size, weight)
-    };
-    DwFonts {
-        factory: factory.clone(),
-        title:   make(20.0, DWRITE_FONT_WEIGHT_SEMI_BOLD),
-        nav:     make(14.0, DWRITE_FONT_WEIGHT_SEMI_BOLD),
-        body:    make(14.0, DWRITE_FONT_WEIGHT_REGULAR),
-        button:  make(13.0, DWRITE_FONT_WEIGHT_SEMI_BOLD),
-        caption: make(12.0, DWRITE_FONT_WEIGHT_REGULAR),
-        hero:    make(22.0, DWRITE_FONT_WEIGHT_SEMI_BOLD),
-        mono:    make(12.0, DWRITE_FONT_WEIGHT_REGULAR),
-        icon:    create_dwrite_font(factory, mdl2, 16.0, DWRITE_FONT_WEIGHT_REGULAR),
-        icon_lg: create_dwrite_font(factory, mdl2, 20.0, DWRITE_FONT_WEIGHT_REGULAR),
-        hero_icon: create_dwrite_font(factory, mdl2, 26.0, DWRITE_FONT_WEIGHT_REGULAR),
-    }
 }
 
 // ---------------------------------------------------------------------------
