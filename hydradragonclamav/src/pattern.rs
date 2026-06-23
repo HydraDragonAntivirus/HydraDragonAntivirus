@@ -373,14 +373,6 @@ impl Pattern {
         if limit == 0 || self.instructions.is_empty() {
             return Vec::new();
         }
-
-        // Patterns with a variable-width gap are matched part-by-part (ClamAV's
-        // partno / offmatrix): each gap-free part is found independently with a
-        // SIMD-anchored search and the parts are stitched by their gap distance
-        // constraints — linear, with no per-occurrence backtracking explosion.
-        if self.has_gap() {
-            return self.find_all_gapped(data, ranges, limit);
-        }
         let min_len = self.min_match_len().max(1);
 
         // Fast path: anchor the scan on the pattern's best fixed literal via SIMD
@@ -679,139 +671,6 @@ impl Pattern {
         out
     }
 
-    /// Whether the pattern contains a variable-width gap (`*` / `{n-m}`).
-    fn has_gap(&self) -> bool {
-        self.specials
-            .iter()
-            .any(|s| matches!(s, Special::Gap { .. }))
-    }
-
-    /// Split this pattern at its variable-width gaps into gap-free parts, each
-    /// paired with the gap `(min, max)` that precedes it (`None` for the first).
-    /// Mirrors ClamAV splitting a signature into `partno` parts at load time.
-    fn split_gap_parts(&self) -> Vec<(Pattern, Option<(usize, usize)>)> {
-        let mut parts: Vec<(Pattern, Option<(usize, usize)>)> = Vec::new();
-        let mut part_inst: Vec<u16> = Vec::new();
-        let mut part_specials: Vec<Special> = Vec::new();
-        let mut gap_before: Option<(usize, usize)> = None;
-        let mut sidx = 0usize;
-        for i in 0..self.instructions.len() {
-            let e = self.instructions.get_u16(i);
-            if (e & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
-                let sp = &self.specials[sidx];
-                sidx += 1;
-                if let Special::Gap { min, max } = sp {
-                    let p = Pattern::from_parsed(
-                        std::mem::take(&mut part_inst),
-                        std::mem::take(&mut part_specials),
-                        false,
-                    );
-                    parts.push((p, gap_before));
-                    gap_before = Some((*min, *max));
-                    continue;
-                }
-                part_inst.push(e);
-                part_specials.push(sp.clone());
-            } else {
-                part_inst.push(e);
-            }
-        }
-        let p = Pattern::from_parsed(part_inst, part_specials, false);
-        parts.push((p, gap_before));
-        parts
-    }
-
-    /// Match a gappy pattern part-by-part (ClamAV's `partno` / `offmatrix`). Each
-    /// gap-free part is found with its own anchored search; a sweep keeps only the
-    /// part matches reachable from a previous-part match within the gap distance,
-    /// carrying the original (first-part) start through to the final part. This is
-    /// linear in the buffer per part — no per-occurrence gap backtracking.
-    fn find_all_gapped(&self, data: &[u8], ranges: &[(usize, usize)], limit: usize) -> Vec<MatchRange> {
-        // Cap matches tracked per part (bounds work like ClamAV's offmatrix slots).
-        const PART_CAP: usize = 2048;
-        let parts: Vec<(Pattern, Option<(usize, usize)>)> = self
-            .split_gap_parts()
-            .into_iter()
-            .filter(|(p, _)| !p.instructions.is_empty())
-            .collect();
-        if parts.is_empty() {
-            return Vec::new();
-        }
-
-        // Part 0: its start IS the full-match start, so honour `ranges` here.
-        let p0 = parts[0].0.find_all(data, ranges, PART_CAP);
-        // `(orig_start, cur_end)`, kept sorted by `cur_end`.
-        let mut cur: Vec<(usize, usize)> = p0.iter().map(|m| (m.start, m.end)).collect();
-        cur.sort_unstable_by_key(|&(_, e)| e);
-        cur.dedup();
-
-        for (part, gap) in parts.iter().skip(1) {
-            if cur.is_empty() {
-                return Vec::new();
-            }
-            let (gmin, gmax) = gap.unwrap_or((0, 0));
-            let min_end = cur.first().map(|&(_, e)| e).unwrap();
-            let max_end = cur.last().map(|&(_, e)| e).unwrap();
-            // This part may start in [min_end + gmin, max_end + gmax].
-            let lo = min_end.saturating_add(gmin);
-            let hi = if gmax == UNBOUNDED_GAP {
-                data.len()
-            } else {
-                max_end.saturating_add(gmax).min(data.len())
-            };
-            if lo > hi {
-                return Vec::new();
-            }
-            // Allow part starts up to `hi` (find_all bounds start by end - min_len).
-            let part_min = part.min_match_len().max(1);
-            let search_end = hi.saturating_add(part_min).min(data.len());
-            let pmatches = part.find_all(data, &[(lo, search_end)], PART_CAP);
-
-            let ends: Vec<usize> = cur.iter().map(|&(_, e)| e).collect();
-            let mut next: Vec<(usize, usize)> = Vec::new();
-            for m in &pmatches {
-                let ps = m.start;
-                // A previous-part end must lie in [ps - gmax, ps - gmin].
-                let lo_ce = if gmax == UNBOUNDED_GAP {
-                    0
-                } else {
-                    ps.saturating_sub(gmax)
-                };
-                let hi_ce = ps.saturating_sub(gmin);
-                let a = ends.partition_point(|&e| e < lo_ce);
-                let b = ends.partition_point(|&e| e <= hi_ce);
-                for &(orig, _) in &cur[a..b] {
-                    next.push((orig, m.end));
-                    if next.len() >= PART_CAP * 4 {
-                        break;
-                    }
-                }
-            }
-            next.sort_unstable();
-            next.dedup();
-            next.sort_unstable_by_key(|&(_, e)| e);
-            if next.len() > PART_CAP {
-                next.truncate(PART_CAP);
-            }
-            cur = next;
-        }
-
-        // `cur` now holds full matches `(orig_start, final_end)`.
-        cur.sort_unstable();
-        cur.dedup();
-        let mut out = Vec::new();
-        for (s, e) in cur {
-            if self.fullword && !is_fullword(data, s, e) {
-                continue;
-            }
-            out.push(MatchRange { start: s, end: e });
-            if out.len() >= limit {
-                break;
-            }
-        }
-        out
-    }
-
     /// Find all matches using prefilter hints (positions of a required literal).
     /// Respects `ranges` to enforce offset spec restrictions.
     pub fn find_all_at(
@@ -823,11 +682,6 @@ impl Pattern {
     ) -> Vec<MatchRange> {
         if limit == 0 || hints.is_empty() || self.instructions.is_empty() {
             return Vec::new();
-        }
-        // Gappy patterns are matched part-by-part (partno), which is linear and
-        // ignores the hints — the parts are found by their own anchored searches.
-        if self.has_gap() {
-            return self.find_all_gapped(data, ranges, limit);
         }
         // Each hint is an occurrence of this pattern's prefilter atom (its best
         // literal); a match anchors at `occurrence - prefix`, where `prefix` is the
