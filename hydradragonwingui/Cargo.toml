@@ -34,6 +34,9 @@ windows = { version = "0.62", features = [
     "Win32_System_Ole",
 ] }
 
+# Registry access for context menu install / uninstall.
+winreg = "0.56"
+
 [build-dependencies]
 # Embeds the HydraDragon icon into the executable.
 winres = "0.1"

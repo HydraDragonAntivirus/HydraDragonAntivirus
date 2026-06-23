@@ -3820,6 +3820,7 @@ dependencies = [
  "hydradragonav",
  "md-5 0.11.0",
  "windows",
+ "winreg",
  "winres",
 ]
 

@@ -167,6 +167,8 @@ enum Command {
 
     /// Install Explorer right-click context menu entries for scanning
     InstallContextMenu,
+    /// Remove Explorer right-click context menu entries
+    UninstallContextMenu,
 }
 
 #[derive(Subcommand)]
@@ -590,6 +592,11 @@ fn main() {
                 eprintln!("[ContextMenu] Failed to install: {e}");
             }
         }
+        Command::UninstallContextMenu => {
+            if let Err(e) = cmd_uninstall_context_menu() {
+                eprintln!("[ContextMenu] Failed to uninstall: {e}");
+            }
+        }
         Command::Update => match config.hayabusa_dir.as_deref() {
             Some(hdir) => cmd_update_hayabusa(hdir),
             None => eprintln!("[Hayabusa] hayabusa_dir not configured, skipping."),
@@ -904,5 +911,17 @@ fn cmd_install_context_menu() -> std::io::Result<()> {
     dir_cmd.set_value("", &cmd)?;
 
     println!("[ContextMenu] Right-click 'Scan with HydraDragonAV' installed (HKCU).");
+    Ok(())
+}
+
+fn cmd_uninstall_context_menu() -> std::io::Result<()> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
+    let _ = classes.delete_subkey_all("*\\shell\\HydraDragonAV");
+    let _ = classes.delete_subkey_all("Directory\\shell\\HydraDragonAV");
+    println!("[ContextMenu] Right-click entries removed from HKCU.");
     Ok(())
 }

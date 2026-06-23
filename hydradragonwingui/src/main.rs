@@ -64,15 +64,13 @@ const ID_SCAN_LIST: usize = 1001;
 const ID_QUAR_LIST: usize = 1002;
 
 // Painted-button command ids.
-const CMD_SCAN_FILE: usize = 1;
-const CMD_SCAN_FOLDER: usize = 2;
+const CMD_CUSTOM_SCAN: usize = 1;
 const CMD_CLEAN: usize = 3;
 const CMD_TRACES: usize = 4;
 const CMD_QUAR_REFRESH: usize = 5;
 const CMD_QUAR_RESTORE: usize = 6;
 const CMD_QUAR_DELETE: usize = 7;
 const CMD_CLEAR_CACHE: usize = 8;
-const CMD_FULL_SCAN: usize = 9;
 const CMD_SAVE_RESULTS: usize = 10;
 // Context-menu-only command (right-click a detection row → re-scan it fresh).
 const CMD_RESCAN: usize = 11;
@@ -86,6 +84,9 @@ const CMD_STOP_ENGINE: usize = 16;
 const CMD_PAUSE: usize = 17;
 const CMD_SELECT_ALL: usize = 18;
 const CMD_DESELECT_ALL: usize = 19;
+// Settings page: context menu install / uninstall
+const CMD_INSTALL_MENU: usize = 20;
+const CMD_UNINSTALL_MENU: usize = 21;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
@@ -345,8 +346,7 @@ enum ScanMsg {
 }
 
 enum WorkRequest {
-    Scan(Vec<PathBuf>),
-    /// Full mode: in-memory file scan of the path + registry + Windows event logs.
+    /// Full scan: files + registry + Windows event logs + process memory
     FullScan(Vec<PathBuf>),
     /// Force a fresh (uncached) re-scan of specific files already in the list.
     Rescan(Vec<PathBuf>),
@@ -672,7 +672,7 @@ unsafe fn on_create(hwnd: HWND) {
     );
     lv_col(scan_list, 0, "File", 470);
     lv_col(scan_list, 1, "Verdict", 120);
-    lv_col(scan_list, 2, "Threat", 240);
+    lv_col(scan_list, 2, "Type", 240);
 
     let quar_list = make_list(hwnd, hinst, lv, ID_QUAR_LIST, fonts.body);
     lv_col(quar_list, 0, "ID", 250);
@@ -841,9 +841,7 @@ fn buttons_for(page: usize, state: ScanState) -> Vec<(usize, &'static str, &'sta
                 (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
             ],
             _ => vec![
-                (CMD_SCAN_FILE, "Scan File", "\u{E8A5}", Kind::Primary),
-                (CMD_SCAN_FOLDER, "Scan Folder", "\u{E8B7}", Kind::Primary),
-                (CMD_FULL_SCAN, "Full Scan", "\u{E721}", Kind::Primary),
+                (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
                 (CMD_CLEAN, "Clean Threats", "\u{E74D}", Kind::Primary),
                 (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
             ],
@@ -1211,6 +1209,22 @@ unsafe fn paint(hwnd: HWND) {
             s.fonts.body,
             DT_LEFT | DT_WORDBREAK,
         );
+
+        // Context menu section.
+        let cm_top = body_top + 68;
+        fill(mem, &RECT { left: inner.left, top: cm_top, right: inner.right, bottom: cm_top + 1 }, t.border);
+        let cm_icon = RECT { left: inner.left, top: cm_top + 18, right: inner.left + 28, bottom: cm_top + 46 };
+        fill_round(mem, cm_icon, 14, t.text2);
+        text(mem, "\u{E70B}", &cm_icon, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        let cm_label = RECT { left: cm_icon.right + 12, top: cm_top + 16, right: inner.right, bottom: cm_top + 42 };
+        text(mem, "Explorer context menu", &cm_label, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        let cm_desc = RECT { left: inner.left, top: cm_top + 48, right: inner.right, bottom: cm_top + 72 };
+        text(
+            mem,
+            "Add a “Scan with HydraDragonAV” entry when right-clicking files and folders in File Explorer.",
+            &cm_desc, t.text2, s.fonts.body, DT_LEFT | DT_WORDBREAK,
+        );
+        // Button positions - buttons will be placed below this text
     }
     frame_round(mem, card, 12, t.border);
 
@@ -1551,7 +1565,7 @@ unsafe fn on_dropfiles(hwnd: HWND, hdrop: HDROP) {
     } else {
         s.status = format!("Scanning {} items…", paths.len());
     }
-    let _ = s.work_tx.send(WorkRequest::Scan(paths));
+    let _ = s.work_tx.send(WorkRequest::FullScan(paths));
 }
 
 unsafe fn show_tray_icon(_hwnd: HWND, s: &mut AppState) {
@@ -1708,9 +1722,7 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
 unsafe fn dispatch(hwnd: HWND, cmd: usize) {
     let Some(s) = state(hwnd) else { return };
     match cmd {
-        CMD_SCAN_FILE => pick_and_scan(s, false),
-        CMD_SCAN_FOLDER => pick_and_scan(s, true),
-        CMD_FULL_SCAN => pick_and_full_scan(s),
+        CMD_CUSTOM_SCAN => pick_and_custom_scan(s),
         CMD_CLEAN => act_clean_and_traces(hwnd, s),
         CMD_SAVE_RESULTS => save_results(hwnd, s),
         CMD_RESCAN => rescan_selected(hwnd, s),
@@ -1778,6 +1790,33 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
                 let _ = s.work_tx.send(WorkRequest::ClearCache);
             }
         }
+        CMD_INSTALL_MENU => {
+            s.status = "Installing context menu…".into();
+            let _ = InvalidateRect(Some(hwnd), None, false);
+            let exe = std::env::current_exe().ok();
+            if let Some(exe) = exe {
+                let exe_str = exe.to_string_lossy().to_string();
+                let cmd = format!("\"{}\" scan --files \"%1\"", exe_str);
+                if let Ok(()) = install_context_menu_impl(&cmd) {
+                    s.status = "Context menu installed.".into();
+                } else {
+                    s.status = "Failed to install context menu.".into();
+                }
+            } else {
+                s.status = "Cannot locate executable.".into();
+            }
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        CMD_UNINSTALL_MENU => {
+            s.status = "Removing context menu…".into();
+            let _ = InvalidateRect(Some(hwnd), None, false);
+            if uninstall_context_menu_impl().is_ok() {
+                s.status = "Context menu removed.".into();
+            } else {
+                s.status = "Failed to remove context menu.".into();
+            }
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
         _ => {}
     }
 }
@@ -1842,27 +1881,42 @@ unsafe fn set_status(hwnd: HWND, s: &mut AppState, text: &str) {
     let _ = InvalidateRect(Some(hwnd), None, false);
 }
 
-unsafe fn pick_and_scan(s: &mut AppState, folder: bool) {
-    if let Some(path) = pick_path(folder) {
-        // Clear any leftover interrupt from a previous Pause/Stop so this scan's
-        // progress isn't gated.
-        s.cancel.store(false, Ordering::Relaxed);
-        s.abort.store(false, Ordering::Relaxed);
-        lv_clear(s.scan_list);
-        clear_scan_results(s);
-        s.status = format!("Scanning {}…", path.display());
-        let _ = s.work_tx.send(WorkRequest::Scan(vec![path]));
-    }
+fn install_context_menu_impl(cmd: &str) -> std::io::Result<()> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
+    let (fs, _) = classes.create_subkey("*\\shell\\HydraDragonAV")?;
+    fs.set_value("", &"Scan with HydraDragonAV")?;
+    fs.set_value("Icon", &cmd)?;
+    let (fc, _) = fs.create_subkey("command")?;
+    fc.set_value("", &cmd)?;
+    let (ds, _) = classes.create_subkey("Directory\\shell\\HydraDragonAV")?;
+    ds.set_value("", &"Scan with HydraDragonAV")?;
+    ds.set_value("Icon", &cmd)?;
+    let (dc, _) = ds.create_subkey("command")?;
+    dc.set_value("", &cmd)?;
+    Ok(())
 }
 
-/// Full mode: pick a folder, then scan its files (in memory) + registry + logs.
-unsafe fn pick_and_full_scan(s: &mut AppState) {
+fn uninstall_context_menu_impl() -> std::io::Result<()> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
+    let _ = classes.delete_subkey_all("*\\shell\\HydraDragonAV");
+    let _ = classes.delete_subkey_all("Directory\\shell\\HydraDragonAV");
+    Ok(())
+}
+
+unsafe fn pick_and_custom_scan(s: &mut AppState) {
+    // Pick file or folder
     if let Some(path) = pick_path(true) {
         s.cancel.store(false, Ordering::Relaxed);
         s.abort.store(false, Ordering::Relaxed);
         lv_clear(s.scan_list);
         clear_scan_results(s);
-        s.status = format!("Full scan: {} + registry + logs…", path.display());
+        s.status = format!("Scanning {}…", path.display());
         let _ = s.work_tx.send(WorkRequest::FullScan(vec![path]));
     }
 }
@@ -2612,15 +2666,6 @@ fn worker(
 
     while let Ok(req) = work_rx.recv() {
         match req {
-            WorkRequest::Scan(paths) => {
-                send(&tx, hwnd, ScanMsg::Begin);
-                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                session = Some(seed_session(&paths, false));
-                let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &abort, &tx, hwnd);
-                if completed {
-                    session = None;
-                }
-            }
             WorkRequest::FullScan(paths) => {
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);

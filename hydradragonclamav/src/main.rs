@@ -4,6 +4,38 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+// Measurement-only: a counting wrapper over the system allocator so we can read
+// the *live* heap bytes (allocated − freed) and compare against RSS to tell real
+// data from allocator fragmentation. No behavior change.
+mod count_alloc {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicIsize, Ordering};
+    pub static LIVE: AtomicIsize = AtomicIsize::new(0);
+    pub struct Counting;
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+            let p = System.alloc(l);
+            if !p.is_null() {
+                LIVE.fetch_add(l.size() as isize, Ordering::Relaxed);
+            }
+            p
+        }
+        unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+            LIVE.fetch_sub(l.size() as isize, Ordering::Relaxed);
+            System.dealloc(p, l);
+        }
+        unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
+            let np = System.realloc(p, l, new);
+            if !np.is_null() {
+                LIVE.fetch_add(new as isize - l.size() as isize, Ordering::Relaxed);
+            }
+            np
+        }
+    }
+}
+#[global_allocator]
+static GLOBAL: count_alloc::Counting = count_alloc::Counting;
+
 #[derive(Debug)]
 struct Cli {
     database: PathBuf,
@@ -48,6 +80,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             s.patterns, s.tokens(), mb(s.token_bytes), mb(s.struct_bytes), mb(s.total_bytes())
         );
         eprintln!("[mem] prefilter: {}", engine.prefilter_mem_report());
+        let live = count_alloc::LIVE.load(std::sync::atomic::Ordering::Relaxed);
+        eprintln!("[mem] *** LIVE heap (allocated−freed) = {:.1} MB ***", mb(live.max(0) as usize));
 
         // Account for everything pattern_mem_stats skips.
         let ext_name_bytes: usize = engine.database.extended.iter()
