@@ -600,11 +600,12 @@ impl Engine {
         ctx: &ScanContext<'_>,
         options: ScanOptions,
         matches: &mut Vec<ScanMatch>,
-        cands: &crate::prefilter::LogCandidates,
+        cands: &crate::prefilter::Candidates,
     ) {
+        // Static dispatch (mirrors scan_extended): thread the gating subsig's
+        // atom offsets into its verification when available.
         match cands {
-            crate::prefilter::LogCandidates::All => {
-                // Ground truth (prefilter disabled): evaluate every logical sig.
+            crate::prefilter::Candidates::All => {
                 for si in 0..self.database.logical.len() {
                     if matches.len() >= options.max_matches {
                         return;
@@ -612,41 +613,26 @@ impl Engine {
                     self.scan_one_logical(si, None, ctx, options, matches);
                 }
             }
-            crate::prefilter::LogCandidates::List(_) => {
-                // Gated candidates: each subsignature is verified only at the
-                // offsets where its own atom hit (per-subsig threading).
-                for (sig, subhits) in cands.iter() {
+            crate::prefilter::Candidates::List(set) => {
+                for (sig, offsets) in set.iter() {
                     if matches.len() >= options.max_matches {
                         return;
                     }
-                    self.scan_one_logical(sig as usize, Some(&subhits), ctx, options, matches);
-                }
-                // Always-scanned signatures (a non-indexable branch could satisfy
-                // them) that had no atom hit this buffer: still evaluate them, but
-                // with an empty `SubHits` so their indexable body subsigs resolve to
-                // count 0 with no scan — only the non-indexable branch is checked.
-                let empty = crate::prefilter::SubHits::empty();
-                for &si in self.prefilter.log_always() {
-                    if matches.len() >= options.max_matches {
-                        return;
-                    }
-                    if !cands.contains(si) {
-                        self.scan_one_logical(si as usize, Some(&empty), ctx, options, matches);
-                    }
+                    let hints = (!offsets.is_empty()).then_some(offsets);
+                    self.scan_one_logical(sig as usize, hints, ctx, options, matches);
                 }
             }
         }
     }
 
-    /// Evaluate a single logical signature. `subhits`, when `Some`, gives the buffer
-    /// offsets where each subsignature's atom occurred (per-subsig prefilter
-    /// threading), so each body subsig is verified only there. `None` means full
-    /// scan every subsig (an always-scanned sig, or the disabled-prefilter ground
-    /// truth).
+    /// Evaluate a single logical signature. `hints`, when `Some`, are the buffer
+    /// offsets of the gating subsignature's atom — threaded into that subsig's
+    /// verification when the gate is `threadable` (i.e. the prefilter indexed
+    /// exactly that subsig, so the offsets correspond to it).
     fn scan_one_logical(
         &self,
         si: usize,
-        subhits: Option<&crate::prefilter::SubHits<'_>>,
+        hints: Option<&[u32]>,
         ctx: &ScanContext<'_>,
         options: ScanOptions,
         matches: &mut Vec<ScanMatch>,
@@ -713,63 +699,95 @@ impl Engine {
         // Matched byte ranges per body subsignature, for disinfection.
         let mut body_arenas: Vec<Vec<(usize, usize)>> = vec![Vec::new(); subsigs.len()];
 
-        // Phase 1: body subsignatures, each verified only where its OWN atom hit.
-        // The prefilter indexed every indexable subsig keyed to `(lsig, subsig)`, so
-        // `subhits.offsets_for(i)` gives subsig `i`'s hit offsets directly from the
-        // single AC pass — no whole-buffer rescan (ClamAV's per-subsig counting).
-        // A subsig whose atom did not hit and that IS indexable cannot match → count
-        // 0 with no scan; only an atom-less subsig (or an always-scanned sig) is
-        // verified by a full scan.
-        let limit = options.max_subsignature_matches;
-        for (i, subsig) in subsigs.iter().enumerate() {
-            let Subsignature::Body { offset, patterns } = subsig else {
-                continue;
-            };
-            let any = OffsetSpec::any();
-            let offset = offset.as_deref().unwrap_or(&any);
-            if matches!(
-                offset.anchor,
-                OffsetAnchor::Unsupported(_)
-                    | OffsetAnchor::MacroGroup(_)
-                    | OffsetAnchor::VersionInfo
-            ) {
-                continue;
-            }
-            let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
-            if ranges.is_empty() {
-                continue;
-            }
-            let (count, arenas) = verify_subsig(patterns, ctx.data, &ranges, limit, subhits, i);
-            counts[i] = count;
-            last_offsets[i] = arenas.iter().map(|a| a.0).max();
-            body_arenas[i] = arenas;
-        }
-
-        // Phase 2 cutoff: if the expression is already false even assuming every
-        // PCRE / byte-compare subsig matches, a required body subsig is absent and
-        // no Phase-2 work can change the verdict — skip it. This is the big win on
-        // PCRE-heavy logical sigs (the `0 & 1 & … & pcre` shape): the regex's cheap
-        // trigger fires on any buffer, but the whole signature already cannot fire,
-        // so running the (multi-megabyte) regex would be pure waste.
-        let phase2_relevant = {
-            let mut probe = counts.clone();
-            for (i, sub) in subsigs.iter().enumerate() {
-                if matches!(
-                    sub,
-                    Subsignature::Pcre(_) | Subsignature::ByteCompare(_)
-                ) {
-                    probe[i] = probe[i].max(1);
+        // Early cutoff: evaluate the gating subsig first; if the gate is absent
+        // the expression can't match, so skip every other subsig of this
+        // signature (the big win on logical-heavy databases / large files, where
+        // most candidates are prefilter false positives). The gate comes from the
+        // prefilter, which guarantees it is exactly the subsig whose atoms were
+        // indexed — so when `threadable` the candidate's offsets verify it with
+        // no whole-buffer rescan.
+        let gate = self.prefilter.logical_gate(si);
+        let mut gating_done: Option<usize> = None;
+        if let Some(g) = gate {
+            let gi = g.subsig as usize;
+            if let Some(Subsignature::Body { offset, patterns }) = subsigs.get(gi) {
+                let default_offset = OffsetSpec::any();
+                let offset = offset.as_deref().unwrap_or(&default_offset);
+                let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+                if !ranges.is_empty() {
+                    let gate_hints = if g.threadable { hints } else { None };
+                    let prof = prof_enabled().then(std::time::Instant::now);
+                    let (count, arenas) = body_matches(
+                        patterns,
+                        ctx.data,
+                        &ranges,
+                        options.max_subsignature_matches,
+                        gate_hints,
+                    );
+                    if let Some(t) = prof {
+                        let ms = t.elapsed().as_millis();
+                        if ms >= 20 {
+                            eprintln!(
+                                "[SLOW-GATE] {ms}ms {} ({}:{}) hints={} threadable={}",
+                                signature.name,
+                                signature.source.path.display(),
+                                signature.source.line,
+                                gate_hints.map_or(0, |h| h.len()),
+                                g.threadable,
+                            );
+                        }
+                    }
+                    if count == 0 {
+                        return; // gate absent → signature cannot match
+                    }
+                    counts[gi] = count;
+                    last_offsets[gi] = arenas.iter().map(|a| a.0).max();
+                    body_arenas[gi] = arenas;
+                    gating_done = Some(gi);
                 }
             }
-            signature.expression.eval(&probe).matched
-        };
+        }
+
+        // Phase 1: body subsignatures (the gate, if any, is already done).
+        for (i, subsig) in subsigs.iter().enumerate() {
+            if Some(i) == gating_done {
+                continue; // already evaluated above as the gate
+            }
+            if let Subsignature::Body {
+                offset, patterns, ..
+            } = subsig
+            {
+                let any = OffsetSpec::any();
+                let offset = offset.as_deref().unwrap_or(&any);
+                if matches!(
+                    offset.anchor,
+                    OffsetAnchor::Unsupported(_)
+                        | OffsetAnchor::MacroGroup(_)
+                        | OffsetAnchor::VersionInfo
+                ) {
+                    continue;
+                }
+                let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+                if ranges.is_empty() {
+                    continue;
+                }
+                // Non-gate subsigs have no threaded offsets → full scan.
+                let (count, arenas) = body_matches(
+                    patterns,
+                    ctx.data,
+                    &ranges,
+                    options.max_subsignature_matches,
+                    None,
+                );
+                counts[i] = count;
+                last_offsets[i] = arenas.iter().map(|a| a.0).max();
+                body_arenas[i] = arenas;
+            }
+        }
 
         // Phase 2: PCRE and byte-compare subsignatures, whose triggers
         // reference the phase-1 body results.
         for (i, subsig) in subsigs.iter().enumerate() {
-            if !phase2_relevant {
-                break;
-            }
             match subsig {
                 Subsignature::Pcre(pcre) => {
                     if pcre.trigger.eval(&counts).matched {
@@ -883,18 +901,16 @@ impl Engine {
     }
 }
 
-/// Count matches of one body subsignature and collect matched ranges (capped at
-/// `ARENA_CAP`). Each variant pattern is verified at its own prefilter-found atom
-/// offsets — `find_all_at` for a plain pattern, or part-by-part `find_all_gapped_with`
-/// for a gappy one (each gap-part keyed `(subsig, partno)` in the AC). `subhits ==
-/// None` (always-scanned sig / disabled prefilter) full-scans every variant.
-fn verify_subsig(
+/// Count pattern hits within `ranges` and collect the matched byte ranges
+/// (capped at `ARENA_CAP`) for disinfection. When `hints` is `Some`, each
+/// pattern is verified only at the prefilter-provided atom offsets
+/// (`find_all_at`) instead of rescanning the whole buffer; `None` is a full scan.
+fn body_matches(
     patterns: &[crate::pattern::Pattern],
     data: &[u8],
     ranges: &[(usize, usize)],
     limit: usize,
-    subhits: Option<&crate::prefilter::SubHits<'_>>,
-    subsig: usize,
+    hints: Option<&[u32]>,
 ) -> (usize, Vec<(usize, usize)>) {
     let mut count = 0usize;
     let mut arenas: Vec<(usize, usize)> = Vec::new();
@@ -903,44 +919,9 @@ fn verify_subsig(
         if remaining == 0 {
             break;
         }
-        let hits: Vec<crate::pattern::MatchRange> = match subhits {
-            // Full scan (always-scanned sig / disabled prefilter).
+        let hits = match hints {
+            Some(h) => pattern.find_all_at(data, ranges, remaining, h),
             None => pattern.find_all(data, ranges, remaining),
-            Some(sh) if pattern.has_gap() => {
-                // Gather each gap-part's own offsets (keyed `(subsig, partno)`). If a
-                // part's atom is absent, this variant cannot match.
-                let parts = pattern.gap_parts();
-                let mut part_offs: Vec<&[u32]> = Vec::new();
-                let mut absent = false;
-                for (pi, (part, _)) in parts.iter().enumerate() {
-                    if part.instructions.is_empty() {
-                        continue;
-                    }
-                    match sh.offsets_for(subsig, pi) {
-                        Some(o) => part_offs.push(o), // empty slice = overflow → bounded scan
-                        None => {
-                            absent = true;
-                            break;
-                        }
-                    }
-                }
-                if absent {
-                    Vec::new()
-                } else {
-                    pattern.find_all_gapped_with(data, ranges, remaining, &part_offs)
-                }
-            }
-            Some(sh) => match sh.offsets_for(subsig, 0) {
-                Some(o) if !o.is_empty() => pattern.find_all_at(data, ranges, remaining, o),
-                Some(_) => pattern.find_all(data, ranges, remaining), // overflow → full scan
-                None => {
-                    if pattern.has_atom() {
-                        Vec::new() // indexable, atom absent → cannot match
-                    } else {
-                        pattern.find_all(data, ranges, remaining) // atom-less → full scan
-                    }
-                }
-            },
         };
         for hit in hits {
             count += 1;

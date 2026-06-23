@@ -443,30 +443,23 @@ impl Pattern {
     /// by summing per-byte rarity, and the highest-scoring run wins. `None` only
     /// when no fixed byte has a constant offset (all-wildcard / nibble-only, or
     /// every fixed byte sits behind a gap) — those must scan every position.
-    fn best_anchor(&self) -> Option<(usize, Vec<(u8, bool)>)> {
+    fn best_anchor(&self) -> Option<(usize, Vec<u8>)> {
         // Approximate per-byte rarity (~ -log2 frequency in executables). Filler
         // bytes score low (poor anchors); arbitrary bytes score high. Summed over a
         // run, this rewards length only when the bytes aren't ubiquitous, so a long
-        // `00` run loses to a short run containing a rare byte. A `nocase` byte is
-        // slightly less selective (it matches two values), so it scores a touch
-        // lower — but a `nocase` run is still vastly better than scanning every byte.
-        fn weight(b: u8, nc: bool) -> u32 {
-            let base: u32 = match b {
+        // `00` run loses to a short run containing a rare byte.
+        fn weight(b: u8) -> u32 {
+            match b {
                 0x00 => 1,
                 0xff => 2,
                 0x90 | 0xcc => 3,
                 0x20..=0x7e => 5, // printable: common in text-bearing files
                 _ => 8,
-            };
-            if nc {
-                base.saturating_sub(1).max(1)
-            } else {
-                base
             }
         }
 
-        let mut best: Option<(u32, usize, Vec<(u8, bool)>)> = None; // (score, offset, needle)
-        let mut run: Vec<(u8, bool)> = Vec::new();
+        let mut best: Option<(u32, usize, Vec<u8>)> = None; // (score, offset, needle)
+        let mut run: Vec<u8> = Vec::new();
         let mut run_off = 0usize;
         let mut bytes = 0usize;
         let mut sidx = 0usize;
@@ -477,15 +470,7 @@ impl Pattern {
                     if run.is_empty() {
                         run_off = bytes;
                     }
-                    run.push(((inst & 0xff) as u8, false));
-                    bytes += 1;
-                    continue;
-                }
-                CLI_MATCH_NOCASE => {
-                    if run.is_empty() {
-                        run_off = bytes;
-                    }
-                    run.push(((inst & 0xff) as u8, true));
+                    run.push((inst & 0xff) as u8);
                     bytes += 1;
                     continue;
                 }
@@ -507,48 +492,15 @@ impl Pattern {
         best.map(|(_, off, needle)| (off, needle))
     }
 
-    /// Instruction index + length of the longest `CHAR`/`NOCASE` run — the atom the
-    /// prefilter indexes for a `nocase` pattern (`required_atom_nocase`).
-    fn nocase_run(&self) -> Option<(usize, usize)> {
-        let mut best: Option<(usize, usize)> = None;
-        let mut run_start = 0usize;
-        let mut run_len = 0usize;
-        let mut in_run = false;
-        for i in 0..self.instructions.len() {
-            let meta = self.instructions.get_u16(i) & CLI_MATCH_METADATA;
-            if meta == CLI_MATCH_CHAR || meta == CLI_MATCH_NOCASE {
-                if !in_run {
-                    run_start = i;
-                    run_len = 0;
-                    in_run = true;
-                }
-                run_len += 1;
-            } else {
-                if in_run && run_len >= 2 && best.is_none_or(|(_, bl)| run_len > bl) {
-                    best = Some((run_start, run_len));
-                }
-                in_run = false;
-            }
-        }
-        if in_run && run_len >= 2 && best.is_none_or(|(_, bl)| run_len > bl) {
-            best = Some((run_start, run_len));
-        }
-        best
-    }
-
-    /// The constant byte distance from the pattern start to the run the prefilter
-    /// indexes as this pattern's atom — its exact best literal if it has one, else
-    /// its longest `nocase` run (mirroring `pattern_atom`). `None` when a
-    /// variable-width element precedes that run (the distance isn't constant) or the
-    /// pattern has no atom, so prefilter hints can't be aligned.
-    fn atom_byte_prefix(&self) -> Option<usize> {
-        let run_off = match self.best_literal() {
-            Some((off, _)) => off,
-            None => self.nocase_run()?.0,
-        };
+    /// The constant byte distance from the pattern start to its best literal (the
+    /// run the prefilter indexes as this pattern's atom), or `None` when a
+    /// variable-width element (open gap / unequal-length alternation) precedes it,
+    /// so the distance isn't constant and prefilter hints can't be aligned.
+    fn literal_byte_prefix(&self) -> Option<usize> {
+        let (lit_off, _) = self.best_literal()?;
         let mut bytes = 0usize;
         let mut sidx = 0usize;
-        for i in 0..run_off {
+        for i in 0..lit_off {
             let inst = self.instructions.get_u16(i);
             if (inst & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
                 bytes += self.specials.get(sidx)?.fixed_width()?;
@@ -574,19 +526,13 @@ impl Pattern {
         min_len: usize,
         limit: usize,
         byte_prefix: usize,
-        needle: &[(u8, bool)],
+        needle: &[u8],
     ) -> Vec<MatchRange> {
         if needle.is_empty() {
             return Vec::new();
         }
         let lit_len = needle.len();
-        // All-case-sensitive needles use a single selective multi-byte SIMD search;
-        // needles with a `nocase` byte memchr the first byte (both cases) and verify
-        // the run inline (still far better than scanning every position).
-        let all_cs = needle.iter().all(|&(_, nc)| !nc);
-        let cs_needle: Vec<u8> = needle.iter().map(|&(b, _)| b).collect();
-        let (lo0, nc0) = needle[0];
-        let up0 = if nc0 { lo0.to_ascii_uppercase() } else { lo0 };
+        let literal = needle;
         // Shared per-signature backtracking budget (see `find_all`).
         let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
         let mut out = Vec::new();
@@ -597,56 +543,30 @@ impl Pattern {
             if start > end {
                 continue;
             }
-            // Valid match-start positions are [start, max_pos]. The needle of a match
-            // starting at `pos` sits at [pos + byte_prefix, + lit_len), so its START
-            // ranges over [start+byte_prefix, max_pos+byte_prefix]; search exactly
-            // that band so a match whose needle lies past `end` is still found.
+            // Valid match-start positions are [start, max_pos], identical to the
+            // naive loop's bound. (For absolute/EOF offset specs the range bounds
+            // the *start*, while the match itself may read past `end`.)
             let max_pos = end.saturating_sub(min_len).max(start);
+            // The literal of a match starting at `pos` sits at
+            // [pos + byte_prefix, pos + byte_prefix + lit_len). Search exactly the band of
+            // data that can hold the literal for some valid start, so a match whose
+            // literal lies past `end` (absolute/EOF specs) is still found.
             let lo = (start + byte_prefix).min(data.len());
-            let hi = max_pos
-                .saturating_add(byte_prefix)
-                .saturating_add(lit_len)
-                .min(data.len());
-            if lo >= hi || lit_len > data.len() {
+            let hi = max_pos.saturating_add(byte_prefix).saturating_add(lit_len).min(data.len());
+            if lo >= hi {
                 continue;
             }
-            let last_occ = hi - lit_len; // last needle-start position that fits
-            let mut search = lo;
-            while search <= last_occ {
-                let f = fuel.get();
-                if f == 0 {
-                    return out;
-                }
-                fuel.set(f - 1);
-                let win = &data[search..hi];
-                let rel = if all_cs {
-                    memchr::memmem::find(win, &cs_needle)
-                } else if lo0 == up0 {
-                    memchr::memchr(lo0, win)
-                } else {
-                    memchr::memchr2(lo0, up0, win)
-                };
-                let Some(rel) = rel else {
+            let window = &data[lo..hi];
+            // Overlapping occurrences: advance by one byte after each hit. A
+            // literal can self-overlap (e.g. "AA" in "AAA"), so the non-overlapping
+            // `find_iter` would skip a valid anchor; stepping by 1 keeps every one.
+            let mut from = 0usize;
+            while from < window.len() {
+                let Some(rel) = memchr::memmem::find(&window[from..], literal) else {
                     break;
                 };
-                let occ = search + rel;
-                search = occ + 1;
-                if occ > last_occ {
-                    break;
-                }
-                // For the memchr (nocase) path, verify the whole run inline.
-                if !all_cs
-                    && !needle.iter().enumerate().all(|(k, &(b, nc))| {
-                        let d = data[occ + k];
-                        if nc {
-                            d.to_ascii_lowercase() == b
-                        } else {
-                            d == b
-                        }
-                    })
-                {
-                    continue;
-                }
+                let occ = lo + from + rel;
+                from += rel + 1;
                 let Some(pos) = occ.checked_sub(byte_prefix) else {
                     continue;
                 };
@@ -654,6 +574,9 @@ impl Pattern {
                     continue;
                 }
                 last_start = Some(pos);
+                if fuel.get() == 0 {
+                    return out;
+                }
                 if let Some(match_end) = self.match_rec(data, pos, 0, 0, &fuel) {
                     if self.fullword && !is_fullword(data, pos, match_end) {
                         continue;
@@ -666,150 +589,6 @@ impl Pattern {
                         return out;
                     }
                 }
-            }
-        }
-        out
-    }
-
-    /// Whether the pattern contains a variable-width gap (`*` / `{n-m}`).
-    pub(crate) fn has_gap(&self) -> bool {
-        self.specials
-            .iter()
-            .any(|s| matches!(s, Special::Gap { .. }))
-    }
-
-    /// Split this pattern at its variable-width gaps into gap-free parts, each
-    /// paired with the gap `(min, max)` that precedes it (`None` for the first) —
-    /// ClamAV's `partno` parts. Computed on demand (gappy patterns are a minority).
-    pub(crate) fn gap_parts(&self) -> Vec<(Pattern, Option<(usize, usize)>)> {
-        let mut parts: Vec<(Pattern, Option<(usize, usize)>)> = Vec::new();
-        let mut part_inst: Vec<u16> = Vec::new();
-        let mut part_specials: Vec<Special> = Vec::new();
-        let mut gap_before: Option<(usize, usize)> = None;
-        let mut sidx = 0usize;
-        for i in 0..self.instructions.len() {
-            let e = self.instructions.get_u16(i);
-            if (e & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
-                let sp = &self.specials[sidx];
-                sidx += 1;
-                if let Special::Gap { min, max } = sp {
-                    let p = Pattern::from_parsed(
-                        std::mem::take(&mut part_inst),
-                        std::mem::take(&mut part_specials),
-                        false,
-                    );
-                    parts.push((p, gap_before));
-                    gap_before = Some((*min, *max));
-                    continue;
-                }
-                part_inst.push(e);
-                part_specials.push(sp.clone());
-            } else {
-                part_inst.push(e);
-            }
-        }
-        parts.push((
-            Pattern::from_parsed(part_inst, part_specials, false),
-            gap_before,
-        ));
-        parts
-    }
-
-    /// Match a gappy pattern part-by-part (ClamAV's `partno` / `offmatrix`).
-    /// `part_offsets[k]` is the AC-found offset list for the k-th (non-empty) part —
-    /// each part is verified **only at its own offsets** (`find_all_at`), or by a
-    /// bounded scan if that part's offsets overflowed (an empty slice). A sweep then
-    /// keeps the part matches reachable from a previous part within the gap distance,
-    /// carrying the first part's start to the last. Linear — no per-occurrence gap
-    /// backtracking, and no single lumped offset list that overflows for many parts.
-    pub(crate) fn find_all_gapped_with(
-        &self,
-        data: &[u8],
-        ranges: &[(usize, usize)],
-        limit: usize,
-        part_offsets: &[&[u32]],
-    ) -> Vec<MatchRange> {
-        const PART_CAP: usize = 2048;
-        let parts: Vec<(Pattern, Option<(usize, usize)>)> = self
-            .gap_parts()
-            .into_iter()
-            .filter(|(p, _)| !p.instructions.is_empty())
-            .collect();
-        if parts.is_empty() || parts.len() != part_offsets.len() {
-            return Vec::new();
-        }
-        let part_find = |part: &Pattern, rng: &[(usize, usize)], offs: &[u32]| -> Vec<MatchRange> {
-            if offs.is_empty() {
-                part.find_all(data, rng, PART_CAP) // overflowed → bounded scan of this part
-            } else {
-                part.find_all_at(data, rng, PART_CAP, offs)
-            }
-        };
-
-        // Part 0: its start is the full-match start, so honour `ranges`.
-        let p0 = part_find(&parts[0].0, ranges, part_offsets[0]);
-        let mut cur: Vec<(usize, usize)> = p0.iter().map(|m| (m.start, m.end)).collect();
-        cur.sort_unstable_by_key(|&(_, e)| e);
-        cur.dedup();
-
-        for (idx, (part, gap)) in parts.iter().enumerate().skip(1) {
-            if cur.is_empty() {
-                return Vec::new();
-            }
-            let (gmin, gmax) = gap.unwrap_or((0, 0));
-            let min_end = cur.first().map(|&(_, e)| e).unwrap();
-            let max_end = cur.last().map(|&(_, e)| e).unwrap();
-            let lo = min_end.saturating_add(gmin);
-            let hi = if gmax == UNBOUNDED_GAP {
-                data.len()
-            } else {
-                max_end.saturating_add(gmax).min(data.len())
-            };
-            if lo > hi {
-                return Vec::new();
-            }
-            let part_min = part.min_match_len().max(1);
-            let send = hi.saturating_add(part_min).min(data.len());
-            let pmatches = part_find(part, &[(lo, send)], part_offsets[idx]);
-
-            let ends: Vec<usize> = cur.iter().map(|&(_, e)| e).collect();
-            let mut next: Vec<(usize, usize)> = Vec::new();
-            for m in &pmatches {
-                let ps = m.start;
-                let lo_ce = if gmax == UNBOUNDED_GAP {
-                    0
-                } else {
-                    ps.saturating_sub(gmax)
-                };
-                let hi_ce = ps.saturating_sub(gmin);
-                let a = ends.partition_point(|&e| e < lo_ce);
-                let b = ends.partition_point(|&e| e <= hi_ce);
-                for &(orig, _) in &cur[a..b] {
-                    next.push((orig, m.end));
-                    if next.len() >= PART_CAP * 4 {
-                        break;
-                    }
-                }
-            }
-            next.sort_unstable();
-            next.dedup();
-            next.sort_unstable_by_key(|&(_, e)| e);
-            if next.len() > PART_CAP {
-                next.truncate(PART_CAP);
-            }
-            cur = next;
-        }
-
-        cur.sort_unstable();
-        cur.dedup();
-        let mut out = Vec::new();
-        for (s, e) in cur {
-            if self.fullword && !is_fullword(data, s, e) {
-                continue;
-            }
-            out.push(MatchRange { start: s, end: e });
-            if out.len() >= limit {
-                break;
             }
         }
         out
@@ -834,12 +613,14 @@ impl Pattern {
         // — so specials no longer force a full re-scan, only a variable-width gap
         // *before* the literal does (then the distance isn't constant and the hints
         // can't be aligned, so fall back to a correct full scan).
-        // Byte distance from the pattern start to its indexed atom (exact literal or
-        // nocase run). `match_at` verifies case-insensitively for nocase patterns, so
-        // a nocase pattern threads correctly here too. A variable-width element
-        // before the atom makes the distance non-constant → full scan.
-        let Some(prefix) = self.atom_byte_prefix() else {
-            return self.find_all(data, ranges, limit);
+        let prefix = if self.specials.is_empty() {
+            // No specials: instruction index == byte offset.
+            self.best_literal().map(|(off, _)| off).unwrap_or(0)
+        } else {
+            match self.literal_byte_prefix() {
+                Some(p) => p,
+                None => return self.find_all(data, ranges, limit),
+            }
         };
         // Shared per-signature backtracking budget (see `find_all`).
         let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
@@ -963,104 +744,43 @@ impl Pattern {
                         // what stops a gappy pattern (`…{gap}/link.html`) from probing
                         // thousands of false positions per gap and blowing up.
                         if ipos + 1 < pat_len && !data.is_empty() {
-                            // Collect the fixed run after the gap as case-insensitive
-                            // elements `(lowercased_byte, is_nocase)` — this handles
-                            // `nocase`/wide runs (`http*b\0i\0t\0…::awi`) that a
-                            // CHAR-only run would miss, dropping them into the
-                            // O(gap-width) general path.
-                            let mut run: Vec<(u8, bool)> = Vec::new();
+                            let mut run: Vec<u8> = Vec::new();
                             let mut j = ipos + 1;
                             while j < pat_len && run.len() < 64 {
                                 let e = pat.get_u16(j);
-                                match e & CLI_MATCH_METADATA {
-                                    CLI_MATCH_CHAR => {
-                                        run.push(((e & 0xff) as u8, false));
-                                        j += 1;
-                                    }
-                                    CLI_MATCH_NOCASE => {
-                                        run.push(((e & 0xff) as u8, true));
-                                        j += 1;
-                                    }
-                                    _ => break,
+                                if (e & CLI_MATCH_METADATA) == CLI_MATCH_CHAR {
+                                    run.push((e & 0xff) as u8);
+                                    j += 1;
+                                } else {
+                                    break;
                                 }
                             }
                             if !run.is_empty() {
-                                let los = dpos + *min;
+                                let lo = dpos + *min;
                                 // The run must START in the gap window and fully fit.
                                 let last_start =
                                     (dpos + hi).min(data.len().saturating_sub(run.len()));
-                                if los > last_start {
+                                if lo > last_start {
                                     return None;
                                 }
-                                let nocase_in_run = run.iter().any(|&(_, nc)| nc);
-                                if !nocase_in_run {
-                                    // Case-sensitive run: one selective multi-byte SIMD
-                                    // search (the whole run is the needle) — the fast,
-                                    // selective path. Bound by fuel defensively.
-                                    let needle: Vec<u8> = run.iter().map(|&(b, _)| b).collect();
-                                    let win_end = last_start + run.len();
-                                    let mut search = los;
-                                    while search <= last_start {
-                                        let fr = fuel.get();
-                                        if fr == 0 {
-                                            return None;
-                                        }
-                                        fuel.set(fr - 1);
-                                        match memchr::memmem::find(&data[search..win_end], &needle) {
-                                            Some(rel) => {
-                                                let p = search + rel;
-                                                if let Some(end) =
-                                                    self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
-                                                {
-                                                    return Some(end);
-                                                }
-                                                search = p + 1;
-                                            }
-                                            None => break,
-                                        }
-                                    }
-                                    return None;
-                                }
-                                // Nocase run: jump to the next first-byte match (either
-                                // case) and verify the whole run inline before
-                                // recursing. Fuel is decremented *every* probe — a
-                                // common first byte over an unbounded gap whose run is
-                                // absent must not scan the whole buffer per anchor.
-                                let (lo0, nc0) = run[0];
-                                let up0 = if nc0 { lo0.to_ascii_uppercase() } else { lo0 };
-                                let mut search = los;
+                                let win_end = last_start + run.len();
+                                let mut search = lo;
                                 while search <= last_start {
-                                    let f = fuel.get();
-                                    if f == 0 {
+                                    if fuel.get() == 0 {
                                         return None;
                                     }
-                                    fuel.set(f - 1);
-                                    let win = &data[search..=last_start];
-                                    let hit = if lo0 == up0 {
-                                        memchr::memchr(lo0, win)
-                                    } else {
-                                        memchr::memchr2(lo0, up0, win)
-                                    };
-                                    let Some(rel) = hit else {
-                                        break;
-                                    };
-                                    let p = search + rel;
-                                    let matched = run.iter().enumerate().all(|(k, &(b, nc))| {
-                                        let d = data[p + k];
-                                        if nc {
-                                            d.to_ascii_lowercase() == b
-                                        } else {
-                                            d == b
+                                    match memchr::memmem::find(&data[search..win_end], &run) {
+                                        Some(rel) => {
+                                            let p = search + rel;
+                                            if let Some(end) =
+                                                self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
+                                            {
+                                                return Some(end);
+                                            }
+                                            search = p + 1;
                                         }
-                                    });
-                                    if matched {
-                                        if let Some(end) =
-                                            self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
-                                        {
-                                            return Some(end);
-                                        }
+                                        None => break,
                                     }
-                                    search = p + 1;
                                 }
                                 return None;
                             }
@@ -1150,38 +870,6 @@ impl Pattern {
             }
         }
         s
-    }
-
-    /// Whether this pattern has an exact (case-sensitive) literal atom, so the
-    /// prefilter indexed it in the case-sensitive automaton at a known byte offset
-    /// and `find_all_at` can thread the per-subsig hint offsets into it. `nocase`/
-    /// atomless patterns return false and are verified with a full scan instead.
-    pub fn has_exact_atom(&self) -> bool {
-        self.best_literal().is_some()
-    }
-
-    /// Whether the prefilter can index this pattern at all — it has a usable atom,
-    /// either an exact literal (`has_exact_atom`) or a ≥2-byte `nocase` run. Mirrors
-    /// the prefilter's `pattern_atom`, so the scanner can tell "indexable subsig
-    /// whose atom is absent (cannot match)" from "atom-less subsig (must full-scan)".
-    pub fn has_atom(&self) -> bool {
-        if self.best_literal().is_some() {
-            return true;
-        }
-        // Longest CHAR/NOCASE run ≥ 2? (matches `required_atom_nocase` usability)
-        let mut run = 0usize;
-        for i in 0..self.instructions.len() {
-            let meta = self.instructions.get_u16(i) & CLI_MATCH_METADATA;
-            if meta == CLI_MATCH_CHAR || meta == CLI_MATCH_NOCASE {
-                run += 1;
-                if run >= 2 {
-                    return true;
-                }
-            } else {
-                run = 0;
-            }
-        }
-        false
     }
 
     /// The longest fixed byte sequence for prefilter use (reconstructed on demand).
@@ -1568,14 +1256,14 @@ fn expand_wildcards(raw: &str) -> String {
 /// keep it if it beats the current best. A run starting at byte offset `off`.
 fn consider_anchor(
     off: usize,
-    run: &[(u8, bool)],
-    best: &mut Option<(u32, usize, Vec<(u8, bool)>)>,
-    weight: fn(u8, bool) -> u32,
+    run: &[u8],
+    best: &mut Option<(u32, usize, Vec<u8>)>,
+    weight: fn(u8) -> u32,
 ) {
     if run.is_empty() {
         return;
     }
-    let score: u32 = run.iter().map(|&(b, nc)| weight(b, nc)).sum();
+    let score: u32 = run.iter().map(|&b| weight(b)).sum();
     if best.as_ref().is_none_or(|(bs, _, _)| score > *bs) {
         *best = Some((score, off, run.to_vec()));
     }
