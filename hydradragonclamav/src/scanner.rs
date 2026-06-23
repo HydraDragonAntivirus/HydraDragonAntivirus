@@ -771,7 +771,8 @@ impl Engine {
                 if ranges.is_empty() {
                     continue;
                 }
-                // Non-gate subsigs have no threaded offsets → full scan.
+                // Non-gate subsigs have no aligned threaded offsets → full scan
+                // (which self-anchors on each subsig's most selective literal).
                 let (count, arenas) = body_matches(
                     patterns,
                     ctx.data,

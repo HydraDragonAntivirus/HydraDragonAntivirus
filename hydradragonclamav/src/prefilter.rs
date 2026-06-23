@@ -246,6 +246,7 @@ impl AtomPrefilter {
         // A pattern is usable for prefiltering via either its case-sensitive
         // atom or, for `nocase` patterns, its case-folded atom. Returns which
         // bucket the atom belongs in.
+        #[derive(Clone)]
         enum Atom {
             Exact(Vec<u8>),
             Nocase(Vec<u8>),
@@ -314,14 +315,26 @@ impl AtomPrefilter {
                 continue;
             }
 
-            // Best *indexable* required subsig: every variant has a usable atom,
-            // offset is evaluable, longest atom (most selective). Its atoms are
-            // indexed and it becomes the threadable gate.
-            let mut best_index: Option<(usize, usize, Vec<Atom>)> = None; // (max_len, idx, atoms)
-            // Best cutoff-only gate: any required subsig with an evaluable offset,
-            // preferring a longer exact atom. Used when nothing is indexable, so
-            // the early cutoff still applies (no offsets to thread).
+            // Mirror ClamAV: every *indexable* subsignature is put in the
+            // automaton keyed to this logical sig, so the sig becomes a candidate
+            // only when one of its subsig atoms actually occurs — there is no
+            // "evaluate on every buffer" set unless a subsig genuinely has no atom
+            // (ClamAV rejects those at load; we keep them as a small `log_always`).
+            // We additionally pick, when one exists, a single *required* indexable
+            // subsig as a *threadable* gate (its offsets line up for verification);
+            // that is the tightest possible gate, so when present we index only it.
+            //
+            // `best_index`  — best (longest-atom) REQUIRED indexable subsig: index
+            //                 it alone, thread its offsets (early cutoff + verify).
+            // `set_atoms`   — atoms of ALL indexable subsigs: used to gate sigs with
+            //                 no single required subsig (`0|1`, `(0|1)&pcre`, …).
+            // `set_mask`    — which subsigs are indexable (for the gating probe).
+            // `best_gate`   — best required subsig w/ evaluable offset for a non-
+            //                 threadable early cutoff when nothing is threadable.
+            let mut best_index: Option<(usize, usize, Vec<Atom>)> = None; // (atom_len, idx, atoms)
             let mut best_gate: Option<(usize, usize)> = None; // (exact_atom_len, idx)
+            let mut set_atoms: Vec<Atom> = Vec::new();
+            let mut set_mask = vec![false; n];
 
             for i in 0..n {
                 let Subsignature::Body { offset, patterns } = &sig.subsignatures[i] else {
@@ -332,132 +345,104 @@ impl AtomPrefilter {
                 if patterns.is_empty() || !evaluable_offset(&offset.anchor) {
                     continue;
                 }
-                // Required? (expression false when only this subsig is absent.)
-                let mut probe = vec![probe_present; n];
-                probe[i] = 0;
-                if sig.expression.eval(&probe).matched {
-                    continue;
-                }
 
-                let exact_len = patterns
-                    .iter()
-                    .filter_map(|p| p.required_atom().map(|a| a.len()))
-                    .max()
-                    .unwrap_or(0);
-                if best_gate.map_or(true, |(bl, _)| exact_len > bl) {
-                    best_gate = Some((exact_len, i));
-                }
-
-                // Indexable only if EVERY variant has a usable atom — otherwise a
-                // variant could match without any indexed atom appearing, and the
-                // prefilter would wrongly skip the signature.
+                // Indexable iff EVERY variant has a usable atom — otherwise a variant
+                // could match with no indexed atom present and the prefilter would
+                // wrongly skip the signature.
                 let mut atoms: Vec<Atom> = Vec::with_capacity(patterns.len());
-                let mut all = true;
+                let mut indexable = true;
                 for p in patterns {
                     match pattern_atom(p) {
                         Some(a) => atoms.push(a),
                         None => {
-                            all = false;
+                            indexable = false;
                             break;
                         }
                     }
                 }
-                if !all {
-                    continue;
+                indexable &= !atoms.is_empty();
+
+                // Required? (expression false when only this subsig is absent.)
+                let mut probe = vec![probe_present; n];
+                probe[i] = 0;
+                let required = !sig.expression.eval(&probe).matched;
+
+                if required {
+                    let exact_len = patterns
+                        .iter()
+                        .filter_map(|p| p.required_atom().map(|a| a.len()))
+                        .max()
+                        .unwrap_or(0);
+                    if best_gate.map_or(true, |(bl, _)| exact_len > bl) {
+                        best_gate = Some((exact_len, i));
+                    }
                 }
-                let max_len = atoms
-                    .iter()
-                    .map(|a| match a {
-                        Atom::Exact(b) => b.len(),
-                        Atom::Nocase(b) => b.len(),
-                    })
-                    .max()
-                    .unwrap_or(0);
-                if best_index.as_ref().map_or(true, |(bl, _, _)| max_len > *bl) {
-                    best_index = Some((max_len, i, atoms));
+
+                if indexable {
+                    set_mask[i] = true;
+                    let max_len = atoms
+                        .iter()
+                        .map(|a| match a {
+                            Atom::Exact(b) | Atom::Nocase(b) => b.len(),
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    if required && best_index.as_ref().map_or(true, |(bl, _, _)| max_len > *bl) {
+                        best_index = Some((max_len, i, atoms.clone()));
+                    }
+                    set_atoms.extend(atoms);
                 }
             }
 
-            // OR-type fallback: no single subsig is *required* (e.g. `0|1|2`), so
-            // nothing can gate the expression. But if EVERY subsignature is an
-            // indexable body (all variants have a usable atom and an evaluable
-            // offset), index them ALL: the signature then becomes a candidate only
-            // when one of its branch atoms appears, instead of being evaluated on
-            // every buffer (`log_always`). This is the dominant cost on logical-
-            // heavy databases — thousands of OR signatures otherwise run on every
-            // scan. Safe because the expression is false when all subsigs are absent
-            // (checked above), so if no indexed atom occurs it provably can't match.
-            // No single gate offset applies (the hit may be any branch), so these
-            // carry the cutoff-only `best_gate` if any, never a threadable gate.
-            let or_atoms: Option<Vec<Atom>> = if best_index.is_none() {
-                let mut acc: Vec<Atom> = Vec::new();
-                let mut all = true;
-                for i in 0..n {
-                    let Subsignature::Body { offset, patterns } = &sig.subsignatures[i] else {
-                        all = false;
-                        break;
-                    };
-                    let default_offset = OffsetSpec::any();
-                    let offset = offset.as_deref().unwrap_or(&default_offset);
-                    if patterns.is_empty() || !evaluable_offset(&offset.anchor) {
-                        all = false;
-                        break;
-                    }
-                    for p in patterns {
-                        match pattern_atom(p) {
-                            Some(a) => acc.push(a),
-                            None => {
-                                all = false;
-                                break;
-                            }
-                        }
-                    }
-                    if !all {
-                        break;
+            // A logical sig needs no unconditional evaluation when its expression is
+            // false with every indexable subsig absent (non-indexable subsigs treated
+            // as possibly present): then a hit on some indexed atom is *necessary*,
+            // so it can be gated. This generalizes the single-required-subsig case to
+            // OR / mixed expressions, which is what empties the always-scanned set.
+            let gateable_by_set = !set_atoms.is_empty() && {
+                let mut probe = vec![probe_present; n];
+                for (i, &on) in set_mask.iter().enumerate() {
+                    if on {
+                        probe[i] = 0;
                     }
                 }
-                (all && !acc.is_empty()).then_some(acc)
-            } else {
-                None
+                !sig.expression.eval(&probe).matched
             };
 
-            match (best_index, or_atoms) {
-                (Some((_, idx, atoms)), _) => {
-                    for a in atoms {
-                        match a {
-                            Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si))),
-                            Atom::Nocase(a) => {
-                                entries_nocase.push((short_atom(&a).into(), log_ref(si)))
-                            }
-                        }
+            // Prefer the *tightest* gate: a single required indexable subsig. Index
+            // only it (fewest candidates) and thread its offsets for an early cutoff.
+            // Otherwise (OR / no single required subsig) index the whole indexable
+            // set when the expression can't be satisfied without one of them, so the
+            // sig is still a candidate only when a branch atom appears. Only sigs
+            // that genuinely can fire via a non-indexable subsig stay always-scanned.
+            let index_atoms = |atoms: Vec<Atom>,
+                               entries: &mut Vec<(Box<[u8]>, u64)>,
+                               entries_nocase: &mut Vec<(Box<[u8]>, u64)>| {
+                for a in atoms {
+                    match a {
+                        Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si))),
+                        Atom::Nocase(a) => entries_nocase.push((short_atom(&a).into(), log_ref(si))),
                     }
-                    log_gates.push(Some(GateInfo {
-                        subsig: idx as u32,
-                        threadable: true,
-                    }));
                 }
-                (None, Some(atoms)) => {
-                    for a in atoms {
-                        match a {
-                            Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si))),
-                            Atom::Nocase(a) => {
-                                entries_nocase.push((short_atom(&a).into(), log_ref(si)))
-                            }
-                        }
-                    }
-                    // Indexed as an OR candidate set — NOT always-scanned.
-                    log_gates.push(best_gate.map(|(_, idx)| GateInfo {
-                        subsig: idx as u32,
-                        threadable: false,
-                    }));
-                }
-                (None, None) => {
-                    log_always.push(si as u32);
-                    log_gates.push(best_gate.map(|(_, idx)| GateInfo {
-                        subsig: idx as u32,
-                        threadable: false,
-                    }));
-                }
+            };
+            if let Some((_, idx, atoms)) = best_index {
+                index_atoms(atoms, &mut entries, &mut entries_nocase);
+                log_gates.push(Some(GateInfo {
+                    subsig: idx as u32,
+                    threadable: true,
+                }));
+            } else if gateable_by_set {
+                index_atoms(set_atoms, &mut entries, &mut entries_nocase);
+                log_gates.push(best_gate.map(|(_, idx)| GateInfo {
+                    subsig: idx as u32,
+                    threadable: false,
+                }));
+            } else {
+                log_always.push(si as u32);
+                log_gates.push(best_gate.map(|(_, idx)| GateInfo {
+                    subsig: idx as u32,
+                    threadable: false,
+                }));
             }
         }
 
