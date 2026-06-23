@@ -15,6 +15,20 @@ pub const CLI_MATCH_NIBBLE_LOW: u16 = 0x0400;
 pub const CLI_MATCH_SPECIAL: u16 = 0x0700;
 pub const CLI_MATCH_METADATA: u16 = 0x0f00;
 
+/// Max recursive-matcher steps per `match_at` attempt (see `match_at`). One step
+/// = one `match_rec` entry. A legitimate match needs at most a few thousand even
+/// for gappy patterns; this ceiling only fires on multiplicative gap backtracking,
+/// keeping any single position's work bounded (~a few ms) instead of unbounded.
+const MATCH_FUEL_BUDGET: u64 = 2_000_000;
+
+/// Max recursive-matcher steps for ONE signature's whole verification on a buffer
+/// (`find_all`/`find_all_anchored`/`find_all_at` share a single counter across all
+/// probed positions). High enough that an honest full scan of a multi-megabyte
+/// buffer completes (≈ one step per position plus light verification), but it caps
+/// the multiplicative blow-up of a pattern that backtracks at many positions, so a
+/// single signature can never dominate the scan.
+const SIG_FUEL_BUDGET: u64 = 16_000_000;
+
 /// Match a single u16 instruction against a data byte.
 #[inline]
 fn match_byte(inst: u16, byte: u8) -> bool {
@@ -125,6 +139,21 @@ impl Special {
             Special::AltStr { min, .. } => *min,
             Special::Boundary => 0,
             Special::Gap { min, .. } => *min,
+        }
+    }
+
+    /// Exact bytes this special always consumes, or `None` when variable-width.
+    /// Used to decide whether the byte distance from the pattern start to a later
+    /// literal is constant (so the scan can anchor on that literal). A negated
+    /// alternation is matched as fixed `min`-width (see `match_rec`); a positive
+    /// `AltStr` has branches of differing length and a `Gap` is open — both vary.
+    fn fixed_width(&self) -> Option<usize> {
+        match self {
+            Special::AltChar { .. } => Some(1),
+            Special::AltStrFixed { len, .. } => Some(*len),
+            Special::AltStr { min, negative, .. } => negative.then_some(*min),
+            Special::Boundary => Some(0),
+            Special::Gap { .. } => None,
         }
     }
 
@@ -346,6 +375,24 @@ impl Pattern {
         }
         let min_len = self.min_match_len().max(1);
 
+        // Fast path: anchor the scan on the pattern's best fixed literal via SIMD
+        // substring search and verify (`match_at`) only where the literal occurs,
+        // instead of calling `match_at` at *every* byte position. This turns each
+        // signature's O(n) full-buffer scan into O(literal-occurrences) — the
+        // dominant cost on large files, since atomless / overflowed / gap- and
+        // alternation-bearing signatures all reach this full-scan fallback. Valid
+        // whenever the byte distance to the literal is constant (no open gap or
+        // unequal-length alternation *before* it); trailing gaps/alternations are
+        // still verified by `match_at`. This is the same anchoring `find_all_at`
+        // uses, but with the occurrences found here rather than prefilter-supplied.
+        if let Some((prefix, needle)) = self.best_anchor() {
+            return self.find_all_anchored(data, ranges, min_len, limit, prefix, &needle);
+        }
+
+        // One fuel budget shared across every position probed for this signature on
+        // this buffer (not reset per position), so a pattern that backtracks
+        // expensively at many positions is bounded in aggregate, not just per probe.
+        let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
         let mut out = Vec::new();
         for &(start, end) in ranges {
             let start = start.min(data.len());
@@ -361,7 +408,10 @@ impl Pattern {
             };
 
             for pos in start..=max_pos {
-                if let Some(match_end) = self.match_at(data, pos) {
+                if fuel.get() == 0 {
+                    return out;
+                }
+                if let Some(match_end) = self.match_rec(data, pos, 0, 0, &fuel) {
                     if self.fullword && !is_fullword(data, pos, match_end) {
                         continue;
                     }
@@ -381,6 +431,169 @@ impl Pattern {
         out
     }
 
+    /// A required fixed needle and its constant byte distance from the pattern
+    /// start, used to anchor a full scan (`find_all_anchored`): the scan searches
+    /// for the needle and only verifies there. The needle is the **most selective**
+    /// constant-offset fixed-byte run — *not* merely the longest. Selectivity, not
+    /// length, is what bounds the work: a 3-byte run of `00` occurs in nearly every
+    /// page of an executable (zero padding) and would trigger millions of verifies,
+    /// while a single uncommon opcode byte occurs far less. Each maximal run of
+    /// fixed bytes lying before the first variable-width element (open gap /
+    /// unequal-length alternation — past which the offset isn't constant) is scored
+    /// by summing per-byte rarity, and the highest-scoring run wins. `None` only
+    /// when no fixed byte has a constant offset (all-wildcard / nibble-only, or
+    /// every fixed byte sits behind a gap) — those must scan every position.
+    fn best_anchor(&self) -> Option<(usize, Vec<u8>)> {
+        // Approximate per-byte rarity (~ -log2 frequency in executables). Filler
+        // bytes score low (poor anchors); arbitrary bytes score high. Summed over a
+        // run, this rewards length only when the bytes aren't ubiquitous, so a long
+        // `00` run loses to a short run containing a rare byte.
+        fn weight(b: u8) -> u32 {
+            match b {
+                0x00 => 1,
+                0xff => 2,
+                0x90 | 0xcc => 3,
+                0x20..=0x7e => 5, // printable: common in text-bearing files
+                _ => 8,
+            }
+        }
+
+        let mut best: Option<(u32, usize, Vec<u8>)> = None; // (score, offset, needle)
+        let mut run: Vec<u8> = Vec::new();
+        let mut run_off = 0usize;
+        let mut bytes = 0usize;
+        let mut sidx = 0usize;
+        for i in 0..self.instructions.len() {
+            let inst = self.instructions.get_u16(i);
+            match inst & CLI_MATCH_METADATA {
+                CLI_MATCH_CHAR => {
+                    if run.is_empty() {
+                        run_off = bytes;
+                    }
+                    run.push((inst & 0xff) as u8);
+                    bytes += 1;
+                    continue;
+                }
+                CLI_MATCH_SPECIAL => {
+                    let Some(w) = self.specials.get(sidx)?.fixed_width() else {
+                        consider_anchor(run_off, &run, &mut best, weight);
+                        break; // variable width — no constant offset past here
+                    };
+                    bytes += w;
+                    sidx += 1;
+                }
+                _ => bytes += 1, // wildcard / nibble — breaks the run, one fixed byte
+            }
+            // Any non-CHAR element ends the current run.
+            consider_anchor(run_off, &run, &mut best, weight);
+            run.clear();
+        }
+        consider_anchor(run_off, &run, &mut best, weight);
+        best.map(|(_, off, needle)| (off, needle))
+    }
+
+    /// The constant byte distance from the pattern start to its best literal (the
+    /// run the prefilter indexes as this pattern's atom), or `None` when a
+    /// variable-width element (open gap / unequal-length alternation) precedes it,
+    /// so the distance isn't constant and prefilter hints can't be aligned.
+    fn literal_byte_prefix(&self) -> Option<usize> {
+        let (lit_off, _) = self.best_literal()?;
+        let mut bytes = 0usize;
+        let mut sidx = 0usize;
+        for i in 0..lit_off {
+            let inst = self.instructions.get_u16(i);
+            if (inst & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
+                bytes += self.specials.get(sidx)?.fixed_width()?;
+                sidx += 1;
+            } else {
+                bytes += 1;
+            }
+        }
+        Some(bytes)
+    }
+
+    /// Full-scan verification anchored on a required fixed `needle` that always
+    /// sits exactly `byte_prefix` bytes into any match: find every (overlapping)
+    /// occurrence of the needle with a SIMD search, then run `match_at` at
+    /// `occurrence - byte_prefix`. Equivalent result to the naive every-position
+    /// loop but only probes positions where the needle actually appears. The
+    /// caller guarantees the byte distance to the needle is constant (no
+    /// variable-width element precedes it), so the anchoring is exact.
+    fn find_all_anchored(
+        &self,
+        data: &[u8],
+        ranges: &[(usize, usize)],
+        min_len: usize,
+        limit: usize,
+        byte_prefix: usize,
+        needle: &[u8],
+    ) -> Vec<MatchRange> {
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        let lit_len = needle.len();
+        let literal = needle;
+        // Shared per-signature backtracking budget (see `find_all`).
+        let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
+        let mut out = Vec::new();
+        let mut last_start: Option<usize> = None;
+        for &(start, end) in ranges {
+            let start = start.min(data.len());
+            let end = end.min(data.len());
+            if start > end {
+                continue;
+            }
+            // Valid match-start positions are [start, max_pos], identical to the
+            // naive loop's bound. (For absolute/EOF offset specs the range bounds
+            // the *start*, while the match itself may read past `end`.)
+            let max_pos = end.saturating_sub(min_len).max(start);
+            // The literal of a match starting at `pos` sits at
+            // [pos + byte_prefix, pos + byte_prefix + lit_len). Search exactly the band of
+            // data that can hold the literal for some valid start, so a match whose
+            // literal lies past `end` (absolute/EOF specs) is still found.
+            let lo = (start + byte_prefix).min(data.len());
+            let hi = max_pos.saturating_add(byte_prefix).saturating_add(lit_len).min(data.len());
+            if lo >= hi {
+                continue;
+            }
+            let window = &data[lo..hi];
+            // Overlapping occurrences: advance by one byte after each hit. A
+            // literal can self-overlap (e.g. "AA" in "AAA"), so the non-overlapping
+            // `find_iter` would skip a valid anchor; stepping by 1 keeps every one.
+            let mut from = 0usize;
+            while from < window.len() {
+                let Some(rel) = memchr::memmem::find(&window[from..], literal) else {
+                    break;
+                };
+                let occ = lo + from + rel;
+                from += rel + 1;
+                let Some(pos) = occ.checked_sub(byte_prefix) else {
+                    continue;
+                };
+                if pos < start || pos > max_pos || last_start == Some(pos) {
+                    continue;
+                }
+                last_start = Some(pos);
+                if fuel.get() == 0 {
+                    return out;
+                }
+                if let Some(match_end) = self.match_rec(data, pos, 0, 0, &fuel) {
+                    if self.fullword && !is_fullword(data, pos, match_end) {
+                        continue;
+                    }
+                    out.push(MatchRange {
+                        start: pos,
+                        end: match_end,
+                    });
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Find all matches using prefilter hints (positions of a required literal).
     /// Respects `ranges` to enforce offset spec restrictions.
     pub fn find_all_at(
@@ -393,14 +606,24 @@ impl Pattern {
         if limit == 0 || hints.is_empty() || self.instructions.is_empty() {
             return Vec::new();
         }
-        // Offset-threading anchors on `occurrence - byte_prefix`. With specials
-        // before the literal the byte distance can vary, so anchoring could miss
-        // matches — fall back to a full (correct) scan when specials are present.
-        if !self.specials.is_empty() {
-            return self.find_all(data, ranges, limit);
-        }
-
-        let prefix = self.best_literal().map(|(off, _)| off).unwrap_or(0);
+        // Each hint is an occurrence of this pattern's prefilter atom (its best
+        // literal); a match anchors at `occurrence - prefix`, where `prefix` is the
+        // constant byte distance from the pattern start to that literal. `match_at`
+        // then verifies the whole pattern, including any *trailing* gaps/alternations
+        // — so specials no longer force a full re-scan, only a variable-width gap
+        // *before* the literal does (then the distance isn't constant and the hints
+        // can't be aligned, so fall back to a correct full scan).
+        let prefix = if self.specials.is_empty() {
+            // No specials: instruction index == byte offset.
+            self.best_literal().map(|(off, _)| off).unwrap_or(0)
+        } else {
+            match self.literal_byte_prefix() {
+                Some(p) => p,
+                None => return self.find_all(data, ranges, limit),
+            }
+        };
+        // Shared per-signature backtracking budget (see `find_all`).
+        let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
         let mut out = Vec::new();
         let mut last_start = None;
 
@@ -413,7 +636,10 @@ impl Pattern {
                 continue;
             }
             last_start = Some(start);
-            if let Some(match_end) = self.match_at(data, start) {
+            if fuel.get() == 0 {
+                return out;
+            }
+            if let Some(match_end) = self.match_rec(data, start, 0, 0, &fuel) {
                 if self.fullword && !is_fullword(data, start, match_end) {
                     continue;
                 }
@@ -439,13 +665,36 @@ impl Pattern {
     /// Try to match the pattern at a specific position in data.
     /// Returns the end position (exclusive) on success, or None.
     pub fn match_at(&self, data: &[u8], start: usize) -> Option<usize> {
-        self.match_rec(data, start, 0, 0)
+        // Bound the backtracking work for one match attempt. A pattern with
+        // several unbounded gaps (`a*b*c…`) can otherwise backtrack
+        // multiplicatively — each gap re-scans the buffer for every position the
+        // next gap tried — turning one `match_at` into minutes on a large file.
+        // ClamAV sidesteps this by splitting on gaps and matching parts via its
+        // automaton; here we keep the inline matcher but cap its steps. The budget
+        // is far above any legitimate match, so a real detection always completes;
+        // only pathological backtracking is cut (returning "no match" at this one
+        // position, exactly as the position-by-position scan would eventually).
+        let fuel = std::cell::Cell::new(MATCH_FUEL_BUDGET);
+        self.match_rec(data, start, 0, 0, &fuel)
     }
 
     /// Recursive matcher: `dpos` = data position, `ipos` = instruction index,
     /// `sidx` = next special-table index. Recursion only branches for
     /// variable-width `AltStr` alternations; everything else advances linearly.
-    fn match_rec(&self, data: &[u8], mut dpos: usize, mut ipos: usize, mut sidx: usize) -> Option<usize> {
+    /// `fuel` bounds total recursion steps for one `match_at` (see there).
+    fn match_rec(
+        &self,
+        data: &[u8],
+        mut dpos: usize,
+        mut ipos: usize,
+        mut sidx: usize,
+        fuel: &std::cell::Cell<u64>,
+    ) -> Option<usize> {
+        let remaining = fuel.get();
+        if remaining == 0 {
+            return None; // budget exhausted — abort this backtracking branch
+        }
+        fuel.set(remaining - 1);
         let pat = &self.instructions;
         let pat_len = pat.len();
         while ipos < pat_len {
@@ -487,21 +736,45 @@ impl Pattern {
                             return None;
                         }
                         let hi = (*max).min(data.len() - dpos);
-                        // Fast path: a gap immediately followed by a fixed byte —
-                        // jump to each occurrence of that byte in [min, max] with
-                        // memchr instead of trying every gap width.
-                        if ipos + 1 < pat_len {
-                            let next = pat.get_u16(ipos + 1);
-                            if (next & CLI_MATCH_METADATA) == CLI_MATCH_CHAR && !data.is_empty() {
-                                let target = (next & 0xff) as u8;
+                        // Fast path: a gap immediately followed by one or more fixed
+                        // bytes — jump to each occurrence of that whole literal *run*
+                        // (not just its first byte) with a SIMD search, instead of
+                        // trying every gap width. Using the full run as the needle is
+                        // far more selective than a single byte; that selectivity is
+                        // what stops a gappy pattern (`…{gap}/link.html`) from probing
+                        // thousands of false positions per gap and blowing up.
+                        if ipos + 1 < pat_len && !data.is_empty() {
+                            let mut run: Vec<u8> = Vec::new();
+                            let mut j = ipos + 1;
+                            while j < pat_len && run.len() < 64 {
+                                let e = pat.get_u16(j);
+                                if (e & CLI_MATCH_METADATA) == CLI_MATCH_CHAR {
+                                    run.push((e & 0xff) as u8);
+                                    j += 1;
+                                } else {
+                                    break;
+                                }
+                            }
+                            if !run.is_empty() {
                                 let lo = dpos + *min;
-                                let hiabs = (dpos + hi).min(data.len() - 1);
+                                // The run must START in the gap window and fully fit.
+                                let last_start =
+                                    (dpos + hi).min(data.len().saturating_sub(run.len()));
+                                if lo > last_start {
+                                    return None;
+                                }
+                                let win_end = last_start + run.len();
                                 let mut search = lo;
-                                while search <= hiabs {
-                                    match memchr::memchr(target, &data[search..=hiabs]) {
+                                while search <= last_start {
+                                    if fuel.get() == 0 {
+                                        return None;
+                                    }
+                                    match memchr::memmem::find(&data[search..win_end], &run) {
                                         Some(rel) => {
                                             let p = search + rel;
-                                            if let Some(end) = self.match_rec(data, p, ipos + 1, sidx + 1) {
+                                            if let Some(end) =
+                                                self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
+                                            {
                                                 return Some(end);
                                             }
                                             search = p + 1;
@@ -514,7 +787,11 @@ impl Pattern {
                         }
                         // General path: try each width, recurse for the remainder.
                         for w in *min..=hi {
-                            if let Some(end) = self.match_rec(data, dpos + w, ipos + 1, sidx + 1) {
+                            if fuel.get() == 0 {
+                                return None;
+                            }
+                            if let Some(end) = self.match_rec(data, dpos + w, ipos + 1, sidx + 1, fuel)
+                            {
                                 return Some(end);
                             }
                         }
@@ -549,7 +826,9 @@ impl Pattern {
                                         .enumerate()
                                         .all(|(k, &bi)| match_byte(bi, data[dpos + k]))
                                 {
-                                    if let Some(end) = self.match_rec(data, dpos + blen, ipos + 1, sidx + 1) {
+                                    if let Some(end) =
+                                        self.match_rec(data, dpos + blen, ipos + 1, sidx + 1, fuel)
+                                    {
                                         return Some(end);
                                     }
                                 }
@@ -972,6 +1251,23 @@ fn expand_wildcards(raw: &str) -> String {
 }
 
 // ── Utility functions ─────────────────────────────────────────────────────
+
+/// Score a candidate anchor run (`best_anchor`) by summed per-byte rarity and
+/// keep it if it beats the current best. A run starting at byte offset `off`.
+fn consider_anchor(
+    off: usize,
+    run: &[u8],
+    best: &mut Option<(u32, usize, Vec<u8>)>,
+    weight: fn(u8) -> u32,
+) {
+    if run.is_empty() {
+        return;
+    }
+    let score: u32 = run.iter().map(|&b| weight(b)).sum();
+    if best.as_ref().is_none_or(|(bs, _, _)| score > *bs) {
+        *best = Some((score, off, run.to_vec()));
+    }
+}
 
 fn is_fullword(data: &[u8], start: usize, end: usize) -> bool {
     let before = start

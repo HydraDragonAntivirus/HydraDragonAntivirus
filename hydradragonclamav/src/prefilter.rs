@@ -378,8 +378,51 @@ impl AtomPrefilter {
                 }
             }
 
-            match best_index {
-                Some((_, idx, atoms)) => {
+            // OR-type fallback: no single subsig is *required* (e.g. `0|1|2`), so
+            // nothing can gate the expression. But if EVERY subsignature is an
+            // indexable body (all variants have a usable atom and an evaluable
+            // offset), index them ALL: the signature then becomes a candidate only
+            // when one of its branch atoms appears, instead of being evaluated on
+            // every buffer (`log_always`). This is the dominant cost on logical-
+            // heavy databases — thousands of OR signatures otherwise run on every
+            // scan. Safe because the expression is false when all subsigs are absent
+            // (checked above), so if no indexed atom occurs it provably can't match.
+            // No single gate offset applies (the hit may be any branch), so these
+            // carry the cutoff-only `best_gate` if any, never a threadable gate.
+            let or_atoms: Option<Vec<Atom>> = if best_index.is_none() {
+                let mut acc: Vec<Atom> = Vec::new();
+                let mut all = true;
+                for i in 0..n {
+                    let Subsignature::Body { offset, patterns } = &sig.subsignatures[i] else {
+                        all = false;
+                        break;
+                    };
+                    let default_offset = OffsetSpec::any();
+                    let offset = offset.as_deref().unwrap_or(&default_offset);
+                    if patterns.is_empty() || !evaluable_offset(&offset.anchor) {
+                        all = false;
+                        break;
+                    }
+                    for p in patterns {
+                        match pattern_atom(p) {
+                            Some(a) => acc.push(a),
+                            None => {
+                                all = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !all {
+                        break;
+                    }
+                }
+                (all && !acc.is_empty()).then_some(acc)
+            } else {
+                None
+            };
+
+            match (best_index, or_atoms) {
+                (Some((_, idx, atoms)), _) => {
                     for a in atoms {
                         match a {
                             Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si))),
@@ -393,7 +436,22 @@ impl AtomPrefilter {
                         threadable: true,
                     }));
                 }
-                None => {
+                (None, Some(atoms)) => {
+                    for a in atoms {
+                        match a {
+                            Atom::Exact(a) => entries.push((short_atom(&a).into(), log_ref(si))),
+                            Atom::Nocase(a) => {
+                                entries_nocase.push((short_atom(&a).into(), log_ref(si)))
+                            }
+                        }
+                    }
+                    // Indexed as an OR candidate set — NOT always-scanned.
+                    log_gates.push(best_gate.map(|(_, idx)| GateInfo {
+                        subsig: idx as u32,
+                        threadable: false,
+                    }));
+                }
+                (None, None) => {
                     log_always.push(si as u32);
                     log_gates.push(best_gate.map(|(_, idx)| GateInfo {
                         subsig: idx as u32,
