@@ -721,10 +721,19 @@ impl Pattern {
                 if self.fullword && !is_fullword(data, start, match_end) {
                     continue;
                 }
-                let pat_len = self.instructions.len();
+                // In-range predicate IDENTICAL to `find_all`'s `max_pos`: a match
+                // start is valid in `[rs, max(rs, re - min_len)]`. The previous code
+                // used the instruction COUNT (`instructions.len()`) as if it were
+                // the match byte-width and did NOT clamp to `rs`, so when
+                // `re - count < rs` it rejected a real match starting at `rs` — a
+                // false negative vs `find_all` (caught by differential fuzzing,
+                // e.g. pattern `DD9B53?F` on range `[15,18)`). `min_match_len`
+                // (specials counted at their min width) matches what `find_all`
+                // uses, keeping the two paths consistent.
+                let min_len = self.min_match_len().max(1);
                 if !ranges.iter().any(|&(rs, re)| {
-                    let max_start = re.saturating_sub(pat_len);
-                    start >= rs && start <= max_start
+                    let max_pos = re.saturating_sub(min_len).max(rs);
+                    start >= rs && start <= max_pos
                 }) {
                     continue;
                 }

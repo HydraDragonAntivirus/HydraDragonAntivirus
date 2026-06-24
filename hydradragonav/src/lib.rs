@@ -1,6 +1,7 @@
 #![cfg(windows)]
 
 pub mod bloom_filter;
+pub mod boot_scanner;
 pub mod disinfector;
 pub mod hash_scanner;
 pub mod memory_scanner;
@@ -12,6 +13,7 @@ pub mod fix_registry;
 pub mod registry_scanner;
 pub mod remediation;
 pub mod settings;
+pub mod startup_scanner;
 pub mod takeown;
 pub mod restart_disinfect;
 pub mod scanner;

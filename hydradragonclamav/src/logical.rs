@@ -490,6 +490,31 @@ impl LogicalExpr {
         self.feasible_at(self.nodes.len() - 1, counts, evaluated)
     }
 
+    /// True when the expression's truth is NOT monotone non-decreasing in the
+    /// subsignature counts — i.e. it contains a `Compare` whose count operator is
+    /// `Equal`, `Less`, or `LessEqual` (these become *false* as a count grows;
+    /// `Greater`/`GreaterEqual` and bare `Subsig`/`And`/`Or` are all monotone).
+    ///
+    /// The prefilter's required-subsig probe (and the gate cutoff it feeds) assume
+    /// monotonicity: it tests "is subsig `i` required?" by maxing every *other*
+    /// subsig's count and checking the expression goes false. That extremal probe
+    /// is only sound for monotone expressions — for an `=N`/`<N` sibling a huge
+    /// count makes the branch falsely unsatisfiable, wrongly flagging `i` as
+    /// required and dropping the candidate. Callers must skip single-subsig gating
+    /// when this returns true (mirrors the caution `can_still_match` already takes,
+    /// which never prunes through a `Compare`).
+    pub fn has_nonmonotone_compare(&self) -> bool {
+        self.nodes.iter().any(|n| {
+            matches!(
+                n,
+                ExprNode::Compare {
+                    op: CompareOp::Equal | CompareOp::Less | CompareOp::LessEqual,
+                    ..
+                }
+            )
+        })
+    }
+
     fn feasible_at(&self, idx: usize, counts: &[usize], evaluated: &[bool]) -> bool {
         match self.nodes[idx] {
             ExprNode::Subsig(index) => {

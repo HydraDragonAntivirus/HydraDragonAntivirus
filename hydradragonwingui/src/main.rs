@@ -21,11 +21,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use hydradragonav::disinfector::{self, DisinfectOutcome};
+use hydradragonav::boot_scanner;
 use hydradragonav::memory_scanner;
 use hydradragonav::pipeline::{scan_hayabusa_once, Pipeline, PipelineConfig};
 use hydradragonav::quarantine::Quarantine;
 use hydradragonav::registry_scanner::{RegistryEntry, RegistryScanner};
 use hydradragonav::remediation;
+use hydradragonav::startup_scanner;
 
 use windows::core::{w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{COLORREF, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -354,6 +356,7 @@ const CAT_SIGMA: u8 = 0x04;
 const CAT_SYS_MEMORY: u8 = 0x08;
 const CAT_STARTUP: u8 = 0x10;
 const CAT_BOOT: u8 = 0x20;
+const CAT_PUM: u8 = 0x40;
 
 enum WorkRequest {
     /// Full scan: files + optional registry/memory/sigma (controlled by `cats`).
@@ -444,8 +447,8 @@ struct AppState {
     scan_option_mode: bool,
     /// Current category selection in option panel
     opt_cats: u8,
-    /// Hit rects for the 6 checkbox rows stored during layout
-    opt_check_rects: [RECT; 6],
+    /// Hit rects for the 7 checkbox rows stored during layout
+    opt_check_rects: [RECT; 7],
     /// "Add object…" button rect in the option panel
     opt_add_rect: RECT,
     /// OK / Cancel rects at the bottom of the option panel
@@ -781,7 +784,7 @@ unsafe fn on_create(hwnd: HWND) {
         scan_threat: Vec::new(),
         scan_option_mode: false,
         opt_cats: 0,
-        opt_check_rects: [RECT::default(); 6],
+        opt_check_rects: [RECT::default(); 7],
         opt_add_rect: RECT::default(),
         opt_ok_rect: RECT::default(),
         opt_cancel_rect: RECT::default(),
@@ -982,7 +985,7 @@ unsafe fn layout(hwnd: HWND) {
         }
     }
 
-    // In scan-option mode, compute all 6 checkbox hit-rects and the "Add object"
+    // In scan-option mode, compute all 7 checkbox hit-rects and the "Add object"
     // button rect here so hit-testing is always in sync with the window geometry.
     if s.page == 0 && s.scan_option_mode {
         let card_top = HEADER_H + PAD;
@@ -998,7 +1001,7 @@ unsafe fn layout(hwnd: HWND) {
             bottom: card_top + pad + add_row_h,
         };
         let mut oy = s.opt_add_rect.bottom + sep_h + 6;
-        for i in 0..6usize {
+        for i in 0..7usize {
             s.opt_check_rects[i] = RECT {
                 left: content_l + pad,
                 top: oy,
@@ -1213,13 +1216,14 @@ unsafe fn paint(hwnd: HWND) {
             );
 
             // ── Checkbox tree ──────────────────────────────────────────────────
-            // 6 scan targets: first 3 are top-level, last 3 sub-level (indented).
-            // Bits: SYS_MEMORY, STARTUP, BOOT, then REGISTRY (PUM), MEMORY (proc), SIGMA.
-            let opts: [(&'static str, u8, bool); 6] = [
+            // 7 scan targets: first 3 are top-level, last 4 sub-level (indented).
+            // Bits: SYS_MEMORY, STARTUP, BOOT, then REGISTRY, PUM, MEMORY (proc), SIGMA.
+            let opts: [(&'static str, u8, bool); 7] = [
                 ("System memory",                          CAT_SYS_MEMORY, false),
                 ("Startup objects",                        CAT_STARTUP,    false),
                 ("Boot sectors",                           CAT_BOOT,       false),
-                ("Registry (PUM detection)",               CAT_REGISTRY,   true),
+                ("Registry",                               CAT_REGISTRY,   true),
+                ("PUM detection",                          CAT_PUM,        true),
                 ("Process memory",                         CAT_MEMORY,     true),
                 ("Event logs (Sigma / Hayabusa)",          CAT_SIGMA,      true),
             ];
@@ -1942,7 +1946,7 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
     let Some(s) = state(hwnd) else { return };
     // Checkboxes in scan option mode
     if s.scan_option_mode && s.page == 0 {
-        let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_MEMORY, CAT_SIGMA];
+        let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_PUM, CAT_MEMORY, CAT_SIGMA];
         for (i, bit) in bits.iter().enumerate() {
             if pt_in(&s.opt_check_rects[i], x, y) {
                 s.opt_cats ^= bit; // toggle
@@ -1974,7 +1978,7 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_CUSTOM_SCAN => {
             s.scan_option_mode = true;
             // Default: all scan targets on.
-            s.opt_cats = CAT_SYS_MEMORY | CAT_STARTUP | CAT_BOOT | CAT_REGISTRY | CAT_MEMORY | CAT_SIGMA;
+            s.opt_cats = CAT_SYS_MEMORY | CAT_STARTUP | CAT_BOOT | CAT_REGISTRY | CAT_PUM | CAT_MEMORY | CAT_SIGMA;
             // Hide the results list so it does not overlap the option panel.
             let _ = ShowWindow(s.scan_list, SW_HIDE);
             layout(hwnd);
@@ -3095,9 +3099,10 @@ fn worker(
 }
 
 /// Drive a scan session: the streaming parallel file phase, then (if completed
-/// and this is a Full Scan) the registry / event-log / memory phases. Sends
-/// `Paused` if stopped, otherwise `Done`. Returns true when the whole session is
-/// finished (so the caller can drop it). Resets the cancel flag on entry.
+/// and this is a Full Scan) the registry / PUM / event-log / memory / startup /
+/// boot-sector phases. Sends `Paused` if stopped, otherwise `Done`. Returns true
+/// when the whole session is finished (so the caller can drop it). Resets the
+/// cancel flag on entry.
 fn run_session(
     pl: &Pipeline,
     sess: &mut ScanSession,
@@ -3109,14 +3114,12 @@ fn run_session(
     cancel.store(false, Ordering::Relaxed);
     abort.store(false, Ordering::Relaxed);
     let completed = run_streaming(pl, sess, cancel, tx, hwnd);
-    pl.save_result_caches(); // persist learned good/bad results either way
+    pl.save_result_caches();
 
     if !completed {
-        // Interrupted: Stop (abort) discards the session and returns home;
-        // Pause keeps the remaining queue so it can be resumed.
         if abort.load(Ordering::Relaxed) {
             send(tx, hwnd, ScanMsg::Stopped);
-            return true; // drop the session — no resume
+            return true;
         }
         send(tx, hwnd, ScanMsg::Paused {
             scanned: sess.scanned,
@@ -3127,33 +3130,56 @@ fn run_session(
     }
 
     if sess.cats == 0 {
-        // No registry/memory/sigma selected → done after file scan
         send(tx, hwnd, ScanMsg::Done { scanned: sess.scanned, threats: sess.threats });
         return true;
     }
 
-    // Run selected extra phases.
-    let mut reg_threats = 0usize;
-    let mut log_hits = 0usize;
-    let mut mem_hits = 0usize;
+    let mut extra_threats = 0usize;
+    let mut phase_labels: Vec<String> = Vec::new();
 
+    // ── Registry scan (persistence + PUA entries) ──────────────────────────
     if sess.cats & CAT_REGISTRY != 0 {
         send(tx, hwnd, ScanMsg::Status("Custom scan: registry…".into()));
-        let reg = RegistryScanner::default().scan();
+        let reg = load_registry_scanner().scan();
+        let mut phase_count = 0usize;
         for e in &reg.entries {
-            if e.pua_match || e.static_match {
+            if (e.pua_match || e.static_match) && !e.pum {
                 send(tx, hwnd, ScanMsg::Row {
                     file: format!("{}\\{}\\{}", e.hive, e.path, e.value_name),
                     verdict: "Registry".into(),
                     threat: e.threat_name.clone().unwrap_or_else(|| e.detail.clone()),
                     sev: if e.static_match { 80 } else { 35 },
                 });
+                phase_count += 1;
             }
         }
-        reg_threats = reg.threats_found as usize;
+        extra_threats += phase_count;
+        phase_labels.push(format!("registry {} threat(s)", phase_count));
     }
 
+    // ── PUM detection (PUM paths + file PUM rules) ────────────────────────
+    if sess.cats & CAT_PUM != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: PUM detection…".into()));
+        let reg = load_registry_scanner().scan();
+        let mut phase_count = 0usize;
+        for e in &reg.entries {
+            if e.pum {
+                send(tx, hwnd, ScanMsg::Row {
+                    file: format!("{}\\{}\\{}", e.hive, e.path, e.value_name),
+                    verdict: "PUM".into(),
+                    threat: e.threat_name.clone().unwrap_or_else(|| e.detail.clone()),
+                    sev: if e.static_match { 80 } else { 50 },
+                });
+                phase_count += 1;
+            }
+        }
+        extra_threats += phase_count;
+        phase_labels.push(format!("PUM {} detection(s)", phase_count));
+    }
+
+    // ── Event logs (Sigma / Hayabusa) ──────────────────────────────────────
     if sess.cats & CAT_SIGMA != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: event logs…".into()));
         let logs = scan_hayabusa_once(&exe_dir().join("hayabusa"));
         for m in &logs {
             send(tx, hwnd, ScanMsg::Row {
@@ -3163,10 +3189,13 @@ fn run_session(
                 sev: m.severity,
             });
         }
-        log_hits = logs.len();
+        extra_threats += logs.len();
+        phase_labels.push(format!("logs {} alert(s)", logs.len()));
     }
 
+    // ── Process memory scan ────────────────────────────────────────────────
     if sess.cats & CAT_MEMORY != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: process memory…".into()));
         let mem = memory_scanner::scan_process_memory(pl);
         for d in &mem {
             let prio = d.verdict.priority();
@@ -3182,16 +3211,85 @@ fn run_session(
                 },
             });
         }
-        mem_hits = mem.len();
+        extra_threats += mem.len();
+        phase_labels.push(format!("memory {} hit(s)", mem.len()));
     }
 
-    let total = sess.threats + reg_threats + log_hits + mem_hits;
+    // ── System memory scan ─────────────────────────────────────────────────
+    if sess.cats & CAT_SYS_MEMORY != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: system memory…".into()));
+        let mem = memory_scanner::scan_process_memory(pl);
+        for d in &mem {
+            let prio = d.verdict.priority();
+            send(tx, hwnd, ScanMsg::Row {
+                file: format!("{} (pid {}) @ 0x{:x}", d.process, d.pid, d.address),
+                verdict: "SystemMemory".into(),
+                threat: d.threat_name.clone(),
+                sev: match prio {
+                    2 => 30,
+                    3 => 50,
+                    4 => 75,
+                    _ => 100,
+                },
+            });
+        }
+        extra_threats += mem.len();
+        phase_labels.push(format!("sys_mem {} hit(s)", mem.len()));
+    }
+
+    // ── Startup objects scan ───────────────────────────────────────────────
+    if sess.cats & CAT_STARTUP != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: startup objects…".into()));
+        let startup = startup_scanner::scan_startup_objects();
+        for d in &startup {
+            send(tx, hwnd, ScanMsg::Row {
+                file: format!("{} :: {}", d.source, d.name),
+                verdict: "Startup".into(),
+                threat: d.command.clone(),
+                sev: 25,
+            });
+        }
+        extra_threats += startup.len();
+        phase_labels.push(format!("startup {} object(s)", startup.len()));
+    }
+
+    // ── Boot sectors scan ──────────────────────────────────────────────────
+    if sess.cats & CAT_BOOT != 0 {
+        send(tx, hwnd, ScanMsg::Status("Custom scan: boot sectors…".into()));
+        let boot = boot_scanner::scan_boot_sectors();
+        for d in &boot {
+            send(tx, hwnd, ScanMsg::Row {
+                file: format!("{} [{}]", d.device, d.sector_type),
+                verdict: "BootSector".into(),
+                threat: d.details.clone(),
+                sev: 15,
+            });
+        }
+        extra_threats += boot.len();
+        phase_labels.push(format!("boot {} sector(s)", boot.len()));
+    }
+
+    let total = sess.threats + extra_threats;
     send(tx, hwnd, ScanMsg::Done { scanned: sess.scanned, threats: total });
     send(tx, hwnd, ScanMsg::Status(format!(
-        "Scan done. Files {}, registry {} threat(s), logs {} alert(s), memory {} hit(s).",
-        sess.threats, reg_threats, log_hits, mem_hits
+        "Scan done. Files {}, {}.",
+        sess.threats,
+        phase_labels.join(", ")
     )));
     true
+}
+
+/// Create a RegistryScanner that loads the PUA list and hydradragonsig rules
+/// if they are available next to the executable.
+fn load_registry_scanner() -> RegistryScanner {
+    let dir = exe_dir();
+    let reglist = dir.join("reglist.txt");
+    let rules_dir = dir.join("hydradragonsig_rules").filter(|p| p.exists());
+    if reglist.exists() {
+        RegistryScanner::load(&reglist, rules_dir.as_deref())
+    } else {
+        RegistryScanner::default()
+    }
 }
 
 /// Streaming, parallel file-scan phase. One producer thread walks the directory

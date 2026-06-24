@@ -327,7 +327,15 @@ impl AtomPrefilter {
             // the early cutoff still applies (no offsets to thread).
             let mut best_gate: Option<(usize, usize)> = None; // (exact_atom_len, idx)
 
-            for i in 0..n {
+            // The required-subsig probe below maxes sibling counts, which is only
+            // sound for a monotone expression. With a non-monotone Compare (`=N`,
+            // `<N`, `<=N`) the probe can wrongly flag a subsig as required and drop
+            // the candidate (false negative). For such signatures we skip
+            // single-subsig gating entirely and fall through to the OR-index-all /
+            // `log_always` path (which only relies on the all-absent check above).
+            let monotone = !sig.expression.has_nonmonotone_compare();
+
+            for i in 0..(if monotone { n } else { 0 }) {
                 let Subsignature::Body { offset, patterns } = &sig.subsignatures[i] else {
                     continue;
                 };
@@ -678,7 +686,9 @@ pub fn db_cache_key(dir: &std::path::Path) -> u64 {
     use std::hash::{Hash, Hasher};
     // v2: best-literal atom selection switched from longest run to most-selective
     // run (penalises all-zero/all-ff/repeated runs), changing the indexed atoms.
-    const VERSION: u64 = 2;
+    // v3: non-monotone-Compare logical sigs no longer single-subsig-gated (they
+    // index all branch atoms / fall to log_always), changing the indexed atoms.
+    const VERSION: u64 = 3;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     VERSION.hash(&mut h);
     if let Ok(rd) = std::fs::read_dir(dir) {

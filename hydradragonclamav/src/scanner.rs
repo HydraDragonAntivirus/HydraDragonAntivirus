@@ -1830,6 +1830,40 @@ mod tests {
     }
 
     #[test]
+    fn compare_sibling_does_not_drop_logical_candidate() {
+        // `(0=2)|1` matches if subsig 0 occurs exactly twice OR subsig 1 is
+        // present. The prefilter's required-subsig probe must NOT wrongly gate this
+        // on subsig 1: setting siblings to a huge count makes `0=2` falsely false,
+        // which previously flagged subsig 1 as "required" and dropped the candidate
+        // when the match came via `0=2` with subsig 1 absent. Regression for a
+        // false negative found by adversarial audit.
+        let (engine, w) = engine_with_logical("Test.Cmp;Target:0;(0=2)|1;4142;5859");
+        assert!(w.is_empty());
+        // subsig 0 ("AB") twice, subsig 1 ("XY") absent → `0=2` true → must match.
+        let found = engine.scan_bytes(b"AB__AB__", ScanOptions::default());
+        assert!(
+            found.iter().any(|m| m.name == "Test.Cmp"),
+            "false negative: (0=2) match dropped by prefilter gate selection"
+        );
+    }
+
+    #[test]
+    fn less_than_sibling_does_not_drop_logical_candidate() {
+        // `(0|1)&(2<3)`: matches when (0 or 1 present) AND subsig 2 occurs < 3
+        // times. A non-zero-but-small subsig-2 count satisfies `2<3`, which the
+        // max-sibling probe (count = 1<<30) wrongly judges unsatisfiable.
+        let (engine, w) =
+            engine_with_logical("Test.Lt;Target:0;(0|1)&(2<3);4142;5859;4344");
+        assert!(w.is_empty());
+        // subsig 1 ("XY") present, subsig 0 absent, subsig 2 ("CD") twice (<3) → match.
+        let found = engine.scan_bytes(b"XY__CD__CD", ScanOptions::default());
+        assert!(
+            found.iter().any(|m| m.name == "Test.Lt"),
+            "false negative: (2<3) match dropped by prefilter gate selection"
+        );
+    }
+
+    #[test]
     fn tdb_container_gates_match() {
         // Sig requires the object to live inside a ZIP container. Body = "MALWARE".
         let (engine, w) =
