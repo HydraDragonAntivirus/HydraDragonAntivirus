@@ -2,6 +2,7 @@ pub mod bytecode;
 pub mod bytecode_vm;
 pub mod cert;
 pub mod database;
+pub mod filtering;
 pub mod fuzzy;
 pub mod icon;
 pub mod icon_match;
