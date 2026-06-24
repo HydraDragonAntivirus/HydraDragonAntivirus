@@ -425,9 +425,6 @@ struct AppState {
     /// Total duration of the last completed scan (set on `Done`), shown in the
     /// status bar and exported in the report.
     scan_elapsed: Option<Duration>,
-    /// Previous CPU time sample for live CPU% display (Cell for interior mutability)
-    prev_cpu_secs: std::cell::Cell<f64>,
-    prev_cpu_time: std::cell::Cell<Instant>,
     anim_frame: u32,
     anim_timer_active: bool,
     /// Button hover animation: (cmd, entering[true]/exiting[false], progress 0-5)
@@ -797,8 +794,6 @@ unsafe fn on_create(hwnd: HWND) {
         scan_discovering: false,
         scan_started_at: None,
         scan_elapsed: None,
-        prev_cpu_secs: std::cell::Cell::new(hydradragonav::metrics::process_cpu_secs()),
-        prev_cpu_time: std::cell::Cell::new(Instant::now()),
         anim_frame: 0,
         anim_timer_active: false,
         hover_anim: Vec::new(),
@@ -1508,14 +1503,7 @@ unsafe fn paint(hwnd: HWND) {
         let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
         fill(mem, &status, t.surface);
         fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, t.shadow);
-        text(mem, &s.status, &RECT { left: PAD, top: h - STATUS_H, right: w / 2, bottom: h }, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        // Live process RAM + CPU readout (right-aligned). Cheap psapi/GetProcessTimes
-        // calls; recomputed each repaint so it tracks engine loads/scans live.
-        let rss = hydradragonav::metrics::working_set_mb();
-        let peak = hydradragonav::metrics::peak_working_set_mb();
-        let cpu = hydradragonav::metrics::process_cpu_secs();
-        let metrics = format!("RAM {rss:.0} MB  (peak {peak:.0})   CPU {cpu:.0}s");
-        text(mem, &metrics, &RECT { left: w / 2, top: h - STATUS_H, right: w - PAD, bottom: h }, t.text2, s.fonts.status, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+        text(mem, &s.status, &RECT { left: PAD, top: h - STATUS_H, right: w - PAD, bottom: h }, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         let _ = BitBlt(hdc, 0, 0, w, h, Some(mem), 0, 0, SRCCOPY);
         SelectObject(mem, old);
         let _ = DeleteObject(bmp.into());
@@ -1614,32 +1602,10 @@ unsafe fn paint(hwnd: HWND) {
     let dot_cy = h - STATUS_H / 2;
     let sdot = RECT { left: PAD, top: dot_cy - 3, right: PAD + 6, bottom: dot_cy + 3 };
     fill_round(mem, sdot, 3, state_dot_c);
-    // CPU% and RAM on the right side of the status bar
-    let now = Instant::now();
-    let prev_cpu = s.prev_cpu_secs.get();
-    let prev_time = s.prev_cpu_time.get();
-    let dt = (now - prev_time).as_secs_f64().max(0.001);
-    let cpu_now = hydradragonav::metrics::process_cpu_secs();
-    let cpu_delta = (cpu_now - prev_cpu) / dt * 100.0;
-    let cpu_pct = (cpu_delta.clamp(0.0, 999.0) * 10.0).round() / 10.0;
-    let (_, peak_mb) = hydradragonav::metrics::process_mem();
-    let metrics_str = format!("CPU {cpu_pct:.1}%  RAM {} MB", peak_mb.round());
-    s.prev_cpu_secs.set(cpu_now);
-    s.prev_cpu_time.set(now);
-
-    let right_third = PAD + ((w as i32 - PAD * 2) * 2 / 3);
-    text(
-        mem,
-        &metrics_str,
-        &RECT { left: right_third, top: h - STATUS_H, right: w as i32 - PAD, bottom: h },
-        t.text,
-        s.fonts.status,
-        DT_RIGHT | DT_VCENTER | DT_SINGLELINE,
-    );
     text(
         mem,
         &s.status,
-        &RECT { left: PAD + 12, top: h - STATUS_H, right: right_third - PAD, bottom: h },
+        &RECT { left: PAD + 12, top: h - STATUS_H, right: w as i32 - PAD, bottom: h },
         t.text2,
         s.fonts.status,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
@@ -2747,6 +2713,16 @@ unsafe fn save_results(hwnd: HWND, s: &mut AppState) {
 /// re-verify a hit (e.g. after the file changed, or to rule out a false positive)
 /// without re-running the whole scan.
 unsafe fn rescan_selected(hwnd: HWND, s: &mut AppState) {
+    // Don't queue a rescan while a scan is still running or a Stop/Pause is in
+    // flight: the worker is busy aborting, and a rescan racing that window is what
+    // made the list go haywire (late detection rows landing after the rescan).
+    if matches!(s.scan_state, ScanState::Scanning)
+        || s.cancel.load(Ordering::Relaxed)
+        || s.abort.load(Ordering::Relaxed)
+    {
+        set_status(hwnd, s, "Wait for the current scan to stop, then rescan.");
+        return;
+    }
     let paths: Vec<PathBuf> = lv_selected(s.scan_list)
         .into_iter()
         .filter_map(|i| s.scan_rows.get(i as usize).cloned())
@@ -2974,6 +2950,12 @@ unsafe fn drain_results(hwnd: HWND) {
             }
             ScanMsg::Stopped => {
                 // Aborted scan: session was discarded; return to the home menu.
+                // The worker has acknowledged the stop, so clear the cancel/abort
+                // flags now — otherwise they linger true and a following action
+                // (e.g. Rescan, or a Progress tick still in the channel) is judged
+                // against a stale "stopped" state.
+                s.cancel.store(false, Ordering::Relaxed);
+                s.abort.store(false, Ordering::Relaxed);
                 s.scan_state = ScanState::Idle;
                 s.status = "Scan stopped.".into();
             }

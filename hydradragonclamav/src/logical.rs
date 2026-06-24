@@ -743,7 +743,25 @@ fn parse_subsignature(raw: &str) -> (Subsignature, Option<String>) {
 // ---------------------------------------------------------------------------
 
 fn looks_like_pcre(raw: &str) -> bool {
-    raw.contains('/')
+    // A PCRE subsig has the form `[offset:]trigger/pattern/flags`.
+    // Require at least two '/' characters (trigger, pattern, closing slash)
+    // and confirm the text before the first '/' contains only expression
+    // characters — not hex bytes or other body-pattern content. This prevents
+    // body subsignatures that happen to contain a '/' from being mis-routed
+    // into the (much more expensive) PCRE parse path.
+    let Some(first_slash) = raw.find('/') else {
+        return false;
+    };
+    // Must have a second slash after the first (non-empty pattern required).
+    if raw[first_slash + 1..].find('/').is_none() {
+        return false;
+    }
+    // The trigger prefix must contain only logical-expression characters.
+    // Hex body patterns contain [0-9a-fA-F] runs and '?' wildcards that are
+    // never valid in a trigger expression, so this rejects them cheaply.
+    raw[..first_slash]
+        .bytes()
+        .all(|b| matches!(b, b'0'..=b'9' | b'(' | b')' | b'&' | b'|' | b'>' | b'<' | b'=' | b' ' | b'\t'))
 }
 
 fn parse_pcre(raw: &str) -> Result<(LogicalExpr, LazyRegex, bool), String> {
