@@ -6,6 +6,10 @@
 
 use std::fmt;
 
+/// Profiling: number of full-scan calls that fell to the brute-force
+/// every-position path (no usable anchor). Read by the scanner's PROF dump.
+pub static PROF_BRUTE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 // ClamAV-compatible u16 instruction metadata bits (mirrors cli_ac_patt flags).
 pub const CLI_MATCH_CHAR: u16 = 0x0000;
 pub const CLI_MATCH_NOCASE: u16 = 0x0100;
@@ -388,6 +392,7 @@ impl Pattern {
         if let Some((prefix, needle)) = self.best_anchor() {
             return self.find_all_anchored(data, ranges, min_len, limit, prefix, &needle);
         }
+        crate::pattern::PROF_BRUTE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         // One fuel budget shared across every position probed for this signature on
         // this buffer (not reset per position), so a pattern that backtracks

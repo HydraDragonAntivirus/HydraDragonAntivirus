@@ -67,6 +67,16 @@ fn prof_enabled() -> bool {
     *P.get_or_init(|| std::env::var_os("HDA_PROF").is_some())
 }
 
+// Aggregate logical-scan profiling counters (ns + occurrence counts).
+pub static PROF_GATE_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_GATE_PASS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_BODY_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_BODY_SUBSIGS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_PHASE2_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_EXT_THREADED_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_EXT_FULL_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_EXT_FULL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SignatureKind {
     Extended,
@@ -444,6 +454,22 @@ impl Engine {
                 (t2 - t1).as_millis(),
                 (t3 - t2).as_millis(),
             );
+            use std::sync::atomic::Ordering::Relaxed;
+            eprintln!(
+                "[PROF2] gate={}ms (pass={}) body={}ms (subsigs={}) phase2={}ms",
+                PROF_GATE_NS.load(Relaxed) / 1_000_000,
+                PROF_GATE_PASS.load(Relaxed),
+                PROF_BODY_NS.load(Relaxed) / 1_000_000,
+                PROF_BODY_SUBSIGS.load(Relaxed),
+                PROF_PHASE2_NS.load(Relaxed) / 1_000_000,
+            );
+            eprintln!("[PROF3] brute_full_scans={}", crate::pattern::PROF_BRUTE.load(Relaxed));
+            eprintln!(
+                "[PROF4] ext_threaded={}ms ext_full={}ms (full_calls={})",
+                PROF_EXT_THREADED_NS.load(Relaxed) / 1_000_000,
+                PROF_EXT_FULL_NS.load(Relaxed) / 1_000_000,
+                PROF_EXT_FULL_COUNT.load(Relaxed),
+            );
             return;
         }
         let (ext_cands, log_cands) = self.prefilter.candidates(ctx.data);
@@ -621,6 +647,14 @@ impl Engine {
             }
         }
         if let Some(t) = prof {
+            use std::sync::atomic::Ordering::Relaxed;
+            let ns = t.elapsed().as_nanos() as u64;
+            if hints.is_some() {
+                PROF_EXT_THREADED_NS.fetch_add(ns, Relaxed);
+            } else {
+                PROF_EXT_FULL_NS.fetch_add(ns, Relaxed);
+                PROF_EXT_FULL_COUNT.fetch_add(1, Relaxed);
+            }
             let ms = t.elapsed().as_millis();
             if ms >= 20 {
                 eprintln!(
@@ -786,6 +820,10 @@ impl Engine {
         let mut last_offsets: Vec<Option<usize>> = vec![None; subsigs.len()];
         // Matched byte ranges per body subsignature, for disinfection.
         let mut body_arenas: Vec<Vec<(usize, usize)>> = vec![Vec::new(); subsigs.len()];
+        // Which subsignatures have a final count yet, for the phase-1 short-circuit
+        // (`LogicalExpr::can_still_match`): once an evaluated absent subsig makes
+        // the expression unsatisfiable, stop scanning the rest.
+        let mut evaluated: Vec<bool> = vec![false; subsigs.len()];
 
         // Early cutoff: evaluate the gating subsig first; if the gate is absent
         // the expression can't match, so skip every other subsig of this
@@ -825,12 +863,17 @@ impl Engine {
                             );
                         }
                     }
+                    if let Some(t) = prof {
+                        PROF_GATE_NS.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
                     if count == 0 {
                         return; // gate absent → signature cannot match
                     }
+                    PROF_GATE_PASS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     counts[gi] = count;
                     last_offsets[gi] = arenas.iter().map(|a| a.0).max();
                     body_arenas[gi] = arenas;
+                    evaluated[gi] = true;
                     gating_done = Some(gi);
                 }
             }
@@ -866,6 +909,7 @@ impl Engine {
                     continue;
                 }
                 // Non-gate subsigs have no threaded offsets → full scan.
+                let bprof = prof_enabled().then(std::time::Instant::now);
                 let (mut count, mut arenas) = body_matches(
                     patterns,
                     ctx.data,
@@ -873,6 +917,10 @@ impl Engine {
                     options.max_subsignature_matches,
                     None,
                 );
+                if let Some(t) = bprof {
+                    PROF_BODY_NS.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+                    PROF_BODY_SUBSIGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 if is_vinfo {
                     let vinfo = ctx.pe.as_ref().map(|p| p.vinfo.as_slice()).unwrap_or(&[]);
                     arenas.retain(|&(s, _)| vinfo.binary_search(&(s as u32)).is_ok());
@@ -881,6 +929,12 @@ impl Engine {
                 counts[i] = count;
                 last_offsets[i] = arenas.iter().map(|a| a.0).max();
                 body_arenas[i] = arenas;
+                evaluated[i] = true;
+                // Short-circuit: if this absent subsig already makes the signature
+                // unsatisfiable (a missing AND term), skip every remaining subsig.
+                if !signature.expression.can_still_match(&counts, &evaluated) {
+                    return;
+                }
             }
         }
 

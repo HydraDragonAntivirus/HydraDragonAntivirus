@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use fastbloom::AtomicBloomFilter;
 use md5::{Digest, Md5};
+use serde::Serialize;
 use hydradragonsig::models::FileTypeInfo;
 use hydradragonsig::rules::RuleSet;
 use yara_x::{MetaValue, Rules, Scanner as YaraScanner};
@@ -1272,7 +1273,15 @@ fn load_ml_model(
     Some(crate::ml::model::MalwareNet::new(&config, &device).load_record(record))
 }
 
-pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
+/// A single Hayabusa detection with identifying fields and mapped severity.
+#[derive(Serialize)]
+pub struct HayabusaMatch {
+    pub title: String,
+    pub channel: String,
+    pub severity: u8,
+}
+
+pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<HayabusaMatch> {
     use std::collections::HashSet;
     use std::process::Command;
 
@@ -1308,7 +1317,7 @@ pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
         Err(_) => return Vec::new(),
     };
 
-    let mut all_matches: Vec<String> = Vec::new();
+    let mut all_matches: Vec<HayabusaMatch> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -1319,9 +1328,20 @@ pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<String> {
         let cols: Vec<&str> = line.splitn(6, ',').collect();
         if let Some(title) = cols.get(4) {
             let t = title.trim().trim_matches('"').to_string();
-            if !t.is_empty() && seen.insert(t.clone()) {
-                all_matches.push(t);
+            if t.is_empty() || !seen.insert(t.clone()) {
+                continue;
             }
+            let channel = cols.get(2).map(|s| s.trim().trim_matches('"').to_string()).unwrap_or_default();
+            let level = cols.get(5).map(|s| s.trim().trim_matches('"').to_lowercase());
+            let severity = match level.as_deref() {
+                Some("critical") => 100,
+                Some("high") => 85,
+                Some("medium") => 65,
+                Some("low") => 45,
+                Some("info") => 20,
+                _ => 60,
+            };
+            all_matches.push(HayabusaMatch { title: t, channel, severity });
         }
     }
     all_matches

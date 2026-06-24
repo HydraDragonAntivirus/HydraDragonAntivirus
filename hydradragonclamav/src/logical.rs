@@ -472,6 +472,47 @@ impl LogicalExpr {
         self.eval_at(self.nodes.len() - 1, counts)
     }
 
+    /// Over-approximate whether the expression can *still* evaluate true, given the
+    /// subsignatures evaluated so far. `evaluated[i] == true` means `counts[i]` is
+    /// final; an unevaluated subsig is assumed *possibly present* (best case).
+    /// `Compare` nodes are treated as always-feasible — we never prune *through* a
+    /// count/distinct comparison, since its truth isn't monotone in the counts
+    /// (`=0`, `<n` match when a subsig is ABSENT). So this returns `false` only when
+    /// an already-evaluated, absent subsig makes a pure AND/OR/Subsig structure
+    /// unsatisfiable — which can never be a false negative. Used to short-circuit
+    /// phase-1 body scanning: once a signature provably can't fire, stop scanning
+    /// its remaining subsignatures (mirrors the early cutoff ClamAV gets for free
+    /// from its single counted AC pass).
+    pub fn can_still_match(&self, counts: &[usize], evaluated: &[bool]) -> bool {
+        if self.nodes.is_empty() {
+            return false;
+        }
+        self.feasible_at(self.nodes.len() - 1, counts, evaluated)
+    }
+
+    fn feasible_at(&self, idx: usize, counts: &[usize], evaluated: &[bool]) -> bool {
+        match self.nodes[idx] {
+            ExprNode::Subsig(index) => {
+                let i = index as usize;
+                if evaluated.get(i).copied().unwrap_or(false) {
+                    counts.get(i).copied().unwrap_or(0) > 0
+                } else {
+                    true // not yet evaluated → could still be present
+                }
+            }
+            ExprNode::And(a, b) => {
+                self.feasible_at(a as usize, counts, evaluated)
+                    && self.feasible_at(b as usize, counts, evaluated)
+            }
+            ExprNode::Or(a, b) => {
+                self.feasible_at(a as usize, counts, evaluated)
+                    || self.feasible_at(b as usize, counts, evaluated)
+            }
+            // Non-monotone in the counts — never prune through it.
+            ExprNode::Compare { .. } => true,
+        }
+    }
+
     fn eval_at(&self, idx: usize, counts: &[usize]) -> EvalStats {
         match self.nodes[idx] {
             // ClamAV leaf (cli_ac_chklsig: matcher-ac.c:900-910): matched iff the

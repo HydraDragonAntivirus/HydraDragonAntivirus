@@ -89,6 +89,7 @@ const CMD_INSTALL_MENU: usize = 20;
 const CMD_UNINSTALL_MENU: usize = 21;
 // Option-panel buttons (shown in scan_option_mode)
 const CMD_START_SCAN: usize = 22;
+const CMD_CANCEL_OPT: usize = 23;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
@@ -350,6 +351,9 @@ enum ScanMsg {
 const CAT_REGISTRY: u8 = 0x01;
 const CAT_MEMORY: u8 = 0x02;
 const CAT_SIGMA: u8 = 0x04;
+const CAT_SYS_MEMORY: u8 = 0x08;
+const CAT_STARTUP: u8 = 0x10;
+const CAT_BOOT: u8 = 0x20;
 
 enum WorkRequest {
     /// Full scan: files + optional registry/memory/sigma (controlled by `cats`).
@@ -440,8 +444,13 @@ struct AppState {
     scan_option_mode: bool,
     /// Current category selection in option panel
     opt_cats: u8,
-    /// Hit rects for the 3 checkbox labels stored during layout
-    opt_check_rects: [RECT; 3],
+    /// Hit rects for the 6 checkbox rows stored during layout
+    opt_check_rects: [RECT; 6],
+    /// "Add object…" button rect in the option panel
+    opt_add_rect: RECT,
+    /// OK / Cancel rects at the bottom of the option panel
+    opt_ok_rect: RECT,
+    opt_cancel_rect: RECT,
     quar_ids: Vec<String>,
     quarantine_dir: PathBuf,
 }
@@ -772,7 +781,10 @@ unsafe fn on_create(hwnd: HWND) {
         scan_threat: Vec::new(),
         scan_option_mode: false,
         opt_cats: 0,
-        opt_check_rects: [RECT::default(); 3],
+        opt_check_rects: [RECT::default(); 6],
+        opt_add_rect: RECT::default(),
+        opt_ok_rect: RECT::default(),
+        opt_cancel_rect: RECT::default(),
         quar_ids: Vec::new(),
         quarantine_dir,
     });
@@ -850,7 +862,8 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
         0 => {
             if opt_mode {
                 return vec![
-                    (CMD_START_SCAN, "Start Scan", "\u{E768}", Kind::Primary),
+                    (CMD_START_SCAN, "OK", "\u{E73E}", Kind::Primary),
+                    (CMD_CANCEL_OPT, "Cancel", "\u{E711}", Kind::Neutral),
                 ];
             }
             match state {
@@ -917,29 +930,83 @@ unsafe fn layout(hwnd: HWND) {
     };
     s.buttons.clear();
     let mut x = content_l;
-    // Scan page reserves a status hero banner above the action buttons.
-    let mut y = HEADER_H + PAD + if s.page == 0 { HERO_H + PAD } else { 0 };
-    for (cmd, label, icon, kind) in defs {
-        if x + BTN_W > content_r && x > content_l {
-            x = content_l;
-            y += BTN_H + GAP;
-        }
-        s.buttons.push(UiButton {
-            cmd,
-            label,
-            icon,
-            kind,
-            rect: RECT { left: x, top: y, right: x + BTN_W, bottom: y + BTN_H },
-        });
-        x += BTN_W + GAP;
-    }
-    let list_top = y + BTN_H + PAD;
+    // Scan page reserves a status hero banner above the action buttons,
+    // EXCEPT in scan_option_mode where the panel fills the whole card and
+    // the OK/Cancel buttons are pinned to the bottom of that card.
+    let mut y = HEADER_H + PAD + if s.page == 0 && !s.scan_option_mode { HERO_H + PAD } else { 0 };
 
-    let lr = RECT { left: content_l, top: list_top, right: content_r, bottom: h - STATUS_H - PAD };
-    let list_w = (lr.right - lr.left).max(80);
-    let list_h = (lr.bottom - lr.top).max(60);
-    for hl in [s.scan_list, s.quar_list] {
-        let _ = MoveWindow(hl, lr.left, lr.top, list_w, list_h, true);
+    // In scan_option_mode the OK/Cancel buttons sit at the bottom of the card,
+    // not above the list. We compute their position from the card bottom so they
+    // are pinned regardless of window height, then skip the normal button loop.
+    if s.page == 0 && s.scan_option_mode {
+        let card_bottom = h - STATUS_H - PAD;
+        let btn_y = card_bottom - BTN_H - PAD;
+        // OK button
+        s.buttons.push(UiButton {
+            cmd: CMD_START_SCAN,
+            label: "OK",
+            icon: "\u{E73E}",
+            kind: Kind::Primary,
+            rect: RECT { left: content_r - BTN_W * 2 - GAP, top: btn_y, right: content_r - BTN_W - GAP, bottom: btn_y + BTN_H },
+        });
+        // Cancel button
+        s.buttons.push(UiButton {
+            cmd: CMD_CANCEL_OPT,
+            label: "Cancel",
+            icon: "\u{E711}",
+            kind: Kind::Neutral,
+            rect: RECT { left: content_r - BTN_W, top: btn_y, right: content_r, bottom: btn_y + BTN_H },
+        });
+        // Store OK/Cancel rects for hit-testing in on_lbutton_up.
+        s.opt_ok_rect = s.buttons[0].rect;
+        s.opt_cancel_rect = s.buttons[1].rect;
+        // list_top is unused in opt mode; still zero the list position.
+        let lr = RECT { left: content_l, top: h, right: content_r, bottom: h };
+        let _ = MoveWindow(s.scan_list, lr.left, lr.top, (lr.right - lr.left).max(1), 1, false);
+        let _ = MoveWindow(s.quar_list, lr.left, lr.top, (lr.right - lr.left).max(1), 1, false);
+    } else {
+        for (cmd, label, icon, kind) in defs {
+            if x + BTN_W > content_r && x > content_l {
+                x = content_l;
+                y += BTN_H + GAP;
+            }
+            s.buttons.push(UiButton { cmd, label, icon, kind, rect: RECT { left: x, top: y, right: x + BTN_W, bottom: y + BTN_H } });
+            x += BTN_W + GAP;
+        }
+        let list_top = y + BTN_H + PAD;
+        let lr = RECT { left: content_l, top: list_top, right: content_r, bottom: h - STATUS_H - PAD };
+        let list_w = (lr.right - lr.left).max(80);
+        let list_h = (lr.bottom - lr.top).max(60);
+        for hl in [s.scan_list, s.quar_list] {
+            let _ = MoveWindow(hl, lr.left, lr.top, list_w, list_h, true);
+        }
+    }
+
+    // In scan-option mode, compute all 6 checkbox hit-rects and the "Add object"
+    // button rect here so hit-testing is always in sync with the window geometry.
+    if s.page == 0 && s.scan_option_mode {
+        let card_top = HEADER_H + PAD;
+        let add_row_h = 36i32;
+        let sep_h = 1i32;
+        let row_h = 32i32;
+        let pad = 16i32;
+        // "Add object…" row just below the card top.
+        s.opt_add_rect = RECT {
+            left: content_l + pad,
+            top: card_top + pad,
+            right: content_r - pad,
+            bottom: card_top + pad + add_row_h,
+        };
+        let mut oy = s.opt_add_rect.bottom + sep_h + 6;
+        for i in 0..6usize {
+            s.opt_check_rects[i] = RECT {
+                left: content_l + pad,
+                top: oy,
+                right: content_r - pad,
+                bottom: oy + row_h,
+            };
+            oy += row_h + 2;
+        }
     }
 }
 
@@ -947,8 +1014,18 @@ unsafe fn layout(hwnd: HWND) {
 /// While the engine is loading the lists stay hidden so the loading screen shows.
 unsafe fn apply_page(hwnd: HWND) {
     let Some(s) = state(hwnd) else { return };
+    // Leaving the Scan page discards the option panel so the user returns to the
+    // normal idle view (with the hero banner) rather than a broken half-state.
+    if s.page != 0 {
+        s.scan_option_mode = false;
+    }
     let ready = s.engine != EngineState::Loading;
-    let _ = ShowWindow(s.scan_list, if ready && s.page == 0 { SW_SHOW } else { SW_HIDE });
+    // The scan list is only shown on page 0 and only when not in option-panel mode
+    // (the list overlaps the option panel when both are visible).
+    let _ = ShowWindow(
+        s.scan_list,
+        if ready && s.page == 0 && !s.scan_option_mode { SW_SHOW } else { SW_HIDE },
+    );
     let _ = ShowWindow(s.quar_list, if ready && s.page == 1 { SW_SHOW } else { SW_HIDE });
     layout(hwnd);
     if ready && s.page == 1 {
@@ -1085,12 +1162,132 @@ unsafe fn paint(hwnd: HWND) {
     let toggle_glyph = if s.dark { "\u{E706}" } else { "\u{E708}" };
     text(mem, toggle_glyph, &s.theme_btn, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    // --- Hero status banner (Scan page) — hidden behind the loading screen ---
+    // --- Hero status banner (Scan page, normal mode) or full scan-option card ---
     if s.page == 0 && s.engine != EngineState::Loading {
         let content_l = SIDEBAR_W + PAD;
-        let hero = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: HEADER_H + PAD + HERO_H };
-        draw_shadow(mem, hero, 16, t);
-        draw_hero(mem, s, hero);
+        if s.scan_option_mode {
+            // Full-card settings dialog inspired by Kaspersky KVRT's scan settings:
+            // a card filling the content area with an "Add object…" toolbar row,
+            // a tree of checkboxes, a thin separator, and OK/Cancel pinned at the bottom.
+            let card = RECT {
+                left: content_l,
+                top: HEADER_H + PAD,
+                right: w - PAD,
+                bottom: h - STATUS_H - PAD,
+            };
+            draw_shadow(mem, card, 12, t);
+            fill_round(mem, card, 12, t.surface);
+            frame_round(mem, card, 12, t.border);
+
+            let pad = 16i32;
+
+            // ── "Add object…" toolbar row ──────────────────────────────────────
+            let add_r = s.opt_add_rect;
+            let add_hot = pt_in(&add_r, 0, 0); // hover handled by button machinery
+            let add_bg = if add_hot { t.nav_hot } else { lerp_color(t.surface, t.border, 0.35) };
+            fill_round(mem, RECT { left: add_r.left, top: add_r.top, right: add_r.right, bottom: add_r.bottom }, 6, add_bg);
+            // "+" icon followed by label.
+            text(
+                mem,
+                "\u{E710}",  // MDL2 Add glyph
+                &RECT { left: add_r.left + 8, top: add_r.top, right: add_r.left + 32, bottom: add_r.bottom },
+                t.accent,
+                s.fonts.icon,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+            );
+            text(
+                mem,
+                "Add object\u{2026}",
+                &RECT { left: add_r.left + 32, top: add_r.top, right: add_r.right, bottom: add_r.bottom },
+                t.accent,
+                s.fonts.nav,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+            );
+
+            // Thin separator under the toolbar row.
+            let sep_y = add_r.bottom + 4;
+            fill(
+                mem,
+                &RECT { left: card.left + pad, top: sep_y, right: card.right - pad, bottom: sep_y + 1 },
+                t.border,
+            );
+
+            // ── Checkbox tree ──────────────────────────────────────────────────
+            // 6 scan targets: first 3 are top-level, last 3 sub-level (indented).
+            // Bits: SYS_MEMORY, STARTUP, BOOT, then REGISTRY (PUM), MEMORY (proc), SIGMA.
+            let opts: [(&'static str, u8, bool); 6] = [
+                ("System memory",                          CAT_SYS_MEMORY, false),
+                ("Startup objects",                        CAT_STARTUP,    false),
+                ("Boot sectors",                           CAT_BOOT,       false),
+                ("Registry (PUM detection)",               CAT_REGISTRY,   true),
+                ("Process memory",                         CAT_MEMORY,     true),
+                ("Event logs (Sigma / Hayabusa)",          CAT_SIGMA,      true),
+            ];
+            let cb_sz = 16i32;  // checkbox square size
+            let row_h = 32i32;
+            for (i, (label, bit, indented)) in opts.iter().enumerate() {
+                let row = s.opt_check_rects[i];
+                let indent = if *indented { 24i32 } else { 0i32 };
+
+                // Subtle row hover/stripe: alternate stripe on even rows.
+                if i % 2 == 0 {
+                    fill(mem, &row, lerp_color(t.surface, t.stripe, 0.6));
+                }
+
+                let checked = s.opt_cats & bit != 0;
+                let cb_x = row.left + pad + indent;
+                let cb_y = row.top + (row_h - cb_sz) / 2;
+                let cb = RECT { left: cb_x, top: cb_y, right: cb_x + cb_sz, bottom: cb_y + cb_sz };
+
+                // Checkbox background + border.
+                fill_round(mem, cb, 3, if checked { t.accent } else { t.surface });
+                frame_round(mem, cb, 3, if checked { t.accent } else { t.border });
+                if checked {
+                    // Checkmark glyph.
+                    text(mem, "\u{E73E}", &cb, WHITE, s.fonts.status, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                }
+
+                // Indent connector line for sub-items.
+                if *indented {
+                    let lx = row.left + pad + 10;
+                    fill(
+                        mem,
+                        &RECT { left: lx, top: row.top, right: lx + 1, bottom: cb_y + cb_sz / 2 },
+                        t.border,
+                    );
+                    fill(
+                        mem,
+                        &RECT { left: lx, top: cb_y + cb_sz / 2, right: cb_x, bottom: cb_y + cb_sz / 2 + 1 },
+                        t.border,
+                    );
+                }
+
+                let label_r = RECT { left: cb.right + 8, top: row.top, right: row.right - 8, bottom: row.bottom };
+                text(mem, label, &label_r, t.text, s.fonts.body, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            }
+
+            // Thin separator above footer.
+            let footer_sep_y = card.bottom - BTN_H - PAD * 2 - 1;
+            fill(
+                mem,
+                &RECT { left: card.left + pad, top: footer_sep_y, right: card.right - pad, bottom: footer_sep_y + 1 },
+                t.border,
+            );
+
+            // "Restore default actions" link text (left-aligned in the footer, like Kaspersky).
+            text(
+                mem,
+                "Restore default actions",
+                &RECT { left: card.left + pad * 2, top: footer_sep_y + 4, right: card.left + 240, bottom: footer_sep_y + PAD + BTN_H },
+                t.accent,
+                s.fonts.body,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+            );
+        } else {
+            let hero = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: HEADER_H + PAD + HERO_H };
+            draw_shadow(mem, hero, 16, t);
+            draw_hero(mem, s, hero);
+        }
     }
 
     // --- Buttons ---
@@ -1110,33 +1307,6 @@ unsafe fn paint(hwnd: HWND) {
         draw_button(mem, b, hot, down, anim_t, &s.fonts, t);
     }
 
-    // --- Scan option checkboxes (shown in option mode) ---
-    if s.scan_option_mode && s.page == 0 {
-        let cx = SIDEBAR_W + PAD;
-        let mut oy = HEADER_H + PAD + HERO_H + PAD + BTN_H + GAP + 8;
-        let opts: [(&'static str, u8); 3] = [
-            ("Scan Registry (PUM detection)", CAT_REGISTRY),
-            ("Scan process memory", CAT_MEMORY),
-            ("Scan Windows event logs (Sigma/Hayabusa)", CAT_SIGMA),
-        ];
-        for (i, (label, bit)) in opts.iter().enumerate() {
-            let checked = s.opt_cats & bit != 0;
-            let box_r = RECT { left: cx, top: oy + 2, right: cx + 18, bottom: oy + 20 };
-            // Draw checkbox square
-            frame_round(mem, box_r, 3, if checked { t.accent } else { t.text2 });
-            if checked {
-                // Filled square with checkmark
-                fill_round(mem, RECT { left: box_r.left + 2, top: box_r.top + 2, right: box_r.right - 2, bottom: box_r.bottom - 2 }, 2, t.accent);
-                text(mem, "\u{E73E}", &box_r, WHITE, s.fonts.status, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            }
-            // Label text (clickable area includes box + label)
-            let label_r = RECT { left: box_r.right + 6, top: oy, right: 800, bottom: oy + 22 };
-            text(mem, label, &label_r, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-            s.opt_check_rects[i] = RECT { left: cx, top: oy, right: label_r.right, bottom: oy + 22 };
-            oy += 28;
-        }
-    }
-
     // --- Loading screen: while the engine loads, cover the content area ---
     if s.engine == EngineState::Loading {
         let content_l = SIDEBAR_W + PAD;
@@ -1147,45 +1317,53 @@ unsafe fn paint(hwnd: HWND) {
         let cx = (area.left + area.right) / 2;
         let cy = (area.top + area.bottom) / 2;
 
-        // Animated spinner: 12 dots rotating above the badge.
+        // Animated spinner: 12 dots in a ring, drawn ABOVE the shield badge.
+        // Badge will be at cy (center), so the spinner ring goes above it.
+        let bsz = 76i32;
+        // Lay out vertically: spinner center → gap → badge → gap → text.
+        // Total block height ≈ spinner_diameter(2*spinner_r+2*dot_r) + 12 + bsz + 12 + text.
+        // We center the badge at cy and put the spinner above it.
+        let badge_cy = cy + 10; // shift badge slightly below window center for text room
+        let spinner_gap = 18i32; // gap between bottom of spinner ring and top of badge
+        let spinner_r = 32i32;
+        let dot_r = 5i32;
+        let spinner_cy = badge_cy - bsz / 2 - spinner_gap - spinner_r - dot_r;
         let spinner_cx = cx;
-        let spinner_cy = cy - 104;
-        let spinner_r = 38;
-        let dot_r = 5;
         let num_dots: i32 = 12;
         for i in 0..num_dots {
-            let phase = (i as f64 / num_dots as f64) * std::f64::consts::TAU;
-            let t_offset = (s.anim_frame as f64 * 0.12) * std::f64::consts::TAU;
-            let brightness = ((phase - t_offset).sin() * 0.45 + 0.55).clamp(0.15, 1.0);
             let angle = (i as f64 / num_dots as f64) * std::f64::consts::TAU;
+            let t_offset = (s.anim_frame as f64 * 0.10) * std::f64::consts::TAU;
+            let brightness = ((angle - t_offset).sin() * 0.45 + 0.55).clamp(0.15, 1.0);
             let dx = (spinner_r as f64 * angle.cos()) as i32;
             let dy = (spinner_r as f64 * angle.sin()) as i32;
             let dot_color = lerp_color(t.text2, t.accent, brightness);
             let dot_rect = RECT {
-                left: spinner_cx + dx - dot_r,
-                top: spinner_cy + dy - dot_r,
+                left:  spinner_cx + dx - dot_r,
+                top:   spinner_cy + dy - dot_r,
                 right: spinner_cx + dx + dot_r,
-                bottom: spinner_cy + dy + dot_r,
+                bottom:spinner_cy + dy + dot_r,
             };
             fill_round(mem, dot_rect, dot_r, dot_color);
         }
 
-        let bsz = 76;
-        let badge = RECT { left: cx - bsz / 2, top: cy - bsz - 12, right: cx + bsz / 2, bottom: cy - 12 };
+        // Shield badge (centered at badge_cy).
+        let badge = RECT { left: cx - bsz / 2, top: badge_cy - bsz / 2, right: cx + bsz / 2, bottom: badge_cy + bsz / 2 };
         fill_round(mem, badge, bsz / 2, t.accent);
-        text(mem, "\u{1F6E1}", &badge, WHITE, s.fonts.hero, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        // MDL2 Assets shield glyph — renders correctly in GDI unlike the emoji.
+        text(mem, "\u{E83D}", &badge, WHITE, s.fonts.icon_lg, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        let text_top = badge_cy + bsz / 2 + 14;
         text(
             mem,
-            "Loading engines…",
-            &RECT { left: area.left, top: cy, right: area.right, bottom: cy + 34 },
+            "Loading engines\u{2026}",
+            &RECT { left: area.left, top: text_top, right: area.right, bottom: text_top + 34 },
             t.text,
             s.fonts.hero,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE,
         );
         text(
             mem,
-            "YARA-X rules · ClamAV signatures · ML models",
-            &RECT { left: area.left, top: cy + 38, right: area.right, bottom: cy + 62 },
+            "YARA-X rules \u{00B7} ClamAV signatures \u{00B7} ML models",
+            &RECT { left: area.left, top: text_top + 38, right: area.right, bottom: text_top + 62 },
             t.text2,
             s.fonts.body,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE,
@@ -1316,7 +1494,7 @@ unsafe fn draw_hero(hdc: HDC, s: &AppState, r: RECT) {
     let (accent, glyph, head, sub) = match s.scan_state {
         ScanState::Idle => (
             t.accent,
-            "\u{1F6E1}",
+            "\u{E83D}", // MDL2 Assets shield glyph — renders correctly in GDI
             "Ready to scan".to_string(),
             if s.sig_count > 0 {
                 format!("{} signatures loaded — run a scan to check for threats.", fmt_count(s.sig_count))
@@ -1645,18 +1823,20 @@ unsafe fn show_tray_icon(_hwnd: HWND, s: &mut AppState) {
 unsafe fn on_anim_tick(hwnd: HWND) {
     let Some(s) = state(hwnd) else { return };
     s.anim_frame = s.anim_frame.wrapping_add(1);
-    // Advance hover animations.
-    s.hover_anim.retain(|(_, entering, frame)| {
-        if *entering {
-            *frame < 5 // remove when fully entered (frame reaches 5)
-        } else {
-            *frame > 1 // keep until frame 1 to interpolate out
-        }
-    });
+    // Advance hover animations first, then prune completed ones — this guarantees
+    // the final frame (5 for enter, 0 for exit) is rendered for at least one tick
+    // before the entry is removed, preventing a snap at the end of the transition.
     for (_, entering, frame) in &mut s.hover_anim {
-        if *entering && *frame < 5 { *frame += 1; }
-        if !*entering && *frame > 0 { *frame -= 1; }
+        if *entering && *frame < 5 {
+            *frame += 1;
+        }
+        if !*entering && *frame > 0 {
+            *frame -= 1;
+        }
     }
+    s.hover_anim.retain(|(_, entering, frame)| {
+        if *entering { *frame < 5 } else { *frame > 0 }
+    });
     let hover_active = !s.hover_anim.is_empty();
     // Only invalidate when there is visible animation.
     if hover_active || s.engine == EngineState::Loading || matches!(s.scan_state, ScanState::Scanning) {
@@ -1762,12 +1942,21 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
     let Some(s) = state(hwnd) else { return };
     // Checkboxes in scan option mode
     if s.scan_option_mode && s.page == 0 {
-        for (i, bit) in [CAT_REGISTRY, CAT_MEMORY, CAT_SIGMA].iter().enumerate() {
+        let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_MEMORY, CAT_SIGMA];
+        for (i, bit) in bits.iter().enumerate() {
             if pt_in(&s.opt_check_rects[i], x, y) {
                 s.opt_cats ^= bit; // toggle
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 return;
             }
+        }
+        // "Add object…" row — open a folder picker and store the path (future extension).
+        if pt_in(&s.opt_add_rect, x, y) {
+            // Placeholder: open folder picker; picked paths could be added to a list.
+            // For now just show a brief status note.
+            s.status = "Use drag-and-drop to add custom paths to the scan.".into();
+            let _ = InvalidateRect(Some(hwnd), None, false);
+            return;
         }
     }
     let Some(cmd) = s.down_cmd.take() else { return };
@@ -1784,13 +1973,29 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
     match cmd {
         CMD_CUSTOM_SCAN => {
             s.scan_option_mode = true;
-            s.opt_cats = CAT_REGISTRY | CAT_MEMORY | CAT_SIGMA; // default: all on
+            // Default: all scan targets on.
+            s.opt_cats = CAT_SYS_MEMORY | CAT_STARTUP | CAT_BOOT | CAT_REGISTRY | CAT_MEMORY | CAT_SIGMA;
+            // Hide the results list so it does not overlap the option panel.
+            let _ = ShowWindow(s.scan_list, SW_HIDE);
+            layout(hwnd);
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        CMD_CANCEL_OPT => {
+            s.scan_option_mode = false;
+            if s.engine != EngineState::Loading {
+                let _ = ShowWindow(s.scan_list, SW_SHOW);
+            }
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
         }
         CMD_START_SCAN => {
             let cats = s.opt_cats;
             s.scan_option_mode = false;
+            // Restore the list before picking the path so the window looks right
+            // whether the user picks a folder or cancels.
+            if s.engine != EngineState::Loading {
+                let _ = ShowWindow(s.scan_list, SW_SHOW);
+            }
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
             if let Some(path) = pick_path(true) {
@@ -2950,12 +3155,12 @@ fn run_session(
 
     if sess.cats & CAT_SIGMA != 0 {
         let logs = scan_hayabusa_once(&exe_dir().join("hayabusa"));
-        if !logs.is_empty() {
+        for m in &logs {
             send(tx, hwnd, ScanMsg::Row {
-                file: "Windows Event Logs".into(),
-                verdict: "Hayabusa".into(),
-                threat: format!("{} event log alert(s)", logs.len()),
-                sev: 85,
+                file: format!("{}\\*.evtx", m.channel),
+                verdict: "Sigma".into(),
+                threat: m.title.clone(),
+                sev: m.severity,
             });
         }
         log_hits = logs.len();

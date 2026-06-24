@@ -286,7 +286,7 @@ fn cmd_custom_scan(
             } else if !hayabusa_matches.is_empty() {
                 println!("[Hayabusa]");
                 for m in &hayabusa_matches {
-                    println!("  ├─ {m}");
+                    println!("  ├─ [{}] {} ({})", m.severity, m.title, m.channel);
                 }
             }
         }
