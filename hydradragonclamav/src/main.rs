@@ -41,6 +41,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
 
     // Opt-in memory profiler (set HDC_MEM_STATS=1).
     if std::env::var_os("HDC_MEM_STATS").is_some() {
+        eprintln!("[mem] process working set: {:.1} MB", process_working_set_mb());
         let s = engine.database.pattern_mem_stats();
         let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
         eprintln!(
@@ -362,6 +363,47 @@ fn print_report(report: &LoadReport) {
             println!("parse error: ... {} more", report.errors.len() - 20);
         }
     }
+}
+
+/// Current process working-set size (RSS), in MiB. Windows-only (raw psapi FFI,
+/// no extra dependency); returns 0.0 elsewhere.
+fn process_working_set_mb() -> f64 {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        struct ProcessMemoryCounters {
+            cb: u32,
+            page_fault_count: u32,
+            peak_working_set_size: usize,
+            working_set_size: usize,
+            quota_peak_paged_pool_usage: usize,
+            quota_paged_pool_usage: usize,
+            quota_peak_non_paged_pool_usage: usize,
+            quota_non_paged_pool_usage: usize,
+            pagefile_usage: usize,
+            peak_pagefile_usage: usize,
+        }
+        extern "system" {
+            fn GetCurrentProcess() -> isize;
+            fn K32GetProcessMemoryInfo(
+                process: isize,
+                counters: *mut ProcessMemoryCounters,
+                cb: u32,
+            ) -> i32;
+        }
+        unsafe {
+            let mut c: ProcessMemoryCounters = std::mem::zeroed();
+            c.cb = std::mem::size_of::<ProcessMemoryCounters>() as u32;
+            if K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) != 0 {
+                eprintln!(
+                    "[mem] peak working set: {:.1} MB",
+                    c.peak_working_set_size as f64 / (1024.0 * 1024.0)
+                );
+                return c.working_set_size as f64 / (1024.0 * 1024.0);
+            }
+        }
+    }
+    0.0
 }
 
 fn collect_scan_files(path: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {

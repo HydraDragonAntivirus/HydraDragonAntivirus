@@ -912,18 +912,16 @@ impl Engine {
                 }
                 // For OR-indexed sigs, restrict this subsig's scan to windows around
                 // the prefilter's union offsets (a match must start within
-                // `max_match_len` of one of its atoms). `None` max length (open gap)
-                // can't be bounded, so such a subsig keeps its full scan.
+                // `max_match_len` of one of its atoms). A SIMD scan of those small
+                // windows beats threading each subsig against the FULL union hint set
+                // (most of which belong to other subsigs and just fail to verify).
+                // `None` max length (open gap) can't be bounded → keep the full scan.
                 let restricted;
                 let ranges: &[(usize, usize)] = if all_indexed && !is_vinfo {
                     match subsig_max_match_len(patterns) {
                         Some(ml) => {
-                            restricted = restrict_ranges(
-                                &base_ranges,
-                                hints.unwrap(),
-                                ml,
-                                ctx.data.len(),
-                            );
+                            restricted =
+                                restrict_ranges(&base_ranges, hints.unwrap(), ml, ctx.data.len());
                             &restricted
                         }
                         None => &base_ranges,
@@ -931,8 +929,6 @@ impl Engine {
                 } else {
                     &base_ranges
                 };
-                // Non-gate subsigs have no threaded offsets → scan over `ranges`
-                // (the whole buffer, or the union windows for OR-indexed sigs).
                 let (mut count, mut arenas) = body_matches(
                     patterns,
                     ctx.data,

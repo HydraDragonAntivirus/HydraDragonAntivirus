@@ -222,22 +222,44 @@ impl Special {
     }
 }
 
+/// Bytes that fit inline in [`Instructions::Inline`] without a heap allocation.
+/// Sized so the enum stays 24 bytes (same as a `Box<[u8]>` variant + tag), so the
+/// `Pattern` struct does NOT grow — short pure-literal patterns (the vast majority)
+/// then cost zero per-pattern allocations, eliminating ~millions of tiny `Box`es
+/// and the allocator overhead/fragmentation they incur.
+pub const INLINE_CAP: usize = 22;
+
 #[derive(Clone, Debug)]
 pub enum Instructions {
+    /// A pure-literal pattern of `len` bytes stored inline (no allocation).
+    Inline { buf: [u8; INLINE_CAP], len: u8 },
     Pure(Box<[u8]>),
     Complex(Box<[u16]>),
 }
 
 impl Default for Instructions {
     fn default() -> Self {
-        Instructions::Pure(Box::default())
+        Instructions::Inline { buf: [0; INLINE_CAP], len: 0 }
     }
 }
 
 impl Instructions {
+    /// Build pure-literal instructions, storing them inline when they fit.
+    #[inline]
+    pub fn pure(bytes: Vec<u8>) -> Self {
+        if bytes.len() <= INLINE_CAP {
+            let mut buf = [0u8; INLINE_CAP];
+            buf[..bytes.len()].copy_from_slice(&bytes);
+            Instructions::Inline { buf, len: bytes.len() as u8 }
+        } else {
+            Instructions::Pure(bytes.into_boxed_slice())
+        }
+    }
+
     #[inline]
     pub fn len(&self) -> usize {
         match self {
+            Instructions::Inline { len, .. } => *len as usize,
             Instructions::Pure(b) => b.len(),
             Instructions::Complex(b) => b.len(),
         }
@@ -245,15 +267,13 @@ impl Instructions {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        match self {
-            Instructions::Pure(b) => b.is_empty(),
-            Instructions::Complex(b) => b.is_empty(),
-        }
+        self.len() == 0
     }
 
     #[inline]
     pub fn get_u16(&self, index: usize) -> u16 {
         match self {
+            Instructions::Inline { buf, .. } => buf[index] as u16,
             Instructions::Pure(b) => b[index] as u16,
             Instructions::Complex(b) => b[index],
         }
@@ -306,7 +326,8 @@ impl Pattern {
     pub fn from_parsed(inst: Vec<u16>, specials: Vec<Special>, fullword: bool) -> Self {
         let best_literal = Self::compute_best_literal(&inst);
         let instructions = if inst.iter().all(|&ins| (ins & CLI_MATCH_METADATA) == CLI_MATCH_CHAR) {
-            Instructions::Pure(inst.iter().map(|&ins| (ins & 0xff) as u8).collect::<Vec<u8>>().into_boxed_slice())
+            // Pure literal → store inline when short (no per-pattern allocation).
+            Instructions::pure(inst.iter().map(|&ins| (ins & 0xff) as u8).collect())
         } else {
             Instructions::Complex(inst.into_boxed_slice())
         };
@@ -1104,6 +1125,7 @@ impl Pattern {
         let mut s = MemStats::default();
         s.patterns = 1;
         s.token_bytes += match &self.instructions {
+            Instructions::Inline { .. } => 0, // stored in the struct, no heap bytes
             Instructions::Pure(b) => b.len(),
             Instructions::Complex(b) => b.len() * 2,
         };
@@ -1123,11 +1145,11 @@ impl Pattern {
         s
     }
 
-    /// Could this pattern's required atom occur in the buffer the `filter` was
-    /// built from? `false` only when the atom is provably absent (so the pattern
-    /// cannot match) — never a false negative. Uses the exact `best_literal`, or
-    /// the lowercased `nocase_run` for nocase patterns; conservatively `true` when
-    /// the pattern has no usable atom. Allocation-free (atoms are ≤16 bytes).
+    /// Could this pattern's required atom occur in the buffer the `filter` was built
+    /// from? `false` only when the atom is provably absent (so the pattern cannot
+    /// match) — never a false negative. Uses the exact `best_literal`, or the
+    /// lowercased `nocase_run` for nocase patterns; conservatively `true` when the
+    /// pattern has no usable atom. Allocation-free (atoms are ≤16 bytes).
     pub fn atom_maybe_present(&self, filter: &crate::presence::PresenceFilter) -> bool {
         let mut buf = [0u8; 16];
         if let Some((off, len)) = self.best_literal() {

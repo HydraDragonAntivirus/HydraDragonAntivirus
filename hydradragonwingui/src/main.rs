@@ -463,9 +463,13 @@ struct AppState {
     opt_browse_entries: Vec<(String, bool)>, // (name, is_dir)
     opt_browse_sel: Option<usize>,
     opt_browse_scroll: usize,
-    /// OK / Cancel rects at the bottom of the option panel
+    /// Address bar editing state
+    opt_browse_editing: bool,
+    opt_browse_input: String,
+    /// OK / Cancel / Up rects at the bottom of the option panel
     opt_ok_rect: RECT,
     opt_cancel_rect: RECT,
+    opt_up_rect: RECT,
     quar_ids: Vec<String>,
     quarantine_dir: PathBuf,
 }
@@ -590,6 +594,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             }
             WM_LBUTTONUP => {
                 on_lbutton_up(hwnd, lparam_xy(lp));
+                LRESULT(0)
+            }
+            WM_CHAR => {
+                on_char(hwnd, wp.0 as u32);
+                LRESULT(0)
+            }
+            WM_KEYDOWN => {
+                on_keydown(hwnd, wp.0 as u32);
                 LRESULT(0)
             }
             x if x == WM_CONTEXTMENU => {
@@ -805,8 +817,11 @@ unsafe fn on_create(hwnd: HWND) {
         opt_browse_entries: Vec::new(),
         opt_browse_sel: None,
         opt_browse_scroll: 0,
+        opt_browse_editing: false,
+        opt_browse_input: String::new(),
         opt_ok_rect: RECT::default(),
         opt_cancel_rect: RECT::default(),
+        opt_up_rect: RECT::default(),
         quar_ids: Vec::new(),
         quarantine_dir,
     });
@@ -1012,15 +1027,23 @@ unsafe fn layout(hwnd: HWND) {
         let pad = 16i32;
 
         if s.opt_browse_mode {
-            // Browse mode: just show back button + file list; checkboxes hidden.
-            // Back button is at the top of the card.
-            s.opt_add_rect = RECT {
+            // Browse mode: Up button at top-left, Cancel at bottom, Add at bottom.
+            let up_w = 100i32;
+            s.opt_up_rect = RECT {
                 left: content_l + pad,
+                top: card_top + pad,
+                right: content_l + pad + up_w,
+                bottom: card_top + pad + row_h,
+            };
+            // Path / address bar next to the Up button
+            let path_l = s.opt_up_rect.right + 8;
+            s.opt_add_rect = RECT {
+                left: path_l,
                 top: card_top + pad,
                 right: content_r - pad,
                 bottom: card_top + pad + row_h,
             };
-            let list_top = s.opt_add_rect.bottom + 6;
+            let list_top = s.opt_up_rect.bottom + 8;
             let avail_h = (h - STATUS_H - PAD) - list_top - BTN_H - PAD * 2;
             let entry_h = 28i32;
             let max_visible = (avail_h / entry_h).max(1) as usize;
@@ -1028,7 +1051,6 @@ unsafe fn layout(hwnd: HWND) {
                 s.opt_browse_entries.len().saturating_sub(max_visible),
             );
             for i in 0..7usize {
-                let _idx = s.opt_browse_scroll + i;
                 let y = list_top + i as i32 * (entry_h + 2);
                 s.opt_check_rects[i] = RECT {
                     left: content_l + pad + 8,
@@ -1254,24 +1276,35 @@ unsafe fn paint(hwnd: HWND) {
             let pad = 16i32;
 
             if s.opt_browse_mode {
-                // ── Browse mode: back button + file list (all entries) ─────────
-                let back_r = s.opt_add_rect;
-                let back_bg = lerp_color(t.surface, t.border, 0.35);
-                fill_round(mem, back_r, 6, back_bg);
-                text(mem, "\u{E76B} Back", &back_r, t.accent, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                // ── Browse mode: up button + address bar + file list ───────────
+                let is_at_root = s.opt_browse_cwd.as_os_str().is_empty();
 
-                // Current path
-                let cwd_str = if s.opt_browse_cwd.as_os_str().is_empty() {
+                // Up button
+                let up_r = s.opt_up_rect;
+                let up_bg = lerp_color(t.surface, t.border, 0.35);
+                fill_round(mem, up_r, 6, up_bg);
+                let up_label = if is_at_root { "\u{E711} Cancel" } else { "\u{E76B} Up" };
+                text(mem, up_label, &up_r, t.accent, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+                // Address bar (clickable path)
+                let cwd_r = s.opt_add_rect;
+                let addr_bg = if s.opt_browse_editing { WHITE } else { lerp_color(t.surface, t.border, 0.25) };
+                fill_round(mem, cwd_r, 6, addr_bg);
+                frame_round(mem, cwd_r, 6, t.border);
+                let cwd_str = if s.opt_browse_editing {
+                    format!("{}|", s.opt_browse_input)
+                } else if is_at_root {
                     "This PC".to_string()
                 } else {
                     s.opt_browse_cwd.display().to_string()
                 };
-                let cwd_r = RECT { left: card.left + pad, top: back_r.bottom + 2, right: card.right - pad, bottom: back_r.bottom + 22 };
-                text(mem, &cwd_str, &cwd_r, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                let txt_col = if s.opt_browse_editing { rgb(0,0,0) } else { t.text };
+                text(mem, &cwd_str, &RECT { left: cwd_r.left + 4, top: cwd_r.top, right: cwd_r.right - 4, bottom: cwd_r.bottom },
+                    txt_col, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
                 // File list entries
                 let entry_h = 28i32;
-                let list_top = cwd_r.bottom + 2;
+                let list_top = cwd_r.bottom + 8;
                 let max_visible = (card.bottom - list_top - BTN_H - PAD * 2) / entry_h;
                 let displayed = s.opt_browse_entries.len().min(max_visible as usize);
 
@@ -2036,6 +2069,52 @@ unsafe fn on_lbutton_down(hwnd: HWND, (x, y): (i32, i32)) {
     }
 }
 
+unsafe fn on_char(hwnd: HWND, ch: u32) {
+    let Some(s) = state(hwnd) else { return };
+    if !s.scan_option_mode || !s.opt_browse_mode || !s.opt_browse_editing { return; }
+    match ch {
+        0x08 => { // backspace
+            s.opt_browse_input.pop();
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        0x0D => { // Enter — navigate to typed path
+            let input = std::mem::take(&mut s.opt_browse_input);
+            s.opt_browse_editing = false;
+            let p = PathBuf::from(&input);
+            if p.exists() {
+                if p.is_dir() {
+                    populate_browse_entries(s, &p);
+                } else if let Some(parent) = p.parent() {
+                    if parent.exists() {
+                        populate_browse_entries(s, parent);
+                        s.opt_browse_sel = s.opt_browse_entries.iter().position(|(n, _)| *n == p.file_name().unwrap_or_default().to_string_lossy());
+                    } else {
+                        populate_drive_entries(s);
+                    }
+                }
+            } else {
+                populate_drive_entries(s);
+            }
+            layout(hwnd);
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        0x1B => { // Escape — cancel editing
+            s.opt_browse_editing = false;
+            s.opt_browse_input.clear();
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        0x20..=0x7E | 0x80..=0xFF => { // printable chars
+            s.opt_browse_input.push(char::from_u32(ch).unwrap_or('?'));
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        _ => {}
+    }
+}
+
+unsafe fn on_keydown(_hwnd: HWND, _vk: u32) {
+    // Reserved for future keyboard shortcuts in browse mode.
+}
+
 unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
     let Some(s) = state(hwnd) else { return };
     let mut wr = RECT::default();
@@ -2080,9 +2159,43 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
                     }
                 }
             }
-            // Back button
+            // Path bar click — start editing
             if pt_in(&s.opt_add_rect, x, y) {
+                s.opt_browse_editing = true;
+                s.opt_browse_input = if s.opt_browse_cwd.as_os_str().is_empty() {
+                    String::new()
+                } else {
+                    s.opt_browse_cwd.display().to_string()
+                };
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+            // Up / Cancel button
+            if pt_in(&s.opt_up_rect, x, y) {
+                if s.opt_browse_cwd.as_os_str().is_empty() {
+                    // At drive list — cancel back to normal mode
+                    s.opt_browse_mode = false;
+                } else {
+                    let parent = s.opt_browse_cwd.parent().map(|p| p.to_path_buf());
+                    if let Some(ref p) = parent {
+                        if p.as_os_str().is_empty() || !p.exists() {
+                            populate_drive_entries(s);
+                        } else {
+                            populate_browse_entries(s, p);
+                        }
+                    } else {
+                        populate_drive_entries(s);
+                    }
+                }
+                s.opt_browse_editing = false;
+                layout(hwnd);
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+            // Cancel button — back to normal option mode
+            if pt_in(&s.opt_cancel_rect, x, y) {
                 s.opt_browse_mode = false;
+                s.opt_browse_editing = false;
                 layout(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 return;
@@ -2196,12 +2309,15 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             }
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
-            let paths: Vec<PathBuf> = if s.opt_items.is_empty() {
+            let mut paths: Vec<PathBuf> = if s.opt_items.is_empty() {
                 // No custom items added — show native folder picker
                 pick_path(true).map(|p| vec![p]).unwrap_or_default()
             } else {
                 std::mem::take(&mut s.opt_items)
             };
+            // Exclude the antivirus's own directory from scanning
+            let exe = exe_dir();
+            paths.retain(|p| !p.starts_with(&exe));
             if !paths.is_empty() {
                 s.cancel.store(false, Ordering::Relaxed);
                 s.abort.store(false, Ordering::Relaxed);
@@ -3385,8 +3501,11 @@ fn run_session(
     // ── Event logs (Sigma / Hayabusa) ──────────────────────────────────────
     if sess.cats & CAT_SIGMA != 0 {
         send(tx, hwnd, ScanMsg::Status("Custom scan: event logs…".into()));
-        let logs = scan_hayabusa_once(&exe_dir().join("hayabusa"));
+        let hayabusa_dir = exe_dir().join("hayabusa");
+        let logs = scan_hayabusa_once(&hayabusa_dir);
+        // Filter out low-confidence (info/low) alerts, keep medium+ only
         for m in &logs {
+            if m.severity < 65 { continue; }
             send(tx, hwnd, ScanMsg::Row {
                 file: format!("{}\\*.evtx", m.channel),
                 verdict: "Sigma".into(),
@@ -3394,8 +3513,9 @@ fn run_session(
                 sev: m.severity,
             });
         }
-        extra_threats += logs.len();
-        phase_labels.push(format!("logs {} alert(s)", logs.len()));
+        let filtered_count = logs.iter().filter(|m| m.severity >= 65).count();
+        extra_threats += filtered_count;
+        phase_labels.push(format!("logs {} alert(s)", filtered_count));
     }
 
     // ── Process memory scan ────────────────────────────────────────────────
