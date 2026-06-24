@@ -624,12 +624,11 @@ impl Engine {
             let ms = t.elapsed().as_millis();
             if ms >= 20 {
                 eprintln!(
-                    "[SLOW-EXT] {ms}ms {} ({}:{}) hints={} threaded={}",
+                    "[SLOW-EXT] {ms}ms {} ({}:{}) hints={}",
                     signature.name,
                     signature.source.path.display(),
                     signature.source.line,
                     hints.map_or(0, |h| h.len()),
-                    hints.is_some(),
                 );
             }
         }

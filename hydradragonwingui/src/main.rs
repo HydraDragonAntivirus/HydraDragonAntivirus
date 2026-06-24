@@ -93,6 +93,7 @@ const CMD_UNINSTALL_MENU: usize = 21;
 const CMD_START_SCAN: usize = 22;
 const CMD_CANCEL_OPT: usize = 23;
 
+
 const WM_APP_RESULT: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
 // Not surfaced by the WindowsAndMessaging glob in this build — define it raw, or
@@ -451,6 +452,19 @@ struct AppState {
     opt_check_rects: [RECT; 7],
     /// "Add object…" button rect in the option panel
     opt_add_rect: RECT,
+    opt_add_toggle_rect: RECT, /// File/Directory mode toggle rect
+    /// Scan items added by the user
+    opt_items: Vec<PathBuf>,
+    /// Hit rects for each added item row (for remove click)
+    opt_item_rects: Vec<RECT>,
+    opt_item_scroll: usize,
+    /// True = in custom file browser mode instead of checkbox tree
+    opt_browse_mode: bool,
+    opt_browse_file_mode: bool, /// true = file picker, false = directory picker
+    opt_browse_cwd: PathBuf,
+    opt_browse_entries: Vec<(String, bool)>, // (name, is_dir)
+    opt_browse_sel: Option<usize>,
+    opt_browse_scroll: usize,
     /// OK / Cancel rects at the bottom of the option panel
     opt_ok_rect: RECT,
     opt_cancel_rect: RECT,
@@ -786,6 +800,16 @@ unsafe fn on_create(hwnd: HWND) {
         opt_cats: 0,
         opt_check_rects: [RECT::default(); 7],
         opt_add_rect: RECT::default(),
+        opt_add_toggle_rect: RECT::default(),
+        opt_items: Vec::new(),
+        opt_item_rects: Vec::new(),
+        opt_item_scroll: 0,
+        opt_browse_mode: false,
+        opt_browse_file_mode: true,
+        opt_browse_cwd: PathBuf::from(""),
+        opt_browse_entries: Vec::new(),
+        opt_browse_sel: None,
+        opt_browse_scroll: 0,
         opt_ok_rect: RECT::default(),
         opt_cancel_rect: RECT::default(),
         quar_ids: Vec::new(),
@@ -985,30 +1009,105 @@ unsafe fn layout(hwnd: HWND) {
         }
     }
 
-    // In scan-option mode, compute all 7 checkbox hit-rects and the "Add object"
-    // button rect here so hit-testing is always in sync with the window geometry.
+    // In scan-option mode, compute hit-rects for the add toolbar, added items,
+    // checkboxes, and browse-mode file list.
     if s.page == 0 && s.scan_option_mode {
         let card_top = HEADER_H + PAD;
-        let add_row_h = 36i32;
-        let sep_h = 1i32;
         let row_h = 32i32;
         let pad = 16i32;
-        // "Add object…" row just below the card top.
-        s.opt_add_rect = RECT {
-            left: content_l + pad,
-            top: card_top + pad,
-            right: content_r - pad,
-            bottom: card_top + pad + add_row_h,
-        };
-        let mut oy = s.opt_add_rect.bottom + sep_h + 6;
-        for i in 0..7usize {
-            s.opt_check_rects[i] = RECT {
+
+        if s.opt_browse_mode {
+            // Browse mode: just show back button + file list; checkboxes hidden.
+            // Back button is at the top of the card.
+            s.opt_add_rect = RECT {
                 left: content_l + pad,
-                top: oy,
+                top: card_top + pad,
                 right: content_r - pad,
-                bottom: oy + row_h,
+                bottom: card_top + pad + row_h,
             };
-            oy += row_h + 2;
+            let list_top = s.opt_add_rect.bottom + 6;
+            let avail_h = (h - STATUS_H - PAD) - list_top - BTN_H - PAD * 2;
+            let entry_h = 28i32;
+            let max_visible = (avail_h / entry_h).max(1) as usize;
+            s.opt_browse_scroll = s.opt_browse_scroll.min(
+                s.opt_browse_entries.len().saturating_sub(max_visible),
+            );
+            for i in 0..7usize {
+                let _idx = s.opt_browse_scroll + i;
+                let y = list_top + i as i32 * (entry_h + 2);
+                s.opt_check_rects[i] = RECT {
+                    left: content_l + pad + 8,
+                    top: y,
+                    right: content_r - pad - 8,
+                    bottom: y + entry_h,
+                };
+            }
+        } else {
+            // Normal option mode: Add object row + file/dir toggle + items + checkboxes.
+            let add_row_h = 36i32;
+            let toggle_w = 56i32;
+            let gap = 6i32;
+            // "Add object…" row
+            s.opt_add_rect = RECT {
+                left: content_l + pad,
+                top: card_top + pad,
+                right: content_r - pad - toggle_w * 2 - gap * 2,
+                bottom: card_top + pad + add_row_h,
+            };
+            // File/Directory toggle buttons next to Add object
+            let toggle_y = s.opt_add_rect.top;
+            s.opt_add_toggle_rect = RECT { left: 0, top: 0, right: 0, bottom: 0 }; // recompute
+            let fx = s.opt_add_rect.right + gap;
+            // File toggle rect
+            s.buttons.push(UiButton {
+                cmd: 100, // dummy; handled by hit-testing
+                label: if s.opt_browse_file_mode { "[File]" } else { " File " },
+                icon: "",
+                kind: if s.opt_browse_file_mode { Kind::Primary } else { Kind::Neutral },
+                rect: RECT { left: fx, top: toggle_y, right: fx + toggle_w, bottom: toggle_y + add_row_h },
+            });
+            // Dir toggle rect
+            s.buttons.push(UiButton {
+                cmd: 101,
+                label: if s.opt_browse_file_mode { " Dir  " } else { "[Dir]" },
+                icon: "",
+                kind: if s.opt_browse_file_mode { Kind::Neutral } else { Kind::Primary },
+                rect: RECT { left: fx + toggle_w + gap, top: toggle_y, right: fx + toggle_w * 2 + gap, bottom: toggle_y + add_row_h },
+            });
+
+            let mut oy = s.opt_add_rect.bottom + 4;
+
+            // Added items list
+            let max_item_rows = 3usize;
+            let item_count = s.opt_items.len().min(max_item_rows);
+            s.opt_item_rects.clear();
+            for _i in 0..item_count {
+                let r = RECT {
+                    left: content_l + pad + 4,
+                    top: oy,
+                    right: content_r - pad - 4,
+                    bottom: oy + 24,
+                };
+                s.opt_item_rects.push(r);
+                oy = r.bottom + 1;
+            }
+            if !s.opt_items.is_empty() {
+                oy += 4; // gap after items
+            }
+
+            // Thin separator
+            oy += 2;
+
+            // 7 checkboxes
+            for i in 0..7usize {
+                s.opt_check_rects[i] = RECT {
+                    left: content_l + pad,
+                    top: oy,
+                    right: content_r - pad,
+                    bottom: oy + row_h,
+                };
+                oy += row_h + 2;
+            }
         }
     }
 }
@@ -1169,9 +1268,6 @@ unsafe fn paint(hwnd: HWND) {
     if s.page == 0 && s.engine != EngineState::Loading {
         let content_l = SIDEBAR_W + PAD;
         if s.scan_option_mode {
-            // Full-card settings dialog inspired by Kaspersky KVRT's scan settings:
-            // a card filling the content area with an "Add object…" toolbar row,
-            // a tree of checkboxes, a thin separator, and OK/Cancel pinned at the bottom.
             let card = RECT {
                 left: content_l,
                 top: HEADER_H + PAD,
@@ -1184,109 +1280,159 @@ unsafe fn paint(hwnd: HWND) {
 
             let pad = 16i32;
 
-            // ── "Add object…" toolbar row ──────────────────────────────────────
-            let add_r = s.opt_add_rect;
-            let add_hot = pt_in(&add_r, 0, 0); // hover handled by button machinery
-            let add_bg = if add_hot { t.nav_hot } else { lerp_color(t.surface, t.border, 0.35) };
-            fill_round(mem, RECT { left: add_r.left, top: add_r.top, right: add_r.right, bottom: add_r.bottom }, 6, add_bg);
-            // "+" icon followed by label.
-            text(
-                mem,
-                "\u{E710}",  // MDL2 Add glyph
-                &RECT { left: add_r.left + 8, top: add_r.top, right: add_r.left + 32, bottom: add_r.bottom },
-                t.accent,
-                s.fonts.icon,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-            );
-            text(
-                mem,
-                "Add object\u{2026}",
-                &RECT { left: add_r.left + 32, top: add_r.top, right: add_r.right, bottom: add_r.bottom },
-                t.accent,
-                s.fonts.nav,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-            );
+            if s.opt_browse_mode {
+                // ── Browse mode: back button + file/directory list ──────────────
+                let back_r = s.opt_add_rect;
+                let back_bg = lerp_color(t.surface, t.border, 0.35);
+                fill_round(mem, back_r, 6, back_bg);
+                text(mem, "\u{E76B} Back", &back_r, t.accent, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-            // Thin separator under the toolbar row.
-            let sep_y = add_r.bottom + 4;
-            fill(
-                mem,
-                &RECT { left: card.left + pad, top: sep_y, right: card.right - pad, bottom: sep_y + 1 },
-                t.border,
-            );
+                // Mode indicator
+                let mode_label = if s.opt_browse_file_mode { "Mode: File" } else { "Mode: Dir" };
+                let mode_r = RECT { left: back_r.right - 100, top: back_r.top, right: back_r.right - 8, bottom: back_r.bottom };
+                text(mem, mode_label, &mode_r, t.accent, s.fonts.status, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 
-            // ── Checkbox tree ──────────────────────────────────────────────────
-            // 7 scan targets: first 3 are top-level, last 4 sub-level (indented).
-            // Bits: SYS_MEMORY, STARTUP, BOOT, then REGISTRY, PUM, MEMORY (proc), SIGMA.
-            let opts: [(&'static str, u8, bool); 7] = [
-                ("System memory",                          CAT_SYS_MEMORY, false),
-                ("Startup objects",                        CAT_STARTUP,    false),
-                ("Boot sectors",                           CAT_BOOT,       false),
-                ("Registry",                               CAT_REGISTRY,   true),
-                ("PUM detection",                          CAT_PUM,        true),
-                ("Process memory",                         CAT_MEMORY,     true),
-                ("Event logs (Sigma / Hayabusa)",          CAT_SIGMA,      true),
-            ];
-            let cb_sz = 16i32;  // checkbox square size
-            let row_h = 32i32;
-            for (i, (label, bit, indented)) in opts.iter().enumerate() {
-                let row = s.opt_check_rects[i];
-                let indent = if *indented { 24i32 } else { 0i32 };
+                // Current path
+                let cwd_str = if s.opt_browse_cwd.as_os_str().is_empty() {
+                    "This PC".to_string()
+                } else {
+                    s.opt_browse_cwd.display().to_string()
+                };
+                let cwd_r = RECT { left: card.left + pad, top: back_r.bottom + 2, right: card.right - pad, bottom: back_r.bottom + 22 };
+                text(mem, &cwd_str, &cwd_r, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-                // Subtle row hover/stripe: alternate stripe on even rows.
-                if i % 2 == 0 {
-                    fill(mem, &row, lerp_color(t.surface, t.stripe, 0.6));
+                // File list entries
+                let entry_h = 28i32;
+                let list_top = cwd_r.bottom + 2;
+                let max_visible = (card.bottom - list_top - BTN_H - PAD * 2) / entry_h;
+                let displayed = s.opt_browse_entries.len().min(max_visible as usize);
+
+                for i in 0..displayed.min(7) {
+                    let idx = s.opt_browse_scroll + i;
+                    if idx >= s.opt_browse_entries.len() { break; }
+                    let (name, is_dir) = &s.opt_browse_entries[idx];
+                    let row = s.opt_check_rects[i];
+                    let is_sel = s.opt_browse_sel == Some(idx);
+
+                    if is_sel {
+                        fill_round(mem, row, 4, t.accent);
+                    } else if i % 2 == 0 {
+                        fill(mem, &row, lerp_color(t.surface, t.stripe, 0.6));
+                    }
+
+                    let glyph = if *is_dir { "\u{E8B7}" } else { "\u{E8A5}" };
+                    let txt_color = if is_sel { WHITE } else { t.text };
+                    let icon_r = RECT { left: row.left + 4, top: row.top, right: row.left + 28, bottom: row.bottom };
+                    text(mem, glyph, &icon_r, if is_sel { WHITE } else { t.accent }, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                    let name_r = RECT { left: row.left + 30, top: row.top, right: row.right - 4, bottom: row.bottom };
+                    text(mem, name, &name_r, txt_color, s.fonts.body, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
                 }
 
-                let checked = s.opt_cats & bit != 0;
-                let cb_x = row.left + pad + indent;
-                let cb_y = row.top + (row_h - cb_sz) / 2;
-                let cb = RECT { left: cb_x, top: cb_y, right: cb_x + cb_sz, bottom: cb_y + cb_sz };
+                // Add button at bottom
+                let add_btn_r = s.opt_ok_rect;
+                let can_add = s.opt_browse_sel.is_some() || !s.opt_browse_file_mode;
+                let add_btn_color = if can_add { t.accent } else { t.border };
+                fill_round(mem, add_btn_r, 6, add_btn_color);
+                let add_label = if s.opt_browse_file_mode { "Add Selected" } else { "Add Current Dir" };
+                text(mem, add_label, &add_btn_r, WHITE, s.fonts.button, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            } else {
+                // ── Normal option mode: Add object row + items + checkboxes ─────
+                let add_r = s.opt_add_rect;
+                let add_bg = lerp_color(t.surface, t.border, 0.35);
+                fill_round(mem, add_r, 6, add_bg);
+                text(mem, "\u{E710}", &RECT { left: add_r.left + 8, top: add_r.top, right: add_r.left + 32, bottom: add_r.bottom }, t.accent, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                text(mem, "Add object\u{2026}", &RECT { left: add_r.left + 32, top: add_r.top, right: add_r.right, bottom: add_r.bottom }, t.accent, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-                // Checkbox background + border.
-                fill_round(mem, cb, 3, if checked { t.accent } else { t.surface });
-                frame_round(mem, cb, 3, if checked { t.accent } else { t.border });
-                if checked {
-                    // Checkmark glyph.
-                    text(mem, "\u{E73E}", &cb, WHITE, s.fonts.status, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                // File/Dir toggle pills
+                let file_sel = s.opt_browse_file_mode;
+                let file_txt = if file_sel { "[File]" } else { " File " };
+                let dir_txt = if file_sel { " Dir  " } else { "[Dir]" };
+                let toggle_text_color = |active: bool| if active { WHITE } else { t.text };
+                let toggle_bg = |active: bool| if active { t.accent } else { lerp_color(t.surface, t.border, 0.35) };
+
+                let fx = s.opt_add_rect.right + 6;
+                let ty = s.opt_add_rect.top;
+                let th = s.opt_add_rect.bottom - s.opt_add_rect.top;
+                let tw = 52i32;
+                let file_r = RECT { left: fx, top: ty, right: fx + tw, bottom: ty + th };
+                let dir_r = RECT { left: fx + tw + 4, top: ty, right: fx + tw * 2 + 4, bottom: ty + th };
+                s.opt_add_toggle_rect = file_r; // store for hit testing
+
+                fill_round(mem, file_r, 6, toggle_bg(file_sel));
+                text(mem, file_txt, &file_r, toggle_text_color(file_sel), s.fonts.body, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                fill_round(mem, dir_r, 6, toggle_bg(!file_sel));
+                text(mem, dir_txt, &dir_r, toggle_text_color(!file_sel), s.fonts.body, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+                // Thin separator
+                let sep_y = s.opt_add_rect.bottom + 4;
+                fill(mem, &RECT { left: card.left + pad, top: sep_y, right: card.right - pad, bottom: sep_y + 1 }, t.border);
+
+                // Added items list
+                if !s.opt_items.is_empty() {
+                    for (i, item) in s.opt_items.iter().enumerate() {
+                        let item_row = if i < s.opt_item_rects.len() { s.opt_item_rects[i] } else { break };
+                        fill(mem, &item_row, lerp_color(t.surface, t.stripe, 0.5));
+                        let item_name = if item.display().to_string().len() > 50 {
+                            format!("...{}", &item.display().to_string()[item.display().to_string().len()-47..])
+                        } else {
+                            item.display().to_string()
+                        };
+                        let is_file = item.is_file();
+                        text(mem, if is_file { "\u{E8A5}" } else { "\u{E8B7}" }, &RECT { left: item_row.left + 4, top: item_row.top, right: item_row.left + 24, bottom: item_row.bottom }, t.accent, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                        text(mem, &item_name, &RECT { left: item_row.left + 26, top: item_row.top, right: item_row.right - 28, bottom: item_row.bottom }, t.text, s.fonts.body, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                        // Remove button (X)
+                        text(mem, "\u{E711}", &RECT { left: item_row.right - 24, top: item_row.top, right: item_row.right, bottom: item_row.bottom }, t.danger, s.fonts.status, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    }
                 }
 
-                // Indent connector line for sub-items.
-                if *indented {
-                    let lx = row.left + pad + 10;
-                    fill(
-                        mem,
-                        &RECT { left: lx, top: row.top, right: lx + 1, bottom: cb_y + cb_sz / 2 },
-                        t.border,
-                    );
-                    fill(
-                        mem,
-                        &RECT { left: lx, top: cb_y + cb_sz / 2, right: cb_x, bottom: cb_y + cb_sz / 2 + 1 },
-                        t.border,
-                    );
+                // ── Checkbox tree ──────────────────────────────────────────────
+                let opts: [(&'static str, u8, bool); 7] = [
+                    ("System memory",                          CAT_SYS_MEMORY, false),
+                    ("Startup objects",                        CAT_STARTUP,    false),
+                    ("Boot sectors",                           CAT_BOOT,       false),
+                    ("Registry",                               CAT_REGISTRY,   true),
+                    ("PUM detection",                          CAT_PUM,        true),
+                    ("Process memory",                         CAT_MEMORY,     true),
+                    ("Event logs (Sigma / Hayabusa)",          CAT_SIGMA,      true),
+                ];
+                let cb_sz = 16i32;
+                let row_h = 32i32;
+                for (i, (label, bit, indented)) in opts.iter().enumerate() {
+                    let row = s.opt_check_rects[i];
+                    let indent = if *indented { 24i32 } else { 0i32 };
+
+                    if i % 2 == 0 {
+                        fill(mem, &row, lerp_color(t.surface, t.stripe, 0.6));
+                    }
+
+                    let checked = s.opt_cats & bit != 0;
+                    let cb_x = row.left + pad + indent;
+                    let cb_y = row.top + (row_h - cb_sz) / 2;
+                    let cb = RECT { left: cb_x, top: cb_y, right: cb_x + cb_sz, bottom: cb_y + cb_sz };
+
+                    fill_round(mem, cb, 3, if checked { t.accent } else { t.surface });
+                    frame_round(mem, cb, 3, if checked { t.accent } else { t.border });
+                    if checked {
+                        text(mem, "\u{E73E}", &cb, WHITE, s.fonts.status, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    }
+
+                    if *indented {
+                        let lx = row.left + pad + 10;
+                        fill(mem, &RECT { left: lx, top: row.top, right: lx + 1, bottom: cb_y + cb_sz / 2 }, t.border);
+                        fill(mem, &RECT { left: lx, top: cb_y + cb_sz / 2, right: cb_x, bottom: cb_y + cb_sz / 2 + 1 }, t.border);
+                    }
+
+                    let label_r = RECT { left: cb.right + 8, top: row.top, right: row.right - 8, bottom: row.bottom };
+                    text(mem, label, &label_r, t.text, s.fonts.body, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
                 }
 
-                let label_r = RECT { left: cb.right + 8, top: row.top, right: row.right - 8, bottom: row.bottom };
-                text(mem, label, &label_r, t.text, s.fonts.body, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                // Thin separator above footer.
+                let footer_sep_y = card.bottom - BTN_H - PAD * 2 - 1;
+                fill(mem, &RECT { left: card.left + pad, top: footer_sep_y, right: card.right - pad, bottom: footer_sep_y + 1 }, t.border);
+
+                // "Restore default actions" link text.
+                text(mem, "Restore default actions", &RECT { left: card.left + pad * 2, top: footer_sep_y + 4, right: card.left + 240, bottom: footer_sep_y + PAD + BTN_H }, t.accent, s.fonts.body, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
             }
-
-            // Thin separator above footer.
-            let footer_sep_y = card.bottom - BTN_H - PAD * 2 - 1;
-            fill(
-                mem,
-                &RECT { left: card.left + pad, top: footer_sep_y, right: card.right - pad, bottom: footer_sep_y + 1 },
-                t.border,
-            );
-
-            // "Restore default actions" link text (left-aligned in the footer, like Kaspersky).
-            text(
-                mem,
-                "Restore default actions",
-                &RECT { left: card.left + pad * 2, top: footer_sep_y + 4, right: card.left + 240, bottom: footer_sep_y + PAD + BTN_H },
-                t.accent,
-                s.fonts.body,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-            );
         } else {
             let hero = RECT { left: content_l, top: HEADER_H + PAD, right: w - PAD, bottom: HEADER_H + PAD + HERO_H };
             draw_shadow(mem, hero, 16, t);
@@ -1944,23 +2090,150 @@ unsafe fn on_lbutton_down(hwnd: HWND, (x, y): (i32, i32)) {
 
 unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
     let Some(s) = state(hwnd) else { return };
-    // Checkboxes in scan option mode
+    let mut wr = RECT::default();
+    let _ = GetClientRect(hwnd, &mut wr);
+    let cw = wr.right - wr.left;
+    let ch = wr.bottom - wr.top;
     if s.scan_option_mode && s.page == 0 {
-        let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_PUM, CAT_MEMORY, CAT_SIGMA];
-        for (i, bit) in bits.iter().enumerate() {
-            if pt_in(&s.opt_check_rects[i], x, y) {
-                s.opt_cats ^= bit; // toggle
+        if s.opt_browse_mode {
+            // Browse mode: handle file list clicks
+            let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_PUM, CAT_MEMORY, CAT_SIGMA];
+            for (i, _bit) in bits.iter().enumerate() {
+                if pt_in(&s.opt_check_rects[i], x, y) {
+                    let idx = s.opt_browse_scroll + i;
+                    if idx < s.opt_browse_entries.len() {
+                        s.opt_browse_sel = Some(idx);
+                        let _ = InvalidateRect(Some(hwnd), None, false);
+                        return;
+                    }
+                }
+            }
+            // Click on entry = navigate or select
+            for (i, _) in bits.iter().enumerate() {
+                if pt_in(&s.opt_check_rects[i], x, y) {
+                    let idx = s.opt_browse_scroll + i;
+                    if idx < s.opt_browse_entries.len() {
+                        let (name, is_dir) = &s.opt_browse_entries[idx];
+                        if *is_dir {
+                            // Navigate into directory
+                            let new_dir = if s.opt_browse_cwd.as_os_str().is_empty() {
+                                PathBuf::from(name.trim_end_matches('\\'))
+                            } else {
+                                let parent = if name == ".." {
+                                    s.opt_browse_cwd.parent().map(|p| p.to_path_buf())
+                                        .unwrap_or_else(|| PathBuf::from(""))
+                                } else {
+                                    s.opt_browse_cwd.join(name)
+                                };
+                                parent
+                            };
+                            if new_dir.as_os_str().is_empty() || !new_dir.exists() {
+                                populate_drive_entries(s);
+                            } else {
+                                populate_browse_entries(s, &new_dir);
+                            }
+                            layout(hwnd);
+                            let _ = InvalidateRect(Some(hwnd), None, false);
+                            return;
+                        } else {
+                            s.opt_browse_sel = Some(idx);
+                            let _ = InvalidateRect(Some(hwnd), None, false);
+                            return;
+                        }
+                    }
+                }
+            }
+            // Back button
+            if pt_in(&s.opt_add_rect, x, y) {
+                s.opt_browse_mode = false;
+                layout(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 return;
             }
-        }
-        // "Add object…" row — open a folder picker and store the path (future extension).
-        if pt_in(&s.opt_add_rect, x, y) {
-            // Placeholder: open folder picker; picked paths could be added to a list.
-            // For now just show a brief status note.
-            s.status = "Use drag-and-drop to add custom paths to the scan.".into();
-            let _ = InvalidateRect(Some(hwnd), None, false);
-            return;
+            // Add button
+            if pt_in(&s.opt_ok_rect, x, y) {
+                if s.opt_browse_file_mode {
+                    // Add selected file
+                    if let Some(idx) = s.opt_browse_sel {
+                        if idx < s.opt_browse_entries.len() {
+                            let (name, _) = &s.opt_browse_entries[idx];
+                            let full_path = s.opt_browse_cwd.join(name);
+                            if full_path.exists() {
+                                s.opt_items.push(full_path);
+                            }
+                        }
+                    }
+                } else {
+                    // Add current directory
+                    if s.opt_browse_cwd.exists() {
+                        s.opt_items.push(s.opt_browse_cwd.clone());
+                    }
+                }
+                s.opt_browse_mode = false;
+                layout(hwnd);
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+        } else {
+            // Normal option mode
+            let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_PUM, CAT_MEMORY, CAT_SIGMA];
+            // Checkbox toggles
+            for (i, bit) in bits.iter().enumerate() {
+                if pt_in(&s.opt_check_rects[i], x, y) {
+                    s.opt_cats ^= bit;
+                    let _ = InvalidateRect(Some(hwnd), None, false);
+                    return;
+                }
+            }
+            // "Restore default actions" link — reset all categories
+            let card = RECT {
+                left: SIDEBAR_W + PAD,
+                top: HEADER_H + PAD,
+                right: cw - PAD,
+                bottom: ch - STATUS_H - PAD,
+            };
+            let footer_sep_y = card.bottom - BTN_H - PAD * 2 - 1;
+            let restore_r = RECT { left: card.left + 32, top: footer_sep_y + 4, right: card.left + 240, bottom: footer_sep_y + PAD + BTN_H };
+            if pt_in(&restore_r, x, y) {
+                s.opt_cats = CAT_SYS_MEMORY | CAT_STARTUP | CAT_BOOT | CAT_REGISTRY | CAT_PUM | CAT_MEMORY | CAT_SIGMA;
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+            // "Add object…" row — enter browse mode
+            if pt_in(&s.opt_add_rect, x, y) {
+                s.opt_browse_mode = true;
+                populate_drive_entries(s);
+                layout(hwnd);
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+            // File/Dir toggle
+            let toggle_w = 52i32;
+            let fx = s.opt_add_rect.right + 6;
+            let ty = s.opt_add_rect.top;
+            let th = s.opt_add_rect.bottom - s.opt_add_rect.top;
+            let file_r = RECT { left: fx, top: ty, right: fx + toggle_w, bottom: ty + th };
+            let dir_r = RECT { left: fx + toggle_w + 4, top: ty, right: fx + toggle_w * 2 + 4, bottom: ty + th };
+            if pt_in(&file_r, x, y) {
+                s.opt_browse_file_mode = true;
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+            if pt_in(&dir_r, x, y) {
+                s.opt_browse_file_mode = false;
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+            // Added item remove (X) buttons
+            for (i, item_row) in s.opt_item_rects.iter().enumerate() {
+                let remove_r = RECT { left: item_row.right - 24, top: item_row.top, right: item_row.right, bottom: item_row.bottom };
+                if pt_in(&remove_r, x, y) && i < s.opt_items.len() {
+                    s.opt_items.remove(i);
+                    layout(hwnd);
+                    let _ = InvalidateRect(Some(hwnd), None, false);
+                    return;
+                }
+            }
         }
     }
     let Some(cmd) = s.down_cmd.take() else { return };
@@ -1977,6 +2250,9 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
     match cmd {
         CMD_CUSTOM_SCAN => {
             s.scan_option_mode = true;
+            s.opt_browse_mode = false;
+            s.opt_items.clear();
+            s.opt_browse_file_mode = true;
             // Default: all scan targets on.
             s.opt_cats = CAT_SYS_MEMORY | CAT_STARTUP | CAT_BOOT | CAT_REGISTRY | CAT_PUM | CAT_MEMORY | CAT_SIGMA;
             // Hide the results list so it does not overlap the option panel.
@@ -1995,20 +2271,30 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_START_SCAN => {
             let cats = s.opt_cats;
             s.scan_option_mode = false;
-            // Restore the list before picking the path so the window looks right
-            // whether the user picks a folder or cancels.
+            s.opt_browse_mode = false;
             if s.engine != EngineState::Loading {
                 let _ = ShowWindow(s.scan_list, SW_SHOW);
             }
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
-            if let Some(path) = pick_path(true) {
+            let paths: Vec<PathBuf> = if s.opt_items.is_empty() {
+                // No custom items added — show native folder picker
+                pick_path(true).map(|p| vec![p]).unwrap_or_default()
+            } else {
+                std::mem::take(&mut s.opt_items)
+            };
+            if !paths.is_empty() {
                 s.cancel.store(false, Ordering::Relaxed);
                 s.abort.store(false, Ordering::Relaxed);
                 lv_clear(s.scan_list);
                 clear_scan_results(s);
-                s.status = format!("Scanning {}…", path.display());
-                let _ = s.work_tx.send(WorkRequest::FullScan(vec![path], cats));
+                let desc = if paths.len() == 1 {
+                    paths[0].display().to_string()
+                } else {
+                    format!("{} object(s)", paths.len())
+                };
+                s.status = format!("Scanning {}…", desc);
+                let _ = s.work_tx.send(WorkRequest::FullScan(paths, cats));
             }
         }
         CMD_CLEAN => act_clean_and_traces(hwnd, s),
@@ -3525,6 +3811,74 @@ fn exe_dir() -> PathBuf {
 
 fn theme_pref_path() -> PathBuf {
     exe_dir().join("hydradragon_theme")
+}
+
+/// Return all available drive roots on the system.
+fn all_fixed_drives() -> Vec<PathBuf> {
+    let mut drives = Vec::new();
+    for letter in 'A'..='Z' {
+        let root = format!("{letter}:\\");
+        if Path::new(&root).exists() {
+            drives.push(PathBuf::from(root));
+        }
+    }
+    drives
+}
+
+/// Populate opt_browse_entries from a given directory path.
+fn populate_browse_entries(s: &mut AppState, dir: &Path) {
+    s.opt_browse_entries.clear();
+    s.opt_browse_sel = None;
+    s.opt_browse_scroll = 0;
+
+    if let Some(parent) = dir.parent() {
+        if parent != dir {
+            s.opt_browse_entries.push(("..".to_string(), true));
+        }
+    }
+
+    let mut dirs: Vec<String> = Vec::new();
+    let mut files: Vec<String> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                dirs.push(name);
+            } else if s.opt_browse_file_mode && entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                files.push(name);
+            }
+        }
+    }
+
+    dirs.sort();
+    files.sort();
+
+    for d in &dirs {
+        s.opt_browse_entries.push((d.clone(), true));
+    }
+    for f in &files {
+        s.opt_browse_entries.push((f.clone(), false));
+    }
+
+    s.opt_browse_cwd = dir.to_path_buf();
+}
+
+fn populate_drive_entries(s: &mut AppState) {
+    s.opt_browse_entries.clear();
+    s.opt_browse_sel = None;
+    s.opt_browse_scroll = 0;
+    s.opt_browse_cwd = PathBuf::from("");
+
+    for letter in 'A'..='Z' {
+        let root = format!("{letter}:\\");
+        if Path::new(&root).exists() {
+            s.opt_browse_entries.push((root, true));
+        }
+    }
 }
 
 /// Loads the remembered theme (defaults to light if absent).

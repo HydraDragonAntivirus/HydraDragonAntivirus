@@ -142,6 +142,26 @@ impl Special {
         }
     }
 
+    /// Maximum bytes this special can consume (`UNBOUNDED_GAP` for an open gap).
+    /// Used with `min_width` to bound the byte distance from a pattern's start to a
+    /// later literal when that literal is anchored despite a variable-width element
+    /// before it (see `Pattern::literal_prefix_range`).
+    fn max_width(&self) -> usize {
+        match self {
+            Special::AltChar { .. } => 1,
+            Special::AltStrFixed { len, .. } => *len,
+            Special::AltStr { branches, negative, min } => {
+                if *negative {
+                    *min // negated alternations match a fixed `min` width
+                } else {
+                    branches.iter().map(|b| b.len()).max().unwrap_or(*min)
+                }
+            }
+            Special::Boundary => 0,
+            Special::Gap { max, .. } => *max,
+        }
+    }
+
     /// Exact bytes this special always consumes, or `None` when variable-width.
     /// Used to decide whether the byte distance from the pattern start to a later
     /// literal is constant (so the scan can anchor on that literal). A negated
@@ -427,6 +447,69 @@ impl Pattern {
         n
     }
 
+    /// Candidate pattern starts implied by literal occurrences `hints` (positions
+    /// of the best literal), given the `[min_prefix, max_prefix]` byte distance
+    /// from a match start to that literal. Sorted + deduped so overlapping windows
+    /// aren't verified twice. Shared by `find_all` (self-found occurrences) and
+    /// `find_all_at` (prefilter-supplied hints).
+    fn collect_starts(
+        &self,
+        hints: impl Iterator<Item = usize>,
+        min_prefix: usize,
+        max_prefix: usize,
+    ) -> Vec<usize> {
+        let mut starts: Vec<usize> = Vec::new();
+        for q in hints {
+            let lo = q.saturating_sub(max_prefix);
+            let hi = q.saturating_sub(min_prefix);
+            for s in lo..=hi {
+                starts.push(s);
+            }
+        }
+        starts.sort_unstable();
+        starts.dedup();
+        starts
+    }
+
+    /// Verify the pattern at each candidate `start`, collecting in-range matches.
+    /// The in-range predicate matches `find_all`'s `max_pos` exactly (start in
+    /// `[rs, max(rs, re - min_len)]`).
+    fn verify_at_starts(
+        &self,
+        data: &[u8],
+        ranges: &[(usize, usize)],
+        limit: usize,
+        starts: &[usize],
+    ) -> Vec<MatchRange> {
+        let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
+        let mut out = Vec::new();
+        let min_len = self.min_match_len().max(1);
+        for &start in starts {
+            if fuel.get() == 0 {
+                return out;
+            }
+            if let Some(match_end) = self.match_rec(data, start, 0, 0, &fuel) {
+                if self.fullword && !is_fullword(data, start, match_end) {
+                    continue;
+                }
+                if !ranges.iter().any(|&(rs, re)| {
+                    let max_pos = re.saturating_sub(min_len).max(rs);
+                    start >= rs && start <= max_pos
+                }) {
+                    continue;
+                }
+                out.push(MatchRange {
+                    start,
+                    end: match_end,
+                });
+                if out.len() >= limit {
+                    return out;
+                }
+            }
+        }
+        out
+    }
+
     /// Find all match ranges in `data` within the given ranges.
     pub fn find_all(
         &self,
@@ -439,16 +522,11 @@ impl Pattern {
         }
         let min_len = self.min_match_len().max(1);
 
-        // Fast path: anchor the scan on the pattern's best fixed literal via SIMD
-        // substring search and verify (`match_at`) only where the literal occurs,
-        // instead of calling `match_at` at *every* byte position. This turns each
-        // signature's O(n) full-buffer scan into O(literal-occurrences) — the
-        // dominant cost on large files, since atomless / overflowed / gap- and
-        // alternation-bearing signatures all reach this full-scan fallback. Valid
-        // whenever the byte distance to the literal is constant (no open gap or
-        // unequal-length alternation *before* it); trailing gaps/alternations are
-        // still verified by `match_at`. This is the same anchoring `find_all_at`
-        // uses, but with the occurrences found here rather than prefilter-supplied.
+        // Fast path: anchor on the best constant-offset run via SIMD substring
+        // search and verify only where it occurs. (The prefilter-threaded
+        // `find_all_at` handles the post-gap-literal case; here, full scans of
+        // non-threaded subsigs are better served by the streaming anchored search
+        // than by materialising every literal occurrence.)
         if let Some((prefix, needle)) = self.best_anchor() {
             return self.find_all_anchored(data, ranges, min_len, limit, prefix, &needle);
         }
@@ -550,24 +628,39 @@ impl Pattern {
         best.map(|(_, off, needle)| (off, needle))
     }
 
-    /// The constant byte distance from the pattern start to its best literal (the
-    /// run the prefilter indexes as this pattern's atom), or `None` when a
-    /// variable-width element (open gap / unequal-length alternation) precedes it,
-    /// so the distance isn't constant and prefilter hints can't be aligned.
-    fn literal_byte_prefix(&self) -> Option<usize> {
+    /// The `[min, max]` byte distance from the pattern start to its best literal,
+    /// accounting for variable-width elements (gaps / unequal alternations) that
+    /// precede it. `min == max` exactly when `literal_byte_prefix` is `Some` (the
+    /// constant-offset fast case). `max == usize::MAX` when an open `*`/`{n-}` gap
+    /// precedes the literal (then the distance is unbounded and hint anchoring is
+    /// not worthwhile). `None` when there is no best literal at all.
+    ///
+    /// Used by `find_all_at` to anchor on a *selective* literal that sits after a
+    /// bounded gap (e.g. polymorphic `e8??000000{-50}8a02…` virus bodies): the
+    /// literal's hint positions are few, and each implies a small, bounded set of
+    /// candidate pattern starts — far fewer probes than a full scan that would
+    /// anchor on a common leading byte.
+    fn literal_prefix_range(&self) -> Option<(usize, usize)> {
         let (lit_off, _) = self.best_literal()?;
-        let mut bytes = 0usize;
+        let mut min = 0usize;
+        let mut max = 0usize;
         let mut sidx = 0usize;
         for i in 0..lit_off {
             let inst = self.instructions.get_u16(i);
             if (inst & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
-                bytes += self.specials.get(sidx)?.fixed_width()?;
+                let sp = match self.specials.get(sidx) {
+                    Some(sp) => sp,
+                    None => return None,
+                };
+                min += sp.min_width();
+                max = max.saturating_add(sp.max_width());
                 sidx += 1;
             } else {
-                bytes += 1;
+                min += 1;
+                max = max.saturating_add(1); // saturating: stay UNBOUNDED past an open gap
             }
         }
-        Some(bytes)
+        Some((min, max))
     }
 
     /// Full-scan verification anchored on a required fixed `needle` that always
@@ -652,6 +745,29 @@ impl Pattern {
                     continue;
                 }
                 last_start = Some(pos);
+                // Nocase anchoring matched only a single byte; verify the WHOLE
+                // needle inline (case-insensitively) before the costlier `match_rec`.
+                // Without this, a one-letter anchor of a nocase keyword (e.g. `p` of
+                // `powershell`) fires `match_rec` at its tens-of-thousands of buffer
+                // occurrences; the inline check rejects all but true needle matches.
+                // (`all_exact` already SIMD-matched the full needle, so skip it there.)
+                if !all_exact {
+                    let ns = pos + byte_prefix;
+                    if ns + needle.len() > data.len() {
+                        continue;
+                    }
+                    let ok = needle.iter().enumerate().all(|(k, &(b, nc))| {
+                        let d = data[ns + k];
+                        if nc {
+                            d.to_ascii_lowercase() == b
+                        } else {
+                            d == b
+                        }
+                    });
+                    if !ok {
+                        continue;
+                    }
+                }
                 if fuel.get() == 0 {
                     return out;
                 }
@@ -685,68 +801,30 @@ impl Pattern {
             return Vec::new();
         }
         // Each hint is an occurrence of this pattern's prefilter atom (its best
-        // literal); a match anchors at `occurrence - prefix`, where `prefix` is the
-        // constant byte distance from the pattern start to that literal. `match_at`
-        // then verifies the whole pattern, including any *trailing* gaps/alternations
-        // — so specials no longer force a full re-scan, only a variable-width gap
-        // *before* the literal does (then the distance isn't constant and the hints
-        // can't be aligned, so fall back to a correct full scan).
-        let prefix = if self.specials.is_empty() {
-            // No specials: instruction index == byte offset.
-            self.best_literal().map(|(off, _)| off).unwrap_or(0)
-        } else {
-            match self.literal_byte_prefix() {
-                Some(p) => p,
-                None => return self.find_all(data, ranges, limit),
-            }
+        // literal). A match places that literal at the hint, so the pattern START
+        // lies in `[hint - max_prefix, hint - min_prefix]`, where the prefix range
+        // is the byte distance from the pattern start to the literal (constant when
+        // nothing variable precedes it; a bounded interval when a `{n-m}` gap or an
+        // unequal alternation does). We verify `match_rec` at each candidate start.
+        //
+        // This is what lets a *selective* literal that sits AFTER a bounded gap
+        // anchor the scan — e.g. polymorphic `e8??000000{-50}8a02…` virus bodies,
+        // whose only good literal (`8a02`) follows the gap. Previously such patterns
+        // fell back to a full scan that anchored on the common leading `e8` byte and
+        // backtracked the gaps at every one of its ~tens-of-thousands of positions.
+        let (min_prefix, max_prefix) = match self.literal_prefix_range() {
+            Some(r) => r,
+            None => return self.find_all(data, ranges, limit),
         };
-        // Shared per-signature backtracking budget (see `find_all`).
-        let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
-        let mut out = Vec::new();
-        let mut last_start = None;
-
-        for &hint in hints {
-            let occurrence = hint as usize;
-            let Some(start) = occurrence.checked_sub(prefix) else {
-                continue;
-            };
-            if last_start == Some(start) {
-                continue;
-            }
-            last_start = Some(start);
-            if fuel.get() == 0 {
-                return out;
-            }
-            if let Some(match_end) = self.match_rec(data, start, 0, 0, &fuel) {
-                if self.fullword && !is_fullword(data, start, match_end) {
-                    continue;
-                }
-                // In-range predicate IDENTICAL to `find_all`'s `max_pos`: a match
-                // start is valid in `[rs, max(rs, re - min_len)]`. The previous code
-                // used the instruction COUNT (`instructions.len()`) as if it were
-                // the match byte-width and did NOT clamp to `rs`, so when
-                // `re - count < rs` it rejected a real match starting at `rs` — a
-                // false negative vs `find_all` (caught by differential fuzzing,
-                // e.g. pattern `DD9B53?F` on range `[15,18)`). `min_match_len`
-                // (specials counted at their min width) matches what `find_all`
-                // uses, keeping the two paths consistent.
-                let min_len = self.min_match_len().max(1);
-                if !ranges.iter().any(|&(rs, re)| {
-                    let max_pos = re.saturating_sub(min_len).max(rs);
-                    start >= rs && start <= max_pos
-                }) {
-                    continue;
-                }
-                out.push(MatchRange {
-                    start,
-                    end: match_end,
-                });
-                if out.len() >= limit {
-                    return out;
-                }
-            }
+        let span = max_prefix - min_prefix; // max >= min by construction
+        // When the literal sits behind an open/wide gap the start set explodes; a
+        // full scan with its own anchor is then better. Bound the top-level probes.
+        const MAX_PROBES: usize = 16_384;
+        if span > 0 && hints.len().saturating_mul(span + 1) > MAX_PROBES {
+            return self.find_all(data, ranges, limit);
         }
-        out
+        let starts = self.collect_starts(hints.iter().map(|&h| h as usize), min_prefix, max_prefix);
+        self.verify_at_starts(data, ranges, limit, &starts)
     }
 
     /// Try to match the pattern at a specific position in data.
