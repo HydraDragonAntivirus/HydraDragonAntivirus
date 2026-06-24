@@ -3284,7 +3284,8 @@ fn run_session(
 fn load_registry_scanner() -> RegistryScanner {
     let dir = exe_dir();
     let reglist = dir.join("reglist.txt");
-    let rules_dir = dir.join("hydradragonsig_rules").filter(|p| p.exists());
+    let rules_dir_path = dir.join("hydradragonsig_rules");
+    let rules_dir = if rules_dir_path.exists() { Some(rules_dir_path) } else { None };
     if reglist.exists() {
         RegistryScanner::load(&reglist, rules_dir.as_deref())
     } else {
