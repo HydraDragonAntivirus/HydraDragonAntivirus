@@ -357,6 +357,11 @@ impl Pipeline {
     /// bypass the cache. The returned [`ScanResult`] matches `scan_file`.
     /// Total signatures/rules loaded across the engines (ClamAV + hydradragonsig
     /// static rules). Shown in the UI when the engine becomes ready.
+    /// Per-engine load data: (name, items, mem_mb).
+    pub fn engine_loads(&self) -> Vec<(&'static str, usize, Option<f64>)> {
+        self.load_metrics.iter().map(|m| (m.name, m.items, m.mem_mb)).collect()
+    }
+
     pub fn loaded_signature_count(&self) -> usize {
         let clamav = self.clamav.as_ref().map(|c| c.signature_count()).unwrap_or(0);
         let hds = self

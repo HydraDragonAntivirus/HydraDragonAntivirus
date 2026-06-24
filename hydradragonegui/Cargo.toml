@@ -1,0 +1,29 @@
+[package]
+name = "hydradragonegui"
+version = "0.1.0"
+edition = "2024"
+description = "Safe egui/eframe GUI for the HydraDragon portable antivirus (no unsafe Win32)"
+license = "GPL-2.0-or-later"
+
+[[bin]]
+name = "hydradragonegui"
+path = "src/main.rs"
+
+[dependencies]
+# Pure-Rust, safe immediate-mode GUI — replaces the raw Win32/GDI code entirely.
+eframe = { version = "0.34.3", default-features = true }
+egui = "0.34.3"
+egui_extras = { version = "0.34.3", features = ["all_loaders"] }
+
+# Native, SAFE file/folder pickers (no manual COM/Shell FFI).
+rfd = "0.17"
+
+# The scanning engine (pipeline, verdicts, quarantine, dedup cache, metrics).
+hydradragonav = { path = "../hydradragonav" }
+
+# MD5 for the saved report (same crate/version the engine uses).
+md-5 = "0.11.0"
+
+[build-dependencies]
+# Embeds the HydraDragon icon into the executable (optional, mirrors wingui).
+winres = "0.1"

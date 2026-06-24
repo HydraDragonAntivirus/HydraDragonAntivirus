@@ -59,7 +59,7 @@ pub fn process_cpu_secs() -> f64 {
 }
 
 #[cfg(windows)]
-fn process_mem() -> (f64, f64) {
+pub fn process_mem() -> (f64, f64) {
     #[repr(C)]
     struct Pmc {
         cb: u32,
@@ -84,7 +84,7 @@ fn process_mem() -> (f64, f64) {
 }
 
 #[cfg(not(windows))]
-fn process_mem() -> (f64, f64) {
+pub fn process_mem() -> (f64, f64) {
     (0.0, 0.0)
 }
 

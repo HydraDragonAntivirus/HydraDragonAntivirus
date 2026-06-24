@@ -339,7 +339,7 @@ enum ScanMsg {
     Resumed,
     /// Engine lifecycle (drives the loading screen / status indicator).
     EngineLoading,
-    EngineReady { signatures: usize },
+    EngineReady { signatures: usize, engines: Vec<(&'static str, usize, Option<f64>)> },
     EngineStopped,
     /// Result of re-scanning one already-listed file (right-click → Rescan). The
     /// row is updated in place, or removed when it comes back clean.
@@ -425,9 +425,9 @@ struct AppState {
     /// Total duration of the last completed scan (set on `Done`), shown in the
     /// status bar and exported in the report.
     scan_elapsed: Option<Duration>,
-    /// Previous CPU time sample for live CPU% display
-    prev_cpu_secs: f64,
-    prev_cpu_time: Instant,
+    /// Previous CPU time sample for live CPU% display (Cell for interior mutability)
+    prev_cpu_secs: std::cell::Cell<f64>,
+    prev_cpu_time: std::cell::Cell<Instant>,
     anim_frame: u32,
     anim_timer_active: bool,
     /// Button hover animation: (cmd, entering[true]/exiting[false], progress 0-5)
@@ -797,8 +797,8 @@ unsafe fn on_create(hwnd: HWND) {
         scan_discovering: false,
         scan_started_at: None,
         scan_elapsed: None,
-        prev_cpu_secs: hydradragonav::metrics::process_cpu_secs(),
-        prev_cpu_time: Instant::now(),
+        prev_cpu_secs: std::cell::Cell::new(hydradragonav::metrics::process_cpu_secs()),
+        prev_cpu_time: std::cell::Cell::new(Instant::now()),
         anim_frame: 0,
         anim_timer_active: false,
         hover_anim: Vec::new(),
@@ -1614,10 +1614,32 @@ unsafe fn paint(hwnd: HWND) {
     let dot_cy = h - STATUS_H / 2;
     let sdot = RECT { left: PAD, top: dot_cy - 3, right: PAD + 6, bottom: dot_cy + 3 };
     fill_round(mem, sdot, 3, state_dot_c);
+    // CPU% and RAM on the right side of the status bar
+    let now = Instant::now();
+    let prev_cpu = s.prev_cpu_secs.get();
+    let prev_time = s.prev_cpu_time.get();
+    let dt = (now - prev_time).as_secs_f64().max(0.001);
+    let cpu_now = hydradragonav::metrics::process_cpu_secs();
+    let cpu_delta = (cpu_now - prev_cpu) / dt * 100.0;
+    let cpu_pct = (cpu_delta.clamp(0.0, 999.0) * 10.0).round() / 10.0;
+    let (_, peak_mb) = hydradragonav::metrics::process_mem();
+    let metrics_str = format!("CPU {cpu_pct:.1}%  RAM {} MB", peak_mb.round());
+    s.prev_cpu_secs.set(cpu_now);
+    s.prev_cpu_time.set(now);
+
+    let right_third = PAD + ((w as i32 - PAD * 2) * 2 / 3);
+    text(
+        mem,
+        &metrics_str,
+        &RECT { left: right_third, top: h - STATUS_H, right: w as i32 - PAD, bottom: h },
+        t.text,
+        s.fonts.status,
+        DT_RIGHT | DT_VCENTER | DT_SINGLELINE,
+    );
     text(
         mem,
         &s.status,
-        &RECT { left: PAD + 12, top: h - STATUS_H, right: w - PAD, bottom: h },
+        &RECT { left: PAD + 12, top: h - STATUS_H, right: right_third - PAD, bottom: h },
         t.text2,
         s.fonts.status,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
@@ -2339,7 +2361,8 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             // streaming file-scan phase.
             {
                 s.cancel.store(false, Ordering::Relaxed);
-                s.abort.store(false, Ordering::Relaxed);
+                // abort is cleared inside the worker's FullScan handler to avoid a
+                // race with a queued Resume message. Do NOT clear it here.
                 lv_clear(s.scan_list);
                 clear_scan_results(s);
                 let desc = if paths.len() == 1 {
@@ -2963,11 +2986,12 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.status = "Loading engines…".into();
                 apply_page(hwnd); // hides the lists so the loading screen shows
             }
-            ScanMsg::EngineReady { signatures } => {
+            ScanMsg::EngineReady { signatures, engines } => {
                 s.engine = EngineState::Ready;
                 s.sig_count = signatures;
-                s.status = format!("Engine ready — {} signatures loaded.", fmt_count(signatures));
-                apply_page(hwnd); // reveals the active page's list
+                let per_engine: Vec<String> = engines.iter().map(|(n, c, _)| format!("{}:{}", n, c)).collect();
+                s.status = format!("Engine ready — {} sigs ({}).", fmt_count(signatures), per_engine.join(", "));
+                apply_page(hwnd);
             }
             ScanMsg::EngineStopped => {
                 s.engine = EngineState::Stopped;
@@ -3282,6 +3306,10 @@ fn worker(
     while let Ok(req) = work_rx.recv() {
         match req {
             WorkRequest::FullScan(paths, cats) => {
+                // This FullScan replaces any prior session; clear the abort flag
+                // here (not in the UI handler) so a queued Resume preceding this
+                // message sees abort=true and discards the old session.
+                abort.store(false, Ordering::Relaxed);
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
                 session = Some(seed_session(&paths, cats));
@@ -3295,7 +3323,8 @@ fn worker(
                 // Idempotent confirm so the indicator flips to Ready even if it
                 // was already loaded.
                 let signatures = pl.loaded_signature_count();
-                send(&tx, hwnd, ScanMsg::EngineReady { signatures });
+                let engines = pl.engine_loads();
+                send(&tx, hwnd, ScanMsg::EngineReady { signatures, engines });
             }
             WorkRequest::StopEngine => {
                 if let Some(pl) = pipeline.as_ref() {
@@ -3452,7 +3481,7 @@ fn run_session(
     hwnd: HWND,
 ) -> bool {
     cancel.store(false, Ordering::Relaxed);
-    // abort is NOT reset here — CMD_STOP sets it and CMD_START_SCAN clears it;
+    // abort is NOT reset here — CMD_STOP sets it and FullScan handler clears it;
     // Resume respects the last user action.
     let completed = run_streaming(pl, sess, cancel, abort, tx, hwnd);
     pl.save_result_caches();
@@ -3478,8 +3507,18 @@ fn run_session(
     let mut extra_threats = 0usize;
     let mut phase_labels: Vec<String> = Vec::new();
 
+    // Helper: check abort between phases
+    macro_rules! check_abort {
+        () => {
+            if abort.load(Ordering::Relaxed) {
+                send(tx, hwnd, ScanMsg::Stopped);
+                return true;
+            }
+        };
+    }
+
     // ── Registry scan (persistence + PUA entries) ──────────────────────────
-    if sess.cats & CAT_REGISTRY != 0 {
+    if sess.cats & CAT_REGISTRY != 0 { check_abort!();
         send(tx, hwnd, ScanMsg::Status("Custom scan: registry…".into()));
         let reg = load_registry_scanner().scan();
         let mut phase_count = 0usize;
@@ -3499,7 +3538,7 @@ fn run_session(
     }
 
     // ── PUM detection (PUM paths + file PUM rules) ────────────────────────
-    if sess.cats & CAT_PUM != 0 {
+    if sess.cats & CAT_PUM != 0 { check_abort!();
         send(tx, hwnd, ScanMsg::Status("Custom scan: PUM detection…".into()));
         let reg = load_registry_scanner().scan();
         let mut phase_count = 0usize;
@@ -3519,7 +3558,7 @@ fn run_session(
     }
 
     // ── Event logs (Sigma / Hayabusa) ──────────────────────────────────────
-    if sess.cats & CAT_SIGMA != 0 {
+    if sess.cats & CAT_SIGMA != 0 { check_abort!();
         send(tx, hwnd, ScanMsg::Status("Custom scan: event logs…".into()));
         let hayabusa_dir = exe_dir().join("hayabusa");
         let logs = scan_hayabusa_once(&hayabusa_dir);
@@ -3539,7 +3578,7 @@ fn run_session(
     }
 
     // ── Process memory scan ────────────────────────────────────────────────
-    if sess.cats & CAT_MEMORY != 0 {
+    if sess.cats & CAT_MEMORY != 0 { check_abort!();
         send(tx, hwnd, ScanMsg::Status("Custom scan: process memory…".into()));
         let mem = memory_scanner::scan_process_memory(pl);
         for d in &mem {
@@ -3561,7 +3600,7 @@ fn run_session(
     }
 
     // ── System memory scan ─────────────────────────────────────────────────
-    if sess.cats & CAT_SYS_MEMORY != 0 {
+    if sess.cats & CAT_SYS_MEMORY != 0 { check_abort!();
         send(tx, hwnd, ScanMsg::Status("Custom scan: system memory…".into()));
         let mem = memory_scanner::scan_process_memory(pl);
         for d in &mem {
@@ -3583,7 +3622,7 @@ fn run_session(
     }
 
     // ── Startup objects scan ───────────────────────────────────────────────
-    if sess.cats & CAT_STARTUP != 0 {
+    if sess.cats & CAT_STARTUP != 0 { check_abort!();
         send(tx, hwnd, ScanMsg::Status("Custom scan: startup objects…".into()));
         let startup = startup_scanner::scan_startup_objects();
         let mut startup_hits = 0usize;
@@ -3621,7 +3660,7 @@ fn run_session(
     }
 
     // ── Boot sectors scan ──────────────────────────────────────────────────
-    if sess.cats & CAT_BOOT != 0 {
+    if sess.cats & CAT_BOOT != 0 { check_abort!();
         send(tx, hwnd, ScanMsg::Status("Custom scan: boot sectors…".into()));
         let boot = boot_scanner::scan_boot_sectors();
         for d in &boot {
@@ -3862,8 +3901,9 @@ fn ensure_pipeline<'a>(pl: &'a mut Option<Pipeline>, tx: &Sender<ScanMsg>, hwnd:
         send(tx, hwnd, ScanMsg::EngineLoading);
         let pipeline = Pipeline::new(default_config());
         let signatures = pipeline.loaded_signature_count();
+        let engines = pipeline.engine_loads();
         *pl = Some(pipeline);
-        send(tx, hwnd, ScanMsg::EngineReady { signatures });
+        send(tx, hwnd, ScanMsg::EngineReady { signatures, engines });
     }
     pl.as_ref().unwrap()
 }
