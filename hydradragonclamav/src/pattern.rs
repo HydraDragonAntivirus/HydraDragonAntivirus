@@ -6,10 +6,6 @@
 
 use std::fmt;
 
-/// Profiling: number of full-scan calls that fell to the brute-force
-/// every-position path (no usable anchor). Read by the scanner's PROF dump.
-pub static PROF_BRUTE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 // ClamAV-compatible u16 instruction metadata bits (mirrors cli_ac_patt flags).
 pub const CLI_MATCH_CHAR: u16 = 0x0000;
 pub const CLI_MATCH_NOCASE: u16 = 0x0100;
@@ -307,13 +303,37 @@ impl Pattern {
         }
     }
 
-    /// Find the longest fixed-byte (CLI_MATCH_CHAR) literal for prefilter use.
+    /// Pick the most *selective* fixed-byte (`CLI_MATCH_CHAR`) literal run for
+    /// prefilter use — not merely the longest. Selectivity, not length, is what
+    /// keeps the prefilter's candidate set small: a 3-byte run of `00` occurs in
+    /// nearly every page of an executable (zero padding) and would make its
+    /// signature a candidate on every scan, while a 3-byte run of *diverse* bytes
+    /// after a gap (e.g. `02 FC 8A`) occurs rarely. ClamAV's `filtering.c`
+    /// (`filter_add_static`) makes the same call when choosing a subpattern: it
+    /// heavily penalises `0000`/`ffff` and favours diverse, longer runs. Crucially
+    /// every `CLI_MATCH_CHAR` run is *required* (it lies outside any alternation),
+    /// so picking any of them — including one *after* a gap — never changes the
+    /// match set; it only changes which literal the prefilter indexes and the
+    /// verification threads on. The score is deliberately file-type-agnostic
+    /// (length + byte diversity, minus penalties for degenerate runs) rather than
+    /// assuming non-printable bytes are rare — in a PE code section they are not.
     fn compute_best_literal(inst: &[u16]) -> Option<(usize, usize)> {
-        let mut best_len = 0usize;
+        let mut best_score = i32::MIN;
         let mut best: Option<(usize, usize)> = None;
         let mut run_start: usize = 0;
         let mut run_len = 0usize;
         let mut in_run = false;
+
+        let consider = |start: usize, len: usize, best: &mut Option<(usize, usize)>, best_score: &mut i32| {
+            if len < 2 {
+                return;
+            }
+            let score = Self::literal_run_score(inst, start, len);
+            if score > *best_score {
+                *best_score = score;
+                *best = Some((start, len));
+            }
+        };
 
         for (i, &ins) in inst.iter().enumerate() {
             let meta = ins & CLI_MATCH_METADATA;
@@ -325,18 +345,58 @@ impl Pattern {
                 }
                 run_len += 1;
             } else {
-                if in_run && run_len >= 2 && run_len > best_len {
-                    best_len = run_len;
-                    best = Some((run_start, run_len));
+                if in_run {
+                    consider(run_start, run_len, &mut best, &mut best_score);
                 }
                 in_run = false;
                 run_len = 0;
             }
         }
-        if in_run && run_len >= 2 && run_len > best_len {
-            best = Some((run_start, run_len));
+        if in_run {
+            consider(run_start, run_len, &mut best, &mut best_score);
         }
         best
+    }
+
+    /// Selectivity score for a fixed-byte run `inst[start..start+len]` (see
+    /// [`compute_best_literal`]). Higher = rarer in real data. Length is the main
+    /// signal (longer literals are rarer), with a diversity bonus and heavy
+    /// penalties for the runs that are common in *every* binary regardless of
+    /// type: all-zero, all-`0xff`, and single-byte-repeated (NOP sleds `9090…`,
+    /// fill bytes `cccc…`). Mirrors the intent of `filtering.c`'s `0000`/`ffff`
+    /// penalties without copying its file-content-specific weighting.
+    fn literal_run_score(inst: &[u16], start: usize, len: usize) -> i32 {
+        // Only the first MAX-atom bytes are ever indexed, but the full run length
+        // still indicates how anchorable/verifiable the match is, so score on it.
+        let mut seen = [false; 256];
+        let mut distinct = 0i32;
+        let mut all_zero = true;
+        let mut all_ff = true;
+        let first = (inst[start] & 0xff) as u8;
+        let mut all_same = true;
+        for i in 0..len {
+            let b = (inst[start + i] & 0xff) as u8;
+            if !seen[b as usize] {
+                seen[b as usize] = true;
+                distinct += 1;
+            }
+            if b != 0x00 {
+                all_zero = false;
+            }
+            if b != 0xff {
+                all_ff = false;
+            }
+            if b != first {
+                all_same = false;
+            }
+        }
+        let mut score = len as i32 * 6 + (distinct - 1) * 3;
+        if all_zero || all_ff {
+            score -= 1000; // occurs in essentially every executable page
+        } else if all_same {
+            score -= 500; // repeated-byte fill (NOP sled, padding)
+        }
+        score
     }
 
     /// Parse a hex string into u16 instructions (like cli_hex2ui).
@@ -392,7 +452,6 @@ impl Pattern {
         if let Some((prefix, needle)) = self.best_anchor() {
             return self.find_all_anchored(data, ranges, min_len, limit, prefix, &needle);
         }
-        crate::pattern::PROF_BRUTE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         // One fuel budget shared across every position probed for this signature on
         // this buffer (not reset per position), so a pattern that backtracks

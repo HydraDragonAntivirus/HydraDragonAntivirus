@@ -676,7 +676,9 @@ fn build_candidate_set(mut hits: Vec<(u32, u32)>, always: &[u32]) -> CandidateSe
 /// invalidate the key on the next load.
 pub fn db_cache_key(dir: &std::path::Path) -> u64 {
     use std::hash::{Hash, Hasher};
-    const VERSION: u64 = 1;
+    // v2: best-literal atom selection switched from longest run to most-selective
+    // run (penalises all-zero/all-ff/repeated runs), changing the indexed atoms.
+    const VERSION: u64 = 2;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     VERSION.hash(&mut h);
     if let Ok(rd) = std::fs::read_dir(dir) {
