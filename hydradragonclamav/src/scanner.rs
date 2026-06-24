@@ -797,9 +797,22 @@ impl Engine {
         // prefilter, which guarantees it is exactly the subsig whose atoms were
         // indexed — so when `threadable` the candidate's offsets verify it with
         // no whole-buffer rescan.
+        // OR-indexed signatures (no single required subsig) carry the UNION of all
+        // their subsignatures' atom offsets as `hints`. Because a subsig match must
+        // contain one of its atoms — whose every occurrence is in that union (it is
+        // empty, never partial, on overflow) — each subsig need only be scanned in
+        // small windows around those offsets, not over the whole buffer. This is
+        // the logical-scan analogue of the threaded extended path; without it these
+        // signatures (e.g. 30+ `TwinWave.EvilDoc.*` doc sigs with ~31 keyword
+        // subsigs each) rescan the entire buffer once per subsignature.
+        let all_indexed =
+            self.prefilter.logical_all_indexed(si) && hints.is_some_and(|h| !h.is_empty());
+
         let gate = self.prefilter.logical_gate(si);
         let mut gating_done: Option<usize> = None;
-        if let Some(g) = gate {
+        // When every subsig is restricted to the union windows below, the separate
+        // non-threadable gate cutoff (a full buffer rescan) is redundant.
+        if let Some(g) = gate.filter(|_| !all_indexed) {
             let gi = g.subsig as usize;
             if let Some(Subsignature::Body { offset, patterns }) = subsigs.get(gi) {
                 let default_offset = OffsetSpec::any();
@@ -861,19 +874,41 @@ impl Engine {
                 // matches starting inside the PE's version-info string offsets
                 // (matcher-ac.c: `cli_hashset_contains(mdata->vinfo, realoff)`).
                 let is_vinfo = matches!(offset.anchor, OffsetAnchor::VersionInfo);
-                let ranges = if is_vinfo {
+                let base_ranges = if is_vinfo {
                     vec![(0, ctx.data.len())]
                 } else {
                     offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref())
                 };
-                if ranges.is_empty() {
+                if base_ranges.is_empty() {
                     continue;
                 }
-                // Non-gate subsigs have no threaded offsets → full scan.
+                // For OR-indexed sigs, restrict this subsig's scan to windows around
+                // the prefilter's union offsets (a match must start within
+                // `max_match_len` of one of its atoms). `None` max length (open gap)
+                // can't be bounded, so such a subsig keeps its full scan.
+                let restricted;
+                let ranges: &[(usize, usize)] = if all_indexed && !is_vinfo {
+                    match subsig_max_match_len(patterns) {
+                        Some(ml) => {
+                            restricted = restrict_ranges(
+                                &base_ranges,
+                                hints.unwrap(),
+                                ml,
+                                ctx.data.len(),
+                            );
+                            &restricted
+                        }
+                        None => &base_ranges,
+                    }
+                } else {
+                    &base_ranges
+                };
+                // Non-gate subsigs have no threaded offsets → scan over `ranges`
+                // (the whole buffer, or the union windows for OR-indexed sigs).
                 let (mut count, mut arenas) = body_matches(
                     patterns,
                     ctx.data,
-                    &ranges,
+                    ranges,
                     options.max_subsignature_matches,
                     None,
                 );
@@ -1032,6 +1067,64 @@ impl Engine {
 /// (capped at `ARENA_CAP`) for disinfection. When `hints` is `Some`, each
 /// pattern is verified only at the prefilter-provided atom offsets
 /// (`find_all_at`) instead of rescanning the whole buffer; `None` is a full scan.
+/// The largest match length across a subsignature's pattern variants, or `None`
+/// if any variant is unbounded (open gap) — in which case its scan can't be
+/// window-restricted.
+fn subsig_max_match_len(patterns: &[crate::pattern::Pattern]) -> Option<usize> {
+    let mut m = 0usize;
+    for p in patterns {
+        m = m.max(p.max_match_len()?);
+    }
+    Some(m)
+}
+
+/// Restrict `base` ranges to windows `[h - max_len, h + max_len + 1)` around each
+/// hint `h`, merged and intersected with `base`. A match containing an atom at `h`
+/// starts in `[h - max_len, h]`, so scanning these windows (rather than the whole
+/// buffer) finds every match while skipping the regions no atom touched. The
+/// generous end keeps `h` itself a valid start position for `find_all`'s
+/// `max_pos = end - min_len` bound.
+fn restrict_ranges(
+    base: &[(usize, usize)],
+    hints: &[u32],
+    max_len: usize,
+    data_len: usize,
+) -> Vec<(usize, usize)> {
+    if hints.is_empty() {
+        return Vec::new();
+    }
+    let mut wins: Vec<(usize, usize)> = hints
+        .iter()
+        .map(|&h| {
+            let h = h as usize;
+            (h.saturating_sub(max_len), (h + max_len + 1).min(data_len))
+        })
+        .collect();
+    wins.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(wins.len());
+    for (s, e) in wins {
+        match merged.last_mut() {
+            Some(last) if s <= last.1 => {
+                if e > last.1 {
+                    last.1 = e;
+                }
+            }
+            _ => merged.push((s, e)),
+        }
+    }
+    let mut out = Vec::new();
+    for &(bs, be) in base {
+        for &(ms, me) in &merged {
+            let s = bs.max(ms);
+            let e = be.min(me);
+            if s < e {
+                out.push((s, e));
+            }
+        }
+    }
+    out
+}
+
 fn body_matches(
     patterns: &[crate::pattern::Pattern],
     data: &[u8],
@@ -1826,6 +1919,39 @@ mod tests {
             },
             warnings,
         )
+    }
+
+    #[test]
+    fn or_indexed_window_restriction_matches() {
+        // `0|1` is OR-indexed (no required subsig) → every subsig is scanned only
+        // in windows around the prefilter's union atom offsets. Exercises the
+        // tricky case where the atom is NOT at the match start: subsig 0 is
+        // `??powershell` (wildcard then the literal), so a real match starts one
+        // byte BEFORE the "powershell" atom — the window must still cover it.
+        let (engine, w) = engine_with_logical(
+            "Test.Or;Target:0;0|1;??706f7765727368656c6c;636572747574696c",
+        );
+        assert!(w.is_empty());
+        // "Xpowershell" (any byte then the literal) → subsig 0 matches.
+        assert!(engine
+            .scan_bytes(b"....Xpowershell....", ScanOptions::default())
+            .iter()
+            .any(|m| m.name == "Test.Or"));
+        // "certutil" at the very end of the buffer → subsig 1 matches.
+        assert!(engine
+            .scan_bytes(b"junkjunkcertutil", ScanOptions::default())
+            .iter()
+            .any(|m| m.name == "Test.Or"));
+        // Atom right at offset 0 (wildcard prefix consumes the byte before it does
+        // not exist) — "Apowershell" at start still matches via subsig 0.
+        assert!(engine
+            .scan_bytes(b"Apowershell tail", ScanOptions::default())
+            .iter()
+            .any(|m| m.name == "Test.Or"));
+        // Neither keyword present → no match (window restriction must not invent one).
+        assert!(engine
+            .scan_bytes(b"nothing to see here", ScanOptions::default())
+            .is_empty());
     }
 
     #[test]

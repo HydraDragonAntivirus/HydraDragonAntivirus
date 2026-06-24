@@ -452,7 +452,6 @@ struct AppState {
     opt_check_rects: [RECT; 7],
     /// "Add object…" button rect in the option panel
     opt_add_rect: RECT,
-    opt_add_toggle_rect: RECT, /// File/Directory mode toggle rect
     /// Scan items added by the user
     opt_items: Vec<PathBuf>,
     /// Hit rects for each added item row (for remove click)
@@ -460,7 +459,6 @@ struct AppState {
     opt_item_scroll: usize,
     /// True = in custom file browser mode instead of checkbox tree
     opt_browse_mode: bool,
-    opt_browse_file_mode: bool, /// true = file picker, false = directory picker
     opt_browse_cwd: PathBuf,
     opt_browse_entries: Vec<(String, bool)>, // (name, is_dir)
     opt_browse_sel: Option<usize>,
@@ -800,12 +798,10 @@ unsafe fn on_create(hwnd: HWND) {
         opt_cats: 0,
         opt_check_rects: [RECT::default(); 7],
         opt_add_rect: RECT::default(),
-        opt_add_toggle_rect: RECT::default(),
         opt_items: Vec::new(),
         opt_item_rects: Vec::new(),
         opt_item_scroll: 0,
         opt_browse_mode: false,
-        opt_browse_file_mode: true,
         opt_browse_cwd: PathBuf::from(""),
         opt_browse_entries: Vec::new(),
         opt_browse_sel: None,
@@ -1043,37 +1039,15 @@ unsafe fn layout(hwnd: HWND) {
                 };
             }
         } else {
-            // Normal option mode: Add object row + file/dir toggle + items + checkboxes.
+            // Normal option mode: Add object row + items + checkboxes.
             let add_row_h = 36i32;
-            let toggle_w = 56i32;
-            let gap = 6i32;
-            // "Add object…" row
+            // "Add object…" row fills the full width
             s.opt_add_rect = RECT {
                 left: content_l + pad,
                 top: card_top + pad,
-                right: content_r - pad - toggle_w * 2 - gap * 2,
+                right: content_r - pad,
                 bottom: card_top + pad + add_row_h,
             };
-            // File/Directory toggle buttons next to Add object
-            let toggle_y = s.opt_add_rect.top;
-            s.opt_add_toggle_rect = RECT { left: 0, top: 0, right: 0, bottom: 0 }; // recompute
-            let fx = s.opt_add_rect.right + gap;
-            // File toggle rect
-            s.buttons.push(UiButton {
-                cmd: 100, // dummy; handled by hit-testing
-                label: if s.opt_browse_file_mode { "[File]" } else { " File " },
-                icon: "",
-                kind: if s.opt_browse_file_mode { Kind::Primary } else { Kind::Neutral },
-                rect: RECT { left: fx, top: toggle_y, right: fx + toggle_w, bottom: toggle_y + add_row_h },
-            });
-            // Dir toggle rect
-            s.buttons.push(UiButton {
-                cmd: 101,
-                label: if s.opt_browse_file_mode { " Dir  " } else { "[Dir]" },
-                icon: "",
-                kind: if s.opt_browse_file_mode { Kind::Neutral } else { Kind::Primary },
-                rect: RECT { left: fx + toggle_w + gap, top: toggle_y, right: fx + toggle_w * 2 + gap, bottom: toggle_y + add_row_h },
-            });
 
             let mut oy = s.opt_add_rect.bottom + 4;
 
@@ -1281,16 +1255,11 @@ unsafe fn paint(hwnd: HWND) {
             let pad = 16i32;
 
             if s.opt_browse_mode {
-                // ── Browse mode: back button + file/directory list ──────────────
+                // ── Browse mode: back button + file list (all entries) ─────────
                 let back_r = s.opt_add_rect;
                 let back_bg = lerp_color(t.surface, t.border, 0.35);
                 fill_round(mem, back_r, 6, back_bg);
                 text(mem, "\u{E76B} Back", &back_r, t.accent, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-                // Mode indicator
-                let mode_label = if s.opt_browse_file_mode { "Mode: File" } else { "Mode: Dir" };
-                let mode_r = RECT { left: back_r.right - 100, top: back_r.top, right: back_r.right - 8, bottom: back_r.bottom };
-                text(mem, mode_label, &mode_r, t.accent, s.fonts.status, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 
                 // Current path
                 let cwd_str = if s.opt_browse_cwd.as_os_str().is_empty() {
@@ -1330,10 +1299,10 @@ unsafe fn paint(hwnd: HWND) {
 
                 // Add button at bottom
                 let add_btn_r = s.opt_ok_rect;
-                let can_add = s.opt_browse_sel.is_some() || !s.opt_browse_file_mode;
+                let can_add = s.opt_browse_sel.is_some() || !s.opt_browse_cwd.as_os_str().is_empty();
                 let add_btn_color = if can_add { t.accent } else { t.border };
                 fill_round(mem, add_btn_r, 6, add_btn_color);
-                let add_label = if s.opt_browse_file_mode { "Add Selected" } else { "Add Current Dir" };
+                let add_label = if s.opt_browse_sel.is_some() { "Add Selected" } else { "Add Current Dir" };
                 text(mem, add_label, &add_btn_r, WHITE, s.fonts.button, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             } else {
                 // ── Normal option mode: Add object row + items + checkboxes ─────
@@ -1342,26 +1311,6 @@ unsafe fn paint(hwnd: HWND) {
                 fill_round(mem, add_r, 6, add_bg);
                 text(mem, "\u{E710}", &RECT { left: add_r.left + 8, top: add_r.top, right: add_r.left + 32, bottom: add_r.bottom }, t.accent, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
                 text(mem, "Add object\u{2026}", &RECT { left: add_r.left + 32, top: add_r.top, right: add_r.right, bottom: add_r.bottom }, t.accent, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-                // File/Dir toggle pills
-                let file_sel = s.opt_browse_file_mode;
-                let file_txt = if file_sel { "[File]" } else { " File " };
-                let dir_txt = if file_sel { " Dir  " } else { "[Dir]" };
-                let toggle_text_color = |active: bool| if active { WHITE } else { t.text };
-                let toggle_bg = |active: bool| if active { t.accent } else { lerp_color(t.surface, t.border, 0.35) };
-
-                let fx = s.opt_add_rect.right + 6;
-                let ty = s.opt_add_rect.top;
-                let th = s.opt_add_rect.bottom - s.opt_add_rect.top;
-                let tw = 52i32;
-                let file_r = RECT { left: fx, top: ty, right: fx + tw, bottom: ty + th };
-                let dir_r = RECT { left: fx + tw + 4, top: ty, right: fx + tw * 2 + 4, bottom: ty + th };
-                s.opt_add_toggle_rect = file_r; // store for hit testing
-
-                fill_round(mem, file_r, 6, toggle_bg(file_sel));
-                text(mem, file_txt, &file_r, toggle_text_color(file_sel), s.fonts.body, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-                fill_round(mem, dir_r, 6, toggle_bg(!file_sel));
-                text(mem, dir_txt, &dir_r, toggle_text_color(!file_sel), s.fonts.body, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
                 // Thin separator
                 let sep_y = s.opt_add_rect.bottom + 4;
@@ -2152,22 +2101,22 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
             }
             // Add button
             if pt_in(&s.opt_ok_rect, x, y) {
-                if s.opt_browse_file_mode {
-                    // Add selected file
-                    if let Some(idx) = s.opt_browse_sel {
-                        if idx < s.opt_browse_entries.len() {
-                            let (name, _) = &s.opt_browse_entries[idx];
-                            let full_path = s.opt_browse_cwd.join(name);
-                            if full_path.exists() {
-                                s.opt_items.push(full_path);
-                            }
+                if let Some(idx) = s.opt_browse_sel {
+                    // Add selected file or directory
+                    if idx < s.opt_browse_entries.len() {
+                        let name = &s.opt_browse_entries[idx].0;
+                        let full_path = if s.opt_browse_cwd.as_os_str().is_empty() {
+                            PathBuf::from(name.trim_end_matches('\\'))
+                        } else {
+                            s.opt_browse_cwd.join(name)
+                        };
+                        if full_path.exists() {
+                            s.opt_items.push(full_path);
                         }
                     }
-                } else {
-                    // Add current directory
-                    if s.opt_browse_cwd.exists() {
-                        s.opt_items.push(s.opt_browse_cwd.clone());
-                    }
+                } else if s.opt_browse_cwd.exists() {
+                    // No selection — add current directory
+                    s.opt_items.push(s.opt_browse_cwd.clone());
                 }
                 s.opt_browse_mode = false;
                 layout(hwnd);
@@ -2207,23 +2156,6 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 return;
             }
-            // File/Dir toggle
-            let toggle_w = 52i32;
-            let fx = s.opt_add_rect.right + 6;
-            let ty = s.opt_add_rect.top;
-            let th = s.opt_add_rect.bottom - s.opt_add_rect.top;
-            let file_r = RECT { left: fx, top: ty, right: fx + toggle_w, bottom: ty + th };
-            let dir_r = RECT { left: fx + toggle_w + 4, top: ty, right: fx + toggle_w * 2 + 4, bottom: ty + th };
-            if pt_in(&file_r, x, y) {
-                s.opt_browse_file_mode = true;
-                let _ = InvalidateRect(Some(hwnd), None, false);
-                return;
-            }
-            if pt_in(&dir_r, x, y) {
-                s.opt_browse_file_mode = false;
-                let _ = InvalidateRect(Some(hwnd), None, false);
-                return;
-            }
             // Added item remove (X) buttons
             for (i, item_row) in s.opt_item_rects.iter().enumerate() {
                 let remove_r = RECT { left: item_row.right - 24, top: item_row.top, right: item_row.right, bottom: item_row.bottom };
@@ -2252,7 +2184,6 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             s.scan_option_mode = true;
             s.opt_browse_mode = false;
             s.opt_items.clear();
-            s.opt_browse_file_mode = true;
             // Default: all scan targets on.
             s.opt_cats = CAT_SYS_MEMORY | CAT_STARTUP | CAT_BOOT | CAT_REGISTRY | CAT_PUM | CAT_MEMORY | CAT_SIGMA;
             // Hide the results list so it does not overlap the option panel.
@@ -3848,7 +3779,7 @@ fn populate_browse_entries(s: &mut AppState, dir: &Path) {
             }
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 dirs.push(name);
-            } else if s.opt_browse_file_mode && entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            } else if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
                 files.push(name);
             }
         }

@@ -447,6 +447,32 @@ impl Pattern {
         n
     }
 
+    /// Maximum bytes a successful match can consume, or `None` when unbounded (an
+    /// open `*`/`{n-}` gap, or a variable alternation whose longest branch can't be
+    /// bounded). A safe UPPER bound: a match containing a byte at position `p`
+    /// starts no earlier than `p - max_match_len`. Used to size the windows that
+    /// restrict an OR-indexed signature's subsig scans to the prefilter's atom
+    /// offsets (so a too-small bound can never drop a match).
+    pub fn max_match_len(&self) -> Option<usize> {
+        let mut n = 0usize;
+        let mut sidx = 0usize;
+        let len = self.instructions.len();
+        for i in 0..len {
+            let inst = self.instructions.get_u16(i);
+            if (inst & CLI_MATCH_METADATA) == CLI_MATCH_SPECIAL {
+                let w = self.specials.get(sidx).map_or(1, |s| s.max_width());
+                if w == UNBOUNDED_GAP {
+                    return None;
+                }
+                n = n.checked_add(w)?;
+                sidx += 1;
+            } else {
+                n += 1;
+            }
+        }
+        Some(n)
+    }
+
     /// Candidate pattern starts implied by literal occurrences `hints` (positions
     /// of the best literal), given the `[min_prefix, max_prefix]` byte distance
     /// from a match start to that literal. Sorted + deduped so overlapping windows

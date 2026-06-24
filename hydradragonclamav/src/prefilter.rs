@@ -178,6 +178,11 @@ pub struct AtomPrefilter {
     /// and whether its offsets are threadable. `None` when no single subsig gates
     /// the expression (pure OR / matches-at-zero).
     log_gates: Vec<Option<GateInfo>>,
+    /// Per logical signature: `true` when EVERY subsignature's atoms were indexed
+    /// (the OR-fallback case), so the candidate's offsets are the union of all
+    /// subsig atom occurrences. The scanner can then restrict each subsig's scan to
+    /// windows around those offsets instead of rescanning the whole buffer.
+    log_all_indexed: Vec<bool>,
 }
 
 impl AtomPrefilter {
@@ -227,7 +232,14 @@ impl AtomPrefilter {
             ext_always: Vec::new(),
             log_always: Vec::new(),
             log_gates: Vec::new(),
+            log_all_indexed: Vec::new(),
         }
+    }
+
+    /// Whether every subsignature's atoms were indexed for logical sig `si`, so its
+    /// candidate offsets are the union of all subsig atom occurrences.
+    pub fn logical_all_indexed(&self, si: usize) -> bool {
+        self.log_all_indexed.get(si).copied().unwrap_or(false)
     }
 
     /// The gating subsignature for logical signature `si`, if any.
@@ -246,6 +258,7 @@ impl AtomPrefilter {
         let mut ext_always: Vec<u32> = Vec::new();
         let mut log_always: Vec<u32> = Vec::new();
         let mut log_gates: Vec<Option<GateInfo>> = Vec::with_capacity(db.logical.len());
+        let mut log_all_indexed: Vec<bool> = Vec::with_capacity(db.logical.len());
 
         // A pattern is usable for prefiltering via either its case-sensitive
         // atom or, for `nocase` patterns, its case-folded atom. Returns which
@@ -315,6 +328,7 @@ impl AtomPrefilter {
                 // Can fire with nothing present → nothing to gate or index on.
                 log_always.push(si as u32);
                 log_gates.push(None);
+                log_all_indexed.push(false);
                 continue;
             }
 
@@ -447,6 +461,7 @@ impl AtomPrefilter {
                         subsig: idx as u32,
                         threadable: true,
                     }));
+                    log_all_indexed.push(false);
                 }
                 (None, Some(atoms)) => {
                     for a in atoms {
@@ -462,6 +477,7 @@ impl AtomPrefilter {
                         subsig: idx as u32,
                         threadable: false,
                     }));
+                    log_all_indexed.push(true);
                 }
                 (None, None) => {
                     log_always.push(si as u32);
@@ -469,6 +485,7 @@ impl AtomPrefilter {
                         subsig: idx as u32,
                         threadable: false,
                     }));
+                    log_all_indexed.push(false);
                 }
             }
         }
@@ -507,6 +524,7 @@ impl AtomPrefilter {
             ext_always,
             log_always,
             log_gates,
+            log_all_indexed,
         }
     }
 
