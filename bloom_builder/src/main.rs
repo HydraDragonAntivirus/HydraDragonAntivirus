@@ -1,5 +1,6 @@
 use bincode_next::serde::encode_to_vec;
 use fastbloom::AtomicBloomFilter;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -20,9 +21,8 @@ fn main() {
     }
     build_blacklist_bloom(dir);
     build_whitelist_bloom(dir);
-    build_urlhaus_bloom(dir);
+    build_url_bloom(dir);
     build_phishing_bloom(dir);
-    build_malwareurl_bloom(dir);
 }
 
 fn count_plain_lines(path: &Path) -> usize {
@@ -41,21 +41,6 @@ fn count_plain_lines(path: &Path) -> usize {
             let token = t.split_whitespace().next().unwrap_or("");
             is_valid_hash(token)
         })
-        .count()
-}
-
-fn count_csv_col(path: &Path, col: usize, has_header: bool) -> usize {
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return 0,
-    };
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(has_header)
-        .flexible(true)
-        .from_reader(file);
-    rdr.records()
-        .filter_map(|r| r.ok())
-        .filter(|r| r.get(col).map(|v| !v.trim().is_empty()).unwrap_or(false))
         .count()
 }
 
@@ -100,9 +85,157 @@ fn is_valid_hash(s: &str) -> bool {
 
 // ── blacklist ──────────────────────────────────────────────────────────────
 
+/// Hash type, recognised by content (length / ':' for ssdeep / 'T1' for tlsh).
+#[derive(Clone, Copy)]
+enum HashKind {
+    Md5,
+    Sha1,
+    Sha256,
+    Ssdeep,
+    Tlsh,
+}
+
+fn classify(h: &str) -> Option<HashKind> {
+    let h = h.trim();
+    if h.is_empty() || h == "n/a" {
+        return None;
+    }
+    // TLSH: modern digests are "T1" + 70 hex (older variants: bare 70 hex).
+    if h.starts_with("T1") || h.starts_with("t1") {
+        return Some(HashKind::Tlsh);
+    }
+    // ssdeep: "blocksize:chunk:doublechunk" — first segment is numeric.
+    if h.contains(':') {
+        let first = h.split(':').next().unwrap_or("");
+        if !first.is_empty() && first.chars().all(|c| c.is_ascii_digit()) {
+            return Some(HashKind::Ssdeep);
+        }
+        return None;
+    }
+    if h.chars().all(|c| c.is_ascii_hexdigit()) {
+        return match h.len() {
+            32 => Some(HashKind::Md5),
+            40 => Some(HashKind::Sha1),
+            64 => Some(HashKind::Sha256),
+            70 => Some(HashKind::Tlsh),
+            _ => None,
+        };
+    }
+    None
+}
+
+fn hexval(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Pack a 32-char hex MD5 into 16 bytes (compact key for the filter set).
+fn md5_to_bytes(s: &str) -> Option<[u8; 16]> {
+    let b = s.as_bytes();
+    if b.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    for i in 0..16 {
+        out[i] = (hexval(b[2 * i])? << 4) | hexval(b[2 * i + 1])?;
+    }
+    Some(out)
+}
+
+/// Load the VirusShare MD5 list to DROP (the "old" 50%-style list, like ClamAV
+/// retiring stale signatures). Returns None when the file is absent.
+fn load_virusshare(path: &Path) -> Option<HashSet<[u8; 16]>> {
+    let file = fs::File::open(path).ok()?;
+    let mut set = HashSet::new();
+    for line in BufReader::new(file).lines().flatten() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let tok = t.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+        if let Some(b) = md5_to_bytes(&tok) {
+            set.insert(b);
+        }
+    }
+    Some(set)
+}
+
+/// Write a sorted, one-per-line hash list (deterministic output for git).
+fn write_lines(path: &Path, set: &HashSet<String>) {
+    let mut v: Vec<&String> = set.iter().collect();
+    v.sort_unstable();
+    let mut out = String::with_capacity(set.len() * 34);
+    for h in v {
+        out.push_str(h);
+        out.push('\n');
+    }
+    match fs::write(path, out) {
+        Ok(_) => println!("[+] Written: {} ({} lines)", path.display(), set.len()),
+        Err(e) => eprintln!("ERROR write {}: {}", path.display(), e),
+    }
+}
+
+/// Per-type, deduplicated hash buckets collected during the blacklist build.
+#[derive(Default)]
+struct Buckets {
+    md5: HashSet<String>,
+    sha1: HashSet<String>,
+    sha256: HashSet<String>,
+    ssdeep: HashSet<String>,
+    tlsh: HashSet<String>,
+    /// MD5s present in the VirusShare list — dropped from the bloom, kept aside.
+    old_md5: HashSet<String>,
+}
+
+impl Buckets {
+    fn add(&mut self, raw: &str, vs: &Option<HashSet<[u8; 16]>>) {
+        // Normalise hex digests to lowercase (canonical form); ssdeep is left as-is
+        // because it is a case-sensitive base64-style string, not hex.
+        let h = raw.trim().trim_matches('"');
+        match classify(h) {
+            Some(HashKind::Md5) => {
+                let norm = h.to_ascii_lowercase();
+                let is_old = vs
+                    .as_ref()
+                    .and_then(|s| md5_to_bytes(&norm).map(|b| s.contains(&b)))
+                    .unwrap_or(false);
+                if is_old {
+                    self.old_md5.insert(norm);
+                } else {
+                    self.md5.insert(norm);
+                }
+            }
+            Some(HashKind::Sha1) => {
+                self.sha1.insert(h.to_ascii_lowercase());
+            }
+            Some(HashKind::Sha256) => {
+                self.sha256.insert(h.to_ascii_lowercase());
+            }
+            Some(HashKind::Ssdeep) => {
+                self.ssdeep.insert(h.to_string());
+            }
+            Some(HashKind::Tlsh) => {
+                self.tlsh.insert(h.to_ascii_lowercase());
+            }
+            None => {}
+        }
+    }
+}
+
 fn build_blacklist_bloom(dir: &str) {
     let path = Path::new(dir);
     println!("[+] Building blacklist bloom...");
+
+    // Optional VirusShare MD5 filter — these are dropped as the "old" list.
+    let vs = load_virusshare(&path.join("virusshare_hashes.txt"));
+    match &vs {
+        Some(s) => println!("[+] VirusShare filter loaded: {} md5(s) to drop", s.len()),
+        None => println!("[!] virusshare_hashes.txt not found — no md5 filtering"),
+    }
 
     let mut hash_files: Vec<std::path::PathBuf> = Vec::new();
     let csv_path = path.join("full.csv");
@@ -113,8 +246,8 @@ fn build_blacklist_bloom(dir: &str) {
             continue;
         }
         let fname = p.file_name().unwrap().to_string_lossy().to_string();
-        if fname == "whitelist.db" {
-            continue;
+        if fname == "whitelist.db" || fname == "virusshare_hashes.txt" {
+            continue; // whitelist DB / the filter list itself are not blacklist sources
         }
         if p == csv_path {
             continue;
@@ -127,108 +260,112 @@ fn build_blacklist_bloom(dir: &str) {
         hash_files.push(p);
     }
 
-    let has_md5_db = path.join("md5_db").exists();
-    let has_sha256_db = path.join("sha256_db").exists();
+    let mut b = Buckets::default();
 
-    let mut total = 0usize;
+    // full.csv: col 1=sha256, 2=md5, 3=sha1, 12=ssdeep, 13=tlsh.
     if csv_path.exists() {
-        let file = match fs::File::open(&csv_path) {
-            Ok(f) => f,
-            Err(_) => return,
-        };
-        let mut rdr = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .flexible(true)
-            .from_reader(file);
-        for result in rdr.records() {
-            let r = match result {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            // All signatures live in one bloom: col 1=sha256, 2=md5, 3=sha1,
-            // 12=ssdeep, 13=tlsh. The scanner tells them apart by content
-            // (length, ':' for ssdeep, 'T1' prefix for tlsh).
-            // skip sha256 if sha256_db present, skip md5 if md5_db present
-            for col in [1usize, 2, 3, 12, 13] {
-                if col == 1 && has_sha256_db {
-                    continue;
-                }
-                if col == 2 && has_md5_db {
-                    continue;
-                }
-                if let Some(h) = r.get(col) {
-                    let h = h.trim().trim_matches('"');
-                    if !h.is_empty() && h != "n/a" {
-                        total += 1;
-                    }
-                }
-            }
-        }
-    }
-    for p in &hash_files {
-        total += count_plain_lines(p);
-    }
-
-    if total == 0 {
-        println!("[!] No blacklist source files found, skipping");
-        return;
-    }
-    println!("[+] Blacklist expected items: {}", total);
-    let bloom = make_bloom(total);
-
-    if csv_path.exists() {
-        let file = match fs::File::open(&csv_path) {
-            Ok(f) => f,
-            Err(_) => return,
-        };
-        let mut rdr = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .flexible(true)
-            .from_reader(file);
-        for result in rdr.records() {
-            let r = match result {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            for col in [1usize, 2, 3, 12, 13] {
-                if let Some(h) = r.get(col) {
-                    let h = h.trim().trim_matches('"');
-                    if !h.is_empty() && h != "n/a" {
-                        bloom.insert(h);
+        if let Ok(file) = fs::File::open(&csv_path) {
+            let mut rdr = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .flexible(true)
+                .from_reader(file);
+            for result in rdr.records() {
+                let r = match result {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                for col in [1usize, 2, 3, 12, 13] {
+                    if let Some(h) = r.get(col) {
+                        b.add(h, &vs);
                     }
                 }
             }
         }
     }
 
+    // Plain hash files (md5_db/sha256_db/sslbl/virusign use a ':' separator).
     for p in &hash_files {
         let fname = p.file_name().unwrap().to_string_lossy().to_string();
-        let colon = matches!(
-            fname.as_str(),
-            "md5_db" | "sha256_db" | "sslbl" | "virusign"
-        );
+        let colon = matches!(fname.as_str(), "md5_db" | "sha256_db" | "sslbl" | "virusign");
         let file = match fs::File::open(p) {
             Ok(f) => f,
             Err(_) => continue,
         };
         for line in BufReader::new(file).lines().flatten() {
-            let line = line.trim().to_string();
+            let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            // extract first token (before any space/tab/colon separator)
             let raw = if colon {
-                line.split(':').next().unwrap_or("").trim().to_string()
+                line.split(':').next().unwrap_or("").trim()
             } else {
-                line.split_whitespace().next().unwrap_or("").to_string()
+                line.split_whitespace().next().unwrap_or("")
             };
-            if is_valid_hash(&raw) {
-                bloom.insert(&raw);
+            b.add(raw, &vs);
+        }
+    }
+
+    // Fold in the per-type lists we maintain (md5.txt … tlsh.txt) as bloom sources
+    // too, so the bloom accumulates them across runs. The original source files are
+    // never modified; these generated lists are simply re-read and re-merged.
+    for name in ["md5.txt", "sha1.txt", "sha256.txt", "ssdeep.txt", "tlsh.txt"] {
+        let tp = path.join(name);
+        if let Ok(file) = fs::File::open(&tp) {
+            for line in BufReader::new(file).lines().flatten() {
+                let t = line.trim();
+                if t.is_empty() || t.starts_with('#') {
+                    continue;
+                }
+                b.add(t, &vs);
             }
         }
     }
 
+    let total = b.md5.len() + b.sha1.len() + b.sha256.len() + b.ssdeep.len() + b.tlsh.len();
+    if total == 0 {
+        println!("[!] No blacklist source files found, skipping");
+        return;
+    }
+    println!(
+        "[+] Blacklist unique: {} (md5={} sha1={} sha256={} ssdeep={} tlsh={}); dropped old md5={}",
+        total,
+        b.md5.len(),
+        b.sha1.len(),
+        b.sha256.len(),
+        b.ssdeep.len(),
+        b.tlsh.len(),
+        b.old_md5.len()
+    );
+
+    // Bloom: everything EXCEPT the dropped (old) MD5s.
+    let bloom = make_bloom(total);
+    for h in b
+        .md5
+        .iter()
+        .chain(b.sha1.iter())
+        .chain(b.sha256.iter())
+        .chain(b.ssdeep.iter())
+        .chain(b.tlsh.iter())
+    {
+        bloom.insert(h.as_str());
+    }
     save_bloom(&bloom, &format!("{}/blacklist.bloom", dir));
+
+    // Per-type hash lists for upload (hashes only — no names, no metadata).
+    write_lines(&path.join("md5.txt"), &b.md5);
+    write_lines(&path.join("sha1.txt"), &b.sha1);
+    write_lines(&path.join("sha256.txt"), &b.sha256);
+    write_lines(&path.join("ssdeep.txt"), &b.ssdeep);
+    write_lines(&path.join("tlsh.txt"), &b.tlsh);
+
+    // The dropped VirusShare MD5s go into old_hashes/ (retired, not in the bloom).
+    if !b.old_md5.is_empty() {
+        let old_dir = path.join("old_hashes");
+        if let Err(e) = fs::create_dir_all(&old_dir) {
+            eprintln!("ERROR create {}: {}", old_dir.display(), e);
+        }
+        write_lines(&old_dir.join("md5.txt"), &b.old_md5);
+    }
 }
 
 // ── whitelist ──────────────────────────────────────────────────────────────
@@ -380,46 +517,65 @@ fn count_sql_md5(path: &std::path::PathBuf) -> usize {
         .count()
 }
 
-// ── urlhaus ────────────────────────────────────────────────────────────────
+// ── URL feeds (urlhaus + malwareurl, merged) ─────────────────────────────────
 
-fn build_urlhaus_bloom(dir: &str) {
-    let path = Path::new(dir).join("urlhaus.csv");
-    if !path.exists() {
-        println!("[!] urlhaus.csv not found, skipping");
-        return;
+/// One combined URL bloom from BOTH feeds — URLhaus (`urlhaus.csv`, col 2) and the
+/// malware-URL list (`MaliciousLinks.txt`). The scanner only ever loads
+/// `urlhaus.bloom` (`is_urlhaus`), so merging here means the malware-URL feed is
+/// actually used instead of landing in an orphaned `malwareurl.bloom`.
+fn build_url_bloom(dir: &str) {
+    let path = Path::new(dir);
+    let urlhaus_csv = path.join("urlhaus.csv");
+    let malicious_txt = path.join("MaliciousLinks.txt");
+
+    let mut urls: HashSet<String> = HashSet::new();
+
+    if urlhaus_csv.exists() {
+        match csv::ReaderBuilder::new()
+            .has_headers(true)
+            .flexible(true)
+            .from_path(&urlhaus_csv)
+        {
+            Ok(mut rdr) => {
+                for result in rdr.records() {
+                    if let Ok(r) = result {
+                        if let Some(u) = r.get(2) {
+                            let u = u.trim();
+                            if !u.is_empty() {
+                                urls.insert(u.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("ERROR urlhaus.csv: {}", e),
+        }
+    } else {
+        println!("[!] urlhaus.csv not found, skipping that feed");
     }
 
-    let total = count_csv_col(&path, 2, true);
-    println!("[+] URLhaus expected items: {}", total);
-    let bloom = make_bloom(total);
-
-    let mut rdr = match csv::ReaderBuilder::new()
-        .has_headers(true)
-        .flexible(true)
-        .from_path(&path)
-    {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("ERROR: {}", e);
-            return;
-        }
-    };
-    let mut count = 0u64;
-    for result in rdr.records() {
-        let r = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        if let Some(u) = r.get(2) {
-            let u = u.trim();
-            if !u.is_empty() {
-                bloom.insert(u);
-                count += 1;
+    match fs::read_to_string(&malicious_txt) {
+        Ok(content) => {
+            for l in content.lines() {
+                let l = l.trim();
+                if !l.is_empty() && !l.starts_with('#') {
+                    urls.insert(l.to_string());
+                }
             }
         }
+        Err(_) => println!("[!] MaliciousLinks.txt not found, skipping that feed"),
     }
-    println!("[+] URLhaus inserted: {}", count);
-    save_bloom(&bloom, &format!("{}/urlhaus.bloom", dir));
+
+    if urls.is_empty() {
+        println!("[!] No URL feeds found, skipping urlhaus bloom");
+        return;
+    }
+    println!("[+] URL bloom (urlhaus + malwareurl) unique items: {}", urls.len());
+    let bloom = make_bloom(urls.len());
+    for u in &urls {
+        bloom.insert(u.as_str());
+    }
+    save_bloom(&bloom, &format!("{}/malwareurl.bloom", dir));
 }
 
 // ── phishing ───────────────────────────────────────────────────────────────
@@ -469,36 +625,4 @@ fn build_phishing_bloom(dir: &str) {
     save_bloom(&bloom, &format!("{}/phishing.bloom", dir));
 }
 
-// ── malware URLs ─────────────────────────────────────────────────────────────
-
-fn build_malwareurl_bloom(dir: &str) {
-    let path = Path::new(dir).join("MaliciousLinks.txt");
-    if !path.exists() {
-        println!("[!] MaliciousLinks.txt not found, skipping");
-        return;
-    }
-
-    let content = match fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("ERROR: {}", e);
-            return;
-        }
-    };
-
-    // Plain text feed: one malicious URL per line, '#' lines are comments.
-    let urls: Vec<&str> = content
-        .lines()
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .collect();
-
-    let total = urls.len();
-    println!("[+] Malware URL expected items: {}", total);
-    let bloom = make_bloom(total);
-    for u in &urls {
-        bloom.insert(*u);
-    }
-    save_bloom(&bloom, &format!("{}/malwareurl.bloom", dir));
-}
 

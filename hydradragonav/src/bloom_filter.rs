@@ -7,7 +7,8 @@ use fastbloom::AtomicBloomFilter;
 
 const WHITELIST_BLOOM_NAME: &str = "whitelist.bloom";
 const BLACKLIST_BLOOM_NAME: &str = "blacklist.bloom";
-const URLHAUS_BLOOM_NAME: &str = "urlhaus.bloom";
+// Merged URL feed (URLhaus + malware-URL list); built by bloom_builder as malwareurl.bloom.
+const MALWAREURL_BLOOM_NAME: &str = "malwareurl.bloom";
 const PHISHING_BLOOM_NAME: &str = "phishing.bloom";
 
 const DEFAULT_BLOOM_DIR: &str = "bloom_filter";
@@ -44,7 +45,7 @@ impl HashType {
 pub struct HashBloomFilter {
     whitelist: Arc<AtomicBloomFilter>,
     blacklist: Arc<AtomicBloomFilter>,
-    urlhaus: Arc<AtomicBloomFilter>,
+    malware_url: Arc<AtomicBloomFilter>,
     phishing: Arc<AtomicBloomFilter>,
 }
 
@@ -108,7 +109,7 @@ impl HashBloomFilter {
         Self::with_paths(
             dir.join(WHITELIST_BLOOM_NAME),
             dir.join(BLACKLIST_BLOOM_NAME),
-            dir.join(URLHAUS_BLOOM_NAME),
+            dir.join(MALWAREURL_BLOOM_NAME),
             dir.join(PHISHING_BLOOM_NAME),
         )
     }
@@ -116,15 +117,15 @@ impl HashBloomFilter {
     pub fn with_paths(
         bloom_path: PathBuf,
         blacklist_path: PathBuf,
-        urlhaus_path: PathBuf,
+        malware_url_path: PathBuf,
         phishing_path: PathBuf,
     ) -> Self {
         let whitelist = load_whitelist_from(&bloom_path);
         let blacklist = load_bloom_file(&blacklist_path, "blacklist")
             .map(|d| load_bloom_field(&d, &blacklist_path, "blacklist"))
             .unwrap_or_else(empty_bloom);
-        let urlhaus = load_bloom_file(&urlhaus_path, "URLhaus")
-            .map(|d| load_bloom_field(&d, &urlhaus_path, "URLhaus"))
+        let malware_url = load_bloom_file(&malware_url_path, "malware-URL")
+            .map(|d| load_bloom_field(&d, &malware_url_path, "malware-URL"))
             .unwrap_or_else(empty_bloom);
         let phishing = load_bloom_file(&phishing_path, "phishing")
             .map(|d| load_bloom_field(&d, &phishing_path, "phishing"))
@@ -133,13 +134,13 @@ impl HashBloomFilter {
         HashBloomFilter {
             whitelist,
             blacklist,
-            urlhaus,
+            malware_url,
             phishing,
         }
     }
 
-    pub fn is_urlhaus(&self, url: &str) -> bool {
-        self.urlhaus.contains(url)
+    pub fn is_malware_url(&self, url: &str) -> bool {
+        self.malware_url.contains(url)
     }
 
     pub fn is_phishing(&self, url: &str) -> bool {

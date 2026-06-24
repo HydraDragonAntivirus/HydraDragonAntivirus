@@ -667,13 +667,13 @@ impl Pipeline {
                     let urls = extract_urls_from_bytes(data);
 
                     let mut phishing_urls: Vec<String> = Vec::new();
-                    let mut urlhaus_urls: Vec<String> = Vec::new();
+                    let mut malwareurl_urls: Vec<String> = Vec::new();
                     for url in &urls {
                         if bloom.is_phishing(url) {
                             phishing_urls.push(url.clone());
                         }
-                        if bloom.is_urlhaus(url) {
-                            urlhaus_urls.push(url.clone());
+                        if bloom.is_malware_url(url) {
+                            malwareurl_urls.push(url.clone());
                         }
                     }
 
@@ -697,16 +697,16 @@ impl Pipeline {
                             clamav_result: None,
                         };
                     }
-                    if !urlhaus_urls.is_empty() {
+                    if !malwareurl_urls.is_empty() {
                         engines.push(EngineResult {
-                            engine: "urlhaus_bloom",
+                            engine: "malwareurl_bloom",
                             verdict: Verdict::Malware,
-                            detail: urlhaus_urls.join(", "),
+                            detail: malwareurl_urls.join(", "),
                             elapsed_ms,
                         });
                         return ScanResult {
                             verdict: Verdict::Malware,
-                            threat_name: Some("urlhaus_url".into()),
+                            threat_name: Some("malwareurl_url".into()),
                             engines,
                             yara_x_matches: Vec::new(),
                             ml_malware_probability: None,
@@ -959,7 +959,7 @@ impl Pipeline {
         }
         let bloom = scanner.bloom();
         for url in extract_urls_from_bytes(data) {
-            if bloom.is_phishing(&url) || bloom.is_urlhaus(&url) {
+            if bloom.is_phishing(&url) || bloom.is_malware_url(&url) {
                 arenas.extend(find_all_byte_ranges(data, url.as_bytes()));
             }
         }
@@ -1095,13 +1095,13 @@ impl Pipeline {
             if data.len() <= 1_048_576 {
                 let urls = extract_urls_from_bytes(data);
                 let mut phishing_urls: Vec<String> = Vec::new();
-                let mut urlhaus_urls: Vec<String> = Vec::new();
+                let mut malwareurl_urls: Vec<String> = Vec::new();
                 for url in &urls {
                     if bloom.is_phishing(url) {
                         phishing_urls.push(url.clone());
                     }
-                    if bloom.is_urlhaus(url) {
-                        urlhaus_urls.push(url.clone());
+                    if bloom.is_malware_url(url) {
+                        malwareurl_urls.push(url.clone());
                     }
                 }
                 let elapsed_ms = self
@@ -1124,16 +1124,16 @@ impl Pipeline {
                         clamav_result: None,
                     };
                 }
-                if !urlhaus_urls.is_empty() {
+                if !malwareurl_urls.is_empty() {
                     engines.push(EngineResult {
-                        engine: "urlhaus_bloom",
+                        engine: "malwareurl_bloom",
                         verdict: Verdict::Malware,
-                        detail: urlhaus_urls.join(", "),
+                        detail: malwareurl_urls.join(", "),
                         elapsed_ms,
                     });
                     return ScanResult {
                         verdict: Verdict::Malware,
-                        threat_name: Some("urlhaus_url".into()),
+                        threat_name: Some("malwareurl_url".into()),
                         engines,
                         yara_x_matches: Vec::new(),
                         ml_malware_probability: None,
