@@ -56,6 +56,7 @@ use windows::Win32::UI::Shell::{
     DragAcceptFiles, DragQueryFileW, DragFinish, HDROP,
     Shell_NotifyIconW, NOTIFYICONDATAW, NOTIFY_ICON_MESSAGE, NOTIFY_ICON_DATA_FLAGS,
 };
+use windows::Win32::Storage::FileSystem::GetLogicalDrives;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 // ---------------------------------------------------------------------------
@@ -3785,16 +3786,16 @@ fn populate_browse_entries(s: &mut AppState, dir: &Path) {
     s.opt_browse_cwd = dir.to_path_buf();
 }
 
-fn populate_drive_entries(s: &mut AppState) {
+unsafe fn populate_drive_entries(s: &mut AppState) {
     s.opt_browse_entries.clear();
     s.opt_browse_sel = None;
     s.opt_browse_scroll = 0;
     s.opt_browse_cwd = PathBuf::from("");
 
+    let mask = GetLogicalDrives();
     for letter in 'A'..='Z' {
-        let root = format!("{letter}:\\");
-        if Path::new(&root).exists() {
-            s.opt_browse_entries.push((root, true));
+        if mask & (1 << (letter as u32 - 'A' as u32)) != 0 {
+            s.opt_browse_entries.push((format!("{letter}:\\"), true));
         }
     }
 }

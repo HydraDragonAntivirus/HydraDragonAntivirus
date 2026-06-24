@@ -497,20 +497,26 @@ impl Pattern {
         starts
     }
 
-    /// Verify the pattern at each candidate `start`, collecting in-range matches.
-    /// The in-range predicate matches `find_all`'s `max_pos` exactly (start in
-    /// `[rs, max(rs, re - min_len)]`).
-    fn verify_at_starts(
+    /// Verify the pattern at each candidate `start` (ascending), collecting in-range
+    /// matches. The in-range predicate matches `find_all`'s `max_pos` exactly (start
+    /// in `[rs, max(rs, re - min_len)]`). Adjacent duplicate starts are skipped, so
+    /// a sorted start sequence is verified at most once per position.
+    fn verify_starts(
         &self,
         data: &[u8],
         ranges: &[(usize, usize)],
         limit: usize,
-        starts: &[usize],
+        starts: impl Iterator<Item = usize>,
     ) -> Vec<MatchRange> {
         let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
         let mut out = Vec::new();
         let min_len = self.min_match_len().max(1);
-        for &start in starts {
+        let mut last: Option<usize> = None;
+        for start in starts {
+            if last == Some(start) {
+                continue;
+            }
+            last = Some(start);
             if fuel.get() == 0 {
                 return out;
             }
@@ -666,8 +672,20 @@ impl Pattern {
     /// literal's hint positions are few, and each implies a small, bounded set of
     /// candidate pattern starts — far fewer probes than a full scan that would
     /// anchor on a common leading byte.
-    fn literal_prefix_range(&self) -> Option<(usize, usize)> {
-        let (lit_off, _) = self.best_literal()?;
+    /// The `[min, max]` prefix range to the atom the PREFILTER actually indexes:
+    /// the exact `best_literal` if present, else the lowercased `nocase_run`. This
+    /// lets `find_all_at` thread nocase patterns (keyword subsigs) at their hint
+    /// positions instead of falling back to a whole-buffer scan.
+    fn atom_prefix_range(&self) -> Option<(usize, usize)> {
+        let off = match self.best_literal() {
+            Some((o, _)) => o,
+            None => self.nocase_run()?.0,
+        };
+        self.prefix_range_to(off)
+    }
+
+    /// `[min, max]` byte distance from the pattern start to instruction `lit_off`.
+    fn prefix_range_to(&self, lit_off: usize) -> Option<(usize, usize)> {
         let mut min = 0usize;
         let mut max = 0usize;
         let mut sidx = 0usize;
@@ -838,19 +856,30 @@ impl Pattern {
         // whose only good literal (`8a02`) follows the gap. Previously such patterns
         // fell back to a full scan that anchored on the common leading `e8` byte and
         // backtracked the gaps at every one of its ~tens-of-thousands of positions.
-        let (min_prefix, max_prefix) = match self.literal_prefix_range() {
+        let (min_prefix, max_prefix) = match self.atom_prefix_range() {
             Some(r) => r,
             None => return self.find_all(data, ranges, limit),
         };
         let span = max_prefix - min_prefix; // max >= min by construction
+        // Constant-offset atom (the common case): the prefilter's hints are already
+        // sorted + unique, so `start = hint - prefix` is too — verify them directly
+        // without materialising and sorting a starts vector.
+        if span == 0 {
+            return self.verify_starts(
+                data,
+                ranges,
+                limit,
+                hints.iter().filter_map(|&h| (h as usize).checked_sub(min_prefix)),
+            );
+        }
         // When the literal sits behind an open/wide gap the start set explodes; a
         // full scan with its own anchor is then better. Bound the top-level probes.
         const MAX_PROBES: usize = 16_384;
-        if span > 0 && hints.len().saturating_mul(span + 1) > MAX_PROBES {
+        if hints.len().saturating_mul(span + 1) > MAX_PROBES {
             return self.find_all(data, ranges, limit);
         }
         let starts = self.collect_starts(hints.iter().map(|&h| h as usize), min_prefix, max_prefix);
-        self.verify_at_starts(data, ranges, limit, &starts)
+        self.verify_starts(data, ranges, limit, starts.into_iter())
     }
 
     /// Try to match the pattern at a specific position in data.
@@ -1105,15 +1134,25 @@ impl Pattern {
 
     /// Case-folded atom for nocase prefilter (longest CHAR/NOCASE run, lowered).
     pub fn required_atom_nocase(&self) -> Option<Vec<u8>> {
+        self.nocase_run().map(|(start, len)| {
+            (0..len)
+                .map(|i| (self.instructions.get_u16(start + i) & 0xff) as u8)
+                .map(|byte| byte.to_ascii_lowercase())
+                .collect()
+        })
+    }
+
+    /// `(offset, len)` of the longest `CHAR|NOCASE` run (≥2) — the run the prefilter
+    /// indexes (lowercased) as a pattern's nocase atom. Used to anchor/thread nocase
+    /// patterns, which have no exact `best_literal`.
+    fn nocase_run(&self) -> Option<(usize, usize)> {
         let mut best: Option<(usize, usize)> = None;
         let mut run_start = 0usize;
         let mut run_len = 0usize;
         let mut in_run = false;
-
         let len = self.instructions.len();
         for i in 0..len {
-            let inst = self.instructions.get_u16(i);
-            let meta = inst & CLI_MATCH_METADATA;
+            let meta = self.instructions.get_u16(i) & CLI_MATCH_METADATA;
             if meta == CLI_MATCH_CHAR || meta == CLI_MATCH_NOCASE {
                 if !in_run {
                     run_start = i;
@@ -1131,13 +1170,7 @@ impl Pattern {
         if in_run && run_len >= 2 && best.map_or(true, |(_, blen)| run_len > blen) {
             best = Some((run_start, run_len));
         }
-
-        best.map(|(start, len)| {
-            (0..len)
-                .map(|i| (self.instructions.get_u16(start + i) & 0xff) as u8)
-                .map(|byte| byte.to_ascii_lowercase())
-                .collect()
-        })
+        best
     }
 
     /// Find a fixed-byte literal from the pattern for prefilter use.

@@ -207,15 +207,29 @@ fn differential_find_all_matches_bruteforce() {
         );
 
         // 2) find_all_at (prefilter-threaded) must equal brute force, given hints =
-        //    all occurrences of the indexed atom (best_literal, capped at 16 bytes).
-        if let Some(atom) = p.required_atom() {
-            let atom: Vec<u8> = atom.into_iter().take(16).collect();
+        //    all occurrences of the indexed atom (exact best_literal, or the
+        //    lowercased nocase run — found in the lowercased buffer), capped at 16.
+        let atom_info: Option<(Vec<u8>, bool)> = p
+            .required_atom()
+            .map(|a| (a.into_iter().take(16).collect::<Vec<u8>>(), false))
+            .or_else(|| {
+                p.required_atom_nocase()
+                    .map(|a| (a.into_iter().take(16).collect::<Vec<u8>>(), true))
+            });
+        if let Some((atom, nocase)) = atom_info {
             if atom.len() >= 2 {
                 with_atom += 1;
+                // Nocase atoms are matched against the lowercased buffer (same byte
+                // positions), mirroring the prefilter's nocase pass.
+                let hay: Vec<u8> = if nocase {
+                    data.iter().map(|b| b.to_ascii_lowercase()).collect()
+                } else {
+                    data.clone()
+                };
                 let mut hints: Vec<u32> = Vec::new();
-                if data.len() >= atom.len() {
-                    for i in 0..=data.len() - atom.len() {
-                        if data[i..i + atom.len()] == atom[..] {
+                if hay.len() >= atom.len() {
+                    for i in 0..=hay.len() - atom.len() {
+                        if hay[i..i + atom.len()] == atom[..] {
                             hints.push(i as u32);
                         }
                     }
