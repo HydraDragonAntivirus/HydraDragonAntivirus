@@ -2044,19 +2044,8 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
     let ch = wr.bottom - wr.top;
     if s.scan_option_mode && s.page == 0 {
         if s.opt_browse_mode {
-            // Browse mode: handle file list clicks
+            // Click on entry = navigate (directory) or select (file)
             let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_PUM, CAT_MEMORY, CAT_SIGMA];
-            for (i, _bit) in bits.iter().enumerate() {
-                if pt_in(&s.opt_check_rects[i], x, y) {
-                    let idx = s.opt_browse_scroll + i;
-                    if idx < s.opt_browse_entries.len() {
-                        s.opt_browse_sel = Some(idx);
-                        let _ = InvalidateRect(Some(hwnd), None, false);
-                        return;
-                    }
-                }
-            }
-            // Click on entry = navigate or select
             for (i, _) in bits.iter().enumerate() {
                 if pt_in(&s.opt_check_rects[i], x, y) {
                     let idx = s.opt_browse_scroll + i;

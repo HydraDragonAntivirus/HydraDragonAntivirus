@@ -1123,6 +1123,30 @@ impl Pattern {
         s
     }
 
+    /// Could this pattern's required atom occur in the buffer the `filter` was
+    /// built from? `false` only when the atom is provably absent (so the pattern
+    /// cannot match) — never a false negative. Uses the exact `best_literal`, or
+    /// the lowercased `nocase_run` for nocase patterns; conservatively `true` when
+    /// the pattern has no usable atom. Allocation-free (atoms are ≤16 bytes).
+    pub fn atom_maybe_present(&self, filter: &crate::presence::PresenceFilter) -> bool {
+        let mut buf = [0u8; 16];
+        if let Some((off, len)) = self.best_literal() {
+            let n = len.min(16);
+            for k in 0..n {
+                buf[k] = (self.instructions.get_u16(off + k) & 0xff) as u8;
+            }
+            return filter.maybe(&buf[..n], false);
+        }
+        if let Some((off, len)) = self.nocase_run() {
+            let n = len.min(16);
+            for k in 0..n {
+                buf[k] = ((self.instructions.get_u16(off + k) & 0xff) as u8).to_ascii_lowercase();
+            }
+            return filter.maybe(&buf[..n], true);
+        }
+        true
+    }
+
     /// The longest fixed byte sequence for prefilter use (reconstructed on demand).
     pub fn required_atom(&self) -> Option<Vec<u8>> {
         self.best_literal().map(|(off, len)| {

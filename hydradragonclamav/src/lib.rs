@@ -10,6 +10,7 @@ pub mod logical;
 pub mod pattern;
 pub mod pe;
 pub mod phishing;
+pub mod presence;
 pub mod prefilter;
 pub mod scanner;
 pub mod version_info;
