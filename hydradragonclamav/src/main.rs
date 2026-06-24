@@ -145,6 +145,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             }
         }
     }
+    if std::env::var_os("HDC_MEM_STATS").is_some() {
+        eprintln!("[mem] AFTER SCAN: {:.1} MB (peak printed below)", process_working_set_mb());
+    }
     Ok(any_found)
 }
 

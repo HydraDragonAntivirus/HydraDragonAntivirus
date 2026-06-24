@@ -695,18 +695,25 @@ fn build_candidate_set(mut hits: Vec<(u32, u32)>, always: &[u32]) -> CandidateSe
 /// Unique-atom + CSR mapping, shared by the case-sensitive and nocase
 /// automaton builds.
 #[allow(clippy::type_complexity)]
-/// Hash of the database directory (each non-cache file's name + size + mtime) plus
-/// a format version, used to key the cached automata. A changed database — or a
-/// bumped `VERSION` when the atom-extraction logic changes — misses the cache and
+/// Hash of the database directory (each non-cache file's name + size + CONTENT)
+/// plus a format version, used to key the cached automata. A changed database — or
+/// a bumped `VERSION` when the atom-extraction logic changes — misses the cache and
 /// rebuilds. The cache files themselves are excluded, or writing one would
 /// invalidate the key on the next load.
+///
+/// The key hashes file CONTENT, not mtime: a portable app that re-extracts its
+/// database on launch re-stamps mtimes but keeps the same bytes, so an mtime-based
+/// key spuriously missed every launch and paid the ~1 GB daachorse AC *rebuild*
+/// transient each time. Content hashing makes the cache survive re-extraction while
+/// still invalidating on any real signature change. The bytes are read here once
+/// (OS file cache makes the subsequent parse read cheap), far cheaper than a rebuild.
 pub fn db_cache_key(dir: &std::path::Path) -> u64 {
     use std::hash::{Hash, Hasher};
-    // v2: best-literal atom selection switched from longest run to most-selective
-    // run (penalises all-zero/all-ff/repeated runs), changing the indexed atoms.
-    // v3: non-monotone-Compare logical sigs no longer single-subsig-gated (they
-    // index all branch atoms / fall to log_always), changing the indexed atoms.
-    const VERSION: u64 = 3;
+    // Tied to the crate version (no hand-maintained numbering): a release bumps the
+    // `Cargo.toml` version and all caches invalidate. The atom-extraction logic and
+    // serialized AC format are part of a release, so bump the package version when
+    // they change rather than a separate counter here.
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
     let mut h = std::collections::hash_map::DefaultHasher::new();
     VERSION.hash(&mut h);
     if let Ok(rd) = std::fs::read_dir(dir) {
@@ -721,11 +728,8 @@ pub fn db_cache_key(dir: &std::path::Path) -> u64 {
                 if md.is_file() {
                     name.hash(&mut h);
                     md.len().hash(&mut h);
-                    if let Ok(secs) = md
-                        .modified()
-                        .and_then(|m| Ok(m.duration_since(std::time::UNIX_EPOCH).unwrap_or_default()))
-                    {
-                        secs.as_secs().hash(&mut h);
+                    if let Ok(bytes) = std::fs::read(e.path()) {
+                        h.write(&bytes);
                     }
                 }
             }
