@@ -456,7 +456,6 @@ struct AppState {
     opt_items: Vec<PathBuf>,
     /// Hit rects for each added item row (for remove click)
     opt_item_rects: Vec<RECT>,
-    opt_item_scroll: usize,
     /// True = in custom file browser mode instead of checkbox tree
     opt_browse_mode: bool,
     opt_browse_cwd: PathBuf,
@@ -800,7 +799,6 @@ unsafe fn on_create(hwnd: HWND) {
         opt_add_rect: RECT::default(),
         opt_items: Vec::new(),
         opt_item_rects: Vec::new(),
-        opt_item_scroll: 0,
         opt_browse_mode: false,
         opt_browse_cwd: PathBuf::from(""),
         opt_browse_entries: Vec::new(),
@@ -3745,17 +3743,6 @@ fn theme_pref_path() -> PathBuf {
 }
 
 /// Return all available drive roots on the system.
-fn all_fixed_drives() -> Vec<PathBuf> {
-    let mut drives = Vec::new();
-    for letter in 'A'..='Z' {
-        let root = format!("{letter}:\\");
-        if Path::new(&root).exists() {
-            drives.push(PathBuf::from(root));
-        }
-    }
-    drives
-}
-
 /// Populate opt_browse_entries from a given directory path.
 fn populate_browse_entries(s: &mut AppState, dir: &Path) {
     s.opt_browse_entries.clear();

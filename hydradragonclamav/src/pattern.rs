@@ -935,18 +935,30 @@ impl Pattern {
                         // what stops a gappy pattern (`…{gap}/link.html`) from probing
                         // thousands of false positions per gap and blowing up.
                         if ipos + 1 < pat_len && !data.is_empty() {
-                            let mut run: Vec<u8> = Vec::new();
+                            // Collect the fixed run after the gap — exact (CHAR) and
+                            // case-insensitive (NOCASE) bytes — so a gap followed by a
+                            // nocase literal (`…*Content::i`) is jumped to by SIMD
+                            // search, not probed at every gap width. Without this,
+                            // such patterns fall to the O(buffer-per-occurrence)
+                            // general path below (the dominant doc-malware cost).
+                            let mut run: Vec<(u8, bool)> = Vec::new();
                             let mut j = ipos + 1;
                             while j < pat_len && run.len() < 64 {
                                 let e = pat.get_u16(j);
-                                if (e & CLI_MATCH_METADATA) == CLI_MATCH_CHAR {
-                                    run.push((e & 0xff) as u8);
+                                let meta = e & CLI_MATCH_METADATA;
+                                if meta == CLI_MATCH_CHAR || meta == CLI_MATCH_NOCASE {
+                                    run.push(((e & 0xff) as u8, meta == CLI_MATCH_NOCASE));
                                     j += 1;
                                 } else {
                                     break;
                                 }
                             }
                             if !run.is_empty() {
+                                let all_exact = run.iter().all(|&(_, nc)| !nc);
+                                let exact: Vec<u8> = run.iter().map(|&(b, _)| b).collect();
+                                let (b0, nc0) = run[0];
+                                let b0_lo = b0.to_ascii_lowercase();
+                                let b0_up = b0.to_ascii_uppercase();
                                 let lo = dpos + *min;
                                 // The run must START in the gap window and fully fit.
                                 let last_start =
@@ -954,23 +966,42 @@ impl Pattern {
                                 if lo > last_start {
                                     return None;
                                 }
-                                let win_end = last_start + run.len();
                                 let mut search = lo;
                                 while search <= last_start {
                                     if fuel.get() == 0 {
                                         return None;
                                     }
-                                    match memchr::memmem::find(&data[search..win_end], &run) {
-                                        Some(rel) => {
-                                            let p = search + rel;
-                                            if let Some(end) =
-                                                self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
-                                            {
-                                                return Some(end);
+                                    let rel = if all_exact {
+                                        memchr::memmem::find(
+                                            &data[search..last_start + run.len()],
+                                            &exact,
+                                        )
+                                    } else if nc0 && b0_lo != b0_up {
+                                        memchr::memchr2(b0_lo, b0_up, &data[search..=last_start])
+                                    } else {
+                                        memchr::memchr(b0, &data[search..=last_start])
+                                    };
+                                    let Some(rel) = rel else {
+                                        break;
+                                    };
+                                    let p = search + rel;
+                                    search = p + 1;
+                                    // Verify the full (nocase-aware) run before recursing.
+                                    let ok = all_exact
+                                        || run.iter().enumerate().all(|(k, &(b, nc))| {
+                                            let d = data[p + k];
+                                            if nc {
+                                                d.to_ascii_lowercase() == b
+                                            } else {
+                                                d == b
                                             }
-                                            search = p + 1;
+                                        });
+                                    if ok {
+                                        if let Some(end) =
+                                            self.match_rec(data, p, ipos + 1, sidx + 1, fuel)
+                                        {
+                                            return Some(end);
                                         }
-                                        None => break,
                                     }
                                 }
                                 return None;
