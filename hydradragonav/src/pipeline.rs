@@ -107,6 +107,12 @@ pub struct Pipeline {
     good_bloom: AtomicBloomFilter,
     bad_bloom: AtomicBloomFilter,
     results_cache_dir: Option<PathBuf>,
+    /// Per-engine load metrics (RAM + time). Populated with per-engine RAM only when
+    /// metrics are enabled (`HDAV_METRICS=1`), since RAM attribution requires
+    /// sequential loading; otherwise only load times are recorded.
+    pub load_metrics: Vec<crate::metrics::EngineLoad>,
+    /// Aggregated per-engine SCAN cpu/time across all scans.
+    pub scan_cpu: crate::metrics::ScanCpu,
 }
 
 const GOOD_BLOOM_FILE: &str = "good_results.bloom";
@@ -188,107 +194,134 @@ impl Pipeline {
             }
         }
 
-        let (hash_scanner, yara_rules, clamav, hydradragonsig_rules, pe_ml_model, js_ml_model) =
-            std::thread::scope(|s| {
-                let t_hash = s.spawn(move || {
-                    bloom_dir.as_ref().filter(|p| p.exists()).map(|dir| {
-                        let bloom = HashBloomFilter::with_base_dir(dir.clone());
-                        HashScanner::with_bloom(bloom)
-                    })
-                });
-
-                let t_yara = s.spawn(move || {
-                    yara_rules_dir
-                        .as_ref()
-                        .filter(|p| p.exists())
-                        .map(|dir| load_yara_rules_from_dir(dir.as_path()))
-                        .unwrap_or_default()
-                });
-
-                let t_clamav = s.spawn(move || {
-                    if let Some(c) = existing_clamav {
-                        Some(c)
-                    } else {
-                        match clamav_db.as_ref() {
-                            Some(db) if db.exists() => match ClamavScanner::new(db) {
-                                Ok(scanner) => Some(scanner),
-                                // Don't let a DB problem silently disable ClamAV —
-                                // surface why so it's diagnosable.
-                                Err(e) => {
-                                    log::error!(
-                                        "ClamAV disabled: failed to load database {:?}: {}",
-                                        db, e
-                                    );
-                                    eprintln!(
-                                        "[ClamAV] disabled: failed to load database {:?}: {}",
-                                        db, e
-                                    );
-                                    None
-                                }
-                            },
-                            Some(db) => {
-                                log::warn!("ClamAV disabled: database path {:?} does not exist", db);
-                                None
-                            }
-                            None => None,
+        // Each engine's loader as a self-contained closure (owns its config clones),
+        // so it can run either in parallel (fast default) or sequentially with
+        // per-engine RAM measurement (diagnostics).
+        let load_hash = move || {
+            bloom_dir.as_ref().filter(|p| p.exists()).map(|dir| {
+                let bloom = HashBloomFilter::with_base_dir(dir.clone());
+                HashScanner::with_bloom(bloom)
+            })
+        };
+        let load_yara = move || {
+            yara_rules_dir
+                .as_ref()
+                .filter(|p| p.exists())
+                .map(|dir| load_yara_rules_from_dir(dir.as_path()))
+                .unwrap_or_default()
+        };
+        let load_clamav = move || {
+            if let Some(c) = existing_clamav {
+                Some(c)
+            } else {
+                match clamav_db.as_ref() {
+                    Some(db) if db.exists() => match ClamavScanner::new(db) {
+                        Ok(scanner) => Some(scanner),
+                        Err(e) => {
+                            log::error!("ClamAV disabled: failed to load database {:?}: {}", db, e);
+                            eprintln!("[ClamAV] disabled: failed to load database {:?}: {}", db, e);
+                            None
                         }
-                    }
-                });
-
-                let t_hds_rules = s.spawn(move || {
-                    let dir = hydradragonsig_rules_dir.as_ref().filter(|p| p.exists());
-                    if dir.is_none() {
-                        return None;
-                    }
-                    let dir = dir.unwrap();
-                    let mut rules = RuleSet::empty();
-
-                    let rules_file = dir.join("rules.yaml");
-                    if rules_file.exists() {
-                        if let Ok(loaded) = RuleSet::from_yaml_file(&rules_file) {
-                            rules.extend(loaded);
-                        }
-                    }
-
-                    let trusted_file = dir.join("trusted_signers.yaml");
-                    if trusted_file.exists() {
-                        if let Ok(loaded) = RuleSet::from_yaml_file(&trusted_file) {
-                            rules.extend(loaded);
-                        }
-                    }
-
-                    if rules.rules().is_empty() {
+                    },
+                    Some(db) => {
+                        log::warn!("ClamAV disabled: database path {:?} does not exist", db);
                         None
-                    } else {
-                        Some(rules)
                     }
-                });
+                    None => None,
+                }
+            }
+        };
+        let load_hds = move || {
+            let dir = hydradragonsig_rules_dir.as_ref().filter(|p| p.exists())?;
+            let mut rules = RuleSet::empty();
+            let rules_file = dir.join("rules.yaml");
+            if rules_file.exists() {
+                if let Ok(loaded) = RuleSet::from_yaml_file(&rules_file) {
+                    rules.extend(loaded);
+                }
+            }
+            let trusted_file = dir.join("trusted_signers.yaml");
+            if trusted_file.exists() {
+                if let Ok(loaded) = RuleSet::from_yaml_file(&trusted_file) {
+                    rules.extend(loaded);
+                }
+            }
+            if rules.rules().is_empty() {
+                None
+            } else {
+                Some(rules)
+            }
+        };
+        let load_pe = move || {
+            load_ml_model(
+                pe_ml_model_path.as_deref(),
+                crate::ml::model::MalwareNetConfig::default(),
+            )
+        };
+        let load_js = move || {
+            load_ml_model(
+                js_ml_model_path.as_deref(),
+                crate::ml::model::MalwareNetConfig::default_js(),
+            )
+        };
 
-                let t_pe_model = s.spawn(move || {
-                    load_ml_model(
-                        pe_ml_model_path.as_deref(),
-                        crate::ml::model::MalwareNetConfig::default(),
+        let measure = std::env::var_os("HDAV_METRICS").is_some();
+        let mut load_metrics: Vec<crate::metrics::EngineLoad> = Vec::new();
+        let (hash_scanner, yara_rules, clamav, hydradragonsig_rules, pe_ml_model, js_ml_model) =
+            if measure {
+                use crate::metrics::measure_load;
+                // Sequential so the per-engine working-set delta is attributable.
+                let (hash, m) = measure_load("hash", true, |_| 0, load_hash);
+                load_metrics.push(m);
+                let (yara, m) =
+                    measure_load("yara-x", true, |r: &Vec<(String, Rules)>| r.len(), load_yara);
+                load_metrics.push(m);
+                let (clamav, m) = measure_load(
+                    "clamav",
+                    true,
+                    |c: &Option<ClamavScanner>| c.as_ref().map(|s| s.signature_count()).unwrap_or(0),
+                    load_clamav,
+                );
+                load_metrics.push(m);
+                let (hds, m) = measure_load(
+                    "hydradragonsig",
+                    true,
+                    |r: &Option<RuleSet>| r.as_ref().map(|x| x.rules().len()).unwrap_or(0),
+                    load_hds,
+                );
+                load_metrics.push(m);
+                let (pe, m) = measure_load("ml-pe", true, |m: &Option<_>| m.is_some() as usize, load_pe);
+                load_metrics.push(m);
+                let (js, m) = measure_load("ml-js", true, |m: &Option<_>| m.is_some() as usize, load_js);
+                load_metrics.push(m);
+                (hash, yara, clamav, hds, pe, js)
+            } else {
+                std::thread::scope(|s| {
+                    let t_hash = s.spawn(load_hash);
+                    let t_yara = s.spawn(load_yara);
+                    let t_clamav = s.spawn(load_clamav);
+                    let t_hds = s.spawn(load_hds);
+                    let t_pe = s.spawn(load_pe);
+                    let t_js = s.spawn(load_js);
+                    (
+                        t_hash.join().expect("hash loader panicked"),
+                        t_yara.join().expect("yara loader panicked"),
+                        t_clamav.join().expect("clamav loader panicked"),
+                        t_hds.join().expect("hydradragonsig loader panicked"),
+                        t_pe.join().expect("pe model loader panicked"),
+                        t_js.join().expect("js model loader panicked"),
                     )
-                });
-
-                let t_js_model = s.spawn(move || {
-                    load_ml_model(
-                        js_ml_model_path.as_deref(),
-                        crate::ml::model::MalwareNetConfig::default_js(),
-                    )
-                });
-
-                (
-                    t_hash.join().expect("hash_scanner loader panicked"),
-                    t_yara.join().expect("yara_rules loader panicked"),
-                    t_clamav.join().expect("clamav loader panicked"),
-                    t_hds_rules
-                        .join()
-                        .expect("hydradragonsig rules loader panicked"),
-                    t_pe_model.join().expect("pe_model loader panicked"),
-                    t_js_model.join().expect("js_model loader panicked"),
-                )
-            });
+                })
+            };
+        if measure {
+            eprintln!(
+                "{}",
+                crate::metrics::format_report(&load_metrics, &crate::metrics::ScanCpu::default())
+            );
+        }
+        // Return the one-time load high-water-mark to the OS — engines' pages fault
+        // back in when scans touch them, so idle resident RAM drops sharply.
+        crate::metrics::trim_working_set();
 
         Self {
             config,
@@ -303,7 +336,16 @@ impl Pipeline {
             good_bloom: load_result_bloom(&results_cache_dir, GOOD_BLOOM_FILE),
             bad_bloom: load_result_bloom(&results_cache_dir, BAD_BLOOM_FILE),
             results_cache_dir,
+            load_metrics,
+            scan_cpu: crate::metrics::ScanCpu::default(),
         }
+    }
+
+    /// A human-readable per-engine RAM + CPU report (process RSS/peak/CPU, per-engine
+    /// load RAM when collected with `HDAV_METRICS=1`, and aggregated per-engine scan
+    /// CPU). Useful for diagnosing which engine drives memory/time.
+    pub fn metrics_report(&self) -> String {
+        crate::metrics::format_report(&self.load_metrics, &self.scan_cpu)
     }
 
     /// Like [`scan_file`](Self::scan_file) but transparently deduplicates by file
@@ -1283,7 +1325,10 @@ pub struct HayabusaMatch {
 
 pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<HayabusaMatch> {
     use std::collections::HashSet;
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let exe = hayabusa_dir.join("hayabusa-3.9.0-win-x64.exe");
     if !exe.exists() {
@@ -1310,6 +1355,7 @@ pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<HayabusaMatch> {
             "--rules",
             &hayabusa_dir.join("rules").to_string_lossy().into_owned(),
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .current_dir(hayabusa_dir)
         .output()
     {

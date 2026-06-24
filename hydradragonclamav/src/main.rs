@@ -39,6 +39,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let (engine, report) = Engine::from_database_dir(&cli.database)?;
     print_report(&report);
 
+    // After the heavy one-time load (parse + AC build/deserialize), the process
+    // working set holds the load high-water-mark — pages touched during loading but
+    // not needed at rest. Trim them back to the OS; they fault back in on demand
+    // when scanning actually touches them. This lowers resident RAM while idle.
+    trim_working_set();
+
     // Opt-in memory profiler (set HDC_MEM_STATS=1).
     if std::env::var_os("HDC_MEM_STATS").is_some() {
         eprintln!("[mem] process working set: {:.1} MB", process_working_set_mb());
@@ -365,6 +371,19 @@ fn print_report(report: &LoadReport) {
         if report.errors.len() > 20 {
             println!("parse error: ... {} more", report.errors.len() - 20);
         }
+    }
+}
+
+/// Trim the process working set back to the OS (Windows `EmptyWorkingSet`). Pages
+/// fault back in on demand. Reduces resident RAM after the one-time load spike.
+fn trim_working_set() {
+    #[cfg(windows)]
+    unsafe {
+        extern "system" {
+            fn GetCurrentProcess() -> isize;
+            fn K32EmptyWorkingSet(process: isize) -> i32;
+        }
+        let _ = K32EmptyWorkingSet(GetCurrentProcess());
     }
 }
 

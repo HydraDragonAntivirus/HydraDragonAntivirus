@@ -175,8 +175,11 @@ fn scan_startup_folders(results: &mut Vec<StartupDetection>) {
 }
 
 fn scan_scheduled_tasks(results: &mut Vec<StartupDetection>) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let output = std::process::Command::new("schtasks.exe")
         .args(["/query", "/fo", "LIST", "/v"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
     let output = match output {
         Ok(o) if o.status.success() => o,

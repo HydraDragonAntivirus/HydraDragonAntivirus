@@ -51,8 +51,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
-    FileOpenDialog, FileSaveDialog, IFileOpenDialog, IFileSaveDialog, IShellItem,
-    FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    FileSaveDialog, IFileSaveDialog, IShellItem,
+    SIGDN_FILESYSPATH,
     DragAcceptFiles, DragQueryFileW, DragFinish, HDROP,
     Shell_NotifyIconW, NOTIFYICONDATAW, NOTIFY_ICON_MESSAGE, NOTIFY_ICON_DATA_FLAGS,
 };
@@ -425,6 +425,9 @@ struct AppState {
     /// Total duration of the last completed scan (set on `Done`), shown in the
     /// status bar and exported in the report.
     scan_elapsed: Option<Duration>,
+    /// Previous CPU time sample for live CPU% display
+    prev_cpu_secs: f64,
+    prev_cpu_time: Instant,
     anim_frame: u32,
     anim_timer_active: bool,
     /// Button hover animation: (cmd, entering[true]/exiting[false], progress 0-5)
@@ -794,6 +797,8 @@ unsafe fn on_create(hwnd: HWND) {
         scan_discovering: false,
         scan_started_at: None,
         scan_elapsed: None,
+        prev_cpu_secs: hydradragonav::metrics::process_cpu_secs(),
+        prev_cpu_time: Instant::now(),
         anim_frame: 0,
         anim_timer_active: false,
         hover_anim: Vec::new(),
@@ -1503,7 +1508,14 @@ unsafe fn paint(hwnd: HWND) {
         let status = RECT { left: 0, top: h - STATUS_H, right: w, bottom: h };
         fill(mem, &status, t.surface);
         fill(mem, &RECT { left: 0, top: h - STATUS_H, right: w, bottom: h - STATUS_H + 1 }, t.shadow);
-        text(mem, &s.status, &RECT { left: PAD, top: h - STATUS_H, right: w - PAD, bottom: h }, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        text(mem, &s.status, &RECT { left: PAD, top: h - STATUS_H, right: w / 2, bottom: h }, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        // Live process RAM + CPU readout (right-aligned). Cheap psapi/GetProcessTimes
+        // calls; recomputed each repaint so it tracks engine loads/scans live.
+        let rss = hydradragonav::metrics::working_set_mb();
+        let peak = hydradragonav::metrics::peak_working_set_mb();
+        let cpu = hydradragonav::metrics::process_cpu_secs();
+        let metrics = format!("RAM {rss:.0} MB  (peak {peak:.0})   CPU {cpu:.0}s");
+        text(mem, &metrics, &RECT { left: w / 2, top: h - STATUS_H, right: w - PAD, bottom: h }, t.text2, s.fonts.status, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
         let _ = BitBlt(hdc, 0, 0, w, h, Some(mem), 0, 0, SRCCOPY);
         SelectObject(mem, old);
         let _ = DeleteObject(bmp.into());
@@ -1969,8 +1981,12 @@ unsafe fn on_anim_tick(hwnd: HWND) {
         if *entering { *frame < 5 } else { *frame > 0 }
     });
     let hover_active = !s.hover_anim.is_empty();
-    // Only invalidate when there is visible animation.
+    // Invalidate when there is visible animation, OR about once a second at idle so
+    // the live RAM/CPU readout in the status bar keeps refreshing (cheap: ~1 full
+    // repaint/sec when idle vs 30/sec while animating).
     if hover_active || s.engine == EngineState::Loading || matches!(s.scan_state, ScanState::Scanning) {
+        let _ = InvalidateRect(Some(hwnd), None, false);
+    } else if s.anim_frame % 30 == 0 {
         let _ = InvalidateRect(Some(hwnd), None, false);
     }
 }
@@ -2249,10 +2265,15 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 return;
             }
-            // "Add object…" row — enter browse mode
+            // "Add object…" row — enter browse mode at C:\
             if pt_in(&s.opt_add_rect, x, y) {
                 s.opt_browse_mode = true;
-                populate_drive_entries(s);
+                let c = PathBuf::from("C:\\");
+                if c.exists() {
+                    populate_browse_entries(s, &c);
+                } else {
+                    populate_drive_entries(s);
+                }
                 layout(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 return;
@@ -2309,16 +2330,14 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             }
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
-            let mut paths: Vec<PathBuf> = if s.opt_items.is_empty() {
-                // No custom items added — show native folder picker
-                pick_path(true).map(|p| vec![p]).unwrap_or_default()
-            } else {
-                std::mem::take(&mut s.opt_items)
-            };
+            let mut paths: Vec<PathBuf> = std::mem::take(&mut s.opt_items);
             // Exclude the antivirus's own directory from scanning
             let exe = exe_dir();
             paths.retain(|p| !p.starts_with(&exe));
-            if !paths.is_empty() {
+            // Always run the scan — extra phases (startup, registry, boot, memory, etc.)
+            // work even without file paths. An empty paths list just skips the
+            // streaming file-scan phase.
+            {
                 s.cancel.store(false, Ordering::Relaxed);
                 s.abort.store(false, Ordering::Relaxed);
                 lv_clear(s.scan_list);
@@ -2341,8 +2360,8 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             // resumed. Flip to the Paused toolbar immediately (the Pause button
             // becomes Resume) instead of waiting for the worker to acknowledge;
             // the worker's later `Paused` message just refreshes the counts.
+            // Do NOT touch abort — that would silently undo a prior Stop.
             s.cancel.store(true, Ordering::Relaxed);
-            s.abort.store(false, Ordering::Relaxed);
             s.scan_state = ScanState::Paused;
             s.status = "Pausing… (Resume to continue)".into();
             layout(hwnd);
@@ -2351,16 +2370,25 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_STOP => {
             // Stop: abort the scan and go straight back to the home menu. The
             // session is discarded (no Resume). `abort` tells the worker to drop
-            // the session and emit `Stopped` instead of `Paused`.
+            // the session and emit `Stopped` instead of `Paused`. We also send
+            // a Resume request to wake the worker if it's paused at recv().
             s.abort.store(true, Ordering::Relaxed);
             s.cancel.store(true, Ordering::Relaxed);
             s.scan_state = ScanState::Idle;
             s.status = "Scan stopped.".into();
+            let _ = s.work_tx.send(WorkRequest::Resume);
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
         }
         CMD_RESUME => {
-            let _ = s.work_tx.send(WorkRequest::Resume);
+            // Don't resume if the user previously stopped the scan.
+            if s.abort.load(Ordering::Relaxed) {
+                s.status = "Scan was stopped — start a new scan.".into();
+                layout(hwnd);
+                let _ = InvalidateRect(Some(hwnd), None, false);
+            } else {
+                let _ = s.work_tx.send(WorkRequest::Resume);
+            }
         }
         CMD_START_ENGINE => {
             let _ = s.work_tx.send(WorkRequest::StartEngine);
@@ -3178,21 +3206,6 @@ unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
     }
 }
 
-/// Native shell file/folder picker via `IFileOpenDialog`.
-unsafe fn pick_path(folder: bool) -> Option<PathBuf> {
-    let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
-    if folder {
-        let opts = dialog.GetOptions().ok()?;
-        dialog.SetOptions(opts | FOS_PICKFOLDERS).ok()?;
-    }
-    dialog.Show(None).ok()?;
-    let item: IShellItem = dialog.GetResult().ok()?;
-    let pw: PWSTR = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
-    let path = pw.to_string().ok();
-    CoTaskMemFree(Some(pw.0 as *const c_void));
-    path.map(PathBuf::from)
-}
-
 /// Native shell "Save As" dialog via `IFileSaveDialog`. Offers CSV and TXT
 /// filters; returns the chosen path (with the picked extension) or None on cancel.
 unsafe fn pick_save_path(default_name: &str) -> Option<PathBuf> {
@@ -3294,11 +3307,17 @@ fn worker(
             }
             WorkRequest::Resume => {
                 if let Some(sess) = session.as_mut() {
-                    send(&tx, hwnd, ScanMsg::Resumed);
-                    let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
-                    let completed = run_session(pl, sess, &cancel, &abort, &tx, hwnd);
-                    if completed {
+                    if abort.load(Ordering::Relaxed) {
+                        // Stop was requested — discard session without resuming.
                         session = None;
+                        send(&tx, hwnd, ScanMsg::Stopped);
+                    } else {
+                        send(&tx, hwnd, ScanMsg::Resumed);
+                        let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                        let completed = run_session(pl, sess, &cancel, &abort, &tx, hwnd);
+                        if completed {
+                            session = None;
+                        }
                     }
                 } else {
                     send(&tx, hwnd, ScanMsg::Status("Nothing to resume.".into()));
@@ -3433,8 +3452,9 @@ fn run_session(
     hwnd: HWND,
 ) -> bool {
     cancel.store(false, Ordering::Relaxed);
-    abort.store(false, Ordering::Relaxed);
-    let completed = run_streaming(pl, sess, cancel, tx, hwnd);
+    // abort is NOT reset here — CMD_STOP sets it and CMD_START_SCAN clears it;
+    // Resume respects the last user action.
+    let completed = run_streaming(pl, sess, cancel, abort, tx, hwnd);
     pl.save_result_caches();
 
     if !completed {
@@ -3566,6 +3586,7 @@ fn run_session(
     if sess.cats & CAT_STARTUP != 0 {
         send(tx, hwnd, ScanMsg::Status("Custom scan: startup objects…".into()));
         let startup = startup_scanner::scan_startup_objects();
+        let mut startup_hits = 0usize;
         for d in &startup {
             send(tx, hwnd, ScanMsg::Row {
                 file: format!("{} :: {}", d.source, d.name),
@@ -3573,9 +3594,30 @@ fn run_session(
                 threat: d.command.clone(),
                 sev: 25,
             });
+            startup_hits += 1;
         }
-        extra_threats += startup.len();
-        phase_labels.push(format!("startup {} object(s)", startup.len()));
+        // Extract executable paths from startup commands and scan each file
+        let mut scanned_startup = 0usize;
+        for d in &startup {
+            if let Some(exe_path) = parse_cmd_exe(&d.command) {
+                if exe_path.exists() {
+                    let result = pl.scan_file_cached(&exe_path);
+                    if result.verdict.priority() > 1 {
+                        send(tx, hwnd, ScanMsg::Row {
+                            file: exe_path.display().to_string(),
+                            verdict: format!("Startup/{}", result.verdict.label()),
+                            threat: result.threat_name.clone().unwrap_or_else(|| "startup file".into()),
+                            sev: match result.verdict.priority() {
+                                5 => 90, 4 => 75, 3 => 50, _ => 30,
+                            },
+                        });
+                        extra_threats += 1;
+                    }
+                    scanned_startup += 1;
+                }
+            }
+        }
+        phase_labels.push(format!("startup {} detected + {} scanned", startup_hits, scanned_startup));
     }
 
     // ── Boot sectors scan ──────────────────────────────────────────────────
@@ -3630,6 +3672,7 @@ fn run_streaming(
     pl: &Pipeline,
     sess: &mut ScanSession,
     cancel: &AtomicBool,
+    abort: &AtomicBool,
     tx: &Sender<ScanMsg>,
     hwnd: HWND,
 ) -> bool {
@@ -3666,10 +3709,16 @@ fn run_streaming(
                 if cancel.load(Ordering::Relaxed) {
                     break;
                 }
+                if abort.load(Ordering::Relaxed) {
+                    break;  // Stop — discard remaining, don't re-enqueue
+                }
                 let dir = { dirs_ref.lock().unwrap().pop_front() };
                 let Some(dir) = dir else { break };
                 let Ok(rd) = std::fs::read_dir(&dir) else { continue };
                 for entry in rd.flatten() {
+                    if abort.load(Ordering::Relaxed) {
+                        break 'walk;  // Stop — discard
+                    }
                     if cancel.load(Ordering::Relaxed) {
                         // Re-walk this dir on Resume (dedup makes re-enqueue cheap).
                         dirs_ref.lock().unwrap().push_front(dir);
@@ -3839,6 +3888,46 @@ fn send(tx: &Sender<ScanMsg>, hwnd: HWND, m: ScanMsg) {
             let _ = PostMessageW(Some(hwnd), WM_APP_RESULT, WPARAM(0), LPARAM(0));
         }
     }
+}
+
+/// Extract the executable path from a startup command string.
+/// Handles quoted paths, env vars, and simple unquoted paths.
+fn parse_cmd_exe(cmd: &str) -> Option<PathBuf> {
+    let cmd = cmd.trim();
+    if cmd.is_empty() { return None; }
+    // Try quoted path first: "C:\Program Files\app.exe" or 'path'
+    let exe = if cmd.starts_with('"') {
+        cmd.split('"').nth(1).map(|s| s.trim())
+    } else if cmd.starts_with('\'') {
+        cmd.split('\'').nth(1).map(|s| s.trim())
+    } else {
+        // Unquoted: take the first space-delimited token
+        cmd.split_whitespace().next()
+    }?;
+    if exe.is_empty() { return None; }
+    // Expand environment variables
+    let expanded = std::env::var("SystemRoot").ok()
+        .and_then(|_| {
+            // Simple %VarName% expansion
+            let mut s = exe.to_string();
+            for (var, key) in [("ProgramFiles", "ProgramFiles"), ("ProgramFiles(x86)", "ProgramFiles(x86)"),
+                ("ProgramW6432", "ProgramW6432"), ("SystemRoot", "SystemRoot"),
+                ("WinDir", "WinDir"), ("AppData", "APPDATA"),
+                ("LocalAppData", "LOCALAPPDATA"), ("CommonProgramFiles", "CommonProgramFiles"),
+                ("CommonProgramFiles(x86)", "CommonProgramFiles(x86)"),
+                ("CommonProgramW6432", "CommonProgramW6432"),
+                ("ALLUSERSPROFILE", "ALLUSERSPROFILE"), ("PUBLIC", "PUBLIC")] {
+                let pattern = format!("%{var}%");
+                if s.contains(&pattern) {
+                    if let Some(val) = std::env::var(key).ok() {
+                        s = s.replace(&pattern, &val);
+                    }
+                }
+            }
+            Some(s)
+        }).unwrap_or_else(|| exe.to_string());
+    let p = PathBuf::from(expanded);
+    Some(p)
 }
 
 fn exe_dir() -> PathBuf {
