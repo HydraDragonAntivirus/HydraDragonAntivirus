@@ -1,0 +1,19 @@
+[package]
+name = "vmpunpacker"
+version = "0.1.0"
+edition = "2024"
+description = "Rust port of the VMProtect-style LZMA section unpacker (was vmpunpacker.cpp)"
+license = "GPL-2.0-or-later"
+
+[[bin]]
+name = "vmpunpacker"
+path = "src/main.rs"
+
+[lib]
+name = "vmpunpacker"
+path = "src/lib.rs"
+
+[dependencies]
+# Raw LZMA1 decoder (props byte + dict size + raw stream) — the same SDK LZMA the
+# C++ used via lzma/LzmaDecode.cpp.
+lzma-rust2 = "0.16"
