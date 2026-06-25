@@ -65,6 +65,15 @@ pub struct PipelineConfig {
     /// Directory for the persisted duplicate-dedup result blooms
     /// (`good_results.bloom` / `bad_results.bloom`). `None` = in-memory only.
     pub results_cache_dir: Option<PathBuf>,
+
+    /// Directories whose contents are excluded from scanning.
+    /// HydraDragonAV's own config/rules/database directories are always added
+    /// automatically based on the exe location; this extends or overrides that list.
+    pub excluded_dirs: Vec<PathBuf>,
+
+    /// Specific files to exclude from scanning (absolute paths).
+    /// The scanner executable and its config files are always auto-excluded.
+    pub excluded_files: Vec<PathBuf>,
 }
 
 impl PipelineConfig {
@@ -91,6 +100,8 @@ impl Default for PipelineConfig {
             fast_scan: true,
             skip_unknown_types: true,
             results_cache_dir: None,
+            excluded_dirs: Vec::new(),
+            excluded_files: Vec::new(),
         }
     }
 }
@@ -129,6 +140,13 @@ pub struct Pipeline {
     pub load_metrics: Vec<crate::metrics::EngineLoad>,
     /// Aggregated per-engine SCAN cpu/time across all scans.
     pub scan_cpu: crate::metrics::ScanCpu,
+
+    /// Directories to skip during file scans. Populated from `PipelineConfig` plus
+    /// auto-detected HydraDragonAV config/rules/database subdirs of the exe location.
+    excluded_dirs: Vec<PathBuf>,
+
+    /// Specific files to skip during scans (auto-populated with exe + config files).
+    excluded_files: Vec<PathBuf>,
 }
 
 const GOOD_BLOOM_FILE: &str = "good_results.bloom";
@@ -378,6 +396,59 @@ impl Pipeline {
         // back in when scans touch them, so idle resident RAM drops sharply.
         crate::metrics::trim_working_set();
 
+        // Build the excluded-directories list. Start with the manually-configured
+        // dirs, then add known HydraDragonAV config subdirectories from the exe
+        // location (never the root itself — we must not exclude C:\ when running
+        // from there).
+        let mut excluded_dirs = config.excluded_dirs.clone();
+        let mut excluded_files = config.excluded_files.clone();
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                for sub in [
+                    "bloom_filter",
+                    "database",
+                    "yara-x",
+                    "hayabusa",
+                    "hydradragonsig_rules",
+                    "settings",
+                    "results_cache",
+                ] {
+                    let candidate = exe_dir.join(sub);
+                    if candidate.is_dir() {
+                        excluded_dirs.push(candidate);
+                    }
+                }
+                // Exclude the scanner executable itself
+                excluded_files.push(exe.clone());
+                // Exclude config files in the settings directory
+                let settings_dir = exe_dir.join("settings");
+                for cfg in ["settings.json", "settings.toml"] {
+                    let p = settings_dir.join(cfg);
+                    if p.exists() {
+                        excluded_files.push(p);
+                    }
+                }
+                // Exclude legacy settings.toml next to the exe
+                let legacy = exe_dir.join("settings.toml");
+                if legacy.exists() {
+                    excluded_files.push(legacy);
+                }
+                // Exclude the excluded_yara_x_rules file if present
+                let excl_file = exe_dir.join("excluded_yara_x_rules").join("excluded_yara_x_rules.txt");
+                if excl_file.exists() {
+                    excluded_files.push(excl_file);
+                }
+            }
+        }
+
+        // Add results_cache dir (if configured separately) to excluded dirs
+        if let Some(ref cache_dir) = results_cache_dir {
+            if cache_dir.is_dir() && !excluded_dirs.iter().any(|d| d == cache_dir) {
+                excluded_dirs.push(cache_dir.clone());
+            }
+        }
+
         Self {
             config,
             hash_scanner,
@@ -394,6 +465,8 @@ impl Pipeline {
             cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             load_metrics,
             scan_cpu: crate::metrics::ScanCpu::default(),
+            excluded_dirs,
+            excluded_files,
         }
     }
 
@@ -443,7 +516,18 @@ impl Pipeline {
         clamav + hds + yara
     }
 
+    /// Returns `true` when `path` is excluded from scanning — either because it
+    /// sits under an excluded directory, or because it matches an excluded file.
+    pub fn is_excluded(&self, path: &Path) -> bool {
+        self.excluded_dirs.iter().any(|ex| path.starts_with(ex))
+            || self.excluded_files.iter().any(|ex| path == ex)
+    }
+
     pub fn scan_file_cached(&self, path: &Path) -> ScanResult {
+        if self.is_excluded(path) {
+            return cache_result(Verdict::Clean, None, "skipped (excluded directory)");
+        }
+
         const CACHE_FILE_MAX: u64 = 64 * 1024 * 1024;
 
         // Read the file ONCE and reuse the buffer for both the MD5 dedup key and
@@ -503,6 +587,10 @@ impl Pipeline {
     }
 
     pub fn scan_file(&self, path: &Path) -> ScanResult {
+        if self.is_excluded(path) {
+            return cache_result(Verdict::Clean, None, "skipped (excluded directory)");
+        }
+
         let file_size = match path.metadata() {
             Ok(metadata) => metadata.len(),
             Err(err) => {

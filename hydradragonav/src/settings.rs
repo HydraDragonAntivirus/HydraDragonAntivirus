@@ -1,14 +1,14 @@
 //! User settings for right-click / CLI scan defaults.
-//! Loaded from `settings.toml` next to the executable.
-//! If the file doesn't exist, defaults are used (Files-only for right-click).
+//! Loaded from `settings/settings.json` (or `.toml` for backwards compat)
+//! inside the executable's directory. If none exists, defaults are used.
 
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::pipeline::ScanCategory;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Settings {
     /// Default scan categories when none are specified on the CLI.
     /// Empty = all categories enabled.
@@ -28,6 +28,21 @@ pub struct Settings {
     /// Whether to include Sigma/Hayabusa scanning when right-click scanning a file.
     #[serde(default)]
     pub scan_with_sigma: bool,
+
+    /// Additional directories to exclude from scanning (relative or absolute paths).
+    /// HydraDragonAV's own config/rules/database directories are always excluded
+    /// automatically; this extends that list.
+    #[serde(default)]
+    pub excluded_dirs: Vec<String>,
+
+    /// Specific files to exclude from scanning (absolute or relative paths).
+    /// Relative paths are resolved relative to the application directory.
+    #[serde(default)]
+    pub excluded_files: Vec<String>,
+
+    /// UI theme name (e.g. "dark", "light"). Used by GUI frontends.
+    #[serde(default)]
+    pub theme: Option<String>,
 }
 
 impl Default for Settings {
@@ -37,24 +52,60 @@ impl Default for Settings {
             scan_with_registry: false,
             scan_with_memory: false,
             scan_with_sigma: false,
+            excluded_dirs: Vec::new(),
+            excluded_files: Vec::new(),
+            theme: None,
         }
     }
 }
 
 impl Settings {
-    /// Load settings from `settings.toml` in the given directory.
-    /// If the file doesn't exist, returns defaults.
+    /// Path to the settings directory under the application directory.
+    pub fn settings_dir(app_dir: &Path) -> std::path::PathBuf {
+        app_dir.join("settings")
+    }
+
+    /// Load settings from `settings/settings.json` (or `.toml` fallback).
+    /// If no file exists, returns defaults.
     pub fn load(dir: &Path) -> Self {
-        let path = dir.join("settings.toml");
-        match std::fs::read_to_string(&path) {
-            Ok(content) => {
-                toml::from_str(&content).unwrap_or_else(|e| {
-                    eprintln!("[Settings] Failed to parse {}: {e}. Using defaults.", path.display());
+        // Primary: settings/settings.json
+        let settings_dir = Self::settings_dir(dir);
+        let json_path = settings_dir.join("settings.json");
+        if json_path.exists() {
+            return match std::fs::read_to_string(&json_path) {
+                Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+                    eprintln!("[Settings] Failed to parse {}: {e}. Using defaults.", json_path.display());
                     Self::default()
-                })
-            }
-            Err(_) => Self::default(),
+                }),
+                Err(_) => Self::default(),
+            };
         }
+
+        // Secondary: settings/settings.toml
+        let toml_path = settings_dir.join("settings.toml");
+        if toml_path.exists() {
+            return match std::fs::read_to_string(&toml_path) {
+                Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
+                    eprintln!("[Settings] Failed to parse {}: {e}. Using defaults.", toml_path.display());
+                    Self::default()
+                }),
+                Err(_) => Self::default(),
+            };
+        }
+
+        // Tertiary (legacy): settings.toml next to the executable
+        let legacy = dir.join("settings.toml");
+        if legacy.exists() {
+            return match std::fs::read_to_string(&legacy) {
+                Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
+                    eprintln!("[Settings] Failed to parse {}: {e}. Using defaults.", legacy.display());
+                    Self::default()
+                }),
+                Err(_) => Self::default(),
+            };
+        }
+
+        Self::default()
     }
 
     /// Build the effective scan categories for a right-click / context-menu scan.

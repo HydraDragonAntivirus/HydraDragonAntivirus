@@ -245,6 +245,30 @@ fn cmd_custom_scan(
     let cats = resolve_categories(categories);
     let has_cat = |c| cats.contains(&c);
 
+    // Ensure the settings directory exists
+    let settings_dir = Settings::settings_dir(&exe_dir());
+    let _ = std::fs::create_dir_all(&settings_dir);
+
+    let settings = Settings::load(&exe_dir());
+    let excluded_dirs: Vec<PathBuf> = settings
+        .excluded_dirs
+        .iter()
+        .map(|s| {
+            let p = PathBuf::from(s);
+            if p.is_relative() { exe_dir().join(&p) } else { p }
+        })
+        .filter(|p| p.exists())
+        .collect();
+    let excluded_files: Vec<PathBuf> = settings
+        .excluded_files
+        .iter()
+        .map(|s| {
+            let p = PathBuf::from(s);
+            if p.is_relative() { exe_dir().join(&p) } else { p }
+        })
+        .filter(|p| p.exists())
+        .collect();
+
     let pipeline_config = PipelineConfig {
         bloom_dir: config.bloom_dir.clone().filter(|p| p.exists()),
         yara_rules_dir: config.yara_dir.clone().filter(|p| p.exists()),
@@ -260,6 +284,8 @@ fn cmd_custom_scan(
         ml_threshold: config.ml_threshold,
         time_engines,
         fast_scan,
+        excluded_dirs,
+        excluded_files,
         ..Default::default()
     };
 
@@ -472,6 +498,10 @@ fn scan_paths(
                         | hydradragonav::verdict::Verdict::Pua
                     ) { harmful.push((path, result)); }
                 } else if path.is_dir() {
+                    if pipeline.is_excluded(&path) {
+                        pb.set_message(format!("skipping excluded dir: {}", path.display()));
+                        continue;
+                    }
                     walk(&path, pipeline, json, files_scanned, threats, harmful, engine_totals, pb);
                 }
             }
