@@ -245,6 +245,29 @@ pub fn create_mew_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -> U
     }
 }
 
+/// VMProtect packer — LZMA-static unpacked, just needs relaxed emulation.
+pub fn create_vmprotect_unpacker(
+    secs: &[SectionHeader],
+    base_addr: u64,
+    ep: u64,
+) -> UnpackerConfig {
+    UnpackerConfig {
+        name: "vmprotect".into(),
+        base_addr,
+        ep,
+        startaddr: None,
+        endaddr: base_addr + 0x2_0000,
+        allowed_sections: section_names(secs),
+        allowed_addr_ranges: vec![],
+        section_hopping_control: false,
+        write_execute_control: false,
+        virtualmemorysize: None,
+        secs: to_sections(secs),
+        dumper_type: DumperType::Default,
+        allocated_chunks: vec![],
+    }
+}
+
 /// MPRESS packer.
 pub fn create_mpress_unpacker(secs: &[SectionHeader], base_addr: u64, ep: u64) -> UnpackerConfig {
     UnpackerConfig {
@@ -357,7 +380,7 @@ pub fn get_allowed_addr_ranges(cfg: &UnpackerConfig) -> Vec<(u64, u64)> {
 
 /// Known packer names we look for in YARA rule identifiers.
 const PACKER_NAMES: &[&str] = &[
-    "upx", "petite", "mew", "mpress", "aspack", "fsg", "pecompact", "upack", "yzpack",
+    "upx", "petite", "mew", "mpress", "aspack", "fsg", "pecompact", "upack", "yzpack", "vmprotect",
 ];
 
 /// Identify the packer used by a PE file by scanning it with YARA rules.

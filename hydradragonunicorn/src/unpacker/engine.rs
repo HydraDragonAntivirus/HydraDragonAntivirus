@@ -14,6 +14,7 @@ use unicorn_engine::{RegisterX86, UcHookId, Unicorn};
 use crate::unpacker::error::{UnpackerError, UnpackerResult};
 use crate::unpacker::kernel_structs::{Peb, PebLdrData, Teb};
 use crate::unpacker::packers::{self, UnpackerConfig};
+use vmpunpacker;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -104,6 +105,9 @@ pub struct Sample {
     pub allocated_chunks: Vec<(u64, u64)>,
     pub base_addr: u64,
     pub virtualmemorysize: u64,
+    /// Raw PE bytes (possibly VMProtect-unpacked). Used by `init_uc` and
+    /// `patch_imports` instead of re-reading from disk.
+    pub raw_bytes: Vec<u8>,
     pub loaded_image: Vec<u8>,
     pub sections: Vec<Section>,
     pub unpacker: UnpackerConfig,
@@ -115,7 +119,20 @@ pub struct Sample {
 
 impl Sample {
     pub fn new(path: &str, yara_path: &str) -> UnpackerResult<Self> {
-        let (dos_header, pe_header, opt_header, sections) = read_pe_headers_from_disk(path)?;
+        let raw = std::fs::read(path)?;
+
+        // Detect and statically unpack VMProtect sections in memory.
+        let raw_bytes = if !raw.is_empty() && vmpunpacker::detect(&raw) {
+            log::info!("VMProtect detected in {}, unpacking in memory…", path);
+            let unpacked = vmpunpacker::unpack(&raw)
+                .map_err(|e| UnpackerError::General(format!("VMProtect LZMA unpack failed: {e}")))?;
+            log::info!("VMProtect unpacked: {} -> {} bytes", path, unpacked.len());
+            unpacked
+        } else {
+            raw
+        };
+
+        let (dos_header, pe_header, opt_header, sections) = parse_pe_bytes(&raw_bytes)?;
 
         let base_addr = opt_header.image_base as u64;
         let virtualmemorysize = get_virtual_memory_size(&sections);
@@ -146,6 +163,7 @@ impl Sample {
             allocated_chunks: Vec::new(),
             base_addr,
             virtualmemorysize,
+            raw_bytes,
             loaded_image: Vec::new(),
             sections,
             unpacker,
@@ -266,7 +284,7 @@ impl UnpackerEngine {
         let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32)
             .map_err(|e| UnpackerError::EmulatorError(format!("uc_open: {:?}", e)))?;
 
-        let pe_data = std::fs::read(&self.sample.path)?;
+        let pe_data = self.sample.raw_bytes.clone();
         let pe = match goblin::Object::parse(&pe_data) {
             Ok(Object::PE(pe)) => {
                 if pe.is_64 {
@@ -644,8 +662,7 @@ impl UnpackerEngine {
     }
 
     fn patch_imports(&mut self, uc: &mut Unicorn<'static, ()>, image_base: u64) -> UnpackerResult<()> {
-        let pe_data = std::fs::read(&self.sample.path)?;
-        let pe = match goblin::Object::parse(&pe_data) {
+        let pe = match goblin::Object::parse(&self.sample.raw_bytes) {
             Ok(Object::PE(pe)) => pe,
             _ => return Ok(()),
         };
@@ -764,73 +781,7 @@ pub fn read_pe_headers_from_disk(
     path: &str,
 ) -> UnpackerResult<(DosHeader, PeHeader, OptionalHeader, Vec<Section>)> {
     let data = std::fs::read(path)?;
-    let pe = match goblin::Object::parse(&data) {
-        Ok(Object::PE(pe)) => {
-            if pe.is_64 {
-                return Err(UnpackerError::InvalidPeFile("64-bit not supported".into()));
-            }
-            pe
-        }
-        Ok(_) => return Err(UnpackerError::InvalidPeFile("Not a PE file".into())),
-        Err(e) => return Err(UnpackerError::InvalidPeFile(e.to_string())),
-    };
-
-    let e_lfanew = u32::from_le_bytes(data[0x3C..0x40].try_into().unwrap_or([0; 4]));
-    let e_magic = u16::from_le_bytes(data[0..2].try_into().unwrap_or([0; 2]));
-
-    let dos_header = DosHeader { e_magic, e_lfanew };
-
-    let pe_header = PeHeader {
-        signature: pe.header.coff_header.machine as u32,
-        machine: pe.header.coff_header.machine,
-        number_of_sections: pe.header.coff_header.number_of_sections,
-        characteristics: pe.header.coff_header.characteristics,
-    };
-
-    let opt = pe
-        .header
-        .optional_header
-        .as_ref()
-        .ok_or_else(|| UnpackerError::InvalidPeFile("missing optional header".into()))?;
-
-    let opt_header = OptionalHeader {
-        magic: opt.standard_fields.magic,
-        address_of_entry_point: opt.standard_fields.address_of_entry_point,
-        image_base: pe.image_base as u32,
-        section_alignment: opt.windows_fields.section_alignment,
-        file_alignment: opt.windows_fields.file_alignment,
-        size_of_image: opt.windows_fields.size_of_image,
-        size_of_headers: opt.windows_fields.size_of_headers,
-        check_sum: opt.windows_fields.check_sum,
-        subsystem: opt.windows_fields.subsystem,
-        dll_characteristics: opt.windows_fields.dll_characteristics,
-        data_directory: opt
-            .data_directories
-            .data_directories
-            .iter()
-            .filter_map(|entry| entry.as_ref().map(|(_, dd)| DataDirectory {
-                virtual_address: dd.virtual_address,
-                size: dd.size,
-            }))
-            .collect(),
-    };
-
-    let sections: Vec<Section> = pe
-        .sections
-        .iter()
-        .map(|s| Section {
-            name: String::from_utf8_lossy(&s.name)
-                .trim_end_matches('\0')
-                .to_string(),
-            virtual_size: s.virtual_size,
-            virtual_address: s.virtual_address,
-            size_of_raw_data: s.size_of_raw_data,
-            pointer_to_raw_data: s.pointer_to_raw_data,
-            characteristics: s.characteristics,
-        })
-        .collect();
-
-    Ok((dos_header, pe_header, opt_header, sections))
+    parse_pe_bytes(&data)
 }
 
 // ---------------------------------------------------------------------------
@@ -1083,4 +1034,77 @@ fn offset_to_rva(pe: &PE<'_>, file_offset: usize) -> u32 {
         }
     }
     0
+}
+
+/// Parse PE headers from an in-memory byte slice (no disk I/O).
+pub fn parse_pe_bytes(
+    data: &[u8],
+) -> UnpackerResult<(DosHeader, PeHeader, OptionalHeader, Vec<Section>)> {
+    let pe = match goblin::Object::parse(data) {
+        Ok(Object::PE(pe)) => {
+            if pe.is_64 {
+                return Err(UnpackerError::InvalidPeFile("64-bit not supported".into()));
+            }
+            pe
+        }
+        Ok(_) => return Err(UnpackerError::InvalidPeFile("Not a PE file".into())),
+        Err(e) => return Err(UnpackerError::InvalidPeFile(e.to_string())),
+    };
+
+    let e_lfanew = u32::from_le_bytes(data[0x3C..0x40].try_into().unwrap_or([0; 4]));
+    let e_magic = u16::from_le_bytes(data[0..2].try_into().unwrap_or([0; 2]));
+
+    let dos_header = DosHeader { e_magic, e_lfanew };
+
+    let pe_header = PeHeader {
+        signature: pe.header.coff_header.machine as u32,
+        machine: pe.header.coff_header.machine,
+        number_of_sections: pe.header.coff_header.number_of_sections,
+        characteristics: pe.header.coff_header.characteristics,
+    };
+
+    let opt = pe
+        .header
+        .optional_header
+        .as_ref()
+        .ok_or_else(|| UnpackerError::InvalidPeFile("missing optional header".into()))?;
+
+    let opt_header = OptionalHeader {
+        magic: opt.standard_fields.magic,
+        address_of_entry_point: opt.standard_fields.address_of_entry_point,
+        image_base: pe.image_base as u32,
+        section_alignment: opt.windows_fields.section_alignment,
+        file_alignment: opt.windows_fields.file_alignment,
+        size_of_image: opt.windows_fields.size_of_image,
+        size_of_headers: opt.windows_fields.size_of_headers,
+        check_sum: opt.windows_fields.check_sum,
+        subsystem: opt.windows_fields.subsystem,
+        dll_characteristics: opt.windows_fields.dll_characteristics,
+        data_directory: opt
+            .data_directories
+            .data_directories
+            .iter()
+            .filter_map(|entry| entry.as_ref().map(|(_, dd)| DataDirectory {
+                virtual_address: dd.virtual_address,
+                size: dd.size,
+            }))
+            .collect(),
+    };
+
+    let sections: Vec<Section> = pe
+        .sections
+        .iter()
+        .map(|s| Section {
+            name: String::from_utf8_lossy(&s.name)
+                .trim_end_matches('\0')
+                .to_string(),
+            virtual_size: s.virtual_size,
+            virtual_address: s.virtual_address,
+            size_of_raw_data: s.size_of_raw_data,
+            pointer_to_raw_data: s.pointer_to_raw_data,
+            characteristics: s.characteristics,
+        })
+        .collect();
+
+    Ok((dos_header, pe_header, opt_header, sections))
 }

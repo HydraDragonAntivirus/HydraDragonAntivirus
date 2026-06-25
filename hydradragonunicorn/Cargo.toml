@@ -39,6 +39,7 @@ sevenz-rust2 = { version = "0.20", features = ["brotli", "deflate", "lz4", "zstd
 
 # Standalone pure-Rust archive/compression extractor (tar, gzip, xz, lzma)
 hydradragonextractor = { path = "../hydradragonextractor" }
+vmpunpacker = { path = "../vmpunpacker" }
 
 [dev-dependencies]
 tempfile = "3.27.0"
