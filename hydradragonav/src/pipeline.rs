@@ -59,6 +59,9 @@ pub struct PipelineConfig {
     pub clamav_heuristics: bool,
     pub time_engines: bool,
     pub fast_scan: bool,
+    /// Skip files whose type isn't a recognised ClamAV/hydradragonsig file type
+    /// (opaque binary data). Default on — a big speed win on full-disk scans.
+    pub skip_unknown_types: bool,
     /// Directory for the persisted duplicate-dedup result blooms
     /// (`good_results.bloom` / `bad_results.bloom`). `None` = in-memory only.
     pub results_cache_dir: Option<PathBuf>,
@@ -86,9 +89,18 @@ impl Default for PipelineConfig {
             clamav_heuristics: false,
             time_engines: false,
             fast_scan: true,
+            skip_unknown_types: true,
             results_cache_dir: None,
         }
     }
+}
+
+/// True when `ft` is a recognised, scannable file type. hydradragonsig's own
+/// classifier leaves `primary == "unknown"` only for opaque binary data with no
+/// magic / known structure — no file-type-targeted signature can match those, so
+/// they may be skipped on a full scan.
+fn is_scannable_type(ft: &hydradragonsig::models::FileTypeInfo) -> bool {
+    ft.primary != "unknown"
 }
 
 pub struct Pipeline {
@@ -618,12 +630,35 @@ impl Pipeline {
         }
 
         bail_if_cancelled!();
-        // --- 2. ML INFERENCE ---
-        // Detect the file class up front so each model only runs on its own type
-        // (the JS model must NOT see XML/HTML/text). Same classifier the static
-        // stage uses, so the flags match the YARA ML-ruleset gating below.
-        let t0 = Instant::now();
+        // Classify the file ONCE (reused by ML + static analysis below). When
+        // `skip_unknown_types` is on (default), files whose type isn't a recognised
+        // ClamAV/hydradragonsig file type — opaque binary data with no magic — are
+        // skipped right after the hash check: no file-type-targeted signature applies
+        // to them, so this avoids scanning every junk/data file (big win on a full
+        // disk scan). The hash/bloom check above still ran, so a known-bad hash on a
+        // typeless file is still caught.
         let ml_file_type = hydradragonsig::scanner::filetype::classify_bytes(path, data);
+        if self.config.skip_unknown_types && !is_scannable_type(&ml_file_type) {
+            engines.push(EngineResult {
+                engine: "filetype",
+                verdict: Verdict::Clean,
+                detail: format!("skipped: unrecognised file type ({})", ml_file_type.primary),
+                elapsed_ms: None,
+            });
+            return ScanResult {
+                verdict: Verdict::Clean,
+                threat_name: None,
+                engines,
+                yara_x_matches,
+                ml_malware_probability: None,
+                clamav_result,
+            };
+        }
+
+        bail_if_cancelled!();
+        // --- 2. ML INFERENCE ---
+        // Each model only runs on its own type (the JS model must NOT see XML/HTML/text).
+        let t0 = Instant::now();
         let ml_verdict =
             self.run_ml_inference_bytes(data, ml_file_type.is_pe, ml_file_type.is_javascript);
         let ml_elapsed_ms = self

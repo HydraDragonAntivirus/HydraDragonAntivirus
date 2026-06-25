@@ -50,9 +50,10 @@ impl Quarantine {
         self.store_dir().join(format!("{id}.json"))
     }
 
-    /// XOR-encode `path` into the quarantine store, record metadata, and remove
-    /// the original file. Returns the stored entry.
-    pub fn quarantine(&self, path: &Path, detection: &str) -> io::Result<QuarantineEntry> {
+    /// XOR-encode `path` into the quarantine store and record metadata WITHOUT
+    /// removing the original. Used when a file is locked and will be deleted later
+    /// (e.g. at restart), so a recoverable copy already shows in the Quarantine tab.
+    pub fn backup(&self, path: &Path, detection: &str) -> io::Result<QuarantineEntry> {
         let data = fs::read(path)?;
 
         let mut hasher = Sha256::new();
@@ -84,12 +85,18 @@ impl Quarantine {
             self.meta_path(&id),
             serde_json::to_vec_pretty(&entry).unwrap_or_default(),
         )?;
+        Ok(entry)
+    }
 
+    /// XOR-encode `path` into the quarantine store, record metadata, and remove
+    /// the original file. Returns the stored entry.
+    pub fn quarantine(&self, path: &Path, detection: &str) -> io::Result<QuarantineEntry> {
+        let entry = self.backup(path, detection)?;
         // Only after the encoded copy + metadata are safely written do we remove
         // the original; on failure, roll back so we don't leave orphans.
         if let Err(e) = fs::remove_file(path) {
-            let _ = fs::remove_file(self.data_path(&id));
-            let _ = fs::remove_file(self.meta_path(&id));
+            let _ = fs::remove_file(self.data_path(&entry.id));
+            let _ = fs::remove_file(self.meta_path(&entry.id));
             return Err(e);
         }
         Ok(entry)

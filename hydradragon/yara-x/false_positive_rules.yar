@@ -1,4 +1,30 @@
 
+rule yoda_crypter_1_2: Crypter {
+  meta:
+    author      = "Kevin Falcoz"
+    date_create = "15/04/2013"
+    description = "Yoda Crypter 1.2"
+
+  strings:
+    $signature1 = { 60 E8 00 00 00 00 5D 81 ED F3 1D 40 00 B9 7B 09 00 00 8D BD 3B 1E 40 00 8B F7 AC [19] EB 01 [27] AA E2 CC }
+
+  condition:
+    $signature1 at (pe.entry_point)
+}
+
+rule yoda_crypter_1_3: Crypter {
+  meta:
+    author      = "Kevin Falcoz"
+    date_create = "15/04/2013"
+    description = "Yoda Crypter 1.3"
+
+  strings:
+    $signature1 = { 55 8B EC 53 56 57 60 E8 00 00 00 00 5D 81 ED 6C 28 40 00 B9 5D 34 40 00 81 E9 C6 28 40 00 8B D5 81 C2 C6 28 40 00 8D 3A 8B F7 33 C0 EB 04 90 EB 01 C2 AC }
+
+  condition:
+    $signature1 at (pe.entry_point)
+}
+
 rule INDICATOR_SUSPICIOUS_Stomped_PECompilation_Timestamp_InTheFuture {
     meta:
         author = "ditekSHen"
@@ -1345,4 +1371,789 @@ rule UPX_: RAT {
 
   condition:
     all of them
+}
+
+rule visual_c_plus_plus_6_sp: Compiler {
+  meta:
+    author      = "Kevin Falcoz"
+    date_create = "25/02/2013"
+    description = "Miscrosoft Visual C++ 6.0 SPx"
+
+  strings:
+    $str1 = { 55 8B EC 83 EC 44 56 FF 15 ?? 10 40 00 8B F0 8A 06 3C 22 75 14 8A 46 01 46 84 C0 74 04 3C 22 75 F4 80 3E }  /*EntryPoint*/
+
+  condition:
+    $str1 at (pe.entry_point)
+}
+
+rule visual_c_plus_plus_7: Compiler {
+  meta:
+    author      = "Kevin Falcoz"
+    date_create = "25/02/2013"
+    description = "Miscrosoft Visual C++ 7.0"
+
+  strings:
+    $str1 = { 6A 60 68 [2] 40 00 E8 [2] 00 00 BF 94 00 00 00 8B C7 E8 [4] 89 65 E8 8B F4 89 3E 56 FF 15 [2] 40 00 8B 4E 10 89 0D }  /*EntryPoint*/
+    $str2 = { 6A 0C 68 [4] E8 [4] 33 C0 40 89 45 E4 }
+
+  condition:
+    $str1 at (pe.entry_point) or $str2 at (pe.entry_point)
+}
+
+rule borland_delphi_6_7: Compiler {
+  meta:
+    author      = "Kevin Falcoz"
+    date_create = "25/02/2013"
+    description = "Borland Delphi 6.0 - 7.0"
+
+  strings:
+    $str1 = { 55 8B EC 83 C4 F0 53 B8 [3] 00 E8 [3] FF 8B 1D [3] 00 8B 03 BA [2] 52 00 E8 [2] F6 FF B8 [2] 52 00 E8 [2] FF FF 8B 03 E8 }  /*EntryPoint*/
+    $str2 = { 55 8B EC B9 ?? 00 00 00 6A 00 6A 00 49 75 F9 [0-1] 53 [9-11] FF 33 C0 55 68 [3] 00 64 FF 30 64 89 20 }  /*EntryPoint*/
+
+  condition:
+    $str1 at (pe.entry_point) or $str2 at (pe.entry_point)
+}
+
+
+rule bcpp2 {
+  meta:
+    author      = "PEiD"
+    description = "Borland C++ 1999"
+    group       = "10"
+    function    = "0"
+
+  strings:
+    $a0 = { EB 10 66 62 3A 43 2B 2B 48 4F 4F 4B 90 E9 ?? ?? ?? ?? A1 ?? ?? ?? ?? C1 E0 02 A3 ?? ?? ?? ?? 52 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule bcpp_dll2 {
+  meta:
+    author      = "PEiD"
+    description = "Borland C++ DLL Method 2"
+    group       = "10"
+    function    = "0"
+
+  strings:
+    $a0 = { EB 10 66 62 3A 43 2B 2B 48 4F 4F 4B 90 E9 }
+
+  condition:
+    $a0
+}
+
+rule bcpp_dll3 {
+  meta:
+    author      = "PEiD"
+    description = "Borland C++ DLL Method 3"
+    group       = "10"
+    function    = "0"
+
+  strings:
+    $a0 = { EB 10 66 62 3A 43 2B 2B 48 4F 4F 4B 90 E9 ?? ?? ?? ?? A1 ?? ?? ?? ?? C1 E0 02 A3 ?? ?? ?? ?? 8B }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule bdelphi_dll {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi DLL"
+    group       = "11"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 C4 ?? B8 ?? ?? ?? ?? E8 ?? ?? FF FF E8 ?? ?? FF FF 8D 40 00 }
+
+  condition:
+    $a0
+}
+
+rule borland_delphi2 {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi 2.0"
+    group       = "11"
+    function    = "0"
+
+  strings:
+    $a0 = { E8 ?? ?? ?? ?? 6A ?? E8 ?? ?? ?? ?? 89 05 ?? ?? ?? ?? E8 ?? ?? ?? ?? 89 05 ?? ?? ?? ?? C7 05 ?? ?? ?? ?? 0A ?? ?? ?? B8 ?? ?? ?? ?? C3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule borland_delphi3 {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi 3.0"
+    group       = "11"
+    function    = "0"
+
+  strings:
+    $a0 = { 50 6A ?? E8 ?? ?? FF FF BA ?? ?? ?? ?? 52 89 05 ?? ?? ?? ?? 89 42 04 E8 ?? ?? ?? ?? 5A 58 E8 ?? ?? ?? ?? C3 55 8B EC 33 C0 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule borland_delphi5 {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi 4.0 - 5.0"
+    group       = "11"
+    function    = "0"
+
+  strings:
+    $a0 = { 50 6A ?? E8 ?? ?? FF FF BA ?? ?? ?? ?? 52 89 05 ?? ?? ?? ?? 89 42 04 C7 42 08 ?? ?? ?? ?? C7 42 0C ?? ?? ?? ?? E8 ?? ?? ?? ?? 5A 58 E8 ?? ?? ?? ?? C3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule borland_delphi6 {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi 6.0 - 7.0 / 2005 - 2007"
+    group       = "11"
+    function    = "0"
+
+  strings:
+    $a0 = { 53 8B D8 33 C0 A3 ?? ?? ?? ?? 6A ?? E8 ?? ?? ?? FF A3 ?? ?? ?? ?? A1 ?? ?? ?? ?? A3 ?? ?? ?? ?? 33 C0 A3 ?? ?? ?? ?? 33 C0 A3 ?? ?? ?? ?? E8 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule borland_delphi_setup {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi Setup Module"
+    group       = "11"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 C4 ?? 53 56 57 33 C0 89 45 F0 89 45 D4 89 45 D0 E8 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule borland_delphi_5_KOL_MCK {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi 5.0 KOL/MCK"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? FF ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 ?? ?? ?? ?? ?? 00 00 00 }
+
+  condition:
+    $a0
+}
+
+rule borland_delphi_6_kol {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi 6.0 KOL"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 C4 F0 B8 ?? ?? 40 00 E8 ?? ?? FF FF A1 ?? 72 40 00 33 D2 E8 ?? ?? FF FF A1 ?? 72 40 00 8B 00 83 C0 14 E8 ?? ?? FF FF E8 ?? ?? FF FF }
+
+  condition:
+    $a0
+}
+
+rule borland_delphi_5_kol {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi 5.0 KOL"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 C4 F0 B8 ?? ?? 40 00 E8 ?? ?? FF FF E8 ?? ?? FF FF E8 ?? ?? FF FF 8B C0 00 00 00 00 00 00 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+rule Borland_delphi_6 {
+  meta:
+    author      = "PEiD"
+    description = "Borland Delphi 6.0"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 C4 F0 B8 ?? ?? 45 00 E8 ?? ?? ?? FF A1 ?? ?? 45 00 8B 00 E8 ?? ?? FF FF 8B 0D }
+
+  condition:
+    $a0
+}
+
+rule devcpp4992 {
+  meta:
+    author      = "PEiD"
+    description = "Dev-C++ 4.9.9.2 -> Bloodshed Software"
+    group       = "999"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 89 E5 83 EC 08 C7 04 24 01 00 00 00 FF 15 ?? ?? ?? 00 E8 C8 FE FF FF 90 8D B4 26 00 00 00 00 55 89 E5 83 EC 08 C7 04 24 02 00 00 00 FF 15 ?? ?? ?? 00 E8 A8 FE FF FF 90 8D B4 26 00 00 00 00 55 8B 0D ?? ?? ?? 00 89 E5 5D FF E1 8D 74 26 00 55 8B 0D ?? ?? ?? 00 89 E5 5D FF E1 90 90 90 90 55 89 E5 5D E9 ?? ?? 00 00 90 90 90 90 90 90 90 }
+
+  condition:
+    $a0
+}
+
+rule freebasic014 {
+  meta:
+    author      = "PEiD"
+    description = "FreeBasic 0.14"
+    group       = "999"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 89 E5 83 EC 08 C7 04 24 ?? 00 00 00 FF 15 ?? ?? ?? 00 E8 ?? FF FF FF 89 EC 31 C0 5D C3 89 F6 55 89 E5 83 EC 08 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 55 89 E5 83 EC 08 8B 45 08 89 04 24 FF 15 ?? ?? ?? 00 89 EC 5D C3 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 55 89 E5 }
+
+  condition:
+    $a0
+}
+
+rule lcc_dll {
+  meta:
+    author      = "PEiD"
+    description = "LCC Win32 DLL -> Jacob Navia"
+    group       = "12"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 89 E5 53 56 57 83 7D 0C 01 75 05 E8 17 ?? ?? ?? FF 75 10 FF 75 0C FF 75 08 A1 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ibasic202 {
+  meta:
+    author      = "PEiD"
+    description = "IBasic 2.02B -> Pyxia Development"
+    group       = "12"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 6A FF 68 D0 10 46 00 68 58 9F 43 00 64 A1 00 00 00 00 50 64 89 25 00 00 00 00 83 C4 A8 53 56 57 89 65 E8 FF 15 D8 2B 47 00 33 D2 8A D4 89 15 C4 FD 46 00 8B C8 81 E1 FF 00 00 00 89 0D C0 FD 46 00 C1 E1 08 03 CA 89 0D BC FD 46 00 C1 E8 10 A3 B8 FD 46 00 E8 54 25 00 00 85 C0 }
+
+  condition:
+    $a0
+}
+
+rule ms_vc5 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 5.0"
+    group       = "15"
+    function    = "16"
+
+  strings:
+    $a0 = { 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 64 A1 ?? ?? ?? ?? 50 64 89 25 ?? ?? ?? ?? 83 C4 ?? 53 56 57 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc4 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 4.x"
+    group       = "15"
+    function    = "0"
+
+  strings:
+    $a0 = { 64 A1 ?? ?? ?? ?? 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 50 64 89 25 ?? ?? ?? ?? 83 EC ?? 53 56 57 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc620 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 6.20"
+    group       = "15"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 EC 50 53 56 57 BE ?? ?? ?? ?? 8D 7D F4 A5 A5 66 A5 8B }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc7 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 7.0"
+    group       = "15"
+    function    = "25"
+
+  strings:
+    $a0 = { 6A ?? 68 ?? ?? ?? ?? E8 ?? ?? ?? ?? BF ?? ?? ?? ?? 8B C7 E8 ?? ?? ?? ?? 89 65 ?? 8B F4 89 3E 56 FF 15 ?? ?? ?? ?? 8B 4E ?? 89 0D ?? ?? ?? ?? 8B 46 ?? A3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc8 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 8.0"
+    group       = "999"
+    function    = "0"
+
+  strings:
+    $a0 = { 6A 14 68 ?? ?? ?? ?? E8 ?? ?? ?? ?? BB 94 00 00 00 53 6A 00 8B ?? ?? ?? ?? ?? FF D7 50 FF ?? ?? ?? ?? ?? 8B F0 85 F6 75 0A 6A 12 E8 ?? ?? ?? ?? 59 EB 18 89 1E 56 FF ?? ?? ?? ?? ?? 56 85 C0 75 14 50 FF D7 50 FF ?? ?? ?? ?? ?? B8 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc8_h2 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 8.0 DLL"
+    group       = "BoB"
+    function    = "0"
+
+  strings:
+    $a0 = { 8B FF 55 8B EC 53 8B 5D 08 56 8B 75 0C 85 F6 57 8B 7D 10 0F 84 ?? ?? 00 00 83 FE 01 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc7_dll {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 7.0 DLL Method 1"
+    group       = "15"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8D 6C ?? ?? 81 EC ?? ?? ?? ?? 8B 45 ?? 83 F8 01 56 0F 84 ?? ?? ?? ?? 85 C0 0F 84 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc7_dll2 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 7.0 DLL Method 2"
+    group       = "15"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 57 8B 7D 10 ?? ?? 83 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc_dll1 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ DLL Method 1"
+    group       = "15"
+    function    = "0"
+
+  strings:
+    $a0 = { 53 55 56 8B 74 24 14 85 F6 57 B8 01 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc_dll2 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ DLL Method 2"
+    group       = "15"
+    function    = "0"
+
+  strings:
+    $a0 = { 53 56 57 BB 01 ?? ?? ?? 8B ?? 24 14 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc_dll3 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ DLL Method 3"
+    group       = "15"
+    function    = "0"
+
+  strings:
+    $a0 = { 53 B8 01 ?? ?? ?? 8B 5C 24 0C 56 57 85 DB 55 75 12 83 3D ?? ?? ?? ?? ?? 75 09 33 C0 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vc_dll4 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ DLL Method 4"
+    group       = "15"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 56 57 BF 01 ?? ?? ?? 8B 75 0C }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ms_vb_dll {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual Basic 6.0 DLL"
+    group       = "16"
+    function    = "0"
+
+  strings:
+    $a0 = { 5A 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 52 E9 ?? ?? FF }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule watcom_c_dll {
+  meta:
+    author      = "PEiD"
+    description = "Watcom C/C++ DLL"
+    group       = "17"
+    function    = "0"
+
+  strings:
+    $a0 = { 53 56 57 55 8B 74 24 14 8B 7C 24 18 8B 6C 24 1C 83 FF 03 0F 87 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule packman0001 {
+  meta:
+    author      = "PEiD"
+    description = "Packman 0.0.0.1 -> Bubbasoft"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 E8 00 00 00 00 58 8D A8 ?? FE FF FF 8D 98 ?? ?? ?? FF 8D B0 74 01 00 00 8D 4E F6 48 C6 40 FB E9 8D 93 ?? ?? ?? 00 2B D0 89 50 FC 8D 93 54 01 00 00 E9 9A 00 00 00 83 C2 04 03 FB 51 D1 C7 D1 EF 0F 83 84 00 00 00 53 55 52 B2 80 8B D9 }
+
+  condition:
+    $a0
+}
+
+rule passlock2000 {
+  meta:
+    author      = "PEiD"
+    description = "PassLock 2000 1.0 (Eng) -> Moonlight-Software"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 53 56 57 BB 00 50 40 00 66 2E F7 05 34 20 40 00 04 00 0F 85 98 00 00 00 E8 1F 01 00 00 C7 43 60 01 00 00 00 8D 83 E4 01 00 00 50 FF 15 F0 61 40 00 83 EC 44 C7 04 24 44 00 00 00 C7 44 24 2C 00 00 00 00 54 FF 15 E8 61 40 00 B8 0A 00 00 00 F7 44 24 2C 01 00 00 00 74 05 0F B7 44 24 30 83 C4 44 89 43 56 FF 15 D0 61 40 00 E8 9E 00 00 00 89 43 4C FF 15 D4 61 40 00 89 43 48 6A 00 FF 15 E4 61 40 00 89 43 5C E8 F9 00 00 00 E8 AA 00 00 00 B8 FF 00 00 00 72 0D 53 E8 96 00 00 00 5B FF 4B 10 FF 4B 18 5F 5E 5B 5D 50 FF 15 C8 61 40 00 C3 83 7D 0C 01 75 3F E8 81 00 00 00 8D 83 E4 01 00 00 50 FF 15 F0 61 40 00 FF 15 D0 61 40 00 E8 3A 00 00 00 89 43 4C FF 15 D4 61 40 00 89 43 48 8B 45 08 89 43 5C E8 9A 00 00 00 E8 4B 00 00 00 72 11 66 FF 43 5A 8B 45 0C 89 43 60 53 }
+
+  condition:
+    $a0
+}
+
+rule pe123_412 {
+  meta:
+    author      = "PEiD"
+    description = "Pe123 2006.4.12"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 8B C0 60 9C E8 01 00 00 00 C3 53 E8 72 00 00 00 50 E8 1C 03 00 00 8B D8 FF D3 5B C3 8B C0 E8 00 00 00 00 58 83 C0 05 C3 8B C0 55 8B EC 60 8B 4D 10 8B 7D 0C 8B 75 08 F3 A4 61 5D C2 0C 00 E8 00 00 00 00 58 83 E8 05 C3 8B C0 E8 00 00 00 00 58 83 C0 05 C3 8B C0 E8 00 00 00 00 58 C1 E8 0C C1 E0 0C 66 81 38 4D 5A 74 0C 2D 00 10 00 00 66 81 38 4D 5A 75 F4 C3 E8 00 00 00 00 58 83 E8 05 C3 8B C0 55 8B EC 81 C4 4C FE FF FF 53 6A 40 8D 85 44 FF FF FF 50 E8 BC FF FF FF 50 E8 8A FF FF FF 68 F8 00 00 00 8D 85 4C FE FF FF 50 E8 A5 FF FF FF 03 45 80 50 E8 70 FF FF FF E8 97 FF FF FF 03 85 CC FE FF FF 83 C0 34 89 45 FC E8 86 FF FF FF 03 85 CC FE FF FF 83 C0 38 89 45 8C 60 8B 45 FC 8B 00 89 45 F8 89 45 9C 8B 45 8C 8B 00 89 45 88 89 45 98 E8 0D 00 00 00 6B 65 72 6E 65 6C 33 }
+
+  condition:
+    $a0
+}
+
+rule pe123_44 {
+  meta:
+    author      = "PEiD"
+    description = "Pe123 2006.4.4"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 8B C0 EB 01 34 60 EB 01 2A 9C EB 02 EA C8 E8 0F 00 00 00 EB 03 3D 23 23 EB 01 4A EB 01 5B C3 8D 40 00 53 EB 01 6C EB 01 7E EB 01 8F E8 15 01 00 00 50 E8 67 04 00 00 EB 01 9A 8B D8 FF D3 5B C3 8B C0 E8 00 00 00 00 58 83 C0 05 C3 8B C0 55 8B EC 60 8B 4D 10 8B 7D 0C 8B 75 08 F3 A4 61 5D C2 0C 00 E8 00 00 00 00 58 83 E8 05 C3 8B C0 E8 00 00 00 00 58 83 C0 05 C3 8B C0 E8 00 00 00 00 58 C1 E8 0C C1 E0 0C 66 81 38 4D 5A 74 0C 2D 00 10 00 00 66 81 38 4D 5A 75 F4 C3 E8 00 00 00 00 58 83 E8 05 C3 8B C0 55 8B EC 81 C4 B8 FE FF FF 6A 40 8D 45 B0 50 E8 C0 FF FF FF 50 E8 8E FF FF FF 68 F8 00 00 00 8D 85 B8 FE FF FF 50 E8 A9 FF FF FF 03 45 EC 50 E8 74 FF FF FF E8 9B FF FF FF 03 85 38 FF FF FF 83 C0 34 89 45 FC E8 8A FF FF FF 03 85 38 FF FF FF 83 C0 38 89 45 F4 8B 45 FC }
+
+  condition:
+    $a0
+}
+
+rule pe123_44_412 {
+  meta:
+    author      = "PEiD"
+    description = "Pe123 2006.4.4-4.12"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 8B C0 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? C0 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? FF ?? ?? ?? 45 ?? 50 E8 ?? FF FF FF ?? ?? ?? FF FF ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? FF FF ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 45 }
+
+  condition:
+    $a0
+}
+
+rule polycryptpe {
+  meta:
+    author      = "PEiD"
+    description = "PolyCrypt PE 2005 -> JLab Software"
+    group       = "444"
+    function    = "20"
+
+  strings:
+    $a0 = { 60 E8 ED FF FF FF EB }
+
+  condition:
+    $a0
+}
+
+rule pbasic702 {
+  meta:
+    author      = "PEiD"
+    description = "PowerBasic 7.02"
+    group       = "117"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 53 56 57 BB ?? ?? ?? ?? 66 2E F7 ?? ?? ?? ?? 00 04 00 0F 85 }
+
+  condition:
+    $a0
+}
+
+rule pbasic800 {
+  meta:
+    author      = "PEiD"
+    description = "PowerBASIC/Win 8.00"
+    group       = "555"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 53 56 57 BB 00 ?? ?? 00 66 2E F7 05 ?? ?? 40 00 04 00 75 05 E9 14 04 00 00 E9 19 02 }
+
+  condition:
+    $a0
+}
+
+rule pbasiccc40 {
+  meta:
+    author      = "PEiD"
+    description = "PowerBASIC/CC 4.0"
+    group       = "555"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 53 56 57 BB 00 ?? 40 00 66 2E F7 05 ?? ?? 40 00 04 00 75 05 E9 68 05 00 00 E9 6E 03 }
+
+  condition:
+    $a0
+}
+
+rule wcrt {
+  meta:
+    author      = "PEiD"
+    description = "WCRT Library (Visual C++) Method 1 -> Jibz"
+    group       = "17"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 EC 44 A1 ?? ?? ?? ?? 85 C0 74 ?? FF D0 85 C0 75 ?? 6A FE EB ?? 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? E8 }
+
+  condition:
+    $a0
+}
+
+rule wcrt_dll {
+  meta:
+    author      = "PEiD"
+    description = "WCRT Library (Visual C++) DLL Method 1 -> Jibz"
+    group       = "17"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 7D 0C 01 75 ?? A1 ?? ?? ?? ?? 85 C0 74 ?? FF D0 85 C0 75 ?? 6A FE EB ?? 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? E8 }
+
+  condition:
+    $a0
+}
+
+rule wcrt1 {
+  meta:
+    author      = "PEiD"
+    description = "WCRT Library (Visual C++) Method 2 -> Jibz"
+    group       = "17"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 51 A1 ?? ?? ?? ?? 85 C0 74 ?? FF D0 85 C0 75 ?? 6A FE EB ?? 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? E8 }
+
+  condition:
+    $a0
+}
+
+rule ming_gcc2 {
+  meta:
+    author      = "PEiD"
+    description = "MingWin32 GCC 2.x"
+    group       = "21"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 89 E5 E8 ?? ?? ?? ?? C9 C3 ?? ?? 45 58 45 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule ming_gcc3 {
+  meta:
+    author      = "PEiD"
+    description = "MingWin32 GCC 3.x"
+    group       = "21"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 89 E5 83 EC 08 C7 04 24 ?? 00 00 00 FF 15 ?? ?? ?? ?? E8 68 00 00 00 89 EC 31 C0 5D C3 89 F6 55 89 E5 83 EC 08 C7 04 24 02 00 00 00 FF 15 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule _32lite {
+  meta:
+    author      = "PEiD"
+    description = "32Lite 0.03a -> Oleg Prokhorov"
+    group       = "101"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 06 FC 1E 07 BE ?? ?? ?? ?? 6A 04 68 ?? 10 ?? ?? 68 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule acprotect_109g {
+  meta:
+    author      = "PEiD"
+    description = "ACProtect 1.09g -> Risco software Inc."
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 F9 50 E8 01 00 00 00 7C 58 58 49 50 E8 01 00 00 00 7E 58 58 79 04 66 B9 B8 72 E8 01 00 00 00 7A 83 C4 04 85 C8 EB 01 EB C1 F8 BE 72 03 73 01 74 0F 81 01 00 00 00 F9 EB 01 75 F9 E8 01 00 00 }
+
+  condition:
+    $a0
+}
+
+rule acprotect_190g {
+  meta:
+    author      = "PEiD"
+    description = "ACProtect 1.90g -> Risco software Inc."
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 0F 87 02 00 00 00 1B F8 E8 01 00 00 00 73 83 04 24 06 C3 }
+
+  condition:
+    $a0
+}
+
+rule ahpack {
+  meta:
+    author      = "PEiD"
+    description = "AHpack 0.1 -> FEUERRADER"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 68 54 ?? ?? ?? B8 48 ?? ?? ?? FF 10 68 B3 ?? ?? ?? 50 B8 44 ?? ?? ?? FF 10 68 00 ?? ?? ?? 6A 40 FF D0 89 05 CA ?? ?? ?? 89 C7 BE 00 10 ?? ?? 60 FC B2 80 31 DB A4 B3 02 E8 6D 00 00 00 73 F6 31 C9 E8 64 00 00 00 73 1C 31 C0 E8 5B 00 00 00 73 23 B3 02 41 B0 10 E8 4F 00 00 00 10 C0 73 F7 75 3F AA EB D4 E8 4D 00 00 00 29 D9 75 10 E8 42 00 00 00 EB 28 AC D1 E8 74 4D 11 C9 EB 1C 91 48 C1 E0 08 AC E8 2C 00 00 00 3D 00 7D 00 00 73 0A 80 FC 05 73 06 83 F8 7F 77 02 41 41 95 89 E8 B3 01 56 89 FE 29 C6 F3 A4 5E EB 8E 00 D2 75 05 8A 16 46 10 D2 C3 }
+
+  condition:
+    $a0
+}
+
+rule alexp10b2 {
+  meta:
+    author      = "PEiD"
+    description = "Alex Protector 1.0 beta2"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 E8 00 00 00 00 5D 81 ED 06 10 40 ?? E8 24 00 00 00 EB 01 E9 8B 44 24 0C EB 03 EB 03 C7 EB FB E8 01 00 00 00 A8 83 C4 04 83 80 B8 ?? ?? ?? 02 33 }
+
+  condition:
+    $a0
+}
+
+rule alloy {
+  meta:
+    author      = "PEiD"
+    description = "Alloy 1.x.2000 -> Prakash Gautam"
+    group       = "302"
+    function    = "0"
+
+  strings:
+    $a0 = { 9C 60 E8 02 ?? ?? ?? 33 C0 8B C4 83 C0 04 93 8B E3 8B 5B FC 81 EB 07 20 40 ?? 87 DD 6A 04 68 ?? 10 ?? ?? 68 ?? 02 ?? ?? 6A ?? FF 95 46 23 40 ?? 0B }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule alloy_4x {
+  meta:
+    author      = "PEiD"
+    description = "Alloy 4.x -> PGWare LLC"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 9C 60 E8 02 00 00 00 33 C0 8B C4 83 C0 04 93 8B E3 8B 5B FC 81 EB 07 30 40 00 87 DD 6A 04 68 00 10 00 00 68 00 02 00 00 6A 00 FF 95 A8 33 40 00 0B C0 0F 84 F6 01 00 00 89 85 2E 33 40 00 83 BD E8 32 40 00 01 74 0D 83 BD E4 32 40 00 01 74 2A 8B F8 EB 3E 68 D8 01 00 00 50 FF 95 CC 33 40 00 50 8D 85 28 33 40 00 50 FF B5 2E 33 40 00 FF 95 D0 33 40 00 58 83 C0 05 EB 0C 68 D8 01 00 00 50 FF 95 C0 33 40 00 8B BD 2E 33 40 00 03 F8 C6 07 5C 47 8D B5 00 33 40 00 AC 0A C0 74 03 AA EB F8 83 BD DC 32 40 00 01 74 7A 6A }
+
+  condition:
+    $a0
+}
+
+rule antidote12demo {
+  meta:
+    author      = "PEiD"
+    description = "AntiDote 1.2 Demo -> SIS-Team"
+    group       = "2006"
+    function    = "0"
+
+  strings:
+
+    $a0 = { E8 F7 FE FF FF 05 CB 22 00 00 FF E0 E8 EB FE FF FF 05 BB 19 00 00 FF E0 E8 BD 00 00 00 08 B2 62 00 01 52 17 0C 0F 2C 2B 20 7F 52 79 01 30 07 17 29 4F 01 3C 30 2B 5A 3D C7 26 11 26 06 59 0E 78 2E 10 14 0B 13 1A 1A 3F 64 1D 71 33 57 21 09 24 8B 1B 09 37 08 61 0F 1D 1D 2A 01 87 35 4C 07 39 0B }
+
+  condition:
+    $a0
 }

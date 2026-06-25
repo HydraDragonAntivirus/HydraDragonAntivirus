@@ -46,6 +46,8 @@ use windows::Win32::UI::Controls::{
     InitCommonControlsEx, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, LVCF_SUBITEM, LVCF_TEXT,
     LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LIST_VIEW_ITEM_STATE_FLAGS, LVITEMW, NMHDR, NMLVCUSTOMDRAW,
     NMITEMACTIVATE,
+    TaskDialogIndirect, TASKDIALOGCONFIG, TASKDIALOGCONFIG_0, TASKDIALOG_BUTTON,
+    TDF_USE_COMMAND_LINKS,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
@@ -98,7 +100,6 @@ const CMD_CANCEL_OPT: usize = 23;
 const CMD_QUARANTINE: usize = 24;
 // KVRT-style per-row actions.
 const CMD_APPLY_ACTIONS: usize = 25;      // run each row's chosen action
-const CMD_DISINFECT_RESTART: usize = 26;  // disinfect + reboot (for locked/system files)
 const CMD_ALL_QUARANTINE: usize = 27;     // set every row's action to Quarantine
 const CMD_ALL_DISINFECT: usize = 28;      // set every row's action to Disinfect
 const CMD_ALL_IGNORE: usize = 29;         // set every row's action to Ignore
@@ -326,6 +327,8 @@ enum ScanMsg {
         sev: u8,
     },
     Status(String),
+    /// After a disinfection, suggest running a full system scan (it may be slow).
+    SuggestFullScan,
     Begin,
     /// Live progress. `discovered` grows while the tree is still being walked
     /// (`discovering` = true); `speed` is files/sec and `eta_secs` is the estimate
@@ -395,9 +398,6 @@ enum WorkRequest {
     /// Move the given (file, detection) pairs into quarantine as-is (no in-place
     /// neutralization) — the "Quarantine" action.
     Quarantine(Vec<(PathBuf, String)>),
-    /// Disinfect in place where possible, schedule the rest for restart-time cleanup,
-    /// then reboot — the "Disinfect & Restart" action (uses no kernel driver).
-    DisinfectRestart(Vec<PathBuf>),
     /// Remove Windows traces of given files (registry autoruns, scheduled tasks, etc.)
     RemoveTraces(Vec<PathBuf>),
     /// Fix PUM registry entries: revert values and restore ACLs.
@@ -505,6 +505,9 @@ struct AppState {
     opt_cancel_rect: RECT,
     opt_up_rect: RECT,
     quar_ids: Vec<String>,
+    /// Parallel to quarantine rows: `Some(.reg path)` for a registry/service/task
+    /// backup row, `None` for a file-quarantine row (use `quar_ids[i]` then).
+    quar_reg: Vec<Option<PathBuf>>,
     quarantine_dir: PathBuf,
 }
 
@@ -865,6 +868,7 @@ unsafe fn on_create(hwnd: HWND) {
         opt_cancel_rect: RECT::default(),
         opt_up_rect: RECT::default(),
         quar_ids: Vec::new(),
+        quar_reg: Vec::new(),
         quarantine_dir,
     });
     // Start the animation timer (runs during loading and scanning).
@@ -955,13 +959,17 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
                     (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
                 ],
                 // Detections present → KVRT-style per-row actions + bulk + apply.
+                // The Quarantine/Disinfect/Ignore buttons set the action for the
+                // CHECKED rows (or all rows when none are checked). "Disinfect &
+                // Restart" is NOT a button: when an in-place disinfect can't finish
+                // (a locked/system file), Apply auto-prompts to finish it on restart.
                 // (Save Results stays available from the right-click context menu.)
                 ScanState::Threats => vec![
                     (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Neutral),
-                    (CMD_ALL_QUARANTINE, "All: Quarantine", "\u{E7BA}", Kind::Neutral),
-                    (CMD_ALL_DISINFECT, "All: Disinfect", "\u{E74D}", Kind::Neutral),
+                    (CMD_ALL_QUARANTINE, "Quarantine", "\u{E7BA}", Kind::Neutral),
+                    (CMD_ALL_DISINFECT, "Disinfect", "\u{E74D}", Kind::Neutral),
+                    (CMD_ALL_IGNORE, "Ignore", "\u{E711}", Kind::Neutral),
                     (CMD_APPLY_ACTIONS, "Apply Actions", "\u{E73E}", Kind::Primary),
-                    (CMD_DISINFECT_RESTART, "Disinfect & Restart", "\u{E777}", Kind::Danger),
                 ],
                 _ => vec![
                     (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
@@ -1651,6 +1659,27 @@ unsafe fn paint(hwnd: HWND) {
             mem,
             "Add a “Scan with HydraDragonAV” entry when right-clicking files and folders in File Explorer.",
             &cm_desc, t.text2, s.fonts.body, DT_LEFT | DT_WORDBREAK,
+        );
+
+        // About / version section.
+        let ab_top = cm_top + 96;
+        fill(mem, &RECT { left: inner.left, top: ab_top, right: inner.right, bottom: ab_top + 1 }, t.border);
+        let ab_icon = RECT { left: inner.left, top: ab_top + 18, right: inner.left + 28, bottom: ab_top + 46 };
+        fill_round(mem, ab_icon, 14, t.accent);
+        text(mem, "\u{E946}", &ab_icon, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        let about = format!("HydraDragon Antivirus  v{}", env!("CARGO_PKG_VERSION"));
+        text(mem, &about, &RECT { left: ab_icon.right + 12, top: ab_top + 16, right: inner.right, bottom: ab_top + 42 }, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        let engines_line = if s.engine_summary.is_empty() {
+            "Engines: ClamAV (pure-Rust), YARA-X, hydradragonsig, ML (PE/JS), hash bloom. \
+             No kernel driver — pure user mode.".to_string()
+        } else {
+            format!("Engines: {}.  No kernel driver — pure user mode.", s.engine_summary)
+        };
+        text(
+            mem,
+            &engines_line,
+            &RECT { left: inner.left, top: ab_top + 48, right: inner.right, bottom: ab_top + 92 },
+            t.text2, s.fonts.body, DT_LEFT | DT_WORDBREAK,
         );
         // Button positions - buttons will be placed below this text
     }
@@ -2426,7 +2455,6 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_ALL_DISINFECT => set_all_actions(hwnd, s, ACT_DISINFECT),
         CMD_ALL_IGNORE => set_all_actions(hwnd, s, ACT_IGNORE),
         CMD_APPLY_ACTIONS => act_apply_actions(hwnd, s),
-        CMD_DISINFECT_RESTART => act_disinfect_restart(hwnd, s),
         CMD_SAVE_RESULTS => save_results(hwnd, s),
         CMD_RESCAN => rescan_selected(hwnd, s),
         CMD_COPY => copy_selected(hwnd, s),
@@ -2979,7 +3007,8 @@ unsafe fn act_quarantine_selected(hwnd: HWND, s: &mut AppState) {
     }
     let prompt = format!(
         "Quarantine {} checked file(s)?\nEach file is XOR-encoded and moved into the \
-         quarantine store (recoverable from the Quarantine tab).",
+         quarantine store (recoverable from the Quarantine tab).\n\nHydraDragon uses NO \
+         kernel driver — quarantine and disinfection both run entirely in user mode.",
         items.len()
     );
     if confirm(hwnd, &prompt) {
@@ -2987,15 +3016,54 @@ unsafe fn act_quarantine_selected(hwnd: HWND, s: &mut AppState) {
     }
 }
 
-/// Bulk-set every file row's action (the two "All:" corner buttons).
-unsafe fn set_all_actions(hwnd: HWND, s: &mut AppState, act: u8) {
-    for i in 0..s.scan_rows.len() {
-        if s.scan_rows[i].is_file() {
-            s.scan_action[i] = act;
-            lv_set_item_text(s.scan_list, i as i32, 3, action_text(act));
+/// Start a full scan over every fixed drive root (the post-disinfect suggestion).
+unsafe fn start_full_scan(hwnd: HWND, s: &mut AppState) {
+    let mask = GetLogicalDrives();
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for letter in 'A'..='Z' {
+        if mask & (1 << (letter as u32 - 'A' as u32)) != 0 {
+            roots.push(PathBuf::from(format!("{letter}:\\")));
         }
     }
-    set_status(hwnd, s, &format!("All file actions set to “{}”.", action_text(act)));
+    if roots.is_empty() {
+        set_status(hwnd, s, "No drives found to scan.");
+        return;
+    }
+    // Switch to the Scan page and clear any previous results; the worker resets the
+    // cancel/abort flags itself when the FullScan begins.
+    if s.page != 0 {
+        s.page = 0;
+        apply_page(hwnd);
+    }
+    if s.engine != EngineState::Loading {
+        let _ = ShowWindow(s.scan_list, SW_SHOW);
+    }
+    lv_clear(s.scan_list);
+    clear_scan_results(s);
+    s.status = "Full scan: all drives…".into();
+    layout(hwnd);
+    let _ = InvalidateRect(Some(hwnd), None, false);
+    let _ = s.work_tx.send(WorkRequest::FullScan(roots, 0));
+}
+
+/// Set the action for the CHECKED rows — or, when none are checked, for ALL rows
+/// (so the buttons act as "select-all + set action"). Non-file rows are skipped.
+unsafe fn set_all_actions(hwnd: HWND, s: &mut AppState, act: u8) {
+    let checked: Vec<usize> = lv_checked(s.scan_list).into_iter().map(|i| i as usize).collect();
+    let targets: Vec<usize> = if checked.is_empty() {
+        (0..s.scan_rows.len()).collect()
+    } else {
+        checked
+    };
+    let mut n = 0usize;
+    for i in targets {
+        if s.scan_rows.get(i).map(|p| p.is_file()).unwrap_or(false) {
+            s.scan_action[i] = act;
+            lv_set_item_text(s.scan_list, i as i32, 3, action_text(act));
+            n += 1;
+        }
+    }
+    set_status(hwnd, s, &format!("Set {n} file(s) to “{}”.", action_text(act)));
     let _ = InvalidateRect(Some(s.scan_list), None, true);
 }
 
@@ -3055,28 +3123,6 @@ unsafe fn act_apply_actions(hwnd: HWND, s: &mut AppState) {
     }
 }
 
-/// "Disinfect & Restart": clean what we can in place now, schedule anything locked
-/// for restart-time cleanup, then reboot.
-unsafe fn act_disinfect_restart(hwnd: HWND, s: &mut AppState) {
-    let files: Vec<PathBuf> = (0..s.scan_rows.len())
-        .filter(|&i| s.scan_rows[i].is_file() && s.scan_action[i] != ACT_IGNORE)
-        .map(|i| s.scan_rows[i].clone())
-        .collect();
-    if files.is_empty() {
-        set_status(hwnd, s, "No files selected for disinfection.");
-        return;
-    }
-    let prompt = format!(
-        "Disinfect {} file(s) and RESTART the computer?\r\n\r\nFiles that can be cleaned now \
-         are cleaned in user mode (no kernel driver); anything locked while Windows runs is \
-         scheduled to be removed during the restart. Save your work first.",
-        files.len()
-    );
-    if confirm(hwnd, &prompt) {
-        let _ = s.work_tx.send(WorkRequest::DisinfectRestart(files));
-    }
-}
-
 unsafe fn act_on_selected(hwnd: HWND, s: &mut AppState, clean: bool) {
     let paths: Vec<PathBuf> = lv_selected(s.scan_list)
         .into_iter()
@@ -3103,6 +3149,7 @@ unsafe fn act_on_selected(hwnd: HWND, s: &mut AppState, clean: bool) {
 unsafe fn refresh_quarantine(s: &mut AppState) {
     lv_clear(s.quar_list);
     s.quar_ids.clear();
+    s.quar_reg.clear();
     let q = Quarantine::new(&s.quarantine_dir);
     let items = q.list();
     for e in &items {
@@ -3111,30 +3158,72 @@ unsafe fn refresh_quarantine(s: &mut AppState) {
             &[&e.id, &e.original_path.display().to_string(), &e.detection, &e.size.to_string()],
         );
         s.quar_ids.push(e.id.clone());
+        s.quar_reg.push(None);
     }
-    s.status = format!("{} quarantined item(s).", items.len());
+    // Registry / service / scheduled-task backups (.reg) made by trace removal —
+    // shown here too so they can be restored (re-imported) or deleted.
+    let mut reg_count = 0usize;
+    let regdir = s.quarantine_dir.join("regbackup");
+    if let Ok(rd) = std::fs::read_dir(&regdir) {
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|x| x.to_str()).map(|x| x.eq_ignore_ascii_case("reg")).unwrap_or(false) {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("backup.reg").to_string();
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                lv_add_row(
+                    s.quar_list,
+                    &[&name, &p.display().to_string(), "Registry backup", &size.to_string()],
+                );
+                s.quar_ids.push(name);
+                s.quar_reg.push(Some(p));
+                reg_count += 1;
+            }
+        }
+    }
+    s.status = format!("{} quarantined file(s), {reg_count} registry backup(s).", items.len());
 }
 
 unsafe fn quarantine_action(s: &mut AppState, restore: bool) {
-    let ids: Vec<String> = lv_selected(s.quar_list)
-        .into_iter()
-        .filter_map(|i| s.quar_ids.get(i as usize).cloned())
-        .collect();
-    if ids.is_empty() {
+    let sel = lv_selected(s.quar_list);
+    if sel.is_empty() {
         s.status = "Select one or more quarantined items first.".into();
         return;
     }
-    let q = Quarantine::new(&s.quarantine_dir);
-    let mut ok = 0;
-    for id in &ids {
-        let r = if restore { q.restore(id).map(|_| ()) } else { q.delete(id) };
-        if r.is_ok() {
+    let qdir = s.quarantine_dir.clone();
+    let q = Quarantine::new(&qdir);
+    let total = sel.len();
+    let mut ok = 0usize;
+    for i in sel {
+        let i = i as usize;
+        let reg = s.quar_reg.get(i).cloned().flatten();
+        let done = match reg {
+            // Registry/service/task backup row.
+            Some(path) => {
+                if restore {
+                    // Re-import the .reg backup (restores the deleted key/value).
+                    std::process::Command::new("reg")
+                        .args(["import", &path.to_string_lossy()])
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false)
+                } else {
+                    std::fs::remove_file(&path).is_ok()
+                }
+            }
+            // File-quarantine row.
+            None => match s.quar_ids.get(i) {
+                Some(id) if restore => q.restore(id).is_ok(),
+                Some(id) => q.delete(id).is_ok(),
+                None => false,
+            },
+        };
+        if done {
             ok += 1;
         }
     }
     let verb = if restore { "restored" } else { "deleted" };
     refresh_quarantine(s);
-    s.status = format!("{ok}/{} item(s) {verb}.", ids.len());
+    s.status = format!("{ok}/{total} item(s) {verb}.", );
 }
 
 unsafe fn drain_results(hwnd: HWND) {
@@ -3161,6 +3250,17 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.scan_action.push(act);
             }
             ScanMsg::Status(t) => s.status = t,
+            ScanMsg::SuggestFullScan => {
+                // Offer a full system scan after disinfection (it can take a while).
+                if confirm(
+                    hwnd,
+                    "Disinfection is done.\r\n\r\nRun a FULL system scan now to make sure \
+                     nothing else is infected?\r\n\r\nThis scans every fixed drive and can \
+                     take a long time. Choose No to skip it.",
+                ) {
+                    start_full_scan(hwnd, s);
+                }
+            }
             ScanMsg::Begin => {
                 s.scan_state = ScanState::Scanning;
                 s.scan_started_at = Some(Instant::now());
@@ -3316,6 +3416,51 @@ unsafe fn confirm(hwnd: HWND, t: &str) -> bool {
 /// Informational warning dialog (OK only).
 unsafe fn warn(hwnd: HWND, t: &str) {
     let _ = MessageBoxW(Some(hwnd), PCWSTR(wide(t).as_ptr()), w!("HydraDragon Antivirus"), MB_OK | MB_ICONWARNING);
+}
+
+// Escalation choices returned by `escalation_popup`.
+const ESC_STOP_NOW: i32 = 101;
+const ESC_QUAR_RESTART: i32 = 102;
+const ESC_DISINFECT_RESTART: i32 = 103;
+const ESC_IGNORE: i32 = 104;
+
+/// A "nice" 4-option TaskDialog (command links) shown when a file can't be cleaned
+/// in user mode right now (it's running / protected). Returns the chosen `ESC_*`.
+unsafe fn escalation_popup(hwnd: HWND, path: &std::path::Path) -> i32 {
+    let title = wide("HydraDragon Antivirus");
+    let instr = wide("This file is in use or protected");
+    let content = wide(&format!(
+        "\"{}\" can't be cleaned while it is running. Choose how to proceed.\r\n\r\n\
+         HydraDragon uses NO kernel driver — everything runs in user mode.",
+        path.display()
+    ));
+    // Command-link text: first line = title, rest = description.
+    let t1 = wide("Try to stop now\nTerminate the running (even critical) process, then clean it without a restart.");
+    let t2 = wide("Quarantine on restart\nBack up the file to quarantine, then remove it during the next restart.");
+    let t3 = wide("Disinfect on restart\nClean / remove the file during the next restart.");
+    let t4 = wide("Ignore\nLeave this file alone for now.");
+    let buttons = [
+        TASKDIALOG_BUTTON { nButtonID: ESC_STOP_NOW, pszButtonText: PCWSTR(t1.as_ptr()) },
+        TASKDIALOG_BUTTON { nButtonID: ESC_QUAR_RESTART, pszButtonText: PCWSTR(t2.as_ptr()) },
+        TASKDIALOG_BUTTON { nButtonID: ESC_DISINFECT_RESTART, pszButtonText: PCWSTR(t3.as_ptr()) },
+        TASKDIALOG_BUTTON { nButtonID: ESC_IGNORE, pszButtonText: PCWSTR(t4.as_ptr()) },
+    ];
+    let cfg = TASKDIALOGCONFIG {
+        cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
+        hwndParent: hwnd,
+        dwFlags: TDF_USE_COMMAND_LINKS,
+        pszWindowTitle: PCWSTR(title.as_ptr()),
+        pszMainInstruction: PCWSTR(instr.as_ptr()),
+        pszContent: PCWSTR(content.as_ptr()),
+        cButtons: buttons.len() as u32,
+        pButtons: buttons.as_ptr(),
+        nDefaultButton: ESC_QUAR_RESTART,
+        Anonymous1: TASKDIALOGCONFIG_0::default(),
+        ..Default::default()
+    };
+    let mut pressed = ESC_IGNORE;
+    let _ = TaskDialogIndirect(&cfg, Some(&mut pressed), None, None);
+    pressed
 }
 
 // ---------------------------------------------------------------------------
@@ -3712,20 +3857,52 @@ fn worker(
                 send(&tx, hwnd, ScanMsg::Status(format!("Rescan complete ({n} file(s)).")));
             }
             WorkRequest::Clean(paths) => {
-                use hydradragonav::restart_disinfect::{escalated_disinfect, reboot_for_disinfection, EscalationOutcome};
+                use hydradragonav::restart_disinfect::{
+                    reboot_for_disinfection, schedule_restart_disinfection, terminate_image_processes,
+                };
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
                 let mut restart_pending: Vec<(PathBuf, String)> = Vec::new();
-                // Escalation for a file that can't be written/quarantined directly
-                // (locked / critical / driver): kill blockers or defer to restart.
-                let escalate = |path: &std::path::Path, why: &str, restart_pending: &mut Vec<(PathBuf, String)>| -> String {
-                    match escalated_disinfect(path, &quarantine_dir, "GUI disinfect", false) {
-                        EscalationOutcome::Quarantined => format!("quarantined (escalated) {}", path.display()),
-                        EscalationOutcome::KilledAndQuarantined(n) => format!("stopped {n} blocker(s), quarantined {}", path.display()),
-                        EscalationOutcome::ScheduledForRestart { detail, .. } => {
-                            restart_pending.push((path.to_path_buf(), detail.clone()));
-                            format!("deferred to restart: {} ({detail})", path.display())
+                // A file we can't clean in user mode right now (locked / running /
+                // protected). Show the 4-option popup and act on the choice. Returns
+                // the status line; pushes to `restart_pending` for the restart paths.
+                let handle_locked = |path: &std::path::Path, restart_pending: &mut Vec<(PathBuf, String)>| -> String {
+                    match unsafe { escalation_popup(hwnd, path) } {
+                        ESC_STOP_NOW => {
+                            // Terminate the running (even critical) process, then
+                            // clean — disinfect first, quarantine if that can't.
+                            let killed = terminate_image_processes(path);
+                            let arenas = pl.arenas_for_file(path);
+                            if !arenas.is_empty() && disinfector::neutralize_arenas(path, &arenas).is_ok() {
+                                format!("stopped {killed} process(es); disinfected {}", path.display())
+                            } else {
+                                match disinfector::quarantine_file(path, &quarantine_dir) {
+                                    Ok(to) => format!("stopped {killed} process(es); quarantined {} -> {}", path.display(), to.display()),
+                                    Err(e) => format!("stopped {killed} process(es) but {} is still locked: {e}", path.display()),
+                                }
+                            }
                         }
-                        EscalationOutcome::Failed(e) => format!("FAILED {}: {why}; escalation: {e}", path.display()),
+                        ESC_QUAR_RESTART => {
+                            // Back up a recoverable copy now (shows in Quarantine),
+                            // then remove the locked original at the next restart.
+                            let backed = Quarantine::new(&quarantine_dir).backup(path, "GUI quarantine").is_ok();
+                            match schedule_restart_disinfection(path, "GUI quarantine", &quarantine_dir) {
+                                Ok(d) => {
+                                    restart_pending.push((path.to_path_buf(), d.clone()));
+                                    format!("backed up ({}) + scheduled removal at restart: {}", if backed { "ok" } else { "copy failed" }, path.display())
+                                }
+                                Err(e) => format!("schedule FAILED {}: {e}", path.display()),
+                            }
+                        }
+                        ESC_DISINFECT_RESTART => {
+                            match schedule_restart_disinfection(path, "GUI disinfect", &quarantine_dir) {
+                                Ok(d) => {
+                                    restart_pending.push((path.to_path_buf(), d.clone()));
+                                    format!("scheduled disinfect at restart: {}", path.display())
+                                }
+                                Err(e) => format!("schedule FAILED {}: {e}", path.display()),
+                            }
+                        }
+                        _ => format!("ignored (still present): {}", path.display()),
                     }
                 };
                 for path in &paths {
@@ -3752,7 +3929,8 @@ fn worker(
                                 rounds += 1;
                             }
                             Err(e) => {
-                                locked_line = Some(escalate(path, &e.to_string(), &mut restart_pending));
+                                let _ = &e;
+                                locked_line = Some(handle_locked(path, &mut restart_pending));
                                 break;
                             }
                         }
@@ -3777,7 +3955,7 @@ fn worker(
                                     "\u{26A0} {} STILL detected after {rounds} round(s) — could not fully disinfect in place; quarantined to {}",
                                     path.display(), to.display()
                                 ),
-                                Err(e) => escalate(path, &e.to_string(), &mut restart_pending),
+                                Err(_e) => handle_locked(path, &mut restart_pending),
                             }
                         }
                     };
@@ -3814,6 +3992,8 @@ fn worker(
                          quarantine them instead of disinfecting.",
                     );
                 }
+                // Suggest a full system scan now (handled on the UI thread).
+                send(&tx, hwnd, ScanMsg::SuggestFullScan);
             }
             WorkRequest::Quarantine(items) => {
                 let q = Quarantine::new(&quarantine_dir);
@@ -3828,35 +4008,6 @@ fn worker(
                     }
                 }
                 send(&tx, hwnd, ScanMsg::Status(format!("Quarantine complete: {ok}/{} file(s).", items.len())));
-            }
-            WorkRequest::DisinfectRestart(paths) => {
-                use hydradragonav::restart_disinfect::{reboot_for_disinfection, schedule_restart_disinfection};
-                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
-                let mut scheduled = 0usize;
-                for path in &paths {
-                    // Try an in-place neutralization first (no restart needed).
-                    let arenas = pl.arenas_for_file(path);
-                    if !arenas.is_empty() && disinfector::neutralize_arenas(path, &arenas).is_ok() {
-                        send(&tx, hwnd, ScanMsg::Status(format!("disinfected in place: {}", path.display())));
-                        continue;
-                    }
-                    // Locked / no neutralizable region → defer to restart-time cleanup.
-                    match schedule_restart_disinfection(path, "GUI disinfect", &quarantine_dir) {
-                        Ok(detail) => {
-                            scheduled += 1;
-                            send(&tx, hwnd, ScanMsg::Status(format!("scheduled for restart: {} ({detail})", path.display())));
-                        }
-                        Err(e) => send(&tx, hwnd, ScanMsg::Status(format!("schedule FAILED {}: {e}", path.display()))),
-                    }
-                }
-                if scheduled > 0 {
-                    match reboot_for_disinfection("GUI disinfect") {
-                        Ok(_) => send(&tx, hwnd, ScanMsg::Status("Restarting in 30s to finish disinfection (run 'shutdown /a' to cancel).".into())),
-                        Err(e) => send(&tx, hwnd, ScanMsg::Status(format!("Restart failed (run as admin): {e}"))),
-                    }
-                } else {
-                    send(&tx, hwnd, ScanMsg::Status("Disinfect complete — nothing needed a restart.".into()));
-                }
             }
             WorkRequest::FixPum(entries) => {
                 let mut fixed = 0usize;

@@ -9,6 +9,131 @@ import "time"
 
 // 3491 'PEiD_*' packer/compiler-identifier rules moved out of clean_rules.yar on 20260620_233727
 
+rule yoda_s_Protector_V1_0b____Ashkbiz_Danehkar_____Sign_By_fly {
+  strings:
+    $a0 = { 55 8B EC 53 56 57 60 E8 00 00 00 00 5D 81 ED 4C 32 40 00 E8 03 00 00 00 EB 01 ?? B9 EA 47 40 00 81 E9 E9 32 40 00 8B D5 81 C2 E9 32 40 00 8D 3A 8B F7 33 C0 E8 04 00 00 00 90 EB 01 ?? E8 03 00 00 00 EB 01 ?? AC }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule rule__MSLRH__v0_32a__fake_yoda_s_cryptor_1_2_____emadicius {
+  strings:
+    $a0 = { 60 E8 00 00 00 00 5D 81 ED F3 1D 40 00 B9 7B 09 00 00 8D BD 3B 1E 40 00 8B F7 AC 90 2C 8A C0 C0 78 90 04 62 EB 01 00 61 EB 05 E8 EB 04 40 00 EB FA E8 0A 00 00 00 E8 EB 0C 00 00 E8 F6 FF FF FF E8 F2 FF FF FF 83 C4 08 74 04 75 02 EB 02 EB 01 81 50 E8 02 00 00 00 29 5A 58 6B C0 03 E8 02 00 00 00 29 5A 83 C4 04 58 74 04 75 02 EB 02 EB 01 81 0F 31 50 0F 31 E8 0A 00 00 00 E8 EB 0C 00 00 E8 F6 FF FF FF E8 F2 FF FF FF }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule yoda_s_Crypter_v1_3 {
+  strings:
+    $a0 = { 55 8B EC 53 56 57 60 E8 00 00 00 00 5D 81 ED 8C 21 40 00 B9 51 2D 40 00 81 E9 E6 21 40 00 8B D5 81 C2 E6 21 40 00 8D 3A 8B F7 33 C0 EB 04 90 EB 01 C2 AC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? AA E2 CC }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule yoda_s_Protector_V1_02____Ashkbiz_Danehkar_____Sign_By_fly {
+  strings:
+    $a0 = { E8 03 00 00 00 EB 01 ?? BB 55 00 00 00 E8 03 00 00 00 EB 01 ?? E8 8F 00 00 00 E8 03 00 00 00 EB 01 ?? E8 82 00 00 00 E8 03 00 00 00 EB 01 ?? E8 B8 00 00 00 E8 03 00 00 00 EB 01 ?? E8 AB 00 00 00 E8 03 00 00 00 EB 01 ?? 83 FB 55 E8 03 00 00 00 EB 01 ?? 75 2E E8 03 00 00 00 EB 01 ?? C3 60 E8 00 00 00 00 5D 81 ED 23 3F 42 00 8B D5 81 C2 72 3F 42 00 52 E8 01 00 00 00 C3 C3 E8 03 00 00 00 EB 01 ?? E8 0E 00 00 00 E8 D1 FF FF FF C3 E8 03 00 00 00 EB 01 ?? 33 C0 64 FF 30 64 89 20 CC C3 E8 03 00 00 00 EB 01 ?? 33 C0 64 FF 30 64 89 20 4B CC C3 E8 03 00 00 00 EB 01 ?? 33 DB B9 3A 66 42 00 81 E9 1D 40 42 00 8B D5 81 C2 1D 40 42 00 8D 3A 8B F7 33 C0 E8 03 00 00 00 EB 01 ?? E8 17 00 00 00 90 90 90 E9 C3 1F 00 00 33 C0 64 FF 30 64 89 20 43 CC C3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule yoda_s_Protector_V1_03_3____Ashkbiz_Danehkar_____Sign_By_fly {
+  strings:
+    $a0 = { E8 03 00 00 00 EB 01 ?? BB 55 00 00 00 E8 03 00 00 00 EB 01 ?? E8 8E 00 00 00 E8 03 00 00 00 EB 01 ?? E8 81 00 00 00 E8 03 00 00 00 EB 01 ?? E8 B7 00 00 00 E8 03 00 00 00 EB 01 ?? E8 AA 00 00 00 E8 03 00 00 00 EB 01 ?? 83 FB 55 E8 03 00 00 00 EB 01 ?? 75 2D E8 03 00 00 00 EB 01 ?? 60 E8 00 00 00 00 5D 81 ED 07 E2 40 00 8B D5 81 C2 56 E2 40 00 52 E8 01 00 00 00 C3 C3 E8 03 00 00 00 EB 01 ?? E8 0E 00 00 00 E8 D1 FF FF FF C3 E8 03 00 00 00 EB 01 ?? 33 C0 64 FF 30 64 89 20 CC C3 E8 03 00 00 00 EB 01 ?? 33 C0 64 FF 30 64 89 20 4B CC C3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule __PseudoSigner_0_1_rule__Yoda_s_Protector_1_02______Anorganix {
+  strings:
+    $a0 = { E8 03 00 00 00 EB 01 90 90 E9 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule yoda_s_Crypter_1_3____Ashkbiz_Danehkar {
+  strings:
+    $a0 = { 55 8B EC 53 56 57 60 E8 00 00 00 00 5D 81 ED 6C 28 40 00 B9 5D 34 40 00 81 E9 C6 28 40 00 8B D5 81 C2 C6 28 40 00 8D 3A 8B F7 33 C0 EB 04 90 EB 01 C2 AC }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule yoda_s_Protector_V1_01____Ashkbiz_Danehkar_____Sign_By_fly {
+  strings:
+    $a0 = { 55 8B EC 53 56 57 E8 03 00 00 00 EB 01 ?? E8 86 00 00 00 E8 03 00 00 00 EB 01 ?? E8 79 00 00 00 E8 03 00 00 00 EB 01 ?? E8 A4 00 00 00 E8 03 00 00 00 EB 01 ?? E8 97 00 00 00 E8 03 00 00 00 EB 01 ?? E8 2D 00 00 00 E8 03 00 00 00 EB 01 ?? 60 E8 00 00 00 00 5D 81 ED D5 E4 41 00 8B D5 81 C2 23 E5 41 00 52 E8 01 00 00 00 C3 C3 E8 03 00 00 00 EB 01 ?? E8 0E 00 00 00 E8 D1 FF FF FF C3 E8 03 00 00 00 EB 01 ?? 33 C0 64 FF 30 64 89 20 CC C3 E8 03 00 00 00 EB 01 ?? 33 C0 64 FF 30 64 89 20 CC C3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule PEiD_03516_y0da_s_Crypter_v1_0_ {
+  meta:
+    description = "[y0da's Crypter v1.0]"
+    ep_only     = "true"
+
+  strings:
+    $a = { 60 E8 00 00 00 00 5D 81 ED E7 1A 40 00 E8 A1 00 00 00 E8 D1 00 00 00 E8 85 01 00 00 F7 85 }
+
+  condition:
+    $a
+}
+
+rule PEiD_03517_y0da_s_Crypter_v1_1_ {
+  meta:
+    description = "[y0da's Crypter v1.1]"
+    ep_only     = "true"
+
+  strings:
+    $a = { 60 E8 00 00 00 00 5D 81 ED 8A 1C 40 00 B9 9E 00 00 00 8D BD 4C 23 40 00 8B F7 33 }
+
+  condition:
+    $a
+}
+
+rule PEiD_03518_y0da_s_Crypter_v1_x___Modified_ {
+  meta:
+    description = "[y0da's Crypter v1.x / Modified]"
+    ep_only     = "true"
+
+  strings:
+    $a = { 60 E8 00 00 00 00 5D 81 ED ?? ?? ?? ?? B9 ?? ?? 00 00 8D BD ?? ?? ?? ?? 8B F7 AC }
+
+  condition:
+    $a
+}
+
+rule PEiD_03521_yoda_s_Crypter_1_3____Ashkbiz_Danehkar_ {
+  meta:
+    description = "[yoda's Crypter 1.3 -> Ashkbiz Danehkar]"
+    ep_only     = "true"
+
+  strings:
+    $a = { 55 8B EC 53 56 57 60 E8 00 00 00 00 5D 81 ED 6C 28 40 00 B9 5D 34 40 00 81 E9 C6 28 40 00 8B D5 81 C2 C6 28 40 00 8D 3A 8B F7 33 C0 EB 04 90 EB 01 C2 AC }
+
+  condition:
+    $a
+}
+
+rule PEiD_03520_yoda_s_Crypter_1_3____Ashkbiz_Danehkar_ {
+  meta:
+    description = "[yoda's Crypter 1.3 -> Ashkbiz Danehkar]"
+    ep_only     = "true"
+
+  strings:
+    $a = { 55 8B EC 53 56 57 60 E8 00 00 00 00 5D 81 ED 6C 28 40 00 B9 5D 34 40 00 }
+
+  condition:
+    $a
+}
+
 rule PEiD_00001__EP__ExE_Pack__V1_0____Elite_Coding_Group_ {
   meta:
     description = "[!EP (ExE Pack) V1.0 -> Elite Coding Group]"
@@ -220,66 +345,6 @@ rule PEiD_00021_A3E__TXT2COM__ {
 
   strings:
     $a = { 1E 33 C0 50 BE ?? ?? 81 C6 ?? ?? B8 ?? ?? 8E C0 BF ?? ?? B9 ?? ?? F3 A5 CB }
-
-  condition:
-    $a
-}
-
-rule PEiD_00022_Aase_Crypter___by_santasdad_ {
-  meta:
-    description = "[Aase Crypter - by santasdad]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 F0 53 B8 A0 3E 00 10 E8 93 DE FF FF 68 F8 42 00 10 E8 79 DF FF FF 68 00 43 00 10 68 0C 43 00 10 E8 42 DF FF FF 50 E8 44 DF FF FF A3 98 66 00 10 83 3D 98 66 00 10 00 75 13 6A 00 68 18 43 00 10 68 1C 43 00 10 6A 00 E8 4B DF FF FF 68 2C 43 00 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00023_Aase_Crypter___by_santasdad_ {
-  meta:
-    description = "[Aase Crypter - by santasdad]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 F0 53 B8 A0 3E 00 10 E8 93 DE FF FF 68 F8 42 00 10 E8 79 DF FF FF 68 00 43 00 10 68 0C 43 00 10 E8 42 DF FF FF 50 E8 44 DF FF FF A3 98 66 00 10 83 3D 98 66 00 10 00 75 13 6A 00 68 18 43 00 10 68 1C 43 00 10 6A 00 E8 4B DF FF FF 68 2C 43 00 10 68 0C 43 ?? ?? ?? ?? DF FF FF 50 E8 0E DF FF FF A3 94 66 00 10 83 3D 94 66 00 10 00 75 13 6A 00 68 18 43 00 10 68 38 43 00 10 6A 00 E8 15 DF FF FF 68 48 43 00 10 68 0C 43 00 10 E8 D6 DE FF FF 50 E8 D8 DE FF FF A3 A0 66 00 10 83 3D A0 66 00 10 00 75 13 6A 00 68 18 43 00 10 68 58 43 00 10 6A 00 E8 DF DE FF FF 68 6C 43 00 10 68 0C 43 00 10 E8 A0 DE FF FF 50 E8 A2 DE FF FF }
-
-  condition:
-    $a
-}
-
-rule PEiD_00024_ABC_Cryptor_1_0___by_ZloY_ {
-  meta:
-    description = "[ABC Cryptor 1.0 - by ZloY]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 68 FF 64 24 F0 68 58 58 58 58 90 FF D4 50 8B 40 F2 05 B0 95 F6 95 0F 85 01 81 BB FF 68 ?? ?? ?? ?? BF 00 ?? ?? ?? B9 00 ?? ?? ?? 80 37 ?? 47 39 CF 75 F8 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00026_AcidCrypt_ {
-  meta:
-    description = "[AcidCrypt]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 60 B9 ?? ?? ?? 00 BA ?? ?? ?? 00 BE ?? ?? ?? 00 02 38 40 4E 75 FA 8B C2 8A 18 32 DF C0 CB }
-
-  condition:
-    $a
-}
-
-rule PEiD_00027_AcidCrypt_ {
-  meta:
-    description = "[AcidCrypt]"
-    ep_only     = "true"
-
-  strings:
-    $a = { BE ?? ?? ?? ?? 02 38 40 4E 75 FA 8B C2 8A 18 32 DF C0 CB }
 
   condition:
     $a
@@ -748,42 +813,6 @@ rule PEiD_00067_Anskya_NTPacker_Generator____Anskya_ {
 
   strings:
     $a = { 55 8B EC 83 C4 F0 53 B8 88 1D 00 10 E8 C7 FA FF FF 6A 0A 68 20 1E 00 10 A1 14 31 00 10 50 E8 71 FB FF FF 8B D8 85 DB 74 2F 53 A1 14 31 00 10 50 E8 97 FB FF FF 85 C0 74 1F 53 A1 14 31 00 10 50 E8 5F FB FF FF 85 C0 74 0F 50 E8 5D FB FF FF 85 C0 74 05 E8 70 FC FF FF 5B E8 F2 F6 FF FF 00 00 48 45 41 52 54 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00068_Anslym_Crypter_ {
-  meta:
-    description = "[Anslym Crypter]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 F0 53 56 B8 38 17 05 10 E8 5A 45 FB FF 33 C0 55 68 21 1C 05 10 64 FF 30 64 89 20 EB 08 FC FC FC FC FC FC 27 54 E8 85 4C FB FF 6A 00 E8 0E 47 FB FF 6A 0A E8 27 49 FB FF E8 EA 47 FB FF 6A 0A 68 30 1C 05 10 A1 60 56 05 10 50 E8 68 47 FB FF 8B }
-
-  condition:
-    $a
-}
-
-rule PEiD_00069_Anslym_Crypter_ {
-  meta:
-    description = "[Anslym Crypter]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 F0 53 56 B8 38 17 05 10 E8 5A 45 FB FF 33 C0 55 68 21 1C 05 10 64 FF 30 64 89 20 EB 08 FC FC FC FC FC FC 27 54 E8 85 4C FB FF 6A 00 E8 0E 47 FB FF 6A 0A E8 27 49 FB FF E8 EA 47 FB FF 6A 0A 68 30 1C 05 10 A1 60 56 05 10 50 E8 68 47 FB FF 8B D8 85 DB 0F 84 B6 02 00 00 53 A1 60 56 05 10 50 E8 F2 48 FB FF 8B F0 85 F6 0F 84 A0 02 00 00 E8 F3 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00070_Anslym_FUD_Crypter___Sign_by_fly_ {
-  meta:
-    description = "[Anslym FUD Crypter ! Sign by fly]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 F0 53 56 B8 38 17 05 10 E8 5A 45 FB FF 33 C0 55 68 21 1C 05 10 64 FF 30 64 89 20 EB 08 FC FC FC FC FC FC 27 54 E8 85 4C FB FF 6A 00 E8 0E 47 FB FF 6A 0A E8 27 49 FB FF E8 EA 47 FB FF 6A 0A }
 
   condition:
     $a
@@ -3129,30 +3158,6 @@ rule PEiD_00268_ASProtect_vx_x_ {
     $a
 }
 
-rule PEiD_00269_ass___crypter____by_santasdad_ {
-  meta:
-    description = "[ass - crypter -> by santasdad]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 EC 53 ?? ?? ?? ?? 89 45 EC B8 98 40 00 10 E8 AC EA FF FF 33 C0 55 68 78 51 00 10 64 ?? ?? ?? ?? 20 6A 0A 68 88 51 00 10 A1 E0 97 00 10 50 E8 D8 EA FF FF 8B D8 53 A1 E0 97 00 10 50 E8 12 EB FF FF 8B F8 53 A1 E0 97 00 10 50 E8 DC EA FF FF 8B }
-
-  condition:
-    $a
-}
-
-rule PEiD_00270_ass___crypter____by_santasdad_ {
-  meta:
-    description = "[ass - crypter -> by santasdad]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 EC 53 ?? ?? ?? ?? 89 45 EC B8 98 40 00 10 E8 AC EA FF FF 33 C0 55 68 78 51 00 10 64 ?? ?? ?? ?? 20 6A 0A 68 88 51 00 10 A1 E0 97 00 10 50 E8 D8 EA FF FF 8B D8 53 A1 E0 97 00 10 50 E8 12 EB FF FF 8B F8 53 A1 E0 97 00 10 50 E8 DC EA FF FF 8B D8 53 E8 DC EA FF FF 8B F0 85 F6 74 26 8B D7 4A B8 F0 97 00 10 E8 C9 E7 FF FF B8 F0 97 00 10 E8 B7 E7 FF FF 8B CF 8B D6 E8 EE EA FF FF 53 E8 98 EA FF FF 8D 4D EC BA 9C 51 00 10 A1 F0 97 00 10 E8 22 EB FF FF 8B 55 EC B8 F0 97 00 10 E8 89 E6 FF FF B8 F0 97 00 10 E8 7F E7 FF FF E8 6E EC FF FF 33 C0 5A 59 59 64 89 10 68 7F 51 00 10 8D 45 EC E8 11 E6 FF FF C3 E9 FF DF FF FF EB F0 5F 5E 5B E8 0D E5 FF FF 00 53 45 54 54 49 4E 47 53 00 00 00 00 FF FF FF FF 1C 00 00 00 45 4E 54 45 52 20 59 4F 55 52 20 4F 57 4E 20 50 41 53 53 57 4F 52 44 20 48 45 52 45 }
-
-  condition:
-    $a
-}
-
 rule PEiD_00271_ASYLUM_Music_File_v_1_0_ {
   meta:
     description = "[ASYLUM Music File v.1.0]"
@@ -3568,18 +3573,6 @@ rule PEiD_00311_BGI_Stroked_Font_v_1_1_ {
 
   strings:
     $a = { 50 4B 08 08 42 47 49 20 53 74 72 6F 6B 65 64 20 46 6F 6E 74 20 56 31 2E 31 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00312_BlackEnergy_DDoS_Bot_Crypter_ {
-  meta:
-    description = "[BlackEnergy DDoS Bot Crypter]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 ?? ?? 81 EC 1C 01 00 00 53 56 57 6A 04 BE 00 30 00 00 56 FF 35 00 20 11 13 6A 00 E8 ?? 03 00 00 ?? ?? 83 C4 10 ?? FF 89 7D F4 0F }
 
   condition:
     $a
@@ -4936,18 +4929,6 @@ rule PEiD_00436_CryptCom_v1_1_ {
 
   strings:
     $a = { BF ?? ?? 57 BE ?? ?? ?? B9 ?? ?? F3 A4 C3 8B ?? ?? ?? 8B ?? ?? ?? BF ?? ?? 57 BE ?? ?? ?? AD 33 C2 AB E2 ?? C3 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00437_Crypter_3_1____SLESH_ {
-  meta:
-    description = "[Crypter 3.1 -> SLESH]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 68 FF 64 24 F0 68 58 58 58 58 FF D4 50 8B 40 F2 05 B0 95 F6 95 0F 85 01 81 BB FF 68 }
 
   condition:
     $a
@@ -8121,18 +8102,6 @@ rule PEiD_00706_fds0ft_c0m_pr0tect_v0_4b_ {
     $a
 }
 
-rule PEiD_00707_fEaRzCrypter_v1_0____fEaRz_ {
-  meta:
-    description = "[fEaRzCrypter v1.0 -> fEaRz]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC B9 09 00 00 00 6A 00 6A 00 49 75 ?? 53 56 57 B8 ?? ?? ?? ?? E8 ?? ?? ?? ?? 33 C0 55 68 ?? ?? ?? ?? 64 FF 30 64 89 20 BA ?? ?? ?? ?? B8 ?? ?? ?? ?? E8 ?? ?? ?? ?? 8B D8 85 DB 75 ?? 6A 00 }
-
-  condition:
-    $a
-}
-
 rule PEiD_00708_File_Analyzer_Compiled_Datafile_Version_ {
   meta:
     description = "[File Analyzer Compiled Datafile Version]"
@@ -8344,30 +8313,6 @@ rule PEiD_00725_FixupPak_v1_20_ {
 
   strings:
     $a = { 55 E8 00 00 00 00 5D 81 ED ?? ?? 00 00 BE 00 ?? 00 00 03 F5 BA 00 00 ?? ?? 2B D5 8B DD 33 C0 AC 3C 00 74 3D 3C 01 74 0E 3C 02 74 0E 3C 03 74 0D 03 D8 29 13 EB E7 66 AD EB F6 AD EB F3 AC 0F B6 C8 3C 00 74 06 3C 01 74 09 EB 0A 66 AD 0F B7 C8 EB 03 AD 8B C8 AC 0F B6 C0 03 D8 29 13 E2 FA EB BC 8D 85 ?? ?? 00 00 5D FF E0 00 00 00 00 08 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00726_Fly_Crypter_1_0____ut1lz_ {
-  meta:
-    description = "[Fly-Crypter 1.0 -> ut1lz]"
-    ep_only     = "false"
-
-  strings:
-    $a = { 53 56 57 55 BB 2C ?? ?? 44 BE 00 30 44 44 BF 20 ?? ?? 44 80 7B 28 00 75 16 83 3F 00 74 11 8B 17 89 D0 33 D2 89 17 8B E8 FF D5 83 3F 00 75 EF 83 3D 04 30 44 44 00 74 06 FF 15 58 30 44 44 80 7B 28 02 75 0A 83 3E 00 75 05 33 C0 89 43 0C FF 15 20 30 44 44 80 7B 28 01 76 05 83 3E 00 74 22 8B 43 10 85 C0 74 1B FF 15 18 30 44 44 8B 53 10 8B 42 10 3B 42 04 74 0A 85 C0 74 06 50 E8 2F FA FF FF FF 15 24 30 44 44 80 7B 28 01 75 03 FF 53 24 80 7B 28 00 74 05 E8 35 FF FF FF 83 3B 00 75 17 83 3D 10 ?? ?? 44 00 74 06 FF 15 10 ?? ?? 44 8B 06 50 E8 51 FA FF FF 8B 03 56 8B F0 8B FB B9 0B 00 00 00 F3 A5 5E E9 73 FF FF FF 5D 5F 5E 5B C3 A3 00 30 44 44 E8 26 FF FF FF C3 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00727_Fly_Crypter_1_0____ut1lz_ {
-  meta:
-    description = "[Fly-Crypter 1.0 -> ut1lz]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 F0 53 B8 18 22 44 44 E8 7F F7 FF FF E8 0A F1 FF FF B8 09 00 00 00 E8 5C F1 FF FF 8B D8 85 DB 75 05 E8 85 FD FF FF 83 FB 01 75 05 E8 7B FD FF FF 83 FB 02 75 05 E8 D1 FD FF FF 83 FB 03 75 05 E8 87 FE FF FF 83 FB 04 75 05 E8 5D FD FF FF 83 FB 05 75 05 E8 B3 FD FF FF 83 FB 06 75 05 E8 69 FE FF FF 83 FB 07 75 05 E8 5F FE FF FF 83 FB 08 75 05 E8 95 FD FF FF 83 FB 09 75 05 E8 4B FE FF FF 5B E8 9D F2 FF FF 90 }
 
   condition:
     $a
@@ -10372,30 +10317,6 @@ rule PEiD_00912_Inbuild_v1_0__hard_ {
 
   strings:
     $a = { B9 ?? ?? BB ?? ?? 2E ?? ?? 2E ?? ?? 43 E2 }
-
-  condition:
-    $a
-}
-
-rule PEiD_00913_INCrypter_0_3__INinY____by_z3e_NiFe_ {
-  meta:
-    description = "[INCrypter 0.3 (INinY) - by z3e_NiFe]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 60 64 A1 30 00 00 00 8B 40 0C 8B 40 0C 8D 58 20 C7 03 00 00 00 00 E8 00 00 00 00 5D 81 ED 4D 16 40 00 8B 9D 0E 17 40 00 64 A1 18 00 00 00 8B 40 30 0F B6 40 02 83 F8 01 75 05 03 DB C1 CB 10 8B 8D 12 17 40 00 8B B5 06 17 40 00 51 81 3E 2E 72 73 72 74 65 8B }
-
-  condition:
-    $a
-}
-
-rule PEiD_00914_INCrypter_0_3__INinY____by_z3e_NiFe_ {
-  meta:
-    description = "[INCrypter 0.3 (INinY) - by z3e_NiFe]"
-    ep_only     = "false"
-
-  strings:
-    $a = { 60 64 A1 30 00 00 00 8B 40 0C 8B 40 0C 8D 58 20 C7 03 00 00 00 00 E8 00 00 00 00 5D 81 ED 4D 16 40 00 8B 9D 0E 17 40 00 64 A1 18 00 00 00 8B 40 30 0F B6 40 02 83 F8 01 75 05 03 DB C1 CB 10 8B 8D 12 17 40 00 8B B5 06 17 40 00 51 81 3E 2E 72 73 72 74 65 8B 85 16 17 40 00 E8 23 00 00 00 8B 85 1A 17 40 00 E8 18 00 00 00 8B 85 1E 17 40 00 E8 0D 00 00 00 8B 85 22 17 40 00 E8 02 00 00 00 EB 18 8B D6 3B 46 0C 72 0A 83 F9 01 74 0B 3B 46 34 72 06 BA 00 00 00 00 C3 58 83 FA 00 75 1A 8B 4E 10 8B 7E 0C 03 BD 02 17 40 00 83 F9 00 74 09 F6 17 31 0F 31 1F 47 E2 F7 59 83 C6 28 49 83 F9 00 75 88 8B 85 0A 17 40 00 89 44 24 1C 61 50 C3 }
 
   condition:
     $a
@@ -16017,30 +15938,6 @@ rule PEiD_01425_ocBat2Exe_1_0____OC_ {
     $a
 }
 
-rule PEiD_01426_Open_Source_Code_Crypter____p0ke_ {
-  meta:
-    description = "[Open Source Code Crypter -> p0ke]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC B9 09 00 00 00 6A 00 6A 00 49 75 F9 53 56 57 B8 34 44 40 00 E8 28 F8 FF FF 33 C0 55 68 9F 47 40 00 64 FF 30 64 89 20 BA B0 47 40 00 B8 1C 67 40 00 E8 07 FD FF FF 8B D8 85 DB 75 07 6A 00 E8 C2 F8 FF FF BA 28 67 40 00 8B C3 8B 0D 1C 67 40 00 E8 F0 }
-
-  condition:
-    $a
-}
-
-rule PEiD_01427_Open_Source_Code_Crypter____p0ke_ {
-  meta:
-    description = "[Open Source Code Crypter -> p0ke]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC B9 09 00 00 00 6A 00 6A 00 49 75 F9 53 56 57 B8 34 44 40 00 E8 28 F8 FF FF 33 C0 55 68 9F 47 40 00 64 FF 30 64 89 20 BA B0 47 40 00 B8 1C 67 40 00 E8 07 FD FF FF 8B D8 85 DB 75 07 6A 00 E8 C2 F8 FF FF BA 28 67 40 00 8B C3 8B 0D 1C 67 40 00 E8 F0 E0 FF FF BE 01 00 00 00 B8 2C 68 40 00 E8 E1 F0 FF FF BF 0A 00 00 00 8D 55 EC 8B C6 E8 92 FC FF FF 8B 4D EC B8 2C 68 40 00 BA BC 47 40 00 E8 54 F2 FF FF A1 2C 68 40 00 E8 52 F3 FF FF 8B D0 B8 20 67 40 00 E8 A2 FC FF FF 8B D8 85 DB 0F 84 52 02 00 00 B8 24 67 40 00 8B 15 20 67 40 00 E8 78 F4 FF FF B8 24 67 40 00 E8 7A F3 FF FF 8B D0 8B C3 8B 0D 20 67 40 00 E8 77 E0 FF FF 8D 55 E8 A1 24 67 40 00 E8 42 FD FF FF 8B 55 E8 B8 24 67 40 00 }
-
-  condition:
-    $a
-}
-
 rule PEiD_01428_ORiEN_2_11__DEMO__ {
   meta:
     description = "[ORiEN 2.11 (DEMO)]"
@@ -17152,18 +17049,6 @@ rule PEiD_01521_PE_Crypt_1_02_ {
 
   strings:
     $a = { E8 00 00 00 00 5B 83 EB 05 EB 04 52 4E 44 21 85 C0 73 02 F7 }
-
-  condition:
-    $a
-}
-
-rule PEiD_01522_PE_Crypter_ {
-  meta:
-    description = "[PE-Crypter]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 60 E8 00 00 00 00 5D EB 26 }
 
   condition:
     $a
@@ -19540,30 +19425,6 @@ rule PEiD_01741_Pohernah_1_0_3___by_Kas_ {
 
   strings:
     $a = { 60 E8 00 00 00 00 5D 81 ED 2A 27 40 00 31 C0 40 83 F0 06 40 3D 40 1F 00 00 75 07 BE 6A 27 40 00 EB 02 EB EB 8B 85 9E 28 40 00 83 F8 01 75 17 31 C0 01 EE 3D 99 00 00 00 74 0C 8B 8D 86 28 40 00 30 0E 40 46 EB ED }
-
-  condition:
-    $a
-}
-
-rule PEiD_01742_Pohernah_Crypter_V1_0_1____Kas_ {
-  meta:
-    description = "[Pohernah Crypter V1.0.1 -> Kas]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 60 E8 00 00 00 00 5D 81 ED F1 26 40 00 8B BD 18 28 40 00 8B 8D 20 28 40 00 B8 38 28 40 00 01 E8 80 30 05 83 F9 00 74 71 81 7F 1C AB 00 00 00 75 62 8B 57 0C 03 95 1C 28 40 00 31 C0 51 31 C9 66 B9 FA 00 66 83 F9 00 74 49 8B 57 0C 03 95 1C 28 40 00 8B 85 24 }
-
-  condition:
-    $a
-}
-
-rule PEiD_01743_Pohernah_Crypter_V1_0_2____Kas_ {
-  meta:
-    description = "[Pohernah Crypter V1.0.2 -> Kas]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 60 E8 00 00 00 00 5D 81 ED DE 26 40 00 8B BD 05 28 40 00 8B 8D 0D 28 40 00 B8 25 28 40 00 01 E8 80 30 05 83 F9 00 74 71 81 7F 1C AB 00 00 00 75 62 8B 57 0C 03 95 09 28 40 00 31 C0 51 31 C9 66 B9 F7 00 66 83 F9 00 74 49 8B 57 0C 03 95 09 28 40 00 8B 85 11 }
 
   condition:
     $a
@@ -23325,18 +23186,6 @@ rule PEiD_02062_Setup2Go_Installer_Stub_ {
     $a
 }
 
-rule PEiD_02063_Sexe_Crypter_1_1___by_santasdad_ {
-  meta:
-    description = "[Sexe Crypter 1.1 - by santasdad]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 EC 53 56 57 33 C0 89 45 EC B8 D8 39 00 10 E8 30 FA FF FF 33 C0 55 68 D4 3A 00 10 64 FF 30 64 89 ?? ?? ?? ?? E4 3A 00 10 A1 00 57 00 10 50 E8 CC FA FF FF 8B D8 53 A1 00 57 00 10 50 E8 FE FA FF FF 8B F8 53 A1 00 57 00 10 50 E8 C8 FA FF FF 8B D8 53 E8 C8 FA FF FF 8B F0 85 F6 74 26 8B D7 4A B8 14 57 00 10 E8 AD F6 FF FF B8 14 57 00 10 E8 9B F6 FF FF 8B CF 8B D6 E8 DA FA FF FF 53 E8 84 FA FF FF 8D 4D EC BA F8 3A 00 10 A1 14 57 00 10 E8 0A FB FF FF 8B 55 EC B8 14 57 00 10 E8 65 F5 FF FF B8 14 57 00 10 E8 63 F6 FF FF E8 52 FC FF FF 33 C0 5A 59 59 64 89 10 68 DB 3A 00 10 8D 45 EC E8 ED F4 FF FF C3 E9 83 EF FF FF EB F0 5F 5E 5B E8 ED F3 FF FF 00 53 45 54 54 49 4E 47 53 00 00 00 00 FF FF FF FF 12 00 00 00 6B 75 74 68 37 36 67 62 62 67 36 37 34 76 38 38 67 79 }
-
-  condition:
-    $a
-}
-
 rule PEiD_02064_Sharp_GPB_Graphics_format_ {
   meta:
     description = "[Sharp GPB Graphics format]"
@@ -26085,18 +25934,6 @@ rule PEiD_02310_UltraPro_V1_0____SafeNet_ {
     $a
 }
 
-rule PEiD_02311_UnderGround_Crypter___by_Booster2000_ {
-  meta:
-    description = "[UnderGround Crypter - by Booster2000]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 83 C4 F0 B8 74 3C 00 11 E8 94 F9 FF FF E8 BF FE FF FF E8 0A F3 FF FF 8B C0 }
-
-  condition:
-    $a
-}
-
 rule PEiD_02312_unknown____jac_ {
   meta:
     description = "[unknown -> jac]"
@@ -27801,18 +27638,6 @@ rule PEiD_02467_UPX_Shit_v0_1____500mhz_ {
     $a
 }
 
-rule PEiD_02468_UPXcrypter____archphase_NWC_ {
-  meta:
-    description = "[UPXcrypter -> archphase/NWC]"
-    ep_only     = "true"
-
-  strings:
-    $a = { BF ?? ?? ?? 00 81 FF ?? ?? ?? 00 74 10 81 2F ?? 00 00 00 83 C7 04 BB 05 ?? ?? 00 FF E3 BE ?? ?? ?? 00 FF E6 00 00 00 00 }
-
-  condition:
-    $a
-}
-
 rule PEiD_02469_UPXFreak_0_1__Borland_Delphi_____HMX0101_ {
   meta:
     description = "[UPXFreak 0.1 (Borland Delphi) -> HMX0101]"
@@ -28180,54 +28005,6 @@ rule PEiD_02500_Virogen_s_PE_Shrinker_v0_14_ {
 
   strings:
     $a = { 9C 55 E8 ?? ?? ?? ?? 87 D5 5D 60 87 D5 8D ?? ?? ?? ?? ?? 8D ?? ?? ?? ?? ?? 57 56 AD 0B C0 74 }
-
-  condition:
-    $a
-}
-
-rule PEiD_02501_VIRUS___I_Worm_Bagle_ {
-  meta:
-    description = "[VIRUS - I-Worm.Bagle]"
-    ep_only     = "false"
-
-  strings:
-    $a = { 6A 00 E8 95 01 00 00 E8 9F E6 FF FF 83 3D 03 50 40 00 00 75 14 68 C8 AF 00 00 E8 01 E1 FF FF 05 88 13 00 00 A3 03 50 40 00 68 5C 57 40 00 68 F6 30 40 00 FF 35 03 50 40 00 E8 B0 EA FF FF E8 3A FC FF FF 83 3D 54 57 40 00 00 74 05 E8 F3 FA FF FF 68 E8 03 00 }
-
-  condition:
-    $a
-}
-
-rule PEiD_02502_VIRUS___I_Worm_Bagle_ {
-  meta:
-    description = "[VIRUS - I-Worm.Bagle]"
-    ep_only     = "false"
-
-  strings:
-    $a = { 6A 00 E8 95 01 00 00 E8 9F E6 FF FF 83 3D 03 50 40 00 00 75 14 68 C8 AF 00 00 E8 01 E1 FF FF 05 88 13 00 00 A3 03 50 40 00 68 5C 57 40 00 68 F6 30 40 00 FF 35 03 50 40 00 E8 B0 EA FF FF E8 3A FC FF FF 83 3D 54 57 40 00 00 74 05 E8 F3 FA FF FF 68 E8 03 00 00 E8 B1 00 00 00 EB F4 CC FF 25 A4 40 40 00 FF 25 B8 40 40 00 FF 25 B4 40 40 00 FF 25 B0 40 40 00 FF 25 AC 40 40 00 FF 25 9C 40 40 00 FF 25 A0 40 40 00 FF 25 A8 40 40 00 FF 25 24 40 40 00 FF 25 28 40 40 00 FF 25 2C 40 40 00 FF 25 30 40 40 00 FF 25 34 40 40 00 FF 25 38 40 40 00 FF 25 3C 40 40 00 FF 25 40 40 40 00 FF 25 44 40 40 00 FF 25 48 40 40 00 FF 25 4C 40 40 00 FF 25 50 40 40 00 FF 25 54 40 40 00 FF 25 58 40 40 00 FF 25 5C 40 40 00 FF 25 60 40 40 00 FF 25 BC 40 40 00 FF 25 64 40 40 00 FF 25 68 40 40 }
-
-  condition:
-    $a
-}
-
-rule PEiD_02503_VIRUS___I_Worm_Hybris_ {
-  meta:
-    description = "[VIRUS - I-Worm.Hybris]"
-    ep_only     = "false"
-
-  strings:
-    $a = { EB 16 A8 54 ?? ?? 47 41 42 4C 4B 43 47 43 ?? ?? ?? ?? ?? ?? 52 49 53 ?? FC 68 4C 70 40 ?? FF 15 }
-
-  condition:
-    $a
-}
-
-rule PEiD_02504_VIRUS___I_Worm_KLEZ_ {
-  meta:
-    description = "[VIRUS - I-Worm.KLEZ]"
-    ep_only     = "false"
-
-  strings:
-    $a = { 55 8B EC 6A FF 68 40 D2 40 ?? 68 04 AC 40 ?? 64 A1 ?? ?? ?? ?? 50 64 89 25 ?? ?? ?? ?? 83 EC 58 53 56 57 89 65 E8 FF 15 BC D0 }
 
   condition:
     $a
@@ -39165,18 +38942,6 @@ rule PEiD_03418_Vx__SYP_ {
     $a
 }
 
-rule PEiD_03419_VX__Tibs_Zhelatin__StormWorm__variant_ {
-  meta:
-    description = "[VX: Tibs/Zhelatin \"StormWorm\" variant]"
-    ep_only     = "true"
-
-  strings:
-    $a = { FF 74 24 1C 58 8D 80 ?? ?? 77 04 50 68 62 34 35 04 E8 }
-
-  condition:
-    $a
-}
-
 rule PEiD_03420_Vx__TravJack_883_ {
   meta:
     description = "[Vx: TravJack.883]"
@@ -39520,42 +39285,6 @@ rule PEiD_03448_WebCops__EXE_ {
 
   strings:
     $a = { EB 03 05 EB 02 EB FC 55 EB 03 EB 04 05 EB FB EB 53 E8 04 00 00 00 72 }
-
-  condition:
-    $a
-}
-
-rule PEiD_03449_Werus_Crypter_1_0___by_Kas_ {
-  meta:
-    description = "[Werus Crypter 1.0 - by Kas]"
-    ep_only     = "true"
-
-  strings:
-    $a = { BB E8 12 40 00 80 33 05 E9 7D FF FF FF }
-
-  condition:
-    $a
-}
-
-rule PEiD_03450_Werus_Crypter_1_0____Kas_ {
-  meta:
-    description = "[Werus Crypter 1.0 -> Kas]"
-    ep_only     = "false"
-
-  strings:
-    $a = { 68 98 11 40 00 6A 00 E8 50 00 00 00 C9 C3 ED B3 FE FF FF 6A 00 E8 0C 00 00 00 FF 25 80 10 40 00 FF 25 84 10 40 00 FF 25 88 10 40 00 FF 25 8C 10 40 00 FF 25 90 10 40 00 FF 25 94 10 40 00 FF 25 98 10 40 00 FF 25 9C 10 40 00 FF 25 A0 10 40 00 FF 25 A4 10 40 }
-
-  condition:
-    $a
-}
-
-rule PEiD_03451_Werus_Crypter_1_0____Kas_ {
-  meta:
-    description = "[Werus Crypter 1.0 -> Kas]"
-    ep_only     = "false"
-
-  strings:
-    $a = { 68 98 11 40 00 6A 00 E8 50 00 00 00 C9 C3 ED B3 FE FF FF 6A 00 E8 0C 00 00 00 FF 25 80 10 40 00 FF 25 84 10 40 00 FF 25 88 10 40 00 FF 25 8C 10 40 00 FF 25 90 10 40 00 FF 25 94 10 40 00 FF 25 98 10 40 00 FF 25 9C 10 40 00 FF 25 A0 10 40 00 FF 25 A4 10 40 00 FF 25 A8 10 40 00 FF 25 B0 10 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 BB E8 12 40 00 80 33 05 E9 7D FF FF FF }
 
   condition:
     $a
@@ -40317,42 +40046,6 @@ rule PEiD_03515_XXPack_0_1____bagie_ {
     $a
 }
 
-rule PEiD_03516_y0da_s_Crypter_v1_0_ {
-  meta:
-    description = "[y0da's Crypter v1.0]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 60 E8 00 00 00 00 5D 81 ED E7 1A 40 00 E8 A1 00 00 00 E8 D1 00 00 00 E8 85 01 00 00 F7 85 }
-
-  condition:
-    $a
-}
-
-rule PEiD_03517_y0da_s_Crypter_v1_1_ {
-  meta:
-    description = "[y0da's Crypter v1.1]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 60 E8 00 00 00 00 5D 81 ED 8A 1C 40 00 B9 9E 00 00 00 8D BD 4C 23 40 00 8B F7 33 }
-
-  condition:
-    $a
-}
-
-rule PEiD_03518_y0da_s_Crypter_v1_x___Modified_ {
-  meta:
-    description = "[y0da's Crypter v1.x / Modified]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 60 E8 00 00 00 00 5D 81 ED ?? ?? ?? ?? B9 ?? ?? 00 00 8D BD ?? ?? ?? ?? 8B F7 AC }
-
-  condition:
-    $a
-}
-
 rule PEiD_03519_yC_1_3_by_Ashkbiz_Danehkar_ {
   meta:
     description = "[yC 1.3 by Ashkbiz Danehkar]"
@@ -40360,30 +40053,6 @@ rule PEiD_03519_yC_1_3_by_Ashkbiz_Danehkar_ {
 
   strings:
     $a = { 55 8B EC 81 EC C0 00 00 00 53 56 57 8D BD 40 FF FF FF B9 30 00 00 00 B8 CC CC CC CC F3 AB 60 E8 00 00 00 00 5D 81 ED 84 52 41 00 B9 75 5E 41 00 81 E9 DE 52 41 00 8B D5 81 C2 DE 52 41 00 8D 3A 8B F7 33 C0 EB 04 90 EB 01 C2 AC }
-
-  condition:
-    $a
-}
-
-rule PEiD_03520_yoda_s_Crypter_1_3____Ashkbiz_Danehkar_ {
-  meta:
-    description = "[yoda's Crypter 1.3 -> Ashkbiz Danehkar]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 53 56 57 60 E8 00 00 00 00 5D 81 ED 6C 28 40 00 B9 5D 34 40 00 }
-
-  condition:
-    $a
-}
-
-rule PEiD_03521_yoda_s_Crypter_1_3____Ashkbiz_Danehkar_ {
-  meta:
-    description = "[yoda's Crypter 1.3 -> Ashkbiz Danehkar]"
-    ep_only     = "true"
-
-  strings:
-    $a = { 55 8B EC 53 56 57 60 E8 00 00 00 00 5D 81 ED 6C 28 40 00 B9 5D 34 40 00 81 E9 C6 28 40 00 8B D5 81 C2 C6 28 40 00 8D 3A 8B F7 33 C0 EB 04 90 EB 01 C2 AC }
 
   condition:
     $a
