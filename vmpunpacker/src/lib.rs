@@ -46,7 +46,6 @@ struct Section {
 }
 
 struct Pe {
-    e_lfanew: usize,
     num_sections: u16,
     size_of_image: u32,
     size_of_headers: u32,
