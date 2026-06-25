@@ -300,22 +300,38 @@ impl Pipeline {
                 load_metrics.push(m);
                 (hash, yara, clamav, hds, pe, js)
             } else {
-                std::thread::scope(|s| {
-                    let t_hash = s.spawn(load_hash);
-                    let t_yara = s.spawn(load_yara);
-                    let t_clamav = s.spawn(load_clamav);
-                    let t_hds = s.spawn(load_hds);
-                    let t_pe = s.spawn(load_pe);
-                    let t_js = s.spawn(load_js);
-                    (
-                        t_hash.join().expect("hash loader panicked"),
-                        t_yara.join().expect("yara loader panicked"),
-                        t_clamav.join().expect("clamav loader panicked"),
-                        t_hds.join().expect("hydradragonsig loader panicked"),
-                        t_pe.join().expect("pe model loader panicked"),
-                        t_js.join().expect("js model loader panicked"),
-                    )
-                })
+                // Load engines SEQUENTIALLY, not in parallel. Loading them all at
+                // once (the old `thread::scope`) stacked every engine's large build
+                // transient — ClamAV's ~500 MB Aho-Corasick trie, YARA-X rule
+                // compilation, the ML models — into one ~1.5 GB peak. Done one at a
+                // time, each engine's transient is freed when its loader returns, so
+                // the committed-memory peak is roughly the single worst engine rather
+                // than their sum.
+                //
+                // ClamAV loads FIRST: its build transient is the biggest, so paying
+                // it while the resident set is still near zero keeps the peak lowest.
+                // After each engine the working set is trimmed so the just-released
+                // transient is returned to the OS before the next loader starts.
+                let trim = crate::metrics::trim_working_set;
+                let clamav = load_clamav();
+                trim();
+                let yara_rules = load_yara();
+                trim();
+                let hydradragonsig_rules = load_hds();
+                trim();
+                let pe_ml_model = load_pe();
+                trim();
+                let js_ml_model = load_js();
+                trim();
+                let hash_scanner = load_hash();
+                (
+                    hash_scanner,
+                    yara_rules,
+                    clamav,
+                    hydradragonsig_rules,
+                    pe_ml_model,
+                    js_ml_model,
+                )
             };
         if measure {
             eprintln!(

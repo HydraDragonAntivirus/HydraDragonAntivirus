@@ -499,27 +499,9 @@ impl AtomPrefilter {
             }
         }
 
-        // Serialize the built Aho-Corasick automata to a cache in the system temp
-        // directory (NOT the database folder — keeps it clean). On a later launch
-        // the trie is deserialized instead of rebuilt, which avoids the ~500 MB-1 GB
-        // build transient that drives the load-time RAM spike. The cache is keyed by
-        // a content hash of the atoms, and stale caches (old database versions) are
-        // pruned each load — "build it, reuse it, then delete the old ones".
-        let cache_dir = ac_cache_dir();
-        let (case_cache, nocase_cache) = match &cache_dir {
-            Some(dir) => {
-                let kc = atoms_key(&entries, "case");
-                let kn = atoms_key(&entries_nocase, "nocase");
-                let case = dir.join(format!("ac_{kc:016x}.bin"));
-                let nocase = dir.join(format!("ac_{kn:016x}.bin"));
-                prune_stale_ac_caches(dir, &case, &nocase);
-                (Some(case), Some(nocase))
-            }
-            None => (None, None),
-        };
-        let (ac, num_atoms, atom_starts, sig_refs) = build_automaton(entries, case_cache);
+        let (ac, num_atoms, atom_starts, sig_refs) = build_automaton(entries);
         let (ac_nocase, num_atoms_nocase, atom_starts_nocase, sig_refs_nocase) =
-            build_automaton(entries_nocase, nocase_cache);
+            build_automaton(entries_nocase);
 
         AtomPrefilter {
             ac,
@@ -715,48 +697,8 @@ fn build_candidate_set(mut hits: Vec<(u32, u32)>, always: &[u32]) -> CandidateSe
 
 /// Unique-atom + CSR mapping, shared by the case-sensitive and nocase
 /// automaton builds.
-/// Temp-dir folder for the serialized AC caches: `%TEMP%/hydradragon_ac`. Created
-/// on demand; `None` if it can't be made (caching is then simply skipped).
-fn ac_cache_dir() -> Option<std::path::PathBuf> {
-    let dir = std::env::temp_dir().join("hydradragon_ac");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir)
-}
-
-/// Order-independent content hash of an atom set (+ a kind tag and the crate
-/// version) used to key its cache. Same atoms → same trie → same key; any signature
-/// change or release rebuilds. Commutative (wrapping-add) so it needn't sort first.
-fn atoms_key(entries: &[(Box<[u8]>, u64)], kind: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut acc: u64 = 0;
-    for (atom, _) in entries {
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        atom.hash(&mut h);
-        acc = acc.wrapping_add(h.finish());
-    }
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    env!("CARGO_PKG_VERSION").hash(&mut h);
-    kind.hash(&mut h);
-    entries.len().hash(&mut h);
-    acc ^ h.finish()
-}
-
-/// Delete every `ac_*.bin` in `dir` except the two for the current keys, so old
-/// database versions' caches don't accumulate in temp.
-fn prune_stale_ac_caches(dir: &std::path::Path, keep_a: &std::path::Path, keep_b: &std::path::Path) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for entry in rd.flatten() {
-        let p = entry.path();
-        let Some(name) = p.file_name().and_then(|n| n.to_str()) else { continue };
-        if name.starts_with("ac_") && name.ends_with(".bin") && p != *keep_a && p != *keep_b {
-            let _ = std::fs::remove_file(&p);
-        }
-    }
-}
-
 fn build_automaton(
     mut entries: Vec<(Box<[u8]>, u64)>,
-    cache: Option<std::path::PathBuf>,
 ) -> (
     Option<DoubleArrayAhoCorasick<u32>>,
     usize,
@@ -787,40 +729,15 @@ fn build_automaton(
     atom_starts.push(sig_refs.len() as u32); // sentinel
 
     let num_atoms = atoms.len();
-    // Deserialize the finished automaton from the temp cache when present (cheap, no
-    // trie-build transient); otherwise build it once (a large transient that
-    // `trim_working_set` returns to the OS afterwards) and serialize it for next time.
-    // The CSR above is rebuilt deterministically from the same sorted atoms, so its
-    // atom IDs match the cached AC.
-    // daachorse's `serialize`/`deserialize` carry no magic/version of their own
-    // (just raw State/Output bytes), so we prefix our cache with an 8-byte header:
-    // a magic + a format tag bumped whenever the daachorse dependency changes. A
-    // mismatched header (or daachorse's own structural validation failing) makes us
-    // fall back to a fresh build — never an incompatible-layout misread.
-    const AC_MAGIC: [u8; 4] = *b"HDAC";
-    const AC_FMT: u32 = 0x0300_0000; // daachorse 3.0.x layout
-    let cached_ac: Option<DoubleArrayAhoCorasick<u32>> = cache.as_ref().and_then(|p| {
-        let bytes = std::fs::read(p).ok()?;
-        if bytes.len() < 8 || bytes[..4] != AC_MAGIC || bytes[4..8] != AC_FMT.to_le_bytes() {
-            return None; // foreign/older cache format → rebuild
-        }
-        let (ac, _) = DoubleArrayAhoCorasick::<u32>::deserialize(&bytes[8..]).ok()?;
-        Some(ac)
-    });
+    // Build the double-array AC in memory from the sorted atoms. This spikes a large
+    // transient during construction; it's returned to the OS by `trim_working_set`
+    // after loading. (No on-disk cache: serializing it only shaved the trie's own
+    // build transient, but the load-time RAM peak is dominated by the other engines
+    // — YARA-X, ML, ClamAV — loading at the same time, so it wasn't worth the files.)
     let ac: Option<DoubleArrayAhoCorasick<u32>> = if atoms.is_empty() {
         None
-    } else if let Some(ac) = cached_ac {
-        Some(ac)
     } else {
-        let built = DoubleArrayAhoCorasick::<u32>::new(&atoms).ok();
-        if let (Some(ac), Some(p)) = (&built, &cache) {
-            let mut blob = Vec::new();
-            blob.extend_from_slice(&AC_MAGIC);
-            blob.extend_from_slice(&AC_FMT.to_le_bytes());
-            blob.extend_from_slice(&ac.serialize());
-            let _ = std::fs::write(p, blob);
-        }
-        built
+        DoubleArrayAhoCorasick::<u32>::new(&atoms).ok()
     };
     drop(atoms);
     drop(entries);
