@@ -340,7 +340,7 @@ fn load_file(
     path: &Path,
     database: &mut Database,
     report: &mut LoadReport,
-    ignored: &HashSet<String>,
+    ignored: &HashSet<Box<str>>,
 ) -> io::Result<()> {
     report.files_seen += 1;
     let ext = extension_key(path);
@@ -393,7 +393,15 @@ fn load_file(
                 _ => unreachable!(),
             }
             report.unsupported_files += 1;
-            push_unsupported(database, report, path, 0, kind.disposition(&ext));
+            push_unsupported(
+                database,
+                report,
+                SourceLocation {
+                    path: Arc::from(path),
+                    line: 0,
+                },
+                kind.disposition(&ext),
+            );
             return Ok(());
         }
     }
@@ -439,7 +447,7 @@ fn load_file(
             // `.sdb` parses identically to `.ndb`; ClamAV's `sdb` flag only sets
             // engine->sdb and skips the sigload callback (readdb.c cli_loadndb).
             ExtKind::BodyNdb => match parse_extended_signature(line, source.clone()) {
-                Ok(Some(signature)) if ignored.contains(&signature.name) => {
+                Ok(Some(signature)) if ignored.contains(signature.name.as_str()) => {
                     report.ignored_skipped += 1;
                 }
                 Ok(Some(signature)) => {
@@ -453,7 +461,7 @@ fn load_file(
             // Old-format `.db`: `name=hexsig`, generic target, offset `*`
             // (readdb.c cli_loaddb -> cli_add_content_match_pattern on root[0]).
             ExtKind::BodyOldDb => match parse_db_signature(line, source.clone()) {
-                Ok(Some(signature)) if ignored.contains(&signature.name) => {
+                Ok(Some(signature)) if ignored.contains(signature.name.as_str()) => {
                     report.ignored_skipped += 1;
                 }
                 Ok(Some(signature)) => {
@@ -464,12 +472,12 @@ fn load_file(
                 Err(message) => push_error(report, source, message),
             },
             ExtKind::Logical => match parse_logical_signature(line, source.clone()) {
-                Ok((signature, _)) if ignored.contains(&signature.name) => {
+                Ok((signature, _)) if ignored.contains(signature.name.as_str()) => {
                     report.ignored_skipped += 1;
                 }
                 Ok((signature, warnings)) => {
                     for warning in warnings {
-                        push_unsupported(database, report, path, line_number, warning);
+                        push_unsupported(database, report, source.clone(), warning);
                     }
                     database.logical.push(signature);
                     report.logical_loaded += 1;
@@ -482,7 +490,7 @@ fn load_file(
                 Err(message) => push_error(report, source, message),
             },
             ExtKind::Container => match parse_container_signature(line, source.clone()) {
-                Ok(signature) if ignored.contains(&signature.name) => {
+                Ok(signature) if ignored.contains(signature.name.as_str()) => {
                     report.ignored_skipped += 1;
                 }
                 Ok(signature) => {
@@ -617,35 +625,32 @@ pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
     // `p`/`P` (Unicode property classes) are excluded: ClamAV uses `\p` to mean a
     // literal `p` (e.g. `\pdf` == "pdf").
     const ESCAPE_LETTERS: &str = "aftnrvbBAzdDsSwWx";
-    let chars: Vec<char> = pattern.chars().collect();
-    let n = chars.len();
-    let mut out = String::with_capacity(n + 8);
-    let mut i = 0;
+    let mut out = String::with_capacity(pattern.len() + 8);
+    // Use a peekable iterator — avoids heap-allocating a Vec<char> for every pattern.
+    let mut chars = pattern.chars().peekable();
     let mut in_class = false;
     let mut class_pos = 0usize; // position within the current [...] class
 
-    while i < n {
-        let c = chars[i];
-
+    while let Some(c) = chars.next() {
         // Escapes: keep recognized ones, drop the backslash only from unknown
         // *letter* escapes (e.g. `\i`, `\p`) so they become literals. Keep it for
         // digits (so backreferences like `\1` stay unsupported, not silently
         // turned into a literal digit), punctuation, and recognized escapes.
         if c == '\\' {
-            if i + 1 < n {
-                let next = chars[i + 1];
-                let drop = next.is_ascii_alphabetic() && !ESCAPE_LETTERS.contains(next);
-                if !drop {
-                    out.push('\\');
+            match chars.next() {
+                Some(next) => {
+                    let drop = next.is_ascii_alphabetic() && !ESCAPE_LETTERS.contains(next);
+                    if !drop {
+                        out.push('\\');
+                    }
+                    out.push(next);
+                    if in_class {
+                        class_pos += 1;
+                    }
                 }
-                out.push(next);
-                i += 2;
-                if in_class {
-                    class_pos += 1;
+                None => {
+                    out.push('\\'); // trailing backslash — Regex::new will report it
                 }
-            } else {
-                out.push('\\'); // trailing backslash — Regex::new will report it
-                i += 1;
             }
             continue;
         }
@@ -660,13 +665,12 @@ pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
                 }
                 // Literal '[' inside a class (but not a POSIX `[:name:]`) — escape
                 // so Rust doesn't parse it as a nested class.
-                '[' if !(i + 1 < n && chars[i + 1] == ':') => out.push_str("\\["),
+                '[' if chars.peek() != Some(&':') => out.push_str("\\["),
                 _ => out.push(c),
             }
             if !(c == ']' && !in_class) {
                 class_pos += 1;
             }
-            i += 1;
             continue;
         }
 
@@ -675,30 +679,31 @@ pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
                 in_class = true;
                 class_pos = 0;
                 out.push('[');
-                i += 1;
-                if i < n && chars[i] == '^' {
+                if chars.peek() == Some(&'^') {
                     out.push('^');
-                    i += 1;
+                    chars.next();
                 }
             }
             '{' => {
-                if let Some(len) = quantifier_len(&chars, i) {
-                    for ch in &chars[i..i + len] {
-                        out.push(*ch);
+                // Peek at the remaining chars to check for a valid quantifier without
+                // collecting the whole tail into a Vec.
+                let tail: String = chars.clone().collect();
+                if let Some(len) = quantifier_len_str(&tail) {
+                    out.push('{');
+                    for _ in 0..len {
+                        if let Some(ch) = chars.next() {
+                            out.push(ch);
+                        }
                     }
-                    i += len;
                 } else {
                     out.push_str("\\{"); // not a quantifier — literal brace
-                    i += 1;
                 }
             }
             '}' => {
                 out.push_str("\\}"); // stray closing brace — literal
-                i += 1;
             }
             _ => {
                 out.push(c);
-                i += 1;
             }
         }
     }
@@ -707,24 +712,42 @@ pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
 
 /// If `chars[start]` begins a valid `{n}` / `{n,}` / `{n,m}` quantifier, return
 /// its length (including the braces); otherwise `None` (so it's a literal `{`).
-fn quantifier_len(chars: &[char], start: usize) -> Option<usize> {
-    let n = chars.len();
-    let mut j = start + 1;
-    let digits_start = j;
-    while j < n && chars[j].is_ascii_digit() {
-        j += 1;
-    }
-    if j == digits_start {
-        return None; // need at least one digit
-    }
-    if j < n && chars[j] == ',' {
-        j += 1;
-        while j < n && chars[j].is_ascii_digit() {
-            j += 1;
+/// If `tail` (the string *after* a `{`) begins a valid `n}` / `n,}` / `n,m}`
+/// quantifier suffix, return the number of characters to consume from `tail`
+/// (not counting the `{` itself); otherwise `None`.
+fn quantifier_len_str(tail: &str) -> Option<usize> {
+    let mut chars = tail.chars();
+    let mut len = 0usize;
+    // Consume leading digits (required).
+    let mut saw_digit = false;
+    while let Some(c) = chars.clone().next() {
+        if c.is_ascii_digit() {
+            chars.next();
+            len += 1;
+            saw_digit = true;
+        } else {
+            break;
         }
     }
-    if j < n && chars[j] == '}' {
-        Some(j - start + 1)
+    if !saw_digit {
+        return None;
+    }
+    // Optional `,` followed by optional digits.
+    if chars.clone().next() == Some(',') {
+        chars.next();
+        len += 1;
+        while let Some(c) = chars.clone().next() {
+            if c.is_ascii_digit() {
+                chars.next();
+                len += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    // Must close with `}`.
+    if chars.next() == Some('}') {
+        Some(len + 1) // +1 for the closing '}'
     } else {
         None
     }
@@ -984,7 +1007,7 @@ fn visit_database_dir(
 
 /// First pass over the database: build the set of signature names to ignore
 /// from every `.ign`/`.ign2` file (ClamAV `cli_loadign` → `engine->ignored`).
-fn collect_ignored(path: &Path, report: &mut LoadReport) -> io::Result<HashSet<String>> {
+fn collect_ignored(path: &Path, report: &mut LoadReport) -> io::Result<HashSet<Box<str>>> {
     let mut ignored = HashSet::new();
     visit_database_dir(path, &mut |file| {
         let ext = extension_key(file);
@@ -1005,7 +1028,7 @@ fn collect_ignored(path: &Path, report: &mut LoadReport) -> io::Result<HashSet<S
                 continue;
             }
             if let Some(name) = ignored_signame(line) {
-                ignored.insert(name.to_string());
+                ignored.insert(Box::from(name));
                 report.ign_entries += 1;
             }
         }
@@ -1039,18 +1062,11 @@ fn push_error(report: &mut LoadReport, source: SourceLocation, message: String) 
 fn push_unsupported(
     database: &mut Database,
     report: &mut LoadReport,
-    path: &Path,
-    line: usize,
+    source: SourceLocation,
     reason: String,
 ) {
     report.unsupported_records += 1;
-    database.unsupported.push(UnsupportedRecord {
-        source: SourceLocation {
-            path: Arc::from(path),
-            line,
-        },
-        reason,
-    });
+    database.unsupported.push(UnsupportedRecord { source, reason });
 }
 
 fn extension_key(path: &Path) -> String {
