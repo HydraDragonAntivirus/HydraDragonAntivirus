@@ -369,6 +369,13 @@ impl Pipeline {
         self.cancel = flag;
     }
 
+    /// True when the shared cancel flag is set. Long system scans (process memory,
+    /// etc.) poll this so a GUI Stop interrupts them instead of running to the end.
+    #[inline]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// A human-readable per-engine RAM + CPU report (process RSS/peak/CPU, per-engine
     /// load RAM when collected with `HDAV_METRICS=1`, and aggregated per-engine scan
     /// CPU). Useful for diagnosing which engine drives memory/time.

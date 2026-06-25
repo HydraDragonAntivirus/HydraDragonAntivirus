@@ -20,7 +20,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use hydradragonav::disinfector::{self, DisinfectOutcome};
+use hydradragonav::disinfector;
 use hydradragonav::boot_scanner;
 use hydradragonav::memory_scanner;
 use hydradragonav::pipeline::{scan_hayabusa_once, Pipeline, PipelineConfig};
@@ -93,6 +93,8 @@ const CMD_UNINSTALL_MENU: usize = 21;
 // Option-panel buttons (shown in scan_option_mode)
 const CMD_START_SCAN: usize = 22;
 const CMD_CANCEL_OPT: usize = 23;
+// Move checked detections into quarantine (vs CMD_CLEAN which neutralizes in place).
+const CMD_QUARANTINE: usize = 24;
 
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
@@ -378,7 +380,13 @@ enum WorkRequest {
     StartEngine,
     /// Unload the engine to free memory.
     StopEngine,
+    /// Iteratively neutralize EVERY matched signature region in each file (disinfect,
+    /// rescan, repeat until clean), falling back to quarantine when there is no
+    /// neutralizable region.
     Clean(Vec<PathBuf>),
+    /// Move the given (file, detection) pairs into quarantine as-is (no in-place
+    /// neutralization) — the "Quarantine" action.
+    Quarantine(Vec<(PathBuf, String)>),
     /// Remove Windows traces of given files (registry autoruns, scheduled tasks, etc.)
     RemoveTraces(Vec<PathBuf>),
     /// Fix PUM registry entries: revert values and restore ACLs.
@@ -923,7 +931,8 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
                 ],
                 _ => vec![
                     (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
-                    (CMD_CLEAN, "Clean Threats", "\u{E74D}", Kind::Primary),
+                    (CMD_CLEAN, "Disinfect Selected", "\u{E74D}", Kind::Primary),
+                    (CMD_QUARANTINE, "Quarantine", "\u{E7BA}", Kind::Neutral),
                     (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
                 ],
             }
@@ -2373,6 +2382,7 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             }
         }
         CMD_CLEAN => act_clean_and_traces(hwnd, s),
+        CMD_QUARANTINE => act_quarantine_selected(hwnd, s),
         CMD_SAVE_RESULTS => save_results(hwnd, s),
         CMD_RESCAN => rescan_selected(hwnd, s),
         CMD_COPY => copy_selected(hwnd, s),
@@ -2509,7 +2519,8 @@ unsafe fn on_context_menu(hwnd: HWND, src: HWND, (mut x, mut y): (i32, i32)) {
     let _ = AppendMenuW(menu, MF_STRING, CMD_RESCAN, w!("Rescan Selected"));
     let _ = AppendMenuW(menu, MF_STRING, CMD_COPY, w!("Copy"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = AppendMenuW(menu, MF_STRING, CMD_CLEAN, w!("Clean Checked"));
+    let _ = AppendMenuW(menu, MF_STRING, CMD_CLEAN, w!("Disinfect Selected"));
+    let _ = AppendMenuW(menu, MF_STRING, CMD_QUARANTINE, w!("Quarantine Checked"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, CMD_SAVE_RESULTS, w!("Save Results\u{2026}"));
 
@@ -2835,9 +2846,11 @@ unsafe fn act_clean_and_traces(hwnd: HWND, s: &mut AppState) {
         return;
     }
     let prompt = format!(
-        "Clean {} checked file(s) AND remove their Windows traces?\n\
-         Matched regions are neutralized in place (a .bak is kept) or the file is \
-         quarantined; a System Restore Point and per-key .reg backups are created first.",
+        "Disinfect {} checked file(s) AND remove their Windows traces?\n\
+         Each file is rescanned and every matched signature region is neutralized in \
+         place (a .bak is kept), repeating until it is clean; if it still can't be \
+         fully cleaned it is quarantined. A System Restore Point and per-key .reg \
+         backups are created first.",
         paths.len()
     );
     if confirm(hwnd, &prompt) {
@@ -2849,6 +2862,35 @@ unsafe fn act_clean_and_traces(hwnd: HWND, s: &mut AppState) {
             let _ = s.work_tx.send(WorkRequest::FixPum(pum_entries));
         }
         let _ = s.work_tx.send(WorkRequest::RemoveTraces(paths));
+    }
+}
+
+/// Move the checked detections into quarantine as-is (no in-place neutralization).
+unsafe fn act_quarantine_selected(hwnd: HWND, s: &mut AppState) {
+    let items: Vec<(PathBuf, String)> = lv_checked(s.scan_list)
+        .into_iter()
+        .filter_map(|i| {
+            let i = i as usize;
+            let path = s.scan_rows.get(i)?.clone();
+            // Only on-disk files can be quarantined (skip registry/memory rows).
+            if !path.is_file() {
+                return None;
+            }
+            let det = s.scan_threat.get(i).cloned().unwrap_or_else(|| "threat".into());
+            Some((path, det))
+        })
+        .collect();
+    if items.is_empty() {
+        set_status(hwnd, s, "Check one or more detected files to quarantine.");
+        return;
+    }
+    let prompt = format!(
+        "Quarantine {} checked file(s)?\nEach file is XOR-encoded and moved into the \
+         quarantine store (recoverable from the Quarantine tab).",
+        items.len()
+    );
+    if confirm(hwnd, &prompt) {
+        let _ = s.work_tx.send(WorkRequest::Quarantine(items));
     }
 }
 
@@ -3064,6 +3106,11 @@ unsafe fn drain_results(hwnd: HWND) {
 unsafe fn confirm(hwnd: HWND, t: &str) -> bool {
     MessageBoxW(Some(hwnd), PCWSTR(wide(t).as_ptr()), w!("HydraDragon Antivirus"), MB_YESNO | MB_ICONWARNING)
         == IDYES
+}
+
+/// Informational warning dialog (OK only).
+unsafe fn warn(hwnd: HWND, t: &str) {
+    let _ = MessageBoxW(Some(hwnd), PCWSTR(wide(t).as_ptr()), w!("HydraDragon Antivirus"), MB_OK | MB_ICONWARNING);
 }
 
 // ---------------------------------------------------------------------------
@@ -3443,23 +3490,69 @@ fn worker(
                 use hydradragonav::restart_disinfect::{escalated_disinfect, reboot_for_disinfection, EscalationOutcome};
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
                 let mut restart_pending: Vec<(PathBuf, String)> = Vec::new();
+                // Escalation for a file that can't be written/quarantined directly
+                // (locked / critical / driver): kill blockers or defer to restart.
+                let escalate = |path: &std::path::Path, why: &str, restart_pending: &mut Vec<(PathBuf, String)>| -> String {
+                    match escalated_disinfect(path, &quarantine_dir, "GUI disinfect", false) {
+                        EscalationOutcome::Quarantined => format!("quarantined (escalated) {}", path.display()),
+                        EscalationOutcome::KilledAndQuarantined(n) => format!("stopped {n} blocker(s), quarantined {}", path.display()),
+                        EscalationOutcome::ScheduledForRestart { detail, .. } => {
+                            restart_pending.push((path.to_path_buf(), detail.clone()));
+                            format!("deferred to restart: {} ({detail})", path.display())
+                        }
+                        EscalationOutcome::Failed(e) => format!("FAILED {}: {why}; escalation: {e}", path.display()),
+                    }
+                };
                 for path in &paths {
-                    let arenas = pl.arenas_for_file(path);
-                    let line = match disinfector::disinfect_file(path, &arenas, &quarantine_dir) {
-                        DisinfectOutcome::Neutralized { bytes, .. } => format!("neutralized {bytes} byte(s) in {}", path.display()),
-                        DisinfectOutcome::Quarantined { to } => format!("quarantined {} -> {}", path.display(), to.display()),
-                        DisinfectOutcome::Failed { reason } => {
-                            // Locked/critical/driver: escalate (kill process or stop+
-                            // delete a .sys service; clear critical flag; else defer to
-                            // reboot). Don't reboot here — confirm with the user after.
-                            match escalated_disinfect(path, &quarantine_dir, "GUI disinfect", false) {
-                                EscalationOutcome::Quarantined => format!("quarantined (escalated) {}", path.display()),
-                                EscalationOutcome::KilledAndQuarantined(n) => format!("stopped {n} blocker(s), quarantined {}", path.display()),
-                                EscalationOutcome::ScheduledForRestart { detail, .. } => {
-                                    restart_pending.push((path.clone(), detail.clone()));
-                                    format!("deferred to restart: {} ({detail})", path.display())
-                                }
-                                EscalationOutcome::Failed(e) => format!("FAILED {}: {reason}; escalation: {e}", path.display()),
+                    // Disinfect EVERY detected signature: neutralize the matched
+                    // regions, RESCAN, and repeat until the file no longer matches
+                    // (a file can carry several overlapping/stacked signatures, and
+                    // each `arenas_for_file` returns one scan's worth). Falls back to
+                    // quarantine when the file is still flagged but has no
+                    // neutralizable byte region (e.g. a hash/ML detection).
+                    const MAX_ROUNDS: usize = 16;
+                    let mut total_bytes = 0usize;
+                    let mut rounds = 0usize;
+                    let mut locked_line: Option<String> = None;
+                    // Neutralize matched regions round after round (each round rescans
+                    // via arenas_for_file) until no region matches or the cap is hit.
+                    while rounds < MAX_ROUNDS {
+                        let arenas = pl.arenas_for_file(path);
+                        if arenas.is_empty() {
+                            break;
+                        }
+                        match disinfector::neutralize_arenas(path, &arenas) {
+                            Ok((bytes, _bak)) => {
+                                total_bytes += bytes;
+                                rounds += 1;
+                            }
+                            Err(e) => {
+                                locked_line = Some(escalate(path, &e.to_string(), &mut restart_pending));
+                                break;
+                            }
+                        }
+                    }
+                    let line = if let Some(l) = locked_line {
+                        l
+                    } else {
+                        // Final verification: a fresh, uncached scan. If the file is
+                        // STILL flagged, our in-place neutralization couldn't fully
+                        // remove the threat — quarantine the whole file as a safety
+                        // net and say so plainly (the virus may not be fully cleaned).
+                        let still = pl.scan_file(path).verdict.priority() > 1;
+                        if !still {
+                            if total_bytes > 0 {
+                                format!("disinfected {} — {total_bytes} byte(s) over {rounds} round(s), now clean", path.display())
+                            } else {
+                                format!("{} — already clean (nothing to neutralize)", path.display())
+                            }
+                        } else {
+                            match disinfector::quarantine_file(path, &quarantine_dir) {
+                                Ok(to) => format!(
+                                    "\u{26A0} {} STILL detected after {rounds} round(s) — could not fully disinfect in place; quarantined to {}",
+                                    path.display(), to.display()
+                                ),
+                                Err(e) => escalate(path, &e.to_string(), &mut restart_pending),
                             }
                         }
                     };
@@ -3480,7 +3573,34 @@ fn worker(
                         send(&tx, hwnd, ScanMsg::Status("Restart skipped — cleanup will run automatically at next boot.".into()));
                     }
                 }
-                send(&tx, hwnd, ScanMsg::Status("Clean complete.".into()));
+                send(&tx, hwnd, ScanMsg::Status("Disinfect complete.".into()));
+                // Always warn: disinfection only removes the signatures we detect.
+                // A file can still carry malicious code the engine doesn't recognise,
+                // so a "clean" result is not a guarantee.
+                unsafe {
+                    warn(
+                        hwnd,
+                        "Disinfection finished.\r\n\r\nNote: this only removes the malicious \
+                         code that HydraDragon DETECTS. A file may still contain viral or \
+                         malicious code the antivirus did not recognise, so a \"clean\" \
+                         result is not a guarantee. If you do not fully trust a file, \
+                         delete it or keep it quarantined.",
+                    );
+                }
+            }
+            WorkRequest::Quarantine(items) => {
+                let q = Quarantine::new(&quarantine_dir);
+                let mut ok = 0usize;
+                for (path, detection) in &items {
+                    match q.quarantine(path, detection) {
+                        Ok(entry) => {
+                            ok += 1;
+                            send(&tx, hwnd, ScanMsg::Status(format!("quarantined {} -> {}", path.display(), entry.id)));
+                        }
+                        Err(e) => send(&tx, hwnd, ScanMsg::Status(format!("quarantine FAILED {}: {e}", path.display()))),
+                    }
+                }
+                send(&tx, hwnd, ScanMsg::Status(format!("Quarantine complete: {ok}/{} file(s).", items.len())));
             }
             WorkRequest::FixPum(entries) => {
                 let mut fixed = 0usize;
@@ -3736,13 +3856,20 @@ fn run_session(
 /// if they are available next to the executable.
 fn load_registry_scanner() -> RegistryScanner {
     let dir = exe_dir();
-    let reglist = dir.join("reglist.txt");
+    // Look for the PUA registry list in the common portable layouts: next to the
+    // exe, in the database folder, or in a `reglist` subfolder. Without it the
+    // registry/PUM scan has no PUA patterns to match and reports nothing.
+    let candidates = [
+        dir.join("reglist.txt"),
+        dir.join("database").join("reglist.txt"),
+        dir.join("reglist").join("reglist.txt"),
+    ];
+    let reglist = candidates.iter().find(|p| p.exists());
     let rules_dir_path = dir.join("hydradragonsig_rules");
     let rules_dir = if rules_dir_path.exists() { Some(rules_dir_path) } else { None };
-    if reglist.exists() {
-        RegistryScanner::load(&reglist, rules_dir.as_deref())
-    } else {
-        RegistryScanner::default()
+    match reglist {
+        Some(p) => RegistryScanner::load(p, rules_dir.as_deref()),
+        None => RegistryScanner::default(),
     }
 }
 

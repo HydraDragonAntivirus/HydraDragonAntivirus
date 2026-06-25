@@ -72,6 +72,11 @@ pub fn scan_process_memory(pipeline: &Pipeline) -> Vec<MemoryDetection> {
 
         if Process32FirstW(snapshot, &mut entry).is_ok() {
             loop {
+                // Honor a GUI Stop: bail out of the (potentially minutes-long)
+                // whole-system memory walk between processes.
+                if pipeline.is_cancelled() {
+                    break;
+                }
                 let pid = entry.th32ProcessID;
                 if pid != 0 {
                     let name = exe_name(&entry.szExeFile);
