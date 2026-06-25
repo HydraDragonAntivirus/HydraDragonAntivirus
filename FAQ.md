@@ -1,5 +1,8 @@
 # Frequently Asked Questions (FAQ)
 
+#### Q: When I move Antivirus files to outside of Antivirus directory why it detects himself as malware?
+- Because it contains malware string without obfuscation.
+
 #### Q: Why this antivirus uses so much of RAM?
 - We don't believe hiding RAM usage is not good idea for marketing. Read here: https://www.emsisoft.com/en/blog/22176/why-antivirus-uses-so-much-ram-and-why-that-is-actually-a-good-thing/ Please count the kernel level usage of antiviruses.
 

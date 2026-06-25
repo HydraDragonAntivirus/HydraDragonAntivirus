@@ -6,3 +6,4 @@ version: "1.0"
 
 !include rules.yaml
 !include pum_rules.yaml
+!include ransomware_rules.yaml
