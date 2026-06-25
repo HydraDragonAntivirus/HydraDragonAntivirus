@@ -248,11 +248,10 @@ impl AtomPrefilter {
     }
 
     /// Build the prefilter from a loaded database.
-    /// Build the prefilter. `cache` is an optional `(dir, key)`: when set, each
-    /// Aho-Corasick automaton is loaded from / saved to `dir` keyed by `key` (a
-    /// hash of the database + format version), so the ~500 MB build transient is
-    /// paid only once across loads.
-    pub fn build(db: &Database, cache: Option<(&std::path::Path, u64)>) -> Self {
+    /// Build the prefilter. The Aho-Corasick automata are always built in memory
+    /// (no on-disk cache); the one-time build high-water-mark is returned to the OS
+    /// by `trim_working_set` after loading.
+    pub fn build(db: &Database) -> Self {
         let mut entries: Vec<(Box<[u8]>, u64)> = Vec::new();
         let mut entries_nocase: Vec<(Box<[u8]>, u64)> = Vec::new();
         let mut ext_always: Vec<u32> = Vec::new();
@@ -500,16 +499,9 @@ impl AtomPrefilter {
             }
         }
 
-        let (case_cache, nocase_cache) = match cache {
-            Some((dir, key)) => (
-                Some(dir.join(format!("hdc_ac_case_{key:016x}.bin"))),
-                Some(dir.join(format!("hdc_ac_nocase_{key:016x}.bin"))),
-            ),
-            None => (None, None),
-        };
-        let (ac, num_atoms, atom_starts, sig_refs) = build_automaton(entries, case_cache);
+        let (ac, num_atoms, atom_starts, sig_refs) = build_automaton(entries);
         let (ac_nocase, num_atoms_nocase, atom_starts_nocase, sig_refs_nocase) =
-            build_automaton(entries_nocase, nocase_cache);
+            build_automaton(entries_nocase);
 
         AtomPrefilter {
             ac,
@@ -705,53 +697,8 @@ fn build_candidate_set(mut hits: Vec<(u32, u32)>, always: &[u32]) -> CandidateSe
 
 /// Unique-atom + CSR mapping, shared by the case-sensitive and nocase
 /// automaton builds.
-#[allow(clippy::type_complexity)]
-/// Hash of the database directory (each non-cache file's name + size + CONTENT)
-/// plus a format version, used to key the cached automata. A changed database — or
-/// a bumped `VERSION` when the atom-extraction logic changes — misses the cache and
-/// rebuilds. The cache files themselves are excluded, or writing one would
-/// invalidate the key on the next load.
-///
-/// The key hashes file CONTENT, not mtime: a portable app that re-extracts its
-/// database on launch re-stamps mtimes but keeps the same bytes, so an mtime-based
-/// key spuriously missed every launch and paid the ~1 GB daachorse AC *rebuild*
-/// transient each time. Content hashing makes the cache survive re-extraction while
-/// still invalidating on any real signature change. The bytes are read here once
-/// (OS file cache makes the subsequent parse read cheap), far cheaper than a rebuild.
-pub fn db_cache_key(dir: &std::path::Path) -> u64 {
-    use std::hash::{Hash, Hasher};
-    // Tied to the crate version (no hand-maintained numbering): a release bumps the
-    // `Cargo.toml` version and all caches invalidate. The atom-extraction logic and
-    // serialized AC format are part of a release, so bump the package version when
-    // they change rather than a separate counter here.
-    const VERSION: &str = env!("CARGO_PKG_VERSION");
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    VERSION.hash(&mut h);
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        let mut entries: Vec<_> = rd.flatten().collect();
-        entries.sort_by_key(|e| e.file_name());
-        for e in entries {
-            let name = e.file_name();
-            if name.to_string_lossy().starts_with("hdc_ac_") {
-                continue; // our own cache files
-            }
-            if let Ok(md) = e.metadata() {
-                if md.is_file() {
-                    name.hash(&mut h);
-                    md.len().hash(&mut h);
-                    if let Ok(bytes) = std::fs::read(e.path()) {
-                        h.write(&bytes);
-                    }
-                }
-            }
-        }
-    }
-    h.finish()
-}
-
 fn build_automaton(
     mut entries: Vec<(Box<[u8]>, u64)>,
-    cache: Option<std::path::PathBuf>,
 ) -> (
     Option<DoubleArrayAhoCorasick<u32>>,
     usize,
@@ -789,21 +736,10 @@ fn build_automaton(
     // above is rebuilt deterministically from the same sorted atoms, so its atom
     // IDs match the cached AC. The cache filename embeds a DB+format hash, so a
     // changed database simply misses the cache and rebuilds.
-    let cached_ac: Option<DoubleArrayAhoCorasick<u32>> = cache.as_ref().and_then(|p| {
-        let bytes = std::fs::read(p).ok()?;
-        let (ac, _) = DoubleArrayAhoCorasick::<u32>::deserialize(&bytes).ok()?;
-        Some(ac)
-    });
     let ac: Option<DoubleArrayAhoCorasick<u32>> = if atoms.is_empty() {
         None
-    } else if let Some(ac) = cached_ac {
-        Some(ac)
     } else {
-        let built = DoubleArrayAhoCorasick::<u32>::new(&atoms).ok();
-        if let (Some(ac), Some(p)) = (&built, &cache) {
-            let _ = std::fs::write(p, ac.serialize());
-        }
-        built
+        DoubleArrayAhoCorasick::<u32>::new(&atoms).ok()
     };
     drop(atoms);
     drop(entries);

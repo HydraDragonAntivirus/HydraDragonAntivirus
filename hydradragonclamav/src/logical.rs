@@ -47,7 +47,7 @@ impl LazyRegex {
 
 #[derive(Clone, Debug)]
 pub struct LogicalSignature {
-    pub name: String,
+    pub name: Box<str>,
     pub target: Option<u32>,
     /// `FileSize:min-max` TDB constraint, if present. The scanned object's length
     /// must fall in `[min, max]` for the signature to fire.
@@ -343,7 +343,7 @@ pub fn parse_logical_signature(
 
     Ok((
         LogicalSignature {
-            name: parts[0].to_string(),
+            name: parts[0].into(),
             target,
             file_size,
             container,

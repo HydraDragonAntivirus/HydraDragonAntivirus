@@ -225,12 +225,9 @@ impl Engine {
         // built via a compact CSR mapping. One pass per buffer picks the few
         // candidate signatures instead of scanning all ~500k — fast scans and
         // far fewer page faults.
-        // Cache the built Aho-Corasick automata next to the database, keyed by a
-        // hash of the database files + a format version, so the heavy AC build
-        // (which spikes ~500 MB of transient RAM the allocator never returns)
-        // happens once instead of on every load.
-        let key = crate::prefilter::db_cache_key(path);
-        let prefilter = crate::prefilter::AtomPrefilter::build(&database, Some((path, key)));
+        // Build the Aho-Corasick automata in memory from the loaded rules (no
+        // on-disk `.bin` cache); the load high-water-mark is trimmed afterwards.
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
         Ok((Self { database, prefilter }, report))
     }
 
@@ -396,7 +393,7 @@ impl Engine {
             });
             if member_match {
                 matches.push(ScanMatch {
-                    name: sig.name.clone(),
+                    name: sig.name.to_string(),
                     kind: SignatureKind::Container,
                     source: sig.source.clone(),
                     object_path: object_path.to_string(),
@@ -443,7 +440,7 @@ impl Engine {
                 .iter()
                 .any(|pattern| !pattern.find_all(data, &ranges, 1).is_empty())
             {
-                return Some(magic.clamav_type.as_str());
+                return Some(&magic.clamav_type);
             }
         }
         None
@@ -666,7 +663,7 @@ impl Engine {
             if ms >= 20 {
                 eprintln!(
                     "[SLOW-EXT] {ms}ms {} ({}:{}) hints={}",
-                    signature.name,
+                    self.database.ext_name(signature),
                     signature.source.path.display(),
                     signature.source.line,
                     hints.map_or(0, |h| h.len()),
@@ -675,7 +672,7 @@ impl Engine {
         }
         if !arenas.is_empty() {
             matches.push(ScanMatch {
-                name: signature.name.clone(),
+                name: self.database.ext_name(signature).to_string(),
                 kind: SignatureKind::Extended,
                 source: signature.source.clone(),
                 object_path: ctx.object_path.to_string(),
@@ -1073,7 +1070,7 @@ impl Engine {
                 }
             }
             matches.push(ScanMatch {
-                name: signature.name.clone(),
+                name: signature.name.to_string(),
                 kind: SignatureKind::Logical,
                 source: signature.source.clone(),
                 object_path: ctx.object_path.to_string(),
@@ -1541,22 +1538,17 @@ mod tests {
             path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
+        let mut name_arena = String::new();
         let database = Database {
             extended: vec![ExtendedSignature {
-                name: "Test.Signature".to_string(),
+                name: crate::database::intern_name(&mut name_arena, "Test.Signature"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
                 patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
                 source: source.clone(),
             }],
-            logical: Vec::new(),
-            container: Vec::new(),
-            file_type_magic: Vec::new(),
-            phishing: crate::phishing::PhishingDb::default(),
-            icons: crate::icon::IconMatcher::default(),
-            certs: crate::cert::CertTrustDb::default(),
-            unsupported: Vec::new(),
-            bytecode_programs: Vec::new(),
+            name_arena,
+            ..Default::default()
         };
         let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"xxABCyy", ScanOptions::default());
@@ -1576,24 +1568,19 @@ mod tests {
             path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
+        let mut name_arena = String::new();
         let database = Database {
             extended: vec![ExtendedSignature {
-                name: "Test.Signature".to_string(),
+                name: crate::database::intern_name(&mut name_arena, "Test.Signature"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
                 patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
                 source: source.clone(),
             }],
-            logical: Vec::new(),
-            container: Vec::new(),
-            file_type_magic: Vec::new(),
-            phishing: crate::phishing::PhishingDb::default(),
-            icons: crate::icon::IconMatcher::default(),
-            certs: crate::cert::CertTrustDb::default(),
-            unsupported: Vec::new(),
-            bytecode_programs: Vec::new(),
+            name_arena,
+            ..Default::default()
         };
-        let prefilter = crate::prefilter::AtomPrefilter::build(&database, None);
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
         let engine = Engine { database, prefilter };
 
         // Atom present → detected.
@@ -1612,9 +1599,10 @@ mod tests {
             path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
+        let mut name_arena = String::new();
         let database = Database {
             extended: vec![ExtendedSignature {
-                name: "Test.Text".to_string(),
+                name: crate::database::intern_name(&mut name_arena, "Test.Text"),
                 target: Some(7),
                 offset: OffsetSpec::any(),
                 patterns: compile_pattern_variants("68656c6c6f776f726c64", Modifiers::default())
@@ -1622,14 +1610,8 @@ mod tests {
                     .into(),
                 source,
             }],
-            logical: Vec::new(),
-            container: Vec::new(),
-            file_type_magic: Vec::new(),
-            phishing: crate::phishing::PhishingDb::default(),
-            icons: crate::icon::IconMatcher::default(),
-            certs: crate::cert::CertTrustDb::default(),
-            unsupported: Vec::new(),
-            bytecode_programs: Vec::new(),
+            name_arena,
+            ..Default::default()
         };
         let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(b"HeLLo   \r\nWorld", ScanOptions::default());
@@ -1644,22 +1626,17 @@ mod tests {
             path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
+        let mut name_arena = String::new();
         let database = Database {
             extended: vec![ExtendedSignature {
-                name: "Test.Html".to_string(),
+                name: crate::database::intern_name(&mut name_arena, "Test.Html"),
                 target: Some(3),
                 offset: OffsetSpec::any(),
                 patterns: compile_pattern_variants("7061796c6f6164", Modifiers::default()).unwrap().into(),
                 source,
             }],
-            logical: Vec::new(),
-            container: Vec::new(),
-            file_type_magic: Vec::new(),
-            phishing: crate::phishing::PhishingDb::default(),
-            icons: crate::icon::IconMatcher::default(),
-            certs: crate::cert::CertTrustDb::default(),
-            unsupported: Vec::new(),
-            bytecode_programs: Vec::new(),
+            name_arena,
+            ..Default::default()
         };
         let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(
@@ -1677,22 +1654,17 @@ mod tests {
             path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
             line: 1,
         };
+        let mut name_arena = String::new();
         let database = Database {
             extended: vec![ExtendedSignature {
-                name: "Test.Zip.Child".to_string(),
+                name: crate::database::intern_name(&mut name_arena, "Test.Zip.Child"),
                 target: Some(0),
                 offset: OffsetSpec::any(),
                 patterns: compile_pattern_variants("4d414c57415245", Modifiers::default()).unwrap().into(),
                 source,
             }],
-            logical: Vec::new(),
-            container: Vec::new(),
-            file_type_magic: Vec::new(),
-            phishing: crate::phishing::PhishingDb::default(),
-            icons: crate::icon::IconMatcher::default(),
-            certs: crate::cert::CertTrustDb::default(),
-            unsupported: Vec::new(),
-            bytecode_programs: Vec::new(),
+            name_arena,
+            ..Default::default()
         };
         let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
         let found = engine.scan_bytes(&stored_zip("child.bin", b"MALWARE"), ScanOptions::default());
@@ -1754,7 +1726,7 @@ mod tests {
     #[test]
     fn scans_container_metadata_signature() {
         let container = ContainerSignature {
-            name: "Test.Cdb".to_string(),
+            name: "Test.Cdb".into(),
             container_type: ContainerType::Format("zip"),
             container_size: NumSpec::Any,
             has_filename: false,
@@ -1788,14 +1760,15 @@ mod tests {
                 max_shift: None,
             },
             patterns: compile_pattern_variants("4d5a", Modifiers::default()).unwrap().into(),
-            clamav_type: "CL_TYPE_MSEXE".to_string(),
+            clamav_type: "CL_TYPE_MSEXE".into(),
             source: SourceLocation {
                 path: std::sync::Arc::from(std::path::Path::new("t.ftm")),
                 line: 1,
             },
         };
+        let mut name_arena = String::new();
         let ext = ExtendedSignature {
-            name: "Html.Sig".to_string(),
+            name: crate::database::intern_name(&mut name_arena, "Html.Sig"),
             target: Some(3),
             offset: OffsetSpec::any(),
             patterns: compile_pattern_variants("4142", Modifiers::default()).unwrap().into(),
@@ -1807,6 +1780,7 @@ mod tests {
         let database = Database {
             extended: vec![ext],
             file_type_magic: vec![magic],
+            name_arena,
             ..Default::default()
         };
         let engine = Engine { database, prefilter: crate::prefilter::AtomPrefilter::disabled() };
@@ -1851,7 +1825,7 @@ mod tests {
         let full = match_keys(&engine_full.scan_bytes(data, opts));
         // Threaded: real prefilter → candidate offsets + aligned gating cutoff.
         let db = build_db();
-        let prefilter = crate::prefilter::AtomPrefilter::build(&db, None);
+        let prefilter = crate::prefilter::AtomPrefilter::build(&db);
         let engine_thr = Engine {
             database: db,
             prefilter,
@@ -1870,9 +1844,10 @@ mod tests {
             path: std::sync::Arc::from(std::path::Path::new("t.ndb")),
             line: 1,
         };
-        let ext = |name: &str, target: u32, offset: OffsetSpec, body: &str, m: Modifiers| {
+        let mut name_arena = String::new();
+        let mut ext = |name: &str, target: u32, offset: OffsetSpec, body: &str, m: Modifiers| {
             ExtendedSignature {
-                name: name.to_string(),
+                name: crate::database::intern_name(&mut name_arena, name),
                 target: Some(target),
                 offset,
                 patterns: compile_pattern_variants(body, m).unwrap().into(),
@@ -1912,6 +1887,7 @@ mod tests {
                 Modifiers::default(),
             ),
         ];
+        drop(ext); // release the &mut name_arena borrow so the arena can move below
         let logical: Vec<_> = [
             "L.And;Target:0;0&1;6b6b6b6b6b6b;6c6c6c6c6c6c", // "kkkkkk" & "llllll"
             "L.Or;Target:0;0|1;6d6d6d6d6d6d;6e6e6e6e6e6e",  // "mmmmmm" | "nnnnnn"
@@ -1923,6 +1899,7 @@ mod tests {
         Database {
             extended,
             logical,
+            name_arena,
             ..Default::default()
         }
     }
@@ -1994,7 +1971,7 @@ mod tests {
             logical: vec![sig],
             ..Default::default()
         };
-        let prefilter = crate::prefilter::AtomPrefilter::build(&database, None);
+        let prefilter = crate::prefilter::AtomPrefilter::build(&database);
         (
             Engine {
                 database,

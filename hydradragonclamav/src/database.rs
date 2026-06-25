@@ -7,6 +7,23 @@ use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 
+/// A name stored in [`Database::name_arena`] as a `(start, len)` byte range. 8 bytes
+/// inline vs a 16-byte `Box<str>` + its own heap allocation — for ~600k extended
+/// signatures this removes ~600k small allocations (the bulk of the loader's
+/// allocator overhead) and shrinks each signature struct.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct NameSpan {
+    pub start: u32,
+    pub len: u32,
+}
+
+/// Append `name` to the arena and return its span. Names total well under 4 GiB.
+pub fn intern_name(arena: &mut String, name: &str) -> NameSpan {
+    let start = arena.len() as u32;
+    arena.push_str(name);
+    NameSpan { start, len: name.len() as u32 }
+}
+
 #[derive(Debug, Default)]
 pub struct Database {
     pub extended: Vec<ExtendedSignature>,
@@ -25,9 +42,19 @@ pub struct Database {
     /// Decoded + interpreter-prepared ClamBC programs. A logical signature whose
     /// `bytecode` field is `Some(i)` is a bytecode trigger that runs `[i]`.
     pub bytecode_programs: Vec<crate::bytecode_vm::Bc>,
+    /// Backing storage for every [`ExtendedSignature`] name (one contiguous buffer
+    /// instead of one heap allocation per name). Resolve a span via [`Self::ext_name`].
+    pub name_arena: String,
 }
 
 impl Database {
+    /// Resolve an extended signature's interned name back to a `&str`.
+    #[inline]
+    pub fn ext_name(&self, sig: &ExtendedSignature) -> &str {
+        let s = sig.name.start as usize;
+        &self.name_arena[s..s + sig.name.len as usize]
+    }
+
     /// Aggregate pattern memory across every signature, for `--mem-stats`.
     pub fn pattern_mem_stats(&self) -> crate::pattern::MemStats {
         let mut s = crate::pattern::MemStats::default();
@@ -59,7 +86,8 @@ impl Database {
 
 #[derive(Clone, Debug)]
 pub struct ExtendedSignature {
-    pub name: String,
+    /// Interned into [`Database::name_arena`]; resolve with [`Database::ext_name`].
+    pub name: NameSpan,
     pub target: Option<u32>,
     pub offset: OffsetSpec,
     pub patterns: Box<[Pattern]>,
@@ -75,7 +103,7 @@ pub struct ExtendedSignature {
 /// skipped when constrained, so it never false-positives on unknowable data.
 #[derive(Clone, Debug)]
 pub struct ContainerSignature {
-    pub name: String,
+    pub name: Box<str>,
     pub container_type: ContainerType,
     pub container_size: NumSpec,
     /// True when the signature constrains the archive member filename.
@@ -113,7 +141,7 @@ pub enum NumSpec {
 pub struct FileTypeMagic {
     pub offset: OffsetSpec,
     pub patterns: Box<[Pattern]>,
-    pub clamav_type: String,
+    pub clamav_type: Box<str>,
     pub source: SourceLocation,
 }
 
@@ -446,8 +474,8 @@ fn load_file(
         match kind {
             // `.sdb` parses identically to `.ndb`; ClamAV's `sdb` flag only sets
             // engine->sdb and skips the sigload callback (readdb.c cli_loadndb).
-            ExtKind::BodyNdb => match parse_extended_signature(line, source.clone()) {
-                Ok(Some(signature)) if ignored.contains(signature.name.as_str()) => {
+            ExtKind::BodyNdb => match parse_extended_signature(line, source.clone(), &mut database.name_arena) {
+                Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
                     report.ignored_skipped += 1;
                 }
                 Ok(Some(signature)) => {
@@ -460,8 +488,8 @@ fn load_file(
             },
             // Old-format `.db`: `name=hexsig`, generic target, offset `*`
             // (readdb.c cli_loaddb -> cli_add_content_match_pattern on root[0]).
-            ExtKind::BodyOldDb => match parse_db_signature(line, source.clone()) {
-                Ok(Some(signature)) if ignored.contains(signature.name.as_str()) => {
+            ExtKind::BodyOldDb => match parse_db_signature(line, source.clone(), &mut database.name_arena) {
+                Ok(Some(signature)) if ignored.contains(database.ext_name(&signature)) => {
                     report.ignored_skipped += 1;
                 }
                 Ok(Some(signature)) => {
@@ -472,7 +500,7 @@ fn load_file(
                 Err(message) => push_error(report, source, message),
             },
             ExtKind::Logical => match parse_logical_signature(line, source.clone()) {
-                Ok((signature, _)) if ignored.contains(signature.name.as_str()) => {
+                Ok((signature, _)) if ignored.contains(&*signature.name) => {
                     report.ignored_skipped += 1;
                 }
                 Ok((signature, warnings)) => {
@@ -490,7 +518,7 @@ fn load_file(
                 Err(message) => push_error(report, source, message),
             },
             ExtKind::Container => match parse_container_signature(line, source.clone()) {
-                Ok(signature) if ignored.contains(signature.name.as_str()) => {
+                Ok(signature) if ignored.contains(&*signature.name) => {
                     report.ignored_skipped += 1;
                 }
                 Ok(signature) => {
@@ -555,7 +583,7 @@ fn parse_container_signature(
         );
     }
     Ok(ContainerSignature {
-        name: parts[0].to_string(),
+        name: parts[0].into(),
         container_type: cl_type_to_container(parts[1]),
         container_size: NumSpec::parse(parts[2])?,
         has_filename: has_filename_constraint(parts[3]),
@@ -584,7 +612,7 @@ fn parse_ftm(line: &str, source: SourceLocation) -> Result<FileTypeMagic, String
     Ok(FileTypeMagic {
         offset,
         patterns: patterns.into_boxed_slice(),
-        clamav_type: parts[5].trim().to_string(),
+        clamav_type: parts[5].trim().into(),
         source,
     })
 }
@@ -799,10 +827,12 @@ mod load_tests {
     #[test]
     fn parses_old_db_name_equals_hex() {
         // `name=hexsig` → one generic (target None), offset-Any body signature.
-        let sig = parse_db_signature("Worm.Test=414243", src())
+        let mut arena = String::new();
+        let sig = parse_db_signature("Worm.Test=414243", src(), &mut arena)
             .expect("ok")
             .expect("loaded");
-        assert_eq!(sig.name, "Worm.Test");
+        let s = sig.name.start as usize;
+        assert_eq!(&arena[s..s + sig.name.len as usize], "Worm.Test");
         assert_eq!(sig.target, None);
         assert_eq!(sig.offset, OffsetSpec::any());
         assert!(!sig.patterns.is_empty());
@@ -812,23 +842,26 @@ mod load_tests {
     fn skips_disabled_db_double_equals() {
         // `Name==…` is ClamAV's disabled marker: skipped, not an error.
         assert!(matches!(
-            parse_db_signature("Foo.Bar==deadbeef", src()),
+            parse_db_signature("Foo.Bar==deadbeef", src(), &mut String::new()),
             Ok(None)
         ));
     }
 
     #[test]
     fn rejects_db_line_without_equals() {
-        assert!(parse_db_signature("no-equals-here", src()).is_err());
+        assert!(parse_db_signature("no-equals-here", src(), &mut String::new()).is_err());
     }
 
     #[test]
     fn sdb_parses_identically_to_ndb() {
         // `.sdb` routes through the ndb parser; same line → same result.
         let line = "Test.Sig:0:*:4142";
-        let ndb = parse_extended_signature(line, src()).unwrap().unwrap();
-        let sdb = parse_extended_signature(line, src()).unwrap().unwrap();
-        assert_eq!(ndb.name, sdb.name);
+        let mut an = String::new();
+        let mut as_ = String::new();
+        let ndb = parse_extended_signature(line, src(), &mut an).unwrap().unwrap();
+        let sdb = parse_extended_signature(line, src(), &mut as_).unwrap().unwrap();
+        assert_eq!(&an[..], &as_[..]); // same interned name bytes
+        assert_eq!(ndb.name, sdb.name); // identical span (both interned at offset 0)
         assert_eq!(ndb.target, sdb.target);
         assert_eq!(classify_extension("sdb"), ExtKind::BodyNdb);
     }
@@ -912,6 +945,7 @@ fn parse_u64(raw: &str) -> Result<u64, String> {
 fn parse_extended_signature(
     line: &str,
     source: SourceLocation,
+    names: &mut String,
 ) -> Result<Option<ExtendedSignature>, String> {
     // name:target:offset:hex[:minFL[:maxFL]]
     let parts = line.splitn(6, ':').collect::<Vec<_>>();
@@ -949,7 +983,7 @@ fn parse_extended_signature(
         .map_err(|err| format!("invalid body pattern: {err}"))?;
 
     Ok(Some(ExtendedSignature {
-        name: parts[0].to_string(),
+        name: intern_name(names, parts[0]),
         target,
         offset,
         patterns: patterns.into_boxed_slice(),
@@ -967,6 +1001,7 @@ fn parse_extended_signature(
 fn parse_db_signature(
     line: &str,
     source: SourceLocation,
+    names: &mut String,
 ) -> Result<Option<ExtendedSignature>, String> {
     let (name, pattern) = line
         .split_once('=')
@@ -978,7 +1013,7 @@ fn parse_db_signature(
     let patterns = compile_pattern_variants(pattern, Modifiers::default())
         .map_err(|err| format!("invalid .db body pattern: {err}"))?;
     Ok(Some(ExtendedSignature {
-        name: name.to_string(),
+        name: intern_name(names, name),
         target: None,
         offset: OffsetSpec::any(),
         patterns: patterns.into_boxed_slice(),

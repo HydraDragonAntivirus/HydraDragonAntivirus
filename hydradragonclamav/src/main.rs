@@ -57,10 +57,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         eprintln!("[mem] prefilter: {}", engine.prefilter_mem_report());
 
         // Account for everything pattern_mem_stats skips.
-        let ext_name_bytes: usize = engine.database.extended.iter()
-            .map(|sig| sig.name.capacity() + 24).sum();
+        // Extended names are interned into one shared arena (the 8-byte span lives
+        // inside the signature struct, counted under ext_sig_structs). Logical names
+        // are still per-name Box<str> (16-byte fat pointer + exact len on the heap).
+        let ext_name_bytes: usize = engine.database.name_arena.len();
         let log_name_bytes: usize = engine.database.logical.iter()
-            .map(|sig| sig.name.capacity() + 24).sum();
+            .map(|sig| sig.name.len() + 16).sum();
         let log_subsig_count: usize = engine.database.logical.iter()
             .map(|sig| sig.subsignatures.len()).sum();
         
@@ -89,7 +91,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             }
         }
 
-        let ext_box_bytes: usize = engine.database.extended.len() * 96;
+        let ext_box_bytes: usize =
+            engine.database.extended.len() * std::mem::size_of::<hydradragonclamav::database::ExtendedSignature>();
         eprintln!(
             "[mem] names: ext={:.1}MB log={:.1}MB | ext_sig_structs={:.1}MB | log_subsigs={:.1}MB (count={})",
             mb(ext_name_bytes), mb(log_name_bytes), mb(ext_box_bytes), mb(log_subsig_bytes), log_subsig_count
