@@ -2357,9 +2357,10 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             // work even without file paths. An empty paths list just skips the
             // streaming file-scan phase.
             {
-                s.cancel.store(false, Ordering::Relaxed);
-                // abort is cleared inside the worker's FullScan handler to avoid a
-                // race with a queued Resume message. Do NOT clear it here.
+                // Do NOT touch cancel/abort here: if a previous scan is still
+                // aborting, clearing them from the UI would un-cancel it. Both are
+                // reset inside the worker's FullScan handler when the new scan
+                // actually begins (after any in-flight Stop has finished).
                 lv_clear(s.scan_list);
                 clear_scan_results(s);
                 let desc = if paths.len() == 1 {
@@ -3361,10 +3362,16 @@ fn worker(
     while let Ok(req) = work_rx.recv() {
         match req {
             WorkRequest::FullScan(paths, cats) => {
-                // This FullScan replaces any prior session; clear the abort flag
-                // here (not in the UI handler) so a queued Resume preceding this
-                // message sees abort=true and discards the old session.
+                // This FullScan replaces any prior session. Clear BOTH flags here —
+                // not in the UI handler — so:
+                //   * a queued Resume preceding this message still sees abort=true
+                //     and discards the old session;
+                //   * resetting `cancel` can't race a still-aborting previous scan
+                //     (the UI used to clear it on Start, which un-cancelled an
+                //     in-flight Stop so the old scan never actually stopped and the
+                //     worker stayed busy — "can't scan again").
                 abort.store(false, Ordering::Relaxed);
+                cancel.store(false, Ordering::Relaxed);
                 send(&tx, hwnd, ScanMsg::Begin);
                 let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
                 session = Some(seed_session(&paths, cats));
