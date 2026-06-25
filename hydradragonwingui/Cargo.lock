@@ -3820,6 +3820,7 @@ version = "0.1.0"
 dependencies = [
  "hydradragonav",
  "md-5 0.11.0",
+ "serde_json",
  "windows",
  "winreg",
  "winres",

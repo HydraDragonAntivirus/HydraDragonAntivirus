@@ -7,16 +7,16 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE};
-use windows::Win32::Storage::FileSystem::{
-    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, FlushFileBuffers, ReadFile, WriteFile,
-    PIPE_ACCESS_DUPLEX, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_WAIT,
+use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE};
+use windows::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile, PIPE_ACCESS_DUPLEX};
+use windows::Win32::System::Pipes::{
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE,
+    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 
 use crate::WorkRequest;
 
 const PIPE_NAME: &str = r"\\.\pipe\HydraDragonAV_Scan";
-const PIPE_UNLIMITED_INSTANCES: u32 = 255;
 const BUF_BYTES: usize = 4096;
 
 fn to_wide(s: &str) -> Vec<u16> {
@@ -34,7 +34,7 @@ pub fn spawn(work_tx: Sender<WorkRequest>) {
 fn run(work_tx: Sender<WorkRequest>) {
     let pipe_wide = to_wide(PIPE_NAME);
     loop {
-        let handle = match unsafe {
+        let handle = unsafe {
             CreateNamedPipeW(
                 PCWSTR(pipe_wide.as_ptr()),
                 PIPE_ACCESS_DUPLEX,
@@ -45,44 +45,38 @@ fn run(work_tx: Sender<WorkRequest>) {
                 0,
                 None,
             )
-        } {
-            Ok(h) => h,
-            Err(_) => {
-                std::thread::sleep(Duration::from_secs(1));
-                continue;
-            }
         };
+        if handle == INVALID_HANDLE_VALUE {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        }
 
         unsafe {
             let connected = ConnectNamedPipe(handle, None);
-            let err = GetLastError();
-            if !connected.as_bool() && err != ERROR_PIPE_CONNECTED {
-                let _ = DisconnectNamedPipe(handle);
-                let _ = CloseHandle(handle);
-                continue;
+            if connected.is_err() {
+                let err = GetLastError();
+                if err != ERROR_PIPE_CONNECTED {
+                    let _ = DisconnectNamedPipe(handle);
+                    let _ = CloseHandle(handle);
+                    continue;
+                }
             }
         }
 
         // Read file path bytes (UTF-16LE null-terminated)
         let mut buf = vec![0u8; BUF_BYTES];
         let mut bytes_read = 0u32;
-        let ok = match unsafe {
+        if unsafe {
             ReadFile(
                 handle,
                 Some(&mut buf),
                 Some(&mut bytes_read as *mut u32),
                 None,
             )
-        } {
-            Ok(b) => b,
-            Err(_) => {
-                let _ = unsafe { DisconnectNamedPipe(handle) };
-                let _ = unsafe { CloseHandle(handle) };
-                continue;
-            }
-        };
-
-        if !ok.as_bool() || bytes_read < 2 {
+        }
+        .is_err()
+            || bytes_read < 2
+        {
             let _ = unsafe { DisconnectNamedPipe(handle) };
             let _ = unsafe { CloseHandle(handle) };
             continue;
