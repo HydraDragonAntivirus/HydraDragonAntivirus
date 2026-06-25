@@ -1252,8 +1252,6 @@ fn shifted_range(offset: usize, data_len: usize, max_shift: Option<usize>) -> Ve
     if offset > data_len {
         return Vec::new();
     }
-    let end = offset
-        .saturating_add(max_shift.unwrap_or(data_len - offset))
-        .min(data_len);
+    let end = offset.saturating_add(max_shift.unwrap_or(0)).min(data_len);
     vec![(offset, end)]
 }
