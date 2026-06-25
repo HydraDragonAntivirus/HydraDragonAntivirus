@@ -85,7 +85,6 @@ fn parse_pe(data: &[u8]) -> Result<Pe, String> {
         });
     }
     Ok(Pe {
-        e_lfanew,
         num_sections,
         size_of_image,
         size_of_headers,
