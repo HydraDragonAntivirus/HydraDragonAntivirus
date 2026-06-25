@@ -64,40 +64,6 @@ Use `--strict-targets` to apply basic target filtering for PE, HTML, and ASCII
 text signatures. By default target filtering is permissive to avoid missing
 matches while HydraDragon-specific file typing is still separate.
 
-## Aho-Corasick prefilter cache (load-time RAM)
-
-The prefilter builds a [daachorse](https://crates.io/crates/daachorse)
-double-array Aho-Corasick automaton over the signature atoms. Building that trie
-over hundreds of thousands of atoms spikes a large one-time transient
-(~500 MB–1 GB on the full database) — the cause of the high RAM *peak* you see
-right after launch (it drops back to the steady-state working set once
-`trim_working_set` returns the build scratch to the OS).
-
-To avoid paying that build on every launch, the finished automaton is serialized
-to a cache:
-
-- **Location:** the system temp directory — `%TEMP%\hydradragon_ac\` on Windows
-  (`std::env::temp_dir()` elsewhere). The **database directory is never touched**,
-  so it stays clean (no `.bin` files next to the signatures).
-- **First launch** builds the trie and writes the cache; **later launches**
-  deserialize it instead of rebuilding, which removes the build transient and
-  lowers the load-time RAM peak.
-- **Keying:** each cache file is named by an order-independent content hash of its
-  atom set plus the crate version, so any signature change (or a new release)
-  produces a new key and rebuilds. Two files are kept — case-sensitive and
-  case-insensitive automata (`ac_<key>.bin`).
-- **Self-cleaning:** on every load, cache files whose key does not match the
-  current database are deleted, so stale automata from older databases never
-  accumulate in temp.
-- **Safety:** each cache file carries an 8-byte `HDAC` magic + format tag (bumped
-  with the daachorse dependency). A mismatched header, or daachorse's own
-  structural validation in `deserialize`, makes the loader fall back to a fresh
-  build — an incompatible or corrupt cache is never misread.
-
-There is no on-disk cache in the database folder and no extra configuration; the
-cache is purely a launch-time RAM optimization and is safe to delete at any time
-(it is simply rebuilt on the next run).
-
 This is still not complete ClamAV parity. Phishing URL databases (`.pdb`/`.wdb`),
 icon signatures (`.idb`), exact JavaScript normalization, VBA/OLE/PDF object
 extraction, and fuzzy-image subsignatures remain separate follow-up pieces.
