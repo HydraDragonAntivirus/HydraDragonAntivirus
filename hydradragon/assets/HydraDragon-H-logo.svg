@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- HydraDragon Antivirus — retro mark in the style of the 1997–2000 Kaspersky logo.
+       Geometric two-piece "H" (red post + crossbar, green down-arrow leg), red + green.
+       Remove the background <rect> below for a transparent logo. -->
+  <rect x="0" y="0" width="1024" height="1024" fill="#FFFFFF"/>
+
+  <!-- Vertical brand text up the LEFT edge: HYDRADRAGON -->
+  <text transform="rotate(-90 150 512)" x="150" y="512"
+        font-family="'Arial Black', Impact, Arial, sans-serif"
+        font-weight="900" font-size="90" letter-spacing="5"
+        text-anchor="middle" fill="#0B7A38">HYDRADRAGON</text>
+
+  <!-- Dominant two-piece H (forward italic via skewX), echoing the 1997–2000 K -->
+  <g transform="translate(40 0) skewX(-9)">
+    <!-- LEFT POST + CROSSBAR : RED, slanted top cut for arrow energy -->
+    <polygon points="392,260 506,200 506,790 392,790" fill="#E30613"/>
+    <polygon points="506,430 712,430 712,548 506,548" fill="#E30613"/>
+    <!-- RIGHT POST : GREEN, bottom narrows into a downward-right ARROW point -->
+    <polygon points="712,200 826,200 826,628 769,792 712,628" fill="#009A44"/>
+  </g>
+
+  <!-- Bottom tagline: ANTIVIRUS in RED, centred under the H -->
+  <text x="590" y="930"
+        font-family="'Arial Black', Impact, Arial, sans-serif"
+        font-weight="900" font-size="100" letter-spacing="8"
+        text-anchor="middle" fill="#E30613">ANTIVIRUS</text>
+</svg>

@@ -33,7 +33,7 @@ fn main() {
         let mut res = winres::WindowsResource::new();
         res.set_manifest(MANIFEST);
 
-        let icon = "../hydradragon/assets/HydraDragonAV.ico";
+        let icon = "../hydradragon/assets/HydraDragon-H-logo.ico";
         if std::path::Path::new(icon).exists() {
             res.set_icon_with_id(icon, "1");
         } else {

@@ -10,6 +10,14 @@
 </p>
 
 <p align="center">
+  <img
+    width="420"
+    alt="HydraDragon Antivirus — retro mark"
+    src="hydradragon/assets/HydraDragon-H-logo.png"
+  />
+</p>
+
+<p align="center">
   <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki">
     <img src="https://img.shields.io/badge/Wiki-Hydra%20Dragon-red?style=for-the-badge&logo=github" alt="Project Wiki" />
   </a>
