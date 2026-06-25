@@ -931,7 +931,7 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
                 ],
                 _ => vec![
                     (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
-                    (CMD_CLEAN, "Disinfect Selected", "\u{E74D}", Kind::Primary),
+                    (CMD_CLEAN, "Disinfect", "\u{E74D}", Kind::Primary),
                     (CMD_QUARANTINE, "Quarantine", "\u{E7BA}", Kind::Neutral),
                     (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
                 ],
@@ -3583,8 +3583,10 @@ fn worker(
                         "Disinfection finished.\r\n\r\nNote: this only removes the malicious \
                          code that HydraDragon DETECTS. A file may still contain viral or \
                          malicious code the antivirus did not recognise, so a \"clean\" \
-                         result is not a guarantee. If you do not fully trust a file, \
-                         delete it or keep it quarantined.",
+                         result is not a guarantee.\r\n\r\nDisinfection is NOT recommended \
+                         unless the file was originally a clean, legitimate file that later \
+                         got infected. For files that are purely malicious, delete or \
+                         quarantine them instead of disinfecting.",
                     );
                 }
             }
