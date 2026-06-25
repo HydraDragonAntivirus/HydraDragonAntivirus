@@ -729,13 +729,10 @@ fn build_automaton(
     atom_starts.push(sig_refs.len() as u32); // sentinel
 
     let num_atoms = atoms.len();
-    // Building the double-array AC over hundreds of thousands of atoms allocates a
-    // ~500 MB trie transient that the OS allocator never returns (the "ghost RAM").
-    // daachorse can (de)serialize the finished automaton, so we build it once and
-    // cache the bytes; later loads deserialize (no trie, no transient). The CSR
-    // above is rebuilt deterministically from the same sorted atoms, so its atom
-    // IDs match the cached AC. The cache filename embeds a DB+format hash, so a
-    // changed database simply misses the cache and rebuilds.
+    // Build the double-array AC in memory from the sorted atoms. This spikes a large
+    // transient (the trie scratch) during construction; it's returned to the OS by
+    // `trim_working_set` after loading. (There used to be an on-disk `.bin` cache to
+    // skip rebuilds, but it cluttered the database directory and was removed.)
     let ac: Option<DoubleArrayAhoCorasick<u32>> = if atoms.is_empty() {
         None
     } else {
