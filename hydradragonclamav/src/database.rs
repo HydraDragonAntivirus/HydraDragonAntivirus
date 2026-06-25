@@ -453,14 +453,13 @@ fn load_file(
     // decode lossily so a single bad byte never aborts the entire database load
     // (which previously disabled the whole ClamAV engine).
     let mut raw: Vec<u8> = Vec::new();
-    let mut index = 0usize;
+    let mut line_number = 0usize;
     loop {
         raw.clear();
         if reader.read_until(b'\n', &mut raw)? == 0 {
             break;
         }
-        let line_number = index + 1;
-        index += 1;
+        line_number += 1;
         let decoded = String::from_utf8_lossy(&raw);
         let line = decoded.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -686,18 +685,25 @@ pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
         if in_class {
             match c {
                 // A literal ']' at the very start of a class (POSIX) needs escaping.
-                ']' if class_pos == 0 => out.push_str("\\]"),
+                ']' if class_pos == 0 => {
+                    out.push_str("\\]");
+                    class_pos += 1;
+                }
                 ']' => {
                     in_class = false;
+                    class_pos = 0;
                     out.push(']');
                 }
                 // Literal '[' inside a class (but not a POSIX `[:name:]`) — escape
                 // so Rust doesn't parse it as a nested class.
-                '[' if chars.peek() != Some(&':') => out.push_str("\\["),
-                _ => out.push(c),
-            }
-            if !(c == ']' && !in_class) {
-                class_pos += 1;
+                '[' if chars.peek() != Some(&':') => {
+                    out.push_str("\\[");
+                    class_pos += 1;
+                }
+                _ => {
+                    out.push(c);
+                    class_pos += 1;
+                }
             }
             continue;
         }
@@ -710,6 +716,7 @@ pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
                 if chars.peek() == Some(&'^') {
                     out.push('^');
                     chars.next();
+                    class_pos += 1; // '^' occupies position 0; first real char is at 1
                 }
             }
             '{' => {
@@ -744,33 +751,25 @@ pub(crate) fn sanitize_clamav_regex(pattern: &str) -> String {
 /// quantifier suffix, return the number of characters to consume from `tail`
 /// (not counting the `{` itself); otherwise `None`.
 fn quantifier_len_str(tail: &str) -> Option<usize> {
-    let mut chars = tail.chars();
+    let mut chars = tail.chars().peekable();
     let mut len = 0usize;
     // Consume leading digits (required).
     let mut saw_digit = false;
-    while let Some(c) = chars.clone().next() {
-        if c.is_ascii_digit() {
-            chars.next();
-            len += 1;
-            saw_digit = true;
-        } else {
-            break;
-        }
+    while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+        chars.next();
+        len += 1;
+        saw_digit = true;
     }
     if !saw_digit {
         return None;
     }
     // Optional `,` followed by optional digits.
-    if chars.clone().next() == Some(',') {
+    if chars.peek() == Some(&',') {
         chars.next();
         len += 1;
-        while let Some(c) = chars.clone().next() {
-            if c.is_ascii_digit() {
-                chars.next();
-                len += 1;
-            } else {
-                break;
-            }
+        while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+            chars.next();
+            len += 1;
         }
     }
     // Must close with `}`.
@@ -1253,6 +1252,8 @@ fn shifted_range(offset: usize, data_len: usize, max_shift: Option<usize>) -> Ve
     if offset > data_len {
         return Vec::new();
     }
-    let end = offset.saturating_add(max_shift.unwrap_or(0)).min(data_len);
+    let end = offset
+        .saturating_add(max_shift.unwrap_or(data_len - offset))
+        .min(data_len);
     vec![(offset, end)]
 }

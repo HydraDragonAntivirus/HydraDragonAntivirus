@@ -119,6 +119,18 @@ pub fn scan_memory(
     finalize_scan_context(scan_ctx, rules, options, &scanner_config, 0)
 }
 
+/// Like [`scan_memory`] but consumes the context, moving its buffer into the scan
+/// instead of cloning it. Use this on hot per-file paths.
+pub fn scan_memory_owned(
+    ctx: MemoryScanContext,
+    rules: &RuleSet,
+    options: &ScanOptions,
+) -> Result<ScanReport> {
+    let scanner_config = scanner_config(options);
+    let scan_ctx = HydraScanner::scan_memory_owned(ctx, &scanner_config)?;
+    finalize_scan_context(scan_ctx, rules, options, &scanner_config, 0)
+}
+
 /// Scan caller-supplied registry key/value text without reading the live registry.
 pub fn scan_registry_key(
     ctx: &RegistryScanContext,

@@ -51,8 +51,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
-    FileSaveDialog, IFileSaveDialog, IShellItem,
-    SIGDN_FILESYSPATH,
+    FileSaveDialog, IFileSaveDialog, FileOpenDialog, IFileOpenDialog, IShellItem, IShellItemArray,
+    SIGDN_FILESYSPATH, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, FOS_FILEMUSTEXIST, FOS_PATHMUSTEXIST,
     DragAcceptFiles, DragQueryFileW, DragFinish, HDROP,
     Shell_NotifyIconW, NOTIFYICONDATAW, NOTIFY_ICON_MESSAGE, NOTIFY_ICON_DATA_FLAGS,
 };
@@ -353,12 +353,19 @@ enum ScanMsg {
 }
 
 const CAT_REGISTRY: u8 = 0x01;
-const CAT_MEMORY: u8 = 0x02;
+const CAT_MEMORY: u8 = 0x02; // process memory (system-wide memory folded in here)
 const CAT_SIGMA: u8 = 0x04;
-const CAT_SYS_MEMORY: u8 = 0x08;
 const CAT_STARTUP: u8 = 0x10;
 const CAT_BOOT: u8 = 0x20;
 const CAT_PUM: u8 = 0x40;
+
+/// Scan categories in their display order. Render, click hit-testing, the default
+/// mask and "restore defaults" all derive from this single list so they can never
+/// drift out of sync (the old code hand-duplicated the order in five places).
+const CAT_COUNT: usize = 6;
+const CAT_BITS: [u8; CAT_COUNT] =
+    [CAT_MEMORY, CAT_REGISTRY, CAT_PUM, CAT_SIGMA, CAT_STARTUP, CAT_BOOT];
+const CAT_ALL: u8 = CAT_MEMORY | CAT_REGISTRY | CAT_PUM | CAT_SIGMA | CAT_STARTUP | CAT_BOOT;
 
 enum WorkRequest {
     /// Full scan: files + optional registry/memory/sigma (controlled by `cats`).
@@ -451,8 +458,9 @@ struct AppState {
     opt_cats: u8,
     /// Hit rects for the 7 checkbox rows stored during layout
     opt_check_rects: [RECT; 7],
-    /// "Add object…" button rect in the option panel
+    /// "Add files…" / "Add folder…" button rects in the option panel
     opt_add_rect: RECT,
+    opt_addfolder_rect: RECT,
     /// Scan items added by the user
     opt_items: Vec<PathBuf>,
     /// Hit rects for each added item row (for remove click)
@@ -810,6 +818,7 @@ unsafe fn on_create(hwnd: HWND) {
         opt_cats: 0,
         opt_check_rects: [RECT::default(); 7],
         opt_add_rect: RECT::default(),
+        opt_addfolder_rect: RECT::default(),
         opt_items: Vec::new(),
         opt_item_rects: Vec::new(),
         opt_browse_mode: false,
@@ -1060,11 +1069,19 @@ unsafe fn layout(hwnd: HWND) {
                 };
             }
         } else {
-            // Normal option mode: Add object row + items + checkboxes.
+            // Normal option mode: Add files / Add folder row + items + checkboxes.
             let add_row_h = 36i32;
-            // "Add object…" row fills the full width
+            // Two half-width buttons side by side: "Add files…" | "Add folder…".
+            let gap = 8i32;
+            let mid = (content_l + pad + content_r - pad) / 2;
             s.opt_add_rect = RECT {
                 left: content_l + pad,
+                top: card_top + pad,
+                right: mid - gap / 2,
+                bottom: card_top + pad + add_row_h,
+            };
+            s.opt_addfolder_rect = RECT {
+                left: mid + gap / 2,
                 top: card_top + pad,
                 right: content_r - pad,
                 bottom: card_top + pad + add_row_h,
@@ -1072,8 +1089,9 @@ unsafe fn layout(hwnd: HWND) {
 
             let mut oy = s.opt_add_rect.bottom + 4;
 
-            // Added items list
-            let max_item_rows = 3usize;
+            // Added items list (show all added objects, scrolling not needed — the
+            // list is short and the card grows with it).
+            let max_item_rows = s.opt_items.len();
             let item_count = s.opt_items.len().min(max_item_rows);
             s.opt_item_rects.clear();
             for _i in 0..item_count {
@@ -1093,8 +1111,8 @@ unsafe fn layout(hwnd: HWND) {
             // Thin separator
             oy += 2;
 
-            // 7 checkboxes
-            for i in 0..7usize {
+            // Category checkboxes
+            for i in 0..CAT_COUNT {
                 s.opt_check_rects[i] = RECT {
                     left: content_l + pad,
                     top: oy,
@@ -1337,12 +1355,16 @@ unsafe fn paint(hwnd: HWND) {
                 let add_label = if s.opt_browse_sel.is_some() { "Add Selected" } else { "Add Current Dir" };
                 text(mem, add_label, &add_btn_r, WHITE, s.fonts.button, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             } else {
-                // ── Normal option mode: Add object row + items + checkboxes ─────
-                let add_r = s.opt_add_rect;
+                // ── Normal option mode: Add files / Add folder + items + checks ─
                 let add_bg = lerp_color(t.surface, t.border, 0.35);
-                fill_round(mem, add_r, 6, add_bg);
-                text(mem, "\u{E710}", &RECT { left: add_r.left + 8, top: add_r.top, right: add_r.left + 32, bottom: add_r.bottom }, t.accent, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-                text(mem, "Add object\u{2026}", &RECT { left: add_r.left + 32, top: add_r.top, right: add_r.right, bottom: add_r.bottom }, t.accent, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                for (r, glyph, label) in [
+                    (s.opt_add_rect, "\u{E8A5}", "Add files\u{2026}"),
+                    (s.opt_addfolder_rect, "\u{E8B7}", "Add folder\u{2026}"),
+                ] {
+                    fill_round(mem, r, 6, add_bg);
+                    text(mem, glyph, &RECT { left: r.left + 8, top: r.top, right: r.left + 32, bottom: r.bottom }, t.accent, s.fonts.icon, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                    text(mem, label, &RECT { left: r.left + 32, top: r.top, right: r.right - 4, bottom: r.bottom }, t.accent, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                }
 
                 // Thin separator
                 let sep_y = s.opt_add_rect.bottom + 4;
@@ -1366,15 +1388,14 @@ unsafe fn paint(hwnd: HWND) {
                     }
                 }
 
-                // ── Checkbox tree ──────────────────────────────────────────────
-                let opts: [(&'static str, u8, bool); 7] = [
-                    ("System memory",                          CAT_SYS_MEMORY, false),
+                // ── Scan categories (flat list, no parent/child grouping) ──────
+                let opts: [(&'static str, u8, bool); CAT_COUNT] = [
+                    ("Process memory",                         CAT_MEMORY,     false),
+                    ("Registry",                               CAT_REGISTRY,   false),
+                    ("PUM detection",                          CAT_PUM,        false),
+                    ("Event logs (Sigma / Hayabusa)",          CAT_SIGMA,      false),
                     ("Startup objects",                        CAT_STARTUP,    false),
                     ("Boot sectors",                           CAT_BOOT,       false),
-                    ("Registry",                               CAT_REGISTRY,   true),
-                    ("PUM detection",                          CAT_PUM,        true),
-                    ("Process memory",                         CAT_MEMORY,     true),
-                    ("Event logs (Sigma / Hayabusa)",          CAT_SIGMA,      true),
                 ];
                 let cb_sz = 16i32;
                 let row_h = 32i32;
@@ -2128,7 +2149,7 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
     if s.scan_option_mode && s.page == 0 {
         if s.opt_browse_mode {
             // Click on entry = navigate (directory) or select (file)
-            let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_PUM, CAT_MEMORY, CAT_SIGMA];
+            let bits = CAT_BITS;
             for (i, _) in bits.iter().enumerate() {
                 if pt_in(&s.opt_check_rects[i], x, y) {
                     let idx = s.opt_browse_scroll + i;
@@ -2230,7 +2251,7 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
             }
         } else {
             // Normal option mode
-            let bits = [CAT_SYS_MEMORY, CAT_STARTUP, CAT_BOOT, CAT_REGISTRY, CAT_PUM, CAT_MEMORY, CAT_SIGMA];
+            let bits = CAT_BITS;
             // Checkbox toggles
             for (i, bit) in bits.iter().enumerate() {
                 if pt_in(&s.opt_check_rects[i], x, y) {
@@ -2249,18 +2270,28 @@ unsafe fn on_lbutton_up(hwnd: HWND, (x, y): (i32, i32)) {
             let footer_sep_y = card.bottom - BTN_H - PAD * 2 - 1;
             let restore_r = RECT { left: card.left + 32, top: footer_sep_y + 4, right: card.left + 240, bottom: footer_sep_y + PAD + BTN_H };
             if pt_in(&restore_r, x, y) {
-                s.opt_cats = CAT_SYS_MEMORY | CAT_STARTUP | CAT_BOOT | CAT_REGISTRY | CAT_PUM | CAT_MEMORY | CAT_SIGMA;
+                s.opt_cats = CAT_ALL;
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 return;
             }
-            // "Add object…" row — enter browse mode at C:\
+            // "Add files…" — native multi-select file picker.
             if pt_in(&s.opt_add_rect, x, y) {
-                s.opt_browse_mode = true;
-                let c = PathBuf::from("C:\\");
-                if c.exists() {
-                    populate_browse_entries(s, &c);
-                } else {
-                    populate_drive_entries(s);
+                let files = pick_files();
+                for f in files {
+                    if !s.opt_items.contains(&f) {
+                        s.opt_items.push(f);
+                    }
+                }
+                layout(hwnd);
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return;
+            }
+            // "Add folder…" — native folder picker.
+            if pt_in(&s.opt_addfolder_rect, x, y) {
+                if let Some(d) = pick_folder() {
+                    if !s.opt_items.contains(&d) {
+                        s.opt_items.push(d);
+                    }
                 }
                 layout(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
@@ -2295,7 +2326,7 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             s.opt_browse_mode = false;
             s.opt_items.clear();
             // Default: all scan targets on.
-            s.opt_cats = CAT_SYS_MEMORY | CAT_STARTUP | CAT_BOOT | CAT_REGISTRY | CAT_PUM | CAT_MEMORY | CAT_SIGMA;
+            s.opt_cats = CAT_ALL;
             // Hide the results list so it does not overlap the option panel.
             let _ = ShowWindow(s.scan_list, SW_HIDE);
             layout(hwnd);
@@ -3214,6 +3245,48 @@ unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
 
 /// Native shell "Save As" dialog via `IFileSaveDialog`. Offers CSV and TXT
 /// filters; returns the chosen path (with the picked extension) or None on cancel.
+/// Native shell file picker with multi-select (`IFileOpenDialog`). Returns every
+/// chosen file path. Replaces the old in-app browser (which capped the list at a
+/// handful of rows and had no paste/navigation).
+unsafe fn pick_files() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(dialog): Result<IFileOpenDialog, _> =
+        CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
+    else {
+        return out;
+    };
+    let _ = dialog.SetOptions(FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
+    if dialog.Show(None).is_err() {
+        return out; // user cancelled
+    }
+    let Ok(items): Result<IShellItemArray, _> = dialog.GetResults() else { return out };
+    let count = items.GetCount().unwrap_or(0);
+    for i in 0..count {
+        if let Ok(item) = items.GetItemAt(i) {
+            if let Ok(pw) = item.GetDisplayName(SIGDN_FILESYSPATH) {
+                if let Ok(s) = pw.to_string() {
+                    out.push(PathBuf::from(s));
+                }
+                CoTaskMemFree(Some(pw.0 as *const c_void));
+            }
+        }
+    }
+    out
+}
+
+/// Native shell folder picker (`IFileOpenDialog` + `FOS_PICKFOLDERS`).
+unsafe fn pick_folder() -> Option<PathBuf> {
+    let dialog: IFileOpenDialog =
+        CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+    let _ = dialog.SetOptions(FOS_PICKFOLDERS | FOS_PATHMUSTEXIST);
+    dialog.Show(None).ok()?;
+    let item: IShellItem = dialog.GetResult().ok()?;
+    let pw: PWSTR = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+    let path = pw.to_string().ok();
+    CoTaskMemFree(Some(pw.0 as *const c_void));
+    path.map(PathBuf::from)
+}
+
 unsafe fn pick_save_path(default_name: &str) -> Option<PathBuf> {
     let dialog: IFileSaveDialog = CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER).ok()?;
 
@@ -3579,28 +3652,6 @@ fn run_session(
         }
         extra_threats += mem.len();
         phase_labels.push(format!("memory {} hit(s)", mem.len()));
-    }
-
-    // ── System memory scan ─────────────────────────────────────────────────
-    if sess.cats & CAT_SYS_MEMORY != 0 { check_abort!();
-        send(tx, hwnd, ScanMsg::Status("Custom scan: system memory…".into()));
-        let mem = memory_scanner::scan_process_memory(pl);
-        for d in &mem {
-            let prio = d.verdict.priority();
-            send(tx, hwnd, ScanMsg::Row {
-                file: format!("{} (pid {}) @ 0x{:x}", d.process, d.pid, d.address),
-                verdict: "SystemMemory".into(),
-                threat: d.threat_name.clone(),
-                sev: match prio {
-                    2 => 30,
-                    3 => 50,
-                    4 => 75,
-                    _ => 100,
-                },
-            });
-        }
-        extra_threats += mem.len();
-        phase_labels.push(format!("sys_mem {} hit(s)", mem.len()));
     }
 
     // ── Startup objects scan ───────────────────────────────────────────────

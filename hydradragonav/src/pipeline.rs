@@ -617,8 +617,8 @@ impl Pipeline {
                     identifier: path.display().to_string(),
                     base_address: None,
                 };
-                match hydradragonsig::scan_memory(
-                    &mem_ctx,
+                match hydradragonsig::scan_memory_owned(
+                    mem_ctx,
                     &rules,
                     &hydradragonsig::ScanOptions::default(),
                 ) {
@@ -1069,7 +1069,7 @@ impl Pipeline {
                     identifier: "memory".into(),
                     base_address: None,
                 };
-                match hydradragonsig::scan_memory(&ctx, rules, &hydradragonsig::ScanOptions::default()) {
+                match hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
                     Ok(report) => {
                         let elapsed_ms = self
                             .config
@@ -1302,9 +1302,11 @@ impl Pipeline {
 
         if is_js {
             if let Some(ref model) = self.js_ml_model {
-                if let Ok(source) = String::from_utf8(bytes.to_vec()) {
+                // Borrow the bytes as UTF-8 (zero-copy) instead of allocating a full
+                // owned String copy of the file for every JS scan.
+                if let Ok(source) = std::str::from_utf8(bytes) {
                     if let Some(prob) =
-                        crate::ml::inference::predict_js::<InferBackend>(&source, model, &device)
+                        crate::ml::inference::predict_js::<InferBackend>(source, model, &device)
                     {
                         return Some(MlVerdict {
                             verdict: ml_classify(prob, self.config.ml_threshold),

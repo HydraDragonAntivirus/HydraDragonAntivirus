@@ -80,6 +80,16 @@ impl HydraScanner {
         Self::build_scan_context(bytes, path, config, start_time)
     }
 
+    /// Like [`scan_memory`] but takes the context by value so the buffer is *moved*
+    /// into the scan — no clone. Hot callers (the pipeline scans every file through
+    /// here) build a fresh context each time, so the extra full-file copy the
+    /// borrowing variant makes is pure waste.
+    pub fn scan_memory_owned(ctx: MemoryScanContext, config: &ScannerConfig) -> Result<ScanContext> {
+        let start_time = Instant::now();
+        let path = PathBuf::from(format!("memory://{}", ctx.identifier));
+        Self::build_scan_context(ctx.buffer, path, config, start_time)
+    }
+
     pub fn scan_bytes(
         bytes: Vec<u8>,
         path: PathBuf,
