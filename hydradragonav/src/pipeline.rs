@@ -864,40 +864,6 @@ impl Pipeline {
         }
 
         bail_if_cancelled!();
-        // --- 4. MVM SCANNER (heuristic: PE imports, sensitive paths, cmd patterns) ---
-        {
-            let t0 = Instant::now();
-            let mvm = crate::mvm_scanner::MvmScanner::new();
-            let mvm_results = mvm.scan_buffer(data, Some(path));
-            let elapsed_ms = self
-                .config
-                .time_engines
-                .then(|| t0.elapsed().as_millis() as u64);
-            for mut r in mvm_results {
-                if elapsed_ms.is_some() {
-                    r.elapsed_ms = elapsed_ms;
-                }
-                let is_alarm = matches!(
-                    r.verdict,
-                    Verdict::Malware | Verdict::Suspicious | Verdict::Pua
-                );
-                engines.push(r);
-                if is_alarm {
-                    let final_verdict = Verdict::aggregate(
-                        &engines.iter().map(|e| e.verdict).collect::<Vec<_>>(),
-                    );
-                    return ScanResult {
-                        verdict: final_verdict,
-                        threat_name: Some(format!("MVM.{}", final_verdict.label())),
-                        engines,
-                        yara_x_matches,
-                        ml_malware_probability: ml_verdict.as_ref().map(|m| m.probability),
-                        clamav_result,
-                    };
-                }
-            }
-        }
-
         // --- 5. URL / PHISHING BLOOM CHECK ---
         // Reads raw bytes and extracts printable ASCII strings (like `strings` utility)
         // so URLs embedded in PE/binary files are also found, not just text files.
@@ -960,7 +926,7 @@ impl Pipeline {
         }
 
         bail_if_cancelled!();
-        // --- 6. CLAMAV ---
+        // --- 5. CLAMAV ---
         if let Some(ref clamav) = self.clamav {
             let t0 = Instant::now();
             match clamav.scan_bytes(data) {

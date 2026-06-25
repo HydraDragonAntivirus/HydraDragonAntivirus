@@ -7,7 +7,6 @@ pub mod hash_scanner;
 pub mod memory_scanner;
 pub mod metrics;
 pub mod ml;
-pub mod mvm_scanner;
 pub mod pipeline;
 pub mod quarantine;
 pub mod file_pum_scanner;
