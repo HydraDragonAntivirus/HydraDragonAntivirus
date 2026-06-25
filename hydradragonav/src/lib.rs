@@ -16,6 +16,7 @@ pub mod remediation;
 pub mod settings;
 pub mod startup_scanner;
 pub mod takeown;
+pub mod pipe_client;
 pub mod restart_disinfect;
 pub mod scanner;
 pub mod types;

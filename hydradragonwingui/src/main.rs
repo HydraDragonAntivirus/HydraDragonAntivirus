@@ -27,6 +27,7 @@ use hydradragonav::pipeline::{scan_hayabusa_once, Pipeline, PipelineConfig};
 use hydradragonav::quarantine::Quarantine;
 use hydradragonav::registry_scanner::{RegistryEntry, RegistryScanner};
 use hydradragonav::remediation;
+use hydradragonav::settings::Settings;
 use hydradragonav::startup_scanner;
 
 use windows::core::{w, PCWSTR, PWSTR};
@@ -155,6 +156,8 @@ mod msg {
     pub const LVM_GETITEMSTATE: u32 = LVM_FIRST + 44;
     pub const LVM_SETITEMSTATE: u32 = LVM_FIRST + 43;
 }
+mod pipe_server;
+
 mod sty {
     pub const CHILD: u32 = 0x4000_0000;
     pub const VISIBLE: u32 = 0x1000_0000;
@@ -403,6 +406,12 @@ enum WorkRequest {
     /// Fix PUM registry entries: revert values and restore ACLs.
     FixPum(Vec<RegistryEntry>),
     ClearCache,
+    /// Scan a single file triggered by a right-click via named pipe.
+    /// Sends the result back through the provided channel.
+    PipeScan {
+        path: PathBuf,
+        result_tx: std::sync::mpsc::Sender<String>,
+    },
 }
 
 struct Fonts {
@@ -788,6 +797,9 @@ unsafe fn on_create(hwnd: HWND) {
     let worker_cancel = cancel.clone();
     let abort = Arc::new(AtomicBool::new(false));
     let worker_abort = abort.clone();
+    // Pipe server gets a clone of the work channel to forward right-click scans
+    let pipe_work_tx = work_tx.clone();
+    crate::pipe_server::spawn(pipe_work_tx);
     std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir, worker_cancel, worker_abort));
     // Load the engine immediately so the loading screen shows on startup.
     let _ = work_tx.send(WorkRequest::StartEngine);
@@ -2148,7 +2160,18 @@ unsafe fn on_lbutton_down(hwnd: HWND, (x, y): (i32, i32)) {
     // Theme toggle (header).
     if pt_in(&s.theme_btn, x, y) {
         s.dark = !s.dark;
-        save_dark(s.dark); // remember across launches
+        // Persist theme choice to settings/settings.json
+        let dir = exe_dir();
+        let settings_dir = Settings::settings_dir(&dir);
+        let _ = std::fs::create_dir_all(&settings_dir);
+        let json_path = settings_dir.join("settings.json");
+        let theme = if s.dark { "dark" } else { "light" };
+        // Read existing or start fresh, update theme, write back
+        let mut settings = Settings::load(&dir);
+        settings.theme = Some(theme.to_string());
+        if let Ok(json) = serde_json::to_string_pretty(&settings) {
+            let _ = std::fs::write(&json_path, json);
+        }
         let t = s.theme();
         apply_list_theme(s.scan_list, t);
         apply_list_theme(s.quar_list, t);
@@ -4052,6 +4075,18 @@ fn worker(
                 }
                 send(&tx, hwnd, ScanMsg::Status("Result cache cleared.".into()));
             }
+            WorkRequest::PipeScan { path, result_tx } => {
+                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
+                let r = pl.scan_file(&path);
+                let label = r.verdict.label().to_string();
+                let detail = detail_summary(&r);
+                let line = if r.verdict.priority() > 1 {
+                    format!("{}: {}", label, detail)
+                } else {
+                    label
+                };
+                let _ = result_tx.send(line);
+            }
         }
     }
 }
@@ -4566,10 +4601,6 @@ fn exe_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn theme_pref_path() -> PathBuf {
-    exe_dir().join("hydradragon_theme")
-}
-
 /// Return all available drive roots on the system.
 /// Populate opt_browse_entries from a given directory path.
 fn populate_browse_entries(s: &mut AppState, dir: &Path) {
@@ -4627,20 +4658,41 @@ unsafe fn populate_drive_entries(s: &mut AppState) {
     }
 }
 
-/// Loads the remembered theme (defaults to light if absent).
+/// Loads the remembered theme from `settings/settings.json` (defaults to light).
 fn load_dark() -> bool {
-    std::fs::read_to_string(theme_pref_path())
-        .map(|s| s.trim() == "dark")
-        .unwrap_or(false)
-}
-
-/// Remembers the theme choice across launches.
-fn save_dark(dark: bool) {
-    let _ = std::fs::write(theme_pref_path(), if dark { "dark" } else { "light" });
+    let settings = Settings::load(&exe_dir());
+    match settings.theme.as_deref() {
+        Some("dark") => true,
+        _ => false,
+    }
 }
 
 fn default_config() -> PipelineConfig {
     let dir = exe_dir();
+    // Ensure the settings directory exists
+    let settings_dir = Settings::settings_dir(&dir);
+    let _ = std::fs::create_dir_all(&settings_dir);
+
+    let settings = Settings::load(&dir);
+    let excluded_dirs: Vec<PathBuf> = settings
+        .excluded_dirs
+        .iter()
+        .map(|s| {
+            let p = PathBuf::from(s);
+            if p.is_relative() { dir.join(&p) } else { p }
+        })
+        .filter(|p| p.exists())
+        .collect();
+    let excluded_files: Vec<PathBuf> = settings
+        .excluded_files
+        .iter()
+        .map(|s| {
+            let p = PathBuf::from(s);
+            if p.is_relative() { dir.join(&p) } else { p }
+        })
+        .filter(|p| p.exists())
+        .collect();
+
     PipelineConfig {
         bloom_dir: Some(dir.join("bloom_filter")).filter(|p| p.exists()),
         yara_rules_dir: Some(dir.join("yara-x")).filter(|p| p.exists()),
@@ -4651,6 +4703,8 @@ fn default_config() -> PipelineConfig {
         hayabusa_dir: None,
         // Persist the good/bad result blooms next to the executable.
         results_cache_dir: Some(dir.clone()),
+        excluded_dirs,
+        excluded_files,
         ..Default::default()
     }
 }

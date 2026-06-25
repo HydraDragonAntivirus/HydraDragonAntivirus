@@ -149,6 +149,14 @@ enum Command {
         fast_scan: bool,
     },
 
+    /// Right-click scan: try running GUI via named pipe first,
+    /// fall back to standalone scan if no GUI is available.
+    ScanPipe {
+        /// File(s) to scan
+        #[arg()]
+        paths: Vec<PathBuf>,
+    },
+
     /// Update Hayabusa detection rules
     Update,
 
@@ -617,6 +625,26 @@ fn main() {
             if *pum { cats.push(ScanCategory::Pum); }
             cmd_custom_scan(paths, cats, *json, output.as_deref(), *time_engines, *fast_scan, &config)
         }
+        Command::ScanPipe { paths } => {
+            for p in paths {
+                // Try the running GUI first
+                match hydradragonav::pipe_client::try_scan(p) {
+                    Some(result) => println!("{}", result),
+                    None => {
+                        // Fall back to standalone scan
+                        cmd_custom_scan(
+                            &[p.clone()],
+                            vec![ScanCategory::Files],
+                            false,
+                            None,
+                            false,
+                            true,
+                            &config,
+                        );
+                    }
+                }
+            }
+        }
         Command::InstallContextMenu => {
             if let Err(e) = cmd_install_context_menu() {
                 eprintln!("[ContextMenu] Failed to install: {e}");
@@ -921,7 +949,7 @@ fn cmd_install_context_menu() -> std::io::Result<()> {
 
     let exe = std::env::current_exe()?;
     let exe_str = exe.to_string_lossy().to_string();
-    let cmd = format!("\"{}\" scan --files \"%1\"", exe_str);
+    let cmd = format!("\"{}\" scan-pipe \"%1\"", exe_str);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
