@@ -45,6 +45,7 @@ use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::UI::Controls::{
     InitCommonControlsEx, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, LVCF_SUBITEM, LVCF_TEXT,
     LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LIST_VIEW_ITEM_STATE_FLAGS, LVITEMW, NMHDR, NMLVCUSTOMDRAW,
+    NMITEMACTIVATE,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
@@ -95,6 +96,12 @@ const CMD_START_SCAN: usize = 22;
 const CMD_CANCEL_OPT: usize = 23;
 // Move checked detections into quarantine (vs CMD_CLEAN which neutralizes in place).
 const CMD_QUARANTINE: usize = 24;
+// KVRT-style per-row actions.
+const CMD_APPLY_ACTIONS: usize = 25;      // run each row's chosen action
+const CMD_DISINFECT_RESTART: usize = 26;  // disinfect + reboot (for locked/system files)
+const CMD_ALL_QUARANTINE: usize = 27;     // set every row's action to Quarantine
+const CMD_ALL_DISINFECT: usize = 28;      // set every row's action to Disinfect
+const CMD_ALL_IGNORE: usize = 29;         // set every row's action to Ignore
 
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
@@ -161,6 +168,7 @@ mod sty {
 }
 // Custom-draw notification + stages (raw NM/CDDS/CDRF values).
 const NM_CUSTOMDRAW: u32 = 0xFFFF_FFF4; // -12
+const NM_CLICK: u32 = 0xFFFF_FFFE; // -2
 const CDDS_PREPAINT: u32 = 0x0000_0001;
 const CDDS_ITEMPREPAINT: u32 = 0x0001_0001;
 #[allow(dead_code)]
@@ -387,6 +395,9 @@ enum WorkRequest {
     /// Move the given (file, detection) pairs into quarantine as-is (no in-place
     /// neutralization) — the "Quarantine" action.
     Quarantine(Vec<(PathBuf, String)>),
+    /// Disinfect in place where possible, schedule the rest for restart-time cleanup,
+    /// then reboot — the "Disinfect & Restart" action (uses no kernel driver).
+    DisinfectRestart(Vec<PathBuf>),
     /// Remove Windows traces of given files (registry autoruns, scheduled tasks, etc.)
     RemoveTraces(Vec<PathBuf>),
     /// Fix PUM registry entries: revert values and restore ACLs.
@@ -429,6 +440,9 @@ struct AppState {
     threat_count: usize,
     /// Total signatures loaded, shown once the engine is ready.
     sig_count: usize,
+    /// Per-engine breakdown (e.g. "clamav 600k · yara-x 5k · ml-pe 1"), shown on the
+    /// engine card so every engine's loaded data is visible, not just the total.
+    engine_summary: String,
     // Live throughput for the hero banner / status bar (streaming scan).
     scan_discovered: usize,
     scan_speed: f64,
@@ -460,6 +474,10 @@ struct AppState {
     // out of the ListView.
     scan_verdict: Vec<String>,
     scan_threat: Vec<String>,
+    /// Parallel to scan_rows: the chosen per-row action (ACT_*). Drives "Apply".
+    scan_action: Vec<u8>,
+    /// `%WINDIR%` lowercased, cached for the default-action check.
+    windir: String,
     /// When true, show scan option checkboxes (Registry / Memory / Sigma) + Start button
     scan_option_mode: bool,
     /// Current category selection in option panel
@@ -632,6 +650,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 if nm.code == NM_CUSTOMDRAW && nm.idFrom == ID_SCAN_LIST {
                     return LRESULT(on_list_customdraw(hwnd, lp.0 as *mut NMLVCUSTOMDRAW));
                 }
+                if nm.code == NM_CLICK && nm.idFrom == ID_SCAN_LIST {
+                    on_scan_list_click(hwnd, lp.0 as *const NMITEMACTIVATE);
+                }
                 LRESULT(0)
             }
             x if x == WM_APP_RESULT => {
@@ -737,9 +758,10 @@ unsafe fn on_create(hwnd: HWND) {
         Some(WPARAM(sty::LVS_EX_CHECKBOXES as usize)),
         Some(LPARAM(sty::LVS_EX_CHECKBOXES as isize)),
     );
-    lv_col(scan_list, 0, "File", 470);
-    lv_col(scan_list, 1, "Verdict", 120);
-    lv_col(scan_list, 2, "Type", 240);
+    lv_col(scan_list, 0, "File", 400);
+    lv_col(scan_list, 1, "Verdict", 110);
+    lv_col(scan_list, 2, "Type", 190);
+    lv_col(scan_list, 3, "Action", 130);
 
     let quar_list = make_list(hwnd, hinst, lv, ID_QUAR_LIST, fonts.body);
     lv_col(quar_list, 0, "ID", 250);
@@ -803,6 +825,7 @@ unsafe fn on_create(hwnd: HWND) {
         scanned_count: 0,
         threat_count: 0,
         sig_count: 0,
+        engine_summary: String::new(),
         scan_discovered: 0,
         scan_speed: 0.0,
         scan_mbps: 0.0,
@@ -822,6 +845,8 @@ unsafe fn on_create(hwnd: HWND) {
         scan_sev: Vec::new(),
         scan_verdict: Vec::new(),
         scan_threat: Vec::new(),
+        scan_action: Vec::new(),
+        windir: windir_lc(),
         scan_option_mode: false,
         opt_cats: 0,
         opt_check_rects: [RECT::default(); 7],
@@ -929,10 +954,17 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
                     (CMD_RESUME, "Resume", "\u{E768}", Kind::Primary),
                     (CMD_STOP, "Stop Scan", "\u{E71A}", Kind::Danger),
                 ],
+                // Detections present → KVRT-style per-row actions + bulk + apply.
+                // (Save Results stays available from the right-click context menu.)
+                ScanState::Threats => vec![
+                    (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Neutral),
+                    (CMD_ALL_QUARANTINE, "All: Quarantine", "\u{E7BA}", Kind::Neutral),
+                    (CMD_ALL_DISINFECT, "All: Disinfect", "\u{E74D}", Kind::Neutral),
+                    (CMD_APPLY_ACTIONS, "Apply Actions", "\u{E73E}", Kind::Primary),
+                    (CMD_DISINFECT_RESTART, "Disinfect & Restart", "\u{E777}", Kind::Danger),
+                ],
                 _ => vec![
                     (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
-                    (CMD_CLEAN, "Disinfect", "\u{E74D}", Kind::Primary),
-                    (CMD_QUARANTINE, "Quarantine", "\u{E7BA}", Kind::Neutral),
                     (CMD_SAVE_RESULTS, "Save Results", "\u{E74E}", Kind::Neutral),
                 ],
             }
@@ -945,7 +977,9 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
         _ => vec![
             (CMD_START_ENGINE, "Start Engine", "\u{E768}", Kind::Primary),
             (CMD_STOP_ENGINE, "Stop Engine", "\u{E71A}", Kind::Neutral),
-            (CMD_CLEAR_CACHE, "Clear Result Cache", "\u{E894}", Kind::Danger),
+            (CMD_CLEAR_CACHE, "Clear Cache", "\u{E894}", Kind::Neutral),
+            (CMD_INSTALL_MENU, "Install Menu", "\u{E710}", Kind::Primary),
+            (CMD_UNINSTALL_MENU, "Uninstall Menu", "\u{E738}", Kind::Danger),
         ],
     }
 }
@@ -1573,9 +1607,14 @@ unsafe fn paint(hwnd: HWND) {
             EngineState::Stopped => "Engine stopped — click Start Engine to load".to_string(),
         };
         text(mem, &engine_txt, &engine_label, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        // Per-engine breakdown line (every engine's loaded count, not just total).
+        if s.engine == EngineState::Ready && !s.engine_summary.is_empty() {
+            let sum_r = RECT { left: engine_icon.right + 12, top: inner.top + 24, right: inner.right, bottom: inner.top + 42 };
+            text(mem, &s.engine_summary, &sum_r, t.text2, s.fonts.status, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        }
 
         // Separator.
-        let sep_y = inner.top + 40;
+        let sep_y = inner.top + 44;
         fill(mem, &RECT { left: inner.left, top: sep_y, right: inner.right, bottom: sep_y + 1 }, t.border);
 
         // Cache section.
@@ -2383,6 +2422,11 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         }
         CMD_CLEAN => act_clean_and_traces(hwnd, s),
         CMD_QUARANTINE => act_quarantine_selected(hwnd, s),
+        CMD_ALL_QUARANTINE => set_all_actions(hwnd, s, ACT_QUARANTINE),
+        CMD_ALL_DISINFECT => set_all_actions(hwnd, s, ACT_DISINFECT),
+        CMD_ALL_IGNORE => set_all_actions(hwnd, s, ACT_IGNORE),
+        CMD_APPLY_ACTIONS => act_apply_actions(hwnd, s),
+        CMD_DISINFECT_RESTART => act_disinfect_restart(hwnd, s),
         CMD_SAVE_RESULTS => save_results(hwnd, s),
         CMD_RESCAN => rescan_selected(hwnd, s),
         CMD_COPY => copy_selected(hwnd, s),
@@ -2584,6 +2628,7 @@ fn clear_scan_results(s: &mut AppState) {
     s.scan_sev.clear();
     s.scan_verdict.clear();
     s.scan_threat.clear();
+    s.scan_action.clear();
 }
 
 /// Human-readable ETA from seconds: "12s", "3m 05s", "1h 04m".
@@ -2609,6 +2654,54 @@ fn sev_label(sev: u8) -> &'static str {
         51..=70 => "Elevated",
         71..=90 => "High",
         _ => "Critical",
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-detection action (KVRT-style). Each row carries its own chosen action.
+// Files under %WINDIR% default to "Select action" — the user MUST pick one,
+// because auto-quarantining a system file can break Windows. Everything else
+// defaults to Quarantine.
+// ---------------------------------------------------------------------------
+const ACT_SELECT: u8 = 0;
+const ACT_QUARANTINE: u8 = 1;
+const ACT_DISINFECT: u8 = 2;
+const ACT_IGNORE: u8 = 3;
+
+fn action_text(a: u8) -> &'static str {
+    match a {
+        ACT_QUARANTINE => "Quarantine",
+        ACT_DISINFECT => "Disinfect",
+        ACT_IGNORE => "Ignore",
+        _ => "Select action\u{2026}",
+    }
+}
+
+/// `%WINDIR%` lowercased (e.g. `c:\windows`), NOT hardcoded.
+fn windir_lc() -> String {
+    std::env::var("WINDIR")
+        .or_else(|_| std::env::var("SystemRoot"))
+        .unwrap_or_else(|_| "C:\\Windows".into())
+        .to_lowercase()
+}
+
+/// Default action for a freshly detected file: system files need an explicit
+/// choice; user files default to Quarantine.
+fn default_action_for(path: &std::path::Path, windir: &str) -> u8 {
+    if path.to_string_lossy().to_lowercase().starts_with(windir) {
+        ACT_SELECT
+    } else {
+        ACT_QUARANTINE
+    }
+}
+
+/// Cycle through the real actions when the user clicks the Action cell.
+fn cycle_action(a: u8) -> u8 {
+    match a {
+        ACT_QUARANTINE => ACT_DISINFECT,
+        ACT_DISINFECT => ACT_IGNORE,
+        ACT_IGNORE => ACT_QUARANTINE,
+        _ => ACT_QUARANTINE, // from "Select action" → first real choice
     }
 }
 
@@ -2894,6 +2987,96 @@ unsafe fn act_quarantine_selected(hwnd: HWND, s: &mut AppState) {
     }
 }
 
+/// Bulk-set every file row's action (the two "All:" corner buttons).
+unsafe fn set_all_actions(hwnd: HWND, s: &mut AppState, act: u8) {
+    for i in 0..s.scan_rows.len() {
+        if s.scan_rows[i].is_file() {
+            s.scan_action[i] = act;
+            lv_set_item_text(s.scan_list, i as i32, 3, action_text(act));
+        }
+    }
+    set_status(hwnd, s, &format!("All file actions set to “{}”.", action_text(act)));
+    let _ = InvalidateRect(Some(s.scan_list), None, true);
+}
+
+/// Run each row's chosen action. System (%WINDIR%) files left on "Select action"
+/// block the apply — the user must pick for those first (KVRT behaviour).
+unsafe fn act_apply_actions(hwnd: HWND, s: &mut AppState) {
+    let unresolved = (0..s.scan_rows.len())
+        .filter(|&i| s.scan_rows[i].is_file() && s.scan_action[i] == ACT_SELECT)
+        .count();
+    if unresolved > 0 {
+        warn(hwnd, &format!(
+            "{unresolved} file(s) under %WINDIR% have no action chosen.\r\n\r\nThese are \
+             system files — auto-quarantining them can break Windows, so you must pick an \
+             action (click the Action column) for each before applying.",
+        ));
+        return;
+    }
+    let mut quar: Vec<(PathBuf, String)> = Vec::new();
+    let mut disinfect: Vec<PathBuf> = Vec::new();
+    for i in 0..s.scan_rows.len() {
+        if !s.scan_rows[i].is_file() {
+            continue;
+        }
+        match s.scan_action[i] {
+            ACT_QUARANTINE => quar.push((
+                s.scan_rows[i].clone(),
+                s.scan_threat.get(i).cloned().unwrap_or_else(|| "threat".into()),
+            )),
+            ACT_DISINFECT => disinfect.push(s.scan_rows[i].clone()),
+            _ => {} // Ignore / non-file
+        }
+    }
+    if quar.is_empty() && disinfect.is_empty() {
+        set_status(hwnd, s, "No actions to apply (everything is set to Ignore).");
+        return;
+    }
+    let prompt = format!(
+        "Apply actions?\r\n\u{2022} Quarantine: {} file(s)\r\n\u{2022} Disinfect: {} file(s)\r\n\r\n\
+         Disinfection runs entirely in user mode — it uses NO kernel driver — and is tried \
+         WITHOUT a restart first; only files locked while Windows is running are deferred.",
+        quar.len(), disinfect.len()
+    );
+    if !confirm(hwnd, &prompt) {
+        return;
+    }
+    if !disinfect.is_empty() {
+        let reg = RegistryScanner::default().scan();
+        let pum: Vec<RegistryEntry> = reg.entries.into_iter().filter(|e| e.pum).collect();
+        let _ = s.work_tx.send(WorkRequest::Clean(disinfect.clone()));
+        if !pum.is_empty() {
+            let _ = s.work_tx.send(WorkRequest::FixPum(pum));
+        }
+        let _ = s.work_tx.send(WorkRequest::RemoveTraces(disinfect));
+    }
+    if !quar.is_empty() {
+        let _ = s.work_tx.send(WorkRequest::Quarantine(quar));
+    }
+}
+
+/// "Disinfect & Restart": clean what we can in place now, schedule anything locked
+/// for restart-time cleanup, then reboot.
+unsafe fn act_disinfect_restart(hwnd: HWND, s: &mut AppState) {
+    let files: Vec<PathBuf> = (0..s.scan_rows.len())
+        .filter(|&i| s.scan_rows[i].is_file() && s.scan_action[i] != ACT_IGNORE)
+        .map(|i| s.scan_rows[i].clone())
+        .collect();
+    if files.is_empty() {
+        set_status(hwnd, s, "No files selected for disinfection.");
+        return;
+    }
+    let prompt = format!(
+        "Disinfect {} file(s) and RESTART the computer?\r\n\r\nFiles that can be cleaned now \
+         are cleaned in user mode (no kernel driver); anything locked while Windows runs is \
+         scheduled to be removed during the restart. Save your work first.",
+        files.len()
+    );
+    if confirm(hwnd, &prompt) {
+        let _ = s.work_tx.send(WorkRequest::DisinfectRestart(files));
+    }
+}
+
 unsafe fn act_on_selected(hwnd: HWND, s: &mut AppState, clean: bool) {
     let paths: Vec<PathBuf> = lv_selected(s.scan_list)
         .into_iter()
@@ -2962,11 +3145,20 @@ unsafe fn drain_results(hwnd: HWND) {
         changed = true;
         match m {
             ScanMsg::Row { file, verdict, threat, sev } => {
-                lv_add_row(s.scan_list, &[&file, &verdict, &threat]);
-                s.scan_rows.push(PathBuf::from(file));
+                let path = PathBuf::from(&file);
+                // Registry/memory/etc. rows aren't files, so they can't have a
+                // file action — mark them Ignore (informational only).
+                let act = if path.is_file() {
+                    default_action_for(&path, &s.windir)
+                } else {
+                    ACT_IGNORE
+                };
+                lv_add_row(s.scan_list, &[&file, &verdict, &threat, action_text(act)]);
+                s.scan_rows.push(path);
                 s.scan_sev.push(sev);
                 s.scan_verdict.push(verdict);
                 s.scan_threat.push(threat);
+                s.scan_action.push(act);
             }
             ScanMsg::Status(t) => s.status = t,
             ScanMsg::Begin => {
@@ -3045,8 +3237,17 @@ unsafe fn drain_results(hwnd: HWND) {
             ScanMsg::EngineReady { signatures, engines } => {
                 s.engine = EngineState::Ready;
                 s.sig_count = signatures;
-                let per_engine: Vec<String> = engines.iter().map(|(n, c, _)| format!("{}:{}", n, c)).collect();
-                s.status = format!("Engine ready — {} sigs ({}).", fmt_count(signatures), per_engine.join(", "));
+                // Per-engine breakdown: "clamav 600,134 · yara-x 5,012 · ml-pe 1".
+                let per_engine: Vec<String> = engines
+                    .iter()
+                    .map(|(n, c, _)| format!("{} {}", n, fmt_count(*c)))
+                    .collect();
+                s.engine_summary = per_engine.join("  \u{B7}  ");
+                s.status = if s.engine_summary.is_empty() {
+                    format!("Engine ready — {} signatures.", fmt_count(signatures))
+                } else {
+                    format!("Engine ready — {} ({}).", fmt_count(signatures), s.engine_summary)
+                };
                 apply_page(hwnd);
             }
             ScanMsg::EngineStopped => {
@@ -3073,14 +3274,18 @@ unsafe fn drain_results(hwnd: HWND) {
                         s.scan_sev.remove(i);
                         s.scan_verdict.remove(i);
                         s.scan_threat.remove(i);
+                        s.scan_action.remove(i);
                     }
                     // Not currently listed but now flagged → append it.
                     (None, true) => {
-                        lv_add_row(s.scan_list, &[&file, &verdict, &threat]);
-                        s.scan_rows.push(PathBuf::from(file));
+                        let path = PathBuf::from(&file);
+                        let act = if path.is_file() { default_action_for(&path, &s.windir) } else { ACT_IGNORE };
+                        lv_add_row(s.scan_list, &[&file, &verdict, &threat, action_text(act)]);
+                        s.scan_rows.push(path);
                         s.scan_sev.push(sev);
                         s.scan_verdict.push(verdict);
                         s.scan_threat.push(threat);
+                        s.scan_action.push(act);
                     }
                     (None, false) => {}
                 }
@@ -3231,6 +3436,26 @@ unsafe fn lv_check_all(list: HWND, checked: bool) {
 }
 
 /// Color scan rows by severity and draw a small severity bar in the Verdict column.
+/// Click on the scan list: clicking the "Action" column (subitem 3) cycles that
+/// row's action (Quarantine → Disinfect → Ignore). Other columns behave normally.
+unsafe fn on_scan_list_click(hwnd: HWND, nia: *const NMITEMACTIVATE) {
+    let Some(s) = state(hwnd) else { return };
+    let nia = &*nia;
+    let i = nia.iItem;
+    if i < 0 || nia.iSubItem != 3 {
+        return;
+    }
+    let i = i as usize;
+    // Only on-disk files can carry an action; registry/memory rows stay Ignore.
+    if s.scan_rows.get(i).map(|p| p.is_file()).unwrap_or(false) {
+        if let Some(a) = s.scan_action.get_mut(i) {
+            *a = cycle_action(*a);
+            let txt = action_text(*a);
+            lv_set_item_text(s.scan_list, i as i32, 3, txt);
+        }
+    }
+}
+
 unsafe fn on_list_customdraw(hwnd: HWND, cd: *mut NMLVCUSTOMDRAW) -> isize {
     let cd = &mut *cd;
     match cd.nmcd.dwDrawStage.0 {
@@ -3603,6 +3828,35 @@ fn worker(
                     }
                 }
                 send(&tx, hwnd, ScanMsg::Status(format!("Quarantine complete: {ok}/{} file(s).", items.len())));
+            }
+            WorkRequest::DisinfectRestart(paths) => {
+                use hydradragonav::restart_disinfect::{reboot_for_disinfection, schedule_restart_disinfection};
+                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
+                let mut scheduled = 0usize;
+                for path in &paths {
+                    // Try an in-place neutralization first (no restart needed).
+                    let arenas = pl.arenas_for_file(path);
+                    if !arenas.is_empty() && disinfector::neutralize_arenas(path, &arenas).is_ok() {
+                        send(&tx, hwnd, ScanMsg::Status(format!("disinfected in place: {}", path.display())));
+                        continue;
+                    }
+                    // Locked / no neutralizable region → defer to restart-time cleanup.
+                    match schedule_restart_disinfection(path, "GUI disinfect", &quarantine_dir) {
+                        Ok(detail) => {
+                            scheduled += 1;
+                            send(&tx, hwnd, ScanMsg::Status(format!("scheduled for restart: {} ({detail})", path.display())));
+                        }
+                        Err(e) => send(&tx, hwnd, ScanMsg::Status(format!("schedule FAILED {}: {e}", path.display()))),
+                    }
+                }
+                if scheduled > 0 {
+                    match reboot_for_disinfection("GUI disinfect") {
+                        Ok(_) => send(&tx, hwnd, ScanMsg::Status("Restarting in 30s to finish disinfection (run 'shutdown /a' to cancel).".into())),
+                        Err(e) => send(&tx, hwnd, ScanMsg::Status(format!("Restart failed (run as admin): {e}"))),
+                    }
+                } else {
+                    send(&tx, hwnd, ScanMsg::Status("Disinfect complete — nothing needed a restart.".into()));
+                }
             }
             WorkRequest::FixPum(entries) => {
                 let mut fixed = 0usize;

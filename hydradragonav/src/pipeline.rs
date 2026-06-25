@@ -312,18 +312,41 @@ impl Pipeline {
                 // it while the resident set is still near zero keeps the peak lowest.
                 // After each engine the working set is trimmed so the just-released
                 // transient is returned to the OS before the next loader starts.
+                use crate::metrics::measure_load;
                 let trim = crate::metrics::trim_working_set;
-                let clamav = load_clamav();
+                // Each engine is wrapped in `measure_load` with `measure_mem=false`
+                // (no working-set attribution — that would force a slow probe) only to
+                // record its item count + load time into `load_metrics`, so the UI can
+                // show a per-engine breakdown (ClamAV sigs, YARA rules, ML models, …)
+                // and not just one number.
+                let (clamav, m) = measure_load(
+                    "clamav", false,
+                    |c: &Option<ClamavScanner>| c.as_ref().map(|s| s.signature_count()).unwrap_or(0),
+                    load_clamav,
+                );
+                load_metrics.push(m);
                 trim();
-                let yara_rules = load_yara();
+                let (yara_rules, m) =
+                    measure_load("yara-x", false, |r: &Vec<(String, Rules)>| r.len(), load_yara);
+                load_metrics.push(m);
                 trim();
-                let hydradragonsig_rules = load_hds();
+                let (hydradragonsig_rules, m) = measure_load(
+                    "hydradragonsig", false,
+                    |r: &Option<RuleSet>| r.as_ref().map(|x| x.rules().len()).unwrap_or(0),
+                    load_hds,
+                );
+                load_metrics.push(m);
                 trim();
-                let pe_ml_model = load_pe();
+                let (pe_ml_model, m) =
+                    measure_load("ml-pe", false, |m: &Option<_>| m.is_some() as usize, load_pe);
+                load_metrics.push(m);
                 trim();
-                let js_ml_model = load_js();
+                let (js_ml_model, m) =
+                    measure_load("ml-js", false, |m: &Option<_>| m.is_some() as usize, load_js);
+                load_metrics.push(m);
                 trim();
-                let hash_scanner = load_hash();
+                let (hash_scanner, m) = measure_load("hash", false, |_| 0, load_hash);
+                load_metrics.push(m);
                 (
                     hash_scanner,
                     yara_rules,
