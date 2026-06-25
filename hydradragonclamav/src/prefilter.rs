@@ -601,15 +601,26 @@ fn collect_hits(
     let mut counts = vec![0u32; num_atoms];
     for m in ac.find_overlapping_iter(haystack) {
         let id = m.value() as usize;
-        if counts[id] > CAP_PER_ATOM {
-            continue; // overflow sentinel already emitted for this atom
+        let c = &mut counts[id];
+        if *c >= CAP_PER_ATOM {
+            // First occurrence past the cap: emit ONE overflow sentinel,
+            // then suppress all further occurrences for this atom.
+            if *c == CAP_PER_ATOM {
+                *c += 1;
+                let start = atom_starts[id] as usize;
+                let end = atom_starts[id + 1] as usize;
+                for &r in &sig_refs[start..end] {
+                    if r & LOG_FLAG != 0 {
+                        log_hits.push(((r & !LOG_FLAG) as u32, OFFSET_OVERFLOW));
+                    } else {
+                        ext_hits.push((r as u32, OFFSET_OVERFLOW));
+                    }
+                }
+            }
+            continue;
         }
-        counts[id] += 1;
-        let off = if counts[id] > CAP_PER_ATOM {
-            OFFSET_OVERFLOW
-        } else {
-            m.start() as u32
-        };
+        *c += 1;
+        let off = m.start() as u32;
         let start = atom_starts[id] as usize;
         let end = atom_starts[id + 1] as usize;
         for &r in &sig_refs[start..end] {

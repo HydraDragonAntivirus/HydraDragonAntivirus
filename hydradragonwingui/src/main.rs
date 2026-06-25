@@ -3293,7 +3293,7 @@ fn worker(
                 // message sees abort=true and discards the old session.
                 abort.store(false, Ordering::Relaxed);
                 send(&tx, hwnd, ScanMsg::Begin);
-                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
                 session = Some(seed_session(&paths, cats));
                 let completed = run_session(pl, session.as_mut().unwrap(), &cancel, &abort, &tx, hwnd);
                 if completed {
@@ -3301,7 +3301,7 @@ fn worker(
                 }
             }
             WorkRequest::StartEngine => {
-                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
                 // Idempotent confirm so the indicator flips to Ready even if it
                 // was already loaded.
                 let signatures = pl.loaded_signature_count();
@@ -3324,7 +3324,7 @@ fn worker(
                         send(&tx, hwnd, ScanMsg::Stopped);
                     } else {
                         send(&tx, hwnd, ScanMsg::Resumed);
-                        let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                        let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
                         let completed = run_session(pl, sess, &cancel, &abort, &tx, hwnd);
                         if completed {
                             session = None;
@@ -3335,7 +3335,7 @@ fn worker(
                 }
             }
             WorkRequest::Rescan(paths) => {
-                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
                 let n = paths.len();
                 for path in &paths {
                     // Uncached scan_file so a previously-cached good/bad result
@@ -3361,7 +3361,7 @@ fn worker(
             }
             WorkRequest::Clean(paths) => {
                 use hydradragonav::restart_disinfect::{escalated_disinfect, reboot_for_disinfection, EscalationOutcome};
-                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd);
+                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
                 let mut restart_pending: Vec<(PathBuf, String)> = Vec::new();
                 for path in &paths {
                     let arenas = pl.arenas_for_file(path);
@@ -3620,6 +3620,13 @@ fn run_session(
         // Extract executable paths from startup commands and scan each file
         let mut scanned_startup = 0usize;
         for d in &startup {
+            // Stop is responsive between files here too (this loop calls the
+            // engine per startup exe, so without this a Stop would keep scanning
+            // every startup file before it could take effect).
+            if abort.load(Ordering::Relaxed) {
+                send(tx, hwnd, ScanMsg::Stopped);
+                return true;
+            }
             if let Some(exe_path) = parse_cmd_exe(&d.command) {
                 if exe_path.exists() {
                     let result = pl.scan_file_cached(&exe_path);
@@ -3877,11 +3884,19 @@ fn detail_summary(r: &hydradragonav::verdict::ScanResult) -> String {
     }
 }
 
-fn ensure_pipeline<'a>(pl: &'a mut Option<Pipeline>, tx: &Sender<ScanMsg>, hwnd: HWND) -> &'a Pipeline {
+fn ensure_pipeline<'a>(
+    pl: &'a mut Option<Pipeline>,
+    tx: &Sender<ScanMsg>,
+    hwnd: HWND,
+    abort: &Arc<AtomicBool>,
+) -> &'a Pipeline {
     if pl.is_none() {
         // Drives the loading screen: EngineLoading → (blocking load) → EngineReady.
         send(tx, hwnd, ScanMsg::EngineLoading);
-        let pipeline = Pipeline::new(default_config());
+        let mut pipeline = Pipeline::new(default_config());
+        // Share the Stop flag so a Stop aborts an in-progress single-file scan
+        // between engine stages instead of waiting for it to finish.
+        pipeline.set_cancel(abort.clone());
         let signatures = pipeline.loaded_signature_count();
         let engines = pipeline.engine_loads();
         *pl = Some(pipeline);

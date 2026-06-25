@@ -107,6 +107,10 @@ pub struct Pipeline {
     good_bloom: AtomicBloomFilter,
     bad_bloom: AtomicBloomFilter,
     results_cache_dir: Option<PathBuf>,
+    /// Cooperative cancellation flag. A host (e.g. the GUI worker) shares its
+    /// "abort" flag via [`Pipeline::set_cancel`]; `scan_loaded` checks it between
+    /// engine stages so a Stop interrupts an in-progress file scan almost instantly.
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Per-engine load metrics (RAM + time). Populated with per-engine RAM only when
     /// metrics are enabled (`HDAV_METRICS=1`), since RAM attribution requires
     /// sequential loading; otherwise only load times are recorded.
@@ -336,9 +340,17 @@ impl Pipeline {
             good_bloom: load_result_bloom(&results_cache_dir, GOOD_BLOOM_FILE),
             bad_bloom: load_result_bloom(&results_cache_dir, BAD_BLOOM_FILE),
             results_cache_dir,
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             load_metrics,
             scan_cpu: crate::metrics::ScanCpu::default(),
         }
+    }
+
+    /// Share a cancellation flag with the pipeline. Setting it `true` makes an
+    /// in-progress `scan_file*` bail out between engine stages, so a GUI Stop
+    /// interrupts a long single-file scan instead of waiting for it to finish.
+    pub fn set_cancel(&mut self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        self.cancel = flag;
     }
 
     /// A human-readable per-engine RAM + CPU report (process RSS/peak/CPU, per-engine
@@ -389,6 +401,12 @@ impl Pipeline {
                 return cache_result(Verdict::Clean, None, "cached clean (dedup)");
             }
             let result = self.scan_loaded(path, &data, h); // reuse the MD5 we computed
+            // If the scan was cancelled mid-file, its verdict is not a real result —
+            // never learn it into the good/bad bloom (else a Stop could permanently
+            // whitelist an unscanned file).
+            if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return result;
+            }
             if result.verdict.priority() <= 1 {
                 self.good_bloom.insert(&h); // build the bloom while scanning
             } else {
@@ -496,6 +514,24 @@ impl Pipeline {
         let mut clamav_result = None;
         let mut static_file_type: Option<FileTypeInfo> = None;
 
+        // Cooperative cancellation: if the host set the flag (GUI Stop), bail out
+        // between engine stages and return whatever ran so far as Clean. The caller
+        // discards results on a Stop, so the verdict here is irrelevant.
+        macro_rules! bail_if_cancelled {
+            () => {
+                if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    return ScanResult {
+                        verdict: Verdict::Clean,
+                        threat_name: None,
+                        engines,
+                        yara_x_matches,
+                        ml_malware_probability: None,
+                        clamav_result,
+                    };
+                }
+            };
+        }
+
         // --- 1. HASH SCANNER (single bloom: md5/sha1/sha256/ssdeep/tlsh) ---
         // Old-style: every signature type sits in one bloom and is matched by
         // exact membership; the matched hash type is reported in the detail.
@@ -535,6 +571,7 @@ impl Pipeline {
             }
         }
 
+        bail_if_cancelled!();
         // --- 2. ML INFERENCE ---
         // Detect the file class up front so each model only runs on its own type
         // (the JS model must NOT see XML/HTML/text). Same classifier the static
@@ -569,6 +606,7 @@ impl Pipeline {
             }
         }
 
+        bail_if_cancelled!();
         // --- 3. STATIC RULES ---
         let t0 = Instant::now();
         match &self.hydradragonsig_rules {
@@ -717,6 +755,7 @@ impl Pipeline {
             }
         }
 
+        bail_if_cancelled!();
         // --- 6. CLAMAV ---
         if let Some(ref clamav) = self.clamav {
             let t0 = Instant::now();
@@ -781,6 +820,7 @@ impl Pipeline {
             }
         }
 
+        bail_if_cancelled!();
         // --- 7. YARA-X (final confirmation) ---
         // DetectItEasy is run lazily only when YARA-X produces a detection, since
         // its only consumer is the yara-only-unknown-binary suppression check.

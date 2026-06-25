@@ -19,7 +19,7 @@ pub const CLI_MATCH_METADATA: u16 = 0x0f00;
 /// = one `match_rec` entry. A legitimate match needs at most a few thousand even
 /// for gappy patterns; this ceiling only fires on multiplicative gap backtracking,
 /// keeping any single position's work bounded (~a few ms) instead of unbounded.
-const MATCH_FUEL_BUDGET: u64 = 2_000_000;
+const MATCH_FUEL_BUDGET: u64 = 2_000;
 
 /// Max recursive-matcher steps for ONE signature's whole verification on a buffer
 /// (`find_all`/`find_all_anchored`/`find_all_at` share a single counter across all
@@ -27,7 +27,7 @@ const MATCH_FUEL_BUDGET: u64 = 2_000_000;
 /// buffer completes (≈ one step per position plus light verification), but it caps
 /// the multiplicative blow-up of a pattern that backtracks at many positions, so a
 /// single signature can never dominate the scan.
-const SIG_FUEL_BUDGET: u64 = 16_000_000;
+const SIG_FUEL_BUDGET: u64 = 64_000;
 
 /// Match a single u16 instruction against a data byte.
 #[inline]
@@ -584,46 +584,90 @@ impl Pattern {
             return self.find_all_anchored(data, ranges, min_len, limit, prefix, &needle);
         }
 
-        // One fuel budget shared across every position probed for this signature on
-        // this buffer (not reset per position), so a pattern that backtracks
-        // expensively at many positions is bounded in aggregate, not just per probe.
-        let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
-        let mut out = Vec::new();
-        for &(start, end) in ranges {
-            let start = start.min(data.len());
-            let end = end.min(data.len());
-            if start > end {
-                continue;
-            }
-
-            let max_pos = if end.saturating_sub(min_len) >= start {
-                end.saturating_sub(min_len)
-            } else {
-                start
+        // No constant-offset anchor was found (every fixed byte sits behind a
+        // variable-width gap/alternation). But we can still anchor on ANY fixed
+        // byte in the pattern using SIMD `memchr` — far cheaper than probing every
+        // buffer position. Find the rarest fixed byte as the search needle.
+        //
+        // NOTE: `byte_off` is an INSTRUCTION INDEX, not a byte offset. It's passed
+        // to `prefix_range_to` which correctly translates it to a byte-offset range.
+        // The search window and candidate-start logic below use the *byte* offsets
+        // (`min_pre`/`max_pre`), never the raw instruction index.
+        let any_byte = self.find_any_fixed_byte();
+        if let Some((byte_off, byte_val, nocase)) = any_byte {
+            let (min_pre, max_pre) = match self.prefix_range_to(byte_off) {
+                Some(r) => r,
+                None => return Vec::new(),
             };
-
-            for pos in start..=max_pos {
-                if fuel.get() == 0 {
-                    return out;
+            // If the prefix range is unbounded (open gap before the byte), fall
+            // back to brute-force — the candidate start explosion per occurrence
+            // would dwarf a simple position walk.
+            if max_pre.saturating_sub(min_pre) > 4096 {
+                return self.find_all_fallback_bruteforce(data, ranges, min_len, limit);
+            }
+            let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
+            let mut out = Vec::new();
+            let b_lo = byte_val.to_ascii_lowercase();
+            let b_up = byte_val.to_ascii_uppercase();
+            for &(start, end) in ranges {
+                let start = start.min(data.len());
+                let end = end.min(data.len());
+                if start > end {
+                    continue;
                 }
-                if let Some(match_end) = self.match_rec(data, pos, 0, 0, &fuel) {
-                    if self.fullword && !is_fullword(data, pos, match_end) {
-                        continue;
+                let max_pos = end.saturating_sub(min_len).max(start);
+                // The byte can appear anywhere from `start + min_pre` to
+                // `max_pos + max_pre` (byte-offset prefix range).
+                let lo = (start + min_pre).min(data.len());
+                let hi = (max_pos.saturating_add(max_pre).saturating_add(1)).min(data.len());
+                if lo >= hi {
+                    continue;
+                }
+                let mut search = lo;
+                while search < hi {
+                    if fuel.get() == 0 {
+                        return out;
                     }
-                    let c = (pos, match_end);
-                    if out.last().map(|m: &MatchRange| (m.start, m.end)) != Some(c) {
-                        out.push(MatchRange {
-                            start: pos,
-                            end: match_end,
-                        });
-                        if out.len() >= limit {
+                    let rel = if nocase && b_lo != b_up {
+                        memchr::memchr2(b_lo, b_up, &data[search..hi])
+                    } else {
+                        memchr::memchr(byte_val, &data[search..hi])
+                    };
+                    let Some(rel) = rel else { break };
+                    let occ = search + rel;
+                    search = occ + 1;
+                    let cand_lo = occ.saturating_sub(max_pre);
+                    let cand_hi = occ.saturating_sub(min_pre);
+                    for pos in cand_lo..=cand_hi {
+                        if pos > max_pos {
+                            break;
+                        }
+                        if pos < start {
+                            continue;
+                        }
+                        if fuel.get() == 0 {
                             return out;
+                        }
+                        if let Some(match_end) = self.match_rec(data, pos, 0, 0, &fuel) {
+                            if self.fullword && !is_fullword(data, pos, match_end) {
+                                continue;
+                            }
+                            let c = (pos, match_end);
+                            if out.last().map(|m: &MatchRange| (m.start, m.end)) != Some(c) {
+                                out.push(MatchRange { start: pos, end: match_end });
+                                if out.len() >= limit {
+                                    return out;
+                                }
+                            }
                         }
                     }
                 }
             }
+            return out;
         }
-        out
+        // Truly no fixed byte at all (all-wildcard). Such patterns are
+        // extremely rare; delegate to the bounded brute-force fallback.
+        self.find_all_fallback_bruteforce(data, ranges, min_len, limit)
     }
 
     /// A required fixed needle and its constant byte distance from the pattern
@@ -896,11 +940,88 @@ impl Pattern {
         // When the literal sits behind an open/wide gap the start set explodes; a
         // full scan with its own anchor is then better. Bound the top-level probes.
         const MAX_PROBES: usize = 16_384;
-        if hints.len().saturating_mul(span + 1) > MAX_PROBES {
+        if hints.len().saturating_mul(span.saturating_add(1)) > MAX_PROBES {
             return self.find_all(data, ranges, limit);
         }
         let starts = self.collect_starts(hints.iter().map(|&h| h as usize), min_prefix, max_prefix);
         self.verify_starts(data, ranges, limit, starts.into_iter())
+    }
+
+    /// Find ANY fixed (CHAR or NOCASE) byte in the instruction stream, returning
+    /// `(instruction_offset, byte_value, is_nocase)`. Used as a SIMD anchor when
+    /// `best_anchor()` has no constant-offset run (all fixed bytes are behind a
+    /// gap/alternation). Prefers the rarest byte by a simple heuristic.
+    fn find_any_fixed_byte(&self) -> Option<(usize, u8, bool)> {
+        let mut best: Option<(usize, u8, bool, u32)> = None; // (off, byte, nocase, weight)
+        let mut sidx = 0usize;
+        for i in 0..self.instructions.len() {
+            let inst = self.instructions.get_u16(i);
+            let meta = inst & CLI_MATCH_METADATA;
+            if meta == CLI_MATCH_CHAR || meta == CLI_MATCH_NOCASE {
+                let b = (inst & 0xff) as u8;
+                let nc = meta == CLI_MATCH_NOCASE;
+                let w = byte_weight(b, nc);
+                if best.as_ref().map_or(true, |&(_, _, _, bw)| w < bw) {
+                    best = Some((i, b, nc, w));
+                }
+            } else if meta == CLI_MATCH_SPECIAL {
+                let sp = match self.specials.get(sidx) {
+                    Some(sp) => sp,
+                    None => break,
+                };
+                // Fixed-width specials don't break the search for a byte anchor
+                // (they consume a known width). Only skip variable-width ones.
+                if sp.fixed_width().is_none() {
+                    sidx += 1;
+                    continue;
+                }
+                sidx += 1;
+            }
+        }
+        best.map(|(off, b, nc, _)| (off, b, nc))
+    }
+
+    /// Brute-force verification over every position in `ranges`, bounded by
+    /// `SIG_FUEL_BUDGET`. Used as a last-resort fallback when no fixed byte
+    /// anchor is available or the prefix range is too wide for memchr anchoring.
+    fn find_all_fallback_bruteforce(
+        &self,
+        data: &[u8],
+        ranges: &[(usize, usize)],
+        min_len: usize,
+        limit: usize,
+    ) -> Vec<MatchRange> {
+        let fuel = std::cell::Cell::new(SIG_FUEL_BUDGET);
+        let mut out = Vec::new();
+        for &(start, end) in ranges {
+            let start = start.min(data.len());
+            let end = end.min(data.len());
+            if start > end {
+                continue;
+            }
+            let max_pos = end.saturating_sub(min_len).max(start);
+            for pos in start..=max_pos {
+                if fuel.get() == 0 {
+                    return out;
+                }
+                if let Some(match_end) = self.match_rec(data, pos, 0, 0, &fuel) {
+                    if self.fullword && !is_fullword(data, pos, match_end) {
+                        continue;
+                    }
+                    let c = (pos, match_end);
+                    if out.last().map(|m: &MatchRange| (m.start, m.end)) != Some(c) {
+                        out.push(MatchRange {
+                            start: pos,
+                            end: match_end,
+                        });
+                        if out.len() >= limit {
+                            return out;
+                        }
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Try to match the pattern at a specific position in data.

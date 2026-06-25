@@ -87,7 +87,10 @@ pub enum ScanView {
 
 pub(crate) struct ScanContext<'a> {
     pub data: &'a [u8],
-    pub pe: Option<PeInfo>,
+    /// PE info, parsed **lazily** on first access (the common case is a non-PE
+    /// file, so calling `parse_pe` for every object is pure waste — the quick MZ
+    /// check in the `is_pe` guard handles the "skip normalized views" decision).
+    pe: std::cell::OnceCell<Option<PeInfo>>,
     /// Target forced by a normalized view (text=7, html=3).
     pub target_hint: Option<u32>,
     /// Target derived from `.ftm` file-type magic (used only in strict mode).
@@ -111,6 +114,21 @@ pub(crate) struct ScanContext<'a> {
 }
 
 impl ScanContext<'_> {
+    /// Lazily parse (and cache) PE info. Non-PE files return `None` after a
+    /// quick magic check; PE files pay the full parse cost once on first access.
+    pub(crate) fn pe(&self) -> Option<&PeInfo> {
+        self.pe
+            .get_or_init(|| parse_pe(self.data))
+            .as_ref()
+    }
+
+    /// Fast magic-byte PE sniff (just the MZ signature) — no full parse.
+    /// Used by the top-level `scan_object` to decide whether to skip normalized
+    /// views and phishing heuristics on PE files.
+    pub(crate) fn is_pe_magic(&self) -> bool {
+        self.data.len() >= 2 && self.data[..2] == *b"MZ"
+    }
+
     /// Lazily build (and cache) this buffer's 3-gram presence filter.
     pub(crate) fn presence(&self) -> Option<&crate::presence::PresenceFilter> {
         self.presence
@@ -146,6 +164,16 @@ fn looks_like_image(d: &[u8]) -> bool {
 struct ScanState {
     matches: Vec<ScanMatch>,
     objects_seen: usize,
+}
+
+/// Reusable per-call buffers for `scan_one_logical` — the outer `scan_logical`
+/// allocates them once and passes `&mut` so the backing store is reused across
+/// every candidate, avoiding ~4 heap allocations per logical-sig evaluation.
+struct LogicalScanBufs {
+    counts: Vec<usize>,
+    last_offsets: Vec<Option<usize>>,
+    body_arenas: Vec<Vec<(usize, usize)>>,
+    evaluated: Vec<bool>,
 }
 
 impl Engine {
@@ -261,11 +289,9 @@ impl Engine {
             None
         };
 
-        let pe = parse_pe(data);
-        let is_pe = pe.is_some();
         let ctx = ScanContext {
             data,
-            pe,
+            pe: std::cell::OnceCell::new(),
             target_hint: None,
             detected_target,
             object_path,
@@ -274,6 +300,7 @@ impl Engine {
             image_fuzzy_hash: Default::default(),
             presence: Default::default(),
         };
+        let is_pe = ctx.is_pe_magic();
         self.scan_context(&ctx, options, &mut state.matches);
 
         // Normalized text/HTML views exist to catch text-like malware (scripts,
@@ -536,7 +563,7 @@ impl Engine {
         }
         let ctx = ScanContext {
             data,
-            pe: None,
+            pe: std::cell::OnceCell::new(),
             target_hint: Some(target_hint),
             detected_target: None,
             object_path,
@@ -607,13 +634,13 @@ impl Engine {
         let ranges = if is_vinfo {
             vec![(0, ctx.data.len())]
         } else {
-            signature.offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref())
+            signature.offset.scan_ranges(ctx.data.len(), ctx.pe())
         };
         if ranges.is_empty() {
             return;
         }
         let vinfo: &[u32] = if is_vinfo {
-            ctx.pe.as_ref().map(|p| p.vinfo.as_slice()).unwrap_or(&[])
+            ctx.pe().map(|p| p.vinfo.as_slice()).unwrap_or(&[])
         } else {
             &[]
         };
@@ -667,13 +694,19 @@ impl Engine {
     ) {
         // Static dispatch (mirrors scan_extended): thread the gating subsig's
         // atom offsets into its verification when available.
+        let mut bufs = LogicalScanBufs {
+            counts: Vec::new(),
+            last_offsets: Vec::new(),
+            body_arenas: Vec::new(),
+            evaluated: Vec::new(),
+        };
         match cands {
             crate::prefilter::Candidates::All => {
                 for si in 0..self.database.logical.len() {
                     if matches.len() >= options.max_matches {
                         return;
                     }
-                    self.scan_one_logical(si, None, ctx, options, matches);
+                    self.scan_one_logical(si, None, ctx, options, matches, &mut bufs);
                 }
             }
             crate::prefilter::Candidates::List(set) => {
@@ -683,7 +716,7 @@ impl Engine {
                     }
                     let hints = (!offsets.is_empty()).then_some(offsets);
                     let t = prof_enabled().then(std::time::Instant::now);
-                    self.scan_one_logical(sig as usize, hints, ctx, options, matches);
+                    self.scan_one_logical(sig as usize, hints, ctx, options, matches, &mut bufs);
                     if let Some(t) = t {
                         let ms = t.elapsed().as_millis();
                         if ms >= 50 {
@@ -706,6 +739,7 @@ impl Engine {
         ctx: &ScanContext<'_>,
         options: ScanOptions,
         matches: &mut Vec<ScanMatch>,
+        bufs: &mut LogicalScanBufs,
     ) {
         let signature = &self.database.logical[si];
         if !target_matches(signature.target, ctx, options.strict_targets) {
@@ -753,7 +787,7 @@ impl Engine {
         }
         if let Some((min, max)) = signature.nos {
             // NumberOfSections applies to PE files; without PE info it can't hold.
-            let n = match ctx.pe.as_ref() {
+            let n = match ctx.pe() {
                 Some(pe) => pe.sections.len() as u32,
                 None => return,
             };
@@ -764,7 +798,7 @@ impl Engine {
         if let Some((min, max)) = signature.ep {
             // EntryPoint compares against the PE entry point's RAW file offset
             // (ClamAV exeinfo.ep = cli_rawaddr(vep,...)); requires a parsed PE.
-            let ep = match ctx.pe.as_ref().and_then(|pe| pe.entry_point_offset) {
+            let ep = match ctx.pe().and_then(|pe| pe.entry_point_offset) {
                 Some(e) => e as u32,
                 None => return,
             };
@@ -775,7 +809,7 @@ impl Engine {
         // IconGroup1/2 (ClamAV matchicon): the PE must carry an icon matching an
         // `.idb` fingerprint in the requested groups, else the signature can't fire.
         if signature.icongrp1.is_some() || signature.icongrp2.is_some() {
-            let pe = match ctx.pe.as_ref() {
+            let pe = match ctx.pe() {
                 Some(pe) => pe,
                 None => return,
             };
@@ -792,17 +826,19 @@ impl Engine {
             }
         }
         let subsigs = &signature.subsignatures;
-        let mut counts = vec![0usize; subsigs.len()];
-        // LAST match offset of each body subsignature (ClamAV's
-        // `lsigsuboff_last[lsig][subsig]`) — byte-compare subsignatures anchor to
-        // this. ClamAV records the realoff of the latest match, so we take the max.
-        let mut last_offsets: Vec<Option<usize>> = vec![None; subsigs.len()];
-        // Matched byte ranges per body subsignature, for disinfection.
-        let mut body_arenas: Vec<Vec<(usize, usize)>> = vec![Vec::new(); subsigs.len()];
-        // Which subsignatures have a final count yet, for the phase-1 short-circuit
-        // (`LogicalExpr::can_still_match`): once an evaluated absent subsig makes
-        // the expression unsatisfiable, stop scanning the rest.
-        let mut evaluated: Vec<bool> = vec![false; subsigs.len()];
+        let n = subsigs.len();
+        bufs.counts.clear();
+        bufs.counts.resize(n, 0);
+        bufs.last_offsets.clear();
+        bufs.last_offsets.resize(n, None);
+        bufs.body_arenas.clear();
+        bufs.body_arenas.resize_with(n, Vec::new);
+        bufs.evaluated.clear();
+        bufs.evaluated.resize(n, false);
+        let counts = &mut bufs.counts;
+        let last_offsets = &mut bufs.last_offsets;
+        let body_arenas = &mut bufs.body_arenas;
+        let evaluated = &mut bufs.evaluated;
 
         // Early cutoff: evaluate the gating subsig first; if the gate is absent
         // the expression can't match, so skip every other subsig of this
@@ -831,7 +867,7 @@ impl Engine {
             if let Some(Subsignature::Body { offset, patterns }) = subsigs.get(gi) {
                 let default_offset = OffsetSpec::any();
                 let offset = offset.as_deref().unwrap_or(&default_offset);
-                let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref());
+                let ranges = offset.scan_ranges(ctx.data.len(), ctx.pe());
                 if !ranges.is_empty() {
                     let gate_hints = if g.threadable { hints } else { None };
                     let prof = prof_enabled().then(std::time::Instant::now);
@@ -892,7 +928,7 @@ impl Engine {
                 if let Some(pf) = ctx.presence() {
                     if !patterns.iter().any(|p| p.atom_maybe_present(pf)) {
                         evaluated[i] = true; // counts[i] stays 0
-                        if !signature.expression.can_still_match(&counts, &evaluated) {
+                        if !signature.expression.can_still_match(counts, evaluated) {
                             return;
                         }
                         continue;
@@ -905,7 +941,7 @@ impl Engine {
                 let base_ranges = if is_vinfo {
                     vec![(0, ctx.data.len())]
                 } else {
-                    offset.scan_ranges(ctx.data.len(), ctx.pe.as_ref())
+                    offset.scan_ranges(ctx.data.len(), ctx.pe())
                 };
                 if base_ranges.is_empty() {
                     continue;
@@ -937,7 +973,7 @@ impl Engine {
                     None,
                 );
                 if is_vinfo {
-                    let vinfo = ctx.pe.as_ref().map(|p| p.vinfo.as_slice()).unwrap_or(&[]);
+                    let vinfo = ctx.pe().map(|p| p.vinfo.as_slice()).unwrap_or(&[]);
                     arenas.retain(|&(s, _)| vinfo.binary_search(&(s as u32)).is_ok());
                     count = arenas.len();
                 }
@@ -947,7 +983,7 @@ impl Engine {
                 evaluated[i] = true;
                 // Short-circuit: if this absent subsig already makes the signature
                 // unsatisfiable (a missing AND term), skip every remaining subsig.
-                if !signature.expression.can_still_match(&counts, &evaluated) {
+                if !signature.expression.can_still_match(counts, evaluated) {
                     return;
                 }
             }
@@ -969,7 +1005,7 @@ impl Engine {
         for (i, subsig) in subsigs.iter().enumerate() {
             match subsig {
                 Subsignature::Pcre(pcre) => {
-                    if pcre.trigger.eval(&counts).matched {
+                    if pcre.trigger.eval(counts).matched {
                         // Compile the regex on first trigger (lazy — most PCREs
                         // never fire, so they stay uncompiled and cost no RAM).
                         if let Some(re) = pcre.regex.get() {
@@ -1003,7 +1039,7 @@ impl Engine {
             }
         }
 
-        if signature.expression.eval(&counts).matched {
+        if signature.expression.eval(counts).matched {
             // HandlerType (ClamAV lsig_eval): a matching signature does NOT alert.
             // Instead ClamAV re-types the file and rescans as `handlertype`. We
             // faithfully suppress the alert; the re-typed rescan would only surface
@@ -1014,7 +1050,7 @@ impl Engine {
             // A bytecode trigger does not alert on its own — it runs the ClamBC
             // program, which decides the verdict via setvirusname (cli_bytecode_runlsig).
             if let Some(bc_idx) = signature.bytecode {
-                if let Some(name) = self.run_bytecode(bc_idx, &counts, ctx) {
+                if let Some(name) = self.run_bytecode(bc_idx, counts, ctx) {
                     matches.push(ScanMatch {
                         name,
                         kind: SignatureKind::Logical,
@@ -1028,7 +1064,7 @@ impl Engine {
             }
             // Collect the matched body arenas (capped) for disinfection.
             let mut arenas: Vec<(usize, usize)> = Vec::new();
-            for sub in &body_arenas {
+            for sub in body_arenas.iter() {
                 for &range in sub {
                     if arenas.len() >= ARENA_CAP {
                         break;
@@ -1061,7 +1097,7 @@ impl Engine {
         for (i, &c) in counts.iter().take(64).enumerate() {
             bctx.lsigcnt[i] = c as u32;
         }
-        if let Some(pe) = ctx.pe.as_ref() {
+        if let Some(pe) = ctx.pe() {
             bctx.ep = pe.entry_point_offset.unwrap_or(0) as u32;
             bctx.nsections = pe.sections.len() as u16;
             bctx.sections = pe
@@ -1207,7 +1243,7 @@ fn target_matches(target: Option<u32>, ctx: &ScanContext<'_>, strict: bool) -> b
     // can; non-strict stays permissive.
     if strict {
         match want {
-            1 => ctx.pe.is_some(),
+            1 => ctx.pe().is_some(),
             3 => looks_like_html(ctx.data),
             7 => looks_like_ascii_text(ctx.data),
             _ => true,
@@ -1222,7 +1258,7 @@ fn target_matches(target: Option<u32>, ctx: &ScanContext<'_>, strict: bool) -> b
 /// cross-type mismatches); `None` when indeterminate (callers stay permissive).
 fn detect_builtin_target(ctx: &ScanContext<'_>) -> Option<u32> {
     let d = ctx.data;
-    if ctx.pe.is_some() {
+    if ctx.pe().is_some() {
         return Some(1); // CL_TYPE_MSEXE (PE)
     }
     if d.starts_with(b"\x7fELF") {
@@ -1479,33 +1515,6 @@ fn extract_script_bodies(data: &[u8]) -> Vec<u8> {
         cursor = body_end + b"</script".len();
     }
     out
-}
-
-fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
-    if needle.is_empty() {
-        return true;
-    }
-    if needle.len() > haystack.len() {
-        return false;
-    }
-    // Scan for the first byte of needle before doing the full window comparison,
-    // skipping positions that can't possibly match without comparing all bytes.
-    let first_lo = needle[0].to_ascii_lowercase();
-    let first_up = needle[0].to_ascii_uppercase();
-    let mut i = 0;
-    while i + needle.len() <= haystack.len() {
-        if haystack[i] == first_lo || haystack[i] == first_up {
-            if haystack[i..i + needle.len()]
-                .iter()
-                .zip(needle)
-                .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
-            {
-                return true;
-            }
-        }
-        i += 1;
-    }
-    false
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
