@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE};
 use windows::Win32::Storage::FileSystem::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, FlushFileBuffers, ReadFile, WriteFile,
@@ -16,52 +17,69 @@ use crate::WorkRequest;
 
 const PIPE_NAME: &str = r"\\.\pipe\HydraDragonAV_Scan";
 const PIPE_UNLIMITED_INSTANCES: u32 = 255;
-const BUF_LEN: usize = 4096;
+const BUF_BYTES: usize = 4096;
+
+fn to_wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn u16_slice_to_bytes(s: &[u16]) -> &[u8] {
+    unsafe { std::slice::from_raw_parts(s.as_ptr() as *const u8, s.len() * 2) }
+}
 
 pub fn spawn(work_tx: Sender<WorkRequest>) {
     std::thread::spawn(move || run(work_tx));
 }
 
 fn run(work_tx: Sender<WorkRequest>) {
+    let pipe_wide = to_wide(PIPE_NAME);
     loop {
-        let handle = unsafe {
+        let handle = match unsafe {
             CreateNamedPipeW(
-                windows::core::w!(PIPE_NAME),
+                PCWSTR(pipe_wide.as_ptr()),
                 PIPE_ACCESS_DUPLEX,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                 PIPE_UNLIMITED_INSTANCES,
-                BUF_LEN as u32,
-                BUF_LEN as u32,
+                BUF_BYTES as u32,
+                BUF_BYTES as u32,
                 0,
                 None,
             )
+        } {
+            Ok(h) => h,
+            Err(_) => {
+                std::thread::sleep(Duration::from_secs(1));
+                continue;
+            }
         };
-
-        if handle.is_invalid() {
-            std::thread::sleep(Duration::from_secs(1));
-            continue;
-        }
 
         unsafe {
             let connected = ConnectNamedPipe(handle, None);
-            if !connected.as_bool() && GetLastError() != ERROR_PIPE_CONNECTED {
+            let err = GetLastError();
+            if !connected.as_bool() && err != ERROR_PIPE_CONNECTED {
                 let _ = DisconnectNamedPipe(handle);
                 let _ = CloseHandle(handle);
                 continue;
             }
         }
 
-        // Read file path (null-terminated UTF-16LE)
-        let mut buf = vec![0u16; BUF_LEN / 2];
+        // Read file path bytes (UTF-16LE null-terminated)
+        let mut buf = vec![0u8; BUF_BYTES];
         let mut bytes_read = 0u32;
-        let ok = unsafe {
+        let ok = match unsafe {
             ReadFile(
                 handle,
-                buf.as_mut_ptr() as *mut _,
-                (buf.len() * 2) as u32,
-                &mut bytes_read,
+                Some(&mut buf),
+                Some(&mut bytes_read as *mut u32),
                 None,
             )
+        } {
+            Ok(b) => b,
+            Err(_) => {
+                let _ = unsafe { DisconnectNamedPipe(handle) };
+                let _ = unsafe { CloseHandle(handle) };
+                continue;
+            }
         };
 
         if !ok.as_bool() || bytes_read < 2 {
@@ -70,9 +88,11 @@ fn run(work_tx: Sender<WorkRequest>) {
             continue;
         }
 
-        let nchars = (bytes_read as usize / 2).min(buf.len());
-        let null_pos = buf[..nchars].iter().position(|&c| c == 0).unwrap_or(nchars);
-        let path_str = String::from_utf16_lossy(&buf[..null_pos]);
+        let nbytes = (bytes_read as usize).min(buf.len());
+        let u16_len = nbytes / 2;
+        let u16_buf: &[u16] = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u16, u16_len) };
+        let null_pos = u16_buf.iter().position(|&c| c == 0).unwrap_or(u16_len);
+        let path_str = String::from_utf16_lossy(&u16_buf[..null_pos]);
         let path = PathBuf::from(&path_str);
 
         // Send to worker and await response
@@ -91,15 +111,15 @@ fn run(work_tx: Sender<WorkRequest>) {
 
         let result = result_rx.recv().unwrap_or_else(|_| "Error: scan failed".to_string());
 
-        // Write result back (null-terminated UTF-16LE)
+        // Write result back (UTF-16LE null-terminated)
         let result_wide: Vec<u16> = result.encode_utf16().chain(std::iter::once(0)).collect();
+        let result_bytes = u16_slice_to_bytes(&result_wide);
         let mut written = 0u32;
         unsafe {
             let _ = WriteFile(
                 handle,
-                result_wide.as_ptr() as *const _,
-                (result_wide.len() * 2) as u32,
-                &mut written,
+                Some(result_bytes),
+                Some(&mut written as *mut u32),
                 None,
             );
             let _ = FlushFileBuffers(handle);

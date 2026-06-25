@@ -7,76 +7,77 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
-use windows::Win32::Foundation::{CloseHandle, ERROR_FILE_NOT_FOUND, GetLastError, WIN32_ERROR};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, ReadFile, WaitNamedPipeW, WriteFile, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, ReadFile, WriteFile, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 
 const PIPE_NAME: &str = r"\\.\pipe\HydraDragonAV_Scan";
-const TIMEOUT_MS: u32 = 5000;
-const BUF_LEN: usize = 4096;
+const BUF_BYTES: usize = 4096;
+
+fn to_wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
 
 /// Try to send `path` to the running GUI pipe server and get the verdict.
 /// Returns `None` when the GUI is not running (pipe unavailable).
 pub fn try_scan(path: &Path) -> Option<String> {
-    unsafe {
-        let available = WaitNamedPipeW(windows::core::w!(PIPE_NAME), TIMEOUT_MS);
-        if !available.as_bool() {
-            let err = GetLastError();
-            if err == ERROR_FILE_NOT_FOUND || err == WIN32_ERROR(258) {
-                return None;
-            }
-        }
+    let pipe_wide = to_wide(PIPE_NAME);
 
+    unsafe {
         let handle = CreateFileW(
-            windows::core::w!(PIPE_NAME),
-            FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+            PCWSTR(pipe_wide.as_ptr()),
+            (FILE_GENERIC_READ | FILE_GENERIC_WRITE).0,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             None,
             OPEN_EXISTING,
             Default::default(),
             None,
-        );
+        )
+        .ok()?;
 
-        if handle.is_invalid() {
-            return None;
-        }
-
+        // Send file path as UTF-16LE bytes
         let path_wide: Vec<u16> = OsStr::new(path.as_os_str())
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
+        let path_bytes = u16_slice_to_bytes(&path_wide);
         let mut written = 0u32;
-        let ok = WriteFile(
+        WriteFile(
             handle,
-            path_wide.as_ptr() as *const _,
-            (path_wide.len() * 2) as u32,
-            &mut written,
+            Some(path_bytes),
+            Some(&mut written as *mut u32),
             None,
-        );
-        if !ok.as_bool() {
-            let _ = CloseHandle(handle);
-            return None;
-        }
+        )
+        .ok()?;
 
-        let mut buf = vec![0u16; BUF_LEN / 2];
+        // Read response (UTF-16LE null-terminated bytes)
+        let mut buf = vec![0u8; BUF_BYTES];
         let mut bytes_read = 0u32;
-        let ok = ReadFile(
+        ReadFile(
             handle,
-            buf.as_mut_ptr() as *mut _,
-            (buf.len() * 2) as u32,
-            &mut bytes_read,
+            Some(&mut buf),
+            Some(&mut bytes_read as *mut u32),
             None,
-        );
+        )
+        .ok()?;
         let _ = CloseHandle(handle);
 
-        if !ok.as_bool() || bytes_read < 2 {
+        if bytes_read < 2 {
             return None;
         }
 
-        let nchars = (bytes_read as usize / 2).min(buf.len());
-        let null_pos = buf[..nchars].iter().position(|&c| c == 0).unwrap_or(nchars);
-        Some(String::from_utf16_lossy(&buf[..null_pos]))
+        let nbytes = (bytes_read as usize).min(buf.len());
+        let u16_len = nbytes / 2;
+        let u16_buf: &[u16] =
+            std::slice::from_raw_parts(buf.as_ptr() as *const u16, u16_len);
+        let null_pos = u16_buf.iter().position(|&c| c == 0).unwrap_or(u16_len);
+        Some(String::from_utf16_lossy(&u16_buf[..null_pos]))
     }
+}
+
+fn u16_slice_to_bytes(s: &[u16]) -> &[u8] {
+    unsafe { std::slice::from_raw_parts(s.as_ptr() as *const u8, s.len() * 2) }
 }
