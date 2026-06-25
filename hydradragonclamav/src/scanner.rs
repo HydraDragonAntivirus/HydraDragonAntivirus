@@ -430,7 +430,7 @@ impl Engine {
     ) {
         // One Aho-Corasick pass picks the candidate signatures for this buffer;
         // both phases then evaluate only those instead of all ~500k.
-        if std::env::var_os("HDA_PROF").is_some() {
+        if prof_enabled() {
             use std::time::Instant;
             let t0 = Instant::now();
             let (ext_cands, log_cands) = self.prefilter.candidates(ctx.data);
@@ -1305,19 +1305,49 @@ fn looks_like_ascii_text(data: &[u8]) -> bool {
         return false;
     }
     let sample = &data[..data.len().min(8192)];
-    let printable = sample
-        .iter()
-        .filter(|byte| matches!(**byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7e))
-        .count();
-    printable * 100 / sample.len() >= 85
+    // Fail-fast: once the non-printable count exceeds 15% of the sample we
+    // know the result without scanning the rest of the sample.
+    let threshold = sample.len() * 15 / 100 + 1;
+    let mut non_printable = 0usize;
+    for &byte in sample {
+        if !matches!(byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7e) {
+            non_printable += 1;
+            if non_printable >= threshold {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn looks_like_html(data: &[u8]) -> bool {
-    let sample_len = data.len().min(4096);
-    let sample = &data[..sample_len];
-    contains_ascii_case_insensitive(sample, b"<html")
-        || contains_ascii_case_insensitive(sample, b"<!doctype html")
-        || contains_ascii_case_insensitive(sample, b"<script")
+    let sample = &data[..data.len().min(4096)];
+    // Scan for '<' first (fast byte search), then do case-insensitive prefix
+    // comparison only at those positions. This avoids three full O(n) passes.
+    for i in 0..sample.len() {
+        if sample[i] != b'<' {
+            continue;
+        }
+        let rest = &sample[i..];
+        if rest.len() >= 5
+            && rest[1..5].eq_ignore_ascii_case(b"html")
+            && (rest.len() == 5 || !rest[5].is_ascii_alphanumeric())
+        {
+            return true; // <html
+        }
+        if rest.len() >= 14
+            && rest[1..14].eq_ignore_ascii_case(b"!doctype html")
+        {
+            return true; // <!doctype html
+        }
+        if rest.len() >= 7
+            && rest[1..7].eq_ignore_ascii_case(b"script")
+            && (rest.len() == 7 || !rest[7].is_ascii_alphanumeric())
+        {
+            return true; // <script
+        }
+    }
+    false
 }
 
 fn looks_like_supported_archive(data: &[u8]) -> bool {
@@ -1420,19 +1450,27 @@ fn strip_html_tags(data: &[u8]) -> Vec<u8> {
 }
 
 fn extract_script_bodies(data: &[u8]) -> Vec<u8> {
-    let lower = data
-        .iter()
-        .map(|byte| byte.to_ascii_lowercase())
-        .collect::<Vec<_>>();
+    // Search case-insensitively without allocating a lowercased copy of the
+    // whole buffer: use an in-place case-insensitive window search instead.
+    fn find_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        if needle.is_empty() || needle.len() > haystack.len() {
+            return None;
+        }
+        haystack.windows(needle.len()).position(|w| {
+            w.iter()
+                .zip(needle)
+                .all(|(a, b)| a.to_ascii_lowercase() == *b)
+        })
+    }
     let mut out = Vec::new();
     let mut cursor = 0;
-    while let Some(start) = find_bytes(&lower[cursor..], b"<script") {
+    while let Some(start) = find_ci(&data[cursor..], b"<script") {
         let tag_start = cursor + start;
-        let Some(tag_end_rel) = find_bytes(&lower[tag_start..], b">") else {
+        let Some(tag_end_rel) = find_bytes(&data[tag_start..], b">") else {
             break;
         };
         let body_start = tag_start + tag_end_rel + 1;
-        let Some(body_end_rel) = find_bytes(&lower[body_start..], b"</script") else {
+        let Some(body_end_rel) = find_ci(&data[body_start..], b"</script") else {
             break;
         };
         let body_end = body_start + body_end_rel;
@@ -1450,12 +1488,24 @@ fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
     if needle.len() > haystack.len() {
         return false;
     }
-    haystack.windows(needle.len()).any(|window| {
-        window
-            .iter()
-            .zip(needle)
-            .all(|(left, right)| left.to_ascii_lowercase() == right.to_ascii_lowercase())
-    })
+    // Scan for the first byte of needle before doing the full window comparison,
+    // skipping positions that can't possibly match without comparing all bytes.
+    let first_lo = needle[0].to_ascii_lowercase();
+    let first_up = needle[0].to_ascii_uppercase();
+    let mut i = 0;
+    while i + needle.len() <= haystack.len() {
+        if haystack[i] == first_lo || haystack[i] == first_up {
+            if haystack[i..i + needle.len()]
+                .iter()
+                .zip(needle)
+                .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+            {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
