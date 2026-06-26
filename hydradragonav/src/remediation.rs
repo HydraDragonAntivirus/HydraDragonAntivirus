@@ -116,6 +116,12 @@ pub enum TraceAction {
         value_name: String,
         expected_reverted_value: String,
     },
+    /// Fix a PUM file entry: clear or repair the file (e.g. remove non-comment
+    /// lines from the hosts file). `action` describes the repair operation.
+    FixPumFile {
+        path: PathBuf,
+        action: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -160,9 +166,7 @@ impl Target {
     }
 }
 
-/// Find all traces of `malware` across registry, services, tasks, prefetch and
-/// startup. Read-only.
-/// Create a fix action from a PUM registry entry.
+/// Create a fix action from a PUM entry (registry or file).
 pub fn fix_pum(entry: &RegistryEntry) -> Option<Trace> {
     if !entry.pum {
         return None;
@@ -170,6 +174,19 @@ pub fn fix_pum(entry: &RegistryEntry) -> Option<Trace> {
     let expected = entry.expected_reverted_value.as_deref()?;
     if expected.is_empty() {
         return None;
+    }
+    if entry.hive == "FILE" {
+        return Some(Trace {
+            category: "pum_file",
+            description: format!(
+                "{} / {} -> {expected}",
+                entry.path, entry.value_name
+            ),
+            action: TraceAction::FixPumFile {
+                path: entry.path.clone().into(),
+                action: expected.to_string(),
+            },
+        });
     }
     Some(Trace {
         category: "pum_registry",
@@ -264,6 +281,28 @@ pub fn apply(trace: &Trace, quarantine_dir: &Path) -> Result<String, String> {
             let r2 = fix_registry::restore_acl(hive_label, subkey)?;
             let r3 = takeown::takeown_registry_key(hive_label, subkey)?;
             Ok(format!("{r1}; {r2}; {r3}"))
+        }
+        TraceAction::FixPumFile { path, action } => {
+            match action.as_str() {
+                "clear_non_comment_lines" => {
+                    let content = std::fs::read_to_string(path)
+                        .map_err(|e| format!("read {}: {e}", path.display()))?;
+                    let cleaned: Vec<&str> = content
+                        .lines()
+                        .map(|l| l.trim())
+                        .filter(|l| l.is_empty() || l.starts_with('#'))
+                        .collect();
+                    let output = if cleaned.is_empty() {
+                        String::new()
+                    } else {
+                        cleaned.join("\r\n") + "\r\n"
+                    };
+                    std::fs::write(path, &output)
+                        .map_err(|e| format!("write {}: {e}", path.display()))?;
+                    Ok(format!("cleared non-comment lines from {}", path.display()))
+                }
+                _ => Err(format!("unknown file PUM action: {action}")),
+            }
         }
         TraceAction::ManualReview => {
             Err("manual review required; not removed automatically".into())

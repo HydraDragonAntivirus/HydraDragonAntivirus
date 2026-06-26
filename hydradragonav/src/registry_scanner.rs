@@ -341,28 +341,13 @@ static HDS_RULES: OnceLock<Option<RuleSet>> = OnceLock::new();
 fn load_hydradragonsig_rules(rules_dir: &Path) -> Option<RuleSet> {
     HDS_RULES
         .get_or_init(|| {
-            let mut rules = RuleSet::empty();
-            let main_file = rules_dir.join("rules.yaml");
-            if main_file.exists() {
-                if let Ok(rs) = RuleSet::from_yaml_file(&main_file) {
-                    rules.extend(rs);
+            let reg_file = rules_dir.join("reg_rules.yaml");
+            if reg_file.exists() {
+                if let Ok(rs) = RuleSet::from_yaml_file(&reg_file) {
+                    return Some(rs);
                 }
             }
-            // Load scan_rules.yaml (master index); fall back to pum_rules.yaml for compat
-            let scan_file = rules_dir.join("scan_rules.yaml");
-            if scan_file.exists() {
-                if let Ok(rs) = RuleSet::from_yaml_file(&scan_file) {
-                    rules.extend(rs);
-                }
-            } else {
-                let pum_file = rules_dir.join("pum_rules.yaml");
-                if pum_file.exists() {
-                    if let Ok(rs) = RuleSet::from_yaml_file(&pum_file) {
-                        rules.extend(rs);
-                    }
-                }
-            }
-            Some(rules)
+            None
         })
         .clone()
 }

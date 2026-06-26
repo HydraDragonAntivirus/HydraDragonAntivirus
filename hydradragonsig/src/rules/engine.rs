@@ -571,6 +571,14 @@ fn evaluate_rule(
         }
     }
 
+    // Path filter: if the rule specifies a required path, skip files that
+    // don't match. Supports %VAR% environment-variable placeholders.
+    if let Some(ref required) = rule.required_path {
+        if !path_matches_required(&report.path, required) {
+            return None;
+        }
+    }
+
     match rule.logic {
         RuleLogic::Any => {
             for cond in &rule.conditions {
@@ -2450,6 +2458,31 @@ pub fn aggregate_verdict(report: &mut ScanReport) {
         }
     }
     report.malware_families = families;
+}
+
+/// Resolve `%VAR%` environment-variable placeholders in a path template.
+fn resolve_path_template(template: &str) -> String {
+    let mut result = template.to_string();
+    while let Some(start) = result.find('%') {
+        let end = result[start + 1..].find('%').map(|p| start + 1 + p + 1);
+        let Some(end) = end else { break };
+        let var = &result[start + 1..end - 1];
+        if let Ok(val) = std::env::var(var) {
+            result.replace_range(start..end, &val);
+        } else {
+            break;
+        }
+    }
+    result
+}
+
+/// Check whether `actual_path` matches the `required` path template.
+/// Supports `%VAR%` placeholders. Comparison is case-insensitive on Windows.
+fn path_matches_required(actual_path: &std::path::Path, required: &str) -> bool {
+    let resolved = resolve_path_template(required);
+    let resolved = resolved.replace('/', "\\").trim_end_matches('\\').to_string();
+    let actual = actual_path.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_string();
+    actual.eq_ignore_ascii_case(&resolved)
 }
 
 #[allow(dead_code)]

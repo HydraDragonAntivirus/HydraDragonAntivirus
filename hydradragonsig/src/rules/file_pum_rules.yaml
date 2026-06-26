@@ -19,6 +19,7 @@ rules:
     detection:
       check: non_comment_lines
       min_lines: 1
+    expected_reverted_value: "clear_non_comment_lines"
     tags:
       - pum
       - hosts

@@ -34,7 +34,7 @@ impl Default for ScanOptions {
     fn default() -> Self {
         Self {
             strict_targets: false,
-            max_matches: 128,
+            max_matches: 1,
             max_subsignature_matches: 4096,
             scan_archives: true,
             scan_normalized: true,

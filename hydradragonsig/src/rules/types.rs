@@ -77,6 +77,13 @@ pub struct Rule {
     /// `None` = all file types. Populated automatically during loading.
     #[serde(skip)]
     pub required_types: Option<Vec<String>>,
+
+    /// If set, only evaluate this rule when the scanned file's path matches
+    /// this template. Supports `%VAR%` environment-variable placeholders
+    /// (e.g. `%SystemRoot%\\System32\\drivers\\etc\\hosts`).
+    /// YAML key: `file_path`.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "file_path")]
+    pub required_path: Option<String>,
 }
 
 impl Rule {

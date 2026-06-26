@@ -400,15 +400,9 @@ impl Pipeline {
         let load_hds = move || {
             let dir = hydradragonsig_rules_dir.as_ref().filter(|p| p.exists())?;
             let mut rules = RuleSet::empty();
-            let rules_file = dir.join("rules.yaml");
+            let rules_file = dir.join("file_rules.yaml");
             if rules_file.exists() {
                 if let Ok(loaded) = RuleSet::from_yaml_file(&rules_file) {
-                    rules.extend(loaded);
-                }
-            }
-            let trusted_file = dir.join("trusted_signers.yaml");
-            if trusted_file.exists() {
-                if let Ok(loaded) = RuleSet::from_yaml_file(&trusted_file) {
                     rules.extend(loaded);
                 }
             }

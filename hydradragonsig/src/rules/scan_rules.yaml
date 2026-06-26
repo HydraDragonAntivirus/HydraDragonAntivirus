@@ -1,9 +1,0 @@
-name: Scan Rules — Master Index
-version: "1.0"
-# Master scan rule index. The engine loads this file which uses !include to
-# pull in all category-specific rule files for Files, Memory, Registry, Sigma,
-# and PUM detection.
-
-!include rules.yaml
-!include pum_rules.yaml
-!include ransomware_rules.yaml

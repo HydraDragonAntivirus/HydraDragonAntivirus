@@ -26,6 +26,8 @@ pub struct FilePumRule {
     pub score: u32,
     pub file_path: String,
     pub detection: FilePumDetection,
+    #[serde(default)]
+    pub expected_reverted_value: Option<String>,
     pub tags: Vec<String>,
     pub mitre: Vec<FilePumMitre>,
 }
@@ -122,7 +124,7 @@ pub fn scan_file_pums(
                 pua_match: false,
                 static_match: true,
                 pum: true,
-                expected_reverted_value: None,
+                expected_reverted_value: rule.expected_reverted_value.clone(),
                 threat_name: rule.family.clone().or(Some(format!("PUM.{}", rule.id))),
                 detail,
             });
