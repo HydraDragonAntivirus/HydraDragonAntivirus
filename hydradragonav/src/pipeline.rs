@@ -60,6 +60,10 @@ pub struct PipelineConfig {
     pub clamav_heuristics: bool,
     pub time_engines: bool,
     pub fast_scan: bool,
+    /// Per-file scan time budget in milliseconds. If the elapsed time processing
+    /// a file exceeds this, the remaining expensive engine stages (ClamAV, YARA-X)
+    /// are skipped and the file is returned as Clean. Default 60 000 (1 minute).
+    pub per_file_timeout_ms: u64,
     /// Skip files whose type isn't a recognised ClamAV/hydradragonsig file type
     /// (opaque binary data). Default on — a big speed win on full-disk scans.
     pub skip_unknown_types: bool,
@@ -111,6 +115,7 @@ impl Default for PipelineConfig {
             clamav_heuristics: false,
             time_engines: false,
             fast_scan: true,
+            per_file_timeout_ms: 300_000,
             skip_unknown_types: true,
             results_cache_dir: None,
             excluded_dirs: Vec::new(),
@@ -918,6 +923,7 @@ impl Pipeline {
         let mut yara_x_matches = Vec::new();
         let mut clamav_result = None;
         let mut static_file_type: Option<FileTypeInfo> = None;
+        let file_start = Instant::now();
 
         // Cooperative cancellation: if the host set the flag (GUI Stop), bail out
         // between engine stages and return whatever ran so far as Clean. The caller
@@ -925,6 +931,33 @@ impl Pipeline {
         macro_rules! bail_if_cancelled {
             () => {
                 if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    return ScanResult {
+                        verdict: Verdict::Clean,
+                        threat_name: None,
+                        engines,
+                        yara_x_matches,
+                        ml_malware_probability: None,
+                        clamav_result,
+                    };
+                }
+            };
+        }
+
+        // Per-file timeout: skip expensive engine stages (ClamAV, YARA-X) when
+        // the file has already consumed the budget, so a single pathological file
+        // can't stall the scan for minutes.
+        macro_rules! bail_if_timeout {
+            () => {
+                if file_start.elapsed().as_millis() as u64 >= self.config.per_file_timeout_ms {
+                    engines.push(EngineResult {
+                        engine: "timeout",
+                        verdict: Verdict::Clean,
+                        detail: format!(
+                            "skipped: per-file timeout ({} ms)",
+                            self.config.per_file_timeout_ms
+                        ),
+                        elapsed_ms: None,
+                    });
                     return ScanResult {
                         verdict: Verdict::Clean,
                         threat_name: None,
@@ -1035,6 +1068,7 @@ impl Pipeline {
         }
 
         bail_if_cancelled!();
+        bail_if_timeout!();
         // --- 3. STATIC RULES ---
         let t0 = Instant::now();
         match &self.hydradragonsig_rules {
@@ -1185,6 +1219,7 @@ impl Pipeline {
         }
 
         bail_if_cancelled!();
+        bail_if_timeout!();
         // --- 5. CLAMAV ---
         if let Some(ref clamav) = self.clamav {
             let t0 = Instant::now();
@@ -1250,6 +1285,7 @@ impl Pipeline {
         }
 
         bail_if_cancelled!();
+        bail_if_timeout!();
         // --- 7. YARA-X (final confirmation) ---
         // DetectItEasy is run lazily only when YARA-X produces a detection, since
         // its only consumer is the yara-only-unknown-binary suppression check.
