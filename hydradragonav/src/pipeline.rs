@@ -1459,7 +1459,7 @@ impl Pipeline {
         let Some(ref scanner) = self.hash_scanner else {
             return arenas;
         };
-        if data.len() > 1_048_576 {
+        if data.len() > (self.config.max_file_size * 1024 * 1024) as usize {
             return arenas;
         }
         let bloom = scanner.bloom();
