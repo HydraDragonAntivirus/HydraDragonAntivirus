@@ -1,0 +1,4 @@
+# Registry-specific detection rules
+# Only load when scanning for registry indicators with --rules registry_rules.yaml
+
+!include reglist_pua.yaml

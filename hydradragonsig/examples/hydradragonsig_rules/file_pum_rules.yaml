@@ -1,0 +1,30 @@
+name: File PUM Modification Rules
+version: "1.0"
+# Potentially Unwanted Modifications (PUM) detected through file content
+# inspection — system text files that malware tampers with to impair
+# defenses, redirect traffic, or interfere with security tools.
+rules:
+  - id: PUM_FILE_0001
+    title: "HostsFile — Non-comment entries in hosts file"
+    description: >
+      The hosts file contains entries that are not comments (not starting with #).
+      Malware adds redirects here to block security updates or redirect
+      legitimate domains to malicious IPs.
+    severity: medium
+    verdict: pua
+    confidence: 70
+    family: PUM.HostsFile
+    score: 35
+    file_path: "%SystemRoot%\\System32\\drivers\\etc\\hosts"
+    detection:
+      check: non_comment_lines
+      min_lines: 1
+    tags:
+      - pum
+      - hosts
+      - network
+      - dns
+    mitre:
+      - id: T1562
+        name: Impair Defenses
+        tactic: Defense Evasion

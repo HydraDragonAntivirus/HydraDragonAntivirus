@@ -1785,6 +1785,8 @@ pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<HayabusaMatch> {
             "csv-timeline",
             "--no-wizard",
             "--quiet",
+            "--timerange",
+            "ALL",
             "--directory",
             &evtx_dir.to_string_lossy(),
             "--rules",

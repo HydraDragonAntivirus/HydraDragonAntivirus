@@ -1,0 +1,782 @@
+name: HydraDragonSig Trusted Signer Rules
+version: "1"
+rules:
+  - id: trusted-signer-001
+    title: "Trusted Software Publishers"
+    description: "Files signed by known trusted software publishers"
+    severity: low
+    verdict: trusted
+    confidence: 99
+    score: 0
+    tags:
+      - trusted-signer
+    logic: any
+    conditions:
+      - type: signature_signer_contains
+        value: "1C Company"
+        nocase: true
+      - type: signature_signer_contains
+        value: "360.cn"
+        nocase: true
+      - type: signature_signer_contains
+        value: "ABBYY PRODUCTION LLC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "ABBYY Software House"
+        nocase: true
+      - type: signature_signer_contains
+        value: "ABBYY SOLUTIONS LIMITED"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Abelssoft - Ascora GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "AccessData Group LLC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Acer Incorporated"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Acronis International GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Acronis, Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Adobe Systems Incorporated"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Adobe Systems, Incorporated"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Advanced Micro Devices, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "AhnLab, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Alexander Roshal"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Alienware Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "ALWIL Software"
+        nocase: true
+      - type: signature_signer_contains
+        value: "AMD PMP-PE CB Code Signer v20130304"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Andrey Borodin"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Apple Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "ArcSoft, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "ASCON JSC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Ascora GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Ashampoo GmbH & Co. KG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "ASUSTeK Computer Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Atheros Communications"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Atheros Communications Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "ATI Technologies, Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Audials AG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Auslogics Labs Pty Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Auslogics Software"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Auslogics Software Pty Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "AuthenTec, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Autodesk Development Sarl"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Autodesk, Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Autodesk, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "AVAST Software"
+        nocase: true
+      - type: signature_signer_contains
+        value: "AVAST Software a.s."
+        nocase: true
+      - type: signature_signer_contains
+        value: "AVG Netherlands B.V."
+        nocase: true
+      - type: signature_signer_contains
+        value: "AVG Technologies"
+        nocase: true
+      - type: signature_signer_contains
+        value: "AVG Technologies CZ, s.r.o."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Avid Technology, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Avira Operations GmbH & Co. KG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Baidu (China) Co., Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Baidu Online Network Technology (Beijing)Co., Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "BEIJING KUWO TECHNOLOGY CO.,LTD."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Beijing baidu Netcom science and technology co.ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Beijing Baofeng Technology Co., Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Beijing Kingsoft Security software Co.,Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Bentley Systems, Incorporated"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Big Fish Games"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Bioscrypt, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Bitdefender SRL"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Bitsum LLC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Broadcom Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Buhl Data Service GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "BullGuard Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Business Objects Americas"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Check Point Software Technologies Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "CHENGDU YIWO Tech Development Co., Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Cimatron Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Cisco WebEx LLC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Citrix Systems, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Comodo"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Comodo Security Solutions"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Comodo Security Solutions, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Corel Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "COREL TW CORP."
+        nocase: true
+      - type: signature_signer_contains
+        value: "CyberLink"
+        nocase: true
+      - type: signature_signer_contains
+        value: "CyberLink Corp."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Dashlane"
+        nocase: true
+      - type: signature_signer_contains
+        value: "DASSAULT SYSTEMES SA"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Dassault Systemes SolidWorks Corp."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Dell Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Dell Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Developer Express Incorporated"
+        nocase: true
+      - type: signature_signer_contains
+        value: "DigitalPersona, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Doctor Web Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Dritek System Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Dropbox"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Dropbox, Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "DVDVideoSoft Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "ELAN Microelectronics Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Electronic Arts"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Embarcadero Technologies Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Emsisoft GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Emurasoft, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Epic Games Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "EPLAN Software & Service GmbH & Co. KG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "ESET, spol. s r.o."
+        nocase: true
+      - type: signature_signer_contains
+        value: "ESTsoft Corp."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Even Balance, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "FileMaker, Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "F-Secure Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "G DATA Software AG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Garena Online Pte Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Garmin International, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Gladinet, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Glarysoft Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Google Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Google Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Haufe-Lexware GmbH & Co. KG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Hewlett Packard"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Hewlett-Packard Company"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Huawei Technologies Co., Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "IBM Canada Limited"
+        nocase: true
+      - type: signature_signer_contains
+        value: "IBM UK Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "IBM United Kingdom Limited"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Intel Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Intel Corporation - Business Client Platform Division"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Intel Wireless Display"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Intel(R) Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Intel(R) Software Products"
+        nocase: true
+      - type: signature_signer_contains
+        value: "International Business Machines Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Intervideo, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Intuit, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "IObit Information Technology"
+        nocase: true
+      - type: signature_signer_contains
+        value: "IVT CORPORATION"
+        nocase: true
+      - type: signature_signer_contains
+        value: "iAnywhere Solutions, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "iolo technologies, LLC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Jaksta Technologies Pty Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Jernej Simoncic"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Jernej Simončič - Open Source Developer"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Juniper Networks, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Kardo Krystal"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Kaspersky Lab"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Keen Software House a.s."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Kingsoft Security Co.,Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "lamantine software a.s."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Lavasoft Limited"
+        nocase: true
+      - type: signature_signer_contains
+        value: "LEAD Technologies, Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "LENOVO"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Lenovo (Beijing) Limited"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Lenovo Information Products (Shenzhen) Co.,Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "LENOVO(JAPAN)LTD."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Lexmark International, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Logitech"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Logitech Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "LogMeIn, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Logos Bible Software"
+        nocase: true
+      - type: signature_signer_contains
+        value: "LULU SOFTWARE LIMITED"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Malware Bytes Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "MalwareBytes Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "McAfee, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Memeo Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Mentor Graphics Corp"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Microsoft Corp."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Microsoft Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "MicroWorld Technologies Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Mindjet"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Mozilla Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "MPC-HC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "MPC-HC - Open Source Developer"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Murray Hurps Software Pty Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "muvee Technologies Pte Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "MyPlayCity Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Mysecuritywin"
+        nocase: true
+      - type: signature_signer_contains
+        value: "National Instruments Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Nero AG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "NetCrawl"
+        nocase: true
+      - type: signature_signer_contains
+        value: "NewTech Infosystems, Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "NHN corp."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Nitro PDF Software"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Nuance Communications, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "NVIDIA Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "O&O Software GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Open-source development"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Opera Software ASA"
+        nocase: true
+      - type: signature_signer_contains
+        value: "OPSWAT, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Oracle America, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Oracle Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Panda Security S.L"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Paragon Software GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Parallels, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Paresec"
+        nocase: true
+      - type: signature_signer_contains
+        value: "PC Tools"
+        nocase: true
+      - type: signature_signer_contains
+        value: "PC-Doctor, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Pinnacle Systems, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Piriform Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "PokerStrategy.com Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "PPLive Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Qihoo 360 Software (Beijing) Company Limited"
+        nocase: true
+      - type: signature_signer_contains
+        value: "QNAP Systems, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Qualcomm Atheros"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Quick Heal Technologies (Pvt) Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "RapidSolution Software AG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "RealNetworks, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Realtek Semiconductor Corp"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Research In Motion"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Rockwell Automation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Rovi"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sage Software, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "SAMSUNG ELECTRONICS CO.,LTD."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Samsung Electronics CO., LTD."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sandboxie Holding, LLC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sandboxie Holdings, LLC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "SAP AG"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Seagull Scientific, Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Secure By Design Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Serif (Europe) Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "ShenZhen Thunder Networking Technologies Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Shenzhen Wondershare Information Technology Co., Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Siber Systems Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Skype Technologies S.A"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Slimware Utilities, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sogou.com"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sonic Solutions"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sony Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sony Creative Software Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sophos Limited"
+        nocase: true
+      - type: signature_signer_contains
+        value: "SPSS Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Star Finanz - Software Entwicklung und Vertriebs GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sun Microsystems, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "SurfRIght B.V"
+        nocase: true
+      - type: signature_signer_contains
+        value: "SurfRight B.V"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Symantec Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Synaptics Incorporated"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Sysinternal - www.sysinternals.com"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Tableau Software Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "TaoBao(china) Software Co., Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Taukonsalt OOO"
+        nocase: true
+      - type: signature_signer_contains
+        value: "TeamViewer"
+        nocase: true
+      - type: signature_signer_contains
+        value: "TeamViewer GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "TechSmith Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Tencent Technology(Shenzhen) Company Limited"
+        nocase: true
+      - type: signature_signer_contains
+        value: "The Document Foundation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "THOMSON REUTERS GROUP LIMITED"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Tonec Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "TOSHIBA CORPORATION"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Total Defense, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Tracker Software Products (Canada) Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "TradeStation Technologies"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Trend Micro, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Trusteer"
+        nocase: true
+      - type: signature_signer_contains
+        value: "TuneUp Software"
+        nocase: true
+      - type: signature_signer_contains
+        value: "TuneUp Software GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Ulead Systems, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "UPEK Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Valve"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Valve Corp."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Valve Corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "VIA Technologies Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Virfree"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Virfree Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "VMware, Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "WebEx Communications Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "WildTangent Inc"
+        nocase: true
+      - type: signature_signer_contains
+        value: "win.rar GmbH"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Wondershare Software Co., Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "xilisoft corporation"
+        nocase: true
+      - type: signature_signer_contains
+        value: "Xvirus"
+        nocase: true
+      - type: signature_signer_contains
+        value: "YANDEX LLC"
+        nocase: true
+      - type: signature_signer_contains
+        value: "YY Inc."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Zemana Ltd."
+        nocase: true
+      - type: signature_signer_contains
+        value: "Zhuhai Kingsoft Office Software Co.,Ltd"
+        nocase: true
+      - type: signature_signer_contains
+        value: "ZTE CORPORATION"
+        nocase: true

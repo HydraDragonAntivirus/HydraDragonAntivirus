@@ -1,0 +1,13 @@
+name: HydraDragonAV Main Rules
+version: "1.0"
+# Main rule file loaded by the pipeline from hydradragonsig_rules/.
+# Pulls in the heuristic (MVM) rules and all existing rule files.
+
+!include heuristic_rules.yaml
+!include trusted_signers.yaml
+!include ransomware_rules.yaml
+!include registry_rules.yaml
+!include file_pum_rules.yaml
+!include pum_registry_rules.yaml
+!include pua_vendors.yaml
+!include malicious_vendors.yaml

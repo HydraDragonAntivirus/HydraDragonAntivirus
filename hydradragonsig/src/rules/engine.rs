@@ -247,9 +247,8 @@ impl RuleSet {
                             }
                             Err(e) => {
                                 eprintln!(
-                                    "[HydraDragonSig] Warning: Failed to load include {}: {}",
+                                    "[HydraDragonSig] Warning: Failed to load include {}: {e:#}",
                                     include_path.display(),
-                                    e
                                 );
                             }
                         }

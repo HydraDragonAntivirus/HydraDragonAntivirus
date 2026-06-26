@@ -486,6 +486,10 @@ struct AppState {
     scan_threat: Vec<String>,
     /// Parallel to scan_rows: the chosen per-row action (ACT_*). Drives "Apply".
     scan_action: Vec<u8>,
+    /// Titles of Hayabusa detections already shown to the user. Once a Hayabusa
+    /// result has been emitted it is stored here so it won't reappear on subsequent
+    /// scans (prevents alert fatigue from the same event-log rule).
+    hayabusa_seen: std::collections::HashSet<String>,
     /// `%WINDIR%` lowercased, cached for the default-action check.
     windir: String,
     /// When true, show scan option checkboxes (Registry / Memory / Sigma) + Start button
@@ -553,6 +557,7 @@ fn print_help() {
     println!("    --pe-ml-model <PATH>           PE ML model file");
     println!("    --js-ml-model <PATH>           JS ML model file");
     println!("    --ml-threshold <FLOAT>         ML detection threshold (default: 0.95)");
+    println!("    --time-engines                 Time individual scan engines");
     println!();
     println!("SUPPORTED ENVIRONMENT VARIABLES:");
     println!("    CLAMAV_DATABASE       ClamAV database directory");
@@ -563,6 +568,7 @@ fn print_help() {
     println!("    PE_ML_MODEL_PATH      PE ML model file");
     println!("    JS_ML_MODEL_PATH      JS ML model file");
     println!("    ML_THRESHOLD          ML detection threshold (default: 0.95)");
+    println!("    HDAV_TIME_ENGINES     Time individual scan engines (set to 1)");
 }
 
 fn main() {
@@ -588,6 +594,7 @@ fn main() {
             "--pe-ml-model" => if let Some(v) = args.next() { unsafe { std::env::set_var("PE_ML_MODEL_PATH", v); } }
             "--js-ml-model" => if let Some(v) = args.next() { unsafe { std::env::set_var("JS_ML_MODEL_PATH", v); } }
             "--ml-threshold" => if let Some(v) = args.next() { unsafe { std::env::set_var("ML_THRESHOLD", v); } }
+            "--time-engines" => unsafe { std::env::set_var("HDAV_TIME_ENGINES", "1"); }
             _ => {
                 eprintln!("Unknown option: {a}");
                 eprintln!("Use --help for usage.");
@@ -922,6 +929,7 @@ unsafe fn on_create(hwnd: HWND) {
         scan_verdict: Vec::new(),
         scan_threat: Vec::new(),
         scan_action: Vec::new(),
+        hayabusa_seen: std::collections::HashSet::new(),
         windir: windir_lc(),
         scan_option_mode: false,
         opt_cats: 0,
@@ -3332,6 +3340,11 @@ unsafe fn drain_results(hwnd: HWND) {
         changed = true;
         match m {
             ScanMsg::Row { file, verdict, threat, sev } => {
+                // Dedup Hayabusa results: if we've already shown this Sigma rule
+                // title in a previous scan, skip it to avoid alert fatigue.
+                if verdict == "Sigma" && !s.hayabusa_seen.insert(threat.clone()) {
+                    continue;
+                }
                 let path = PathBuf::from(&file);
                 // Registry/memory/etc. rows aren't files, so they can't have a
                 // file action — mark them Ignore (informational only).
@@ -4861,6 +4874,9 @@ fn default_config() -> PipelineConfig {
     }
     if let Some(mb) = settings.max_bloat_mb {
         cfg.max_bloat_mb = mb;
+    }
+    if std::env::var("HDAV_TIME_ENGINES").as_deref() == Ok("1") {
+        cfg.time_engines = true;
     }
     cfg
 }

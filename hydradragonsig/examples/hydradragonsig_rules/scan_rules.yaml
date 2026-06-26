@@ -1,0 +1,5 @@
+!include malicious_vendors.yaml
+!include pua_vendors.yaml
+!include trusted_signers.yaml
+!include ransomware_rules.yaml
+!include heuristic_rules.yaml
