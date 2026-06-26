@@ -4379,7 +4379,7 @@ fn run_streaming(
                 if abort.load(Ordering::Relaxed) {
                     break;  // Stop — discard remaining, don't re-enqueue
                 }
-                let dir = { dirs_ref.lock().unwrap().pop_front() };
+                let dir = { dirs_ref.lock().unwrap_or_else(|e| e.into_inner()).pop_front() };
                 let Some(dir) = dir else { break };
                 let Ok(rd) = std::fs::read_dir(&dir) else { continue };
                 for entry in rd.flatten() {
@@ -4388,17 +4388,17 @@ fn run_streaming(
                     }
                     if cancel.load(Ordering::Relaxed) {
                         // Re-walk this dir on Resume (dedup makes re-enqueue cheap).
-                        dirs_ref.lock().unwrap().push_front(dir);
+                        dirs_ref.lock().unwrap_or_else(|e| e.into_inner()).push_front(dir);
                         break 'walk;
                     }
                     let path = entry.path();
                     match entry.file_type() {
                         Ok(ft) if ft.is_dir() => {
-                            dirs_ref.lock().unwrap().push_back(path);
+                            dirs_ref.lock().unwrap_or_else(|e| e.into_inner()).push_back(path);
                         }
                         Ok(ft) if ft.is_file() => {
                             if entry.metadata().map(|m| m.len() >= 12).unwrap_or(false) {
-                                files_ref.lock().unwrap().push_back(path);
+                                files_ref.lock().unwrap_or_else(|e| e.into_inner()).push_back(path);
                                 discovered_ref.fetch_add(1, Ordering::Relaxed);
                             }
                         }
@@ -4418,7 +4418,7 @@ fn run_streaming(
                     if cancel.load(Ordering::Relaxed) {
                         break;
                     }
-                    let next = { files_ref.lock().unwrap().pop_front() };
+                    let next = { files_ref.lock().unwrap_or_else(|e| e.into_inner()).pop_front() };
                     let Some(file) = next else {
                         if done_ref.load(Ordering::Relaxed) {
                             break; // discovery finished and queue drained
@@ -4494,8 +4494,8 @@ fn run_streaming(
     });
 
     // Save remaining work back for a possible Resume (empty if completed).
-    sess.dirs = std::mem::take(&mut *dirs.lock().unwrap());
-    sess.queue = std::mem::take(&mut *files.lock().unwrap());
+    sess.dirs = std::mem::take(&mut *dirs.lock().unwrap_or_else(|e| e.into_inner()));
+    sess.queue = std::mem::take(&mut *files.lock().unwrap_or_else(|e| e.into_inner()));
     sess.scanned = scanned.load(Ordering::Relaxed);
     sess.threats = threats.load(Ordering::Relaxed);
     sess.discovered = discovered.load(Ordering::Relaxed);
