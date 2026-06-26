@@ -970,9 +970,24 @@ impl Pipeline {
             };
         }
 
+        // Stage profiling — prints to stderr so it's visible even without --time-engines.
+        let mut _stage_t0 = Instant::now();
+        macro_rules! stage_start {
+            () => {
+                _stage_t0 = Instant::now();
+            };
+        }
+        macro_rules! stage_end {
+            ($name:expr) => {
+                eprintln!("[STAGE] {}: {}ms", $name, _stage_t0.elapsed().as_millis());
+                _stage_t0 = Instant::now();
+            };
+        }
+
         // --- 1. HASH SCANNER (single bloom: md5/sha1/sha256/ssdeep/tlsh) ---
         // Old-style: every signature type sits in one bloom and is matched by
         // exact membership; the matched hash type is reported in the detail.
+        stage_start!();
         if let Some(ref scanner) = self.hash_scanner {
             let t0 = Instant::now();
             let (result, which) = scanner.scan_all_buffer(data, &hex::encode(md5));
@@ -1009,6 +1024,7 @@ impl Pipeline {
             }
         }
 
+        stage_end!("hash_scanner");
         bail_if_cancelled!();
         // Classify the file ONCE (reused by ML + static analysis below). When
         // `skip_unknown_types` is on (default), files whose type isn't a recognised
@@ -1038,6 +1054,7 @@ impl Pipeline {
         bail_if_cancelled!();
         // --- 2. ML INFERENCE ---
         // Each model only runs on its own type (the JS model must NOT see XML/HTML/text).
+        stage_start!();
         let t0 = Instant::now();
         let ml_verdict =
             self.run_ml_inference_bytes(data, ml_file_type.is_pe, ml_file_type.is_javascript);
@@ -1067,9 +1084,11 @@ impl Pipeline {
             }
         }
 
+        stage_end!("ml");
         bail_if_cancelled!();
         bail_if_timeout!();
         // --- 3. STATIC RULES ---
+        stage_start!();
         let t0 = Instant::now();
         match &self.hydradragonsig_rules {
             Some(rules) => {
@@ -1156,10 +1175,12 @@ impl Pipeline {
             }
         }
 
+        stage_end!("hydradragonsig");
         bail_if_cancelled!();
         // --- 5. URL / PHISHING BLOOM CHECK ---
         // Reads raw bytes and extracts printable ASCII strings (like `strings` utility)
         // so URLs embedded in PE/binary files are also found, not just text files.
+        stage_start!();
         if let Some(ref scanner) = self.hash_scanner {
             let bloom = scanner.bloom();
             let t0 = Instant::now();
@@ -1218,9 +1239,11 @@ impl Pipeline {
             }
         }
 
+        stage_end!("url_bloom");
         bail_if_cancelled!();
         bail_if_timeout!();
         // --- 5. CLAMAV ---
+        stage_start!();
         if let Some(ref clamav) = self.clamav {
             let t0 = Instant::now();
             match clamav.scan_bytes(data) {
@@ -1284,11 +1307,13 @@ impl Pipeline {
             }
         }
 
+        stage_end!("clamav");
         bail_if_cancelled!();
         bail_if_timeout!();
         // --- 7. YARA-X (final confirmation) ---
         // DetectItEasy is run lazily only when YARA-X produces a detection, since
         // its only consumer is the yara-only-unknown-binary suppression check.
+        stage_start!();
         if self.yara_rules.is_empty() {
             engines.push(EngineResult {
                 engine: "yara_x",
@@ -1401,6 +1426,7 @@ impl Pipeline {
             }
         }
 
+        stage_end!("yara_x");
         let engine_verdicts: Vec<Verdict> = engines.iter().map(|e| e.verdict).collect();
         let final_verdict = Verdict::aggregate(&engine_verdicts);
 
@@ -1597,7 +1623,7 @@ impl Pipeline {
         if let Some(ref scanner) = self.hash_scanner {
             let bloom = scanner.bloom();
             let t0 = Instant::now();
-            if data.len() <= 1_048_576 {
+            if data.len() <= (self.config.max_file_size * 1024 * 1024) as usize {
                 let urls = extract_urls_from_bytes(data);
                 let mut phishing_urls: Vec<String> = Vec::new();
                 let mut malwareurl_urls: Vec<String> = Vec::new();
@@ -1609,6 +1635,7 @@ impl Pipeline {
                         malwareurl_urls.push(url.clone());
                     }
                 }
+
                 let elapsed_ms = self
                     .config
                     .time_engines
@@ -2126,47 +2153,61 @@ fn find_all_byte_ranges(haystack: &[u8], needle: &[u8]) -> Vec<(usize, usize)> {
     out
 }
 
-// Extracts URL-like strings from raw bytes by scanning for printable ASCII runs
-// that contain "://" — works on binary files (PE, ELF, etc.) as well as text.
+/// Scan `bytes` for `http://` or `https://` and extract each complete URL.
+/// All bloom entries use `http://` prefixes, so `https://` URLs are stored as
+/// `http://` for lookup — the scheme is normalised before the bloom check so
+/// both clear text and HTTPS URLs hit the same bloom entry.
 fn extract_urls_from_bytes(bytes: &[u8]) -> Vec<String> {
     let mut urls = Vec::new();
-    let mut current: Vec<u8> = Vec::new();
+    let mut pos = 0;
 
-    for &b in bytes {
-        if b.is_ascii_graphic() || b == b' ' {
-            current.push(b);
+    let http_prefix = b"http://";
+    let https_prefix = b"https://";
+
+    while pos + 7 < bytes.len() {
+        let is_https = if pos + 8 <= bytes.len() && bytes[pos..pos + 8] == *https_prefix {
+            true
+        } else if bytes[pos..pos + 7] == *http_prefix {
+            false
         } else {
-            if current.len() >= 8 {
-                if let Ok(s) = std::str::from_utf8(&current) {
-                    for token in s.split_whitespace() {
-                        if token.contains("://") {
-                            let cleaned = token
-                                .trim_end_matches(
-                                    &[',', '.', ';', ')', ']', '}', '"', '\''] as &[char]
-                                );
-                            if cleaned.len() >= 8 {
-                                urls.push(cleaned.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-            current.clear();
-        }
-    }
-    // flush last run
-    if current.len() >= 8 {
-        if let Ok(s) = std::str::from_utf8(&current) {
-            for token in s.split_whitespace() {
-                if token.contains("://") {
-                    let cleaned = token
-                        .trim_end_matches(&[',', '.', ';', ')', ']', '}', '"', '\''] as &[char]);
-                    if cleaned.len() >= 8 {
-                        urls.push(cleaned.to_string());
-                    }
-                }
+            pos += 1;
+            continue;
+        };
+
+        let scheme_end = if is_https { pos + 8 } else { pos + 7 };
+
+        let mut url_end = scheme_end;
+        while url_end < bytes.len() {
+            let b = bytes[url_end];
+            if b.is_ascii_graphic() || b == b' ' || b == b':' {
+                url_end += 1;
+            } else {
+                break;
             }
         }
+
+        if url_end > scheme_end {
+            let raw = &bytes[pos..url_end];
+            if let Ok(s) = std::str::from_utf8(raw) {
+                let cleaned = s.trim_end_matches(
+                    &[',', '.', ';', ')', ']', '}', '"', '\'', ':', ' ', '/'] as &[char],
+                );
+                let normalised = if is_https {
+                    let mut s = String::with_capacity(cleaned.len());
+                    s.push_str("http://");
+                    s.push_str(&cleaned[8..]);
+                    s
+                } else {
+                    cleaned.to_string()
+                };
+                if normalised.len() >= 8 {
+                    urls.push(normalised);
+                }
+            }
+        }
+
+        pos = url_end;
     }
+
     urls
 }
