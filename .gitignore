@@ -12,6 +12,7 @@ HydraDragonAVPortable.7z
 
 # Pre Bloom Files
 allblooms/
+falsepositiveblooms/
 
 # DIE Rust Inspect
 die-rust-inspect/

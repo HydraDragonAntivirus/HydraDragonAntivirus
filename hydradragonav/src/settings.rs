@@ -43,6 +43,16 @@ pub struct Settings {
     /// UI theme name (e.g. "dark", "light"). Used by GUI frontends.
     #[serde(default)]
     pub theme: Option<String>,
+
+    /// Maximum file size in MiB to scan. Files larger than this are skipped.
+    /// Defaults to 650 MiB when `None`.
+    #[serde(default)]
+    pub max_file_size_mb: Option<u64>,
+
+    /// Consecutive null-byte run length (in MiB) that triggers a "file bloat"
+    /// Suspicious verdict. Defaults to 50 MiB when `None`.
+    #[serde(default)]
+    pub max_bloat_mb: Option<u64>,
 }
 
 impl Default for Settings {
@@ -55,6 +65,8 @@ impl Default for Settings {
             excluded_dirs: Vec::new(),
             excluded_files: Vec::new(),
             theme: None,
+            max_file_size_mb: None,
+            max_bloat_mb: None,
         }
     }
 }

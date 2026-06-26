@@ -21,8 +21,9 @@ use crate::verdict::{EngineResult, ScanResult, Verdict};
 
 type InferBackend = NdArray<f32>;
 
-/// Maximum file size (in bytes) for content scanning (2 GiB).
-const MAX_SCAN_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+/// Default maximum file size (in bytes) for content scanning.
+/// Used when PipelineConfig.max_file_size is 0 (unset).
+const DEFAULT_MAX_FILE_SIZE: u64 = 650 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum ScanCategory {
@@ -74,6 +75,18 @@ pub struct PipelineConfig {
     /// Specific files to exclude from scanning (absolute paths).
     /// The scanner executable and its config files are always auto-excluded.
     pub excluded_files: Vec<PathBuf>,
+
+    /// Maximum file size in bytes to scan. Files larger than this are skipped.
+    /// Defaults to 650 MiB when not set.
+    pub max_file_size: u64,
+
+    /// Maximum consecutive null-bytes (in MiB) before the file is flagged as
+    /// suspicious (file-bloat / anti-VirusTotal padding). Default 50 MiB.
+    pub max_bloat_mb: u64,
+
+    /// Absolute file-size hard limit (in bytes). Files larger than this are
+    /// skipped unconditionally without any bloat check. Default 1 GiB.
+    pub hard_limit_bytes: u64,
 }
 
 impl PipelineConfig {
@@ -102,6 +115,9 @@ impl Default for PipelineConfig {
             results_cache_dir: None,
             excluded_dirs: Vec::new(),
             excluded_files: Vec::new(),
+            max_file_size: 650 * 1024 * 1024,
+            max_bloat_mb: 50,
+            hard_limit_bytes: 950 * 1024 * 1024,
         }
     }
 }
@@ -195,6 +211,76 @@ fn cache_result(verdict: Verdict, threat: Option<String>, detail: &str) -> ScanR
         yara_x_matches: Vec::new(),
         ml_malware_probability: None,
         clamav_result: None,
+    }
+}
+
+/// Reads the entire file into memory while tracking the longest consecutive
+/// null-byte run. Returns `(data, Some(run_len))` if a run exceeds the bloat
+/// threshold, or `(data, None)` otherwise.
+fn read_file_with_bloat_check(path: &Path, bloat_threshold: u64) -> std::io::Result<(Vec<u8>, Option<u64>)> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let file_size = file.metadata()?.len() as usize;
+    let mut data = Vec::with_capacity(file_size);
+    let mut chunk = vec![0u8; 65536];
+    let mut current_run: u64 = 0;
+    let mut longest_run: u64 = 0;
+    loop {
+        let n = file.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        for &b in &chunk[..n] {
+            if b == 0 {
+                current_run += 1;
+                if current_run > longest_run {
+                    longest_run = current_run;
+                    if longest_run >= bloat_threshold {
+                        // Found significant bloat — still fill data but report it.
+                    }
+                }
+            } else {
+                current_run = 0;
+            }
+        }
+        data.extend_from_slice(&chunk[..n]);
+    }
+    if longest_run >= bloat_threshold {
+        Ok((data, Some(longest_run)))
+    } else {
+        Ok((data, None))
+    }
+}
+
+/// Stream-reads a file checking for null-byte bloat only, without building a
+/// full buffer. Used for files in the limited-scan range (>max_file_size but
+/// <=hard_limit_bytes).
+fn detect_bloat_only(path: &Path, bloat_threshold: u64) -> std::io::Result<Option<u64>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut chunk = vec![0u8; 65536];
+    let mut current_run: u64 = 0;
+    let mut longest_run: u64 = 0;
+    loop {
+        let n = file.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        for &b in &chunk[..n] {
+            if b == 0 {
+                current_run += 1;
+                if current_run > longest_run {
+                    longest_run = current_run;
+                }
+            } else {
+                current_run = 0;
+            }
+        }
+    }
+    if longest_run >= bloat_threshold {
+        Ok(Some(longest_run))
+    } else {
+        Ok(None)
     }
 }
 
@@ -528,65 +614,73 @@ impl Pipeline {
             return cache_result(Verdict::Clean, None, "skipped (excluded directory)");
         }
 
-        // Early file-type gate: peek at the first 64 KB to classify the file.
-        // When skip_unknown_types is enabled (default), opaque binary data with
-        // no magic / known structure is skipped *before* reading the full file
-        // into memory — the biggest single CPU/IO win on a full-drive scan.
-        if self.config.skip_unknown_types {
-            if let Ok(mut f) = File::open(path) {
-                const HEADER_SIZE: usize = 65536;
-                let mut header = vec![0u8; HEADER_SIZE];
-                let n = f.read(&mut header).unwrap_or(0);
-                header.truncate(n);
-                if n > 0 {
-                    let ft = hydradragonsig::scanner::filetype::classify_bytes(path, &header);
-                    if !is_scannable_type(&ft) {
-                        return cache_result(Verdict::Clean, None, "skipped: unrecognised file type");
-                    }
-                }
-            }
+        let file_size = match std::fs::metadata(path) {
+            Ok(m) => m.len(),
+            Err(_) => return self.scan_file(path),
+        };
+
+        // Size limit check — cheapest operation first.
+        let max_size = self.config.max_file_size.max(DEFAULT_MAX_FILE_SIZE);
+        if file_size > max_size {
+            return cache_result(Verdict::Clean, None, "skipped: file too large");
         }
 
         const CACHE_FILE_MAX: u64 = 64 * 1024 * 1024;
 
-        let too_big = std::fs::metadata(path)
-            .map(|m| m.len() > CACHE_FILE_MAX)
-            .unwrap_or(true);
-        // Read the file in chunks so a Stop during the read of a large cached
-        // file (up to 64 MiB) doesn't block the UI for seconds.
-        if !too_big {
+        // Read the file while tracking null-byte runs for bloat detection.
+        if file_size <= CACHE_FILE_MAX {
             if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return cache_result(Verdict::Clean, None, "cancelled");
             }
-            let data = match std::fs::read(path) {
-                Ok(d) => d,
+            let (data, bloat_run) = match read_file_with_bloat_check(path, self.config.max_bloat_mb * 1024 * 1024) {
+                Ok(v) => v,
                 Err(_) => return self.scan_file(path),
             };
             if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return cache_result(Verdict::Clean, None, "cancelled");
             }
+
+            // Null-bloat check: if a single null-byte run exceeds threshold, flag as Suspicious.
+            if let Some(run_len) = bloat_run {
+                return ScanResult {
+                    verdict: Verdict::Suspicious,
+                    threat_name: Some("FileBloat".into()),
+                    engines: vec![EngineResult {
+                        engine: "bloat_detect",
+                        verdict: Verdict::Suspicious,
+                        detail: format!("file bloat detected: {run_len} consecutive null bytes"),
+                        elapsed_ms: None,
+                    }],
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: None,
+                    clamav_result: None,
+                };
+            }
+
+            // Unknown-type gate after size & bloat checks (header is in data).
+            if self.config.skip_unknown_types && data.len() >= 64 {
+                let ft = hydradragonsig::scanner::filetype::classify_bytes(path, &data);
+                if !is_scannable_type(&ft) {
+                    return cache_result(Verdict::Clean, None, "skipped: unrecognised file type");
+                }
+            }
+
             let h: [u8; 16] = Md5::digest(&data).into();
-            // Known-good → trust it, skip the engines. Known-bad → re-scan to
-            // confirm (the bloom is only a hint, never a detection on its own).
             if !self.bad_bloom.contains(&h) && self.good_bloom.contains(&h) {
                 return cache_result(Verdict::Clean, None, "cached clean (dedup)");
             }
-            let result = self.scan_loaded(path, &data, h); // reuse the MD5 we computed
-            // If the scan was cancelled mid-file, its verdict is not a real result —
-            // never learn it into the good/bad bloom (else a Stop could permanently
-            // whitelist an unscanned file).
+            let result = self.scan_loaded(path, &data, h);
             if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return result;
             }
             if result.verdict.priority() <= 1 {
-                self.good_bloom.insert(&h); // build the bloom while scanning
+                self.good_bloom.insert(&h);
             } else {
                 self.bad_bloom.insert(&h);
             }
             return result;
         }
 
-        // Too large / unreadable to cache — plain single-read scan.
         self.scan_file(path)
     }
 
@@ -620,23 +714,6 @@ impl Pipeline {
             return cache_result(Verdict::Clean, None, "skipped (excluded directory)");
         }
 
-        // Same early file-type gate as scan_file_cached — files that bypass the
-        // cache (too large) still benefit from the fast skip.
-        if self.config.skip_unknown_types {
-            if let Ok(mut f) = File::open(path) {
-                const HEADER_SIZE: usize = 65536;
-                let mut header = vec![0u8; HEADER_SIZE];
-                let n = f.read(&mut header).unwrap_or(0);
-                header.truncate(n);
-                if n > 0 {
-                    let ft = hydradragonsig::scanner::filetype::classify_bytes(path, &header);
-                    if !is_scannable_type(&ft) {
-                        return cache_result(Verdict::Clean, None, "skipped: unrecognised file type");
-                    }
-                }
-            }
-        }
-
         let file_size = match path.metadata() {
             Ok(metadata) => metadata.len(),
             Err(err) => {
@@ -656,14 +733,16 @@ impl Pipeline {
             }
         };
 
-        if file_size > MAX_SCAN_FILE_SIZE {
+        // Hard limit — skip unconditionally without any read.
+        let hard_limit = self.config.hard_limit_bytes;
+        if file_size > hard_limit {
             return ScanResult {
                 verdict: Verdict::Clean,
                 threat_name: None,
                 engines: vec![EngineResult {
                     engine: "size_limit",
                     verdict: Verdict::Clean,
-                    detail: format!("skipped: file is over 2 GiB ({file_size} bytes)"),
+                    detail: format!("skipped: file exceeds hard limit ({hard_limit} bytes, {file_size} actual)"),
                     elapsed_ms: None,
                 }],
                 yara_x_matches: Vec::new(),
@@ -672,55 +751,22 @@ impl Pipeline {
             };
         }
 
-        // Read the file in chunks (64 KiB) so cancellation can interrupt large
-        // file reads instead of blocking for seconds on a multi-gigabyte file.
-        let mut file = match File::open(path) {
-            Ok(f) => f,
-            Err(err) => {
-                return ScanResult {
-                    verdict: Verdict::Clean,
-                    threat_name: None,
-                    engines: vec![EngineResult {
-                        engine: "file_io",
-                        verdict: Verdict::Clean,
-                        detail: format!("read error: {err}"),
-                        elapsed_ms: None,
-                    }],
-                    yara_x_matches: Vec::new(),
-                    ml_malware_probability: None,
-                    clamav_result: None,
-                };
-            }
-        };
-        let mut data = Vec::with_capacity(file_size as usize);
-        let mut chunk = vec![0u8; 65536];
-        loop {
-            if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                return ScanResult {
-                    verdict: Verdict::Clean,
-                    threat_name: None,
-                    engines: vec![EngineResult {
-                        engine: "cancelled",
-                        verdict: Verdict::Clean,
-                        detail: "cancelled during file read".into(),
-                        elapsed_ms: None,
-                    }],
-                    yara_x_matches: Vec::new(),
-                    ml_malware_probability: None,
-                    clamav_result: None,
-                };
-            }
-            match file.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(n) => data.extend_from_slice(&chunk[..n]),
-                Err(err) => {
+        // Full-scan threshold.
+        let max_size = self.config.max_file_size.max(DEFAULT_MAX_FILE_SIZE);
+        let full_scan = file_size <= max_size;
+
+        if full_scan {
+            // Read fully with null bloat detection, then run engines.
+            let (data, bloat_run) = match read_file_with_bloat_check(path, self.config.max_bloat_mb * 1024 * 1024) {
+                Ok(v) => v,
+                Err(_) => {
                     return ScanResult {
                         verdict: Verdict::Clean,
                         threat_name: None,
                         engines: vec![EngineResult {
                             engine: "file_io",
                             verdict: Verdict::Clean,
-                            detail: format!("read error: {err}"),
+                            detail: "read error".into(),
                             elapsed_ms: None,
                         }],
                         yara_x_matches: Vec::new(),
@@ -728,20 +774,98 @@ impl Pipeline {
                         clamav_result: None,
                     };
                 }
+            };
+            if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return ScanResult {
+                    verdict: Verdict::Clean,
+                    threat_name: None,
+                    engines: Vec::new(),
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: None,
+                    clamav_result: None,
+                };
             }
+
+            // Null-bloat check.
+            if let Some(run_len) = bloat_run {
+                return ScanResult {
+                    verdict: Verdict::Suspicious,
+                    threat_name: Some("FileBloat".into()),
+                    engines: vec![EngineResult {
+                        engine: "bloat_detect",
+                        verdict: Verdict::Suspicious,
+                        detail: format!("file bloat detected: {run_len} consecutive null bytes"),
+                        elapsed_ms: None,
+                    }],
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: None,
+                    clamav_result: None,
+                };
+            }
+
+            // Unknown-type gate.
+            if self.config.skip_unknown_types && data.len() >= 64 {
+                let ft = hydradragonsig::scanner::filetype::classify_bytes(path, &data);
+                if !is_scannable_type(&ft) {
+                    return cache_result(Verdict::Clean, None, "skipped: unrecognised file type");
+                }
+            }
+
+            let md5: [u8; 16] = Md5::digest(&data).into();
+            return self.scan_loaded(path, &data, md5);
         }
-        if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+
+        // Limited scan (file > max_size but <= hard_limit):
+        // Only scan PE files for null-bloat. Non-PE files are skipped clean.
+        let ft = {
+            let mut f = match File::open(path) {
+                Ok(f) => f,
+                Err(_) => {
+                    return cache_result(Verdict::Clean, None, "skipped: read error (limited scan)");
+                }
+            };
+            const HEADER_SIZE: usize = 65536;
+            let mut header = vec![0u8; HEADER_SIZE];
+            let n = f.read(&mut header).unwrap_or(0);
+            header.truncate(n);
+            if n > 0 {
+                hydradragonsig::scanner::filetype::classify_bytes(path, &header)
+            } else {
+                return cache_result(Verdict::Clean, None, "skipped: empty file (limited scan)");
+            }
+        };
+
+        // Only PE files are checked for bloat in the limited-scan range.
+        if ft.primary != "pe" {
+            return cache_result(Verdict::Clean, None, "skipped: non-PE file (limited scan)");
+        }
+
+        // Stream-read for null bloat only (no full buffer).
+        let bloat_run = match detect_bloat_only(path, self.config.max_bloat_mb * 1024 * 1024) {
+            Ok(Some(run)) => Some(run),
+            Ok(None) => None,
+            Err(_) => {
+                return cache_result(Verdict::Clean, None, "skipped: read error (limited scan)");
+            }
+        };
+
+        if let Some(run_len) = bloat_run {
             return ScanResult {
-                verdict: Verdict::Clean,
-                threat_name: None,
-                engines: Vec::new(),
+                verdict: Verdict::Suspicious,
+                threat_name: Some("FileBloat".into()),
+                engines: vec![EngineResult {
+                    engine: "bloat_detect",
+                    verdict: Verdict::Suspicious,
+                    detail: format!("file bloat detected: {run_len} consecutive null bytes"),
+                    elapsed_ms: None,
+                }],
                 yara_x_matches: Vec::new(),
                 ml_malware_probability: None,
                 clamav_result: None,
             };
         }
-        let md5: [u8; 16] = Md5::digest(&data).into();
-        self.scan_loaded(path, &data, md5)
+
+        cache_result(Verdict::Clean, None, "skipped: PE file too large for full scan")
     }
 
     /// Core scan over an already-read buffer — one gate (single read), one scanner.
@@ -1276,7 +1400,7 @@ impl Pipeline {
         let mut engines: Vec<EngineResult> = Vec::new();
         let mut yara_x_matches = Vec::new();
 
-        let max_len = MAX_SCAN_FILE_SIZE as usize;
+        let max_len = self.config.max_file_size.max(DEFAULT_MAX_FILE_SIZE) as usize;
         if data.len() > max_len {
             return ScanResult {
                 verdict: Verdict::Clean,
@@ -1284,7 +1408,7 @@ impl Pipeline {
                 engines: vec![EngineResult {
                     engine: "size_limit",
                     verdict: Verdict::Clean,
-                    detail: format!("skipped: data is over 2 GiB ({} bytes)", data.len()),
+                    detail: format!("skipped: data is over max size ({} bytes)", data.len()),
                     elapsed_ms: None,
                 }],
                 yara_x_matches: Vec::new(),

@@ -104,6 +104,7 @@ const CMD_APPLY_ACTIONS: usize = 25;      // run each row's chosen action
 const CMD_ALL_QUARANTINE: usize = 27;     // set every row's action to Quarantine
 const CMD_ALL_DISINFECT: usize = 28;      // set every row's action to Disinfect
 const CMD_ALL_IGNORE: usize = 29;         // set every row's action to Ignore
+const CMD_DISMISS_RESULTS: usize = 30;    // clear scan results, return to ready
 
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
@@ -534,7 +535,67 @@ fn wide(s: &str) -> Vec<u16> {
 // Entry point
 // ---------------------------------------------------------------------------
 
+fn print_help() {
+    println!("HydraDragon Antivirus  v{}", env!("CARGO_PKG_VERSION"));
+    println!("Graphical front-end (Windows native)");
+    println!();
+    println!("USAGE:");
+    println!("    hydradragonwingui.exe [OPTIONS]");
+    println!();
+    println!("OPTIONS (all optional):");
+    println!("    -h, --help                     Print help and exit");
+    println!("    -V, --version                  Print version and exit");
+    println!("    --db <PATH>                    ClamAV database directory");
+    println!("    --bloom-dir <PATH>             Bloom filter cache directory");
+    println!("    --yara-dir <PATH>              YARA-X rules directory");
+    println!("    --hydradragonsig-rules-dir <PATH>  hydradragonsig rules directory");
+    println!("    --hayabusa-dir <PATH>          Hayabusa rules directory");
+    println!("    --pe-ml-model <PATH>           PE ML model file");
+    println!("    --js-ml-model <PATH>           JS ML model file");
+    println!("    --ml-threshold <FLOAT>         ML detection threshold (default: 0.95)");
+    println!();
+    println!("SUPPORTED ENVIRONMENT VARIABLES:");
+    println!("    CLAMAV_DATABASE       ClamAV database directory");
+    println!("    BLOOM_DIR             Bloom filter cache directory");
+    println!("    YARA_RULES_DIR        YARA-X rules directory");
+    println!("    HYDRADRAGONSIG_RULES_DIR  hydradragonsig rules directory");
+    println!("    HAYABUSA_DIR          Hayabusa rules directory");
+    println!("    PE_ML_MODEL_PATH      PE ML model file");
+    println!("    JS_ML_MODEL_PATH      JS ML model file");
+    println!("    ML_THRESHOLD          ML detection threshold (default: 0.95)");
+}
+
 fn main() {
+    // Parse CLI args: --help / --version print and exit immediately.
+    // Long options set the corresponding env var so default_config() picks them up.
+    let mut args = std::env::args();
+    let _exe = args.next(); // program name
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--help" | "-h" | "/?" | "/h" => {
+                print_help();
+                return;
+            }
+            "--version" | "-V" => {
+                println!("{}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "--db" => if let Some(v) = args.next() { unsafe { std::env::set_var("CLAMAV_DATABASE", v); } }
+            "--bloom-dir" => if let Some(v) = args.next() { unsafe { std::env::set_var("BLOOM_DIR", v); } }
+            "--yara-dir" => if let Some(v) = args.next() { unsafe { std::env::set_var("YARA_RULES_DIR", v); } }
+            "--hydradragonsig-rules-dir" => if let Some(v) = args.next() { unsafe { std::env::set_var("HYDRADRAGONSIG_RULES_DIR", v); } }
+            "--hayabusa-dir" => if let Some(v) = args.next() { unsafe { std::env::set_var("HAYABUSA_DIR", v); } }
+            "--pe-ml-model" => if let Some(v) = args.next() { unsafe { std::env::set_var("PE_ML_MODEL_PATH", v); } }
+            "--js-ml-model" => if let Some(v) = args.next() { unsafe { std::env::set_var("JS_ML_MODEL_PATH", v); } }
+            "--ml-threshold" => if let Some(v) = args.next() { unsafe { std::env::set_var("ML_THRESHOLD", v); } }
+            _ => {
+                eprintln!("Unknown option: {a}");
+                eprintln!("Use --help for usage.");
+                return;
+            }
+        }
+    }
+
     unsafe {
         let _ = SetProcessDPIAware();
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
@@ -982,6 +1043,10 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
                     (CMD_ALL_DISINFECT, "Disinfect", "\u{E74D}", Kind::Neutral),
                     (CMD_ALL_IGNORE, "Ignore", "\u{E711}", Kind::Neutral),
                     (CMD_APPLY_ACTIONS, "Apply Actions", "\u{E73E}", Kind::Primary),
+                ],
+                ScanState::Clean => vec![
+                    (CMD_DISMISS_RESULTS, "Ignore All", "\u{E711}", Kind::Neutral),
+                    (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
                 ],
                 _ => vec![
                     (CMD_CUSTOM_SCAN, "Custom Scan", "\u{E721}", Kind::Primary),
@@ -2022,7 +2087,7 @@ unsafe fn on_dropfiles(hwnd: HWND, hdrop: HDROP) {
     }
     s.cancel.store(false, Ordering::Relaxed);
     s.abort.store(false, Ordering::Relaxed);
-    lv_clear(s.scan_list);
+    clear_scan_list(s.scan_list);
     clear_scan_results(s);
     // Navigate to Scan page.
     if s.page != 0 {
@@ -2461,7 +2526,7 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
                 // aborting, clearing them from the UI would un-cancel it. Both are
                 // reset inside the worker's FullScan handler when the new scan
                 // actually begins (after any in-flight Stop has finished).
-                lv_clear(s.scan_list);
+                clear_scan_list(s.scan_list);
                 clear_scan_results(s);
                 let desc = if paths.len() == 1 {
                     paths[0].display().to_string()
@@ -2477,6 +2542,7 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_ALL_QUARANTINE => set_all_actions(hwnd, s, ACT_QUARANTINE),
         CMD_ALL_DISINFECT => set_all_actions(hwnd, s, ACT_DISINFECT),
         CMD_ALL_IGNORE => set_all_actions(hwnd, s, ACT_IGNORE),
+        CMD_DISMISS_RESULTS => dismiss_scan_results(hwnd, s),
         CMD_APPLY_ACTIONS => act_apply_actions(hwnd, s),
         CMD_SAVE_RESULTS => save_results(hwnd, s),
         CMD_RESCAN => rescan_selected(hwnd, s),
@@ -2681,6 +2747,14 @@ fn clear_scan_results(s: &mut AppState) {
     s.scan_verdict.clear();
     s.scan_threat.clear();
     s.scan_action.clear();
+}
+
+unsafe fn dismiss_scan_results(_hwnd: HWND, s: &mut AppState) {
+    lv_clear(s.scan_list);
+    clear_scan_results(s);
+    s.scan_state = ScanState::Idle;
+    s.status = "Ready to scan.".into();
+    let _ = InvalidateRect(None, None, true);
 }
 
 /// Human-readable ETA from seconds: "12s", "3m 05s", "1h 04m".
@@ -3062,7 +3136,7 @@ unsafe fn start_full_scan(hwnd: HWND, s: &mut AppState) {
     if s.engine != EngineState::Loading {
         let _ = ShowWindow(s.scan_list, SW_SHOW);
     }
-    lv_clear(s.scan_list);
+    clear_scan_list(s.scan_list);
     clear_scan_results(s);
     s.status = "Full scan: all drives…".into();
     layout(hwnd);
@@ -3331,6 +3405,13 @@ unsafe fn drain_results(hwnd: HWND) {
                     .map(|d| format!(" in {}", fmt_duration(d)))
                     .unwrap_or_default();
                 s.status = format!("Done. {scanned} scanned, {threats} threat(s){dur}.");
+                // Remove checkboxes now that the scan is complete.
+                SendMessageW(
+                    s.scan_list,
+                    msg::LVM_SETEXTENDEDLISTVIEWSTYLE,
+                    Some(WPARAM(sty::LVS_EX_CHECKBOXES as usize)),
+                    Some(LPARAM(0)),
+                );
             }
             ScanMsg::Paused { scanned, threats, remaining } => {
                 s.scanned_count = scanned;
@@ -3534,6 +3615,17 @@ unsafe fn lv_add_row(list: HWND, cols: &[&str]) -> i32 {
 
 unsafe fn lv_clear(list: HWND) {
     SendMessageW(list, msg::LVM_DELETEALLITEMS, None, None);
+}
+
+/// Clear the scan list and re-enable checkboxes (for a new scan).
+unsafe fn clear_scan_list(list: HWND) {
+    lv_clear(list);
+    SendMessageW(
+        list,
+        msg::LVM_SETEXTENDEDLISTVIEWSTYLE,
+        Some(WPARAM(sty::LVS_EX_CHECKBOXES as usize)),
+        Some(LPARAM(sty::LVS_EX_CHECKBOXES as isize)),
+    );
 }
 
 /// Overwrite the text of one subitem (column) of an existing row.
@@ -4376,17 +4468,6 @@ fn run_streaming(
 
     // Extensions skipped during full-drive scans — common non-executable formats
     // that are never malware vectors. Keeps CPU/RAM usage reasonable on large trees.
-    fn is_skippable_ext(path: &Path) -> bool {
-        matches!(
-            path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
-            Some("txt" | "log" | "tmp" | "bak" | "dmp" | "png" | "jpg" | "jpeg"
-                | "gif" | "bmp" | "ico" | "svg" | "webp" | "mp3" | "mp4" | "wav"
-                | "flac" | "avi" | "mkv" | "mov" | "wmv" | "opus" | "ogg" | "webm"
-                | "zip" | "rar" | "7z" | "gz" | "xz" | "ttf" | "otf" | "woff"
-                | "woff2" | "cur" | "ani" | " part" | "crdownload")
-        )
-    }
-
     std::thread::scope(|scope| {
         // ---- producer: lazy directory walk ----
         // Acquires a permit from `in_flight` for every file it enqueues and
@@ -4421,7 +4502,6 @@ fn run_streaming(
                         }
                         Ok(ft) if ft.is_file() => {
                             if entry.metadata().map(|m| m.len() >= 12).unwrap_or(false)
-                                && !is_skippable_ext(&path)
                             {
                                 // Block when the queue is full — the Condvar
                                 // wakes us as soon as a consumer pops an item.
@@ -4750,18 +4830,37 @@ fn default_config() -> PipelineConfig {
         .filter(|p| p.exists())
         .collect();
 
-    PipelineConfig {
-        bloom_dir: Some(dir.join("bloom_filter")).filter(|p| p.exists()),
-        yara_rules_dir: Some(dir.join("yara-x")).filter(|p| p.exists()),
-        hydradragonsig_rules_dir: Some(dir.join("hydradragonsig_rules")).filter(|p| p.exists()),
-        pe_ml_model_path: Some(dir.join("ml").join("pe_model.mpk")).filter(|p| p.exists()),
-        js_ml_model_path: Some(dir.join("ml").join("js_model.mpk")).filter(|p| p.exists()),
-        clamav_db: Some(dir.join("database")).filter(|p| p.exists()),
-        hayabusa_dir: None,
-        // Persist the good/bad result blooms next to the executable.
+    // Resolve directories from env vars, falling back to exe-relative paths.
+    fn env_or_exe(key: &str, fallback: &str, exe_dir: &Path) -> PathBuf {
+        std::env::var(key).map(PathBuf::from).unwrap_or_else(|_| exe_dir.join(fallback))
+    }
+
+    let bloom_dir = env_or_exe("BLOOM_DIR", "bloom_filter", &dir);
+    let yara_rules_dir = env_or_exe("YARA_RULES_DIR", "yara-x", &dir);
+    let hydradragonsig_rules_dir = env_or_exe("HYDRADRAGONSIG_RULES_DIR", "hydradragonsig_rules", &dir);
+    let pe_ml_model_path = env_or_exe("PE_ML_MODEL_PATH", "ml\\pe_model.mpk", &dir);
+    let js_ml_model_path = env_or_exe("JS_ML_MODEL_PATH", "ml\\js_model.mpk", &dir);
+    let clamav_db = env_or_exe("CLAMAV_DATABASE", "database", &dir);
+    let hayabusa_dir = std::env::var("HAYABUSA_DIR").ok().map(PathBuf::from);
+
+    let mut cfg = PipelineConfig {
+        bloom_dir: Some(bloom_dir).filter(|p| p.exists()),
+        yara_rules_dir: Some(yara_rules_dir).filter(|p| p.exists()),
+        hydradragonsig_rules_dir: Some(hydradragonsig_rules_dir).filter(|p| p.exists()),
+        pe_ml_model_path: Some(pe_ml_model_path).filter(|p| p.exists()),
+        js_ml_model_path: Some(js_ml_model_path).filter(|p| p.exists()),
+        clamav_db: Some(clamav_db).filter(|p| p.exists()),
+        hayabusa_dir,
         results_cache_dir: Some(dir.clone()),
         excluded_dirs,
         excluded_files,
         ..Default::default()
+    };
+    if let Some(mb) = settings.max_file_size_mb {
+        cfg.max_file_size = mb * 1024 * 1024;
     }
+    if let Some(mb) = settings.max_bloat_mb {
+        cfg.max_bloat_mb = mb;
+    }
+    cfg
 }
