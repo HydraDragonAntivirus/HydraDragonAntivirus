@@ -4,7 +4,7 @@ use std::path::Path;
 use evtx::{EvtxParser, ParserSettings, RecordAllocation};
 use nested::Nested;
 use hayabusa::detections::configs::{
-    Action, Config, CsvOutputOption, InputOption, OutputOption, StoredStatic,
+    Action, Config, CsvOutputOption, DetectCommonOption, InputOption, OutputOption, StoredStatic,
     STORED_EKEY_ALIAS, STORED_STATIC,
 };
 use hayabusa::detections::detection::{Detection, EvtxRecordInfo};
@@ -29,7 +29,7 @@ pub fn scan_once(hayabusa_dir: &Path) -> Vec<HayabusaMatch> {
         return Vec::new();
     }
 
-    let stored_static = match create_minimal_stored_static() {
+    let stored_static = match create_minimal_stored_static(&rules_dir) {
         Some(s) => s,
         None => return Vec::new(),
     };
@@ -98,7 +98,7 @@ fn get_evtx_dir() -> std::path::PathBuf {
         .join("Logs")
 }
 
-fn create_minimal_stored_static() -> Option<StoredStatic> {
+fn create_minimal_stored_static(rules_dir: &Path) -> Option<StoredStatic> {
     let config = Config {
         action: Some(Action::CsvTimeline(CsvOutputOption {
             output_options: OutputOption {
@@ -109,6 +109,10 @@ fn create_minimal_stored_static() -> Option<StoredStatic> {
                 min_level: "informational".to_string(),
                 include_status: Some(vec!["*".to_string()]),
                 no_wizard: true,
+                detect_common_options: DetectCommonOption {
+                    config: rules_dir.join("config"),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             ..Default::default()
