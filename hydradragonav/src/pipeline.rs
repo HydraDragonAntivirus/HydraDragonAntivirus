@@ -1098,10 +1098,14 @@ impl Pipeline {
                     identifier: path.display().to_string(),
                     base_address: None,
                 };
+                let hydra_opts = hydradragonsig::ScanOptions {
+                    profile_rules: std::env::var("HDA_PROF").is_ok(),
+                    ..Default::default()
+                };
                 match hydradragonsig::scan_memory_owned(
                     mem_ctx,
                     &rules,
-                    &hydradragonsig::ScanOptions::default(),
+                    &hydra_opts,
                 ) {
                 Ok(report) => {
                     let elapsed_ms = self
@@ -1560,7 +1564,11 @@ impl Pipeline {
                     identifier: "memory".into(),
                     base_address: None,
                 };
-                match hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
+                let hydra_opts = hydradragonsig::ScanOptions {
+                    profile_rules: std::env::var("HDA_PROF").is_ok(),
+                    ..Default::default()
+                };
+                match hydradragonsig::scan_memory_owned(ctx, rules, &hydra_opts) {
                     Ok(report) => {
                         let elapsed_ms = self
                             .config

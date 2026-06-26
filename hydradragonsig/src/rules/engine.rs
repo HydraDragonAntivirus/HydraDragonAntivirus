@@ -453,6 +453,18 @@ fn evaluate_one_rule(
         .unwrap_or(0);
     let matched = result.is_some();
 
+    // Print slow rules when profiling is enabled (like ClamAV's [SLOW-*] output).
+    if profile_rules && elapsed_micros >= 20_000 {
+        eprintln!(
+            "[SLOW-RULE] {}ms {} ({} conditions, {} atoms) matched={}",
+            elapsed_micros / 1000,
+            rule.id,
+            rule.conditions.len(),
+            rule_signature_atom_count(rule),
+            matched,
+        );
+    }
+
     let performance = profile_rules.then(|| RulePerformance {
         rule_id: rule.id.clone(),
         title: rule.title.clone(),
