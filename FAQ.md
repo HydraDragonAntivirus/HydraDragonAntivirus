@@ -30,9 +30,6 @@
 ### Q: Why does my antivirus detect this as malware?
 - It's a false positive. It's contains the WinDivert (Vulnerable driver), website, HIPS signatures without obfuscation. It's a fully open source executable analysis product.
 
-### Q: Why is it 2GB+?
-- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+ Note that it's a completely local (except update database) and professional open source antivirus.
-
 ### Q: Why does the antivirus.exe application take too long to run?
 - Sometimes you may have to wait 5+ minutes (or less) the first time you run the programme as a lot of things load.
 
