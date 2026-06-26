@@ -2494,14 +2494,15 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             let _ = InvalidateRect(Some(hwnd), None, false);
         }
         CMD_STOP => {
-            // Stop: abort the scan and go straight back to the home menu. The
-            // session is discarded (no Resume). `abort` tells the worker to drop
-            // the session and emit `Stopped` instead of `Paused`. We also send
-            // a Resume request to wake the worker if it's paused at recv().
+            // Stop: abort the scan and discard the session (no Resume).
+            // `abort` tells the worker to drop the session and emit
+            // `Stopped` instead of `Paused`. We also send a Resume
+            // request to wake the worker if it's paused at recv().
+            // The state transitions to Clean/Threats when the worker
+            // acknowledges, keeping partial results visible.
             s.abort.store(true, Ordering::Relaxed);
             s.cancel.store(true, Ordering::Relaxed);
-            s.scan_state = ScanState::Idle;
-            s.status = "Scan stopped.".into();
+            s.status = "Stopping…".into();
             let _ = s.work_tx.send(WorkRequest::Resume);
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
@@ -3338,15 +3339,26 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.status = format!("Paused. {scanned} scanned, {remaining} remaining — Resume to continue.");
             }
             ScanMsg::Stopped => {
-                // Aborted scan: session was discarded; return to the home menu.
-                // The worker has acknowledged the stop, so clear the cancel/abort
-                // flags now — otherwise they linger true and a following action
-                // (e.g. Rescan, or a Progress tick still in the channel) is judged
-                // against a stale "stopped" state.
+                // Aborted scan: session was discarded. The worker has
+                // acknowledged the stop, so clear the cancel/abort flags
+                // now — otherwise they linger true and a following action
+                // (e.g. Rescan, or a Progress tick still in the channel)
+                // is judged against a stale "stopped" state.
+                // Transition to Clean or Threats so partial results remain
+                // visible instead of reverting to the idle "Ready to scan"
+                // banner.
                 s.cancel.store(false, Ordering::Relaxed);
                 s.abort.store(false, Ordering::Relaxed);
-                s.scan_state = ScanState::Idle;
-                s.status = "Scan stopped.".into();
+                let had_threats = s.threat_count > 0;
+                s.scan_state = if had_threats { ScanState::Threats } else { ScanState::Clean };
+                let dur = s
+                    .scan_started_at
+                    .map(|t| format!(" in {}", fmt_duration(t.elapsed())))
+                    .unwrap_or_default();
+                s.status = format!(
+                    "Scan stopped. {} scanned, {} threat(s){}.",
+                    s.scanned_count, s.threat_count, dur
+                );
             }
             ScanMsg::Resumed => {
                 s.scan_state = ScanState::Scanning;

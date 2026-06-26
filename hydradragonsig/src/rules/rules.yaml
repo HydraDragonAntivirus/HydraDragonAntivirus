@@ -1,0 +1,11 @@
+name: HydraDragonAV Main Rules
+version: "1.0"
+# Main rule file — loaded directly by the pipeline from
+# `hydradragonsig_rules/rules.yaml` (or wherever the env var
+# HYDRADRAGONSIG_RULES_DIR points).
+#
+# Includes all detection rule categories.
+
+!include heuristic_rules.yaml
+!include pum_rules.yaml
+!include ransomware_rules.yaml
