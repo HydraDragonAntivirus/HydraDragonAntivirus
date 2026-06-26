@@ -217,7 +217,11 @@ fn cache_result(verdict: Verdict, threat: Option<String>, detail: &str) -> ScanR
 /// Reads the entire file into memory while tracking the longest consecutive
 /// null-byte run. Returns `(data, Some(run_len))` if a run exceeds the bloat
 /// threshold, or `(data, None)` otherwise.
-fn read_file_with_bloat_check(path: &Path, bloat_threshold: u64) -> std::io::Result<(Vec<u8>, Option<u64>)> {
+fn read_file_with_bloat_check(
+    path: &Path,
+    bloat_threshold: u64,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> std::io::Result<(Vec<u8>, Option<u64>)> {
     use std::io::Read;
     let mut file = std::fs::File::open(path)?;
     let file_size = file.metadata()?.len() as usize;
@@ -226,6 +230,9 @@ fn read_file_with_bloat_check(path: &Path, bloat_threshold: u64) -> std::io::Res
     let mut current_run: u64 = 0;
     let mut longest_run: u64 = 0;
     loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok((data, None));
+        }
         let n = file.read(&mut chunk)?;
         if n == 0 {
             break;
@@ -254,14 +261,22 @@ fn read_file_with_bloat_check(path: &Path, bloat_threshold: u64) -> std::io::Res
 
 /// Stream-reads a file checking for null-byte bloat only, without building a
 /// full buffer. Used for files in the limited-scan range (>max_file_size but
-/// <=hard_limit_bytes).
-fn detect_bloat_only(path: &Path, bloat_threshold: u64) -> std::io::Result<Option<u64>> {
+/// <=hard_limit_bytes). Checks the cancel flag between chunks so the GUI can
+/// interrupt large-file reads.
+fn detect_bloat_only(
+    path: &Path,
+    bloat_threshold: u64,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> std::io::Result<Option<u64>> {
     use std::io::Read;
     let mut file = std::fs::File::open(path)?;
     let mut chunk = vec![0u8; 65536];
     let mut current_run: u64 = 0;
     let mut longest_run: u64 = 0;
     loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(None);
+        }
         let n = file.read(&mut chunk)?;
         if n == 0 {
             break;
@@ -632,7 +647,7 @@ impl Pipeline {
             if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return cache_result(Verdict::Clean, None, "cancelled");
             }
-            let (data, bloat_run) = match read_file_with_bloat_check(path, self.config.max_bloat_mb * 1024 * 1024) {
+            let (data, bloat_run) = match read_file_with_bloat_check(path, self.config.max_bloat_mb * 1024 * 1024, &self.cancel) {
                 Ok(v) => v,
                 Err(_) => return self.scan_file(path),
             };
@@ -757,7 +772,7 @@ impl Pipeline {
 
         if full_scan {
             // Read fully with null bloat detection, then run engines.
-            let (data, bloat_run) = match read_file_with_bloat_check(path, self.config.max_bloat_mb * 1024 * 1024) {
+            let (data, bloat_run) = match read_file_with_bloat_check(path, self.config.max_bloat_mb * 1024 * 1024, &self.cancel) {
                 Ok(v) => v,
                 Err(_) => {
                     return ScanResult {
@@ -841,7 +856,7 @@ impl Pipeline {
         }
 
         // Stream-read for null bloat only (no full buffer).
-        let bloat_run = match detect_bloat_only(path, self.config.max_bloat_mb * 1024 * 1024) {
+        let bloat_run = match detect_bloat_only(path, self.config.max_bloat_mb * 1024 * 1024, &self.cancel) {
             Ok(Some(run)) => Some(run),
             Ok(None) => None,
             Err(_) => {
