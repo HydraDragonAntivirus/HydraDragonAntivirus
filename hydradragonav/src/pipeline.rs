@@ -259,17 +259,43 @@ fn read_file_with_bloat_check(
     }
 }
 
-/// Stream-reads a file checking for null-byte bloat only, without building a
-/// full buffer. Used for files in the limited-scan range (>max_file_size but
-/// <=hard_limit_bytes). Checks the cancel flag between chunks so the GUI can
-/// interrupt large-file reads.
+/// Checks a file for null-byte bloat without reading the entire file.
+/// Bloat (anti-VT padding) almost always appends null bytes at the end, so
+/// we check the tail region first — if the last N bytes aren't all null, the
+/// file is very likely clean. Only on a tail hit do we stream the whole file
+/// to measure the exact run length.
 fn detect_bloat_only(
     path: &Path,
     bloat_threshold: u64,
     cancel: &std::sync::atomic::AtomicBool,
 ) -> std::io::Result<Option<u64>> {
-    use std::io::Read;
+    use std::io::{Read, Seek, SeekFrom};
+
+    let meta = std::fs::metadata(path)?;
+    let file_size = meta.len();
+    if file_size < bloat_threshold {
+        return Ok(None);
+    }
+
     let mut file = std::fs::File::open(path)?;
+
+    // Quick tail check: read the last bloat_threshold bytes.
+    // If they aren't all zero, there's no bloat → return immediately.
+    let tail_start = file_size.saturating_sub(bloat_threshold);
+    file.seek(SeekFrom::Start(tail_start))?;
+    let mut tail = vec![0u8; bloat_threshold as usize];
+    let n = file.read(&mut tail)?;
+    if n < bloat_threshold as usize {
+        return Ok(None); // read less than threshold, can't be bloated
+    }
+    let tail_all_null = tail.iter().all(|&b| b == 0);
+    if !tail_all_null {
+        return Ok(None);
+    }
+
+    // Tail is all null — confirm by streaming the whole file to measure the
+    // actual null run (bloat may extend beyond the threshold).
+    file.seek(SeekFrom::Start(0))?;
     let mut chunk = vec![0u8; 65536];
     let mut current_run: u64 = 0;
     let mut longest_run: u64 = 0;
