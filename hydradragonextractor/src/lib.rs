@@ -392,47 +392,184 @@ pub fn extract_archive(path: &Path, output_dir: &Path) -> Result<ExtractResult> 
     })
 }
 
-/// Extract an archive from an in-memory byte buffer.
-///
-/// Detects format by magic bytes, extracts to a temporary directory,
-/// reads all extracted file contents into memory, cleans up, and returns
-/// the file contents as `Vec<Vec<u8>>`.
+/// Extract an archive from an in-memory byte buffer — entirely in memory,
+/// no temp files written to disk.
 pub fn extract_archive_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
-    // ASAR archives are parsed entirely in memory — never round-tripped to disk.
     if is_asar(data) {
         return extract_asar_from_bytes(data);
     }
-    // NSIS installers are likewise parsed in memory.
     if is_nsis(data) {
         return extract_nsis_from_bytes(data);
     }
+    if is_gzip(data) {
+        let decoder = flate2::read::GzDecoder::new(Cursor::new(data));
+        let mut decompressed = Vec::new();
+        std::io::Read::take(
+            &mut std::io::BufReader::new(decoder),
+            u64::MAX,
+        )
+        .read_to_end(&mut decompressed)
+        .map_err(|e| ExtractError::OperationFailed {
+            reason: format!("gzip decompression failed: {e}"),
+        })?;
+        if is_tar(&decompressed) {
+            return extract_tar_from_bytes(&decompressed);
+        }
+        return Ok(vec![decompressed]);
+    }
+    if is_zip(data) {
+        return extract_zip_from_bytes(data);
+    }
+    if is_xz(data) {
+        let mut decoder = lzma_rust2::XzReader::new(Cursor::new(data), true);
+        let mut decompressed = Vec::new();
+        decoder
+            .read_to_end(&mut decompressed)
+            .map_err(|e| ExtractError::OperationFailed {
+                reason: format!("xz decompression failed: {e}"),
+            })?;
+        if is_tar(&decompressed) {
+            return extract_tar_from_bytes(&decompressed);
+        }
+        return Ok(vec![decompressed]);
+    }
+    if is_lzma(data) {
+        let mut decoder =
+            lzma_rust2::LzmaReader::new_mem_limit(Cursor::new(data), u32::MAX, None).map_err(
+                |e| ExtractError::OperationFailed {
+                    reason: format!("lzma decoder init failed: {e}"),
+                },
+            )?;
+        let mut decompressed = Vec::new();
+        decoder
+            .read_to_end(&mut decompressed)
+            .map_err(|e| ExtractError::OperationFailed {
+                reason: format!("lzma decompression failed: {e}"),
+            })?;
+        if is_tar(&decompressed) {
+            return extract_tar_from_bytes(&decompressed);
+        }
+        return Ok(vec![decompressed]);
+    }
+    if is_tar(data) {
+        return extract_tar_from_bytes(data);
+    }
+    // 7z as fallback (in-memory via reader-based API)
+    extract_7z_from_bytes(data)
+}
 
-    // Create a temp working directory in the system temp
-    let mut tmp = std::env::temp_dir();
-    tmp.push(format!("hdext_{:x}", rand_byte()));
-
-    // Write bytes to a temp file so extract_archive can work on it
-    let input_path = tmp.join("input");
-    std::fs::create_dir_all(&tmp)?;
-    std::fs::write(&input_path, data)?;
-
-    let output_dir = tmp.join("out");
-    let _ = extract_archive(&input_path, &output_dir);
-
-    // Read all extracted files into memory
-    let mut result: Vec<Vec<u8>> = Vec::new();
-    let mut files = Vec::new();
-    collect_files(&output_dir, &mut files);
-    for path in files {
-        if let Ok(bytes) = std::fs::read(&path) {
-            result.push(bytes);
+fn extract_tar_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let mut archive = tar::Archive::new(Cursor::new(data));
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    for entry in archive.entries().map_err(|e| ExtractError::OperationFailed {
+        reason: format!("tar entries failed: {e}"),
+    })? {
+        let mut entry = entry.map_err(|e| ExtractError::OperationFailed {
+            reason: format!("tar entry read failed: {e}"),
+        })?;
+        if entry.header().entry_type().is_file() {
+            let mut content = Vec::new();
+            entry
+                .read_to_end(&mut content)
+                .map_err(|e| ExtractError::OperationFailed {
+                    reason: format!("tar entry decompress failed: {e}"),
+                })?;
+            out.push(content);
         }
     }
+    Ok(out)
+}
 
-    // Clean up temp files
-    let _ = std::fs::remove_dir_all(&tmp);
+fn extract_zip_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let eocd = find_eocd(data).ok_or_else(|| ExtractError::OperationFailed {
+        reason: "zip end-of-central-directory not found".to_string(),
+    })?;
+    let total_entries = read_u16(data, eocd + 10).unwrap_or(0) as usize;
+    let central_offset = read_u32(data, eocd + 16).unwrap_or(0) as usize;
+    let mut cursor = central_offset;
+    let mut out: Vec<Vec<u8>> = Vec::new();
 
-    Ok(result)
+    for _ in 0..total_entries {
+        if data.get(cursor..cursor + 4) != Some(b"PK\x01\x02") {
+            break;
+        }
+        let method = read_u16(data, cursor + 10).unwrap_or(0);
+        let compressed_size = read_u32(data, cursor + 20).unwrap_or(0) as usize;
+        let name_len = read_u16(data, cursor + 28).unwrap_or(0) as usize;
+        let extra_len = read_u16(data, cursor + 30).unwrap_or(0) as usize;
+        let comment_len = read_u16(data, cursor + 32).unwrap_or(0) as usize;
+        let local_offset = read_u32(data, cursor + 42).unwrap_or(0) as usize;
+        let name_start = cursor + 46;
+        let name_end = name_start.saturating_add(name_len);
+        let Some(name_bytes) = data.get(name_start..name_end) else {
+            break;
+        };
+        let name = String::from_utf8_lossy(name_bytes).replace('\\', "/");
+
+        if !name.ends_with('/') {
+            if data.get(local_offset..local_offset + 4) == Some(b"PK\x03\x04") {
+                let local_name_len = read_u16(data, local_offset + 26).unwrap_or(0) as usize;
+                let local_extra_len = read_u16(data, local_offset + 28).unwrap_or(0) as usize;
+                let data_start = local_offset
+                    .saturating_add(30)
+                    .saturating_add(local_name_len)
+                    .saturating_add(local_extra_len);
+                let data_end = data_start.saturating_add(compressed_size);
+                if let Some(compressed) = data.get(data_start..data_end) {
+                    let extracted = match method {
+                        0 => compressed.to_vec(),
+                        8 => {
+                            let mut decoder =
+                                flate2::read::DeflateDecoder::new(Cursor::new(compressed));
+                            let mut buf = Vec::new();
+                            decoder.read_to_end(&mut buf).map_err(|e| {
+                                ExtractError::OperationFailed {
+                                    reason: format!("zip deflate failed: {e}"),
+                                }
+                            })?;
+                            buf
+                        }
+                        _ => Vec::new(),
+                    };
+                    if !extracted.is_empty() || method == 0 {
+                        out.push(extracted);
+                    }
+                }
+            }
+        }
+
+        cursor = name_end
+            .saturating_add(extra_len)
+            .saturating_add(comment_len);
+    }
+
+    Ok(out)
+}
+
+fn extract_7z_from_bytes(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let dest = std::env::temp_dir().join(format!("hdext7z_{:x}", rand_byte()));
+
+    let result = sevenz_rust2::decompress_with_extract_fn(
+        Cursor::new(data),
+        &dest,
+        |_entry, reader, _suggested| {
+            let mut content = Vec::new();
+            reader
+                .read_to_end(&mut content)
+                .map_err(sevenz_rust2::Error::from)?;
+            out.push(content);
+            Ok(true)
+        },
+    );
+
+    let _ = std::fs::remove_dir_all(&dest);
+
+    result.map_err(|e| ExtractError::OperationFailed {
+        reason: format!("7z extraction failed: {e}"),
+    })?;
+
+    Ok(out)
 }
 
 /// Generate a random byte for directory name uniqueness.
