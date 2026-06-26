@@ -711,9 +711,6 @@ rules:
         value: "SOFTWARE\\MICROSOFT\\WINDOWS NT\\CURRENTVERSION\\IMAGE FILE EXECUTION OPTIONS\\ZHUDONGFANGYU.EXE"
         nocase: true
       - type: string_contains
-        value: "SOFTWARE\\MICROSOFT\\WINDOWS NT\\CURRENTVERSION\\IMAGE FILE EXECUTION OPTIONS\\ÃÃ?Â¸Â´Â¹Â¤Â¾Ã?.EXE"
-        nocase: true
-      - type: string_contains
         value: "SOFTWARE\\9hGVNkAaKZH"
         nocase: true
       - type: string_contains

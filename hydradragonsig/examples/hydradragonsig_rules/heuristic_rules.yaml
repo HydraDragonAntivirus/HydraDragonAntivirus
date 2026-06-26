@@ -245,7 +245,7 @@ rules:
     tags: [hosts-file, dns-redirect, persistence, traffic-redirect]
     mitre:
       - id: T1562.010
-        name: Downgrade Attack: Disable Security Tools
+        name: "Downgrade Attack: Disable Security Tools"
         tactic: Defense Evasion
     logic: all
     conditions:

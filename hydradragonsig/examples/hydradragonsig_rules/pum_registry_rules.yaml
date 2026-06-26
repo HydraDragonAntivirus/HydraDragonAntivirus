@@ -47,7 +47,6 @@ rules:
     family: PUM.DisableCMD
     score: 45
     expected_reverted_value: "0"
-    expected_reverted_value: "0"
     tags:
       - pum
       - registry
