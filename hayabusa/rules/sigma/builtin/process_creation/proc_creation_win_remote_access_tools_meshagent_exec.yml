@@ -1,0 +1,36 @@
+title: Remote Access Tool - MeshAgent Command Execution via MeshCentral
+id: 1c799762-beac-3409-8ab4-09485fc2ca91
+related:
+    - id: 74a2b202-73e0-4693-9a3a-9d36146d0775
+      type: derived
+status: test
+description: |
+    Detects the use of MeshAgent to execute commands on the target host, particularly when threat actors might abuse it to execute commands directly.
+    MeshAgent can execute commands on the target host by leveraging win-console to obscure their activities and win-dispatcher to run malicious code through IPC with child processes.
+references:
+    - https://github.com/Ylianst/MeshAgent
+    - https://github.com/Ylianst/MeshAgent/blob/52cf129ca43d64743181fbaf940e0b4ddb542a37/modules/win-dispatcher.js#L173
+    - https://github.com/Ylianst/MeshAgent/blob/52cf129ca43d64743181fbaf940e0b4ddb542a37/modules/win-info.js#L55
+author: '@Kostastsale'
+date: 2024-09-22
+tags:
+    - attack.command-and-control
+    - attack.t1219.002
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        ParentProcessName|endswith: \meshagent.exe
+        NewProcessName|endswith:
+            - \cmd.exe
+            - \powershell.exe
+            - \pwsh.exe
+    condition: process_creation and selection
+falsepositives:
+    - False positives can be found in environments using MeshAgent for remote management, analysis should prioritize the grandparent process, MeshAgent.exe, and scrutinize the resulting child processes triggered by any suspicious interactive commands directed at the target host.
+level: medium
+ruletype: Sigma

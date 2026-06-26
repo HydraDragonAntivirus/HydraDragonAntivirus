@@ -1,0 +1,33 @@
+title: New ActiveScriptEventConsumer Created Via Wmic.EXE
+id: a23f9412-323f-fd1c-1c72-ac38fdedc079
+related:
+    - id: ebef4391-1a81-4761-a40a-1db446c0e625
+      type: derived
+status: test
+description: Detects WMIC executions in which an event consumer gets created. This could be used to establish persistence
+references:
+    - https://twitter.com/johnlatwc/status/1408062131321270282?s=12
+    - https://www.fireeye.com/content/dam/fireeye-www/global/en/current-threats/pdfs/wp-windows-management-instrumentation.pdf
+author: Florian Roth (Nextron Systems)
+date: 2021-06-25
+modified: 2023-02-14
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1546.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains|all:
+            - ActiveScriptEventConsumer
+            - ' CREATE '
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate software creating script event consumers
+level: high
+ruletype: Sigma

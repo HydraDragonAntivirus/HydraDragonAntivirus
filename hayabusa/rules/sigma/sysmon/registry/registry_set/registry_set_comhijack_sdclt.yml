@@ -1,0 +1,33 @@
+title: COM Hijack via Sdclt
+id: 079c466f-6145-e707-68bd-47830aee68e0
+related:
+    - id: 07743f65-7ec9-404a-a519-913db7118a8d
+      type: derived
+status: test
+description: Detects changes to 'HKCU\Software\Classes\Folder\shell\open\command\DelegateExecute'
+references:
+    - http://blog.sevagas.com/?Yet-another-sdclt-UAC-bypass
+    - https://www.exploit-db.com/exploits/47696
+author: Omkar Gudhate
+date: 2020-09-27
+modified: 2023-09-28
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1546
+    - attack.t1548
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains: \Software\Classes\Folder\shell\open\command\DelegateExecute
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,36 @@
+title: Remove Account From Domain Admin Group
+id: 33a52335-678e-da31-eb46-d7cfc302cb3e
+related:
+    - id: 48a45d45-8112-416b-8a67-46e03a4b2107
+      type: derived
+status: test
+description: |
+    Adversaries may interrupt availability of system and network resources by inhibiting access to accounts utilized by legitimate users.
+    Accounts may be deleted, locked, or manipulated (ex: changed credentials) to remove access to accounts.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1531/T1531.md#atomic-test-3---remove-account-from-domain-admin-group
+author: frack113
+date: 2021-12-26
+tags:
+    - attack.impact
+    - attack.t1531
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains|all:
+            - Remove-ADGroupMember
+            - '-Identity '
+            - '-Members '
+    condition: ps_script and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

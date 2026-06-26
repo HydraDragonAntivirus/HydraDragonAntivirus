@@ -1,0 +1,36 @@
+title: Potential Persistence Using DebugPath
+id: 1fa31aa7-117f-4356-a2ab-7062be19c8a6
+related:
+    - id: df4dc653-1029-47ba-8231-3c44238cc0ae
+      type: derived
+status: test
+description: Detects potential persistence using Appx DebugPath
+references:
+    - https://oddvar.moe/2018/09/06/persistence-using-universal-windows-platform-apps-appx/
+    - https://github.com/rootm0s/WinPwnage
+author: frack113
+date: 2022-07-27
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1546.015
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_debug:
+        TargetObject|contains: Classes\ActivatableClasses\Package\Microsoft.
+        TargetObject|endswith: \DebugPath
+    selection_default:
+        TargetObject|contains: \Software\Microsoft\Windows\CurrentVersion\PackagedAppXDebug\Microsoft.
+        TargetObject|endswith: \(Default)
+    condition: registry_set and (1 of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

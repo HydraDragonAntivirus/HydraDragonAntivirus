@@ -1,0 +1,35 @@
+title: HackTool - Potential CobaltStrike Process Injection
+id: fc51af66-2c0a-1fa8-7039-0cf2dd1ee3be
+related:
+    - id: 6309645e-122d-4c5b-bb2b-22e4f9c2fa42
+      type: derived
+status: test
+description: Detects a potential remote threat creation with certain characteristics which are typical for Cobalt Strike beacons
+references:
+    - https://medium.com/@olafhartong/cobalt-strike-remote-threads-detection-206372d11d0f
+    - https://blog.cobaltstrike.com/2018/04/09/cobalt-strike-3-11-the-snake-that-eats-its-tail/
+author: Olaf Hartong, Florian Roth (Nextron Systems), Aleksey Potapov, oscd.community
+date: 2018-11-30
+modified: 2023-05-05
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1055.001
+    - sysmon
+logsource:
+    product: windows
+    category: create_remote_thread
+detection:
+    create_remote_thread:
+        EventID: 8
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        StartAddress|endswith:
+            - 0B80
+            - 0C7C
+            - 0C88
+    condition: create_remote_thread and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

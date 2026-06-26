@@ -1,0 +1,49 @@
+title: Potential Persistence Via Event Viewer Events.asp
+id: 406b79d8-988c-0ef9-5702-7aa379ce70e2
+related:
+    - id: a1e11042-a74a-46e6-b07c-c4ce8ecc239b
+      type: derived
+status: test
+description: Detects potential registry persistence technique using the Event Viewer "Events.asp" technique
+references:
+    - https://twitter.com/nas_bench/status/1626648985824788480
+    - https://admx.help/?Category=Windows_7_2008R2&Policy=Microsoft.Policies.InternetCommunicationManagement::EventViewer_DisableLinks
+    - https://www.hexacorn.com/blog/2019/02/15/beyond-good-ol-run-key-part-103/
+    - https://github.com/redcanaryco/atomic-red-team/blob/f296668303c29d3f4c07e42bdd2b28d8dd6625f9/atomics/T1112/T1112.md
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-17
+modified: 2023-03-05
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        # Covers both "\Policies\" and "\Software\" paths for both "Machine" and "User" level configs
+        # Also "MicrosoftRedirectionProgramCommandLineParameters" key
+        ObjectName|contains:
+            - \Microsoft\Windows NT\CurrentVersion\Event Viewer\MicrosoftRedirectionProgram
+            - \Microsoft\Windows NT\CurrentVersion\Event Viewer\MicrosoftRedirectionURL
+    filter_default_redirect_program:
+        ProcessName|endswith: C:\WINDOWS\system32\svchost.exe
+        ObjectName|endswith: \Microsoft\Windows NT\CurrentVersion\Event Viewer\MicrosoftRedirectionProgram
+        NewValue: '%%SystemRoot%%\PCHealth\HelpCtr\Binaries\HelpCtr.exe'
+    filter_default_redirect_program_cli:
+        ProcessName|endswith: C:\WINDOWS\system32\svchost.exe
+        ObjectName|endswith: \Microsoft\Windows NT\CurrentVersion\Event Viewer\MicrosoftRedirectionProgramCommandLineParameters
+        NewValue: -url hcp://services/centers/support?topic=%%s
+    filter_url:
+        NewValue: http://go.microsoft.com/fwlink/events.asp
+    filter_cleaner:
+        NewValue: (Empty)
+    condition: registry_set and (selection and not 1 of filter_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

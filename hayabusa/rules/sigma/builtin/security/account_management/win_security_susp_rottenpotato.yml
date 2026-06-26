@@ -1,0 +1,36 @@
+title: RottenPotato Like Attack Pattern
+id: a1f9fad3-d563-5f3f-de09-e4ca03b97522
+related:
+    - id: 16f5d8ca-44bd-47c8-acbe-6fc95a16c12f
+      type: derived
+status: test
+description: Detects logon events that have characteristics of events generated during an attack with RottenPotato and the like
+references:
+    - https://twitter.com/SBousseaden/status/1195284233729777665
+author: '@SBousseaden, Florian Roth'
+date: 2019-11-15
+modified: 2022-12-22
+tags:
+    - attack.collection
+    - attack.privilege-escalation
+    - attack.credential-access
+    - attack.t1557.001
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 4624
+        LogonType: 3
+        TargetUserName: ANONYMOUS LOGON
+        WorkstationName: '-'
+        IpAddress:
+            - 127.0.0.1
+            - ::1
+    condition: security and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,38 @@
+title: Run PowerShell Script from ADS
+id: defcdcb1-d9a5-d2be-4f1d-fd8ded61a83a
+related:
+    - id: 45a594aa-1fbd-4972-a809-ff5a99dd81b8
+      type: derived
+status: test
+description: Detects PowerShell script execution from Alternate Data Stream (ADS)
+references:
+    - https://github.com/p0shkatz/Get-ADS/blob/1c3a3562e713c254edce1995a7d9879c687c7473/Get-ADS.ps1
+author: Sergey Soldatov, Kaspersky Lab, oscd.community
+date: 2019-10-30
+modified: 2022-07-14
+tags:
+    - attack.stealth
+    - attack.t1564.004
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith:
+            - \powershell.exe
+            - \pwsh.exe
+        Image|endswith:
+            - \powershell.exe
+            - \pwsh.exe
+        CommandLine|contains|all:
+            - Get-Content
+            - -Stream
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

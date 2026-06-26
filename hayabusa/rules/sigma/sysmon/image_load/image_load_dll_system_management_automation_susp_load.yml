@@ -1,0 +1,101 @@
+title: PowerShell Core DLL Loaded By Non PowerShell Process
+id: c9746db2-a558-9336-f133-0480e326e2db
+related:
+    - id: 867613fb-fa60-4497-a017-a82df74a172c
+      type: obsolete
+    - id: fe6e002f-f244-4278-9263-20e4b593827f
+      type: obsolete
+    - id: 092bc4b9-3d1d-43b4-a6b4-8c8acd83522f
+      type: derived
+status: test
+description: |
+    Detects loading of essential DLLs used by PowerShell by non-PowerShell process.
+    Detects behavior similar to meterpreter's "load powershell" extension.
+references:
+    - https://adsecurity.org/?p=2921
+    - https://github.com/p3nt4/PowerShdll
+author: Tom Kern, oscd.community, Natalia Shornikova, Tim Shelton, Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)
+date: 2019-11-14
+modified: 2025-10-07
+tags:
+    - attack.t1059.001
+    - attack.execution
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Description: System.Management.Automation
+        - OriginalFileName: System.Management.Automation.dll
+        - ImageLoaded|endswith:
+              - \System.Management.Automation.dll
+              - \System.Management.Automation.ni.dll
+    filter_main_powershell:
+        Image:
+            - C:\Program Files\PowerShell\7-preview\pwsh.exe   # PowerShell 7 preview
+            - C:\Program Files\PowerShell\7\pwsh.exe   # PowerShell 7
+            - C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe
+            - C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+            - C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell_ise.exe
+            - C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe
+    filter_main_pwsh_preview:
+        Image|contains:
+            - C:\Program Files\WindowsApps\Microsoft.PowerShellPreview
+            - \AppData\Local\Microsoft\WindowsApps\Microsoft.PowerShellPreview
+        Image|endswith: \pwsh.exe
+    filter_main_generic:
+        Image:
+            - C:\Windows\System32\dsac.exe
+            - C:\WINDOWS\System32\RemoteFXvGPUDisablement.exe
+            - C:\Windows\System32\runscripthelper.exe
+            - C:\WINDOWS\System32\sdiagnhost.exe
+            - C:\Windows\System32\ServerManager.exe
+            - C:\Windows\System32\SyncAppvPublishingServer.exe
+            - C:\Windows\System32\winrshost.exe
+            - C:\Windows\System32\wsmprovhost.exe
+            - C:\Windows\SysWOW64\winrshost.exe
+            - C:\Windows\SysWOW64\wsmprovhost.exe
+    filter_main_dotnet:
+        Image|startswith:
+            - C:\Windows\Microsoft.NET\Framework\
+            - C:\Windows\Microsoft.NET\FrameworkArm\
+            - C:\Windows\Microsoft.NET\FrameworkArm64\
+            - C:\Windows\Microsoft.NET\Framework64\
+        Image|endswith: \mscorsvw.exe
+    filter_optional_sql_server_mgmt:
+        Image|startswith:
+            - C:\Program Files (x86)\Microsoft SQL Server Management Studio
+            - C:\Program Files\Microsoft SQL Server Management Studio
+        Image|endswith: \IDE\Ssms.exe
+    filter_optional_sql_server_tools:
+        Image|startswith:
+            - C:\Program Files (x86)\Microsoft SQL Server\
+            - C:\Program Files\Microsoft SQL Server\
+        Image|endswith: \Tools\Binn\SQLPS.exe
+    filter_optional_citrix:
+        Image|endswith: \Citrix\ConfigSync\ConfigSyncRun.exe
+    filter_optional_vs:
+        Image|startswith:
+            - C:\Program Files (x86)\Microsoft Visual Studio\
+            - C:\Program Files\Microsoft Visual Studio\
+    filter_optional_chocolatey:
+        Image|startswith: C:\ProgramData\chocolatey\choco.exe
+    filter_optional_nextron:
+        Image|startswith: C:\Windows\Temp\asgard2-agent\
+        Image|endswith:
+            - \thor64.exe
+            - \thor.exe
+        # User: 'NT AUTHORITY\SYSTEM'   # if set, matches all powershell processes not launched by SYSTEM
+    filter_optional_aurora:
+        # This filter is to avoid a race condition FP with this specific ETW provider in aurora
+        Image: null
+    condition: image_load and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Used by some .NET binaries, minimal on user workstation.
+    - Used by Microsoft SQL Server Management Studio
+level: medium
+ruletype: Sigma

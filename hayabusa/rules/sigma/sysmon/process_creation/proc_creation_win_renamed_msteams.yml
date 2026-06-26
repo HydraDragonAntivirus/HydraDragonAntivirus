@@ -1,0 +1,34 @@
+title: Renamed Microsoft Teams Execution
+id: f21921e8-f99f-3440-5b75-7fb96bdf9e2b
+related:
+    - id: 88f46b67-14d4-4f45-ac2c-d66984f22191
+      type: derived
+status: test
+description: Detects the execution of a renamed Microsoft Teams binary.
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2024-07-12
+tags:
+    - attack.stealth
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        OriginalFileName:
+            - msteams.exe
+            - teams.exe
+    filter_main_legit_names:
+        Image|endswith:
+            - \msteams.exe
+            - \teams.exe
+    condition: process_creation and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

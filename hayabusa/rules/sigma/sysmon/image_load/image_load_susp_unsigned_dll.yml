@@ -1,0 +1,85 @@
+title: Unsigned DLL Loaded by Windows Utility
+id: 2cf29ce1-4c3f-0a50-2325-dc7984a3e2d7
+related:
+    - id: b5de0c9a-6f19-43e0-af4e-55ad01f550af
+      type: derived
+status: test
+description: |
+    Detects windows utilities loading an unsigned or untrusted DLL.
+    Adversaries often abuse those programs to proxy execution of malicious code.
+references:
+    - https://www.elastic.co/security-labs/Hunting-for-Suspicious-Windows-Libraries-for-Execution-and-Evasion
+    - https://akhere.hashnode.dev/hunting-unsigned-dlls-using-kql
+    - https://unit42.paloaltonetworks.com/unsigned-dlls/?web_view=true
+author: Swachchhanda Shrawan Poudel
+date: 2024-02-28
+modified: 2025-10-07
+tags:
+    - attack.stealth
+    - attack.t1218.011
+    - attack.t1218.010
+    - sysmon
+logsource:
+    product: windows
+    category: image_load
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith:
+            # Note: Add additional utilities that allow the loading of DLLs
+            - \InstallUtil.exe
+            - \RegAsm.exe
+            - \RegSvcs.exe
+            - \regsvr32.exe
+            - \rundll32.exe
+    filter_main_signed:
+        Signed: 'true'
+    filter_main_sig_status:
+        SignatureStatus:
+            - errorChaining
+            - errorCode_endpoint
+            - errorExpired
+            - trusted
+            - Valid
+    filter_main_signed_null:
+        Signed: null
+    filter_main_signed_empty:
+        Signed:
+            - ''
+            - '-'
+    filter_main_sig_status_null:
+        SignatureStatus: null
+    filter_main_sig_status_empty:
+        SignatureStatus:
+            - ''
+            - '-'
+    filter_main_windows_installer:
+        Image:
+            - C:\Windows\SysWOW64\rundll32.exe
+            - C:\Windows\System32\rundll32.exe
+        ImageLoaded|startswith: C:\Windows\Installer\
+        ImageLoaded|endswith:
+            - .tmp-\Microsoft.Deployment.WindowsInstaller.dll
+            - .tmp-\Avira.OE.Setup.CustomActions.dll
+    filter_main_assembly:
+        Image|startswith:
+            - C:\Windows\SysWOW64\
+            - C:\Windows\System32\
+            - C:\Windows\Microsoft.NET\Framework64
+        Image|endswith: \RegAsm.exe
+        ImageLoaded|endswith: .dll
+        ImageLoaded|startswith: C:\Windows\assembly\NativeImages
+    filter_optional_klite_codec:
+        Image:
+            - C:\Windows\SysWOW64\regsvr32.exe
+            - C:\Windows\System32\regsvr32.exe
+        ImageLoaded|startswith:
+            - C:\Program Files (x86)\K-Lite Codec Pack\
+            - C:\Program Files\K-Lite Codec Pack\
+    condition: image_load and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

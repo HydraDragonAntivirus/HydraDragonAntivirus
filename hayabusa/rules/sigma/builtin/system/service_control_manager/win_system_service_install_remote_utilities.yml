@@ -1,0 +1,32 @@
+title: Remote Utilities Host Service Install
+id: 97bd461f-b35e-a243-c697-06cc0539d7e3
+related:
+    - id: 85cce894-dd8b-4427-a958-5cc47a4dc9b9
+      type: derived
+status: test
+description: Detects Remote Utilities Host service installation on the target system.
+references:
+    - https://www.remoteutilities.com/support/kb/host-service-won-t-start/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-31
+tags:
+    - attack.persistence
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection_root:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+    selection_service:
+        - ImagePath|contains|all:
+              - \rutserv.exe
+              - -service
+        - ServiceName: Remote Utilities - Host
+    condition: system and (all of selection_*)
+falsepositives:
+    - Legitimate use of the tool
+level: medium
+ruletype: Sigma

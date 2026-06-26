@@ -1,0 +1,53 @@
+title: Suspicious Child Process Created as System
+id: 5f16895d-8375-3166-95f6-4aa485119741
+related:
+    - id: 590a5f4c-6c8c-4f10-8307-89afe9453a9d
+      type: derived
+status: test
+description: Detection of child processes spawned with SYSTEM privileges by parents with LOCAL SERVICE or NETWORK SERVICE accounts
+references:
+    - https://speakerdeck.com/heirhabarov/hunting-for-privilege-escalation-in-windows-environment
+    - https://foxglovesecurity.com/2016/09/26/rotten-potato-privilege-escalation-from-service-accounts-to-system/
+    - https://github.com/antonioCoco/RogueWinRM
+    - https://twitter.com/Cyb3rWard0g/status/1453123054243024897
+author: Teymur Kheirkhabarov, Roberto Rodriguez (@Cyb3rWard0g), Open Threat Research (OTR)
+date: 2019-10-26
+modified: 2024-12-01
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1134.002
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+    definition: 'Requirements: ParentUser field needs sysmon >= 13.30'
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentUser|contains:
+            - AUTHORI
+            - AUTORI
+        ParentUser|endswith:
+            - \NETWORK SERVICE
+            - \LOCAL SERVICE
+        User|contains: # covers many language settings
+            - AUTHORI
+            - AUTORI
+        User|endswith: # System
+            - \SYSTEM
+            - \Système
+            - \СИСТЕМА
+        IntegrityLevel:
+            - System
+            - S-1-16-16384
+    filter_rundll32:
+        Image|endswith: \rundll32.exe
+        CommandLine|contains: DavSetCookie
+    condition: process_creation and (selection and not 1 of filter_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

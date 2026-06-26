@@ -1,0 +1,44 @@
+title: Recon Information for Export with Command Prompt
+id: c76ad47e-7ed1-f05c-79c9-860ad2aa076d
+related:
+    - id: 8e0bb260-d4b2-4fff-bb8d-3f82118e6892
+      type: similar
+    - id: aa2efee7-34dd-446e-8a37-40790a66efd7
+      type: derived
+status: test
+description: Once established within a system or network, an adversary may use automated techniques for collecting internal data.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1119/T1119.md
+author: frack113
+date: 2021-07-30
+modified: 2022-09-13
+tags:
+    - attack.collection
+    - attack.t1119
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_image:
+        - Image|endswith:
+              - \tree.com
+              - \WMIC.exe
+              - \doskey.exe
+              - \sc.exe
+        - OriginalFileName:
+              - wmic.exe
+              - DOSKEY.EXE
+              - sc.exe
+    selection_redirect:
+        ParentCommandLine|contains:
+            - ' > %TEMP%\'
+            - ' > %TMP%\'
+    condition: process_creation and (all of selection*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

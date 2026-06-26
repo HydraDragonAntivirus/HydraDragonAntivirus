@@ -1,0 +1,37 @@
+title: Created Files by Microsoft Sync Center
+id: 38d84a79-2570-5505-26a7-c82e954cbde8
+related:
+    - id: 409f8a98-4496-4aaa-818a-c931c0a8b832
+      type: derived
+status: test
+description: This rule detects suspicious files created by Microsoft Sync Center (mobsync)
+references:
+    - https://redcanary.com/blog/intelligence-insights-november-2021/
+author: elhoim
+date: 2022-04-28
+modified: 2022-06-02
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1055
+    - attack.t1218
+    - attack.execution
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_mobsync:
+        Image|endswith: \mobsync.exe
+    filter_created_file:
+        TargetFilename|endswith:
+            - .dll
+            - .exe
+    condition: file_event and (selection_mobsync and filter_created_file)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

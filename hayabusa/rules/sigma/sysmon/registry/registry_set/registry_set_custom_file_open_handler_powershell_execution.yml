@@ -1,0 +1,33 @@
+title: Custom File Open Handler Executes PowerShell
+id: cde5340e-bc04-6f2e-d771-d197b89945d1
+related:
+    - id: 7530b96f-ad8e-431d-a04d-ac85cc461fdc
+      type: derived
+status: test
+description: Detects the abuse of custom file open handler, executing powershell
+references:
+    - https://news.sophos.com/en-us/2022/02/01/solarmarker-campaign-used-novel-registry-changes-to-establish-persistence/?cmp=30728
+author: CD_R0M_
+date: 2022-06-11
+modified: 2023-08-17
+tags:
+    - attack.stealth
+    - attack.t1202
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains: shell\open\command\
+        Details|contains|all:
+            - powershell
+            - -command
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

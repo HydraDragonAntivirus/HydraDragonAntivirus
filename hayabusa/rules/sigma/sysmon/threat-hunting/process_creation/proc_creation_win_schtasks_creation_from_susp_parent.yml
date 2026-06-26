@@ -1,0 +1,47 @@
+title: Scheduled Task Creation From Potential Suspicious Parent Location
+id: 841690fc-9a69-64c8-36ba-1a4a37f0880f
+related:
+    - id: 9494479d-d994-40bf-a8b1-eea890237021
+      type: derived
+status: test
+description: |
+    Detects the execution of "schtasks.exe" from a parent that is located in a potentially suspicious location.
+    Multiple malware strains were seen exhibiting a similar behavior in order to achieve persistence.
+references:
+    - https://app.any.run/tasks/649e7b46-9bec-4d05-98a5-dfa9a13eaae5/
+author: Florian Roth (Nextron Systems)
+date: 2022-02-23
+modified: 2024-05-13
+tags:
+    - attack.execution
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1053.005
+    - detection.threat-hunting
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|contains:
+            - :\Temp\
+            - \AppData\Local\
+            - \AppData\Roaming\
+            - \Temporary Internet
+            - \Users\Public\
+            - \Windows\Temp\
+        Image|endswith: \schtasks.exe
+        CommandLine|contains: '/Create '
+    filter_optional_common:
+        CommandLine|contains:
+            - update_task.xml
+            - unattended.ini
+    condition: process_creation and (selection and not 1 of filter_optional_*)
+falsepositives:
+    - Software installers that run from temporary folders and also install scheduled tasks
+level: medium
+ruletype: Sigma

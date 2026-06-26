@@ -1,0 +1,42 @@
+title: Potentially Over Permissive Permissions Granted Using Dsacls.EXE
+id: 50da3f51-37c7-09fc-e410-f2b0977aaa39
+related:
+    - id: 01c42d3c-242d-4655-85b2-34f1739632f7
+      type: derived
+status: test
+description: Detects usage of Dsacls to grant over permissive permissions
+references:
+    - https://ss64.com/nt/dsacls.html
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/cc771151(v=ws.11)
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-06-20
+modified: 2023-02-04
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \dsacls.exe
+        - OriginalFileName: DSACLS.EXE
+    selection_flag:
+        CommandLine|contains: ' /G '
+    selection_permissions:
+        CommandLine|contains: # Add more permissions as you see fit in your environment
+            - GR
+            - GE
+            - GW
+            - GA
+            - WP
+            - WD
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate administrators granting over permissive permissions to users
+level: medium
+ruletype: Sigma

@@ -1,0 +1,38 @@
+title: Network Connection Initiated Via Notepad.EXE
+id: e6f76f81-e758-4001-122c-58a3ceef02f9
+related:
+    - id: e81528db-fc02-45e8-8e98-4e84aba1f10b
+      type: derived
+status: test
+description: |
+    Detects a network connection that is initiated by the "notepad.exe" process.
+    This might be a sign of process injection from a beacon process or something similar.
+    Notepad rarely initiates a network communication except when printing documents for example.
+references:
+    - https://web.archive.org/web/20200219102749/https://www.sans.org/cyber-security-summit/archives/file/summit-archive-1492186586.pdf
+    - https://www.cobaltstrike.com/blog/why-is-notepad-exe-connecting-to-the-internet
+author: EagleEye Team
+date: 2020-05-14
+modified: 2024-02-02
+tags:
+    - attack.privilege-escalation
+    - attack.command-and-control
+    - attack.execution
+    - attack.stealth
+    - attack.t1055
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    network_connection:
+        EventID: 5156
+        Channel: Security
+    selection:
+        Application|endswith: \notepad.exe
+    filter_optional_printing:
+        DestPort: 9100
+    condition: network_connection and (selection and not 1 of filter_optional_*)
+falsepositives:
+    - Printing documents via notepad might cause communication with the printer via port 9100 or similar.
+level: high
+ruletype: Sigma

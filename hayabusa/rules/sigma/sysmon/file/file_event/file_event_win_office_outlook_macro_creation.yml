@@ -1,0 +1,37 @@
+title: New Outlook Macro Created
+id: 46e0ea2e-960c-97d8-b4c2-97a05dd4e0b6
+related:
+    - id: 117d3d3a-755c-4a61-b23e-9171146d094c
+      type: derived
+    - id: 8c31f563-f9a7-450c-bfa8-35f8f32f1f61
+      type: derived
+status: test
+description: Detects the creation of a macro file for Outlook.
+references:
+    - https://www.mdsec.co.uk/2020/11/a-fresh-outlook-on-mail-based-persistence/
+author: '@ScoubiMtl'
+date: 2021-04-05
+modified: 2023-02-08
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.command-and-control
+    - attack.t1137
+    - attack.t1008
+    - attack.t1546
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \outlook.exe
+        TargetFilename|endswith: \Microsoft\Outlook\VbaProject.OTM
+    condition: file_event and selection
+falsepositives:
+    - User genuinely creates a VB Macro for their email
+level: medium
+ruletype: Sigma

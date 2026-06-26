@@ -1,0 +1,39 @@
+title: Potential CCleanerDU.DLL Sideloading
+id: 266a0ca3-b5d6-89a3-e8e1-1c2121ab5074
+related:
+    - id: 1fbc0671-5596-4e17-8682-f020a0b995dc
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "CCleanerDU.dll"
+references:
+    - https://lab52.io/blog/2344-2/
+author: X__Junior (Nextron Systems)
+date: 2023-07-13
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \CCleanerDU.dll
+    filter_main_path:
+        Image|startswith:
+            - C:\Program Files\CCleaner\
+            - C:\Program Files (x86)\CCleaner\
+        Image|endswith:
+            - \CCleaner.exe
+            - \CCleaner64.exe
+    condition: image_load and (selection and not 1 of filter_main_*)
+falsepositives:
+    - False positives could occur from other custom installation paths. Apply additional filters accordingly.
+level: medium
+ruletype: Sigma

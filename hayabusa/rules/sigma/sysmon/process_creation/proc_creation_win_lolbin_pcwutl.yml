@@ -1,0 +1,36 @@
+title: Code Execution via Pcwutl.dll
+id: 1350da29-17e4-bbac-78a5-baefed990847
+related:
+    - id: 9386d78a-7207-4048-9c9f-a93a7c2d1c05
+      type: derived
+status: test
+description: Detects launch of executable by calling the LaunchApplication function from pcwutl.dll library.
+references:
+    - https://lolbas-project.github.io/lolbas/Libraries/Pcwutl/
+    - https://twitter.com/harr0ey/status/989617817849876488
+author: Julia Fomina, oscd.community
+date: 2020-10-05
+modified: 2023-02-09
+tags:
+    - attack.stealth
+    - attack.t1218.011
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \rundll32.exe
+        - OriginalFileName: RUNDLL32.EXE
+    selection_cli:
+        CommandLine|contains|all:
+            - pcwutl
+            - LaunchApplication
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Use of Program Compatibility Troubleshooter Helper
+level: medium
+ruletype: Sigma

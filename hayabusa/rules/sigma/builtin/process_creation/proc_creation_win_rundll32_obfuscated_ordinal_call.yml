@@ -1,0 +1,42 @@
+title: Potential Obfuscated Ordinal Call Via Rundll32
+id: b7049a0d-bb27-adf6-2c62-501b4398af4d
+related:
+    - id: 43fa5350-db63-4b8f-9a01-789a427074e1
+      type: derived
+status: test
+description: Detects execution of "rundll32" with potential obfuscated ordinal calls
+references:
+    - Internal Research
+    - https://www.youtube.com/watch?v=52tAmVLg1KM&t=2070s
+author: Nasreddine Bencherchali (Nextron Systems), Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2023-05-17
+modified: 2025-02-23
+tags:
+    - attack.stealth
+    - attack.t1027.010
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \rundll32.exe
+        - OriginalFileName: RUNDLL32.EXE
+        - CommandLine|contains: rundll32
+    selection_cli:
+        CommandLine|contains:
+            - '#+'
+            - '#-'
+            # ordinal can be represented by adding any number of zeros in front ordinal number, for e.g. 000000024
+            - '#0'
+            # ordinal is 16 bit ordinal, so if you make the number large enough (don't fit in 16 bit space), then it normally wraps around.
+            # for e.g ordinal 24 can be also represented by 65560 (65536+24)
+            - '#655'
+            - '#656'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

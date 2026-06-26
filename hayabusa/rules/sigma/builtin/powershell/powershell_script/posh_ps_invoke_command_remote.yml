@@ -1,0 +1,34 @@
+title: Execute Invoke-command on Remote Host
+id: a4603d3c-bb7c-8db0-3d8a-23f265190006
+related:
+    - id: 7b836d7f-179c-4ba4-90a7-a7e60afb48e6
+      type: derived
+status: test
+description: Adversaries may use Valid Accounts to interact with remote systems using Windows Remote Management (WinRM). The adversary may then perform actions as the logged-on user.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1021.006/T1021.006.md#atomic-test-2---invoke-command
+    - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/invoke-command?view=powershell-7.4
+author: frack113
+date: 2022-01-07
+tags:
+    - attack.lateral-movement
+    - attack.t1021.006
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection_cmdlet:
+        ScriptBlockText|contains|all:
+            - 'invoke-command '
+            - ' -ComputerName '
+    condition: ps_script and selection_cmdlet
+falsepositives:
+    - Legitimate script
+level: medium
+ruletype: Sigma

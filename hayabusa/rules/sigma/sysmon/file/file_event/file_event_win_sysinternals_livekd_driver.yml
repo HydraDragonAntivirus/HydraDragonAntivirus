@@ -1,0 +1,32 @@
+title: LiveKD Driver Creation
+id: cadc1d3b-1c82-af02-a894-3aa28f14420f
+related:
+    - id: 16fe46bb-4f64-46aa-817d-ff7bec4a2352
+      type: derived
+status: test
+description: Detects the creation of the LiveKD driver, which is used for live kernel debugging
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-16
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename: C:\Windows\System32\drivers\LiveKdD.SYS
+        Image|endswith:
+            - \livekd.exe
+            - \livek64.exe
+    condition: file_event and selection
+falsepositives:
+    - Legitimate usage of LiveKD for debugging purposes will also trigger this
+level: medium
+ruletype: Sigma

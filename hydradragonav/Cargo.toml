@@ -57,6 +57,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Restore",
     "Win32_System_TaskScheduler",
     "Win32_System_Com",
+    "Win32_System_Console",
     "Win32_System_Variant",
     "Win32_System_Ole",
     "Win32_System_Diagnostics_ToolHelp",
@@ -83,6 +84,15 @@ hydradragonclamav = { path = "../hydradragonclamav" }
 
 # Other
 yaml_serde = "0.10.4"
+
+# Hayabusa EVTX detection library
+hayabusa = { path = "../hayabusa" }
+
+# EVTX parser (re-exported by hayabusa but used directly)
+evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git", rev = "5c2bc81" }
+compact_str = "0.9"
+nested = "0.1"
+tokio = { version = "1", features = ["rt", "macros"] }
 toml = "0.5"
 regex = "1.12.2"
 sha1 = "0.11.0"

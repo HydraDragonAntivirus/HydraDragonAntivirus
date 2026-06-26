@@ -1,0 +1,36 @@
+title: UAC Bypass Using Consent and Comctl32 - Process
+id: 22ab5187-a070-d9c4-3d88-f762afec0917
+related:
+    - id: 1ca6bd18-0ba0-44ca-851c-92ed89a61085
+      type: derived
+status: test
+description: Detects the pattern of UAC Bypass using consent.exe and comctl32.dll (UACMe 22)
+references:
+    - https://github.com/hfiref0x/UACME
+author: Christian Burkard (Nextron Systems)
+date: 2021-08-23
+modified: 2024-12-01
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith: \consent.exe
+        Image|endswith: \werfault.exe
+        IntegrityLevel:
+            - High
+            - System
+            - S-1-16-16384   # System
+            - S-1-16-12288   # High
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

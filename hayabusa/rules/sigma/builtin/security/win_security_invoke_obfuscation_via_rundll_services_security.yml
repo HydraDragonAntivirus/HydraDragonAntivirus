@@ -1,0 +1,38 @@
+title: Invoke-Obfuscation RUNDLL LAUNCHER - Security
+id: 826feb8b-536b-0302-0b4e-bd34cc5c4923
+related:
+    - id: 11b52f18-aaec-4d60-9143-5dd8cc4706b9
+      type: derived
+    - id: f241cf1b-3a6b-4e1a-b4f9-133c00dd95ca
+      type: derived
+status: test
+description: Detects Obfuscated Powershell via RUNDLL LAUNCHER
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009 # (Task 23)
+author: Timur Zinniatullin, oscd.community
+date: 2020-10-18
+modified: 2022-11-29
+tags:
+    - attack.stealth
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    service: security
+    definition: The 'System Security Extension' audit subcategory need to be enabled to log the EID 4697
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 4697
+        ServiceFileName|contains|all:
+            - rundll32.exe
+            - shell32.dll
+            - shellexec_rundll
+            - powershell
+    condition: security and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

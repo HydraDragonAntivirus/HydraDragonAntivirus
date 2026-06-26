@@ -1,0 +1,38 @@
+title: Tunneling Tool Execution
+id: d5f89a01-41d8-2b50-209c-10402c2f6194
+related:
+    - id: c75309a3-59f8-4a8d-9c2c-4c927ad50555
+      type: derived
+status: test
+description: Detects the execution of well known tools that can be abused for data exfiltration and tunneling.
+author: Daniil Yugoslavskiy, oscd.community
+references:
+    - https://www.microsoft.com/en-us/security/blog/2022/07/26/malicious-iis-extensions-quietly-open-persistent-backdoors-into-servers/
+date: 2019-10-24
+modified: 2024-01-18
+tags:
+    - attack.exfiltration
+    - attack.command-and-control
+    - attack.t1041
+    - attack.t1572
+    - attack.t1071.001
+    - detection.threat-hunting
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith:
+            - \httptunnel.exe
+            - \plink.exe
+            - \socat.exe
+            - \stunnel.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate administrators using one of these tools
+level: medium
+ruletype: Sigma

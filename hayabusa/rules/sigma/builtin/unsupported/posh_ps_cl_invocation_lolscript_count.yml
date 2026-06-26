@@ -1,0 +1,35 @@
+title: Execution via CL_Invocation.ps1 (2 Lines)
+id: 13cf4134-564b-abdb-c83e-dac3ba9bac3c
+related:
+    - id: f588e69b-0750-46bb-8f87-0e9320d57536
+      type: derived
+status: unsupported
+description: Detects Execution via SyncInvoke in CL_Invocation.ps1 module
+references:
+    - https://lolbas-project.github.io/lolbas/Scripts/Cl_invocation/
+    - https://twitter.com/bohops/status/948061991012327424
+author: oscd.community, Natalia Shornikova
+date: 2020-10-14
+modified: 2023-02-24
+tags:
+    - attack.defense-evasion
+    - attack.t1216
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains:
+            - CL_Invocation.ps1
+            - SyncInvoke
+    condition: (ps_script and selection) | count(ScriptBlockText) by Computer > 2
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

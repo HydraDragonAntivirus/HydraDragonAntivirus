@@ -1,0 +1,32 @@
+title: Windows Defender Exclusions Added - Registry
+id: 9bf5abfc-c2c2-ca9e-0f4a-260c102444eb
+related:
+    - id: 1321dc4e-a1fe-481d-a016-52c45f0c8b4f
+      type: derived
+    - id: a982fc9c-6333-4ffb-a51d-addb04e8b529
+      type: derived
+status: test
+description: Detects the Setting of Windows Defender Exclusions
+references:
+    - https://twitter.com/_nullbind/status/1204923340810543109
+author: Christian Burkard (Nextron Systems)
+date: 2021-07-06
+modified: 2023-08-17
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+    - sysmon
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection2:
+        TargetObject|contains: \Microsoft\Windows Defender\Exclusions
+    condition: registry_set and selection2
+falsepositives:
+    - Administrator actions
+level: medium
+ruletype: Sigma

@@ -1,0 +1,50 @@
+title: Suspicious Scripting in a WMI Consumer
+id: 56bbb635-99ed-e718-f300-582130579092
+related:
+    - id: fe21810c-2a8c-478f-8dd3-5a287fb2a0e0
+      type: derived
+status: test
+description: Detects suspicious commands that are related to scripting/powershell in WMI Event Consumers
+references:
+    - https://in.security/an-intro-into-abusing-and-identifying-wmi-event-subscriptions-for-persistence/
+    - https://github.com/Neo23x0/signature-base/blob/615bf1f6bac3c1bdc417025c40c073e6c2771a76/yara/gen_susp_lnk_files.yar#L19
+    - https://github.com/RiccardoAncarani/LiquidSnake
+author: Florian Roth (Nextron Systems), Jonhnathan Ribeiro
+date: 2019-04-15
+modified: 2023-09-09
+tags:
+    - attack.execution
+    - attack.t1059.005
+    - sysmon
+logsource:
+    product: windows
+    category: wmi_event
+detection:
+    wmi_event:
+        EventID:
+            - 19
+            - 20
+            - 21
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_destination:
+        - Destination|contains|all:
+              - new-object
+              - net.webclient
+              - .downloadstring
+        - Destination|contains|all:
+              - new-object
+              - net.webclient
+              - .downloadfile
+        - Destination|contains:
+              - ' iex('
+              - ' -nop '
+              - ' -noprofile '
+              - ' -decode '
+              - ' -enc '
+              - WScript.Shell
+              - System.Security.Cryptography.FromBase64Transform
+    condition: wmi_event and selection_destination
+falsepositives:
+    - Legitimate administrative scripts
+level: high
+ruletype: Sigma

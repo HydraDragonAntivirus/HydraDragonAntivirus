@@ -1,0 +1,51 @@
+title: Uncommon Microsoft Office Trusted Location Added
+id: c22014de-7963-a2c6-ead7-9fded54d54f0
+related:
+    - id: a0bed973-45fa-4625-adb5-6ecdf9be70ac
+      type: derived
+    - id: f742bde7-9528-42e5-bd82-84f51a8387d2
+      type: derived
+status: test
+description: Detects changes to registry keys related to "Trusted Location" of Microsoft Office where the path is set to something uncommon. Attackers might add additional trusted locations to avoid macro security restrictions.
+references:
+    - Internal Research
+    - https://admx.help/?Category=Office2016&Policy=excel16.Office.Microsoft.Policies.Windows::L_TrustedLoc01
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-06-21
+modified: 2023-09-29
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: Security\Trusted Locations\Location
+        ObjectName|endswith: \Path
+    filter_exclude_known_paths:
+        NewValue|contains:
+            - '%APPDATA%\Microsoft\Templates'
+            - '%%APPDATA%%\Microsoft\Templates'
+            - '%APPDATA%\Microsoft\Word\Startup'
+            - '%%APPDATA%%\Microsoft\Word\Startup'
+            - :\Program Files (x86)\Microsoft Office\root\Templates\
+            - :\Program Files\Microsoft Office (x86)\Templates
+            - :\Program Files\Microsoft Office\root\Templates\
+            - :\Program Files\Microsoft Office\Templates\
+    filter_main_office_click_to_run:
+        ProcessName|contains: :\Program Files\Common Files\Microsoft Shared\ClickToRun\
+        ProcessName|endswith: \OfficeClickToRun.exe
+    filter_main_office_apps:
+        ProcessName|contains:
+            - :\Program Files\Microsoft Office\
+            - :\Program Files (x86)\Microsoft Office\
+    condition: registry_set and (selection and not 1 of filter_main_* and not 1 of filter_exclude_*)
+falsepositives:
+    - Other unknown legitimate or custom paths need to be filtered to avoid false positives
+level: high
+ruletype: Sigma

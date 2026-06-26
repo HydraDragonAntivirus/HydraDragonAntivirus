@@ -1,0 +1,32 @@
+title: Dnscat Execution
+id: 47d13687-edae-dafa-bdab-416474c95f53
+related:
+    - id: a6d67db4-6220-436d-8afc-f3842fe05d43
+      type: derived
+status: deprecated
+description: Dnscat exfiltration tool execution
+author: Daniil Yugoslavskiy, oscd.community
+date: 2019-10-24
+modified: 2024-01-25
+tags:
+    - attack.exfiltration
+    - attack.t1048
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains: Start-Dnscat2
+    condition: ps_script and selection
+falsepositives:
+    - Legitimate usage of PowerShell Dnscat2 — DNS Exfiltration tool (unlikely)
+level: critical
+ruletype: Sigma

@@ -1,0 +1,29 @@
+title: Enable Remote Connection Between Anonymous Computer - AllowAnonymousCallback
+id: 153b0ce0-9f0b-f10f-7d6e-3a23dea83494
+related:
+    - id: 4d431012-2ab5-4db7-a84e-b29809da2172
+      type: derived
+status: test
+description: Detects enabling of the "AllowAnonymousCallback" registry value, which allows a remote connection between computers that do not have a trust relationship.
+references:
+    - https://learn.microsoft.com/en-us/windows/win32/wmisdk/connecting-to-wmi-remotely-starting-with-vista
+author: X__Junior (Nextron Systems)
+date: 2023-11-03
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \Microsoft\WBEM\CIMOM\AllowAnonymousCallback
+        NewValue: DWORD (0x00000001)
+    condition: registry_set and selection
+falsepositives:
+    - Administrative activity
+level: medium
+ruletype: Sigma

@@ -1,0 +1,35 @@
+title: Registry Entries For Azorult Malware
+id: 46595663-e666-c413-ccf4-028a618ca712
+related:
+    - id: f7f9ab88-7557-4a69-b30e-0a8f91b3a0e7
+      type: derived
+status: test
+description: Detects the presence of a registry key created during Azorult execution
+references:
+    - https://www.trendmicro.com/vinfo/us/threat-encyclopedia/malware/trojan.win32.azoruit.a
+author: Trent Liffick
+date: 2020-05-08
+modified: 2021-11-27
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    product: windows
+    category: registry_event
+detection:
+    registry_event:
+        EventID: 4657
+        Channel: Security
+    selection:
+        EventID:
+            - 12
+            - 13
+        ObjectName|contains: SYSTEM\
+        ObjectName|endswith: \services\localNETService
+    condition: registry_event and selection
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

@@ -1,0 +1,59 @@
+title: Service Binary in Suspicious Folder
+id: ed9f6502-6cf6-8a06-be4a-10027cabb474
+related:
+    - id: c0abc838-36b0-47c9-b3b3-a90c39455382
+      type: obsolete
+    - id: a07f0359-4c90-4dc4-a681-8ffea40b4f47
+      type: derived
+status: test
+description: Detect the creation of a service with a service binary located in a suspicious directory
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
+author: Florian Roth (Nextron Systems), frack113
+date: 2022-05-02
+modified: 2025-10-07
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection_service_start:
+        ObjectName|startswith: \REGISTRY\MACHINE\System\CurrentControlSet\Services\
+        ObjectName|endswith: \Start
+        ProcessName|contains:
+            - \Users\Public\
+            - \Perflogs\
+            - \ADMIN$\
+            - \Temp\
+        NewValue:
+            - DWORD (0x00000000)    # boot
+            - DWORD (0x00000001)    # System
+            - DWORD (0x00000002)    # Automatic
+            # 3 - Manual , 4 - Disabled
+    selection_service_imagepath:
+        ObjectName|startswith: \REGISTRY\MACHINE\System\CurrentControlSet\Services\
+        ObjectName|endswith: \ImagePath
+        NewValue|contains:
+            - \Users\Public\
+            - \Perflogs\
+            - \ADMIN$\
+            - \Temp\
+    filter_optional_avast:
+        ProcessName|contains|all: # Filter FP with Avast software
+            - \Common Files\
+            - \Temp\
+    filter_optional_mbamservice:
+        ObjectName|endswith: \CurrentControlSet\Services\MBAMInstallerService\ImagePath
+        NewValue|endswith: \AppData\Local\Temp\MBAMInstallerService.exe"
+        ProcessName: C:\Windows\system32\services.exe
+    condition: registry_set and (1 of selection_* and not 1 of filter_optional_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

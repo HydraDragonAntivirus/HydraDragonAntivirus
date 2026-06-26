@@ -1,0 +1,45 @@
+title: Renamed ProcDump Execution
+id: a6320654-afe9-8fa6-7fdc-3270c5a552d2
+related:
+    - id: 03795938-1387-481b-9f4c-3f6241e604fe
+      type: obsolete
+    - id: 4a0b2c7e-7cb2-495d-8b63-5f268e7bfd67
+      type: derived
+status: test
+description: |
+    Detects the execution of a renamed ProcDump executable.
+    This often done by attackers or malware in order to evade defensive mechanisms.
+references:
+    - https://learn.microsoft.com/en-us/sysinternals/downloads/procdump
+author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
+date: 2019-11-18
+modified: 2024-06-25
+tags:
+    - attack.stealth
+    - attack.t1036.003
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_ofn:
+        OriginalFileName: procdump
+    selection_cli_dump_flag:
+        CommandLine|contains|windash:
+            - ' -ma ' # Full Dump
+            - ' -mp ' # Mini Plus
+    selection_cli_eula_flag:
+        # Note: Even though the "accepteula" flag isn't required. We add it to avoid collision with similar utilities.
+        CommandLine|contains|windash: ' /accepteula'
+    filter_main_known_names:
+        NewProcessName|endswith:
+            - \procdump.exe
+            - \procdump64.exe
+    condition: process_creation and ((selection_ofn or all of selection_cli_*) and not 1 of filter_main_*)
+falsepositives:
+    - Procdump illegally bundled with legitimate software.
+    - Administrators who rename binaries (should be investigated).
+level: high
+ruletype: Sigma

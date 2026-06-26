@@ -1,0 +1,34 @@
+title: COLDSTEEL Persistence Service Creation
+id: d8f1ace1-c01b-3f95-34ed-993d29f876f5
+related:
+    - id: 3ced239c-7285-4b54-99c4-8525b69293f7
+      type: derived
+status: test
+description: Detects the creation of new services potentially related to COLDSTEEL RAT
+references:
+    - https://www.ncsc.gov.uk/static-assets/documents/malware-analysis-reports/cold-steel/NCSC-MAR-Cold-Steel.pdf
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-02
+tags:
+    - attack.persistence
+    - detection.emerging-threats
+    - attack.stealth
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+        ServiceName:
+            - Name
+            - msupdate
+            - msupdate2
+        ImagePath|contains: \Windows\System32\svchost.exe
+    condition: system and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

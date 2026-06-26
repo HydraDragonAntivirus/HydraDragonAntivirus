@@ -1,0 +1,34 @@
+title: Potential Goofy Guineapig GoolgeUpdate Process Anomaly
+id: f4ecb52a-58a8-1b58-2edc-0d083d0df505
+related:
+    - id: bdbab15a-3826-48fa-a1b7-723cd8f32fcc
+      type: derived
+status: test
+description: Detects "GoogleUpdate.exe" spawning a new instance of itself in an uncommon location as seen used by the Goofy Guineapig backdoor
+references:
+    - https://www.ncsc.gov.uk/static-assets/documents/malware-analysis-reports/goofy-guineapig/NCSC-MAR-Goofy-Guineapig.pdf
+author: X__Junior (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-15
+tags:
+    - detection.emerging-threats
+    - attack.stealth
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        ParentProcessName|endswith: \GoogleUpdate.exe
+        NewProcessName|endswith: \GoogleUpdate.exe
+    filter_main_legit_paths:
+        - NewProcessName|startswith:
+              - C:\Program Files\Google\
+              - C:\Program Files (x86)\Google\
+        - NewProcessName|contains: \AppData\Local\Google\Update\
+    condition: process_creation and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,32 @@
+title: SAM Dump to AppData
+id: f224a2b6-2db1-a1a2-42d4-25df0c460915
+related:
+    - id: 839dd1e8-eda8-4834-8145-01beeee33acd
+      type: derived
+status: deprecated
+description: Detects suspicious SAM dump activity as cause by QuarksPwDump and other password dumpers
+author: Florian Roth (Nextron Systems)
+date: 2018-01-27
+modified: 2024-01-18
+tags:
+    - attack.credential-access
+    - attack.t1003.002
+logsource:
+    product: windows
+    service: system
+    definition: The source of this type of event is Kernel-General
+detection:
+    system:
+        Channel: System
+    selection:
+        Provider_Name: Microsoft-Windows-Kernel-General
+        EventID: 16
+    keywords:
+        '|all':
+            - \AppData\Local\Temp\SAM-
+            - .dmp
+    condition: system and (selection and keywords)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

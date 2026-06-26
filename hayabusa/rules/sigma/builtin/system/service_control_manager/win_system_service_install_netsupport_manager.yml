@@ -1,0 +1,30 @@
+title: NetSupport Manager Service Install
+id: ee415dc3-b7c0-9568-e6dd-878777ff237a
+related:
+    - id: 2d510d8d-912b-45c5-b1df-36faa3d8c3f4
+      type: derived
+status: test
+description: Detects NetSupport Manager service installation on the target system.
+references:
+    - http://resources.netsupportsoftware.com/resources/manualpdfs/nsm_manual_uk.pdf
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-31
+tags:
+    - attack.persistence
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection_root:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+    selection_service:
+        - ImagePath|contains: \NetSupport Manager\client32.exe
+        - ServiceName: Client32
+    condition: system and (all of selection_*)
+falsepositives:
+    - Legitimate use of the tool
+level: medium
+ruletype: Sigma

@@ -1,0 +1,57 @@
+title: Service Binary in User Controlled Folder
+id: f9252ab9-0f85-c10d-fd51-576b83182926
+related:
+    - id: c625c4c2-515d-407f-8bb6-456f65955669
+      type: obsolete
+    - id: 277dc340-0540-42e7-8efb-5ff460045e07
+      type: derived
+status: test
+description: |
+    Detects the setting of the "ImagePath" value of a service registry key to a path controlled by a non-administrator user such as "\AppData\" or "\ProgramData\".
+    Attackers often use such directories for staging purposes.
+    This rule might also trigger on badly written software, where if an attacker controls an auto starting service, they might achieve persistence or privilege escalation.
+    Note that while ProgramData is a user controlled folder, software might apply strict ACLs which makes them only accessible to admin users. Remove such folders via filters if you experience a lot of noise.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
+author: Nasreddine Bencherchali (Nextron Systems), Florian Roth (Nextron Systems)
+date: 2022-05-02
+modified: 2024-03-25
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+    - detection.threat-hunting
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains|all:
+            - ControlSet
+            - \Services\
+        ObjectName|endswith: \ImagePath
+        NewValue|contains:
+            - :\ProgramData\
+            - \AppData\Local\
+            - \AppData\Roaming\
+    filter_optional_zoom:
+        ObjectName|contains: \Services\ZoomCptService
+        NewValue|contains: C:\Program Files\Common Files\Zoom\Support\CptService.exe
+    filter_optional_mbami:
+        ObjectName|contains: \Services\MBAMInstallerService
+        NewValue|contains|all:
+            - C:\Users\
+            - AppData\Local\Temp\MBAMInstallerService.exe
+    filter_main_windefend:
+        ObjectName|contains:
+            - \Services\WinDefend\
+            - \Services\MpKs
+        NewValue|contains: C:\ProgramData\Microsoft\Windows Defender\
+    condition: registry_set and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

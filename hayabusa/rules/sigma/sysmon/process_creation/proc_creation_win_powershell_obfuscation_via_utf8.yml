@@ -1,0 +1,34 @@
+title: Potential PowerShell Obfuscation Via WCHAR/CHAR
+id: 9c953613-d729-4600-481b-7257136edab1
+related:
+    - id: e312efd0-35a1-407f-8439-b8d434b438a6
+      type: derived
+status: test
+description: Detects suspicious encoded character syntax often used for defense evasion
+references:
+    - https://twitter.com/0gtweet/status/1281103918693482496
+author: Florian Roth (Nextron Systems)
+date: 2020-07-09
+modified: 2025-03-03
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1059.001
+    - attack.t1027
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|contains:
+            - '[char]0x'
+            - (WCHAR)0x
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

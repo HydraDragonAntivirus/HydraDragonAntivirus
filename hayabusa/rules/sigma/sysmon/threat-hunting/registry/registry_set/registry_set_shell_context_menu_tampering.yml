@@ -1,0 +1,32 @@
+title: Shell Context Menu Command Tampering
+id: bd70b4f8-cff4-8067-8bfa-b26d8fb5f955
+related:
+    - id: 868df2d1-0939-4562-83a7-27408c4a1ada
+      type: derived
+status: test
+description: Detects changes to shell context menu commands. Use this rule to hunt for potential anomalies and suspicious shell commands.
+references:
+    - https://mrd0x.com/sentinelone-persistence-via-menu-context/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2024-03-06
+tags:
+    - attack.persistence
+    - detection.threat-hunting
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains|all:
+            - \Software\Classes\
+            - \shell\
+            - \command\
+    condition: registry_set and selection
+falsepositives:
+    - Likely from new software installation suggesting to add context menu items. Such as "PowerShell", "Everything", "Git", etc.
+level: low
+ruletype: Sigma

@@ -1,0 +1,33 @@
+title: Procdump Execution
+id: 9dd8cfb3-e15d-dfe4-ac54-004a540f3279
+related:
+    - id: 2e65275c-8288-4ab4-aeb7-6274f58b6b20
+      type: derived
+status: test
+description: Detects usage of the SysInternals Procdump utility
+references:
+    - https://learn.microsoft.com/en-us/sysinternals/downloads/procdump
+author: Florian Roth (Nextron Systems)
+date: 2021-08-16
+modified: 2023-02-28
+tags:
+    - attack.stealth
+    - attack.t1036
+    - attack.t1003.001
+    - attack.credential-access
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        NewProcessName|endswith:
+            - \procdump.exe
+            - \procdump64.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate use of procdump by a developer or administrator
+level: medium
+ruletype: Sigma

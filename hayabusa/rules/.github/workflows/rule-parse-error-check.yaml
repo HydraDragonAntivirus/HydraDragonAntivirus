@@ -1,0 +1,73 @@
+name: Rule parse error check
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  rule-parse-error-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: clone hayabusa rule repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: hayabusa-rules
+
+      - name: clone hayabusa
+        uses: actions/checkout@v4
+        with:
+          repository: Yamato-Security/hayabusa
+          submodules: recursive
+          path: hayabusa
+
+      - name: clone hayabusa-sample-evtx
+        uses: actions/checkout@v4
+        with:
+          repository: Yamato-Security/hayabusa-sample-evtx
+          path: hayabusa-sample-evtx
+
+      - name: run csv-timeline
+        run: |
+            cd hayabusa
+            git fetch --prune --unshallow
+            LATEST_VER=`git describe --tags --abbrev=0`
+            URL="https://github.com/Yamato-Security/hayabusa/releases/download/${LATEST_VER}/hayabusa-${LATEST_VER#v}-lin-x64-gnu.zip"
+            mkdir tmp
+            cd tmp
+            curl -OL $URL
+            unzip *.zip
+            chmod +x hayabusa-${LATEST_VER#v}-lin-x64-gnu
+            ./hayabusa-${LATEST_VER#v}-lin-x64-gnu csv-timeline -d ../../hayabusa-sample-evtx -r ../../hayabusa-rules -w -o out.csv -D -n -u
+
+      - name: check csv-timeline result
+        if: ${{!inputs.disable-rule-parse-error-check }}
+        shell: /usr/bin/bash {0}
+        run: |
+          cd hayabusa
+          LATEST_VER=`git describe --tags --abbrev=0`
+          cd tmp
+          ./hayabusa-${LATEST_VER#v}-lin-x64-gnu csv-timeline -d ../../hayabusa-sample-evtx -r ../../hayabusa-rules -w -o out.csv -D -n -u  -C | grep "Rule parsing error" | wc -l | grep 0
+          if [ $? -eq 0 ]; then
+              echo "No rule parse error."
+              echo "RULE_PARSE_ERROR=0" >> $GITHUB_ENV
+          else
+              cat ./logs/*
+              echo "RULE_PARSE_ERROR=1" >> $GITHUB_ENV
+          fi
+          exit 0
+
+      - name: Notify Slack
+        if: env.RULE_PARSE_ERROR == '1'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          fields: job
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: check rule parse error status
+        if: env.RULE_PARSE_ERROR == '1'
+        run: |
+          echo "Rule parse error found. Please check the logs above."
+          exit 1

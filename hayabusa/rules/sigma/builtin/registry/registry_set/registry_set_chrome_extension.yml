@@ -1,0 +1,139 @@
+title: Running Chrome VPN Extensions via the Registry 2 VPN Extension
+id: 7d02b772-7006-ba16-2b13-60db59dcfa00
+related:
+    - id: b64a026b-8deb-4c1d-92fd-98893209dff1
+      type: derived
+status: test
+description: Running Chrome VPN Extensions via the Registry install 2 vpn extension
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1133/T1133.md#atomic-test-1---running-chrome-vpn-extensions-via-the-registry-2-vpn-extension
+author: frack113
+date: 2021-12-28
+modified: 2023-08-17
+tags:
+    - attack.initial-access
+    - attack.persistence
+    - attack.t1133
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    chrome_ext:
+        ObjectName|contains: Software\Wow6432Node\Google\Chrome\Extensions
+        ObjectName|endswith: update_url
+    chrome_vpn:
+        ObjectName|contains:
+            - fdcgdnkidjaadafnichfpabhfomcebme
+            - fcfhplploccackoneaefokcmbjfbkenj
+            - bihmplhobchoageeokmgbdihknkjbknd
+            - gkojfkhlekighikafcpjkiklfbnlmeio
+            - jajilbjjinjmgcibalaakngmkilboobh
+            - gjknjjomckknofjidppipffbpoekiipm
+            - nabbmpekekjknlbkgpodfndbodhijjem
+            - kpiecbcckbofpmkkkdibbllpinceiihk
+            - nlbejmccbhkncgokjcmghpfloaajcffj
+            - omghfjlpggmjjaagoclmmobgdodcjboh
+            - bibjcjfmgapbfoljiojpipaooddpkpai
+            - mpcaainmfjjigeicjnlkdfajbioopjko
+            - jljopmgdobloagejpohpldgkiellmfnc
+            - lochiccbgeohimldjooaakjllnafhaid
+            - nhnfcgpcbfclhfafjlooihdfghaeinfc
+            - ookhnhpkphagefgdiemllfajmkdkcaim
+            - namfblliamklmeodpcelkokjbffgmeoo
+            - nbcojefnccbanplpoffopkoepjmhgdgh
+            - majdfhpaihoncoakbjgbdhglocklcgno
+            - lnfdmdhmfbimhhpaeocncdlhiodoblbd
+            - eppiocemhmnlbhjplcgkofciiegomcon
+            - cocfojppfigjeefejbpfmedgjbpchcng
+            - foiopecknacmiihiocgdjgbjokkpkohc
+            - hhdobjgopfphlmjbmnpglhfcgppchgje
+            - jgbaghohigdbgbolncodkdlpenhcmcge
+            - inligpkjkhbpifecbdjhmdpcfhnlelja
+            - higioemojdadgdbhbbbkfbebbdlfjbip
+            - hipncndjamdcmphkgngojegjblibadbe
+            - iolonopooapdagdemdoaihahlfkncfgg
+            - nhfjkakglbnnpkpldhjmpmmfefifedcj
+            - jpgljfpmoofbmlieejglhonfofmahini
+            - fgddmllnllkalaagkghckoinaemmogpe
+            - ejkaocphofnobjdedneohbbiilggdlbi
+            - keodbianoliadkoelloecbhllnpiocoi
+            - hoapmlpnmpaehilehggglehfdlnoegck
+            - poeojclicodamonabcabmapamjkkmnnk
+            - dfkdflfgjdajbhocmfjolpjbebdkcjog
+            - kcdahmgmaagjhocpipbodaokikjkampi
+            - klnkiajpmpkkkgpgbogmcgfjhdoljacg
+            - lneaocagcijjdpkcabeanfpdbmapcjjg
+            - pgfpignfckbloagkfnamnolkeaecfgfh
+            - jplnlifepflhkbkgonidnobkakhmpnmh
+            - jliodmnojccaloajphkingdnpljdhdok
+            - hnmpcagpplmpfojmgmnngilcnanddlhb
+            - ffbkglfijbcbgblgflchnbphjdllaogb
+            - kcndmbbelllkmioekdagahekgimemejo
+            - jdgilggpfmjpbodmhndmhojklgfdlhob
+            - bihhflimonbpcfagfadcnbbdngpopnjb
+            - ppajinakbfocjfnijggfndbdmjggcmde
+            - oofgbpoabipfcfjapgnbbjjaenockbdp
+            - bhnhkdgoefpmekcgnccpnhjfdgicfebm
+            - knmmpciebaoojcpjjoeonlcjacjopcpf
+            - dhadilbmmjiooceioladdphemaliiobo
+            - jedieiamjmoflcknjdjhpieklepfglin
+            - mhngpdlhojliikfknhfaglpnddniijfh
+            - omdakjcmkglenbhjadbccaookpfjihpa
+            - npgimkapccfidfkfoklhpkgmhgfejhbj
+            - akeehkgglkmpapdnanoochpfmeghfdln
+            - gbmdmipapolaohpinhblmcnpmmlgfgje
+            - aigmfoeogfnljhnofglledbhhfegannp
+            - cgojmfochfikphincbhokimmmjenhhgk
+            - ficajfeojakddincjafebjmfiefcmanc
+            - ifnaibldjfdmaipaddffmgcmekjhiloa
+            - jbnmpdkcfkochpanomnkhnafobppmccn
+            - apcfdffemoinopelidncddjbhkiblecc
+            - mjolnodfokkkaichkcjipfgblbfgojpa
+            - oifjbnnafapeiknapihcmpeodaeblbkn
+            - plpmggfglncceinmilojdkiijhmajkjh
+            - mjnbclmflcpookeapghfhapeffmpodij
+            - bblcccknbdbplgmdjnnikffefhdlobhp
+            - aojlhgbkmkahabcmcpifbolnoichfeep
+            - lcmammnjlbmlbcaniggmlejfjpjagiia
+            - knajdeaocbpmfghhmijicidfcmdgbdpm
+            - bdlcnpceagnkjnjlbbbcepohejbheilk
+            - edknjdjielmpdlnllkdmaghlbpnmjmgb
+            - eidnihaadmmancegllknfbliaijfmkgo
+            - ckiahbcmlmkpfiijecbpflfahoimklke
+            - macdlemfnignjhclfcfichcdhiomgjjb
+            - chioafkonnhbpajpengbalkececleldf
+            - amnoibeflfphhplmckdbiajkjaoomgnj
+            - llbhddikeonkpbhpncnhialfbpnilcnc
+            - pcienlhnoficegnepejpfiklggkioccm
+            - iocnglnmfkgfedpcemdflhkchokkfeii
+            - igahhbkcppaollcjeaaoapkijbnphfhb
+            - njpmifchgidinihmijhcfpbdmglecdlb
+            - ggackgngljinccllcmbgnpgpllcjepgc
+            - kchocjcihdgkoplngjemhpplmmloanja
+            - bnijmipndnicefcdbhgcjoognndbgkep
+            - lklekjodgannjcccdlbicoamibgbdnmi
+            - dbdbnchagbkhknegmhgikkleoogjcfge
+            - egblhcjfjmbjajhjhpmnlekffgaemgfh
+            - ehbhfpfdkmhcpaehaooegfdflljcnfec
+            - bkkgdjpomdnfemhhkalfkogckjdkcjkg
+            - almalgbpmcfpdaopimbdchdliminoign
+            - akkbkhnikoeojlhiiomohpdnkhbkhieh
+            - gbfgfbopcfokdpkdigfmoeaajfmpkbnh
+            - bniikohfmajhdcffljgfeiklcbgffppl
+            - lejgfmmlngaigdmmikblappdafcmkndb
+            - ffhhkmlgedgcliajaedapkdfigdobcif
+            - gcknhkkoolaabfmlnjonogaaifnjlfnp
+            - pooljnboifbodgifngpppfklhifechoe
+            - fjoaledfpmneenckfbpdfhkmimnjocfa
+            - aakchaleigkohafkfjfjbblobjifikek
+            - dpplabbmogkhghncfbfdeeokoefdjegm
+            - padekgcemlokbadohgkifijomclgjgif
+            - bfidboloedlamgdmenmlbipfnccokknp
+    condition: registry_set and (all of chrome_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

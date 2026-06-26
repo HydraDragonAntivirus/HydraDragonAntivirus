@@ -1,0 +1,37 @@
+title: Potential APT FIN7 POWERHOLD Execution
+id: 384a6ce5-d681-2e87-6a43-6e1a0eb0f316
+related:
+    - id: 71c432c4-e4da-4eab-ba49-e60ea9a81bca
+      type: derived
+status: test
+description: Detects execution of the POWERHOLD script seen used by FIN7 as reported by WithSecureLabs
+references:
+    - https://labs.withsecure.com/publications/fin7-target-veeam-servers
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-04
+tags:
+    - attack.execution
+    - attack.t1059.001
+    - attack.g0046
+    - detection.emerging-threats
+logsource:
+    product: windows
+    category: ps_script
+    definition: bade5735-5ab0-4aa7-a642-a11be0e40872
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains|all:
+            - $env:APPDATA
+            - function MainPayload
+            - ::WriteAllBytes
+            - wscript.exe
+    condition: ps_script and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

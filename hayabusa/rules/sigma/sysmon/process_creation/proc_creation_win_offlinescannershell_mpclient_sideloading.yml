@@ -1,0 +1,39 @@
+title: Potential Mpclient.DLL Sideloading Via OfflineScannerShell.EXE Execution
+id: d68f93a7-8f2e-56dc-ce53-7e58bf3d5307
+related:
+    - id: 02b18447-ea83-4b1b-8805-714a8a34546a
+      type: derived
+status: test
+description: |
+    Detects execution of Windows Defender "OfflineScannerShell.exe" from its non standard directory.
+    The "OfflineScannerShell.exe" binary is vulnerable to DLL side loading and will load any DLL named "mpclient.dll" from the current working directory.
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/OfflineScannerShell/
+author: frack113
+date: 2022-03-06
+modified: 2023-08-03
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Image|endswith: \OfflineScannerShell.exe
+        - OriginalFileName: OfflineScannerShell.exe
+    filter_main_legit_dir:
+        CurrentDirectory: C:\Program Files\Windows Defender\Offline\
+    filter_main_empty:
+        CurrentDirectory: ''
+    filter_main_null:
+        CurrentDirectory: null
+    condition: process_creation and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

@@ -1,0 +1,36 @@
+title: Headless Process Launched Via Conhost.EXE
+id: b79051de-f46d-38a0-f789-3d5c2fe0b073
+related:
+    - id: 056c7317-9a09-4bd4-9067-d051312752ea
+      type: derived
+    - id: 00ca75ab-d5ce-43be-b86c-55ff39c6abfc
+      type: derived
+status: test
+description: |
+    Detects the launch of a child process via "conhost.exe" with the "--headless" flag.
+    The "--headless" flag hides the windows from the user upon execution.
+references:
+    - https://www.huntress.com/blog/fake-browser-updates-lead-to-boinc-volunteer-computing-software
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2024-07-23
+tags:
+    - attack.execution
+    - attack.t1059.001
+    - attack.t1059.003
+    - detection.threat-hunting
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith: \conhost.exe
+        ParentCommandLine|contains: --headless
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

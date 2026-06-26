@@ -1,0 +1,39 @@
+title: Potential Russian APT Credential Theft Activity
+id: 8ba06c88-25ec-bb97-3edd-81dfffea482d
+related:
+    - id: b83f5166-9237-4b5e-9cd4-7b5d52f4d8ee
+      type: derived
+status: stable
+description: Detects Russian group activity as described in Global Threat Report 2019 by Crowdstrike
+references:
+    - https://www.documentcloud.org/documents/5743766-Global-Threat-Report-2019.html
+author: Florian Roth (Nextron Systems)
+date: 2019-02-21
+modified: 2023-03-08
+tags:
+    - attack.credential-access
+    - attack.t1552.001
+    - attack.t1003.003
+    - detection.emerging-threats
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_xcopy:
+        CommandLine|contains|all:
+            - xcopy /S /E /C /Q /H \\\\
+            - \sysvol\
+    selection_adexplorer:
+        CommandLine|contains|all:
+            - adexplorer -snapshot "" c:\users\
+            - \downloads\
+            - .snp
+    condition: process_creation and (1 of selection_*)
+falsepositives:
+    - Unlikely
+level: critical
+ruletype: Sigma

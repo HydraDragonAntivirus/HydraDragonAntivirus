@@ -1,0 +1,34 @@
+title: PowerShell Module File Created
+id: 528cd1df-30dc-f9b2-1d50-db2a921a3f07
+related:
+    - id: e36941d0-c0f0-443f-bc6f-cb2952eb69ea
+      type: derived
+status: test
+description: Detects the creation of a new PowerShell module ".psm1", ".psd1", ".dll", ".ps1", etc.
+references:
+    - Internal Research
+    - https://learn.microsoft.com/en-us/powershell/scripting/developer/module/understanding-a-windows-powershell-module?view=powershell-7.3
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-09
+tags:
+    - attack.persistence
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith:
+            - \powershell.exe
+            - \pwsh.exe
+        TargetFilename|contains:
+            - \WindowsPowerShell\Modules\
+            - \PowerShell\7\Modules\
+    condition: file_event and selection
+falsepositives:
+    - Likely
+level: low
+ruletype: Sigma

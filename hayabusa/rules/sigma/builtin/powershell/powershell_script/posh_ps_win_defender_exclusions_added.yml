@@ -1,0 +1,44 @@
+title: Windows Defender Exclusions Added - PowerShell
+id: addd9852-1b8e-322b-77eb-4a749ba8dca6
+related:
+    - id: 17769c90-230e-488b-a463-e05c08e9d48f
+      type: similar
+    - id: c1344fa2-323b-4d2e-9176-84b4d4821c88
+      type: derived
+status: test
+description: Detects modifications to the Windows Defender configuration settings using PowerShell to add exclusions
+references:
+    - https://www.elastic.co/guide/en/security/current/windows-defender-exclusions-added-via-powershell.html
+author: Tim Rauch, Elastic (idea)
+date: 2022-09-16
+modified: 2022-11-26
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+    - attack.execution
+    - attack.t1059
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection_args_exc:
+        ScriptBlockText|contains:
+            - ' -ExclusionPath '
+            - ' -ExclusionExtension '
+            - ' -ExclusionProcess '
+            - ' -ExclusionIpAddress '
+    selection_args_pref:
+        ScriptBlockText|contains:
+            - 'Add-MpPreference '
+            - 'Set-MpPreference '
+    condition: ps_script and (all of selection*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

@@ -1865,75 +1865,7 @@ pub struct HayabusaMatch {
 }
 
 pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<HayabusaMatch> {
-    use std::collections::HashSet;
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    let exe = hayabusa_dir.join("hayabusa-3.9.0-win-x64.exe");
-    if !exe.exists() {
-        return Vec::new();
-    }
-
-    // Resolve the event-log dir from %SystemRoot% (Windows is not always on C:).
-    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-    let evtx_dir = PathBuf::from(system_root)
-        .join("System32")
-        .join("winevt")
-        .join("Logs");
-    if !evtx_dir.exists() {
-        return Vec::new();
-    }
-
-    let out = match Command::new(&exe)
-        .args([
-            "csv-timeline",
-            "--no-wizard",
-            "--quiet",
-            "--timerange",
-            "ALL",
-            "--directory",
-            &evtx_dir.to_string_lossy(),
-            "--rules",
-            &hayabusa_dir.join("rules").to_string_lossy().into_owned(),
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .current_dir(hayabusa_dir)
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut all_matches: Vec<HayabusaMatch> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    for (i, line) in stdout.lines().enumerate() {
-        if i == 0 {
-            continue; // skip CSV header
-        }
-        let cols: Vec<&str> = line.splitn(6, ',').collect();
-        if let Some(title) = cols.get(4) {
-            let t = title.trim().trim_matches('"').to_string();
-            if t.is_empty() || !seen.insert(t.clone()) {
-                continue;
-            }
-            let channel = cols.get(2).map(|s| s.trim().trim_matches('"').to_string()).unwrap_or_default();
-            let level = cols.get(5).map(|s| s.trim().trim_matches('"').to_lowercase());
-            let severity = match level.as_deref() {
-                Some("critical") => 100,
-                Some("high") => 85,
-                Some("medium") => 65,
-                Some("low") => 45,
-                Some("info") => 20,
-                _ => 60,
-            };
-            all_matches.push(HayabusaMatch { title: t, channel, severity });
-        }
-    }
-    all_matches
+    crate::hayabusa_scanner::scan_once(hayabusa_dir)
 }
 
 fn load_yara_rules_from_dir(dir: &Path) -> Vec<(String, Rules)> {

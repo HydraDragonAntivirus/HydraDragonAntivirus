@@ -1,0 +1,40 @@
+title: New ODBC Driver Registered
+id: f3d16bf4-2de2-b0e3-b8dc-37b2ca82c1cf
+related:
+    - id: 3390fbef-c98d-4bdd-a863-d65ed7c610dd
+      type: derived
+status: test
+description: Detects the registration of a new ODBC driver.
+references:
+    - https://www.hexacorn.com/blog/2020/08/23/odbcconf-lolbin-trifecta/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-23
+modified: 2023-08-17
+tags:
+    - attack.persistence
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \SOFTWARE\ODBC\ODBCINST.INI\
+        ObjectName|endswith: \Driver
+    filter_main_sqlserver:
+        ObjectName|contains: \SQL Server\
+        NewValue: '%WINDIR%\System32\SQLSRV32.dll'
+    filter_optional_office_access:
+        ObjectName|contains: '\Microsoft Access '
+        NewValue|startswith: C:\Progra
+        NewValue|endswith: \ACEODBC.DLL
+    filter_optional_office_excel:
+        ObjectName|contains: \Microsoft Excel Driver
+        NewValue|startswith: C:\Progra
+        NewValue|endswith: \ACEODBC.DLL
+    condition: registry_set and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Likely
+level: low
+ruletype: Sigma

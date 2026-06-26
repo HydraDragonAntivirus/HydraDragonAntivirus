@@ -1,0 +1,33 @@
+title: Remote Access Tool - AnyDesk Silent Installation
+id: 1ec0b8fb-050d-074d-7209-6c4c724f24cb
+related:
+    - id: 114e7f1c-f137-48c8-8f54-3088c24ce4b9
+      type: derived
+status: test
+description: Detects AnyDesk Remote Desktop silent installation. Which can be used by attackers to gain remote access.
+references:
+    - https://twitter.com/TheDFIRReport/status/1423361119926816776?s=20
+    - https://support.anydesk.com/Automatic_Deployment
+author: Ján Trenčanský
+date: 2021-08-06
+modified: 2023-03-05
+tags:
+    - attack.command-and-control
+    - attack.t1219.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains|all:
+            - --install
+            - --start-with-win
+            - --silent
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate deployment of AnyDesk
+level: high
+ruletype: Sigma

@@ -1,0 +1,34 @@
+title: PowerShell Scripts Run by a Services
+id: b28e3e14-83c6-1927-b50a-201ac75909cc
+related:
+    - id: a2e5019d-a658-4c6a-92bf-7197b54e2cae
+      type: derived
+    - id: 46deb5e1-28c9-4905-b2df-51cdcc9e6073
+      type: derived
+status: deprecated
+description: Detects powershell script installed as a Service
+references:
+    - https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse
+author: oscd.community, Natalia Shornikova
+date: 2020-10-06
+modified: 2023-12-11
+tags:
+    - attack.execution
+    - attack.t1569.002
+    - sysmon
+logsource:
+    product: windows
+    category: driver_load
+detection:
+    driver_load:
+        EventID: 6
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|contains:
+            - powershell
+            - pwsh
+    condition: driver_load and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

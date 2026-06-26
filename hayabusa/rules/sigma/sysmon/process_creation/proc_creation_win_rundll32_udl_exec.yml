@@ -1,0 +1,43 @@
+title: Potentially Suspicious Rundll32.EXE Execution of UDL File
+id: bc3709ed-65a4-8e52-a0fb-a1e91a8fbf38
+related:
+    - id: 0ea52357-cd59-4340-9981-c46c7e900428
+      type: derived
+status: test
+description: |
+    Detects the execution of rundll32.exe with the oledb32.dll library to open a UDL file.
+    Threat actors can abuse this technique as a phishing vector to capture authentication credentials or other sensitive data.
+references:
+    - https://trustedsec.com/blog/oops-i-udld-it-again
+author: '@kostastsale'
+date: 2024-08-16
+tags:
+    - attack.execution
+    - attack.command-and-control
+    - attack.stealth
+    - attack.t1218.011
+    - attack.t1071
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_parent:
+        ParentImage|endswith: \explorer.exe
+    selection_img:
+        - Image|endswith: \rundll32.exe
+        - OriginalFileName: RUNDLL32.EXE
+    selection_cli:
+        CommandLine|contains|all:
+            - oledb32.dll
+            - ',OpenDSLFile '
+            - \\Users\\*\\Downloads\\   # Note: You can adjust the path to the download directory or other directories according to your environment.
+        CommandLine|endswith: .udl
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - UDL files serve as a convenient and flexible tool for managing and testing database connections in various development and administrative scenarios.
+level: medium
+ruletype: Sigma

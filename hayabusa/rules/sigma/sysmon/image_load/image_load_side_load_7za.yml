@@ -1,0 +1,39 @@
+title: Potential 7za.DLL Sideloading
+id: 86836e5e-1625-e2ca-cc3a-d532376be17c
+related:
+    - id: 4f6edb78-5c21-42ab-a558-fd2a6fc1fd57
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "7za.dll"
+references:
+    - https://www.gov.pl/attachment/ee91f24d-3e67-436d-aa50-7fa56acf789d
+author: X__Junior
+date: 2023-06-09
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \7za.dll
+    filter_main_legit_path:
+        Image|startswith:
+            - C:\Program Files (x86)\
+            - C:\Program Files\
+        ImageLoaded|startswith:
+            - C:\Program Files (x86)\
+            - C:\Program Files\
+    condition: image_load and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Legitimate third party application located in "AppData" may leverage this DLL to offer 7z compression functionality and may generate false positives. Apply additional filters as needed.
+level: low
+ruletype: Sigma

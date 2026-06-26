@@ -1,0 +1,35 @@
+title: Potential RjvPlatform.DLL Sideloading From Non-Default Location
+id: 55cee629-fa62-4d5a-af5b-6132a73b8a87
+related:
+    - id: 0e0bc253-07ed-43f1-816d-e1b220fe8971
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "RjvPlatform.dll" by "SystemResetPlatform.exe" located in a non-default location.
+references:
+    - https://twitter.com/0gtweet/status/1666716511988330499
+author: X__Junior (Nextron Systems)
+date: 2023-06-09
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \RjvPlatform.dll
+        Image: \SystemResetPlatform.exe
+    filter_main_legit_path:
+        Image|startswith: C:\Windows\System32\SystemResetPlatform\
+    condition: image_load and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

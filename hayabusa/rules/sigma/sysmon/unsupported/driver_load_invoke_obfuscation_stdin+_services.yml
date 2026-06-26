@@ -1,0 +1,34 @@
+title: Invoke-Obfuscation STDIN+ Launcher
+id: 533c3a9a-6665-a560-3b23-1807fc81033b
+related:
+    - id: 72862bf2-0eb1-11eb-adc1-0242ac120002
+      type: derived
+    - id: de7fb680-6efa-4bf3-af2c-14b6d33c8e6e
+      type: derived
+description: Detects Obfuscated use of stdin to execute PowerShell
+status: unsupported
+author: Jonathan Cheong, oscd.community
+date: 2020-10-15
+modified: 2021-09-17
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009  #(Task 25)
+tags:
+    - attack.defense-evasion
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+    - sysmon
+logsource:
+    product: windows
+    category: driver_load
+detection:
+    driver_load:
+        EventID: 6
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImagePath|re: .*cmd.{0,5}(?:\/c|\/r).+powershell.+(?:\$\{?input\}?|noexit).+\"
+    condition: driver_load and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

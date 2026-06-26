@@ -1,0 +1,60 @@
+title: File or Folder Permissions Modifications
+id: 2fbf12bc-cfa8-081e-6e1c-f7a08543c781
+related:
+    - id: 37ae075c-271b-459b-8d7b-55ad5f993dd8
+      type: derived
+status: test
+description: Detects a file or folder's permissions being modified or tampered with.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1222.001/T1222.001.md
+    - https://docs.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/hh750728(v=ws.11)
+    - https://github.com/swagkarna/Defeat-Defender-V1.2.0/tree/ae4059c4276da6f6303b8f53cdff085ecae88a91
+author: Jakob Weinzettl, oscd.community, Nasreddine Bencherchali (Nextron Systems)
+date: 2019-10-23
+modified: 2023-11-21
+tags:
+    - attack.defense-impairment
+    - attack.t1222.001
+    - detection.threat-hunting
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_1:
+        CommandLine|contains:
+            - /grant
+            - /setowner
+            - /inheritance:r   # Remove all inherited ACEs
+        NewProcessName|endswith:
+            - \cacls.exe
+            - \icacls.exe
+            - \net.exe   # "grant" Option available when used with "net share"
+            - \net1.exe   # "grant" Option available when used with "net share"
+    selection_2:
+        CommandLine|contains: -r
+        NewProcessName|endswith: \attrib.exe
+    selection_3:
+        NewProcessName|endswith: \takeown.exe
+    filter_optional_dynatrace_1:
+        CommandLine|endswith: ICACLS C:\ProgramData\dynatrace\gateway\config\connectivity.history /reset
+    filter_optional_dynatrace_2:
+        CommandLine|contains|all:
+            - 'ICACLS C:\ProgramData\dynatrace\gateway\config\config.properties /grant :r '
+            - S-1-5-19:F
+    filter_optional_vscode:
+        CommandLine|contains:
+            - \AppData\Local\Programs\Microsoft VS Code
+            - :\Program Files\Microsoft VS Code
+    filter_optional_avira:
+        CommandLine|contains:
+            - :\Program Files (x86)\Avira
+            - :\Program Files\Avira
+    condition: process_creation and (1 of selection_* and not 1 of filter_optional_*)
+falsepositives:
+    - Users interacting with the files on their own (unlikely unless privileged users).
+    - Dynatrace app
+level: medium
+ruletype: Sigma

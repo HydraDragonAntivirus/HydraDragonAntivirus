@@ -1,0 +1,37 @@
+title: PowerShell ShellCode
+id: 7f3d30e6-1565-4e09-7b13-5d7c5b8b0947
+related:
+    - id: 16b37b70-6fcf-4814-a092-c36bd3aafcbd
+      type: derived
+status: test
+description: Detects Base64 encoded Shellcode
+references:
+    - https://twitter.com/cyb3rops/status/1063072865992523776
+author: David Ledbetter (shellcode), Florian Roth (Nextron Systems)
+date: 2018-11-17
+modified: 2024-01-25
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1055
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains:
+            - OiCAAAAYInlM
+            - OiJAAAAYInlM
+    condition: ps_script and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

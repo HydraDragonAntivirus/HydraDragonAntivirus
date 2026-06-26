@@ -1,0 +1,45 @@
+title: Potential Raspberry Robin CPL Execution Activity
+id: 4f3b55b9-3f7f-11c9-08ec-023ffed290a0
+related:
+    - id: 92020b88-9caf-464f-bad8-cd0fb0aa2a81
+      type: derived
+status: test
+description: |
+    Detects the execution of a ".CPL" file located in the user temp directory via the Shell32 DLL "Control_RunDLL" export function.
+    This behavior was observed in multiple Raspberry-Robin variants.
+references:
+    - https://tria.ge/240226-fhbe7sdc39/behavioral1
+    - https://bazaar.abuse.ch/browse/signature/RaspberryRobin/
+author: Swachchhanda Shrawan Poudel
+date: 2024-03-07
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1218.011
+    - detection.emerging-threats
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_parent_img:
+        ParentProcessName|endswith:
+            - \rundll32.exe
+            - \control.exe
+    selection_img:
+        - NewProcessName|endswith: \rundll32.exe
+        - OriginalFileName: RUNDLL32.EXE
+    selection_cli:
+        CommandLine|contains|all:
+            - shell32.dll
+            - Control_RunDLL
+            - .CPL
+    selection_path:
+        CommandLine|contains: \AppData\Local\Temp\
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,108 @@
+Title: 'Audit Policy Changed'
+Channel: Security
+EventID: 4719
+RewriteFieldData:
+    AuditPolicyChanges:
+        - '%%8448': 'Success Removed'
+        - '%%8449': 'Success Added'
+        - '%%8450': 'Failure Removed'
+        - '%%8451': 'Failure Added'
+    CategoryId:
+        - '%%8272': 'System'
+        - '%%8273': 'Logon/Logoff'
+        - '%%8274': 'Object Access'
+        - '%%8275': 'Privilege Use'
+        - '%%8276': 'Detailed Tracking'
+        - '%%8277': 'Policy Change'
+        - '%%8278': 'Account Management'
+        - '%%8279': 'DS Access'
+        - '%%8280': 'Account Logon'
+    SubcategoryId:
+        - '%%12288': 'Security State Change'
+        - '%%12289': 'Security System Extension'
+        - '%%12290': 'System Integrity'
+        - '%%12291': 'IPsec Driver'
+        - '%%12292': 'Other System Events'
+        - '%%12544': 'Logon'
+        - '%%12545': 'Logoff'
+        - '%%12546': 'Account Lockout'
+        - '%%12547': 'IPsec Main Mode'
+        - '%%12548': 'Special Logon'
+        - '%%12549': 'IPsec Quick Mode'
+        - '%%12550': 'IPsec Extended Mode'
+        - '%%12551': 'Other Logon/Logoff Events'
+        - '%%12552': 'Network Policy Server'
+        - '%%12553': 'User/Device Claims'
+        - '%%12554': 'Group Membership'
+        - '%%12800': 'File System'
+        - '%%12801': 'Registry'
+        - '%%12802': 'Kernel Object'
+        - '%%12803': 'SAM'
+        - '%%12804': 'Other Object Access Events'
+        - '%%12805': 'Certification Services'
+        - '%%12806': 'Application Generated'
+        - '%%12807': 'Handle Manipulation'
+        - '%%12808': 'File Share'
+        - '%%12809': 'Filtering Platform Packet Drop'
+        - '%%12810': 'Filtering Platform Connection'
+        - '%%12811': 'Detailed File Share'
+        - '%%12812': 'Removable Storage'
+        - '%%12813': 'Central Policy Staging'
+        - '%%13056': 'Sensitive Privilege Use'
+        - '%%13057': 'Non Sensitive Privilege Use'
+        - '%%13058': 'Other Privilege Use Events'
+        - '%%13312': 'Process Creation'
+        - '%%13313': 'Process Termination'
+        - '%%13314': 'DPAPI Activity'
+        - '%%13315': 'RPC Events'
+        - '%%13316': 'Plug and Play Events'
+        - '%%13317': 'Token Right Adjusted Events'
+        - '%%13568': 'Audit Policy Change'
+        - '%%13569': 'Authentication Policy Change'
+        - '%%13570': 'Authorization Policy Change'
+        - '%%13571': 'MPSSVC Rule-Level Policy Change'
+        - '%%13572': 'Filtering Platform Policy Change'
+        - '%%13573': 'Other Policy Change Events'
+        - '%%13824': 'User Account Management'
+        - '%%13825': 'Computer Account Management'
+        - '%%13826': 'Security Group Management'
+        - '%%13827': 'Distribution Group Management'
+        - '%%13828': 'Application Group Management'
+        - '%%13829': 'Other Account Management Events'
+        - '%%14080': 'Directory Service Access'
+        - '%%14081': 'Directory Service Changes'
+        - '%%14082': 'Directory Service Replication'
+        - '%%14083': 'Detailed Directory Service Replication'
+        - '%%14336': 'Credential Validation'
+        - '%%14337': 'Kerberos Service Ticket Operations'
+        - '%%14338': 'Other Account Logon Events'
+        - '%%14339': 'Kerberos Authentication Service'
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-a5ba-3e3b0328c30d}" /> 
+            <EventID>4719</EventID> 
+            <Version>0</Version> 
+            <Level>0</Level> 
+            <Task>13568</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8020000000000000</Keywords> 
+            <TimeCreated SystemTime="2016-08-18T15:43:46.9238281Z" /> 
+            <EventRecordID>4832</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="484" ThreadID="564" /> 
+            <Channel>Security</Channel> 
+            <Computer>IE10Win7</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-18</Data> 
+            <Data Name="SubjectUserName">IE10WIN7$</Data> 
+            <Data Name="SubjectDomainName">WORKGROUP</Data> 
+            <Data Name="SubjectLogonId">0x3e7</Data> 
+            <Data Name="CategoryId">%%8278</Data> 
+            <Data Name="SubcategoryId">%%13826</Data> 
+            <Data Name="SubcategoryGuid">{0cce9237-69ae-11d9-bed3-505054503030}</Data> 
+            <Data Name="AuditPolicyChanges">%%8448</Data> 
+        </EventData>
+    </Event>

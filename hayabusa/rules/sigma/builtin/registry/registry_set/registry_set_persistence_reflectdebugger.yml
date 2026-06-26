@@ -1,0 +1,31 @@
+title: Potential WerFault ReflectDebugger Registry Value Abuse
+id: effced04-aa28-c07f-9aa5-41cdded8bb61
+related:
+    - id: fabfb3a7-3ce1-4445-9c7c-3c27f1051cdd
+      type: derived
+    - id: 0cf2e1c6-8d10-4273-8059-738778f981ad
+      type: derived
+status: test
+description: Detects potential WerFault "ReflectDebugger" registry value abuse for persistence.
+references:
+    - https://cocomelonc.github.io/malware/2022/11/02/malware-pers-18.html
+    - https://www.hexacorn.com/blog/2018/08/31/beyond-good-ol-run-key-part-85/
+author: X__Junior
+date: 2023-05-18
+tags:
+    - attack.stealth
+    - attack.t1036.003
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|endswith: \Microsoft\Windows\Windows Error Reporting\Hangs\ReflectDebugger
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

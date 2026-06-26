@@ -1,0 +1,36 @@
+title: UAC Bypass WSReset
+id: f5d5ba97-4424-eaa9-ead1-528529dbee28
+related:
+    - id: 89a9a0e0-f61a-42e5-8957-b1479565a658
+      type: derived
+status: test
+description: Detects the pattern of UAC Bypass via WSReset usable by default sysmon-config
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Wsreset/
+    - https://github.com/hfiref0x/UACME
+    - https://medium.com/falconforce/falconfriday-detecting-uac-bypasses-0xff16-86c2a9107abf
+author: Christian Burkard (Nextron Systems)
+date: 2021-08-23
+modified: 2024-12-01
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        NewProcessName|endswith: \wsreset.exe
+        MandatoryLabel:
+            - S-1-16-12288
+            - S-1-16-16384
+            - None
+            - None
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

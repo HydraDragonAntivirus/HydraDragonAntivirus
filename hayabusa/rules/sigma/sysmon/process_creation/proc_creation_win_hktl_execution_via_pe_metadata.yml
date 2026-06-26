@@ -1,0 +1,33 @@
+title: Hacktool Execution - PE Metadata
+id: 0a053dcb-a66d-a4e3-db6b-b054ad4d47af
+related:
+    - id: 37c1333a-a0db-48be-b64b-7393b2386e3b
+      type: derived
+status: test
+description: Detects the execution of different Windows based hacktools via PE metadata (company, product, etc.) even if the files have been renamed
+references:
+    - https://github.com/cube0x0
+    - https://www.virustotal.com/gui/search/metadata%253ACube0x0/files
+author: Florian Roth (Nextron Systems)
+date: 2022-04-27
+modified: 2024-01-15
+tags:
+    - attack.credential-access
+    - attack.resource-development
+    - attack.t1588.002
+    - attack.t1003
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Company: Cube0x0   # Detects the use of tools created by a well-known hacktool producer named "Cube0x0", which includes his handle in all binaries as company information in the PE headers (SharpPrintNightmare, KrbRelay, SharpMapExec, etc.)
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

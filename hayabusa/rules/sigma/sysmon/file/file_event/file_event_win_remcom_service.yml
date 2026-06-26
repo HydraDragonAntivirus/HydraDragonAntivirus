@@ -1,0 +1,30 @@
+title: RemCom Service File Creation
+id: fd4c4319-bb34-2bf0-5e15-bee136dd1667
+related:
+    - id: 7eff1a7f-dd45-4c20-877a-f21e342a7611
+      type: derived
+status: test
+description: Detects default RemCom service filename which indicates RemCom service installation and execution
+references:
+    - https://github.com/kavika13/RemCom/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-04
+tags:
+    - attack.execution
+    - attack.t1569.002
+    - attack.s0029
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: \RemComSvc.exe
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

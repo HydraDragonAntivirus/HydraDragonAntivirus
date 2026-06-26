@@ -1,0 +1,32 @@
+title: UAC Bypass Abusing Winsat Path Parsing - Registry
+id: c5041759-c026-94ae-a6d4-6e6bfbfa3d0c
+related:
+    - id: 6597be7b-ac61-4ac8-bef4-d3ec88174853
+      type: derived
+status: test
+description: Detects the pattern of UAC Bypass using a path parsing issue in winsat.exe (UACMe 52)
+references:
+    - https://github.com/hfiref0x/UACME
+author: Christian Burkard (Nextron Systems)
+date: 2021-08-30
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \Root\InventoryApplicationFile\winsat.exe|
+        ObjectName|endswith: \LowerCaseLongPath
+        NewValue|startswith: c:\users\
+        NewValue|endswith: \appdata\local\temp\system32\winsat.exe
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

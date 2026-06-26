@@ -1,0 +1,100 @@
+title: Antivirus Relevant File Paths Alerts
+id: a1be9170-2ada-e8bb-285c-3e1ff336189e
+related:
+    - id: c9a88268-0047-4824-ba6e-4d81ce0b907c
+      type: derived
+status: test
+description: |
+    Detects an Antivirus alert in a highly relevant file path or with a relevant file name.
+    This event must not be ignored just because the AV has blocked the malware but investigate, how it came there in the first place.
+references:
+    - https://www.nextron-systems.com/?s=antivirus
+author: Florian Roth (Nextron Systems), Arnim Rupp
+date: 2018-09-09
+modified: 2024-11-02
+tags:
+    - attack.resource-development
+    - attack.t1588
+logsource:
+    category: antivirus
+    product: windows
+    service: windefend
+detection:
+    antivirus:
+        EventID:      # https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/troubleshoot-microsoft-defender-antivirus IDs with existing 'Threat Name' or 'Path'
+            - 1006
+            - 1007
+            - 1008
+            - 1009
+            - 1010
+            - 1011
+            - 1012
+            - 1017
+            - 1018
+            - 1019
+            - 1115
+            - 1116
+        Channel: Microsoft-Windows-Windows Defender/Operational
+    selection_path:
+        Path|contains:
+            - :\PerfLogs\
+            - :\Temp\
+            - :\Users\Default\
+            - :\Users\Public\
+            - :\Windows\
+            - /www/
+            # - '\Client\'
+            - \inetpub\
+            - \tsclient\
+            - apache
+            - nginx
+            - tomcat
+            - weblogic
+    selection_ext:
+        Path|endswith:
+            - .asax
+            - .ashx
+            - .asmx
+            - .asp
+            - .aspx
+            - .bat
+            - .cfm
+            - .cgi
+            - .chm
+            - .cmd
+            - .dat
+            - .ear
+            - .gif
+            - .hta
+            - .jpeg
+            - .jpg
+            - .jsp
+            - .jspx
+            - .lnk
+            - .msc
+            - .php
+            - .pl
+            - .png
+            - .ps1
+            - .psm1
+            - .py
+            - .pyc
+            - .rb
+            - .scf
+            - .sct
+            - .sh
+            - .svg
+            - .txt
+            - .vbe
+            - .vbs
+            - .war
+            - .wll
+            - .wsf
+            - .wsh
+            - .xll
+            - .xml
+    condition: antivirus and (1 of selection_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

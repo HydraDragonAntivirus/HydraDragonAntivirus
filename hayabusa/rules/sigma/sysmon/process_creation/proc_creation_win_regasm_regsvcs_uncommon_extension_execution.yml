@@ -1,0 +1,47 @@
+title: Potentially Suspicious Execution Of Regasm/Regsvcs With Uncommon Extension
+id: 432d3979-13a7-1b70-a389-9d7a927b7285
+related:
+    - id: cc368ed0-2411-45dc-a222-510ace303cb2
+      type: derived
+    - id: e9f8f8cc-07cc-4e81-b724-f387db9175e4
+      type: derived
+status: test
+description: Detects potentially suspicious execution of the Regasm/Regsvcs utilities with an uncommon extension.
+references:
+    - https://www.fortiguard.com/threat-signal-report/4718?s=09
+    - https://lolbas-project.github.io/lolbas/Binaries/Regasm/
+    - https://lolbas-project.github.io/lolbas/Binaries/Regsvcs/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-13
+tags:
+    - attack.stealth
+    - attack.t1218.009
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith:
+              - \Regsvcs.exe
+              - \Regasm.exe
+        - OriginalFileName:
+              - RegSvcs.exe
+              - RegAsm.exe
+    selection_extension:
+        CommandLine|contains:
+            # Note: Add more potentially uncommon extensions
+            - .dat
+            - .gif
+            - .jpeg
+            - .jpg
+            - .png
+            - .txt
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

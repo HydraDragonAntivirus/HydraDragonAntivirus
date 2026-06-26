@@ -1,0 +1,40 @@
+title: Potential Persistence Via DLLPathOverride
+id: 9404e0d5-9092-3517-8e03-b5ac07022095
+related:
+    - id: a1b1fd53-9c4a-444c-bae0-34a330fc7aa8
+      type: derived
+status: test
+description: Detects when an attacker adds a new "DLLPathOverride" value to the "Natural Language" key in order to achieve persistence which will get invoked by "SearchIndexer.exe" process
+references:
+    - https://persistence-info.github.io/Data/naturallanguage6.html
+    - https://www.hexacorn.com/blog/2018/12/30/beyond-good-ol-run-key-part-98/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-07-21
+modified: 2023-08-17
+tags:
+    - attack.persistence
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_root:
+        # The path can be for multiple languages
+        # Example:  HKLM\System\CurrentControlSet\Control\ContentIndex\Language\English_UK
+        #           HKLM\System\CurrentControlSet\Control\ContentIndex\Language\English_US
+        #           HKLM\System\CurrentControlSet\Control\ContentIndex\Language\Neutral
+        TargetObject|contains: \SYSTEM\CurrentControlSet\Control\ContentIndex\Language\
+    selection_values:
+        TargetObject|contains:
+            - \StemmerDLLPathOverride
+            - \WBDLLPathOverride
+            - \StemmerClass
+            - \WBreakerClass
+    condition: registry_set and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

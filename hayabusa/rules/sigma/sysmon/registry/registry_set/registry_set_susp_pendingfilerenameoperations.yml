@@ -1,0 +1,42 @@
+title: Potential PendingFileRenameOperations Tampering
+id: d8e74260-7355-8347-b60a-9e35fd3f518c
+related:
+    - id: 4eec988f-7bf0-49f1-8675-1e6a510b3a2a
+      type: derived
+status: test
+description: |
+    Detect changes to the "PendingFileRenameOperations" registry key from uncommon or suspicious images locations to stage currently used files for rename or deletion after reboot.
+references:
+    - https://any.run/report/3ecd4763ffc944fdc67a9027e459cd4f448b1a8d1b36147977afaf86bbf2a261/64b0ba45-e7ce-423b-9a1d-5b4ea59521e6
+    - https://devblogs.microsoft.com/scripting/determine-pending-reboot-statuspowershell-style-part-1/
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-2000-server/cc960241(v=technet.10)?redirectedfrom=MSDN
+    - https://www.trendmicro.com/en_us/research/21/j/purplefox-adds-new-backdoor-that-uses-websockets.html
+    - https://www.trendmicro.com/en_us/research/19/i/purple-fox-fileless-malware-with-rookit-component-delivered-by-rig-exploit-kit-now-abuses-powershell.html
+author: frack113
+date: 2023-01-27
+modified: 2025-10-07
+tags:
+    - attack.stealth
+    - attack.t1036.003
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_main:
+        TargetObject|contains: \CurrentControlSet\Control\Session Manager\PendingFileRenameOperations
+    selection_susp_paths:
+        Image|contains: \Users\Public\
+            # - '\AppData\Local\Temp\'  # Commented out as it's used by legitimate installers
+    selection_susp_images:
+        Image|endswith:
+            - \reg.exe
+            - \regedit.exe
+    condition: registry_set and (selection_main and 1 of selection_susp_*)
+falsepositives:
+    - Installers and updaters may set currently in use files for rename or deletion after a reboot.
+level: medium
+ruletype: Sigma

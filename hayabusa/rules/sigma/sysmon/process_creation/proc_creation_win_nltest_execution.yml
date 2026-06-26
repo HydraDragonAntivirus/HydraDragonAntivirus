@@ -1,0 +1,36 @@
+title: Nltest.EXE Execution
+id: eadb0b0a-eb40-d866-06be-ba5d9ca424d7
+related:
+    - id: 5cc90652-4cbd-4241-aa3b-4b462fa5a248
+      type: similar
+    - id: eeb66bbb-3dde-4582-815a-584aee9fe6d1
+      type: obsolete
+    - id: 903076ff-f442-475a-b667-4f246bcc203b
+      type: derived
+status: test
+description: Detects nltest commands that can be used for information discovery
+references:
+    - https://jpcertcc.github.io/ToolAnalysisResultSheet/details/nltest.htm
+author: Arun Chauhan
+date: 2023-02-03
+tags:
+    - attack.discovery
+    - attack.t1016
+    - attack.t1018
+    - attack.t1482
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Image|endswith: \nltest.exe
+        - OriginalFileName: nltestrk.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate administration activity
+level: low
+ruletype: Sigma

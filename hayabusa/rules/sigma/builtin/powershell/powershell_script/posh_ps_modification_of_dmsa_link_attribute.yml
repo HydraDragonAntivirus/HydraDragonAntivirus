@@ -1,0 +1,40 @@
+title: DMSA Link Attributes Modified
+id: b9379854-8052-302f-b6c2-62a9b5250135
+related:
+    - id: 6c9eb492-e477-4df9-b0f4-571fc9db29cd # Windows Security Modification of msDS-ManagedAccountPrecededByLink Attribute
+      type: similar
+    - id: 9b111d8e-92e0-4153-88bc-daefc1333aba
+      type: derived
+status: experimental
+description: |
+    Detects modification of dMSA link attributes (msDS-ManagedAccountPrecededByLink) via PowerShell scripts.
+    This command line pattern could be an indicator an attempt to exploit the BadSuccessor privilege escalation vulnerability in Windows Server 2025.
+references:
+    - https://www.akamai.com/blog/security-research/abusing-bad-successor-for-privilege-escalation-in-active-directory
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-05-24
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.initial-access
+    - attack.stealth
+    - attack.t1078.002
+    - attack.t1098
+logsource:
+    category: ps_script
+    product: windows
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains|all:
+            - .Put("msDS-ManagedAccountPrecededByLink
+            - CN=
+    condition: ps_script and selection
+falsepositives:
+    - Legitimate administrative tasks modifying these attributes.
+level: low
+ruletype: Sigma

@@ -1,0 +1,33 @@
+title: CreateRemoteThread API and LoadLibrary
+id: fedc7a8c-ccbd-62df-314a-7aeaa18aa325
+related:
+    - id: 052ec6f6-1adc-41e6-907a-f1c813478bee
+      type: derived
+status: test
+description: Detects potential use of CreateRemoteThread api and LoadLibrary function to inject DLL into a process
+references:
+    - https://threathunterplaybook.com/hunts/windows/180719-DLLProcessInjectionCreateRemoteThread/notebook.html
+author: Roberto Rodriguez @Cyb3rWard0g
+date: 2019-08-11
+modified: 2024-01-22
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1055.001
+    - detection.threat-hunting
+    - sysmon
+logsource:
+    product: windows
+    category: create_remote_thread
+detection:
+    create_remote_thread:
+        EventID: 8
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        StartModule|endswith: \kernel32.dll
+        StartFunction: LoadLibraryA
+    condition: create_remote_thread and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

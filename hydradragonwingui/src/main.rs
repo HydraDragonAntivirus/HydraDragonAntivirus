@@ -466,6 +466,9 @@ struct AppState {
     /// Distinguishes Stop (abort → discard session, back to home) from Pause
     /// (keep session for Resume). Set together with `cancel` on Stop.
     abort: Arc<AtomicBool>,
+    /// Set while the worker is doing disinfection (Clean / FixPum / RemoveTraces).
+    /// The WM_CLOSE handler refuses to close the window while this is true.
+    disinfecting: Arc<AtomicBool>,
     scan_rows: Vec<PathBuf>,
     scan_sev: Vec<u8>,
     // Parallel to scan_rows: the verdict/threat text shown per detection, kept so
@@ -757,6 +760,16 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 on_anim_tick(hwnd);
                 LRESULT(0)
             }
+            WM_CLOSE => {
+                let s = state(hwnd);
+                if s.map_or(false, |s| s.disinfecting.load(Ordering::Relaxed)) {
+                    // Disinfection in progress — cannot close. Minimise to tray instead.
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                    LRESULT(0)
+                } else {
+                    DefWindowProcW(hwnd, msg, wp, lp)
+                }
+            }
             WM_DESTROY => {
                 let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut AppState;
                 if !ptr.is_null() {
@@ -854,7 +867,9 @@ unsafe fn on_create(hwnd: HWND) {
     let worker_cancel = cancel.clone();
     let abort = Arc::new(AtomicBool::new(false));
     let worker_abort = abort.clone();
-    std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir, worker_cancel, worker_abort));
+    let disinfecting = Arc::new(AtomicBool::new(false));
+    let worker_disinfect = disinfecting.clone();
+    std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir, worker_cancel, worker_abort, worker_disinfect));
     // Load the engine immediately so the loading screen shows on startup.
     let _ = work_tx.send(WorkRequest::StartEngine);
 
@@ -910,6 +925,7 @@ unsafe fn on_create(hwnd: HWND) {
         result_rx,
         cancel,
         abort,
+        disinfecting,
         scan_rows: Vec::new(),
         scan_sev: Vec::new(),
         scan_verdict: Vec::new(),
@@ -3825,6 +3841,7 @@ fn worker(
     quarantine_dir: PathBuf,
     cancel: Arc<AtomicBool>,
     abort: Arc<AtomicBool>,
+    disinfecting: Arc<AtomicBool>,
 ) {
     let hwnd = HWND(raw as *mut c_void);
     let mut pipeline: Option<Pipeline> = None;
@@ -3911,6 +3928,7 @@ fn worker(
                 send(&tx, hwnd, ScanMsg::Status(format!("Rescan complete ({n} file(s)).")));
             }
             WorkRequest::Clean(paths) => {
+                disinfecting.store(true, Ordering::Relaxed);
                 use hydradragonav::restart_disinfect::{
                     reboot_for_disinfection, schedule_restart_disinfection, terminate_image_processes,
                 };
@@ -4048,8 +4066,10 @@ fn worker(
                 }
                 // Suggest a full system scan now (handled on the UI thread).
                 send(&tx, hwnd, ScanMsg::SuggestFullScan);
+                disinfecting.store(false, Ordering::Relaxed);
             }
             WorkRequest::Quarantine(items) => {
+                disinfecting.store(true, Ordering::Relaxed);
                 let q = Quarantine::new(&quarantine_dir);
                 let mut ok = 0usize;
                 for (path, detection) in &items {
@@ -4062,8 +4082,10 @@ fn worker(
                     }
                 }
                 send(&tx, hwnd, ScanMsg::Status(format!("Quarantine complete: {ok}/{} file(s).", items.len())));
+                disinfecting.store(false, Ordering::Relaxed);
             }
             WorkRequest::FixPum(entries) => {
+                disinfecting.store(true, Ordering::Relaxed);
                 let mut fixed = 0usize;
                 for e in &entries {
                     match hydradragonav::remediation::fix_pum(e) {
@@ -4078,8 +4100,10 @@ fn worker(
                     }
                 }
                 send(&tx, hwnd, ScanMsg::Status(format!("PUM fix complete: {fixed} / {} entries.", entries.len())));
+                disinfecting.store(false, Ordering::Relaxed);
             }
             WorkRequest::RemoveTraces(paths) => {
+                disinfecting.store(true, Ordering::Relaxed);
                 match remediation::create_restore_point("HydraDragon GUI remediation") {
                     Ok(_) => send(&tx, hwnd, ScanMsg::Status("Restore point created.".into())),
                     Err(e) => send(&tx, hwnd, ScanMsg::Status(format!("Restore point skipped: {e}"))),
@@ -4094,6 +4118,7 @@ fn worker(
                     }
                 }
                 send(&tx, hwnd, ScanMsg::Status(format!("Removed {removed} trace(s).")));
+                disinfecting.store(false, Ordering::Relaxed);
             }
             WorkRequest::ClearCache => {
                 if let Some(pl) = pipeline.as_mut() {

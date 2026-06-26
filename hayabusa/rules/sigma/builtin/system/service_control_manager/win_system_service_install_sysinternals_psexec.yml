@@ -1,0 +1,34 @@
+title: PsExec Service Installation
+id: cb7a40d5-f1de-9dd4-465d-eada7e316d8f
+related:
+    - id: 42c575ea-e41e-41f1-b248-8093c3e82a28
+      type: derived
+status: test
+description: Detects PsExec service installation and execution events
+references:
+    - https://www.jpcert.or.jp/english/pub/sr/ir_research.html
+    - https://jpcertcc.github.io/ToolAnalysisResultSheet
+author: Thomas Patzke
+date: 2017-06-12
+modified: 2023-08-04
+tags:
+    - attack.execution
+    - attack.t1569.002
+    - attack.s0029
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection_eid:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+    selection_service:
+        - ServiceName: PSEXESVC
+        - ImagePath|endswith: \PSEXESVC.exe
+    condition: system and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

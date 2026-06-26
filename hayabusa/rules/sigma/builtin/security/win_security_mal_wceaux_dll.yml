@@ -1,0 +1,33 @@
+title: WCE wceaux.dll Access
+id: de10da38-ee60-f6a4-7d70-4d308558158b
+related:
+    - id: 1de68c67-af5c-4097-9c85-fe5578e09e67
+      type: derived
+status: test
+description: Detects wceaux.dll access while WCE pass-the-hash remote command execution on source host
+references:
+    - https://www.jpcert.or.jp/english/pub/sr/ir_research.html
+    - https://jpcertcc.github.io/ToolAnalysisResultSheet
+author: Thomas Patzke
+date: 2017-06-14
+modified: 2025-01-30
+tags:
+    - attack.credential-access
+    - attack.t1003
+    - attack.s0005
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID:
+            - 4656
+            - 4663
+        ObjectName|endswith: \wceaux.dll
+    condition: security and selection
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

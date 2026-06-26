@@ -1,0 +1,43 @@
+title: New Self Extracting Package Created Via IExpress.EXE
+id: bc8a6370-9950-1a63-7ece-7feed9d18e57
+related:
+    - id: c2b478fc-09bf-40b2-8768-ab3ec8d61c9a
+      type: derived
+status: test
+description: |
+    Detects the "iexpress.exe" utility creating self-extracting packages.
+    Attackers where seen leveraging "iexpress" to compile packages on the fly via ".sed" files.
+    Investigate the command line options provided to "iexpress" and in case of a ".sed" file, check the contents and legitimacy of it.
+references:
+    - https://strontic.github.io/xcyclopedia/library/iexpress.exe-D594B2A33EFAFD0EABF09E3FDC05FCEA.html
+    - https://en.wikipedia.org/wiki/IExpress
+    - https://decoded.avast.io/janvojtesek/raspberry-robins-roshtyak-a-little-lesson-in-trickery/
+    - https://www.virustotal.com/gui/file/602f4ae507fa8de57ada079adff25a6c2a899bd25cd092d0af7e62cdb619c93c/behavior
+author: Joseliyo Sanchez, @Joseliyo_Jstnk
+date: 2024-02-05
+tags:
+    - attack.stealth
+    - attack.t1218
+    - detection.threat-hunting
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_1_parent:
+        ParentProcessName|endswith: \iexpress.exe
+    selection_1_img:
+        - NewProcessName|endswith: \makecab.exe
+        - OriginalFileName: makecab.exe
+    selection_2_img:
+        - NewProcessName|endswith: \iexpress.exe
+        - OriginalFileName: IEXPRESS.exe
+    selection_2_cli:
+        CommandLine|contains: ' /n '
+    condition: process_creation and (all of selection_1_* or all of selection_2_*)
+falsepositives:
+    - Administrators building packages using iexpress.exe
+level: medium
+ruletype: Sigma

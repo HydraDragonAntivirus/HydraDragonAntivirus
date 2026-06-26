@@ -1,0 +1,40 @@
+title: Potential AVKkid.DLL Sideloading
+id: 26c7a1d5-7ebf-b170-c7e9-52a304763692
+related:
+    - id: 952ed57c-8f99-453d-aee0-53a49c22f95d
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "AVKkid.dll"
+references:
+    - https://research.checkpoint.com/2023/beyond-the-horizon-traveling-the-world-on-camaro-dragons-usb-flash-drives/
+author: X__Junior (Nextron Systems)
+date: 2023-08-03
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \AVKkid.dll
+    filter_main_legit_path:
+        Image|contains:
+            - C:\Program Files (x86)\G DATA\
+            - C:\Program Files\G DATA\
+        Image|endswith: \AVKKid.exe
+        ImageLoaded|startswith:
+            - C:\Program Files (x86)\G DATA\
+            - C:\Program Files\G DATA\
+    condition: image_load and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

@@ -1,0 +1,32 @@
+title: DCOM InternetExplorer.Application Iertutil DLL Hijack - Security
+id: 85e72fe3-83af-8ed9-39d3-2883e46059f1
+related:
+    - id: c39f0c81-7348-4965-ab27-2fde35a1b641
+      type: derived
+status: test
+description: Detects a threat actor creating a file named `iertutil.dll` in the `C:\Program Files\Internet Explorer\` directory over the network for a DCOM InternetExplorer DLL Hijack scenario.
+references:
+    - https://threathunterplaybook.com/hunts/windows/201009-RemoteDCOMIErtUtilDLLHijack/notebook.html
+author: Roberto Rodriguez @Cyb3rWard0g, Open Threat Research (OTR)
+date: 2020-10-12
+modified: 2022-11-26
+tags:
+    - attack.lateral-movement
+    - attack.t1021.002
+    - attack.t1021.003
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 5145
+        RelativeTargetName|endswith: \Internet Explorer\iertutil.dll
+    filter:
+        SubjectUserName|endswith: $
+    condition: security and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

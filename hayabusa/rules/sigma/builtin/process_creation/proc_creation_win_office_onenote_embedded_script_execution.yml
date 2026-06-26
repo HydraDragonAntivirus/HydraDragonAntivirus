@@ -1,0 +1,40 @@
+title: OneNote.EXE Execution of Malicious Embedded Scripts
+id: a7aba663-3da2-bc96-f8c3-acd95b2b3052
+related:
+    - id: 84b1706c-932a-44c4-ae28-892b28a25b94
+      type: derived
+status: test
+description: |
+    Detects the execution of malicious OneNote documents that contain embedded scripts.
+    When a user clicks on a OneNote attachment and then on the malicious link inside the ".one" file, it exports and executes the malicious embedded script from specific directories.
+references:
+    - https://bazaar.abuse.ch/browse/tag/one/
+author: '@kostastsale'
+date: 2023-02-02
+tags:
+    - attack.stealth
+    - attack.t1218.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains:
+            - \exported\
+            - \onenoteofflinecache_files\
+        ParentProcessName|endswith: \onenote.exe
+        NewProcessName|endswith:
+            - \cmd.exe
+            - \cscript.exe
+            - \mshta.exe
+            - \powershell.exe
+            - \pwsh.exe
+            - \wscript.exe
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

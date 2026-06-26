@@ -1,0 +1,55 @@
+title: Suspicious Get Local Groups Information
+id: 300dbe85-b7a0-be0b-aa57-321c1ee97848
+related:
+    - id: fa6a5a45-3ee2-4529-aa14-ee5edc9e29cb
+      type: similar
+    - id: cef24b90-dddc-4ae1-a09a-8764872f69fc
+      type: derived
+status: test
+description: |
+    Detects the use of PowerShell modules and cmdlets to gather local group information.
+    Adversaries may use local system permission groups to determine which groups exist and which users belong to a particular group such as the local administrators group.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1069.001/T1069.001.md
+author: frack113
+date: 2021-12-12
+modified: 2025-08-22
+tags:
+    - attack.discovery
+    - attack.t1069.001
+logsource:
+    product: windows
+    category: ps_module
+    definition: 0ad03ef1-f21b-4a79-8ce8-e6900c54b65b
+detection:
+    ps_module:
+        EventID: 4103
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection_localgroup:
+        - Payload|contains:
+              - 'get-localgroup '
+              - 'get-localgroupmember '
+        - ContextInfo|contains:
+              - 'get-localgroup '
+              - 'get-localgroupmember '
+    selection_wmi_module:
+        - Payload|contains:
+              - 'get-wmiobject '
+              - 'gwmi '
+              - 'get-ciminstance '
+              - 'gcim '
+        - ContextInfo|contains|all:
+              - 'get-wmiobject '
+              - 'gwmi '
+              - 'get-ciminstance '
+              - 'gcim '
+    selection_wmi_class:
+        - Payload|contains: win32_group
+        - ContextInfo|contains: win32_group
+    condition: ps_module and (selection_localgroup or all of selection_wmi_*)
+falsepositives:
+    - Administrator script
+level: low
+ruletype: Sigma

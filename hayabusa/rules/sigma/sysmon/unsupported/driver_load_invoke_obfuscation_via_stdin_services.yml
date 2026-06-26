@@ -1,0 +1,34 @@
+title: Invoke-Obfuscation Via Stdin
+id: 14b70aff-e89c-aefc-da88-beec8ec2ba84
+related:
+    - id: 487c7524-f892-4054-b263-8a0ace63fc25
+      type: derived
+    - id: 82b66143-53ee-4369-ab02-de2c70cd6352
+      type: derived
+description: Detects Obfuscated Powershell via Stdin in Scripts
+status: unsupported
+author: Nikita Nazarov, oscd.community
+date: 2020-10-12
+modified: 2023-04-23
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009 #(Task28)
+tags:
+    - attack.defense-evasion
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+    - sysmon
+logsource:
+    product: windows
+    category: driver_load
+detection:
+    driver_load:
+        EventID: 6
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImagePath|re: (?i).*(set).*&&\s?set.*(environment|invoke|\$?\{?input).*&&.*"
+    condition: driver_load and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

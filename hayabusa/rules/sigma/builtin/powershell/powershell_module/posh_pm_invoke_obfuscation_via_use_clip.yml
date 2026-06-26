@@ -1,0 +1,36 @@
+title: Invoke-Obfuscation Via Use Clip - PowerShell Module
+id: d1ec8808-93c9-9dcb-b4b8-b20791287ee2
+related:
+    - id: db92dd33-a3ad-49cf-8c2c-608c3e30ace0
+      type: derived
+    - id: ebdf49d8-b89c-46c9-8fdf-2c308406f6bd
+      type: derived
+status: test
+description: Detects Obfuscated Powershell via use Clip.exe in Scripts
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009  # (Task29)
+author: Nikita Nazarov, oscd.community
+date: 2020-10-09
+modified: 2024-04-05
+tags:
+    - attack.stealth
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: ps_module
+    definition: 0ad03ef1-f21b-4a79-8ce8-e6900c54b65b
+detection:
+    ps_module:
+        EventID: 4103
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection_4103:
+        Payload|re: (?i)echo.*clip.*&&.*(Clipboard|i`?n`?v`?o`?k`?e`?)
+    condition: ps_module and selection_4103
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

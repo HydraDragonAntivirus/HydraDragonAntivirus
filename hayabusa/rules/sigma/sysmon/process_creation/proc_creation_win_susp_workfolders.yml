@@ -1,0 +1,33 @@
+title: Execution via WorkFolders.exe
+id: 27b23d49-16ea-97e1-b79b-ff83a35decfd
+related:
+    - id: 0bbc6369-43e3-453d-9944-cae58821c173
+      type: derived
+status: test
+description: Detects using WorkFolders.exe to execute an arbitrary control.exe
+references:
+    - https://twitter.com/elliotkillick/status/1449812843772227588
+author: Maxime Thiebaut (@0xThiebaut)
+date: 2021-10-21
+modified: 2022-12-25
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \control.exe
+        ParentImage|endswith: \WorkFolders.exe
+    filter:
+        Image: C:\Windows\System32\control.exe
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Legitimate usage of the uncommon Windows Work Folders feature.
+level: high
+ruletype: Sigma

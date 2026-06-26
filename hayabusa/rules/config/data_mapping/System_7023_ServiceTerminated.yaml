@@ -1,0 +1,16 @@
+Title: 'Service Terminated'
+Channel: System
+Provider_Name: 'Service Control Manager'
+EventID: 7023
+RewriteFieldData:
+    param2:
+        - '%%1062': 'The service has not been started.'
+        - '%%1792': 'An attempt was made to logon, but the network logon service was not started.'
+sample-message: |
+    The Windows Time service terminated with the following error: 
+    An attempt was made to logon, but the network logon service was not started.
+sample-evtx:
+    <EventData>
+        <Data Name="param1">Windows Time</Data> 
+        <Data Name="param2">%%1792</Data> 
+    </EventData>

@@ -1,0 +1,35 @@
+title: Suspicious Start-Process PassThru
+id: c6dce605-3bb0-c881-1c5c-f3e4e9d62577
+related:
+    - id: 0718cd72-f316-4aa2-988f-838ea8533277
+      type: derived
+status: test
+description: Powershell use PassThru option to start in background
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1036.003/T1036.003.md
+    - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/Start-Process?view=powershell-5.1&viewFallbackFrom=powershell-7
+author: frack113
+date: 2022-01-15
+tags:
+    - attack.stealth
+    - attack.t1036.003
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains|all:
+            - Start-Process
+            - '-PassThru '
+            - '-FilePath '
+    condition: ps_script and selection
+falsepositives:
+    - Legitimate PowerShell scripts
+level: medium
+ruletype: Sigma

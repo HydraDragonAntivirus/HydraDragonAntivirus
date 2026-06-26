@@ -1,0 +1,34 @@
+title: Process Memory Dump Via Dotnet-Dump
+id: 710141a6-96df-4507-08ac-edf04bc51874
+related:
+    - id: 53d8d3e1-ca33-4012-adf3-e05a4d652e34
+      type: derived
+status: test
+description: |
+    Detects the execution of "dotnet-dump" with the "collect" flag. The execution could indicate potential process dumping of critical processes such as LSASS.
+references:
+    - https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-dump#dotnet-dump-collect
+    - https://twitter.com/bohops/status/1635288066909966338
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-03-14
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \dotnet-dump.exe
+        - OriginalFileName: dotnet-dump.dll
+    selection_cli:
+        CommandLine|contains: collect
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Process dumping is the expected behavior of the tool. So false positives are expected in legitimate usage. The PID/Process Name of the process being dumped needs to be investigated
+level: medium
+ruletype: Sigma

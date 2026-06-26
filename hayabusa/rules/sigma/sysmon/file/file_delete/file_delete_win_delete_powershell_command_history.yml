@@ -1,0 +1,31 @@
+title: PowerShell Console History Logs Deleted
+id: 14680f1d-0b5e-e92c-0ea0-dcd01321c0e8
+related:
+    - id: ff301988-c231-4bd0-834c-ac9d73b86586
+      type: derived
+status: test
+description: Detects the deletion of the PowerShell console History logs which may indicate an attempt to destroy forensic evidence
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-15
+tags:
+    - attack.stealth
+    - attack.t1070
+    - sysmon
+logsource:
+    category: file_delete
+    product: windows
+detection:
+    file_delete:
+        EventID:
+            - 23
+            - 26
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: \PSReadLine\ConsoleHost_history.txt
+    condition: file_delete and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

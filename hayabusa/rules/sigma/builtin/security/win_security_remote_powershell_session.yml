@@ -1,0 +1,32 @@
+title: Remote PowerShell Sessions Network Connections (WinRM)
+id: cc1d9970-7c17-d738-f5cb-8fb12f02d0fd
+related:
+    - id: 13acf386-b8c6-4fe0-9a6e-c4756b974698
+      type: derived
+status: test
+description: Detects basic PowerShell Remoting (WinRM) by monitoring for network inbound connections to ports 5985 OR 5986
+references:
+    - https://threathunterplaybook.com/hunts/windows/190511-RemotePwshExecution/notebook.html
+author: Roberto Rodriguez @Cyb3rWard0g
+date: 2019-09-12
+modified: 2022-10-09
+tags:
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 5156
+        DestPort:
+            - 5985
+            - 5986
+        LayerRTID: 44
+    condition: security and selection
+falsepositives:
+    - Legitimate use of remote PowerShell execution
+level: high
+ruletype: Sigma

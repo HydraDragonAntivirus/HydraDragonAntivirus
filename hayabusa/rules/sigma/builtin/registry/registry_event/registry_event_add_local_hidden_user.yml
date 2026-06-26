@@ -1,0 +1,37 @@
+title: Creation of a Local Hidden User Account by Registry
+id: 447c311d-5d73-52c3-d10c-a1205258cf04
+related:
+    - id: 460479f3-80b7-42da-9c43-2cc1d54dbccd
+      type: derived
+status: test
+description: Sysmon registry detection of a local hidden user account.
+references:
+    - https://twitter.com/SBousseaden/status/1387530414185664538
+author: Christian Burkard (Nextron Systems)
+date: 2021-05-03
+modified: 2025-10-31
+tags:
+    - attack.persistence
+    - attack.t1136.001
+logsource:
+    product: windows
+    category: registry_event
+detection:
+    registry_event:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \SAM\SAM\Domains\Account\Users\Names\
+        ObjectName|endswith: $\(Default)
+        ProcessName|endswith: \lsass.exe
+    condition: registry_event and selection
+falsepositives:
+    - Unknown
+level: high
+regression_tests_path: regression_data/rules/windows/registry/registry_event/registry_event_add_local_hidden_user/info.yml
+simulation:
+    - type: atomic-red-team
+      name: Create Hidden User in Registry
+      technique: T1564.002
+      atomic_guid: 173126b7-afe4-45eb-8680-fa9f6400431c
+ruletype: Sigma

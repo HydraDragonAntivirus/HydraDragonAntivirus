@@ -1,0 +1,38 @@
+title: RDP to HTTP or HTTPS Target Ports
+id: 5049ed9f-e700-a499-9498-5e648851d2ad
+related:
+    - id: b1e5da3b-ca8e-4adf-915c-9921f3d85481
+      type: derived
+status: test
+description: Detects svchost hosting RDP termsvcs communicating to target systems on TCP port 80 or 443
+references:
+    - https://twitter.com/tekdefense/status/1519711183162556416?s=12&t=OTsHCBkQOTNs1k3USz65Zg
+    - https://www.mandiant.com/resources/bypassing-network-restrictions-through-rdp-tunneling
+author: Florian Roth (Nextron Systems)
+date: 2022-04-29
+modified: 2022-07-14
+tags:
+    - attack.command-and-control
+    - attack.t1572
+    - attack.lateral-movement
+    - attack.t1021.001
+    - car.2013-07-002
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    network_connection:
+        EventID: 5156
+        Channel: Security
+    selection:
+        SourcePort: 3389
+        Application|endswith: \svchost.exe
+        Direction: '%%14593'
+        DestPort:
+            - 80
+            - 443
+    condition: network_connection and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

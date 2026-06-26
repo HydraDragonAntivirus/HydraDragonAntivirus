@@ -1,0 +1,34 @@
+title: Suspicious MSExchangeMailboxReplication ASPX Write
+id: 4f7e1aee-7c6c-f014-f906-64b7e9f78dcd
+related:
+    - id: 7280c9f3-a5af-45d0-916a-bc01cb4151c9
+      type: derived
+status: test
+description: Detects suspicious activity in which the MSExchangeMailboxReplication process writes .asp and .apsx files to disk, which could be a sign of ProxyShell exploitation
+references:
+    - https://redcanary.com/blog/blackbyte-ransomware/
+author: Florian Roth (Nextron Systems)
+date: 2022-02-25
+tags:
+    - attack.initial-access
+    - attack.t1190
+    - attack.persistence
+    - attack.t1505.003
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \MSExchangeMailboxReplication.exe
+        TargetFilename|endswith:
+            - .aspx
+            - .asp
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

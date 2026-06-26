@@ -1,0 +1,41 @@
+title: Response File Execution Via Odbcconf.EXE
+id: 711f2e81-bb48-8eaf-84ad-7a331ee0cd95
+related:
+    - id: 2d32dd6f-3196-4093-b9eb-1ad8ab088ca5
+      type: similar
+    - id: 65d2be45-8600-4042-b4c0-577a1ff8a60e
+      type: obsolete
+    - id: 5f03babb-12db-4eec-8c82-7b4cb5580868
+      type: derived
+status: test
+description: Detects execution of "odbcconf" with the "-f" flag in order to load a response file which might contain a malicious action.
+references:
+    - https://learn.microsoft.com/en-us/sql/odbc/odbcconf-exe?view=sql-server-ver16
+    - https://lolbas-project.github.io/lolbas/Binaries/Odbcconf/
+    - https://www.cybereason.com/blog/threat-analysis-report-bumblebee-loader-the-high-road-to-enterprise-domain-control
+    - https://www.hexacorn.com/blog/2020/08/23/odbcconf-lolbin-trifecta/
+author: Kirill Kiryanov, Beyu Denis, Daniil Yugoslavskiy, oscd.community, Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-22
+modified: 2024-03-05
+tags:
+    - attack.stealth
+    - attack.t1218.008
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \odbcconf.exe
+        - OriginalFileName: odbcconf.exe
+    selection_cli:
+        CommandLine|contains|windash: ' -f '
+    selection_rsp_ext:
+        CommandLine|contains: .rsp
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - The rule is looking for any usage of response file, which might generate false positive when this function is used legitimately. Investigate the contents of the ".rsp" file to determine if it is malicious and apply additional filters if necessary.
+level: medium
+ruletype: Sigma

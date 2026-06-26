@@ -1,0 +1,108 @@
+title: CurrentVersion NT Autorun Keys Modification
+id: e2bf2ad9-465c-3b63-7970-fd222ffa3708
+related:
+    - id: 17f878b8-9968-4578-b814-c4217fc5768c
+      type: obsolete
+    - id: cbf93e5d-ca6c-4722-8bea-e9119007c248
+      type: derived
+status: test
+description: Detects modification of autostart extensibility point (ASEP) in registry.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.001/T1547.001.md
+    - https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
+    - https://gist.github.com/GlebSukhodolskiy/0fc5fa5f482903064b448890db1eaf9d # a list with registry keys
+author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur Zinniatullin, oscd.community, Tim Shelton, frack113 (split)
+date: 2019-10-25
+modified: 2025-10-22
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection_nt_current_version_base:
+        ObjectName|contains: \SOFTWARE\Microsoft\Windows NT\CurrentVersion
+    selection_nt_current_version:
+        ObjectName|contains:
+            - \Winlogon\VmApplet
+            - \Winlogon\Userinit
+            - \Winlogon\Taskman
+            - \Winlogon\Shell
+            - \Winlogon\GpExtensions
+            - \Winlogon\AppSetup
+            - \Winlogon\AlternateShells\AvailableShells
+            - \Windows\IconServiceLib
+            - \Windows\Appinit_Dlls
+            - \Image File Execution Options
+            - \Font Drivers
+            - \Drivers32
+            - \Windows\Run
+            - \Windows\Load
+    filter_main_empty:
+        NewValue: (Empty)
+    filter_main_null:
+        NewValue: null
+    filter_main_poqexec:
+        ProcessName: C:\Windows\System32\poqexec.exe
+    filter_main_legitimate_subkey:  # Legitimately used subkeys of \Image File Execution Options, which are not used for persistence (see https://pentestlab.blog/2020/01/13/persistence-image-file-execution-options-injection/)
+        ObjectName|contains: \Image File Execution Options\
+        ObjectName|endswith:
+            - \DisableExceptionChainValidation
+            - \MitigationOptions
+    filter_main_security_extension_dc:
+        ProcessName: C:\Windows\system32\svchost.exe
+        ObjectName|contains:
+            - \Winlogon\GPExtensions\{827D319E-6EAC-11D2-A4EA-00C04F79F83A}\PreviousPolicyAreas
+            - \Winlogon\GPExtensions\{827D319E-6EAC-11D2-A4EA-00C04F79F83A}\MaxNoGPOListChangesInterval
+        NewValue:
+            - DWORD (0x00000001)
+            - DWORD (0x00000009)
+            - DWORD (0x000003c0)
+    filter_main_runtimebroker:
+        ProcessName: C:\Windows\System32\RuntimeBroker.exe
+        ObjectName|contains: \runtimebroker.exe\Microsoft.Windows.ShellExperienceHost
+    filter_optional_edge:
+        ProcessName|startswith: C:\Program Files (x86)\Microsoft\Temp\
+        ProcessName|endswith: \MicrosoftEdgeUpdate.exe
+    filter_optional_avguard:
+        ProcessName|startswith:
+            - C:\Program Files (x86)\Avira\Antivirus\avguard.exe
+            - C:\Program Files\Avira\Antivirus\avguard.exe
+        ObjectName|contains: SOFTWARE\WOW6432Node\Avira\Antivirus\Overwrite_Keys\HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\
+        ObjectName|endswith:
+            - \userinit\UseAsDefault
+            - \shell\UseAsDefault
+        NewValue:
+            - explorer.exe
+            - C:\Windows\system32\userinit.exe,
+    filter_optional_msoffice:
+        - ObjectName|contains:
+              - \ClickToRunStore\\REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\
+              - \ClickToRun\REGISTRY\MACHINE\Software\Microsoft\Windows NT\CurrentVersion\
+        - ProcessName:
+              - C:\Program Files\Microsoft Office\root\integration\integrator.exe
+              - C:\Program Files (x86)\Microsoft Office\root\integration\integrator.exe
+    filter_optional_officeclicktorun:
+        ProcessName|startswith:
+            - C:\Program Files\Common Files\Microsoft Shared\ClickToRun\
+            - C:\Program Files\Common Files\Microsoft Shared\ClickToRun\Updates\
+        ProcessName|endswith: \OfficeClickToRun.exe
+    filter_optional_ngen:
+        ProcessName|startswith: C:\Windows\Microsoft.NET\Framework
+        ProcessName|endswith: \ngen.exe
+    filter_optional_onedrive:
+        ProcessName|endswith: \AppData\Local\Microsoft\OneDrive\StandaloneUpdater\OneDriveSetup.exe
+        ObjectName|endswith: \Microsoft\Windows\CurrentVersion\RunOnce\Delete Cached Update Binary
+        NewValue|startswith: C:\Windows\system32\cmd.exe /q /c del /q "C:\Users\
+        NewValue|endswith: \AppData\Local\Microsoft\OneDrive\Update\OneDriveSetup.exe"
+    condition: registry_set and (all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Legitimate software automatically (mostly, during installation) sets up autorun keys for legitimate reason
+    - Legitimate administrator sets up autorun keys for legitimate reason
+level: medium
+ruletype: Sigma

@@ -1,0 +1,33 @@
+title: Delete All Scheduled Tasks
+id: 2c50ce24-cd70-f821-654d-cc086695b166
+related:
+    - id: 220457c1-1c9f-4c2e-afe6-9598926222c1
+      type: derived
+status: test
+description: Detects the usage of schtasks with the delete flag and the asterisk symbol to delete all tasks from the schedule of the local computer, including tasks scheduled by other users.
+references:
+    - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/schtasks-delete
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-09-09
+tags:
+    - attack.impact
+    - attack.t1489
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \schtasks.exe
+        CommandLine|contains|all:
+            - ' /delete '
+            - /tn \*
+            - ' /f'
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

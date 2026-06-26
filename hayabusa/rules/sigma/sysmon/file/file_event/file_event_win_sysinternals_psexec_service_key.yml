@@ -1,0 +1,38 @@
+title: PSEXEC Remote Execution File Artefact
+id: 6920b414-8c78-c4fd-ae0a-c185882825e9
+related:
+    - id: 304afd73-55a5-4bb9-8c21-0b1fc84ea9e4
+      type: derived
+status: test
+description: Detects creation of the PSEXEC key file. Which is created anytime a PsExec command is executed. It gets written to the file system and will be recorded in the USN Journal on the target system
+references:
+    - https://aboutdfir.com/the-key-to-identify-psexec/
+    - https://twitter.com/davisrichardg/status/1616518800584704028
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-01-21
+modified: 2023-02-23
+tags:
+    - attack.lateral-movement
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.persistence
+    - attack.t1136.002
+    - attack.t1543.003
+    - attack.t1570
+    - attack.s0029
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|startswith: C:\Windows\PSEXEC-
+        TargetFilename|endswith: .key
+    condition: file_event and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

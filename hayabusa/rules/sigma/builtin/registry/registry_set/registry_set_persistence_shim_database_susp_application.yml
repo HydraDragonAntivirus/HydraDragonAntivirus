@@ -1,0 +1,42 @@
+title: Suspicious Shim Database Patching Activity
+id: 98109d4e-3967-7837-46d2-9fdaface4ac0
+related:
+    - id: bf344fea-d947-4ef4-9192-34d008315d3a
+      type: derived
+status: test
+description: Detects installation of new shim databases that try to patch sections of known processes for potential process injection or persistence.
+references:
+    - https://www.trustwave.com/en-us/resources/blogs/spiderlabs-blog/pillowmint-fin7s-monkey-thief/
+    - https://www.fireeye.com/blog/threat-research/2017/05/fin7-shim-databases-persistence.html
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-01
+modified: 2023-12-06
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1546.011
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom\
+        ObjectName|endswith:
+            - \csrss.exe
+            - \dllhost.exe
+            - \explorer.exe
+            - \RuntimeBroker.exe
+            - \services.exe
+            - \sihost.exe
+            - \svchost.exe
+            - \taskhostw.exe
+            - \winlogon.exe
+            - \WmiPrvSe.exe
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

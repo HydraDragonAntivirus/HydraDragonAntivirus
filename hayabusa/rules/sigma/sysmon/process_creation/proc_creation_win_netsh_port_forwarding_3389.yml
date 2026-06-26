@@ -1,0 +1,38 @@
+title: RDP Port Forwarding Rule Added Via Netsh.EXE
+id: c7657acc-d94c-812f-26bf-927f928ccbcc
+related:
+    - id: 782d6f3e-4c5d-4b8c-92a3-1d05fed72e63
+      type: derived
+status: test
+description: Detects the execution of netsh to configure a port forwarding of port 3389 (RDP) rule
+references:
+    - https://www.fireeye.com/blog/threat-research/2019/01/bypassing-network-restrictions-through-rdp-tunneling.html
+author: Florian Roth (Nextron Systems), oscd.community
+date: 2019-01-29
+modified: 2023-02-13
+tags:
+    - attack.lateral-movement
+    - attack.command-and-control
+    - attack.t1090
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \netsh.exe
+        - OriginalFileName: netsh.exe
+    selection_cli:
+        CommandLine|contains|all:
+            - ' i'
+            - ' p'
+            - =3389
+            - ' c'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate administration activity
+level: high
+ruletype: Sigma

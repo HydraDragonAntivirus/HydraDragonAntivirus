@@ -1,7 +1,10 @@
 #![cfg(windows)]
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+use windows::core::BOOL;
+use windows::Win32::System::Console::SetConsoleCtrlHandler;
 
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -574,7 +577,22 @@ fn scan_paths(
     }
 }
 
+/// Set while disinfection is in progress. The console control handler checks this
+/// and blocks Ctrl+C / close so disinfection can finish.
+static DISINFECT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "system" fn ctrl_handler(_ctrl_type: u32) -> BOOL {
+    if DISINFECT_IN_PROGRESS.load(Ordering::Relaxed) {
+        eprintln!("\n[AV] Disinfection in progress — cannot close. Please wait for it to finish.");
+        BOOL(1)
+    } else {
+        BOOL(0)
+    }
+}
+
 fn main() {
+    // Block Ctrl+C / close during disinfection.
+    unsafe { let _ = SetConsoleCtrlHandler(Some(ctrl_handler), true); }
     let cli = Cli::parse();
     let (db, blm, yara, hydradragonsig_rules, hayabusa, pe_ml, js_ml, reglist) = default_paths();
 
@@ -682,6 +700,7 @@ fn offer_disinfection(
     pipeline: &Pipeline,
     db_path: &std::path::Path,
 ) {
+    DISINFECT_IN_PROGRESS.store(true, Ordering::Relaxed);
     use std::io::Write;
 
     if infected.is_empty() {
@@ -762,6 +781,7 @@ fn offer_disinfection(
             _ => eprintln!("[Disinfect] skipped {}", path.display()),
         }
     }
+    DISINFECT_IN_PROGRESS.store(false, Ordering::Relaxed);
 }
 
 /// Find a malicious file's traces (autorun registry, services, scheduled tasks,

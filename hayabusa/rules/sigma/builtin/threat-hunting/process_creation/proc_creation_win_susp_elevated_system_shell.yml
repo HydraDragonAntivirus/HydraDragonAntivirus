@@ -1,0 +1,48 @@
+title: Elevated System Shell Spawned
+id: a1facc19-608b-ffb7-9591-3063f27baa01
+related:
+    - id: 178e615d-e666-498b-9630-9ed363038101
+      type: similar
+    - id: 61065c72-5d7d-44ef-bf41-6a36684b545f
+      type: derived
+status: test
+description: |
+    Detects when a shell program such as the Windows command prompt or PowerShell is launched with system privileges. Use this rule to hunt for potential suspicious processes.
+references:
+    - https://github.com/Wh04m1001/SysmonEoP
+author: Nasreddine Bencherchali (Nextron Systems), frack113
+date: 2023-11-23
+modified: 2025-03-06
+tags:
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.t1059
+    - detection.threat-hunting
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_shell:
+        - NewProcessName|endswith:
+              - \powershell.exe
+              - \powershell_ise.exe
+              - \pwsh.exe
+              - \cmd.exe
+        - OriginalFileName:
+              - PowerShell.EXE
+              - powershell_ise.EXE
+              - pwsh.dll
+              - Cmd.Exe
+    selection_user:
+        SubjectUserName|contains: # covers many language settings
+            - AUTHORI
+            - AUTORI
+        SubjectLogonId: '0x3e7'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

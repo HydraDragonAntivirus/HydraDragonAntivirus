@@ -1,0 +1,37 @@
+title: DLL Execution Via Register-cimprovider.exe
+id: bc54a6ee-510d-f8d6-a9ff-2d21d8e41a81
+related:
+    - id: a2910908-e86f-4687-aeba-76a5f996e652
+      type: derived
+status: test
+description: Detects using register-cimprovider.exe to execute arbitrary dll file.
+references:
+    - https://twitter.com/PhilipTsukerman/status/992021361106268161
+    - https://lolbas-project.github.io/lolbas/Binaries/Register-cimprovider/
+author: Ivan Dyachkov, Yulia Fomina, oscd.community
+date: 2020-10-07
+modified: 2021-11-27
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.execution
+    - attack.stealth
+    - attack.t1574
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \register-cimprovider.exe
+        CommandLine|contains|all:
+            - -path
+            - dll
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

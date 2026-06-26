@@ -1,0 +1,34 @@
+title: Cmd Stream Redirection
+id: 70824154-ca31-ca8f-0cc1-045e5d217a3a
+related:
+    - id: 70e68156-6571-427b-a6e9-4476a173a9b6
+      type: derived
+status: deprecated
+description: Detects the redirection of an alternate data stream (ADS) of / within a Windows command line session
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1564.004/T1564.004.md#atomic-test-3---create-ads-command-prompt
+author: frack113
+date: 2022-02-04
+modified: 2023-03-07
+tags:
+    - attack.defense-evasion
+    - attack.t1564.004
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains|all:
+            - '> '
+            - ':'
+        NewProcessName|endswith: \cmd.exe
+    filter:
+        CommandLine|contains: ' :\'
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

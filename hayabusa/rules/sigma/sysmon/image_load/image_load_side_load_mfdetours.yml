@@ -1,0 +1,34 @@
+title: Potential Mfdetours.DLL Sideloading
+id: f6f04683-ef7d-7776-143c-e78e125850db
+related:
+    - id: d2605a99-2218-4894-8fd3-2afb7946514d
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "mfdetours.dll". While using "mftrace.exe" it can be abused to attach to an arbitrary process and force load any DLL named "mfdetours.dll" from the current directory of execution.
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-03
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \mfdetours.dll
+    filter_main_legit_path:
+        ImageLoaded|contains: :\Program Files (x86)\Windows Kits\10\bin\
+    condition: image_load and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unlikely
+level: medium
+ruletype: Sigma

@@ -1,0 +1,52 @@
+title: Potential PowerShell Obfuscation Using Alias Cmdlets
+id: 2b77aa85-451b-f506-eda5-71bef0c2bfa6
+related:
+    - id: e8314f79-564d-4f79-bc13-fbc0bf2660d8
+      type: derived
+    - id: 96cd126d-f970-49c4-848a-da3a09f55c55
+      type: derived
+status: test
+description: Detects Set-Alias or New-Alias cmdlet usage. Which can be use as a mean to obfuscate PowerShell scripts
+references:
+    - https://github.com/1337Rin/Swag-PSO
+author: frack113
+date: 2023-01-08
+modified: 2025-10-22
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1027
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains:
+            - 'Set-Alias '
+            - 'New-Alias '
+    filter_main_cim:
+        ScriptBlockText:
+            - Set-Alias -Name ncms -Value New-CimSession -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name gcls -Value Get-CimClass -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name ncso -Value New-CimSessionOption -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name gcms -Value Get-CimSession -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name rcms -Value Remove-cimSession -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name rcie -Value Register-CimIndicationEvent -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name gcai -Value Get-CimAssociatedInstance -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name gcim -Value Get-CimInstance -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name scim -Value Set-CimInstance -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name ncim -Value New-CimInstance -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name rcim -Value Remove-cimInstance -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+            - Set-Alias -Name icim -Value Invoke-CimMethod -Option ReadOnly, AllScope -ErrorAction SilentlyContinue
+    condition: ps_script and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: low
+ruletype: Sigma

@@ -1,0 +1,35 @@
+title: Sysinternals PsService Execution
+id: d3fcb3bd-eb88-9d77-0911-5baef6d9f5d0
+related:
+    - id: 3371f518-5fe3-4cf6-a14b-2a0ae3fd8a4f
+      type: derived
+status: test
+description: Detects usage of Sysinternals PsService which can be abused for service reconnaissance and tampering
+references:
+    - https://learn.microsoft.com/en-us/sysinternals/downloads/psservice
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-06-16
+modified: 2023-02-24
+tags:
+    - attack.privilege-escalation
+    - attack.discovery
+    - attack.persistence
+    - attack.t1543.003
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - OriginalFileName: psservice.exe
+        - Image|endswith:
+              - \PsService.exe
+              - \PsService64.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate use of PsService by an administrator
+level: medium
+ruletype: Sigma

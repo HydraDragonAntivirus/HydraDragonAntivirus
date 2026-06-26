@@ -1,0 +1,35 @@
+title: DNS Query Request To OneLaunch Update Service
+id: 7b62efa9-9b33-2bd0-a96b-545a92437915
+related:
+    - id: df68f791-ad95-447f-a271-640a0dab9cf8
+      type: derived
+status: test
+description: |
+    Detects DNS query requests to "update.onelaunch.com". This domain is associated with the OneLaunch adware application.
+    When the OneLaunch application is installed it will attempt to get updates from this domain.
+references:
+    - https://www.malwarebytes.com/blog/detections/pup-optional-onelaunch-silentcf
+    - https://www.myantispyware.com/2020/12/14/how-to-uninstall-onelaunch-browser-removal-guide/
+    - https://malware.guide/browser-hijacker/remove-onelaunch-virus/
+author: Josh Nickels
+date: 2024-02-26
+tags:
+    - attack.credential-access
+    - attack.collection
+    - attack.t1056
+    - sysmon
+logsource:
+    category: dns_query
+    product: windows
+detection:
+    dns_query:
+        EventID: 22
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        QueryName: update.onelaunch.com
+        Image|endswith: \OneLaunch.exe
+    condition: dns_query and selection
+falsepositives:
+    - Unlikely
+level: low
+ruletype: Sigma

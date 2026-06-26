@@ -1,0 +1,33 @@
+title: Network Reconnaissance Activity
+id: 8b0857a1-1072-5628-e381-1f06070a01bb
+related:
+    - id: e6313acd-208c-44fc-a0ff-db85d572e90e
+      type: derived
+status: test
+description: Detects a set of suspicious network related commands often used in recon stages
+references:
+    - https://thedfirreport.com/2022/02/07/qbot-likes-to-move-it-move-it/
+author: Florian Roth (Nextron Systems)
+date: 2022-02-07
+tags:
+    - attack.discovery
+    - attack.t1087
+    - attack.t1082
+    - car.2016-03-001
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|contains|all:
+            - nslookup
+            - _ldap._tcp.dc._msdcs.
+    condition: process_creation and selection
+falsepositives:
+    - False positives depend on scripts and administrative tools used in the monitored environment
+level: high
+ruletype: Sigma

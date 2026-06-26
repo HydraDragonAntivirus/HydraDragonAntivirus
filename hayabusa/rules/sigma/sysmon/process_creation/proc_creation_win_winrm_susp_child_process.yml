@@ -1,0 +1,43 @@
+title: Suspicious Processes Spawned by WinRM
+id: 53ff6873-072f-dc8b-51ab-755a105b07ee
+related:
+    - id: 5cc2cda8-f261-4d88-a2de-e9e193c86716
+      type: derived
+status: test
+description: Detects suspicious processes including shells spawnd from WinRM host process
+author: Andreas Hunkeler (@Karneades), Markus Neis
+references:
+    - Internal Research
+date: 2021-05-20
+modified: 2022-07-14
+tags:
+    - attack.t1190
+    - attack.initial-access
+    - attack.persistence
+    - attack.privilege-escalation
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith: \wsmprovhost.exe
+        Image|endswith:
+            - \cmd.exe
+            - \sh.exe
+            - \bash.exe
+            - \powershell.exe
+            - \pwsh.exe
+            - \wsl.exe
+            - \schtasks.exe
+            - \certutil.exe
+            - \whoami.exe
+            - \bitsadmin.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate WinRM usage
+level: high
+ruletype: Sigma

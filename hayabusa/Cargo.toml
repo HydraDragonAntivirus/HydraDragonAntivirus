@@ -1,0 +1,77 @@
+[package]
+name = "hayabusa"
+version = "3.10.0-dev"
+repository = "https://github.com/Yamato-Security/hayabusa"
+authors = ["Yamato Security @SecurityYamato"]
+edition = "2024"
+rust-version = "1.95.0"
+include = ["src/**/*", "LICENSE.txt", "README.md", "CHANGELOG.md"]
+
+[dependencies]
+aho-corasick = "*"
+base64 = "*"
+bytesize = "2.*"
+chrono = "0.4.*"
+cidr-utils = "0.6.*"
+clap = { version = "4.*", features = ["derive", "cargo", "color"]}
+colored = "3"
+comfy-table = "7.*"
+compact_str = "0.9.*"
+console = "0.16.*"
+csv = "1.4.*"
+dashmap = "*"
+dialoguer = "*"
+downcast-rs = "2.*"
+evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git" , features = ["fast-alloc"] , rev = "5c2bc81" } # 0.9.7 2026/04/29 update
+# Enable the vendored-OpenSSL HTTPS/TLS backend for libgit2. The wildcard
+# `0.*` resolved to a build of libgit2 with no TLS transport, so `update-rules`
+# failed with `class=Ssl (16) - there is no TLS stream available`. The project
+# already vendors OpenSSL (see `openssl` below), so this just links libgit2's
+# TLS transport against it.
+git2 = { version = "0.21", features = ["https", "vendored-openssl"] }
+hashbrown = "0.17.*"
+hex = "0.4.*"
+horrorshow = "0.8.*"
+indexmap = "2.*"
+indicatif = "*"
+infer = "*"
+itertools = "*"
+krapslog = "0.6"
+lazy_static = "1.5.*"
+libmimalloc-sys = { version = "*",  features = ["extended"] }
+maxminddb = "0.*"
+memchr = "2.*"
+mimalloc = { version = "*", default-features = false }
+nested="*"
+num = "0.4.3"
+num-format = "*"
+pulldown-cmark = { version = "0.13.*", default-features = false, features = ["simd", "html"] }
+rand = "0.10.*"
+regex = "1"
+serde = { version = "1.*", features = ["derive"] }
+serde_derive = "1.*"
+serde_json = { version = "1.0"}
+strum = { version = "0.28.*", features = ["derive"] }
+termcolor = "*"
+terminal_size = "*"
+tokio = { version = "1", features = ["full"] }
+ureq = "3"
+wildmatch = "2.*"
+yaml-rust2 = "0.11"
+rust-embed={version = "8.11.0", features = ["include-exclude", "debug-embed"]}
+encoding_rs = "0.8.35"
+uuid = { version = "1", features = ["v4"] }
+winapi = { version = "0.3.9", features = ["wow64apiset"] }
+
+[profile.dev]
+debug-assertions = false
+
+[target.'cfg(windows)'.dependencies]
+is_elevated = "0.1.*"
+
+[target.'cfg(unix)'.dependencies] #Mac and Linux
+openssl = { version = "*", features = ["vendored"] }  #vendored is needed to compile statically.
+
+[profile.release]
+lto = true
+strip = "symbols"

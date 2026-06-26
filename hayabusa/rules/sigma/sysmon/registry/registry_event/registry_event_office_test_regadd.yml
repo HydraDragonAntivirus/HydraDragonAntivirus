@@ -1,0 +1,33 @@
+title: Office Application Startup - Office Test
+id: 28462092-58c0-5514-86c1-87fd6312746e
+related:
+    - id: 3d27f6dd-1c74-4687-b4fa-ca849d128d1c
+      type: derived
+status: test
+description: Detects the addition of office test registry that allows a user to specify an arbitrary DLL that will be executed every time an Office application is started
+references:
+    - https://unit42.paloaltonetworks.com/unit42-technical-walkthrough-office-test-persistence-method-used-in-recent-sofacy-attacks/
+author: omkar72
+date: 2020-10-25
+modified: 2023-11-08
+tags:
+    - attack.persistence
+    - attack.t1137.002
+    - sysmon
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID:
+            - 12
+            - 13
+            - 14
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains: \Software\Microsoft\Office test\Special\Perf
+    condition: registry_event and selection
+falsepositives:
+    - Unlikely
+level: medium
+ruletype: Sigma
