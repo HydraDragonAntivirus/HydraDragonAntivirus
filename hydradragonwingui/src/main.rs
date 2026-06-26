@@ -4857,14 +4857,14 @@ fn default_config() -> PipelineConfig {
     let hayabusa_dir = std::env::var("HAYABUSA_DIR").ok().map(PathBuf::from);
 
     let mut cfg = PipelineConfig {
-        bloom_dir: Some(bloom_dir).filter(|p| p.exists()),
+        bloom_dir: Some(bloom_dir.clone()).filter(|p| p.exists()),
         yara_rules_dir: Some(yara_rules_dir).filter(|p| p.exists()),
         hydradragonsig_rules_dir: Some(hydradragonsig_rules_dir).filter(|p| p.exists()),
         pe_ml_model_path: Some(pe_ml_model_path).filter(|p| p.exists()),
         js_ml_model_path: Some(js_ml_model_path).filter(|p| p.exists()),
         clamav_db: Some(clamav_db).filter(|p| p.exists()),
         hayabusa_dir,
-        results_cache_dir: Some(dir.clone()),
+        results_cache_dir: Some(bloom_dir.clone()),
         excluded_dirs,
         excluded_files,
         ..Default::default()
