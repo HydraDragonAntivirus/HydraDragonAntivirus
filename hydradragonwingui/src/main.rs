@@ -17,7 +17,7 @@ use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use hydradragonav::disinfector;
@@ -4369,6 +4369,11 @@ fn run_streaming(
     let current_ref = &current;
     let done_ref = &discovery_done;
 
+    // Bounded queue: the producer blocks (Condvar) when there are already
+    // `MAX_IN_FLIGHT` file paths waiting, bounding memory from the path queue.
+    const MAX_IN_FLIGHT: usize = 4096;
+    let qpair = Arc::new((Mutex::new(0usize), Condvar::new()));
+
     // Extensions skipped during full-drive scans — common non-executable formats
     // that are never malware vectors. Keeps CPU/RAM usage reasonable on large trees.
     fn is_skippable_ext(path: &Path) -> bool {
@@ -4384,7 +4389,12 @@ fn run_streaming(
 
     std::thread::scope(|scope| {
         // ---- producer: lazy directory walk ----
+        // Acquires a permit from `in_flight` for every file it enqueues and
+        // blocks when all permits are taken — natural back-pressure without
+        // spinning or polling.
+        let qprod = qpair.clone();
         scope.spawn(move || {
+            let (lock, cvar) = &*qprod;
             'walk: loop {
                 if cancel.load(Ordering::Relaxed) {
                     break;
@@ -4413,6 +4423,14 @@ fn run_streaming(
                             if entry.metadata().map(|m| m.len() >= 12).unwrap_or(false)
                                 && !is_skippable_ext(&path)
                             {
+                                // Block when the queue is full — the Condvar
+                                // wakes us as soon as a consumer pops an item.
+                                let mut cnt = lock.lock().unwrap();
+                                while *cnt >= MAX_IN_FLIGHT {
+                                    cnt = cvar.wait(cnt).unwrap();
+                                }
+                                *cnt += 1;
+                                drop(cnt);
                                 files_ref.lock().unwrap_or_else(|e| e.into_inner()).push_back(path);
                                 discovered_ref.fetch_add(1, Ordering::Relaxed);
                             }
@@ -4420,9 +4438,6 @@ fn run_streaming(
                         _ => {}
                     }
                 }
-                // Throttle: brief yield between directories so the walker doesn't
-                // flood the queue and starve the CPU for scanning.
-                std::thread::sleep(Duration::from_millis(1));
             }
             done_ref.store(true, Ordering::Relaxed);
         });
@@ -4430,6 +4445,7 @@ fn run_streaming(
         // ---- consumers: scan discovered files concurrently ----
         for _ in 0..nconsumers {
             let txc = tx.clone();
+            let qcons = qpair.clone();
             scope.spawn(move || {
                 let hwnd = HWND(raw as *mut c_void);
                 loop {
@@ -4444,16 +4460,19 @@ fn run_streaming(
                         std::thread::sleep(Duration::from_millis(2));
                         continue;
                     };
+                    // File dequeued — one slot freed for the producer.
+                    let (lock, cvar) = &*qcons;
+                    let mut cnt = lock.lock().unwrap();
+                    *cnt = cnt.saturating_sub(1);
+                    cvar.notify_one();
                     if let Ok(mut c) = current_ref.lock() {
                         *c = file.display().to_string();
                     }
-                    if abort.load(Ordering::Relaxed) {
-                        break;
-                    }
                     let sz = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
                     let r = pl.scan_file_cached(&file);
+                    // Re-enqueue on Stop so the file isn't lost; if the scope is
+                    // being torn down the push_front is harmless.
                     if abort.load(Ordering::Relaxed) {
-                        // Re-enqueue for later Resume or discard on Stop.
                         files_ref.lock().unwrap_or_else(|e| e.into_inner()).push_front(file);
                         break;
                     }
