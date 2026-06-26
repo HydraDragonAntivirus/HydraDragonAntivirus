@@ -1163,7 +1163,7 @@ impl Pipeline {
         if let Some(ref scanner) = self.hash_scanner {
             let bloom = scanner.bloom();
             let t0 = Instant::now();
-            if data.len() <= 1_048_576 {
+            if data.len() <= (self.config.max_file_size * 1024 * 1024) as usize {
                 {
                     let urls = extract_urls_from_bytes(data);
 
