@@ -4,8 +4,8 @@
 //!
 //! Also embeds an application manifest that:
 //!   * requires UAC elevation (`requireAdministrator`) — the GUI cleans/quarantines
-//!     malware, scans process memory, the registry, boot sectors and installs the
-//!     Explorer context menu, all of which need admin rights;
+//!     malware, scans process memory, the registry, and boot sectors, all of which
+//!     need admin rights;
 //!   * pulls in Common Controls v6 so the ListView/buttons get modern visual styles.
 
 const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

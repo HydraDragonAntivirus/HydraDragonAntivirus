@@ -32,13 +32,9 @@ windows = { version = "0.62", features = [
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_System_Ole",
-    "Win32_System_Pipes",
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
 ] }
-
-# Registry access for context menu install / uninstall.
-winreg = "0.56"
 
 # JSON serialization for settings persistence
 serde_json = "1"

@@ -6,8 +6,6 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::pipeline::ScanCategory;
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Settings {
     /// Default scan categories when none are specified on the CLI.
@@ -120,21 +118,4 @@ impl Settings {
         Self::default()
     }
 
-    /// Build the effective scan categories for a right-click / context-menu scan.
-    /// When a single file is scanned via right-click, the base category is `Files`.
-    /// Additional categories are added based on `scan_with_registry`, `scan_with_memory`, etc.
-    pub fn context_menu_categories(&self) -> Vec<ScanCategory> {
-        let mut cats = vec![ScanCategory::Files];
-        if self.scan_with_registry {
-            cats.push(ScanCategory::Registry);
-            cats.push(ScanCategory::Pum);
-        }
-        if self.scan_with_memory {
-            cats.push(ScanCategory::Memory);
-        }
-        if self.scan_with_sigma {
-            cats.push(ScanCategory::Sigma);
-        }
-        cats
-    }
 }

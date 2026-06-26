@@ -3822,7 +3822,6 @@ dependencies = [
  "md-5 0.11.0",
  "serde_json",
  "windows",
- "winreg",
  "winres",
 ]
 

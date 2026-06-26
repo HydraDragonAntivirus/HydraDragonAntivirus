@@ -91,9 +91,6 @@ const CMD_STOP_ENGINE: usize = 16;
 const CMD_PAUSE: usize = 17;
 const CMD_SELECT_ALL: usize = 18;
 const CMD_DESELECT_ALL: usize = 19;
-// Settings page: context menu install / uninstall
-const CMD_INSTALL_MENU: usize = 20;
-const CMD_UNINSTALL_MENU: usize = 21;
 // Option-panel buttons (shown in scan_option_mode)
 const CMD_START_SCAN: usize = 22;
 const CMD_CANCEL_OPT: usize = 23;
@@ -157,8 +154,6 @@ mod msg {
     pub const LVM_GETITEMSTATE: u32 = LVM_FIRST + 44;
     pub const LVM_SETITEMSTATE: u32 = LVM_FIRST + 43;
 }
-mod pipe_server;
-
 mod sty {
     pub const CHILD: u32 = 0x4000_0000;
     pub const VISIBLE: u32 = 0x1000_0000;
@@ -407,12 +402,6 @@ enum WorkRequest {
     /// Fix PUM registry entries: revert values and restore ACLs.
     FixPum(Vec<RegistryEntry>),
     ClearCache,
-    /// Scan a single file triggered by a right-click via named pipe.
-    /// Sends the result back through the provided channel.
-    PipeScan {
-        path: PathBuf,
-        result_tx: std::sync::mpsc::Sender<String>,
-    },
 }
 
 struct Fonts {
@@ -865,9 +854,6 @@ unsafe fn on_create(hwnd: HWND) {
     let worker_cancel = cancel.clone();
     let abort = Arc::new(AtomicBool::new(false));
     let worker_abort = abort.clone();
-    // Pipe server gets a clone of the work channel to forward right-click scans
-    let pipe_work_tx = work_tx.clone();
-    crate::pipe_server::spawn(pipe_work_tx);
     std::thread::spawn(move || worker(raw, work_rx, result_tx, qdir, worker_cancel, worker_abort));
     // Load the engine immediately so the loading screen shows on startup.
     let _ = work_tx.send(WorkRequest::StartEngine);
@@ -1071,8 +1057,6 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
             (CMD_START_ENGINE, "Start Engine", "\u{E768}", Kind::Primary),
             (CMD_STOP_ENGINE, "Stop Engine", "\u{E71A}", Kind::Neutral),
             (CMD_CLEAR_CACHE, "Clear Cache", "\u{E894}", Kind::Neutral),
-            (CMD_INSTALL_MENU, "Install Menu", "\u{E710}", Kind::Primary),
-            (CMD_UNINSTALL_MENU, "Uninstall Menu", "\u{E738}", Kind::Danger),
         ],
     }
 }
@@ -1731,23 +1715,8 @@ unsafe fn paint(hwnd: HWND) {
             DT_LEFT | DT_WORDBREAK,
         );
 
-        // Context menu section.
-        let cm_top = body_top + 68;
-        fill(mem, &RECT { left: inner.left, top: cm_top, right: inner.right, bottom: cm_top + 1 }, t.border);
-        let cm_icon = RECT { left: inner.left, top: cm_top + 18, right: inner.left + 28, bottom: cm_top + 46 };
-        fill_round(mem, cm_icon, 14, t.text2);
-        text(mem, "\u{E70B}", &cm_icon, WHITE, s.fonts.icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        let cm_label = RECT { left: cm_icon.right + 12, top: cm_top + 16, right: inner.right, bottom: cm_top + 42 };
-        text(mem, "Explorer context menu", &cm_label, t.text, s.fonts.nav, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        let cm_desc = RECT { left: inner.left, top: cm_top + 48, right: inner.right, bottom: cm_top + 72 };
-        text(
-            mem,
-            "Add a “Scan with HydraDragonAV” entry when right-clicking files and folders in File Explorer.",
-            &cm_desc, t.text2, s.fonts.body, DT_LEFT | DT_WORDBREAK,
-        );
-
         // About / version section.
-        let ab_top = cm_top + 96;
+        let ab_top = body_top + 68;
         fill(mem, &RECT { left: inner.left, top: ab_top, right: inner.right, bottom: ab_top + 1 }, t.border);
         let ab_icon = RECT { left: inner.left, top: ab_top + 18, right: inner.left + 28, bottom: ab_top + 46 };
         fill_round(mem, ab_icon, 14, t.accent);
@@ -2628,33 +2597,6 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
                 let _ = s.work_tx.send(WorkRequest::ClearCache);
             }
         }
-        CMD_INSTALL_MENU => {
-            s.status = "Installing context menu…".into();
-            let _ = InvalidateRect(Some(hwnd), None, false);
-            let exe = std::env::current_exe().ok();
-            if let Some(exe) = exe {
-                let exe_str = exe.to_string_lossy().to_string();
-                let cmd = format!("\"{}\" scan --files \"%1\"", exe_str);
-                if let Ok(()) = install_context_menu_impl(&cmd) {
-                    s.status = "Context menu installed.".into();
-                } else {
-                    s.status = "Failed to install context menu.".into();
-                }
-            } else {
-                s.status = "Cannot locate executable.".into();
-            }
-            let _ = InvalidateRect(Some(hwnd), None, false);
-        }
-        CMD_UNINSTALL_MENU => {
-            s.status = "Removing context menu…".into();
-            let _ = InvalidateRect(Some(hwnd), None, false);
-            if uninstall_context_menu_impl().is_ok() {
-                s.status = "Context menu removed.".into();
-            } else {
-                s.status = "Failed to remove context menu.".into();
-            }
-            let _ = InvalidateRect(Some(hwnd), None, false);
-        }
         _ => {}
     }
 }
@@ -2718,34 +2660,6 @@ unsafe fn on_context_menu(hwnd: HWND, src: HWND, (mut x, mut y): (i32, i32)) {
 unsafe fn set_status(hwnd: HWND, s: &mut AppState, text: &str) {
     s.status = text.to_string();
     let _ = InvalidateRect(Some(hwnd), None, false);
-}
-
-fn install_context_menu_impl(cmd: &str) -> std::io::Result<()> {
-    use winreg::enums::*;
-    use winreg::RegKey;
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
-    let (fs, _) = classes.create_subkey("*\\shell\\HydraDragonAV")?;
-    fs.set_value("", &"Scan with HydraDragonAV")?;
-    fs.set_value("Icon", &cmd)?;
-    let (fc, _) = fs.create_subkey("command")?;
-    fc.set_value("", &cmd)?;
-    let (ds, _) = classes.create_subkey("Directory\\shell\\HydraDragonAV")?;
-    ds.set_value("", &"Scan with HydraDragonAV")?;
-    ds.set_value("Icon", &cmd)?;
-    let (dc, _) = ds.create_subkey("command")?;
-    dc.set_value("", &cmd)?;
-    Ok(())
-}
-
-fn uninstall_context_menu_impl() -> std::io::Result<()> {
-    use winreg::enums::*;
-    use winreg::RegKey;
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
-    let _ = classes.delete_subkey_all("*\\shell\\HydraDragonAV");
-    let _ = classes.delete_subkey_all("Directory\\shell\\HydraDragonAV");
-    Ok(())
 }
 
 /// Drop every cached scan-result row (kept in sync with `lv_clear(scan_list)`).
@@ -4191,18 +4105,6 @@ fn worker(
                     let _ = std::fs::remove_file(dir.join("bad_results.bloom"));
                 }
                 send(&tx, hwnd, ScanMsg::Status("Result cache cleared.".into()));
-            }
-            WorkRequest::PipeScan { path, result_tx } => {
-                let pl = ensure_pipeline(&mut pipeline, &tx, hwnd, &abort);
-                let r = pl.scan_file(&path);
-                let label = r.verdict.label().to_string();
-                let detail = detail_summary(&r);
-                let line = if r.verdict.priority() > 1 {
-                    format!("{}: {}", label, detail)
-                } else {
-                    label
-                };
-                let _ = result_tx.send(line);
             }
         }
     }

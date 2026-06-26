@@ -149,14 +149,6 @@ enum Command {
         fast_scan: bool,
     },
 
-    /// Right-click scan: try running GUI via named pipe first,
-    /// fall back to standalone scan if no GUI is available.
-    ScanPipe {
-        /// File(s) to scan
-        #[arg()]
-        paths: Vec<PathBuf>,
-    },
-
     /// Update Hayabusa detection rules
     Update,
 
@@ -173,10 +165,6 @@ enum Command {
     /// key created when a locked/critical malware couldn't be cleaned live).
     DisinfectPending,
 
-    /// Install Explorer right-click context menu entries for scanning
-    InstallContextMenu,
-    /// Remove Explorer right-click context menu entries
-    UninstallContextMenu,
 }
 
 #[derive(Subcommand)]
@@ -625,36 +613,6 @@ fn main() {
             if *pum { cats.push(ScanCategory::Pum); }
             cmd_custom_scan(paths, cats, *json, output.as_deref(), *time_engines, *fast_scan, &config)
         }
-        Command::ScanPipe { paths } => {
-            for p in paths {
-                // Try the running GUI first
-                match hydradragonav::pipe_client::try_scan(p) {
-                    Some(result) => println!("{}", result),
-                    None => {
-                        // Fall back to standalone scan
-                        cmd_custom_scan(
-                            &[p.clone()],
-                            vec![ScanCategory::Files],
-                            false,
-                            None,
-                            false,
-                            true,
-                            &config,
-                        );
-                    }
-                }
-            }
-        }
-        Command::InstallContextMenu => {
-            if let Err(e) = cmd_install_context_menu() {
-                eprintln!("[ContextMenu] Failed to install: {e}");
-            }
-        }
-        Command::UninstallContextMenu => {
-            if let Err(e) = cmd_uninstall_context_menu() {
-                eprintln!("[ContextMenu] Failed to uninstall: {e}");
-            }
-        }
         Command::Update => match config.hayabusa_dir.as_deref() {
             Some(hdir) => cmd_update_hayabusa(hdir),
             None => eprintln!("[Hayabusa] hayabusa_dir not configured, skipping."),
@@ -941,45 +899,4 @@ fn print_registry_scan(result: &hydradragonav::registry_scanner::RegistryScanRes
     if result.threats_found == 0 {
         println!("  No threats detected.");
     }
-}
-
-fn cmd_install_context_menu() -> std::io::Result<()> {
-    use winreg::enums::*;
-    use winreg::RegKey;
-
-    let exe = std::env::current_exe()?;
-    let exe_str = exe.to_string_lossy().to_string();
-    let cmd = format!("\"{}\" scan-pipe \"%1\"", exe_str);
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
-
-    // File context menu
-    let (file_shell, _) = classes.create_subkey("*\\shell\\HydraDragonAV")?;
-    file_shell.set_value("", &"Scan with HydraDragonAV")?;
-    file_shell.set_value("Icon", &exe_str)?;
-    let (file_cmd, _) = file_shell.create_subkey("command")?;
-    file_cmd.set_value("", &cmd)?;
-
-    // Directory context menu
-    let (dir_shell, _) = classes.create_subkey("Directory\\shell\\HydraDragonAV")?;
-    dir_shell.set_value("", &"Scan with HydraDragonAV")?;
-    dir_shell.set_value("Icon", &exe_str)?;
-    let (dir_cmd, _) = dir_shell.create_subkey("command")?;
-    dir_cmd.set_value("", &cmd)?;
-
-    println!("[ContextMenu] Right-click 'Scan with HydraDragonAV' installed (HKCU).");
-    Ok(())
-}
-
-fn cmd_uninstall_context_menu() -> std::io::Result<()> {
-    use winreg::enums::*;
-    use winreg::RegKey;
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let classes = hkcu.open_subkey_with_flags("Software\\Classes", KEY_WRITE)?;
-    let _ = classes.delete_subkey_all("*\\shell\\HydraDragonAV");
-    let _ = classes.delete_subkey_all("Directory\\shell\\HydraDragonAV");
-    println!("[ContextMenu] Right-click entries removed from HKCU.");
-    Ok(())
 }
