@@ -4369,6 +4369,19 @@ fn run_streaming(
     let current_ref = &current;
     let done_ref = &discovery_done;
 
+    // Extensions skipped during full-drive scans — common non-executable formats
+    // that are never malware vectors. Keeps CPU/RAM usage reasonable on large trees.
+    fn is_skippable_ext(path: &Path) -> bool {
+        matches!(
+            path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
+            Some("txt" | "log" | "tmp" | "bak" | "dmp" | "png" | "jpg" | "jpeg"
+                | "gif" | "bmp" | "ico" | "svg" | "webp" | "mp3" | "mp4" | "wav"
+                | "flac" | "avi" | "mkv" | "mov" | "wmv" | "opus" | "ogg" | "webm"
+                | "zip" | "rar" | "7z" | "gz" | "xz" | "ttf" | "otf" | "woff"
+                | "woff2" | "cur" | "ani" | " part" | "crdownload")
+        )
+    }
+
     std::thread::scope(|scope| {
         // ---- producer: lazy directory walk ----
         scope.spawn(move || {
@@ -4397,7 +4410,9 @@ fn run_streaming(
                             dirs_ref.lock().unwrap_or_else(|e| e.into_inner()).push_back(path);
                         }
                         Ok(ft) if ft.is_file() => {
-                            if entry.metadata().map(|m| m.len() >= 12).unwrap_or(false) {
+                            if entry.metadata().map(|m| m.len() >= 12).unwrap_or(false)
+                                && !is_skippable_ext(&path)
+                            {
                                 files_ref.lock().unwrap_or_else(|e| e.into_inner()).push_back(path);
                                 discovered_ref.fetch_add(1, Ordering::Relaxed);
                             }
@@ -4405,6 +4420,9 @@ fn run_streaming(
                         _ => {}
                     }
                 }
+                // Throttle: brief yield between directories so the walker doesn't
+                // flood the queue and starve the CPU for scanning.
+                std::thread::sleep(Duration::from_millis(1));
             }
             done_ref.store(true, Ordering::Relaxed);
         });
@@ -4429,8 +4447,16 @@ fn run_streaming(
                     if let Ok(mut c) = current_ref.lock() {
                         *c = file.display().to_string();
                     }
+                    if abort.load(Ordering::Relaxed) {
+                        break;
+                    }
                     let sz = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
                     let r = pl.scan_file_cached(&file);
+                    if abort.load(Ordering::Relaxed) {
+                        // Re-enqueue for later Resume or discard on Stop.
+                        files_ref.lock().unwrap_or_else(|e| e.into_inner()).push_front(file);
+                        break;
+                    }
                     scanned_ref.fetch_add(1, Ordering::Relaxed);
                     bytes_ref.fetch_add(sz, Ordering::Relaxed);
                     let prio = r.verdict.priority(); // Trusted=0, Clean=1, Pua=2, Suspicious=3, Phishing=4, Malware=5

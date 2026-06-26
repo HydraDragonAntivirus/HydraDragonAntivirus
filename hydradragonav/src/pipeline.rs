@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -528,14 +528,43 @@ impl Pipeline {
             return cache_result(Verdict::Clean, None, "skipped (excluded directory)");
         }
 
+        // Early file-type gate: peek at the first 64 KB to classify the file.
+        // When skip_unknown_types is enabled (default), opaque binary data with
+        // no magic / known structure is skipped *before* reading the full file
+        // into memory — the biggest single CPU/IO win on a full-drive scan.
+        if self.config.skip_unknown_types {
+            if let Ok(mut f) = File::open(path) {
+                const HEADER_SIZE: usize = 65536;
+                let mut header = vec![0u8; HEADER_SIZE];
+                let n = f.read(&mut header).unwrap_or(0);
+                header.truncate(n);
+                if n > 0 {
+                    let ft = hydradragonsig::scanner::filetype::classify_bytes(path, &header);
+                    if !is_scannable_type(&ft) {
+                        return cache_result(Verdict::Clean, None, "skipped: unrecognised file type");
+                    }
+                }
+            }
+        }
+
         const CACHE_FILE_MAX: u64 = 64 * 1024 * 1024;
 
-        // Read the file ONCE and reuse the buffer for both the MD5 dedup key and
-        // the scan — so a cache miss is no slower than a plain scan.
         let too_big = std::fs::metadata(path)
             .map(|m| m.len() > CACHE_FILE_MAX)
             .unwrap_or(true);
-        if let Some(data) = (!too_big).then(|| std::fs::read(path).ok()).flatten() {
+        // Read the file in chunks so a Stop during the read of a large cached
+        // file (up to 64 MiB) doesn't block the UI for seconds.
+        if !too_big {
+            if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return cache_result(Verdict::Clean, None, "cancelled");
+            }
+            let data = match std::fs::read(path) {
+                Ok(d) => d,
+                Err(_) => return self.scan_file(path),
+            };
+            if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return cache_result(Verdict::Clean, None, "cancelled");
+            }
             let h: [u8; 16] = Md5::digest(&data).into();
             // Known-good → trust it, skip the engines. Known-bad → re-scan to
             // confirm (the bloom is only a hint, never a detection on its own).
@@ -591,6 +620,23 @@ impl Pipeline {
             return cache_result(Verdict::Clean, None, "skipped (excluded directory)");
         }
 
+        // Same early file-type gate as scan_file_cached — files that bypass the
+        // cache (too large) still benefit from the fast skip.
+        if self.config.skip_unknown_types {
+            if let Ok(mut f) = File::open(path) {
+                const HEADER_SIZE: usize = 65536;
+                let mut header = vec![0u8; HEADER_SIZE];
+                let n = f.read(&mut header).unwrap_or(0);
+                header.truncate(n);
+                if n > 0 {
+                    let ft = hydradragonsig::scanner::filetype::classify_bytes(path, &header);
+                    if !is_scannable_type(&ft) {
+                        return cache_result(Verdict::Clean, None, "skipped: unrecognised file type");
+                    }
+                }
+            }
+        }
+
         let file_size = match path.metadata() {
             Ok(metadata) => metadata.len(),
             Err(err) => {
@@ -626,10 +672,10 @@ impl Pipeline {
             };
         }
 
-        // Read the file ONCE; every engine then scans this buffer. This speeds up
-        // the first scan too (the file used to be read 6-7 times internally).
-        let data = match std::fs::read(path) {
-            Ok(d) => d,
+        // Read the file in chunks (64 KiB) so cancellation can interrupt large
+        // file reads instead of blocking for seconds on a multi-gigabyte file.
+        let mut file = match File::open(path) {
+            Ok(f) => f,
             Err(err) => {
                 return ScanResult {
                     verdict: Verdict::Clean,
@@ -646,6 +692,54 @@ impl Pipeline {
                 };
             }
         };
+        let mut data = Vec::with_capacity(file_size as usize);
+        let mut chunk = vec![0u8; 65536];
+        loop {
+            if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return ScanResult {
+                    verdict: Verdict::Clean,
+                    threat_name: None,
+                    engines: vec![EngineResult {
+                        engine: "cancelled",
+                        verdict: Verdict::Clean,
+                        detail: "cancelled during file read".into(),
+                        elapsed_ms: None,
+                    }],
+                    yara_x_matches: Vec::new(),
+                    ml_malware_probability: None,
+                    clamav_result: None,
+                };
+            }
+            match file.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => data.extend_from_slice(&chunk[..n]),
+                Err(err) => {
+                    return ScanResult {
+                        verdict: Verdict::Clean,
+                        threat_name: None,
+                        engines: vec![EngineResult {
+                            engine: "file_io",
+                            verdict: Verdict::Clean,
+                            detail: format!("read error: {err}"),
+                            elapsed_ms: None,
+                        }],
+                        yara_x_matches: Vec::new(),
+                        ml_malware_probability: None,
+                        clamav_result: None,
+                    };
+                }
+            }
+        }
+        if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return ScanResult {
+                verdict: Verdict::Clean,
+                threat_name: None,
+                engines: Vec::new(),
+                yara_x_matches: Vec::new(),
+                ml_malware_probability: None,
+                clamav_result: None,
+            };
+        }
         let md5: [u8; 16] = Md5::digest(&data).into();
         self.scan_loaded(path, &data, md5)
     }
