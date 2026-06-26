@@ -38,7 +38,7 @@ impl Default for ScanOptions {
             max_file_size: Some(2048 * 1024 * 1024),
             profile_rules: false,
             parallel_rules: false,
-            stop_on_detection: false,
+            stop_on_detection: true,
             min_string_len: 5,
             decode_obfuscated_strings: true,
             core_options: CoreInitOptions::default(),

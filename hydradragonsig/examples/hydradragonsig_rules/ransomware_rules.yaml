@@ -2,8 +2,8 @@ name: Ransomware Detection Rules
 version: "1.0"
 # Unified ransomware detection: combines crypto API import analysis AND ransom
 # note string matching in a single rule with `logic: all`. Neither signal alone
-# is sufficient — Kaspersky Removal Tool (KRT) uses crypto APIs but carries no
-# ransom strings, so it will NOT match.
+# is sufficient — Kaspersky Removal Tool (KRT) uses ransom strings to detect ransom 
+# but carries no ransom API, so it will NOT match.
 #
 # API coverage targets the full crypto pipeline:
 #   acquire/open → key-setup → encrypt/export

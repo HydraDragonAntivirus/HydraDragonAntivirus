@@ -202,10 +202,14 @@ impl RuleSet {
 
     pub fn from_yaml_str(yaml: &str) -> Result<Self> {
         let file: YamlRulesFile = yaml_serde::from_str(yaml).context("invalid YAML rule file")?;
-        for rule in &file.rules {
+        let mut rules = file.rules;
+        for rule in &rules {
             warm_rule_caches(rule);
         }
-        Ok(Self { rules: file.rules })
+        for rule in &mut rules {
+            rule.compute_required_types();
+        }
+        Ok(Self { rules })
     }
 
     pub fn from_yaml_file(path: &Path) -> Result<Self> {
@@ -547,6 +551,14 @@ fn evaluate_rule(
         return None;
     }
 
+    // File-type pre-filter: if the rule requires specific file types, skip
+    // files whose type doesn't match.
+    if let Some(ref types) = rule.required_types {
+        if !types.iter().any(|t| report.file_type.matches_type(t)) {
+            return None;
+        }
+    }
+
     match rule.logic {
         RuleLogic::Any => {
             for cond in &rule.conditions {
@@ -599,38 +611,40 @@ fn evaluate_condition(
             value,
             nocase,
             decoded,
+            ascii,
+            wide,
+            utf8,
+            utf16,
         } => {
-            if *nocase {
-                let needle = value.to_ascii_lowercase();
-                for (hit, hay) in report.strings.iter().zip(&view.strings_lower) {
-                    if hay.contains(&needle) {
-                        return Some(format!("string_contains `{}` at 0x{:x}", value, hit.offset));
+            let needle = if *nocase { value.to_ascii_lowercase() } else { value.clone() };
+            for (idx, hit) in report.strings.iter().enumerate() {
+                let enc_ok = match hit.encoding.as_str() {
+                    "ascii" => *ascii,
+                    "utf16le" => *wide,
+                    _ => *ascii,
+                };
+                if !enc_ok { continue; }
+                let hay = if *nocase { view.strings_lower.get(idx)? } else { &hit.value };
+                if hay.contains(&needle) {
+                    return Some(format!("string_contains `{}` at 0x{:x}", value, hit.offset));
+                }
+            }
+            if *wide || *utf8 || *utf16 {
+                for (variant_bytes, label) in encoding_variants(value, *wide, *utf8, *utf16) {
+                    if let Some(offset) = find_text_bytes(bytes, &variant_bytes, *nocase, false) {
+                        return Some(format!("string_contains {} `{}` at 0x{:x}", label, value, offset));
                     }
                 }
-                if *decoded {
-                    for (hit, hay) in report.decoded_strings.iter().zip(&view.decoded_lower) {
-                        if hay.contains(&needle) {
-                            return Some(format!(
-                                "decoded_string_contains `{}` via {}",
-                                value, hit.method
-                            ));
-                        }
-                    }
-                }
-            } else {
-                for hit in &report.strings {
-                    if hit.value.contains(value) {
-                        return Some(format!("string_contains `{}` at 0x{:x}", value, hit.offset));
-                    }
-                }
-                if *decoded {
-                    for hit in &report.decoded_strings {
-                        if hit.decoded.contains(value) {
-                            return Some(format!(
-                                "decoded_string_contains `{}` via {}",
-                                value, hit.method
-                            ));
-                        }
+            }
+            if *decoded {
+                let needle_dec = if *nocase { value.to_ascii_lowercase() } else { value.clone() };
+                for (idx, hit) in report.decoded_strings.iter().enumerate() {
+                    let hay = if *nocase { &view.decoded_lower[idx] } else { &hit.decoded };
+                    if hay.contains(&needle_dec) {
+                        return Some(format!(
+                            "decoded_string_contains `{}` via {}",
+                            value, hit.method
+                        ));
                     }
                 }
             }
@@ -661,10 +675,14 @@ fn evaluate_condition(
             nocase,
             decoded,
             regex,
+            ascii,
+            wide,
+            utf8,
+            utf16,
         } => {
             let needed = min.unwrap_or(1).max(1);
             if !regex {
-                return match_string_set_literals(report, view, values, needed, *nocase, *decoded);
+                return match_string_set_literals(report, view, bytes, values, needed, *nocase, *decoded, *ascii, *wide, *utf8, *utf16);
             }
             let mut evidence = Vec::new();
             for value in values {
@@ -950,16 +968,27 @@ fn evaluate_condition(
 fn match_string_set_literals(
     report: &ScanReport,
     view: &ScanView,
+    bytes: &[u8],
     values: &[String],
     needed: usize,
     nocase: bool,
     decoded: bool,
+    ascii: bool,
+    wide: bool,
+    utf8: bool,
+    utf16: bool,
 ) -> Option<String> {
     let ac = cached_literal_set(values, nocase)?;
     let mut seen = vec![false; values.len()];
     let mut evidence = Vec::with_capacity(needed.min(values.len()));
 
     for (idx, hit) in report.strings.iter().enumerate() {
+        let enc_ok = match hit.encoding.as_str() {
+            "ascii" => ascii,
+            "utf16le" => wide,
+            _ => ascii,
+        };
+        if !enc_ok { continue; }
         let hay = if nocase {
             view.strings_lower.get(idx)?.as_str()
         } else {
@@ -986,6 +1015,31 @@ fn match_string_set_literals(
                     needed,
                     evidence.join("; ")
                 ));
+            }
+        }
+    }
+
+    // Raw-bytes fallback for encoding variants not covered by extracted strings.
+    if wide || utf8 || utf16 {
+        let already_found: Vec<bool> = seen.clone();
+        for (i, value) in values.iter().enumerate() {
+            if already_found[i] { continue; }
+            for (variant_bytes, label) in encoding_variants(value, wide, utf8, utf16) {
+                if let Some(offset) = find_text_bytes(bytes, &variant_bytes, nocase, false) {
+                    seen[i] = true;
+                    evidence.push(format!(
+                        "literal {} `{}` at 0x{:x}",
+                        label, value, offset
+                    ));
+                    if evidence.len() >= needed {
+                        return Some(format!(
+                            "string_set matched {}/{}: {}",
+                            evidence.len(),
+                            needed,
+                            evidence.join("; ")
+                        ));
+                    }
+                }
             }
         }
     }
@@ -1564,6 +1618,30 @@ fn utf16le_bytes(text: &str) -> Vec<u8> {
         out.extend_from_slice(&unit.to_le_bytes());
     }
     out
+}
+
+fn utf16be_bytes(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() * 2);
+    for unit in text.encode_utf16() {
+        out.extend_from_slice(&unit.to_be_bytes());
+    }
+    out
+}
+
+/// Generate raw byte encoding variants for a string value.
+/// Returns `(bytes, label)` pairs.
+fn encoding_variants(value: &str, wide: bool, utf8: bool, utf16: bool) -> Vec<(Vec<u8>, &'static str)> {
+    let mut variants = Vec::new();
+    if wide {
+        variants.push((utf16le_bytes(value), "wide"));
+    }
+    if utf8 {
+        variants.push((value.as_bytes().to_vec(), "utf8"));
+    }
+    if utf16 {
+        variants.push((utf16be_bytes(value), "utf16"));
+    }
+    variants
 }
 
 fn xor_key_range(atom: &SignatureAtom) -> (u8, u8) {

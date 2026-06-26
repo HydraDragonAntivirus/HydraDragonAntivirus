@@ -72,6 +72,53 @@ pub struct Rule {
     /// to write back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_reverted_value: Option<String>,
+
+    /// File types this rule can match against, inferred from its conditions.
+    /// `None` = all file types. Populated automatically during loading.
+    #[serde(skip)]
+    pub required_types: Option<Vec<String>>,
+}
+
+impl Rule {
+    /// Infer the file types this rule requires, based on its conditions.
+    /// PE-specific conditions (imports, sections, signatures) set `["pe"]`;
+    /// explicit `file_type` conditions add their values.
+    pub fn compute_required_types(&mut self) {
+        let mut types: Vec<String> = Vec::new();
+        for condition in &self.conditions {
+            match condition {
+                RuleCondition::ImportAny { .. }
+                | RuleCondition::ImportAll { .. }
+                | RuleCondition::ImportSet { .. }
+                | RuleCondition::ImportRegex { .. }
+                | RuleCondition::DllAny { .. }
+                | RuleCondition::DllRegex { .. }
+                | RuleCondition::SuspiciousImportCount { .. }
+                | RuleCondition::SectionEntropy { .. }
+                | RuleCondition::SectionNameRegex { .. }
+                | RuleCondition::PackedPe
+                | RuleCondition::SignatureSignerContains { .. }
+                | RuleCondition::SignatureIsSigned { .. }
+                | RuleCondition::SignatureInvalid
+                | RuleCondition::SignatureVerificationFailed
+                | RuleCondition::SignatureAnyIssue
+                | RuleCondition::SignatureHresultIn { .. } => {
+                    if !types.contains(&"pe".to_string()) {
+                        types.push("pe".to_string());
+                    }
+                }
+                RuleCondition::FileType { values } => {
+                    for v in values {
+                        if !types.contains(v) {
+                            types.push(v.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.required_types = if types.is_empty() { None } else { Some(types) };
+    }
 }
 
 fn default_score() -> u32 {
@@ -147,6 +194,14 @@ pub enum RuleCondition {
         nocase: bool,
         #[serde(default)]
         decoded: bool,
+        #[serde(default = "default_true")]
+        ascii: bool,
+        #[serde(default)]
+        wide: bool,
+        #[serde(default)]
+        utf8: bool,
+        #[serde(default)]
+        utf16: bool,
     },
     StringRegex {
         pattern: String,
@@ -165,6 +220,14 @@ pub enum RuleCondition {
         decoded: bool,
         #[serde(default)]
         regex: bool,
+        #[serde(default = "default_true")]
+        ascii: bool,
+        #[serde(default)]
+        wide: bool,
+        #[serde(default)]
+        utf8: bool,
+        #[serde(default)]
+        utf16: bool,
     },
 
     /// HydraDragonSig native signature format. It holds deterministic
@@ -291,4 +354,8 @@ pub enum RuleCondition {
         #[serde(default)]
         min: Option<usize>,
     },
+}
+
+fn default_true() -> bool {
+    true
 }

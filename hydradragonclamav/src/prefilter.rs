@@ -660,18 +660,15 @@ fn build_candidate_set(mut hits: Vec<(u32, u32)>, always: &[u32]) -> CandidateSe
         if take_hit {
             let sig = next_hit.unwrap();
             let base = offsets.len();
-            let mut overflow = false;
             while hi < hits.len() && hits[hi].0 == sig {
                 let off = hits[hi].1;
-                if off == OFFSET_OVERFLOW {
-                    overflow = true;
-                } else if !overflow {
+                if off != OFFSET_OVERFLOW {
                     offsets.push(off);
                 }
                 hi += 1;
             }
             // Too many offsets → drop them and full-scan this signature.
-            if overflow || offsets.len() - base > MAX_OFFSETS_PER_SIG {
+            if offsets.len() - base > MAX_OFFSETS_PER_SIG {
                 offsets.truncate(base);
             }
             // Hit-sigs and always-sigs are disjoint, but de-dupe defensively.
