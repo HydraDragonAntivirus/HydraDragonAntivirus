@@ -7,7 +7,7 @@ license = "GPL-2.0-or-later"
 
 [dependencies]
 # CPU emulation (TinyAntivirus used Unicorn for PE unpacking / behavioral analysis)
-unicorn-engine = "2.1.5"
+unicorn-engine = { version = "2.1.5", features = ["dynamic_linkage"] }
 
 # PE parsing — needs elf32/elf64/endian_fd for goblin::Object enum to be available
 goblin = "0.10.7"
