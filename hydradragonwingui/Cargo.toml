@@ -42,6 +42,3 @@ serde_json = "1"
 [build-dependencies]
 # Embeds the HydraDragon icon into the executable.
 winres = "0.1"
-
-[patch.crates-io]
-unicorn-engine-sys = { path = "../patches/unicorn-engine-sys" }
