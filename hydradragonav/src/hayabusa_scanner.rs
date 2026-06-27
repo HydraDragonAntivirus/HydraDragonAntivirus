@@ -18,13 +18,12 @@ use tokio::runtime::Runtime;
 use crate::pipeline::HayabusaMatch;
 
 /// Run hayabusa detection on local Windows EVTX logs and return matches.
-pub fn scan_once(hayabusa_dir: &Path) -> Vec<HayabusaMatch> {
+/// `rules_dir` must point directly to the directory containing the rule `.yml` files.
+pub fn scan_once(rules_dir: &Path) -> Vec<HayabusaMatch> {
     let evtx_dir = get_evtx_dir();
     if !evtx_dir.exists() {
         return Vec::new();
     }
-
-    let rules_dir = hayabusa_dir.join("rules");
     if !rules_dir.exists() {
         return Vec::new();
     }

@@ -4228,8 +4228,8 @@ fn run_session(
     // ── Event logs (Sigma / Hayabusa) ──────────────────────────────────────
     if sess.cats & CAT_SIGMA != 0 { check_abort!();
         send(tx, hwnd, ScanMsg::Status("Custom scan: event logs…".into()));
-        let hayabusa_dir = exe_dir().join("hayabusa");
-        let logs = scan_hayabusa_once(&hayabusa_dir);
+        let rules_dir = exe_dir().join("rules");
+        let logs = scan_hayabusa_once(&rules_dir);
         // Filter out low-confidence (info/low) alerts, keep medium+ only
         for m in &logs {
             if m.severity < 65 { continue; }

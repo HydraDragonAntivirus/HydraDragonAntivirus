@@ -304,8 +304,8 @@ fn cmd_custom_scan(
     }
 
     if has_cat(ScanCategory::Sigma) {
-        if let Some(ref hdir) = config.hayabusa_dir {
-            let hayabusa_matches = scan_hayabusa_once(hdir);
+        if let Some(ref rules_dir) = config.hayabusa_dir {
+            let hayabusa_matches = scan_hayabusa_once(rules_dir);
             if json {
                 println!("{}", serde_json::to_value(&hayabusa_matches).unwrap());
             } else if !hayabusa_matches.is_empty() {

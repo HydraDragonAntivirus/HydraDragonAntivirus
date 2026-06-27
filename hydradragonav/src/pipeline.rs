@@ -1864,8 +1864,8 @@ pub struct HayabusaMatch {
     pub severity: u8,
 }
 
-pub fn scan_hayabusa_once(hayabusa_dir: &Path) -> Vec<HayabusaMatch> {
-    crate::hayabusa_scanner::scan_once(hayabusa_dir)
+pub fn scan_hayabusa_once(rules_dir: &Path) -> Vec<HayabusaMatch> {
+    crate::hayabusa_scanner::scan_once(rules_dir)
 }
 
 fn load_yara_rules_from_dir(dir: &Path) -> Vec<(String, Rules)> {
