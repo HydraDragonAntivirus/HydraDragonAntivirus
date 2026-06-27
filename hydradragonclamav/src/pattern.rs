@@ -1097,15 +1097,21 @@ impl Pattern {
                         if dpos + *min > data.len() {
                             return None;
                         }
+                        // Fast path #1: gap is the LAST element — just consume the
+                        // minimum width and succeed, since anything matches after a
+                        // trailing unbounded/wide gap.
+                        if ipos + 1 >= pat_len {
+                            return Some(dpos + *min);
+                        }
                         let hi = (*max).min(data.len() - dpos);
-                        // Fast path: a gap immediately followed by one or more fixed
+                        // Fast path #2: a gap immediately followed by one or more fixed
                         // bytes — jump to each occurrence of that whole literal *run*
                         // (not just its first byte) with a SIMD search, instead of
                         // trying every gap width. Using the full run as the needle is
                         // far more selective than a single byte; that selectivity is
                         // what stops a gappy pattern (`…{gap}/link.html`) from probing
                         // thousands of false positions per gap and blowing up.
-                        if ipos + 1 < pat_len && !data.is_empty() {
+                        if !data.is_empty() {
                             // Collect the fixed run after the gap — exact (CHAR) and
                             // case-insensitive (NOCASE) bytes — so a gap followed by a
                             // nocase literal (`…*Content::i`) is jumped to by SIMD

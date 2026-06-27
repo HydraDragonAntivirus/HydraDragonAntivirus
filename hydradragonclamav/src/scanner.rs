@@ -298,6 +298,16 @@ impl Engine {
             presence: Default::default(),
         };
         let is_pe = ctx.is_pe_magic();
+
+        // Skip raw scan for archives we cannot extract — scanning compressed
+        // random bytes against 500k+ signatures triggers pathological backtracking
+        // in the gap-matching loop. The actual unpacker in hydradragonextractor
+        // handles only gz/zip/xz/lzma/tar/asar/nsis; everything else (RAR, 7z,
+        // BZ2, ...) is skipped here.
+        if !is_pe && is_unsupported_archive(data) {
+            return;
+        }
+
         self.scan_context(&ctx, options, &mut state.matches);
 
         // Normalized text/HTML views exist to catch text-like malware (scripts,
@@ -1385,6 +1395,11 @@ fn looks_like_html(data: &[u8]) -> bool {
 
 fn looks_like_supported_archive(data: &[u8]) -> bool {
     detect_format(data).is_some() || data.starts_with(b"7z\xbc\xaf\x27\x1c")
+}
+
+fn is_unsupported_archive(data: &[u8]) -> bool {
+    data.len() >= 8 && data[..8] == [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00] // RAR v5
+    || data.len() >= 7 && data[..7] == [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00] // RAR v1.5
 }
 
 fn normalize_ascii_text(data: &[u8]) -> Vec<u8> {

@@ -6,6 +6,7 @@ pub mod disinfector;
 pub mod hash_scanner;
 pub mod hayabusa_scanner;
 pub mod memory_scanner;
+pub mod nuitka_scanner;
 pub mod metrics;
 pub mod ml;
 pub mod pipeline;

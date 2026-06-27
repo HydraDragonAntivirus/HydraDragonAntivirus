@@ -1425,12 +1425,80 @@ impl Pipeline {
         }
 
         stage_end!("yara_x");
+
+        // --- 8. NUITKA (onefile executable extraction) ---
+        // Nuitka-compiled Python executables embed compressed Python modules
+        // in the PE resource section.  Detect and extract them here so the
+        // extracted files are scanned by the same engines (YARA-X + ML).
+        let nuitka_result = if crate::nuitka_scanner::is_nuitka_executable(data) {
+            stage_start!();
+            let t0 = Instant::now();
+            let mut found_threat = None;
+            if let Some(entries) = crate::nuitka_scanner::extract_from_bytes(data) {
+                for entry in &entries {
+                    if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    // Use scan_bytes to run ML + YARA-X on the extracted data.
+                    let sub = self.scan_bytes(&entry.data);
+                    let is_detected = matches!(sub.verdict, Verdict::Malware | Verdict::Suspicious | Verdict::Pua | Verdict::Phishing);
+                    if is_detected {
+                        found_threat = Some(format!(
+                            "nuitka:{} ({})",
+                            entry.name,
+                            sub.threat_name.as_deref().unwrap_or("detected")
+                        ));
+                        // Merge sub-results into main.
+                        for e in sub.engines {
+                            let e_detected = matches!(e.verdict, Verdict::Malware | Verdict::Suspicious | Verdict::Pua | Verdict::Phishing);
+                            if e_detected && !engines.iter().any(|x| x.detail == e.detail) {
+                                engines.push(e);
+                            }
+                        }
+                        yara_x_matches.extend(sub.yara_x_matches);
+                        break;
+                    }
+                }
+            }
+            let elapsed_ms = self.config.time_engines.then(|| t0.elapsed().as_millis() as u64);
+
+            if let Some(ref detail) = found_threat {
+                engines.push(EngineResult {
+                    engine: "nuitka",
+                    verdict: Verdict::Malware,
+                    detail: detail.clone(),
+                    elapsed_ms,
+                });
+            } else {
+                engines.push(EngineResult {
+                    engine: "nuitka",
+                    verdict: Verdict::Clean,
+                    detail: "no threats found in extracted files".into(),
+                    elapsed_ms,
+                });
+            }
+            stage_end!("nuitka");
+            found_threat
+        } else {
+            None
+        };
+
         let engine_verdicts: Vec<Verdict> = engines.iter().map(|e| e.verdict).collect();
         let final_verdict = Verdict::aggregate(&engine_verdicts);
 
+        let threat_name = nuitka_result.or_else(|| {
+            engines.iter().find_map(|e| {
+                if matches!(e.verdict, Verdict::Malware | Verdict::Suspicious | Verdict::Pua | Verdict::Phishing) {
+                    Some(e.detail.clone())
+                } else {
+                    None
+                }
+            })
+        });
+
         ScanResult {
             verdict: final_verdict,
-            threat_name: None,
+            threat_name,
             engines,
             yara_x_matches,
             ml_malware_probability: ml_verdict.map(|m| m.probability),

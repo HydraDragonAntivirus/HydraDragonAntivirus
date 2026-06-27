@@ -1,0 +1,17 @@
+[package]
+name = "nuitka-extractor"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "nuitka_extractor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nuitka-extractor"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+pelite = "0.10"
+zstd = "0.13"
