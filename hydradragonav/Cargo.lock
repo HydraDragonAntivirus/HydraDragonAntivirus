@@ -8565,8 +8565,6 @@ checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 [[package]]
 name = "unicorn-engine"
 version = "2.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c16b5d5186d9400cd3bf9f892ed826cb724f69b906bbe66811527df73eaf7a33"
 dependencies = [
  "bindgen",
  "cc",
@@ -8578,8 +8576,6 @@ dependencies = [
 [[package]]
 name = "unicorn-engine-sys"
 version = "2.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "685282714d35a6fbfed0ae14d81bb11c91838bc7a165cac778321679a7bb91d8"
 dependencies = [
  "bindgen",
  "cc",

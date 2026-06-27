@@ -102,7 +102,9 @@ const CMD_ALL_QUARANTINE: usize = 27;     // set every row's action to Quarantin
 const CMD_ALL_DISINFECT: usize = 28;      // set every row's action to Disinfect
 const CMD_ALL_IGNORE: usize = 29;         // set every row's action to Ignore
 const CMD_DISMISS_RESULTS: usize = 30;    // clear scan results, return to ready
+const CMD_VIEW_SCAN_LOGS: usize = 31;     // settings: show scan logs
 
+const EM_SETSEL: u32 = 0x00B1;
 
 const WM_APP_RESULT: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
@@ -899,6 +901,139 @@ fn pt_in(r: &RECT, x: i32, y: i32) -> bool {
 // Construction
 // ---------------------------------------------------------------------------
 
+const LOG_POPUP_CLASS: &str = "HydraDragonLogPopup";
+
+unsafe fn register_log_popup_class(hinst: HINSTANCE) {
+    let mut wc: WNDCLASSW = std::mem::zeroed();
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = Some(log_popup_proc);
+    wc.hInstance = hinst;
+    wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap_or_default();
+    wc.hbrBackground = HBRUSH((COLOR_WINDOW.0 + 1) as *mut c_void);
+    wc.lpszClassName = PCWSTR(wide(LOG_POPUP_CLASS).as_ptr());
+    let _ = RegisterClassW(&wc);
+}
+
+unsafe extern "system" fn log_popup_proc(
+    hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_CREATE => {
+            let edit = CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("EDIT"),
+                None,
+                WINDOW_STYLE(ES_MULTILINE as u32 | ES_READONLY as u32 | ES_AUTOVSCROLL as u32 | WS_VSCROLL.0 | sty::CHILD | sty::VISIBLE),
+                0, 0, 0, 0,
+                Some(hwnd), None, Some(HINSTANCE::from(GetModuleHandleW(None).unwrap_or_default())), None,
+            ).expect("edit");
+            let _ = SetWindowLongPtrW(hwnd, GWLP_USERDATA, edit.0 as isize);
+            let log_dir = exe_dir().join("scan_logs");
+            let mut entries: Vec<String> = Vec::new();
+            if let Ok(rd) = std::fs::read_dir(&log_dir) {
+                let mut files: Vec<_> = rd.flatten().filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("jsonl")).collect();
+                files.sort_by_key(|e| e.path());
+                for entry in files.iter().rev().take(5) {
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        entries.push(format!("── {} ──", entry.file_name().to_string_lossy()));
+                        for line in content.lines() {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+                                let t = val.get("t").and_then(|v| v.as_str()).unwrap_or("");
+                                let event = val.get("event").and_then(|v| v.as_str()).unwrap_or("");
+                                let detail = format_event_detail(&val);
+                                entries.push(format!("{}  {:<20}  {}", t, event, detail));
+                            } else {
+                                entries.push(line.to_string());
+                            }
+                        }
+                        entries.push(String::new());
+                    }
+                }
+            }
+            if entries.is_empty() {
+                entries.push("No scan logs found.".to_string());
+            }
+            let text = entries.join("\r\n");
+            let wtext: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+            SetWindowTextW(edit, PCWSTR(wtext.as_ptr())).unwrap_or_default();
+            SendMessageW(edit, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1_isize)));
+            LRESULT(0)
+        }
+        WM_SIZE => {
+            let edit = HWND(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut c_void);
+            if !edit.is_invalid() {
+                let lp = lparam.0 as u32;
+                let w = (lp & 0xFFFF) as i32;
+                let h = ((lp >> 16) & 0xFFFF) as i32;
+                let _ = SetWindowPos(edit, None, 0, 0, w, h, SWP_NOZORDER);
+            }
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            let _ = DestroyWindow(hwnd);
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+fn format_event_detail(val: &serde_json::Value) -> String {
+    let event = val.get("event").and_then(|v| v.as_str()).unwrap_or("");
+    match event {
+        "scan_start" => {
+            let cats = val.get("categories").and_then(|v| v.as_str()).unwrap_or("");
+            format!("categories={cats}")
+        }
+        "detection" => {
+            let file = val.get("file").and_then(|v| v.as_str()).unwrap_or("");
+            let verdict = val.get("verdict").and_then(|v| v.as_str()).unwrap_or("");
+            let threat = val.get("threat").and_then(|v| v.as_str()).unwrap_or("");
+            format!("{verdict}: {threat}  [{file}]")
+        }
+        "scan_done" | "scan_stopped" | "scan_paused" => {
+            let scanned = val.get("scanned").and_then(|v| v.as_u64()).unwrap_or(0);
+            let threats = val.get("threats").and_then(|v| v.as_u64()).unwrap_or(0);
+            format!("scanned={scanned} threats={threats}")
+        }
+        "rescanned" => {
+            let file = val.get("file").and_then(|v| v.as_str()).unwrap_or("");
+            let verdict = val.get("verdict").and_then(|v| v.as_str()).unwrap_or("");
+            format!("{verdict}  [{file}]")
+        }
+        "user_stop" => "user stopped the scan".into(),
+        "user_clean" => {
+            let files = val.get("files").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+            let pum = val.get("pum_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            format!("disinfected {files} file(s), {pum} PUM fix(es)")
+        }
+        "user_quarantine" | "user_dismiss" => {
+            let files = val.get("files").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+            format!("{files} file(s)")
+        }
+        "user_apply" => {
+            let d = val.get("disinfect").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+            let q = val.get("quarantine").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+            format!("disinfect={d} quarantine={q}")
+        }
+        _ => String::new(),
+    }
+}
+
+unsafe fn show_scan_logs_popup(parent: HWND) {
+    let hinst: HINSTANCE = GetModuleHandleW(None).unwrap_or_default().into();
+    register_log_popup_class(hinst);
+    let title = wide("HydraDragon Antivirus — Scan Logs");
+    let hwnd = CreateWindowExW(
+        WS_EX_DLGMODALFRAME,
+        PCWSTR(wide(LOG_POPUP_CLASS).as_ptr()),
+        PCWSTR(title.as_ptr()),
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, 800, 500,
+        Some(parent), None, Some(hinst), None,
+    ).expect("window");
+    let _ = SetForegroundWindow(hwnd);
+}
+
 unsafe fn on_create(hwnd: HWND) {
     let hinst: HINSTANCE = GetModuleHandleW(None).unwrap_or_default().into();
     let fonts = Fonts {
@@ -1158,6 +1293,7 @@ fn buttons_for(page: usize, state: ScanState, opt_mode: bool) -> Vec<(usize, &'s
         _ => vec![
             (CMD_START_ENGINE, "Start Engine", "\u{E768}", Kind::Primary),
             (CMD_STOP_ENGINE, "Stop Engine", "\u{E71A}", Kind::Neutral),
+            (CMD_VIEW_SCAN_LOGS, "View Scan Logs", "\u{E8CE}", Kind::Neutral),
             (CMD_CLEAR_CACHE, "Clear Cache", "\u{E894}", Kind::Neutral),
         ],
     }
@@ -2671,6 +2807,7 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
         CMD_STOP_ENGINE => {
             let _ = s.work_tx.send(WorkRequest::StopEngine);
         }
+        CMD_VIEW_SCAN_LOGS => show_scan_logs_popup(hwnd),
         CMD_TRACES => act_on_selected(hwnd, s, false),
         CMD_QUAR_REFRESH => {
             refresh_quarantine(s);
