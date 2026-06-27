@@ -4178,7 +4178,7 @@ dependencies = [
  "rand 0.10.1",
  "sevenz-rust2",
  "thiserror 2.0.18",
- "unicorn-engine-sys",
+ "unicorn-engine",
  "vmpunpacker",
  "yara-x",
 ]
@@ -8557,6 +8557,17 @@ name = "unicode_categories"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
+
+[[package]]
+name = "unicorn-engine"
+version = "2.1.5"
+dependencies = [
+ "bindgen",
+ "cc",
+ "cmake",
+ "pkg-config",
+ "unicorn-engine-sys",
+]
 
 [[package]]
 name = "unicorn-engine-sys"

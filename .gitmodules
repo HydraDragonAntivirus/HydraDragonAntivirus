@@ -6,3 +6,6 @@
 	path = TinyAntivirus/libs/zlib
 	url = https://github.com/madler/zlib.git
 	ignore = untracked
+[submodule "hydradragonunicorn/unicorn-engine-rs"]
+	path = hydradragonunicorn/unicorn-engine-rs
+	url = https://github.com/unicorn-engine/unicorn.git
