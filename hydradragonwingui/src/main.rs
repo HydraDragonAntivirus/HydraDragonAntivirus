@@ -515,12 +515,97 @@ struct AppState {
     /// backup row, `None` for a file-quarantine row (use `quar_ids[i]` then).
     quar_reg: Vec<Option<PathBuf>>,
     quarantine_dir: PathBuf,
+    /// Persistent scan log for this session — created on `Begin`, closed on dismiss.
+    /// Writes JSON Lines to `<exe_dir>/scan_logs/scan_<timestamp>.jsonl`.
+    scan_log: Option<ScanLogger>,
 }
 
 impl AppState {
     fn theme(&self) -> &'static Theme {
         if self.dark { &DARK } else { &LIGHT }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Scan logger — persists scan results and user actions to a JSONL file
+// ---------------------------------------------------------------------------
+
+struct ScanLogger {
+    #[allow(dead_code)]
+    path: PathBuf,
+    file: std::fs::File,
+    start: Instant,
+}
+
+impl ScanLogger {
+    fn create(exe_dir: &Path) -> Option<Self> {
+        let log_dir = exe_dir.join("scan_logs");
+        std::fs::create_dir_all(&log_dir).ok()?;
+        let ts = chrono_or_fallback();
+        let path = log_dir.join(format!("scan_{ts}.jsonl"));
+        let file = std::fs::File::create(&path).ok()?;
+        Some(ScanLogger { path, file, start: Instant::now() })
+    }
+
+    fn log(&mut self, event: &str, fields: &[(&str, &serde_json::Value)]) {
+        use std::io::Write;
+        let mut obj = serde_json::json!({
+            "t": iso_now(),
+            "event": event,
+            "elapsed_ms": self.start.elapsed().as_millis(),
+        });
+        for &(k, v) in fields {
+            obj[k] = v.clone();
+        }
+        let _ = writeln!(self.file, "{}", obj);
+        let _ = self.file.flush();
+    }
+}
+
+/// ISO-8601 timestamp without pulling in a heavy chrono dependency.
+fn iso_now() -> String {
+    use std::time::SystemTime;
+    let d = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = d.as_secs();
+    let ms = d.subsec_millis();
+    // Broken down via a simple leap-year-aware calculation (UTC).
+    let days = secs / 86400;
+    let t = secs % 86400;
+    let h = t / 3600;
+    let m = (t % 3600) / 60;
+    let s = t % 60;
+
+    let y = 1970i64;
+    let mut y = y + (days / 365) as i64;
+    // Approximate: not perfectly accurate for dates far from epoch, but fine for logs.
+    // (Accurate enough for the current year range.)
+    let z = |y: i64| -> u64 { if y % 400 == 0 || (y % 4 == 0 && y % 100 != 0) { 366 } else { 365 } };
+    let mut rd = days;
+    loop {
+        let yd = z(y);
+        if rd < yd { break; }
+        rd -= yd;
+        y += 1;
+    }
+    let month_days = [31u64, if z(y) == 366 { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut mo = 1u64;
+    for &md in &month_days {
+        if rd < md { break; }
+        rd -= md;
+        mo += 1;
+    }
+    let day = rd + 1;
+
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", y, mo, day, h, m, s, ms)
+}
+
+/// YYYYMMDD_HHMMSS timestamp for the file name.
+fn chrono_or_fallback() -> String {
+    let now = iso_now();
+    // Reuse iso_now and strip to just date+time without separators.
+    now[..19].replace('-', "").replace('T', "_").replace(':', "")
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -953,6 +1038,7 @@ unsafe fn on_create(hwnd: HWND) {
         quar_ids: Vec::new(),
         quar_reg: Vec::new(),
         quarantine_dir,
+        scan_log: None,
     });
     // Start the animation timer (runs during loading and scanning).
     SetTimer(Some(hwnd), ANIM_TIMER, ANIM_INTERVAL_MS, None);
@@ -2565,6 +2651,9 @@ unsafe fn dispatch(hwnd: HWND, cmd: usize) {
             let _ = s.work_tx.send(WorkRequest::Resume);
             layout(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
+            if let Some(ref mut log) = s.scan_log {
+                log.log("user_stop", &[]);
+            }
         }
         CMD_RESUME => {
             // Don't resume if the user previously stopped the scan.
@@ -2688,6 +2777,12 @@ fn clear_scan_results(s: &mut AppState) {
 }
 
 unsafe fn dismiss_scan_results(_hwnd: HWND, s: &mut AppState) {
+    if let Some(ref mut log) = s.scan_log {
+        log.log("user_dismiss", &[
+            ("total_detections", &serde_json::json!(s.scan_rows.len())),
+        ]);
+    }
+    s.scan_log = None; // close the log
     lv_clear(s.scan_list);
     clear_scan_results(s);
     s.scan_state = ScanState::Idle;
@@ -3014,6 +3109,13 @@ unsafe fn act_clean_and_traces(hwnd: HWND, s: &mut AppState) {
         // Also scan for registry PUM entries and fix them.
         let reg = RegistryScanner::default().scan();
         let pum_entries: Vec<RegistryEntry> = reg.entries.into_iter().filter(|e| e.pum).collect();
+        if let Some(ref mut log) = s.scan_log {
+            let file_list: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+            log.log("user_clean", &[
+                ("files", &serde_json::json!(file_list)),
+                ("pum_count", &serde_json::json!(pum_entries.len())),
+            ]);
+        }
         let _ = s.work_tx.send(WorkRequest::Clean(paths.clone()));
         if !pum_entries.is_empty() {
             let _ = s.work_tx.send(WorkRequest::FixPum(pum_entries));
@@ -3048,6 +3150,12 @@ unsafe fn act_quarantine_selected(hwnd: HWND, s: &mut AppState) {
         items.len()
     );
     if confirm(hwnd, &prompt) {
+        if let Some(ref mut log) = s.scan_log {
+            let file_list: Vec<String> = items.iter().map(|(p, _)| p.display().to_string()).collect();
+            log.log("user_quarantine", &[
+                ("files", &serde_json::json!(file_list)),
+            ]);
+        }
         let _ = s.work_tx.send(WorkRequest::Quarantine(items));
     }
 }
@@ -3144,6 +3252,14 @@ unsafe fn act_apply_actions(hwnd: HWND, s: &mut AppState) {
     );
     if !confirm(hwnd, &prompt) {
         return;
+    }
+    if let Some(ref mut log) = s.scan_log {
+        let disinfect_list: Vec<String> = disinfect.iter().map(|p| p.display().to_string()).collect();
+        let quar_list: Vec<String> = quar.iter().map(|(p, _)| p.display().to_string()).collect();
+        log.log("user_apply", &[
+            ("disinfect", &serde_json::json!(disinfect_list)),
+            ("quarantine", &serde_json::json!(quar_list)),
+        ]);
     }
     if !disinfect.is_empty() {
         let reg = RegistryScanner::default().scan();
@@ -3283,6 +3399,14 @@ unsafe fn drain_results(hwnd: HWND) {
                 } else {
                     ACT_IGNORE
                 };
+                if let Some(ref mut log) = s.scan_log {
+                    log.log("detection", &[
+                        ("file", &serde_json::json!(file)),
+                        ("verdict", &serde_json::json!(verdict)),
+                        ("threat", &serde_json::json!(threat)),
+                        ("severity", &serde_json::json!(sev)),
+                    ]);
+                }
                 lv_add_row(s.scan_list, &[&file, &verdict, &threat, action_text(act)]);
                 s.scan_rows.push(path);
                 s.scan_sev.push(sev);
@@ -3314,6 +3438,12 @@ unsafe fn drain_results(hwnd: HWND) {
                 s.scan_eta_secs = 0.0;
                 s.scan_discovering = true;
                 s.status = "Discovering & scanning…".into();
+                // Open a new scan log.
+                s.scan_log = ScanLogger::create(&exe_dir());
+                if let Some(ref mut log) = s.scan_log {
+                    let cats_str = if s.opt_cats == 0 { "full".into() } else { format!("{:#04x}", s.opt_cats) };
+                    log.log("scan_start", &[("categories", &serde_json::json!(cats_str))]);
+                }
             }
             ScanMsg::Progress { scanned, threats, discovered, speed, mbps, eta_secs, discovering, current } => {
                 // Once the user has hit Pause/Stop, ignore in-flight Progress
@@ -3355,12 +3485,26 @@ unsafe fn drain_results(hwnd: HWND) {
                     Some(WPARAM(sty::LVS_EX_CHECKBOXES as usize)),
                     Some(LPARAM(0)),
                 );
+                if let Some(ref mut log) = s.scan_log {
+                    log.log("scan_done", &[
+                        ("scanned", &serde_json::json!(scanned)),
+                        ("threats", &serde_json::json!(threats)),
+                        ("elapsed_ms", &serde_json::json!(dur)),
+                    ]);
+                }
             }
             ScanMsg::Paused { scanned, threats, remaining } => {
                 s.scanned_count = scanned;
                 s.threat_count = threats;
                 s.scan_state = ScanState::Paused;
                 s.status = format!("Paused. {scanned} scanned, {remaining} remaining — Resume to continue.");
+                if let Some(ref mut log) = s.scan_log {
+                    log.log("scan_paused", &[
+                        ("scanned", &serde_json::json!(scanned)),
+                        ("threats", &serde_json::json!(threats)),
+                        ("remaining", &serde_json::json!(remaining)),
+                    ]);
+                }
             }
             ScanMsg::Stopped => {
                 // Aborted scan: session was discarded. The worker has
@@ -3383,6 +3527,12 @@ unsafe fn drain_results(hwnd: HWND) {
                     "Scan stopped. {} scanned, {} threat(s){}.",
                     s.scanned_count, s.threat_count, dur
                 );
+                if let Some(ref mut log) = s.scan_log {
+                    log.log("scan_stopped", &[
+                        ("scanned", &serde_json::json!(s.scanned_count)),
+                        ("threats", &serde_json::json!(s.threat_count)),
+                    ]);
+                }
             }
             ScanMsg::Resumed => {
                 s.scan_state = ScanState::Scanning;
@@ -3417,6 +3567,15 @@ unsafe fn drain_results(hwnd: HWND) {
             ScanMsg::Rescanned { file, verdict, threat, sev, threat_found } => {
                 let row = s.scan_rows.iter().position(|p| p.to_string_lossy() == file);
                 s.status = format!("Rescanned {file}.");
+                if let Some(ref mut log) = s.scan_log {
+                    log.log("rescanned", &[
+                        ("file", &serde_json::json!(file)),
+                        ("verdict", &serde_json::json!(verdict)),
+                        ("threat", &serde_json::json!(threat)),
+                        ("severity", &serde_json::json!(sev)),
+                        ("threat_found", &serde_json::json!(threat_found)),
+                    ]);
+                }
                 match (row, threat_found) {
                     // Still a threat → update the existing row's columns + severity.
                     (Some(i), true) => {
