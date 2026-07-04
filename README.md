@@ -1,5 +1,7 @@
 # Hydra Dragon Antivirus
 
+# NOTE: This project is become far more complex than you think so I switched to Android to join AV-Test to become first open source antivirus which going to join professional tests: https://github.com/HydraDragonAntivirus/HydraDragonAV-Mobile
+
 <p align="center">
   <img
     width="1024"
