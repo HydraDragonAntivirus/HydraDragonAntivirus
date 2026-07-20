@@ -108,7 +108,6 @@ hydradragon/website/SubDomainsPopularityWhiteList.csv
 # Website cleaned
 hydradragon/website/cleaned
 # Big Yara Rule files
-hydradragon/yara-x/rules/clean_rules.yar
 hydradragon/yara-x/veryoldcompiled_rule.yar
 hydradragon/yara-x/nocomments.yar
 # Yara Compiled Files
