@@ -2211,3 +2211,21 @@ rule MAL_ARM_LNX_Mirai_Mar13_2022 {
   condition:
     uint16(0) == 0x457f and ((3 or all of ($str*)) or (4 or all of ($attck*)))
 }
+
+rule android_meterpreter : android
+{
+    meta:
+        author="73mp74710n"
+        ref = "https://github.com/zombieleet/yara-rules/blob/master/android_metasploit.yar"
+        comment="Metasploit Android Meterpreter Payload"
+        
+    strings:
+	$checkPK = "META-INF/PK"
+	$checkHp = "[Hp^"
+	$checkSdeEncode = /;.Sk/
+	$stopEval = "eval"
+	$stopBase64 = "base64_decode"
+	
+    condition:
+	any of ($check*) or any of ($stop*)
+}
