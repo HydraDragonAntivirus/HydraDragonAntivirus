@@ -1,6 +1,7 @@
 # Hydra Dragon Antivirus
 
 # NOTE: This project is become far more complex than you think so I switched to Android to join AV-Test to become first open source antivirus which going to join professional tests: https://github.com/HydraDragonAntivirus/HydraDragonAV-Mobile
+# UPDATE: I was planning to use only best signatures and remove a lot of dynamic analysis based antivirus with only Owlyshield + OpenEDR + Firewall because in real world we need to focus real-time-protection without heavy signatures.
 
 <p align="center">
   <img
