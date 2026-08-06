@@ -1,8 +1,5 @@
 # Hydra Dragon Antivirus
 
-# NOTE: This project is become far more complex than you think so I switched to Android to join AV-Test to become first open source antivirus which going to join professional tests: https://github.com/HydraDragonAntivirus/HydraDragonAV-Mobile
-# UPDATE: I was planning to use only best signatures and remove a lot of dynamic analysis based antivirus with only Owlyshield + OpenEDR + Firewall because in real world we need to focus real-time-protection without heavy signatures.
-
 <p align="center">
   <img
     width="1024"
@@ -85,6 +82,11 @@ It contains low-level system components and experimental security drivers that r
 ## TODO
 - Add HydraDragonIDE to project (static analyzer).
 - Remove Npcap since it's not really open source and replace with custom Suricata build.
+
+## About Feature Of Project
+- I said this about month ago: NOTE: This project is become far more complex than you think so I switched to Android to join AV-Test to become first open source antivirus which going to join professional tests: https://github.com/HydraDragonAntivirus/HydraDragonAV-Mobile
+- Then this UPDATE: I was planning to use only best signatures and remove a lot of dynamic analysis based antivirus with only Owlyshield + OpenEDR + Firewall because in real world we need to focus real-time-protection without heavy signatures.
+- So this going to be very complex task yet again. Good Luck for me.
 
 ## Compatibility with PCs
 
