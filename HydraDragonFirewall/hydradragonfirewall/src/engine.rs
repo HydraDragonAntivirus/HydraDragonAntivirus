@@ -530,8 +530,8 @@ pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
 }
 
 pub fn emit_log_event(entry: LogEntry) {
-    let settings_snapshot = crate::headless::engine()
-        .map(|engine| engine.settings.read().unwrap().clone());
+    let settings_snapshot =
+        crate::headless::engine().map(|engine| engine.settings.read().unwrap().clone());
     persist_log_entry(&entry, settings_snapshot.as_ref());
 }
 
@@ -1650,8 +1650,12 @@ impl FirewallEngine {
 
     pub fn load_settings() -> Option<FirewallSettings> {
         let path = PathBuf::from("json/settings.bin");
-        fs::read(&path).ok()
-            .and_then(|bytes| decode_from_slice::<FirewallSettings, _>(&bytes, bincode_next::config::standard()).ok())
+        fs::read(&path)
+            .ok()
+            .and_then(|bytes| {
+                decode_from_slice::<FirewallSettings, _>(&bytes, bincode_next::config::standard())
+                    .ok()
+            })
             .map(|(settings, _)| settings)
     }
 
@@ -1795,17 +1799,15 @@ impl FirewallEngine {
 
         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
             let now = Self::now_ts();
-            emit_log_event(
-                LogEntry {
-                    id: format!("{}-proxy-bypass-added", now),
-                    timestamp: now,
-                    level: LogLevel::Info,
-                    message: format!(
-                        "TLS proxy bypass saved for {}; Windows proxy settings are left unchanged",
-                        normalized
-                    ),
-                },
-            );
+            emit_log_event(LogEntry {
+                id: format!("{}-proxy-bypass-added", now),
+                timestamp: now,
+                level: LogLevel::Info,
+                message: format!(
+                    "TLS proxy bypass saved for {}; Windows proxy settings are left unchanged",
+                    normalized
+                ),
+            });
         }
 
         true
@@ -1987,21 +1989,19 @@ impl FirewallEngine {
         }
 
         let now = Self::now_ts();
-        emit_log_event(
-            LogEntry {
-                id: format!("{}-proxy-intercept-{}", now, info.process_id),
-                timestamp: now,
-                level: LogLevel::Info,
-                message: format!(
-                    "Proxy Intercept: {} (pid={}) -> {}:{} via transparent TLS proxy {}",
-                    app_info.name,
-                    info.process_id,
-                    host_label,
-                    info.dst_port,
-                    Self::proxy_addr_string(tls_proxy)
-                ),
-            },
-        );
+        emit_log_event(LogEntry {
+            id: format!("{}-proxy-intercept-{}", now, info.process_id),
+            timestamp: now,
+            level: LogLevel::Info,
+            message: format!(
+                "Proxy Intercept: {} (pid={}) -> {}:{} via transparent TLS proxy {}",
+                app_info.name,
+                info.process_id,
+                host_label,
+                info.dst_port,
+                Self::proxy_addr_string(tls_proxy)
+            ),
+        });
     }
 
     fn start_embedded_proxy(&self, tls_proxy: &TlsProxyConfig) {
@@ -2692,7 +2692,9 @@ impl FirewallEngine {
                 id: format!("{}-tls-proxy-disabled", ts),
                 timestamp: ts,
                 level: LogLevel::Info,
-                message: "TLS Proxy mode disabled or not auto-started - Windows proxy cleanup enforced".into(),
+                message:
+                    "TLS Proxy mode disabled or not auto-started - Windows proxy cleanup enforced"
+                        .into(),
             });
         }
         self.sync_proxy_runtime();
