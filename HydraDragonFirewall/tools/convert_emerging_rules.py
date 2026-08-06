@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+"""
+Convert an EmergingThreats Suricata ruleset (emerging-all.rules) into the
+HydraDragonFirewall SDK YAML format (SdkRuleFile, see src/sdk.rs).
+
+Best-effort mapping (documented limitations):
+  * alert          -> action: traffic_attack
+  * drop / reject  -> action: block
+  * pass           -> action: allow
+  * proto          -> tcp|udp|icmp, everything else -> omitted (any)
+  * IP / CIDR literals -> src_ip / dst_ip IpMatcher
+    ($HOME_NET, $EXTERNAL_NET, other $vars, negations '!' -> treated as any)
+  * ports          -> src_port / dst_port PortMatcher
+    ($vars and negations -> treated as any)
+  * content        -> regex term (payload contains, in order, via '.*?' join)
+    hex |..| segments are decoded to raw bytes; the resulting byte string is
+    lossy-decoded exactly like the SDK (String::from_utf8_lossy), so binary
+    patterns match only when they also survive the SDK's lossy payload decode.
+  * pcre           -> regex term (delimiters/flags stripped; /i -> (?i:...))
+  * content w/ http.host|host|dns.query|tls.sni -> domain.domains
+  * flowbits, byte_test, dsize, within/distance/offset/depth, classtype,
+    reference, metadata, threshold, etc. -> ignored (best effort)
+  * bidirectional '<>' rules -> kept forward-only
+
+Rules are SKIPPED when: the header can't be parsed, the action is unknown,
+a content pattern is negated (content:!"..") or the rule ends up with no
+meaningful matchers (would otherwise match all traffic).
+
+Usage:
+    python convert_emerging_rules.py [input.rules] [output.rules.yaml]
+"""
+
+import re
+import sys
+from pathlib import Path
+
+DEFAULT_INPUT = (
+    Path(__file__).resolve().parent.parent.parent
+    / "hydradragon" / "hips" / "emerging-all.rules"
+)
+DEFAULT_OUTPUT = (
+    Path(__file__).resolve().parent.parent
+    / "hydradragonfirewall" / "rules" / "rules.yaml"
+)
+
+ACTION_MAP = {"alert": "traffic_attack", "drop": "block", "reject": "block", "pass": "allow"}
+
+PROTO_MAP = {"tcp": "tcp", "udp": "udp", "icmp": "icmp"}
+
+# Host-like content modifiers -> domain matcher
+HOST_MODIFIERS = {"http.host", "host", "dns.query", "tls.sni"}
+
+stats = {"lines": 0, "rules": 0, "skipped_header": 0, "skipped_action": 0,
+         "skipped_negated": 0, "skipped_no_matchers": 0, "skipped_error": 0}
+
+
+# ---------------------------------------------------------------------------
+# YAML emission (small subset: maps/lists of scalars, double-quoted strings)
+# ---------------------------------------------------------------------------
+
+def yaml_quote(value: str) -> str:
+    out = []
+    for ch in value:
+        code = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        elif code < 0x20 or 0x7F <= code <= 0x9F or code in (0x85, 0x2028, 0x2029):
+            out.append("\\u%04x" % code)
+        else:
+            out.append(ch)
+    return '"' + "".join(out) + '"'
+
+
+def emit_ip_matcher(indent: str, key: str, matcher) -> list:
+    addresses = matcher.get("addresses", [])
+    cidrs = matcher.get("cidr_ranges", [])
+    lines = ["%s%s:" % (indent, key)]
+    if addresses:
+        lines.append("%s  addresses:" % indent)
+        lines += ["%s    - %s" % (indent, yaml_quote(a)) for a in addresses]
+    else:
+        lines.append("%s  addresses: []" % indent)
+    if cidrs:
+        lines.append("%s  cidr_ranges:" % indent)
+        lines += ["%s    - %s" % (indent, yaml_quote(c)) for c in cidrs]
+    else:
+        lines.append("%s  cidr_ranges: []" % indent)
+    return lines
+
+
+def emit_port_matcher(indent: str, key: str, matcher) -> list:
+    lines = ["%s%s:" % (indent, key)]
+    ports = matcher.get("ports", [])
+    ranges = matcher.get("ranges", [])
+    if ports:
+        lines.append("%s  ports: [%s]" % (indent, ", ".join(str(p) for p in ports)))
+    else:
+        lines.append("%s  ports: []" % indent)
+    if ranges:
+        lines.append("%s  ranges: [%s]" % (
+            indent, ", ".join("[%d, %d]" % (a, b) for a, b in ranges)))
+    else:
+        lines.append("%s  ranges: []" % indent)
+    return lines
+
+
+def emit_rule(rule: dict) -> list:
+    lines = ["  - name: %s" % yaml_quote(rule["name"])]
+    if rule.get("description"):
+        lines.append("    description: %s" % yaml_quote(rule["description"]))
+    lines.append("    enabled: true")
+    if rule.get("protocol"):
+        lines.append("    protocol: %s" % rule["protocol"])
+    lines.append("    action: %s" % rule["action"])
+    if rule.get("src_ip"):
+        lines += emit_ip_matcher("    ", "src_ip", rule["src_ip"])
+    if rule.get("dst_ip"):
+        lines += emit_ip_matcher("    ", "dst_ip", rule["dst_ip"])
+    if rule.get("src_port"):
+        lines += emit_port_matcher("    ", "src_port", rule["src_port"])
+    if rule.get("dst_port"):
+        lines += emit_port_matcher("    ", "dst_port", rule["dst_port"])
+    if rule.get("domain"):
+        lines.append("    domain:")
+        lines.append("      domains: [%s]" % ", ".join(yaml_quote(d) for d in rule["domain"]["domains"]))
+        lines.append("      case_insensitive: %s" % ("true" if rule["domain"].get("case_insensitive") else "false"))
+    if rule.get("regex"):
+        lines.append("    regex:")
+        lines.append("      pattern: %s" % yaml_quote(rule["regex"]["pattern"]))
+        lines.append("      case_insensitive: false")
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Suricata parsing helpers
+# ---------------------------------------------------------------------------
+
+def split_options(body: str):
+    """Split option list on ';' outside double quotes."""
+    parts, cur, in_quote, escaped = [], [], False, False
+    for ch in body:
+        if escaped:
+            cur.append(ch)
+            escaped = False
+            continue
+        if ch == "\\" and in_quote:
+            cur.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            in_quote = not in_quote
+            cur.append(ch)
+            continue
+        if ch == ";" and not in_quote:
+            parts.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    tail = "".join(cur).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def parse_ip_list(token: str):
+    """Return (any, addresses, cidrs). $vars/negations/groups-with-negs -> any."""
+    token = token.strip()
+    if token == "any" or token.startswith("$"):
+        return True, [], []
+    if token.startswith("!"):
+        return True, [], []
+    if token.startswith("[") and token.endswith("]"):
+        token = token[1:-1]
+    addresses, cidrs = [], []
+    for item in token.split(","):
+        item = item.strip()
+        if not item or item == "any" or item.startswith("$") or item.startswith("!"):
+            return True, [], []
+        if "/" in item:
+            cidrs.append(item)
+        elif re.match(r"^[\d.]+$|^[0-9a-fA-F:]+$", item):
+            addresses.append(item)
+        else:
+            # IP ranges like 1.2.3.4-1.2.3.10, hostnames, etc -> can't map
+            return True, [], []
+    if not addresses and not cidrs:
+        return True, [], []
+    return False, addresses, cidrs
+
+
+def parse_port_list(token: str):
+    """Return (any, ports, ranges). $vars/negations -> any."""
+    token = token.strip()
+    if token == "any" or token.startswith("$") or token.startswith("!"):
+        return True, [], []
+    if token.startswith("[") and token.endswith("]"):
+        token = token[1:-1]
+    ports, ranges = [], []
+    for item in token.split(","):
+        item = item.strip()
+        if not item or item == "any" or item.startswith("$") or item.startswith("!"):
+            return True, [], []
+        if ":" in item:
+            low, _, high = item.partition(":")
+            try:
+                a = int(low) if low else 0
+                b = int(high) if high else 65535
+            except ValueError:
+                return True, [], []
+            ranges.append((a, b))
+        else:
+            try:
+                ports.append(int(item))
+            except ValueError:
+                return True, [], []
+    if not ports and not ranges:
+        return True, [], []
+    return False, ports, ranges
+
+
+def decode_content(value: str):
+    """Decode a Suricata content pattern (ascii + |hex| segments) to raw bytes."""
+    pattern = bytearray()
+    i, n = 0, len(value)
+    while i < n:
+        if value[i] == "|":
+            j = value.find("|", i + 1)
+            if j == -1:
+                return None
+            for h in value[i + 1:j].split():
+                if not h or len(h) != 2:
+                    return None
+                try:
+                    pattern.append(int(h, 16))
+                except ValueError:
+                    return None
+            i = j + 1
+        else:
+            j = value.find("|", i)
+            seg = value[i:] if j == -1 else value[i:j]
+            pattern.extend(seg.encode("latin-1", errors="replace"))
+            i = n if j == -1 else j
+    return bytes(pattern)
+
+
+def parse_content(value: str):
+    """Return (raw_bytes, negated) for a content:value."""
+    v = value.strip()
+    negated = False
+    if v.startswith("!"):
+        negated = True
+        v = v[1:].strip()
+    if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
+        v = v[1:-1]
+    raw = decode_content(v)
+    return raw, negated
+
+
+def parse_pcre(value: str):
+    """Return (regex_pattern, case_insensitive) for a pcre:/pattern/flags."""
+    v = value.strip()
+    if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
+        v = v[1:-1]
+    if not v.startswith("/"):
+        return None, False
+    last = v.rfind("/")
+    if last <= 0:
+        return None, False
+    pattern = v[1:last].replace("\\/", "/")
+    flags = v[last + 1:]
+    return pattern, "i" in flags
+
+
+def lossy(text: bytes) -> str:
+    return text.decode("utf-8", errors="replace")
+
+
+def regex_escape_literal(text: bytes) -> str:
+    return re.escape(lossy(text))
+
+
+# ---------------------------------------------------------------------------
+# Rule conversion
+# ---------------------------------------------------------------------------
+
+def convert_line(line: str):
+    lp = line.find("(")
+    rp = line.rfind(")")
+    if lp == -1 or rp == -1 or rp < lp:
+        stats["skipped_header"] += 1
+        return None
+    header = line[:lp].strip()
+    body = line[lp + 1:rp]
+
+    tokens = re.split(r"\s+", header)
+    if len(tokens) != 7:
+        stats["skipped_header"] += 1
+        return None
+
+    action, proto, src_ip_tok, src_port_tok, direction, dst_ip_tok, dst_port_tok = tokens
+    if direction not in ("->", "<>"):
+        stats["skipped_header"] += 1
+        return None
+
+    rule_action = ACTION_MAP.get(action)
+    if rule_action is None:
+        stats["skipped_action"] += 1
+        return None
+
+    protocol = PROTO_MAP.get(proto)
+
+    any_src_ip, src_ips, src_cidrs = parse_ip_list(src_ip_tok)
+    any_dst_ip, dst_ips, dst_cidrs = parse_ip_list(dst_ip_tok)
+    any_src_port, src_ports, src_ranges = parse_port_list(src_port_tok)
+    any_dst_port, dst_ports, dst_ranges = parse_port_list(dst_port_tok)
+
+    description = ""
+    sid = None
+    domains = []
+    domain_case_insensitive = False
+    regex_terms = []
+
+    contents = []  # list of (raw, negated, modifiers_set)
+    pcres = []     # list of (pattern, ci)
+    current = None
+
+    for opt_raw in split_options(body):
+        opt = opt_raw.strip()
+        if not opt:
+            continue
+        if ":" not in opt:
+            # bare modifier applies to the last content
+            if current is not None:
+                current[2].add(opt)
+            continue
+        key, _, value = opt.partition(":")
+        key = key.strip().lower()
+        value = value.strip()
+
+        if key == "content":
+            raw, negated = parse_content(value)
+            if raw is None:
+                stats["skipped_error"] += 1
+                return None
+            current = [raw, negated, set()]
+            contents.append(current)
+        elif key == "pcre":
+            pat, ci = parse_pcre(value)
+            if pat is None:
+                continue
+            pcres.append((pat, ci))
+        elif key == "msg":
+            description = value
+            if len(description) >= 2 and description.startswith('"') and description.endswith('"'):
+                description = description[1:-1]
+            description = description.encode("utf-8", errors="replace").decode("utf-8")
+        elif key == "sid":
+            try:
+                sid = int(value)
+            except ValueError:
+                pass
+        else:
+            # flow, classtype, reference, metadata, flowbits, byte_test, etc.
+            continue
+
+    # Dispatch contents
+    for raw, negated, mods in contents:
+        if negated:
+            stats["skipped_negated"] += 1
+            return None
+        lower_mods = {m.lower() for m in mods}
+        if lower_mods & HOST_MODIFIERS:
+            domains.append(lossy(raw))
+            if "nocase" in lower_mods:
+                domain_case_insensitive = True
+        else:
+            term = regex_escape_literal(raw)
+            if "nocase" in lower_mods:
+                term = "(?i:%s)" % term
+            else:
+                term = "(?-i:%s)" % term
+            regex_terms.append(term)
+
+    for pat, ci in pcres:
+        if ci:
+            regex_terms.append("(?i:%s)" % pat)
+        else:
+            regex_terms.append("(?-i:%s)" % pat)
+
+    if sid is None:
+        stats["skipped_error"] += 1
+        return None
+
+    # Skip rules with no meaningful matchers (would match all traffic)
+    has_matchers = bool(domains or regex_terms or src_ports or src_ranges
+                        or dst_ports or dst_ranges or src_ips or src_cidrs
+                        or dst_ips or dst_cidrs)
+    if not has_matchers:
+        stats["skipped_no_matchers"] += 1
+        return None
+
+    rule = {
+        "name": "sid:%d" % sid,
+        "description": description,
+        "action": rule_action,
+        "domain": None,
+        "regex": None,
+    }
+    if protocol:
+        rule["protocol"] = protocol
+    if not any_src_ip and (src_ips or src_cidrs):
+        rule["src_ip"] = {"addresses": src_ips, "cidr_ranges": src_cidrs}
+    if not any_dst_ip and (dst_ips or dst_cidrs):
+        rule["dst_ip"] = {"addresses": dst_ips, "cidr_ranges": dst_cidrs}
+    if not any_src_port and (src_ports or src_ranges):
+        rule["src_port"] = {"ports": src_ports, "ranges": src_ranges}
+    if not any_dst_port and (dst_ports or dst_ranges):
+        rule["dst_port"] = {"ports": dst_ports, "ranges": dst_ranges}
+    if domains:
+        rule["domain"] = {"domains": domains, "case_insensitive": domain_case_insensitive}
+    if regex_terms:
+        rule["regex"] = {"pattern": "(?s)" + ".*?".join(regex_terms), "case_insensitive": False}
+
+    return rule
+
+
+def main():
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_INPUT
+    output_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_OUTPUT
+
+    print("Source: %s" % input_path)
+    print("Output: %s" % output_path)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    out_lines = [
+        "# Generated by convert_emerging_rules.py from %s" % input_path.name,
+        "# Source: EmergingThreats Suricata ruleset. Best-effort conversion;",
+        "# binary/hex payload patterns only match if they survive the SDK's lossy decode.",
+        "rules:",
+    ]
+
+    rule_count = 0
+    with open(input_path, "r", encoding="utf-8", errors="replace") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            stats["lines"] += 1
+            if not line or line.startswith("#"):
+                continue
+            rule = convert_line(line)
+            if rule is None:
+                continue
+            out_lines += emit_rule(rule)
+            rule_count += 1
+
+    with open(output_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out_lines) + "\n")
+
+    print("\nConverted rules written: %d" % rule_count)
+    print("Total lines read: %d" % stats["lines"])
+    for key in ("skipped_header", "skipped_action", "skipped_negated",
+                "skipped_no_matchers", "skipped_error"):
+        if stats[key]:
+            print("  %s: %d" % (key, stats[key]))
+
+    size = output_path.stat().st_size
+    print("Output size: %.1f MB" % (size / (1024 * 1024)))
+
+
+if __name__ == "__main__":
+    main()
