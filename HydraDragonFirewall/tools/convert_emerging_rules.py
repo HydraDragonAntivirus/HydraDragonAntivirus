@@ -22,9 +22,10 @@ Best-effort mapping (documented limitations):
     reference, metadata, threshold, etc. -> ignored (best effort)
   * bidirectional '<>' rules -> kept forward-only
 
-Rules are SKIPPED when: the header can't be parsed, the action is unknown,
-a content pattern is negated (content:!"..") or the rule ends up with no
-meaningful matchers (would otherwise match all traffic).
+Every well-formed rule is converted. Negated content (content:!"..") cannot be
+expressed in the SDK, so the negated term is dropped and the rule is kept with
+its remaining positive matchers. Only lines that are not valid Suricata rules
+(unparseable header/action) are skipped.
 
 Usage:
     python convert_emerging_rules.py [input.rules] [output.rules.yaml]
@@ -45,13 +46,14 @@ DEFAULT_OUTPUT = (
 
 ACTION_MAP = {"alert": "traffic_attack", "drop": "block", "reject": "block", "pass": "allow"}
 
-PROTO_MAP = {"tcp": "tcp", "udp": "udp", "icmp": "icmp"}
+PROTO_MAP = {"tcp": "tcp", "udp": "udp", "icmp": "icmp",
+             "tcp-pkt": "tcp", "udp-pkt": "udp"}
 
 # Host-like content modifiers -> domain matcher
 HOST_MODIFIERS = {"http.host", "host", "dns.query", "tls.sni"}
 
 stats = {"lines": 0, "rules": 0, "skipped_header": 0, "skipped_action": 0,
-         "skipped_negated": 0, "skipped_no_matchers": 0, "skipped_error": 0}
+         "dropped_negated": 0, "dropped_bad_content": 0, "no_matchers": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -144,26 +146,61 @@ def emit_rule(rule: dict) -> list:
 # ---------------------------------------------------------------------------
 
 def split_options(body: str):
-    """Split option list on ';' outside double quotes."""
-    parts, cur, in_quote, escaped = [], [], False, False
+    """Split the option list on ';' outside double quotes.
+
+    Quote tracking is key-aware: inside a pcre option the pattern is enclosed
+    in '/.../' and may itself contain '"' (e.g. ["']) and '/' inside character
+    classes (e.g. [A-Za-z0-9+/]), neither of which may close the option value.
+    pcre_state: 0=not started, 1=in /pattern/, 2=in trailing flags."""
+    parts, cur, in_quote, escaped, key = [], [], False, False, None
+    pcre_state, in_class = 0, False
     for ch in body:
         if escaped:
             cur.append(ch)
             escaped = False
             continue
-        if ch == "\\" and in_quote:
+        if ch == "\\":
             cur.append(ch)
             escaped = True
             continue
+        if in_quote:
+            cur.append(ch)
+            if key == "pcre":
+                if pcre_state == 0:
+                    if ch == "/":
+                        pcre_state, in_class = 1, False
+                    elif ch == '"':
+                        in_quote = False
+                elif pcre_state == 1:
+                    if in_class:
+                        if ch == "]":
+                            in_class = False
+                        # '[' inside a class is a literal char; everything else literal
+                    elif ch == "[":
+                        in_class = True
+                    elif ch == "/":
+                        pcre_state = 2
+                    elif ch == '"':
+                        in_quote = False
+                elif ch == '"':
+                    in_quote = False
+            elif ch == '"':
+                in_quote = False
+            continue
         if ch == '"':
-            in_quote = not in_quote
+            in_quote = True
             cur.append(ch)
             continue
-        if ch == ";" and not in_quote:
+        if ch == ";":
             parts.append("".join(cur))
-            cur = []
+            cur, key, in_quote, escaped = [], None, False, False
+            pcre_state, in_class = 0, False
             continue
         cur.append(ch)
+        if key is None and ch == ":":
+            k = "".join(cur).strip().lower()
+            if k.endswith(":"):
+                key = k[:-1]
     tail = "".join(cur).strip()
     if tail:
         parts.append(tail)
@@ -227,7 +264,8 @@ def parse_port_list(token: str):
 
 
 def decode_content(value: str):
-    """Decode a Suricata content pattern (ascii + |hex| segments) to raw bytes."""
+    """Decode a Suricata content pattern (ascii + |hex| segments) to raw bytes.
+    Hex groups may be multi-byte, e.g. |2822| == 0x28 0x22."""
     pattern = bytearray()
     i, n = 0, len(value)
     while i < n:
@@ -235,11 +273,12 @@ def decode_content(value: str):
             j = value.find("|", i + 1)
             if j == -1:
                 return None
-            for h in value[i + 1:j].split():
-                if not h or len(h) != 2:
-                    return None
+            hexpart = "".join(value[i + 1:j].split())
+            if not hexpart or len(hexpart) % 2 != 0:
+                return None
+            for k in range(0, len(hexpart), 2):
                 try:
-                    pattern.append(int(h, 16))
+                    pattern.append(int(hexpart[k:k + 2], 16))
                 except ValueError:
                     return None
             i = j + 1
@@ -291,7 +330,7 @@ def regex_escape_literal(text: bytes) -> str:
 # Rule conversion
 # ---------------------------------------------------------------------------
 
-def convert_line(line: str):
+def convert_line(line: str, rule_index: int = 0):
     lp = line.find("(")
     rp = line.rfind(")")
     if lp == -1 or rp == -1 or rp < lp:
@@ -348,8 +387,9 @@ def convert_line(line: str):
         if key == "content":
             raw, negated = parse_content(value)
             if raw is None:
-                stats["skipped_error"] += 1
-                return None
+                stats["dropped_bad_content"] += 1
+                current = None
+                continue
             current = [raw, negated, set()]
             contents.append(current)
         elif key == "pcre":
@@ -373,10 +413,12 @@ def convert_line(line: str):
 
     # Dispatch contents
     for raw, negated, mods in contents:
-        if negated:
-            stats["skipped_negated"] += 1
-            return None
         lower_mods = {m.lower() for m in mods}
+        if negated:
+            # The SDK cannot express "must NOT contain"; keep the rule but
+            # drop this negative constraint (best-effort superset match).
+            stats["dropped_negated"] += 1
+            continue
         if lower_mods & HOST_MODIFIERS:
             domains.append(lossy(raw))
             if "nocase" in lower_mods:
@@ -395,25 +437,21 @@ def convert_line(line: str):
         else:
             regex_terms.append("(?-i:%s)" % pat)
 
-    if sid is None:
-        stats["skipped_error"] += 1
-        return None
-
-    # Skip rules with no meaningful matchers (would match all traffic)
     has_matchers = bool(domains or regex_terms or src_ports or src_ranges
                         or dst_ports or dst_ranges or src_ips or src_cidrs
                         or dst_ips or dst_cidrs)
     if not has_matchers:
-        stats["skipped_no_matchers"] += 1
-        return None
+        stats["no_matchers"] += 1
 
     rule = {
-        "name": "sid:%d" % sid,
+        "name": "sid:%d" % sid if sid is not None else None,
         "description": description,
         "action": rule_action,
         "domain": None,
         "regex": None,
     }
+    if rule["name"] is None:
+        rule["name"] = "rule:%d" % rule_index
     if protocol:
         rule["protocol"] = protocol
     if not any_src_ip and (src_ips or src_cidrs):
@@ -455,7 +493,7 @@ def main():
             stats["lines"] += 1
             if not line or line.startswith("#"):
                 continue
-            rule = convert_line(line)
+            rule = convert_line(line, rule_count)
             if rule is None:
                 continue
             out_lines += emit_rule(rule)
@@ -466,8 +504,8 @@ def main():
 
     print("\nConverted rules written: %d" % rule_count)
     print("Total lines read: %d" % stats["lines"])
-    for key in ("skipped_header", "skipped_action", "skipped_negated",
-                "skipped_no_matchers", "skipped_error"):
+    for key in ("skipped_header", "skipped_action", "dropped_negated",
+                "dropped_bad_content", "no_matchers"):
         if stats[key]:
             print("  %s: %d" % (key, stats[key]))
 
