@@ -14,50 +14,14 @@ use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DnType, DnValue, IsCa, KeyPair,
     KeyUsagePurpose,
 };
-use serde::Serialize;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::oneshot;
 
 use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
 use crate::sdk::{PacketContext, RuleAction, SdkRegistry};
-
-// ── Rich HTTP event emitted by the Transparent TLS Proxy ───────────────────
-
-/// Full HTTP-level detail for every intercepted request/response.
-/// Emitted as a `"proxy_http"` Tauri event so the UI can show decrypted traffic.
-#[derive(Clone, Debug, Serialize)]
-pub struct ProxyHttpEvent {
-    pub id: String,
-    pub timestamp: u64,
-    pub method: String,
-    pub host: String,
-    pub port: u16,
-    pub path: String,
-    pub full_url: String,
-    pub status: u16,
-    pub request_headers: HashMap<String, String>,
-    pub response_headers: HashMap<String, String>,
-    /// Selected well-known request fields for quick display
-    pub user_agent: Option<String>,
-    pub content_type: Option<String>,
-    pub referer: Option<String>,
-    /// Response content-type
-    pub response_content_type: Option<String>,
-    /// Response content-length (if advertised)
-    pub response_content_length: Option<String>,
-    /// Raw request body — UTF-8 text if decodable, hex otherwise. Capped at 64 KB.
-    pub request_body: Option<String>,
-    /// True if the request body was truncated to the 64 KB cap.
-    pub request_body_truncated: bool,
-    /// Raw response body — UTF-8 text if decodable, hex otherwise. Capped at 64 KB.
-    pub response_body: Option<String>,
-    /// True if the response body was truncated to the 64 KB cap.
-    pub response_body_truncated: bool,
-}
 
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
@@ -208,10 +172,9 @@ fn now_ts() -> u64 {
 }
 
 /// Start the Transparent TLS Proxy on `addr`, drive it until `stop_rx` fires.
-pub async fn run_proxy<R: Runtime>(
+pub async fn run_proxy(
     addr: SocketAddr,
     ca: rcgen::Issuer<'static, KeyPair>,
-    app_handle: AppHandle<R>,
     sdk: Arc<RwLock<SdkRegistry>>,
     settings: Arc<RwLock<FirewallSettings>>,
     mut stop_rx: oneshot::Receiver<()>,
@@ -224,7 +187,6 @@ pub async fn run_proxy<R: Runtime>(
         MitmProxy::new(Some(ca), Some(Cache::new(512))).with_handshake_timeout(handshake_timeout);
 
     let client = DefaultClient::new();
-    let app_handle_cloned = app_handle.clone();
 
     let bind_result =
         proxy
@@ -235,27 +197,21 @@ pub async fn run_proxy<R: Runtime>(
                         http_mitm_proxy::hyper::body::Incoming,
                     >| {
                         let client = client.clone();
-                        let app = app_handle_cloned.clone();
                         let sdk = sdk.clone();
                         let settings = settings.clone();
 
                         async move {
                             // Wrap in generic error handler: all errors return 502
-                            match handle_proxy_request(client, app.clone(), sdk, settings, req)
-                                .await
-                            {
+                            match handle_proxy_request(client, sdk, settings, req).await {
                                 Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
                                 Err(e) => {
                                     let ts = now_ts();
-                                    emit_log_event(
-                                        &app,
-                                        LogEntry {
-                                            id: format!("{}-proxy-err", ts),
-                                            timestamp: ts,
-                                            level: LogLevel::Error,
-                                            message: format!("Proxy error: {}", e),
-                                        },
-                                    );
+                                    emit_log_event(LogEntry {
+                                        id: format!("{}-proxy-err", ts),
+                                        timestamp: ts,
+                                        level: LogLevel::Error,
+                                        message: format!("Proxy error: {}", e),
+                                    });
                                     Ok::<_, http_mitm_proxy::default_client::Error>(
                                         error_response_502(),
                                     )
@@ -270,20 +226,17 @@ pub async fn run_proxy<R: Runtime>(
     match bind_result {
         Ok(server) => {
             let ts = now_ts();
-            emit_log_event(
-                &app_handle,
-                LogEntry {
-                    id: format!("{}-proxy-ready", ts),
-                    timestamp: ts,
-                    level: LogLevel::Success,
-                    message: format!("Transparent TLS Proxy active on {}", addr),
-                },
-            );
+            emit_log_event(LogEntry {
+                id: format!("{}-proxy-ready", ts),
+                timestamp: ts,
+                level: LogLevel::Success,
+                message: format!("Transparent TLS Proxy active on {}", addr),
+            });
 
             tokio::select! {
                 _ = server => {
                     let ts = now_ts();
-                    emit_log_event(&app_handle, LogEntry {
+                    emit_log_event(LogEntry {
                         id: format!("{}-proxy-exit", ts),
                         timestamp: ts,
                         level: LogLevel::Warning,
@@ -292,7 +245,7 @@ pub async fn run_proxy<R: Runtime>(
                 }
                 _ = &mut stop_rx => {
                     let ts = now_ts();
-                    emit_log_event(&app_handle, LogEntry {
+                    emit_log_event(LogEntry {
                         id: format!("{}-proxy-shutdown", ts),
                         timestamp: ts,
                         level: LogLevel::Info,
@@ -303,15 +256,12 @@ pub async fn run_proxy<R: Runtime>(
         }
         Err(e) => {
             let ts = now_ts();
-            emit_log_event(
-                &app_handle,
-                LogEntry {
-                    id: format!("{}-proxy-bind-err", ts),
-                    timestamp: ts,
-                    level: LogLevel::Error,
-                    message: format!("Proxy bind failed on {}: {}", addr, e),
-                },
-            );
+            emit_log_event(LogEntry {
+                id: format!("{}-proxy-bind-err", ts),
+                timestamp: ts,
+                level: LogLevel::Error,
+                message: format!("Proxy bind failed on {}: {}", addr, e),
+            });
         }
     }
 }
@@ -351,9 +301,8 @@ fn extract_port_from_host(host: &str) -> Option<u16> {
 
 /// All request/response streams go through this single generic handler.
 /// Centralizes error handling, timeout management, and protocol safety.
-async fn handle_proxy_request<R: Runtime>(
+async fn handle_proxy_request(
     client: DefaultClient,
-    app: AppHandle<R>,
     sdk: Arc<RwLock<SdkRegistry>>,
     settings: Arc<RwLock<FirewallSettings>>,
     req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
@@ -434,60 +383,9 @@ async fn handle_proxy_request<R: Runtime>(
     {
         Ok(Ok(collected)) => collected.to_bytes(),
         Ok(Err(e)) => {
-            let ts = now_ts();
-            let err = e.to_string();
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-request-error-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status: 400,
-                    request_headers: request_headers.clone(),
-                    response_headers: HashMap::new(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: Some("text/plain".to_string()),
-                    response_content_length: None,
-                    request_body: None,
-                    request_body_truncated: false,
-                    response_body: Some(format!("Request body read failed: {}", err)),
-                    response_body_truncated: false,
-                },
-            );
-            return Err(format!("Request body read failed: {}", err));
+            return Err(format!("Request body read failed: {}", e));
         }
         Err(_) => {
-            let ts = now_ts();
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-request-timeout-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status: 408,
-                    request_headers: request_headers.clone(),
-                    response_headers: HashMap::new(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: Some("text/plain".to_string()),
-                    response_content_length: None,
-                    request_body: None,
-                    request_body_truncated: false,
-                    response_body: Some("Request body timeout".to_string()),
-                    response_body_truncated: false,
-                },
-            );
             return Err("Request body timeout".to_string());
         }
     };
@@ -525,7 +423,7 @@ async fn handle_proxy_request<R: Runtime>(
     let mut app_path = String::new();
 
     if client_port != 0 {
-        if let Some(engine) = app.try_state::<Arc<crate::engine::FirewallEngine>>() {
+        if let Some(engine) = crate::headless::engine() {
             if let Some(pid) = engine.app_manager.get_pid_for_port(client_port) {
                 resolved_pid = pid;
                 let info = engine.app_manager.info_cache.get_info(pid);
@@ -595,31 +493,6 @@ async fn handle_proxy_request<R: Runtime>(
     };
 
     if blocked {
-        let ts = now_ts();
-        let _ = app.emit(
-            "proxy_http",
-            ProxyHttpEvent {
-                id: format!("{}-http-{}-{}", ts, host, port),
-                timestamp: ts,
-                method: method.clone(),
-                host: host.clone(),
-                port,
-                path: path.clone(),
-                full_url: full_url.clone(),
-                status: 403,
-                request_headers: request_headers.clone(),
-                response_headers: HashMap::new(),
-                user_agent: user_agent.clone(),
-                content_type: content_type.clone(),
-                referer: referer.clone(),
-                response_content_type: None,
-                response_content_length: None,
-                request_body: request_body.clone(),
-                request_body_truncated: body_truncated,
-                response_body: None,
-                response_body_truncated: false,
-            },
-        );
         return Err("Blocked by SDK rule (request)".to_string());
     }
 
@@ -663,33 +536,7 @@ async fn handle_proxy_request<R: Runtime>(
     let (res, _) = match client.send_request(req).await {
         Ok(response) => response,
         Err(e) => {
-            let ts = now_ts();
-            let err = format!("Upstream failed: {}", e);
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-upstream-error-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status: 502,
-                    request_headers: request_headers.clone(),
-                    response_headers: HashMap::new(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: Some("text/plain".to_string()),
-                    response_content_length: None,
-                    request_body: request_body.clone(),
-                    request_body_truncated: body_truncated,
-                    response_body: Some(err.clone()),
-                    response_body_truncated: false,
-                },
-            );
-            return Err(err);
+            return Err(format!("Upstream failed: {}", e));
         }
     };
 
@@ -715,60 +562,9 @@ async fn handle_proxy_request<R: Runtime>(
     {
         Ok(Ok(collected)) => collected.to_bytes(),
         Ok(Err(e)) => {
-            let ts = now_ts();
-            let err = e.to_string();
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-response-error-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status,
-                    request_headers: request_headers.clone(),
-                    response_headers: response_headers.clone(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: response_content_type.clone(),
-                    response_content_length: response_content_length.clone(),
-                    request_body: request_body.clone(),
-                    request_body_truncated: body_truncated,
-                    response_body: Some(format!("Response body read failed: {}", err)),
-                    response_body_truncated: false,
-                },
-            );
-            return Err(format!("Response body read failed: {}", err));
+            return Err(format!("Response body read failed: {}", e));
         }
         Err(_) => {
-            let ts = now_ts();
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-response-timeout-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status: 504,
-                    request_headers: request_headers.clone(),
-                    response_headers: response_headers.clone(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: response_content_type.clone(),
-                    response_content_length: response_content_length.clone(),
-                    request_body: request_body.clone(),
-                    request_body_truncated: body_truncated,
-                    response_body: Some("Response body timeout".to_string()),
-                    response_body_truncated: false,
-                },
-            );
             return Err("Response body timeout".to_string());
         }
     };
@@ -820,31 +616,6 @@ async fn handle_proxy_request<R: Runtime>(
     };
 
     if resp_blocked {
-        let ts = now_ts();
-        let _ = app.emit(
-            "proxy_http",
-            ProxyHttpEvent {
-                id: format!("{}-http-{}-{}", ts, host, port),
-                timestamp: ts,
-                method: method.clone(),
-                host: host.clone(),
-                port,
-                path: path.clone(),
-                full_url: full_url.clone(),
-                status: 403,
-                request_headers: request_headers.clone(),
-                response_headers: response_headers.clone(),
-                user_agent: user_agent.clone(),
-                content_type: content_type.clone(),
-                referer: referer.clone(),
-                response_content_type: response_content_type.clone(),
-                response_content_length: response_content_length.clone(),
-                request_body: request_body.clone(),
-                request_body_truncated: body_truncated,
-                response_body: response_body.clone(),
-                response_body_truncated: res_body_truncated,
-            },
-        );
         return Err("Blocked by SDK rule (response)".to_string());
     }
 
@@ -880,45 +651,17 @@ async fn handle_proxy_request<R: Runtime>(
         Full::new(raw_res_body)
     };
 
-    // ── Emit events ─────────────────────────────────────────────────────────
+    // ── Emit activity log ────────────────────────────────────────────────────
     let ts = now_ts();
     let show_blocked_http_only = settings.read().unwrap().show_blocked_http_inspector_only;
     if !show_blocked_http_only {
-        emit_log_event(
-            &app,
-            LogEntry {
-                id: format!("{}-intercept-{}-{}", ts, host, port),
-                timestamp: ts,
-                level: LogLevel::Info,
-                message: format!("Proxy: {} {}:{}{} → {}", method, host, port, path, status),
-            },
-        );
-    }
-
-    let _ = app.emit(
-        "proxy_http",
-        ProxyHttpEvent {
-            id: format!("{}-http-{}-{}", ts, host, port),
+        emit_log_event(LogEntry {
+            id: format!("{}-intercept-{}-{}", ts, host, port),
             timestamp: ts,
-            method,
-            host,
-            port,
-            path,
-            full_url,
-            status,
-            request_headers,
-            response_headers,
-            user_agent,
-            content_type,
-            referer,
-            response_content_type,
-            response_content_length,
-            request_body,
-            request_body_truncated: body_truncated,
-            response_body,
-            response_body_truncated: res_body_truncated,
-        },
-    );
+            level: LogLevel::Info,
+            message: format!("Proxy: {} {}:{}{} → {}", method, host, port, path, status),
+        });
+    }
 
     Ok(http_mitm_proxy::hyper::Response::from_parts(
         res_parts,

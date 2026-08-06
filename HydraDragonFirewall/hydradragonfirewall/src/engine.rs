@@ -1,12 +1,10 @@
 use crate::file_magic::FileMagicChecker;
 use crate::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
-use crate::web_filter::WebFilter;
 use bincode_next::serde::{decode_from_slice, encode_to_vec};
 use hydradragon_shared::{QUARANTINE_PATH, TlsInspectionMode, TlsProxyConfig};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use shared_no_std::ghost_hunting::{NetworkActivityData, NtFunction, Syscall};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -16,12 +14,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Runtime, Size, WebviewUrl,
-    WebviewWindowBuilder,
-};
-use tokio::io::AsyncReadExt;
-use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::oneshot;
 use windivert::prelude::*;
 
@@ -353,8 +345,6 @@ fn is_unresolved_identity(value: &str) -> bool {
     trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown")
 }
 
-const SANCTUM_FIREWALL_TELEMETRY_PIPE: &str = r"\\.\pipe\hydradragon_firewall_telemetry";
-
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -484,14 +474,6 @@ fn firewall_log_file_path() -> PathBuf {
         .join("firewall_activity.jsonl")
 }
 
-fn default_website_path() -> String {
-    let repo_path = PathBuf::from("hydradragon").join("website");
-    if repo_path.exists() {
-        return repo_path.to_string_lossy().to_string();
-    }
-    "hydradragon\\website".to_string()
-}
-
 fn persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) {
     if settings.is_some_and(|current| !current.save_all_logs) {
         return;
@@ -547,12 +529,10 @@ pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
         .collect()
 }
 
-pub fn emit_log_event<R: Runtime>(app: &AppHandle<R>, entry: LogEntry) {
-    let settings_snapshot = app
-        .try_state::<Arc<FirewallEngine>>()
+pub fn emit_log_event(entry: LogEntry) {
+    let settings_snapshot = crate::headless::engine()
         .map(|engine| engine.settings.read().unwrap().clone());
     persist_log_entry(&entry, settings_snapshot.as_ref());
-    let _ = app.emit("log", entry);
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -848,11 +828,8 @@ impl FirewallRule {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FirewallSettings {
-    pub app_decisions: HashMap<String, AppDecision>,
     #[serde(default)]
     pub kernel_block_paths: Vec<String>,
-    pub website_path: String,
-    pub rules: Vec<FirewallRule>,
     pub late_blocking_mode: bool,
     #[serde(default)]
     pub headless_mode: bool,
@@ -881,27 +858,19 @@ pub struct FirewallSettings {
     pub log_full_bodies: bool,
     pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
-    #[serde(default)]
-    pub network_whitelist: Vec<String>,
 }
 
 impl Default for FirewallSettings {
     fn default() -> Self {
-        let apps = HashMap::new();
-
         let mut metadata = HashMap::new();
         metadata.insert("version".to_string(), "2.0.0".to_string());
         metadata.insert(
             "description".to_string(),
             "HydraDragon Next-Gen Firewall Configuration".to_string(),
         );
-        metadata.insert("theme".to_string(), "cyberpunk".to_string());
 
         Self {
-            app_decisions: apps,
             kernel_block_paths: Vec::new(),
-            website_path: String::new(),
-            rules: Vec::new(),
             late_blocking_mode: false,
             headless_mode: false,
             log_mode: false,
@@ -917,7 +886,6 @@ impl Default for FirewallSettings {
             log_full_bodies: false,
             tls_proxy: TlsProxyConfig::default(),
             metadata,
-            network_whitelist: Vec::new(),
         }
     }
 }
@@ -1603,10 +1571,8 @@ struct PacketDecision {
 
 pub struct FirewallEngine {
     pub stats: Arc<Statistics>,
-    pub rules: Arc<RwLock<Vec<FirewallRule>>>,
     pub dns_handler: Arc<DnsHandler>,
     pub app_manager: Arc<AppManager>,
-    pub web_filter: Arc<WebFilter>,
     pub settings: Arc<RwLock<FirewallSettings>>,
     pub stop_signal: Arc<AtomicBool>,
     pub sdk: Arc<RwLock<crate::sdk::SdkRegistry>>,
@@ -1643,7 +1609,6 @@ impl FirewallEngine {
     pub fn new() -> Self {
         let stats = Arc::new(Statistics::default());
         let dns_handler = Arc::new(DnsHandler::new());
-        let web_filter = Arc::new(WebFilter::new());
         let stop_signal = Arc::new(AtomicBool::new(false));
         let file_checker = Arc::new(FileMagicChecker::new());
 
@@ -1652,12 +1617,8 @@ impl FirewallEngine {
         // Default allow rules are now handled in Default impl or loaded from disk.
         // We do NOT hardcode them here to allow user to override/remove them.
 
-        let network_whitelist_index = Arc::new(RwLock::new(CidrIndex::from_cidrs(
-            &settings_data.network_whitelist,
-        )));
-        let app_decisions = settings_data.app_decisions.clone();
-        let app_manager = Arc::new(AppManager::new(app_decisions));
-        let rules = Arc::new(RwLock::new(settings_data.rules.clone()));
+        let network_whitelist_index = Arc::new(RwLock::new(CidrIndex::from_cidrs(&[])));
+        let app_manager = Arc::new(AppManager::new(HashMap::new()));
         let settings = Arc::new(RwLock::new(settings_data));
         let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
         let tls_proxy_backend_child = Arc::new(Mutex::new(None));
@@ -1670,10 +1631,8 @@ impl FirewallEngine {
 
         Self {
             stats,
-            rules,
             dns_handler,
             app_manager,
-            web_filter,
             settings,
             stop_signal,
             sdk,
@@ -1697,19 +1656,7 @@ impl FirewallEngine {
     }
 
     pub fn apply_settings(&self, new_settings: FirewallSettings) {
-        let new_network_whitelist_index = CidrIndex::from_cidrs(&new_settings.network_whitelist);
-
-        // Sync App Decisions
-        {
-            let mut decisions = self.app_manager.decisions.write().unwrap();
-            *decisions = new_settings.app_decisions.clone();
-        }
-
-        // Sync Rules
-        {
-            let mut rules = self.rules.write().unwrap();
-            *rules = new_settings.rules.clone();
-        }
+        let new_network_whitelist_index = CidrIndex::from_cidrs(&[]);
 
         // Sync Core Settings
         {
@@ -1827,7 +1774,7 @@ impl FirewallEngine {
         false
     }
 
-    fn add_proxy_bypass_host<R: Runtime>(&self, tx: &AppHandle<R>, host: &str) -> bool {
+    fn add_proxy_bypass_host(&self, host: &str) -> bool {
         let Some(normalized) = Self::normalize_proxy_bypass_entry(host) else {
             return false;
         };
@@ -1849,7 +1796,6 @@ impl FirewallEngine {
         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
             let now = Self::now_ts();
             emit_log_event(
-                tx,
                 LogEntry {
                     id: format!("{}-proxy-bypass-added", now),
                     timestamp: now,
@@ -1865,138 +1811,7 @@ impl FirewallEngine {
         true
     }
 
-    fn maybe_emit_browser_mitm_warning<R: Runtime>(
-        tx: &AppHandle<R>,
-        am: &Arc<AppManager>,
-        no_alert_mode: bool,
-        tls_proxy: &TlsProxyConfig,
-        browser_name: &str,
-        browser_path: &str,
-        pid: u32,
-        hostname: Option<&str>,
-        full_url: Option<&str>,
-        fallback_target: &str,
-        windows_root_trust_ready: &Arc<AtomicBool>,
-        firefox_policy_ready: &Arc<AtomicBool>,
-        browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
-    ) {
-        if !is_known_browser_process(browser_name)
-            || Self::proxy_bypass_matches_target(
-                tls_proxy,
-                hostname,
-                full_url,
-                Some(fallback_target),
-            )
-        {
-            return;
-        }
-
-        let family = browser_family(browser_name);
-        let trust_ready = if family == "firefox" {
-            firefox_policy_ready.load(Ordering::SeqCst)
-        } else {
-            windows_root_trust_ready.load(Ordering::SeqCst)
-        };
-
-        if trust_ready {
-            return;
-        }
-
-        let target = Self::select_proxy_bypass_target(hostname, full_url, Some(fallback_target))
-            .unwrap_or_else(|| fallback_target.to_string());
-        let decision_key = browser_mitm_prompt_decision_key(browser_name, &target);
-
-        match am.get_decision(&decision_key) {
-            Some(AppDecision::Allow) => return,
-            Some(AppDecision::AllowOnce) => {
-                am.remove_decision(&decision_key.to_lowercase());
-                return;
-            }
-            _ => {}
-        }
-
-        let cache_key = format!(
-            "{}|{}|{}|{}",
-            browser_name.to_ascii_lowercase(),
-            pid,
-            family,
-            target.to_ascii_lowercase()
-        );
-
-        {
-            let mut cache = browser_mitm_warning_cache.lock().unwrap();
-            if !cache.insert(cache_key) {
-                return;
-            }
-        }
-
-        let trust_text = if family == "firefox" {
-            "Firefox enterprise trust policy is not ready"
-        } else {
-            "Windows root trust is not ready"
-        };
-
-        let now = Self::now_ts();
-        emit_log_event(
-            tx,
-            LogEntry {
-                id: format!("{}-browser-mitm-warning-{}", now, pid),
-                timestamp: now,
-                level: LogLevel::Warning,
-                message: format!(
-                    "Browser HTTPS interception warning likely for {} on {}: {}. The browser may show {} or a visible TLS interception/certificate warning until the proxy trust is accepted or the site is trusted without TLS interception. This may also trigger other antivirus or security products even if the interception is hidden.",
-                    browser_name,
-                    target,
-                    trust_text,
-                    browser_mitm_error_hint(browser_name),
-                ),
-            },
-        );
-
-        if family == "firefox" && !no_alert_mode {
-            let enqueued = am.enqueue_pending_app(
-                PendingApp {
-                    process_id: pid,
-                    name: browser_name.to_string(),
-                    path: browser_path.to_string(),
-                    dst_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-                    dst_port: tls_proxy.listen_port,
-                    protocol: Protocol::TCP,
-                    hostname: hostname.map(|value| value.to_string()),
-                    reason: Some(format!(
-                        "{} is rejecting or warning on HTTPS interception for {} because {}. This can be benign browser trust behavior or specific anti-interception logic. Choose ALLOW TLS PROXY to keep interception enabled, ALLOW TLS PROXY ONCE for a one-time retry, or BYPASS TLS PROXY to bypass interception for this target.",
-                        browser_name,
-                        target,
-                        trust_text
-                    )),
-                    request_id: None,
-                    alert_source: Some("browser_mitm".to_string()),
-                    alert_kind: Some("browser_mitm_prompt".to_string()),
-                    target: Some(target.clone()),
-                    decision_key: Some(decision_key),
-                    full_url: full_url.map(|value| value.to_string()),
-                    http_method: None,
-                    http_path: None,
-                    http_user_agent: None,
-                    http_content_type: None,
-                    http_referer: None,
-                    http_request_body: None,
-                    http_response_body: None,
-                    payload_sample: None,
-                    detected_file_type: None,
-                    packet_json: None,
-                    queue_position: 1,
-                    queue_total: 1,
-                },
-                false,
-            );
-            if enqueued {
-                Self::refresh_active_alert_ui(am, tx);
-            }
-        }
-    }
-
-    pub fn sync_proxy_runtime<R: Runtime>(&self, tx: &AppHandle<R>) {
+    pub fn sync_proxy_runtime(&self) {
         let tls_proxy_cfg = {
             let settings = self.settings.read().unwrap();
             settings.tls_proxy.clone()
@@ -2008,7 +1823,7 @@ impl FirewallEngine {
         }
 
         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
-            self.start_embedded_proxy(&tls_proxy_cfg, tx);
+            self.start_embedded_proxy(&tls_proxy_cfg);
         } else {
             self.stop_embedded_proxy();
         }
@@ -2017,17 +1832,8 @@ impl FirewallEngine {
     pub fn save_settings(&self) {
         let current_settings = self.settings.read().unwrap().clone();
 
-        // Filter out one-time and unresolved identities so only stable trusts persist.
-        let mut decisions = self.app_manager.decisions.read().unwrap().clone();
-        decisions.retain(|key, value| {
-            *value != AppDecision::AllowOnce && !is_unresolved_identity(key.as_str())
-        });
-
         let settings = FirewallSettings {
-            app_decisions: decisions,
             kernel_block_paths: current_settings.kernel_block_paths.clone(),
-            website_path: current_settings.website_path.clone(),
-            rules: self.rules.read().unwrap().clone(),
             late_blocking_mode: current_settings.late_blocking_mode,
             headless_mode: current_settings.headless_mode,
             log_mode: current_settings.log_mode,
@@ -2042,14 +1848,8 @@ impl FirewallEngine {
             max_visible_http_events: current_settings.max_visible_http_events,
             log_full_bodies: current_settings.log_full_bodies,
             tls_proxy: current_settings.tls_proxy.clone(),
-            network_whitelist: current_settings.network_whitelist.clone(),
             metadata: current_settings.metadata.clone(),
         };
-
-        {
-            let mut live_settings = self.settings.write().unwrap();
-            live_settings.app_decisions = settings.app_decisions.clone();
-        }
 
         if let Ok(content) = encode_to_vec(&settings, bincode_next::config::standard()) {
             let _ = fs::create_dir_all("json");
@@ -2145,14 +1945,10 @@ impl FirewallEngine {
     }
 
     fn emit_tls_proxy_intercept_probe(
-        tx: &AppHandle,
         am: &Arc<AppManager>,
         dns_handler: &Arc<DnsHandler>,
         info: &PacketInfo,
         tls_proxy: &TlsProxyConfig,
-        no_alert_mode: bool,
-        windows_root_trust_ready: &Arc<AtomicBool>,
-        firefox_policy_ready: &Arc<AtomicBool>,
         browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
     ) {
         if Self::proxy_bypass_matches_target(
@@ -2175,22 +1971,6 @@ impl FirewallEngine {
             .unwrap_or_else(|| format!("https://{}:{}/", host_label, info.dst_port));
         let app_info = am.info_cache.get_info(info.process_id);
 
-        Self::maybe_emit_browser_mitm_warning(
-            tx,
-            am,
-            no_alert_mode,
-            tls_proxy,
-            &app_info.name,
-            &app_info.path,
-            info.process_id,
-            Some(&host_label),
-            Some(&full_url),
-            &host_label,
-            windows_root_trust_ready,
-            firefox_policy_ready,
-            browser_mitm_warning_cache,
-        );
-
         let cache_key = format!(
             "proxy-http:{}:{}:{}:{}:{}",
             info.process_id,
@@ -2208,7 +1988,6 @@ impl FirewallEngine {
 
         let now = Self::now_ts();
         emit_log_event(
-            tx,
             LogEntry {
                 id: format!("{}-proxy-intercept-{}", now, info.process_id),
                 timestamp: now,
@@ -2225,7 +2004,7 @@ impl FirewallEngine {
         );
     }
 
-    fn start_embedded_proxy<R: Runtime>(&self, tls_proxy: &TlsProxyConfig, tx: &AppHandle<R>) {
+    fn start_embedded_proxy(&self, tls_proxy: &TlsProxyConfig) {
         if tls_proxy.mode != TlsInspectionMode::TlsProxy || !tls_proxy.auto_start {
             return;
         }
@@ -2244,93 +2023,62 @@ impl FirewallEngine {
 
         let ca_bundle = crate::proxy::generate_ca();
 
-        // Check if user has consented to certificate installation
-        if tls_proxy.cert_install_consent {
-            // Install the generated CA into Windows Trusted Root so browsers accept it.
-            match Self::install_ca_der(&ca_bundle.cert_der) {
-                Ok(()) => {
-                    self.windows_root_trust_ready.store(true, Ordering::SeqCst);
-                    let now = Self::now_ts();
-                    emit_log_event(
-                        &tx,
-                        LogEntry {
-                            id: format!("{}-ca-installed", now),
-                            timestamp: now,
-                            level: LogLevel::Success,
-                            message: "Certificate installed to Windows Root Trust Store with user consent.".to_string(),
-                        },
-                    );
-                }
-                Err(e) => {
-                    self.windows_root_trust_ready.store(false, Ordering::SeqCst);
-                    let now = Self::now_ts();
-                    emit_log_event(
-                        &tx,
-                        LogEntry {
-                            id: format!("{}-ca-install-failed", now),
-                            timestamp: now,
-                            level: LogLevel::Error,
-                            message: format!(
-                                "Certificate installation failed (run as admin): {}. Browsers will show certificate warnings. Manual installation: Open certmgr.msc, import '{}' to Trusted Root Certification Authorities.",
-                                e,
-                                Self::proxy_ca_cert_path().display()
-                            ),
-                        },
-                    );
-                }
-            }
-
-            let firefox_ca_path = Self::proxy_ca_cert_path();
-            match Self::install_firefox_ca_policy(&firefox_ca_path) {
-                Ok(()) => {
-                    self.firefox_policy_ready.store(true, Ordering::SeqCst);
-                    let now = Self::now_ts();
-                    emit_log_event(
-                        &tx,
-                        LogEntry {
-                            id: format!("{}-firefox-policy-installed", now),
-                            timestamp: now,
-                            level: LogLevel::Success,
-                            message: "Firefox enterprise policy configured with user consent."
-                                .to_string(),
-                        },
-                    );
-                }
-                Err(e) => {
-                    self.firefox_policy_ready.store(false, Ordering::SeqCst);
-                    let now = Self::now_ts();
-                    emit_log_event(
-                        &tx,
-                        LogEntry {
-                            id: format!("{}-firefox-policy-failed", now),
-                            timestamp: now,
-                            level: LogLevel::Error,
-                            message: format!(
-                                "Firefox policy setup failed: {}. Firefox will show SEC_ERROR_UNKNOWN_ISSUER. Manual fix: Import '{}' in Firefox Settings > Privacy & Security > Certificates > View Certificates > Authorities > Import.",
-                                e,
-                                firefox_ca_path.display()
-                            ),
-                        },
-                    );
-                }
-            }
-        } else {
-            // User has not consented - do not install certificates
-            self.windows_root_trust_ready.store(false, Ordering::SeqCst);
-            self.firefox_policy_ready.store(false, Ordering::SeqCst);
-            let now = Self::now_ts();
-            emit_log_event(
-                &tx,
-                LogEntry {
-                    id: format!("{}-cert-consent-required", now),
+        // Silent CA auto-registration: install into Windows Trusted Root and Firefox
+        // policy so browsers accept interception without MITM warnings or a consent
+        // prompt. Consent is handled up-front by the host Windows application.
+        match Self::install_ca_der(&ca_bundle.cert_der) {
+            Ok(()) => {
+                self.windows_root_trust_ready.store(true, Ordering::SeqCst);
+                let now = Self::now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-ca-installed", now),
                     timestamp: now,
-                    level: LogLevel::Warning,
+                    level: LogLevel::Success,
+                    message: "Certificate installed to Windows Root Trust Store.".to_string(),
+                });
+            }
+            Err(e) => {
+                self.windows_root_trust_ready.store(false, Ordering::SeqCst);
+                let now = Self::now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-ca-install-failed", now),
+                    timestamp: now,
+                    level: LogLevel::Error,
                     message: format!(
-                        "Certificate installation requires user consent. The Transparent TLS Proxy will start but browsers will show certificate warnings until you grant consent in settings. Certificate location: '{}'",
+                        "Certificate installation failed (run as admin): {}. Browsers will show certificate warnings. Manual installation: Open certmgr.msc, import '{}' to Trusted Root Certification Authorities.",
+                        e,
                         Self::proxy_ca_cert_path().display()
                     ),
-                },
-            );
+                });
+            }
+        }
+
+        let firefox_ca_path = Self::proxy_ca_cert_path();
+        match Self::install_firefox_ca_policy(&firefox_ca_path) {
+            Ok(()) => {
+                self.firefox_policy_ready.store(true, Ordering::SeqCst);
+                let now = Self::now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-firefox-policy-installed", now),
+                    timestamp: now,
+                    level: LogLevel::Success,
+                    message: "Firefox enterprise policy configured.".to_string(),
+                });
+            }
+            Err(e) => {
+                self.firefox_policy_ready.store(false, Ordering::SeqCst);
+                let now = Self::now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-firefox-policy-failed", now),
+                    timestamp: now,
+                    level: LogLevel::Error,
+                    message: format!(
+                        "Firefox policy setup failed: {}. Firefox will show SEC_ERROR_UNKNOWN_ISSUER. Manual fix: Import '{}' in Firefox Settings > Privacy & Security > Certificates > View Certificates > Authorities > Import.",
+                        e,
+                        firefox_ca_path.display()
+                    ),
+                });
+            }
         }
 
         let (stop_tx_main, stop_rx_main) = oneshot::channel::<()>();
@@ -2338,21 +2086,18 @@ impl FirewallEngine {
         *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx_main);
         self.browser_mitm_warning_cache.lock().unwrap().clear();
 
-        let app = tx.clone();
         let sdk = self.sdk.clone();
         let settings = self.settings.clone();
 
         let ca_bundle = crate::proxy::generate_ca();
-        tauri::async_runtime::spawn(crate::proxy::run_proxy(
+        crate::headless::spawn(crate::proxy::run_proxy(
             addr_v4,
             ca_bundle.issuer,
-            app,
             sdk,
             settings,
             stop_rx_main,
         ));
 
-        let tx_ready = tx.clone();
         let proxy_runtime = self.tls_proxy_backend_child.clone();
         std::thread::Builder::new()
             .name("proxy_ready_waiter".to_string())
@@ -2365,31 +2110,25 @@ impl FirewallEngine {
 
                 let now = Self::now_ts();
                 if listener_ready {
-                    emit_log_event(
-                        &tx_ready,
-                        LogEntry {
-                            id: format!("{}-proxy-ready", now),
-                            timestamp: now,
-                            level: LogLevel::Success,
-                            message: format!(
-                                "Transparent TLS Proxy/Inspector ready on {}; Windows proxy settings left unchanged",
-                                addr_string
-                            ),
-                        },
-                    );
+                    emit_log_event(LogEntry {
+                        id: format!("{}-proxy-ready", now),
+                        timestamp: now,
+                        level: LogLevel::Success,
+                        message: format!(
+                            "Transparent TLS Proxy/Inspector ready on {}; Windows proxy settings left unchanged",
+                            addr_string
+                        ),
+                    });
                 } else {
-                    emit_log_event(
-                        &tx_ready,
-                        LogEntry {
-                            id: format!("{}-proxy-not-ready", now),
-                            timestamp: now,
-                            level: LogLevel::Warning,
-                            message: format!(
-                                "Transparent TLS Proxy/Inspector did not become ready on {} - Windows proxy was left disabled to avoid breaking internet access",
-                                addr_string
-                            ),
-                        },
-                    );
+                    emit_log_event(LogEntry {
+                        id: format!("{}-proxy-not-ready", now),
+                        timestamp: now,
+                        level: LogLevel::Warning,
+                        message: format!(
+                            "Transparent TLS Proxy/Inspector did not become ready on {} - Windows proxy was left disabled to avoid breaking internet access",
+                            addr_string
+                        ),
+                    });
                 }
             })
             .expect("failed to spawn proxy_ready_waiter");
@@ -2555,10 +2294,7 @@ foreach ($store in $stores) {
         Ok(())
     }
 
-    pub fn install_firewall_certificate<R: Runtime>(
-        &self,
-        tx: &AppHandle<R>,
-    ) -> Result<String, String> {
+    pub fn install_firewall_certificate(&self) -> Result<String, String> {
         let ca_bundle = crate::proxy::generate_ca();
         Self::install_ca_der(&ca_bundle.cert_der)?;
         self.windows_root_trust_ready.store(true, Ordering::SeqCst);
@@ -2567,31 +2303,19 @@ foreach ($store in $stores) {
         Self::install_firefox_ca_policy(&cert_path)?;
         self.firefox_policy_ready.store(true, Ordering::SeqCst);
 
-        {
-            let mut settings = self.settings.write().unwrap();
-            settings.tls_proxy.cert_install_consent = true;
-        }
-        self.save_settings();
-
         let message =
             "HydraDragon Firewall CA installed into Windows trust and Firefox policy.".to_string();
-        emit_log_event(
-            tx,
-            LogEntry {
-                id: format!("{}-certificate-installed-manual", Self::now_ts()),
-                timestamp: Self::now_ts(),
-                level: LogLevel::Success,
-                message: message.clone(),
-            },
-        );
+        emit_log_event(LogEntry {
+            id: format!("{}-certificate-installed-manual", Self::now_ts()),
+            timestamp: Self::now_ts(),
+            level: LogLevel::Success,
+            message: message.clone(),
+        });
 
         Ok(message)
     }
 
-    pub fn remove_firewall_certificate<R: Runtime>(
-        &self,
-        tx: &AppHandle<R>,
-    ) -> Result<String, String> {
+    pub fn remove_firewall_certificate(&self) -> Result<String, String> {
         let mut errors = Vec::new();
         if let Err(error) = Self::remove_firewall_ca_from_windows_stores() {
             errors.push(error);
@@ -2602,39 +2326,28 @@ foreach ($store in $stores) {
 
         self.windows_root_trust_ready.store(false, Ordering::SeqCst);
         self.firefox_policy_ready.store(false, Ordering::SeqCst);
-        {
-            let mut settings = self.settings.write().unwrap();
-            settings.tls_proxy.cert_install_consent = false;
-        }
-        self.save_settings();
 
         if errors.is_empty() {
             let message =
                 "HydraDragon Firewall CA removed from trust stores and Firefox policy.".to_string();
-            emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-certificate-removed-manual", Self::now_ts()),
-                    timestamp: Self::now_ts(),
-                    level: LogLevel::Success,
-                    message: message.clone(),
-                },
-            );
+            emit_log_event(LogEntry {
+                id: format!("{}-certificate-removed-manual", Self::now_ts()),
+                timestamp: Self::now_ts(),
+                level: LogLevel::Success,
+                message: message.clone(),
+            });
             Ok(message)
         } else {
             let message = format!(
                 "HydraDragon Firewall CA removal finished with warnings: {}",
                 errors.join("; ")
             );
-            emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-certificate-remove-warning", Self::now_ts()),
-                    timestamp: Self::now_ts(),
-                    level: LogLevel::Warning,
-                    message: message.clone(),
-                },
-            );
+            emit_log_event(LogEntry {
+                id: format!("{}-certificate-remove-warning", Self::now_ts()),
+                timestamp: Self::now_ts(),
+                level: LogLevel::Warning,
+                message: message.clone(),
+            });
             Err(message)
         }
     }
@@ -2665,299 +2378,6 @@ foreach ($store in $stores) {
             return;
         }
         settings.kernel_block_paths.push(path.to_string());
-    }
-
-    fn refresh_active_alert_ui<R: Runtime>(am: &Arc<AppManager>, tx: &AppHandle<R>) {
-        if let Some(alert) = am.get_active_alert() {
-            Self::spawn_alert_window(tx);
-            let _ = tx.emit("ask_app_decision", alert);
-        }
-    }
-
-    pub fn resolve_app_decision(&self, name: String, decision: String, tx: &AppHandle) {
-        let active_alert = self.app_manager.active_alert.read().unwrap().clone();
-        let mut persist_settings = true;
-        let mut effective_decision = decision;
-        let kernel_block_path = active_alert.as_ref().and_then(select_kernel_block_path);
-        let decision_identifier = active_alert
-            .as_ref()
-            .and_then(|alert| alert.decision_key.clone())
-            .unwrap_or_else(|| name.clone());
-        let decision_label = active_alert
-            .as_ref()
-            .map(|alert| {
-                let target = alert
-                    .target
-                    .as_ref()
-                    .filter(|target| !target.trim().is_empty())
-                    .cloned();
-                let path = if !alert.path.trim().is_empty()
-                    && !alert.path.eq_ignore_ascii_case("unknown")
-                {
-                    Some(alert.path.clone())
-                } else {
-                    None
-                };
-                target.or(path).unwrap_or_else(|| alert.name.clone())
-            })
-            .unwrap_or_else(|| name.clone());
-
-        let missing_stable_path = active_alert
-            .as_ref()
-            .is_some_and(|alert| is_unresolved_identity(&alert.path));
-        let has_configured_decision_key = active_alert
-            .as_ref()
-            .and_then(|alert| alert.decision_key.as_ref())
-            .is_some();
-
-        if effective_decision == "allow_always"
-            && missing_stable_path
-            && !has_configured_decision_key
-        {
-            effective_decision = "allow_once".to_string();
-            persist_settings = false;
-        }
-
-        let routed_to_owlyshield = active_alert
-            .as_ref()
-            .and_then(|alert| {
-                if alert.alert_source.as_deref() == Some("owlyshield") {
-                    alert.request_id.as_ref()
-                } else {
-                    None
-                }
-            })
-            .map(|request_id| {
-                let msg = format!(
-                    "HIPS_DECISION:{}|{}\n",
-                    request_id,
-                    effective_decision.as_str()
-                );
-                self.send_hydranet_message(msg);
-            })
-            .is_some();
-
-        let app_decision = match effective_decision.as_str() {
-            "allow_always" => AppDecision::Allow,
-            "allow_always_no_mitm" => AppDecision::Allow,
-            "allow_once" => AppDecision::AllowOnce,
-            "quarantine" => AppDecision::Block,
-            "block" => AppDecision::Block,
-            "deny" => AppDecision::Pending,
-            _ => AppDecision::Pending,
-        };
-
-        if routed_to_owlyshield {
-            // Owlyshield owns remediation for its HIPS prompts. Mirroring those
-            // decisions into the firewall's own app-decision store can
-            // accidentally poison generic names like `svchost.exe` or install
-            // unrelated persistent kernel block paths.
-            persist_settings = false;
-        } else {
-            self.app_manager
-                .resolve_decision(&decision_identifier, app_decision);
-        }
-
-        if !routed_to_owlyshield
-            && effective_decision == "block"
-            && let Some(path) = kernel_block_path.as_deref()
-        {
-            self.remember_kernel_block_path(path);
-            self.send_hydranet_message(kernel_block_message(path));
-        }
-
-        if effective_decision == "allow_always_no_mitm"
-            && let Some(alert) = active_alert.as_ref()
-            && let Some(host) = Self::select_proxy_bypass_host(alert)
-        {
-            let _ = self.add_proxy_bypass_host(tx, &host);
-        }
-
-        let now = Self::now_ts();
-        match effective_decision.as_str() {
-            "deny" => emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-user-deny", now),
-                    timestamp: now,
-                    level: LogLevel::Warning,
-                    message: format!(
-                        "Blocked: Access denied for {} (no termination requested)",
-                        decision_label
-                    ),
-                },
-            ),
-            "block" => emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-user-block", now),
-                    timestamp: now,
-                    level: LogLevel::Warning,
-                    message: format!("Blocked: User decision for {}", decision_label),
-                },
-            ),
-            "quarantine" => emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-user-quarantine", now),
-                    timestamp: now,
-                    level: LogLevel::Warning,
-                    message: format!(
-                        "Blocked: User decision for {} (quarantine requested)",
-                        decision_label
-                    ),
-                },
-            ),
-            "allow_always" => emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-user-allow", now),
-                    timestamp: now,
-                    level: LogLevel::Success,
-                    message: format!("Allowed: User decision for {}", decision_label),
-                },
-            ),
-            "allow_always_no_mitm" => emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-user-allow-no-mitm", now),
-                    timestamp: now,
-                    level: LogLevel::Success,
-                    message: format!(
-                        "Trusted With TLS Proxy Bypass: User decision for {}",
-                        decision_label
-                    ),
-                },
-            ),
-            "allow_once" => emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-user-allow-once", now),
-                    timestamp: now,
-                    level: LogLevel::Success,
-                    message: format!("Allowed Once: User decision for {}", decision_label),
-                },
-            ),
-            _ => {}
-        }
-
-        if effective_decision == "allow_once" && missing_stable_path && !has_configured_decision_key
-        {
-            emit_log_event(
-                tx,
-                LogEntry {
-                    id: format!("{}-allow-once-unresolved-path", now),
-                    timestamp: now,
-                    level: LogLevel::Warning,
-                    message: format!(
-                        "Persistent trust was not saved for {} because the executable path could not be resolved. Only a one-time allow was applied to avoid broadly trusting other unknown files.",
-                        decision_label
-                    ),
-                },
-            );
-        }
-
-        // Clear the active alert so it doesn't linger
-        {
-            let mut active = self.app_manager.active_alert.write().unwrap();
-            *active = None;
-        }
-
-        if persist_settings {
-            self.save_settings();
-        }
-    }
-
-    pub fn remove_app_decision(&self, name_lower: String) {
-        let normalized = name_lower.to_ascii_lowercase();
-        self.app_manager.remove_decision(&normalized);
-        self.settings
-            .write()
-            .unwrap()
-            .app_decisions
-            .remove(&normalized);
-        self.save_settings();
-    }
-
-    pub fn set_process_decision(
-        &self,
-        name: String,
-        path: String,
-        decision: String,
-        tx: &AppHandle,
-    ) -> Result<String, String> {
-        let identifier = normalize_kernel_block_path_candidate(&path)
-            .or_else(|| {
-                let trimmed = name.trim();
-                (!is_unresolved_identity(trimmed)).then(|| trimmed.to_string())
-            })
-            .ok_or_else(|| "Process identity is unavailable.".to_string())?;
-
-        let app_decision = match decision.as_str() {
-            "allow" | "allow_always" => AppDecision::Allow,
-            "allow_once" => AppDecision::AllowOnce,
-            "block" => AppDecision::Block,
-            "pending" => AppDecision::Pending,
-            other => return Err(format!("Unsupported process decision: {other}")),
-        };
-
-        self.app_manager
-            .resolve_decision(&identifier, app_decision.clone());
-        self.save_settings();
-
-        let now = Self::now_ts();
-        let action_label = match app_decision {
-            AppDecision::Allow => "Allowed",
-            AppDecision::AllowOnce => "Allowed Once",
-            AppDecision::Block => "Blocked",
-            AppDecision::Pending => "Set Pending",
-        };
-        emit_log_event(
-            tx,
-            LogEntry {
-                id: format!("{}-process-decision", now),
-                timestamp: now,
-                level: if app_decision == AppDecision::Block {
-                    LogLevel::Warning
-                } else {
-                    LogLevel::Success
-                },
-                message: format!("{action_label}: Process decision for {identifier}"),
-            },
-        );
-
-        Ok(identifier)
-    }
-
-    pub fn clear_app_decisions(&self) {
-        self.app_manager.clear_decisions();
-        self.settings.write().unwrap().app_decisions.clear();
-        self.save_settings();
-    }
-
-    pub fn get_active_alert(&self) -> Option<PendingApp> {
-        self.app_manager.get_active_alert()
-    }
-
-    pub fn next_alert(&self) -> Option<PendingApp> {
-        self.app_manager.rotate_alerts(true)
-    }
-
-    pub fn previous_alert(&self) -> Option<PendingApp> {
-        self.app_manager.rotate_alerts(false)
-    }
-
-    pub fn get_app_decisions(&self) -> HashMap<String, AppDecision> {
-        self.app_manager
-            .decisions
-            .read()
-            .unwrap()
-            .iter()
-            .filter(|(key, value)| {
-                **value != AppDecision::AllowOnce && !is_unresolved_identity(key.as_str())
-            })
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect()
     }
 
     pub fn get_process_inventory(&self) -> Vec<ProcessInventoryEntry> {
@@ -3201,79 +2621,15 @@ foreach ($store in $stores) {
 }
 
 impl FirewallEngine {
-    pub fn start(&self, app_handle: AppHandle) {
-        // Load Network Whitelists from Website folder before starting capture
-        self.load_website_whitelists();
-
+    pub fn start(&self) {
         // Auto-install the proxy CA into Windows Trusted Root so browsers
         // CA generation and installation is now handled by start_embedded_proxy() on demand.
 
         let stats = Arc::clone(&self.stats);
-        let rules = Arc::clone(&self.rules);
         let dns = Arc::clone(&self.dns_handler);
         let am = Arc::clone(&self.app_manager);
-        let wf = Arc::clone(&self.web_filter);
         let stop = Arc::clone(&self.stop_signal);
-        let tx = app_handle.clone();
         let settings_arc = Arc::clone(&self.settings);
-
-        // Web Filter Loader Thread
-        let wf_loader = Arc::clone(&self.web_filter);
-        let tx_loader = app_handle.clone();
-        let settings_arc_loader = Arc::clone(&settings_arc);
-
-        std::thread::Builder::new()
-            .name("web_filter_loader".to_string())
-            .spawn(move || {
-                let ts = Self::now_ts();
-                // Prioritize the user's configured request: "website"
-                // We check settings first, but default strictly to "website" if empty/invalid.
-                let path_str = {
-                    let s = settings_arc_loader.read().unwrap();
-                    if s.website_path.is_empty() {
-                        default_website_path()
-                    } else {
-                        s.website_path.clone()
-                    }
-                };
-
-                emit_log_event(
-                    &tx_loader,
-                    LogEntry {
-                        id: format!("{}-web-load-start", ts),
-                        timestamp: ts,
-                        level: LogLevel::Info,
-                        message: format!("Loading threat intelligence from: {}", path_str),
-                    },
-                );
-
-                // Execute the load
-                match wf_loader.load_from_website_folder(&path_str) {
-                    Ok(count) => {
-                        emit_log_event(
-                            &tx_loader,
-                            LogEntry {
-                                id: format!("{}-web-load-success", Self::now_ts()),
-                                timestamp: Self::now_ts(),
-                                level: LogLevel::Success,
-                                message: format!("WebFilter Loaded: {} rules active.", count),
-                            },
-                        );
-                    }
-                    Err(e) => {
-                        emit_log_event(
-                            &tx_loader,
-                            LogEntry {
-                                id: format!("{}-web-load-error", Self::now_ts()),
-                                timestamp: Self::now_ts(),
-                                level: LogLevel::Error,
-                                message: format!("Failed to load 'website' folder: {}", e),
-                            },
-                        );
-                    }
-                }
-            })
-            .expect("failed to spawn web_filter_loader thread");
 
         // OPEN WINDIVERT HANDLE ONCE
         // The embedded proxy uses http-mitm-proxy which operates at the TCP/HTTP layer,
@@ -3284,15 +2640,12 @@ impl FirewallEngine {
             Ok(d) => WinDivertArc(Arc::new(d)),
             Err(e) => {
                 let ts = Self::now_ts();
-                emit_log_event(
-                    &tx,
-                    LogEntry {
-                        id: format!("{}-divert-fail", ts),
-                        timestamp: ts,
-                        level: LogLevel::Error,
-                        message: format!("WinDivert Open Failed: {:?}", e),
-                    },
-                );
+                emit_log_event(LogEntry {
+                    id: format!("{}-divert-fail", ts),
+                    timestamp: ts,
+                    level: LogLevel::Error,
+                    message: format!("WinDivert Open Failed: {:?}", e),
+                });
                 return;
             }
         };
@@ -3302,25 +2655,19 @@ impl FirewallEngine {
 
         let ts = Self::now_ts();
         let sdk_count = self.sdk.read().unwrap().rules.len();
-        emit_log_event(
-            &tx,
-            LogEntry {
-                id: format!("{}-sdk-init", ts),
-                timestamp: ts,
-                level: LogLevel::Info,
-                message: format!("SDK Registry: {} rules active.", sdk_count),
-            },
-        );
+        emit_log_event(LogEntry {
+            id: format!("{}-sdk-init", ts),
+            timestamp: ts,
+            level: LogLevel::Info,
+            message: format!("SDK Registry: {} rules active.", sdk_count),
+        });
 
-        emit_log_event(
-            &tx,
-            LogEntry {
-                id: format!("{}-divert-active", ts),
-                timestamp: ts,
-                level: LogLevel::Success,
-                message: "Firewall Engine ACTIVE (RADICAL Parallel Mode Enabled)".into(),
-            },
-        );
+        emit_log_event(LogEntry {
+            id: format!("{}-divert-active", ts),
+            timestamp: ts,
+            level: LogLevel::Success,
+            message: "Firewall Engine ACTIVE (RADICAL Parallel Mode Enabled)".into(),
+        });
 
         let tls_proxy_cfg = {
             let settings = settings_arc.read().unwrap();
@@ -3328,420 +2675,27 @@ impl FirewallEngine {
         };
         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
             let ts = Self::now_ts();
-            emit_log_event(
-                &tx,
-                LogEntry {
-                    id: format!("{}-tls-proxy-mode", ts),
-                    timestamp: ts,
-                    level: LogLevel::Info,
-                    message: format!(
-                        "TLS Proxy mode enabled (embedded): proxy={}:{}, block_quic_udp_443={}",
-                        tls_proxy_cfg.listen_host,
-                        tls_proxy_cfg.listen_port,
-                        tls_proxy_cfg.block_quic_udp_443,
-                    ),
-                },
-            );
+            emit_log_event(LogEntry {
+                id: format!("{}-tls-proxy-mode", ts),
+                timestamp: ts,
+                level: LogLevel::Info,
+                message: format!(
+                    "TLS Proxy mode enabled (embedded): proxy={}:{}, block_quic_udp_443={}",
+                    tls_proxy_cfg.listen_host,
+                    tls_proxy_cfg.listen_port,
+                    tls_proxy_cfg.block_quic_udp_443,
+                ),
+            });
         } else {
             let ts = Self::now_ts();
-            emit_log_event(
-                &tx,
-                LogEntry {
-                    id: format!("{}-tls-proxy-disabled", ts),
-                    timestamp: ts,
-                    level: LogLevel::Info,
-                    message: "TLS Proxy mode disabled or not auto-started - Windows proxy cleanup enforced".into(),
-                },
-            );
-        }
-        self.sync_proxy_runtime(&tx);
-
-        {
-            let am_telemetry = Arc::clone(&am);
-            let tx_telemetry = tx.clone();
-            tauri::async_runtime::spawn(async move {
-                let mut carry = String::new();
-                loop {
-                    match ClientOptions::new().open(SANCTUM_FIREWALL_TELEMETRY_PIPE) {
-                        Ok(mut client) => {
-                            let now = Self::now_ts();
-                            emit_log_event(
-                                &tx_telemetry,
-                                LogEntry {
-                                    id: format!("{}-sanctum-telemetry-connected", now),
-                                    timestamp: now,
-                                    level: LogLevel::Success,
-                                    message: "Connected to Sanctum ETW URL telemetry relay"
-                                        .to_string(),
-                                },
-                            );
-
-                            let mut buffer = vec![0u8; 8192];
-                            loop {
-                                match client.read(&mut buffer).await {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        carry.push_str(&String::from_utf8_lossy(&buffer[..n]));
-                                        while let Some(pos) = carry.find('\n') {
-                                            let line = carry[..pos].trim().to_string();
-                                            carry = carry[pos + 1..].to_string();
-                                            if line.is_empty() {
-                                                continue;
-                                            }
-
-                                            if let Ok(syscall) =
-                                                serde_json::from_str::<Syscall>(&line)
-                                                && let NtFunction::NetworkActivity(data) =
-                                                    syscall.data
-                                            {
-                                                let url = match data {
-                                                    NetworkActivityData::Http(http) => http.url,
-                                                    NetworkActivityData::WinINet(wininet) => {
-                                                        wininet.url
-                                                    }
-                                                };
-                                                if !url.trim().is_empty() {
-                                                    am_telemetry
-                                                        .ghost_urls
-                                                        .write()
-                                                        .unwrap()
-                                                        .insert(syscall.pid, url);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Err(_) => break,
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            tokio::time::sleep(Duration::from_secs(1)).await;
-                        }
-                    }
-                }
+            emit_log_event(LogEntry {
+                id: format!("{}-tls-proxy-disabled", ts),
+                timestamp: ts,
+                level: LogLevel::Info,
+                message: "TLS Proxy mode disabled or not auto-started - Windows proxy cleanup enforced".into(),
             });
         }
-
-        // PENDING APP MONITOR THREAD
-        // Checks for new unknown apps and asks the UI
-        let am_monitor = Arc::clone(&am);
-        let tx_monitor = app_handle.clone();
-
-        std::thread::Builder::new()
-            .name("pending_monitor".to_string())
-            .spawn(move || {
-                loop {
-                    let has_active_alert = am_monitor.active_alert.read().unwrap().is_some();
-                    if has_active_alert {
-                        std::thread::sleep(Duration::from_millis(120));
-                        continue;
-                    }
-
-                    let mut app_opt = None;
-                    if let Ok(mut pending) = am_monitor.pending.write() {
-                        app_opt = pending.pop_front();
-                    }
-
-                    if let Some(app) = app_opt {
-                        // 1. Store it as the active alert for windows to fetch if they miss the emit
-                        {
-                            let mut active = am_monitor.active_alert.write().unwrap();
-                            am_monitor.reset_view_index();
-                            *active = Some(app.clone());
-                        }
-
-                        // 1. Trigger Alert Window Spawning logic
-                        Self::spawn_alert_window(&tx_monitor);
-
-                        // 2. Emit data to all windows (Main + Alert)
-                        if let Some(alert) = am_monitor.get_active_alert() {
-                            let _ = tx_monitor.emit("ask_app_decision", alert);
-                        }
-
-                        // Don't spam the UI
-                        std::thread::sleep(Duration::from_millis(150));
-
-                        // 3. Re-emit after delay so queue_total reflects any items
-                        //    that were enqueued while the window was opening.
-                        if let Some(alert) = am_monitor.get_active_alert() {
-                            let _ = tx_monitor.emit("ask_app_decision", alert);
-                        }
-                    } else {
-                        std::thread::sleep(Duration::from_millis(120));
-                    }
-                }
-            })
-            .expect("failed to spawn pending_monitor thread");
-
-        // OWLYSHIELD HIPS PIPE READER
-        // Receives registry/HIPS prompts from Owlyshield and feeds them into the
-        // same pending alert queue used by firewall network prompts.
-        {
-            let am_hips = Arc::clone(&am);
-            let stop_hips = Arc::clone(&stop);
-            let tx_hips = app_handle.clone();
-            std::thread::Builder::new()
-                .name("owlyshield_hips_pipe".to_string())
-                .spawn(move || {
-                    use std::ffi::OsStr;
-                    use std::net::{IpAddr, Ipv4Addr};
-                    use std::os::windows::ffi::OsStrExt;
-                    use windows::Win32::Foundation::{
-                        CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE,
-                        INVALID_HANDLE_VALUE,
-                    };
-                    use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_INBOUND, ReadFile};
-                    use windows::Win32::System::Pipes::{
-                        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
-                        GetNamedPipeClientProcessId, NAMED_PIPE_MODE, PIPE_UNLIMITED_INSTANCES,
-                    };
-                    use windows::core::PCWSTR;
-
-                    let pipe_name = r"\\.\pipe\HydraHipEvent";
-                    let wide_name: Vec<u16> = OsStr::new(pipe_name)
-                        .encode_wide()
-                        .chain(std::iter::once(0u16))
-                        .collect();
-                    while !stop_hips.load(Ordering::Relaxed) {
-                        let handle: HANDLE = unsafe {
-                            CreateNamedPipeW(
-                                PCWSTR(wide_name.as_ptr()),
-                                PIPE_ACCESS_INBOUND,
-                                NAMED_PIPE_MODE(0),
-                                PIPE_UNLIMITED_INSTANCES,
-                                0,
-                                4096,
-                                0,
-                                None,
-                            )
-                        };
-
-                        if handle == INVALID_HANDLE_VALUE {
-                            std::thread::sleep(Duration::from_secs(2));
-                            continue;
-                        }
-
-                        let connected = unsafe { ConnectNamedPipe(handle, None) }.is_ok()
-                            || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
-
-                        if !connected {
-                            unsafe {
-                                let _ = DisconnectNamedPipe(handle);
-                                let _ = CloseHandle(handle);
-                            }
-                            std::thread::sleep(Duration::from_millis(250));
-                            continue;
-                        }
-
-                        let mut client_pid: u32 = 0;
-                        let client_ok =
-                            unsafe { GetNamedPipeClientProcessId(handle, &mut client_pid) }.is_ok()
-                                && client_pid != 0;
-
-                        if !client_ok {
-                            unsafe {
-                                let _ = DisconnectNamedPipe(handle);
-                                let _ = CloseHandle(handle);
-                            }
-                            continue;
-                        }
-
-                        let mut buf = vec![0u8; 4096];
-                        let mut leftover = String::new();
-
-                        loop {
-                            let mut bytes_read: u32 = 0;
-                            let ok = unsafe {
-                                ReadFile(
-                                    handle,
-                                    Some(buf.as_mut_slice()),
-                                    Some(&mut bytes_read as *mut u32),
-                                    None,
-                                )
-                            };
-
-                            if ok.is_err() || bytes_read == 0 {
-                                break;
-                            }
-
-                            leftover
-                                .push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
-
-                            while let Some(pos) = leftover.find('\n') {
-                                let line = leftover[..pos].trim().to_string();
-                                leftover = leftover[pos + 1..].to_string();
-
-                                if let Some(rest) = line.strip_prefix("HIPS_ASK:") {
-                                    let mut parts = rest.splitn(7, '|');
-                                    let request_id = parts.next().unwrap_or("").trim().to_string();
-                                    let process_id = parts
-                                        .next()
-                                        .unwrap_or("0")
-                                        .trim()
-                                        .parse::<u32>()
-                                        .unwrap_or(0);
-                                    let name =
-                                        parts.next().unwrap_or("Owlyshield").trim().to_string();
-                                    let path = parts.next().unwrap_or("").trim().to_string();
-                                    let alert_kind =
-                                        parts.next().unwrap_or("behavior").trim().to_string();
-                                    let target = parts.next().unwrap_or("").trim().to_string();
-                                    let reason = parts
-                                        .next()
-                                        .unwrap_or("Owlyshield HIPS detection")
-                                        .trim()
-                                        .to_string();
-
-                                    if !request_id.is_empty() {
-                                        let enqueued = am_hips.enqueue_pending_app(
-                                            PendingApp {
-                                                process_id,
-                                                name,
-                                                path,
-                                                dst_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-                                                dst_port: 0,
-                                                protocol: Protocol::Raw(0),
-                                                hostname: None,
-                                                reason: Some(reason),
-                                                request_id: Some(request_id),
-                                                alert_source: Some("owlyshield".to_string()),
-                                                alert_kind: Some(alert_kind),
-                                                target: Some(target),
-                                                decision_key: None,
-                                                full_url: None,
-                                                http_method: None,
-                                                http_path: None,
-                                                http_user_agent: None,
-                                                http_content_type: None,
-                                                http_referer: None,
-                                                http_request_body: None,
-                                                http_response_body: None,
-                                                payload_sample: None,
-                                                detected_file_type: None,
-                                                packet_json: None,
-                                                queue_position: 1,
-                                                queue_total: 1,
-                                            },
-                                            false,
-                                        );
-                                        if enqueued {
-                                            if let Some(active_alert) = am_hips.get_active_alert() {
-                                                let _ =
-                                                    tx_hips.emit("ask_app_decision", active_alert);
-                                            }
-                                        }
-                                    }
-                                } else if let Some((rest, trust_message)) = line
-                                    .strip_prefix("HIPS_TRUST:")
-                                    .map(|rest| (rest, true))
-                                    .or_else(|| {
-                                        line.strip_prefix("HIPS_VERDICT:").map(|rest| (rest, false))
-                                    })
-                                {
-                                    let parts = rest.split('|').collect::<Vec<_>>();
-                                    let pid = parts
-                                        .get(0)
-                                        .copied()
-                                        .unwrap_or("0")
-                                        .parse::<u32>()
-                                        .unwrap_or(0);
-                                    let path = parts.get(1).copied().unwrap_or("").trim();
-                                    let verdict = normalize_openedr_verdict(
-                                        parts.get(2).copied(),
-                                        trust_message,
-                                    );
-                                    let details = if parts.len() > 3 {
-                                        parts[3..].join(" | ")
-                                    } else {
-                                        parts.get(2).copied().unwrap_or("").trim().to_string()
-                                    };
-
-                                    if pid != 0 {
-                                        if verdict.is_cloud_trusted() {
-                                            am_hips.cloud_trusted_pids.write().unwrap().insert(pid);
-                                        } else {
-                                            am_hips
-                                                .cloud_trusted_pids
-                                                .write()
-                                                .unwrap()
-                                                .remove(&pid);
-                                        }
-                                        am_hips
-                                            .openedr_verdicts
-                                            .write()
-                                            .unwrap()
-                                            .insert(pid, verdict.label().to_string());
-
-                                        let details_suffix = if details.trim().is_empty() {
-                                            String::new()
-                                        } else {
-                                            format!(" ({})", details.trim())
-                                        };
-                                        emit_log_event(
-                                            &tx_hips,
-                                            LogEntry {
-                                                id: format!(
-                                                    "openedr_verdict_{}_{}",
-                                                    pid,
-                                                    SystemTime::now()
-                                                        .duration_since(UNIX_EPOCH)
-                                                        .unwrap_or_default()
-                                                        .as_millis()
-                                                ),
-                                                timestamp: SystemTime::now()
-                                                    .duration_since(UNIX_EPOCH)
-                                                    .unwrap_or_default()
-                                                    .as_millis()
-                                                    as u64,
-                                                level: verdict.log_level(),
-                                                message: format!(
-                                                    "[OpenEDR Verdict] {} => {}{}",
-                                                    if path.is_empty() { "Unknown" } else { path },
-                                                    verdict.label(),
-                                                    details_suffix
-                                                ),
-                                            },
-                                        );
-                                    }
-                                }
-                            }
-                        }
-
-                        unsafe {
-                            let _ = DisconnectNamedPipe(handle);
-                            let _ = CloseHandle(handle);
-                        }
-                    }
-                })
-                .expect("failed to spawn owlyshield_hips_pipe thread");
-        }
-
-        // RAW PACKET UI EMITTER
-        // Keep frontend traffic off the packet workers by using a bounded queue.
-        let (raw_packet_tx, raw_packet_rx) =
-            std::sync::mpsc::sync_channel::<crate::sdk::RawPacket>(512);
-        {
-            let stop_raw = Arc::clone(&stop);
-            let tx_raw = app_handle.clone();
-            std::thread::Builder::new()
-                .name("raw_packet_emitter".to_string())
-                .spawn(move || {
-                    while !stop_raw.load(Ordering::Relaxed) {
-                        match raw_packet_rx.recv_timeout(Duration::from_millis(250)) {
-                            Ok(raw_packet) => {
-                                let _ = tx_raw.emit("raw_packet", raw_packet);
-                            }
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                        }
-                    }
-
-                    while let Ok(raw_packet) = raw_packet_rx.try_recv() {
-                        let _ = tx_raw.emit("raw_packet", raw_packet);
-                    }
-                })
-                .expect("failed to spawn raw_packet_emitter thread");
-        }
+        self.sync_proxy_runtime();
 
         // ── NETWORK EVENT PIPE WRITER ────────────────────────────────────────────
         // Sends real network I/O events to the AV behavior engine so it can track
@@ -3839,9 +2793,7 @@ impl FirewallEngine {
         let num_workers = 8; // Increased workers for parallel processing
         for worker_id in 0..num_workers {
             let stats_w = Arc::clone(&stats);
-            let rules_w = Arc::clone(&rules);
             let am_w = Arc::clone(&am);
-            let wf_w = Arc::clone(&wf);
             let stop_w = Arc::clone(&stop);
             let settings_w = Arc::clone(&settings_arc);
             let dns_w = Arc::clone(&dns);
@@ -3851,10 +2803,8 @@ impl FirewallEngine {
             let firefox_policy_ready_w = Arc::clone(&self.firefox_policy_ready);
             let browser_mitm_warning_cache_w = Arc::clone(&self.browser_mitm_warning_cache);
             let network_whitelist_index_w = Arc::clone(&self.network_whitelist_index);
-            let tx_log = app_handle.clone();
             let divert_w = divert.clone();
             let net_ev_tx = net_event_tx.clone();
-            let raw_packet_tx_w = raw_packet_tx.clone();
             let nat_table_w = self.nat_table.clone();
 
             std::thread::Builder::new()
@@ -3873,18 +2823,15 @@ impl FirewallEngine {
                                     && !settings_w.read().unwrap().show_blocked_logs_only
                                 {
                                     let ts = Self::now_ts();
-                                    emit_log_event(
-                                        &tx_log,
-                                        LogEntry {
-                                            id: format!("{}-worker-{}-count", ts, worker_id),
-                                            timestamp: ts,
-                                            level: LogLevel::Info,
-                                            message: format!(
-                                                "Worker {} received {} packets",
-                                                worker_id, packet_count
-                                            ),
-                                        },
-                                    );
+                                    emit_log_event(LogEntry {
+                                        id: format!("{}-worker-{}-count", ts, worker_id),
+                                        timestamp: ts,
+                                        level: LogLevel::Info,
+                                        message: format!(
+                                            "Worker {} received {} packets",
+                                            worker_id, packet_count
+                                        ),
+                                    });
                                 }
                                 // println!("DEBUG: Worker Recv Packet len={}", packet.data.len());
                                 let outbound = packet.address.outbound();
@@ -3958,18 +2905,13 @@ impl FirewallEngine {
                                     &addr_bytes,
                                     outbound,
                                     &stats_w,
-                                    &rules_w,
                                     &am_w,
-                                    &wf_w,
                                     &settings_w,
                                     &dns_w,
                                     &sdk_w,
                                     &fcheck_w,
-                                    &tx_log,
                                     pid,
                                     &pre_parsed,
-                                    &windows_root_trust_ready_w,
-                                    &firefox_policy_ready_w,
                                     &browser_mitm_warning_cache_w,
                                     &network_whitelist_index_w,
                                 );
@@ -3992,83 +2934,6 @@ impl FirewallEngine {
                                             let _ = net_ev_tx.send(msg);
                                             notified_pids.insert(pid);
                                         }
-                                    }
-                                }
-
-                                // EMIT RAW PACKET FOR UI (Wireshark-like view)
-                                if let Some(info) = decision_info {
-                                    let show_blocked_only =
-                                        settings_w.read().unwrap().show_blocked_logs_only;
-                                    if !(show_blocked_only && decision.should_forward) {
-                                        let ts = Self::now_ts();
-                                        let app_info = am_w.info_cache.get_info(pid);
-
-                                        let payload_preview = if decision.packet_data.len() > 32 {
-                                            format!(
-                                                "{}...",
-                                                String::from_utf8_lossy(
-                                                    &decision.packet_data[..32]
-                                                )
-                                                .replace("\n", " ")
-                                            )
-                                        } else {
-                                            String::from_utf8_lossy(&decision.packet_data)
-                                                .replace("\n", " ")
-                                        };
-
-                                        let mut raw_packet = crate::sdk::RawPacket {
-                                            id: format!(
-                                                "{}-{}-{}",
-                                                ts, info.src_port, info.dst_port
-                                            ),
-                                            timestamp: ts,
-                                            src_ip: info.src_ip.to_string(),
-                                            dst_ip: info.dst_ip.to_string(),
-                                            src_port: info.src_port,
-                                            dst_port: info.dst_port,
-                                            protocol: info.protocol.clone(),
-                                            length: decision.packet_data.len(),
-                                            payload_hex: decision
-                                                .packet_data
-                                                .iter()
-                                                .map(|b| format!("{:02X}", b))
-                                                .collect::<Vec<_>>()
-                                                .join(" "),
-                                            payload_preview,
-                                            summary: format!("{} -> {}", info.src_ip, info.dst_ip),
-                                            process_id: pid,
-                                            process_name: app_info.name,
-                                            process_path: app_info.path,
-                                            action: if decision.should_forward {
-                                                "Allow".to_string()
-                                            } else {
-                                                "Block".to_string()
-                                            },
-                                            rule: decision._reason.clone(),
-                                            hostname: info.hostname.clone(),
-                                        };
-
-                                        // Enrich summary with hostname if available
-                                        if let Some(ref h) = raw_packet.hostname {
-                                            raw_packet.summary =
-                                                format!("{} ({})", raw_packet.summary, h);
-                                        } else {
-                                            // Snooping fallback for raw packet display
-                                            if let Some(domain) =
-                                                dns_w.resolve_ip(&info.dst_ip.to_string())
-                                            {
-                                                raw_packet.hostname = Some(domain.clone());
-                                                raw_packet.summary =
-                                                    format!("{} ({})", raw_packet.summary, domain);
-                                            } else if let Some(domain) =
-                                                dns_w.resolve_ip(&info.src_ip.to_string())
-                                            {
-                                                raw_packet.hostname = Some(domain.clone());
-                                                raw_packet.summary =
-                                                    format!("{} ({})", raw_packet.summary, domain);
-                                            }
-                                        }
-                                        let _ = raw_packet_tx_w.try_send(raw_packet);
                                     }
                                 }
 
@@ -4248,21 +3113,18 @@ impl FirewallEngine {
                                     break;
                                 } else {
                                     let ts = Self::now_ts();
-                                    emit_log_event(
-                                        &tx_log,
-                                        LogEntry {
-                                            id: format!(
-                                                "{}-worker-{}-err-{}",
-                                                ts, worker_id, packet_count
-                                            ),
-                                            timestamp: ts,
-                                            level: LogLevel::Error,
-                                            message: format!(
-                                                "Worker {} Recv Error: {} (count: {})",
-                                                worker_id, err_str, packet_count
-                                            ),
-                                        },
-                                    );
+                                    emit_log_event(LogEntry {
+                                        id: format!(
+                                            "{}-worker-{}-err-{}",
+                                            ts, worker_id, packet_count
+                                        ),
+                                        timestamp: ts,
+                                        level: LogLevel::Error,
+                                        message: format!(
+                                            "Worker {} Recv Error: {} (count: {})",
+                                            worker_id, err_str, packet_count
+                                        ),
+                                    });
                                     std::thread::sleep(Duration::from_millis(100));
                                 }
                             }
@@ -4278,18 +3140,13 @@ impl FirewallEngine {
         address_data: &[u8],
         outbound: bool,
         stats: &Arc<Statistics>,
-        rules: &Arc<RwLock<Vec<FirewallRule>>>,
         am: &Arc<AppManager>,
-        wf: &Arc<WebFilter>,
         settings: &Arc<RwLock<FirewallSettings>>,
         dns_handler: &Arc<DnsHandler>,
         sdk: &Arc<RwLock<crate::sdk::SdkRegistry>>,
         file_checker: &Arc<FileMagicChecker>,
-        tx: &AppHandle,
         process_id: u32,
         pre_parsed: &Option<(PacketInfo, usize)>,
-        windows_root_trust_ready: &Arc<AtomicBool>,
-        firefox_policy_ready: &Arc<AtomicBool>,
         browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
         network_whitelist_index: &Arc<RwLock<CidrIndex>>,
     ) -> PacketDecision {
@@ -4328,17 +3185,13 @@ impl FirewallEngine {
         // Initialize decision state
         let mut should_forward = true;
         let mut reason: Option<String> = None;
-        let mut remember_pending_as_unknown_app = true;
-        let mut website_decision_key: Option<String> = None;
-        let mut website_target: Option<String> = None;
-        let (late_blocking_mode, tls_proxy_cfg, log_mode, show_blocked_only, no_alert_mode) = {
+        let (late_blocking_mode, tls_proxy_cfg, log_mode, show_blocked_only) = {
             let s = settings.read().unwrap();
             (
                 s.late_blocking_mode,
                 s.tls_proxy.clone(),
                 s.log_mode,
                 s.show_blocked_logs_only && s.show_blocked_graphics_only,
-                s.no_alert_mode,
             )
         };
 
@@ -4416,34 +3269,16 @@ impl FirewallEngine {
                     .or_else(|| dns_handler.resolve_ip(&info.dst_ip.to_string()))
                     .unwrap_or_else(|| info.dst_ip.to_string());
                 let now = Self::now_ts();
-                Self::maybe_emit_browser_mitm_warning(
-                    &tx,
-                    am,
-                    no_alert_mode,
-                    &tls_proxy_cfg,
-                    &app_info_loopback.name,
-                    &app_info_loopback.path,
-                    pid,
-                    info.hostname.as_deref(),
-                    info.full_url.as_deref(),
-                    &host_label,
-                    windows_root_trust_ready,
-                    firefox_policy_ready,
-                    browser_mitm_warning_cache,
-                );
                 if !show_blocked_only {
-                    emit_log_event(
-                        &tx,
-                        LogEntry {
-                            id: format!("{}-proxy-intercept-{}", now, pid),
-                            timestamp: now,
-                            level: LogLevel::Info,
-                            message: format!(
-                                "Proxy Intercept: {} (pid={}) → {} via embedded proxy",
-                                app_info_loopback.name, pid, host_label
-                            ),
-                        },
-                    );
+                    emit_log_event(LogEntry {
+                        id: format!("{}-proxy-intercept-{}", now, pid),
+                        timestamp: now,
+                        level: LogLevel::Info,
+                        message: format!(
+                            "Proxy Intercept: {} (pid={}) → {} via embedded proxy",
+                            app_info_loopback.name, pid, host_label
+                        ),
+                    });
                 }
             }
 
@@ -4490,17 +3325,8 @@ impl FirewallEngine {
             matches!(info.protocol, Protocol::UDP) && (info.src_port == 53 || info.dst_port == 53);
         let dns_domain = info.dns_query.clone();
 
-        // 6. Resolve App Identity
-        let (mut app_decision, app_name, _) = am.check_app(&info);
-
-        // 7. Custom Firewall Rules (PRIORITY #1)
-        let current_rules = rules.read().unwrap();
-        let rules_need_file_type = current_rules
-            .iter()
-            .any(|rule| rule.enabled && !rule.file_types.is_empty());
-
-        let should_detect_file_type =
-            rules_need_file_type || (!late_blocking_mode && sdk_needs_file_type);
+        // SDK packet changers may require file type / entropy for their matching.
+        let should_detect_file_type = !late_blocking_mode && sdk_needs_file_type;
         if should_detect_file_type && !payload.is_empty() {
             if let Some(dtype) = file_checker.check(payload) {
                 am.url_cache
@@ -4517,114 +3343,6 @@ impl FirewallEngine {
             && !payload.is_empty()
         {
             info.payload_entropy = Some(Self::shannon_entropy(payload));
-        }
-
-        for rule in current_rules.iter() {
-            if rule.matches(&info, &app_name) {
-                if rule.block || rule.terminate || rule.quarantine || rule.kill_and_remove {
-                    should_forward = false;
-                    let rule_reason = format!("Rule [{}]: {}", rule.name, rule.description);
-                    reason = Some(rule_reason.clone());
-
-                    if rule.terminate || rule.kill_and_remove {
-                        Self::terminate_process(pid);
-                    }
-                    if rule.quarantine || rule.kill_and_remove {
-                        Self::quarantine_file(&app_info.path, &rule_reason);
-                    }
-                    break;
-                } else if rule.ask_user {
-                    should_forward = false;
-                    app_decision = AppDecision::Pending;
-                    reason = Some(format!("Rule [{}]: User decision requested", rule.name));
-                    break;
-                } else {
-                    should_forward = true;
-                    reason = Some(format!("Rule Allowed: {}", rule.name));
-                }
-            }
-        }
-        drop(current_rules);
-
-        let remote_ip = if info.outbound {
-            info.dst_ip
-        } else {
-            info.src_ip
-        };
-        if let Some(web_match) = wf.find_match(
-            remote_ip,
-            info.hostname.as_deref(),
-            info.full_url.as_deref(),
-            &info.payload_urls,
-            &info.payload_domains,
-        ) {
-            let decision_key = web_match.decision_key();
-            website_target = Some(web_match.target.clone());
-            website_decision_key = Some(decision_key.clone());
-
-            match am.get_decision(&decision_key) {
-                Some(AppDecision::Allow) => {
-                    should_forward = true;
-                    let reason_prefix = if Self::proxy_bypass_matches_target(
-                        &tls_proxy_cfg,
-                        info.hostname.as_deref(),
-                        info.full_url.as_deref(),
-                        Some(&web_match.target),
-                    ) {
-                        "Website trusted with TLS proxy bypass"
-                    } else {
-                        "Website trusted"
-                    };
-                    reason = Some(format!("{}: {}", reason_prefix, web_match.target));
-                }
-                Some(AppDecision::AllowOnce) => {
-                    should_forward = true;
-                    reason = Some(format!("Website allowed once: {}", web_match.target));
-                    am.remove_decision(&decision_key.to_lowercase());
-                }
-                Some(AppDecision::Block) => {
-                    should_forward = false;
-                    app_decision = AppDecision::Block;
-                    remember_pending_as_unknown_app = false;
-                    reason = Some(format!(
-                        "Website blocked [{}]: {}",
-                        web_match.target, web_match.reason
-                    ));
-                }
-                Some(AppDecision::Pending) | None => {
-                    should_forward = false;
-                    app_decision = AppDecision::Pending;
-                    remember_pending_as_unknown_app = false;
-                    reason = Some(format!(
-                        "Website intelligence match [{}]: {}",
-                        web_match.target, web_match.reason
-                    ));
-                }
-            }
-        }
-
-        // 8. App Decision Check
-        if should_forward {
-            match app_decision {
-                AppDecision::Block => {
-                    should_forward = false;
-                    reason = Some(format!("Blocked App: {}", app_name));
-                }
-                AppDecision::Allow => {
-                    should_forward = true;
-                    reason = Some(format!("App Allowed: {}", app_name));
-                }
-                AppDecision::AllowOnce => {
-                    should_forward = true;
-                    reason = Some(format!("App Allowed (Once): {}", app_name));
-                    am.remove_decision(&app_name.to_lowercase());
-                }
-                AppDecision::Pending => {
-                    // CRITICAL FIX: Block packets when app decision is pending
-                    should_forward = false;
-                    reason = Some(format!("App pending decision: {}", app_name));
-                }
-            }
         }
 
         // 9. SDK Rule Evaluation
@@ -4647,27 +3365,15 @@ impl FirewallEngine {
                     }
                     crate::sdk::RuleAction::TrafficAttack => {
                         // Log as attack but still forward (monitoring)
-                        emit_log_event(
-                            &tx,
-                            LogEntry {
-                                id: format!("{}-attack", Self::now_ts()),
-                                timestamp: Self::now_ts(),
-                                level: LogLevel::Warning,
-                                message: format!(
-                                    "Attack detected by [{}]: {}",
-                                    finding.rule_name, finding.description
-                                ),
-                            },
-                        );
-                    }
-                    crate::sdk::RuleAction::Ask => {
-                        should_forward = false;
-                        app_decision = AppDecision::Pending;
-                        remember_pending_as_unknown_app = false;
-                        reason = Some(format!(
-                            "SDK Rule [{}]: Pending user decision",
-                            finding.rule_name
-                        ));
+                        emit_log_event(LogEntry {
+                            id: format!("{}-attack", Self::now_ts()),
+                            timestamp: Self::now_ts(),
+                            level: LogLevel::Warning,
+                            message: format!(
+                                "Attack detected by [{}]: {}",
+                                finding.rule_name, finding.description
+                            ),
+                        });
                     }
                     crate::sdk::RuleAction::Terminate => {
                         should_forward = false;
@@ -4707,50 +3413,6 @@ impl FirewallEngine {
             &mut reason,
         );
 
-        // 11. Finalize Pending Decision (Trigger prompt if still unknown)
-        if app_decision == AppDecision::Pending && !no_alert_mode {
-            let enqueued = am.enqueue_pending_app(
-                PendingApp {
-                    process_id: pid,
-                    name: app_name.clone(),
-                    path: app_info.path.clone(),
-                    dst_ip: info.dst_ip,
-                    dst_port: info.dst_port,
-                    protocol: info.protocol.clone(),
-                    hostname: info.hostname.clone(),
-                    reason: reason.clone(),
-                    request_id: None,
-                    alert_source: website_decision_key.as_ref().map(|_| "website".to_string()),
-                    alert_kind: website_decision_key
-                        .as_ref()
-                        .map(|_| "malicious_website".to_string()),
-                    target: website_target
-                        .clone()
-                        .or_else(|| info.full_url.clone())
-                        .or_else(|| info.hostname.clone())
-                        .or_else(|| Some(format!("{}:{}", info.dst_ip, info.dst_port))),
-                    decision_key: website_decision_key.clone(),
-                    full_url: info.full_url.clone(),
-                    http_method: info.http_method.clone(),
-                    http_path: info.http_path.clone(),
-                    http_user_agent: info.http_user_agent.clone(),
-                    http_content_type: info.http_content_type.clone(),
-                    http_referer: info.http_referer.clone(),
-                    http_request_body: info.http_request_body.clone(),
-                    http_response_body: info.http_response_body.clone(),
-                    payload_sample: info.payload_sample.clone(),
-                    detected_file_type: info.detected_file_type.clone(),
-                    packet_json: serde_json::to_string_pretty(&info).ok(),
-                    queue_position: 1,
-                    queue_total: 1,
-                },
-                remember_pending_as_unknown_app,
-            );
-            if enqueued {
-                Self::refresh_active_alert_ui(am, tx);
-            }
-        }
-
         stats.packets_total.fetch_add(1, Ordering::Relaxed);
         if is_dns_query {
             if let Some(domain) = dns_domain.clone().or_else(|| info.hostname.clone()) {
@@ -4782,14 +3444,10 @@ impl FirewallEngine {
 
             if Self::is_tls_proxy_intercept_candidate(&info, outbound, &tls_proxy_cfg) {
                 Self::emit_tls_proxy_intercept_probe(
-                    tx,
                     am,
                     dns_handler,
                     &info,
                     &tls_proxy_cfg,
-                    no_alert_mode,
-                    windows_root_trust_ready,
-                    firefox_policy_ready,
                     browser_mitm_warning_cache,
                 );
             }
@@ -4852,15 +3510,12 @@ impl FirewallEngine {
                         .unwrap_or_else(|| "Allowed (no matching rule)".to_string())
                 };
 
-                emit_log_event(
-                    &tx,
-                    LogEntry {
-                        id: format!("{}-allow", now),
-                        timestamp: now,
-                        level: LogLevel::Success,
-                        message: format!("{} | {}", allow_reason, context),
-                    },
-                );
+                emit_log_event(LogEntry {
+                    id: format!("{}-allow", now),
+                    timestamp: now,
+                    level: LogLevel::Success,
+                    message: format!("{} | {}", allow_reason, context),
+                });
             }
         } else {
             stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
@@ -4896,18 +3551,15 @@ impl FirewallEngine {
                             }
                         })
                         .unwrap_or_else(|| "Blocked".to_string());
-                    emit_log_event(
-                        &tx,
-                        LogEntry {
-                            id: format!("{}-blocked", now),
-                            timestamp: now,
-                            level: LogLevel::Info,
-                            message: format!(
-                                "Firewall activity: blocked network | {} | {}",
-                                log_reason, context
-                            ),
-                        },
-                    );
+                    emit_log_event(LogEntry {
+                        id: format!("{}-blocked", now),
+                        timestamp: now,
+                        level: LogLevel::Info,
+                        message: format!(
+                            "Firewall activity: blocked network | {} | {}",
+                            log_reason, context
+                        ),
+                    });
                 }
             }
         }
@@ -4971,125 +3623,6 @@ impl FirewallEngine {
         match serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
             Ok(_) => Ok("YAML Syntax is Valid.".to_string()),
             Err(e) => Err(format!("Syntax Error: {}", e)),
-        }
-    }
-
-    fn alert_window_size<R: Runtime>(app: &AppHandle<R>) -> (f64, f64) {
-        if let Some(engine) = app.try_state::<Arc<FirewallEngine>>() {
-            if let Some(alert) = engine.get_active_alert() {
-                let text_load = alert.name.len()
-                    + alert.path.len()
-                    + alert.reason.as_ref().map(|v| v.len()).unwrap_or(0)
-                    + alert.target.as_ref().map(|v| v.len()).unwrap_or(0)
-                    + alert.hostname.as_ref().map(|v| v.len()).unwrap_or(0);
-                let is_registry_alert = alert.alert_kind.as_deref() == Some("registry");
-                let width = if is_registry_alert {
-                    680.0
-                } else if text_load > 220 {
-                    620.0
-                } else {
-                    560.0
-                };
-                let base_height = if is_registry_alert { 320.0 } else { 280.0 };
-                let extra_lines = (text_load / 80) as f64;
-                let height = (base_height + extra_lines * 16.0).clamp(base_height, 460.0);
-                return (width, height);
-            }
-        }
-        (560.0, 280.0)
-    }
-
-    fn alert_window_position<R: Runtime>(
-        app: &AppHandle<R>,
-        width: f64,
-        height: f64,
-    ) -> Option<(f64, f64)> {
-        let monitor = app.primary_monitor().ok().flatten()?;
-        let size = monitor.size();
-        let scale = monitor.scale_factor();
-        let monitor_w = (size.width as f64) / scale;
-        let monitor_h = (size.height as f64) / scale;
-        Some((monitor_w - width - 20.0, monitor_h - height - 60.0))
-    }
-
-    pub fn spawn_alert_window<R: Runtime>(app: &AppHandle<R>) {
-        let (width, height) = Self::alert_window_size(app);
-        let alert_position = Self::alert_window_position(app, width, height);
-
-        // Window already exists (pre-warmed or reused): resize, reposition, show.
-        if let Some(win) = app.get_webview_window("firewall-alert") {
-            let mut reused_ok = win
-                .set_size(Size::Logical(LogicalSize::new(width, height)))
-                .is_ok();
-            if let Some((x, y)) = alert_position {
-                reused_ok &= win
-                    .set_position(Position::Logical(LogicalPosition::new(x, y)))
-                    .is_ok();
-            }
-            reused_ok &= win.show().is_ok();
-
-            if reused_ok {
-                reused_ok &= win.set_focus().is_ok();
-            }
-
-            if reused_ok {
-                return;
-            }
-
-            let _ = win.close();
-            std::thread::sleep(Duration::from_millis(60));
-        }
-
-        // Fallback: create window from scratch (should not normally be reached after prewarm).
-        let builder = WebviewWindowBuilder::new(
-            app,
-            "firewall-alert",
-            WebviewUrl::App("index.html?mode=alert".into()),
-        )
-        .title("HydraDragon Firewall Alert")
-        .inner_size(width, height)
-        .resizable(false)
-        .always_on_top(true)
-        .decorations(false)
-        .transparent(true)
-        .shadow(true);
-
-        if let Some((x, y)) = alert_position {
-            if let Ok(win) = builder.position(x, y).build() {
-                let _ = win.show();
-                let _ = win.set_focus();
-            }
-        } else if let Ok(win) = builder.build() {
-            let _ = win.show();
-            let _ = win.set_focus();
-        }
-    }
-
-    /// Create the alert window hidden at startup so it is fully loaded and its
-    /// event listener is already registered when the first alert arrives.
-    /// This eliminates WebView2 init + Wasm startup latency from alert display.
-    pub fn prewarm_alert_window<R: Runtime>(app: &AppHandle<R>) {
-        if app.get_webview_window("firewall-alert").is_some() {
-            return;
-        }
-        let builder = WebviewWindowBuilder::new(
-            app,
-            "firewall-alert",
-            WebviewUrl::App("index.html?mode=alert".into()),
-        )
-        .title("HydraDragon Firewall Alert")
-        .inner_size(560.0, 280.0)
-        .resizable(false)
-        .always_on_top(true)
-        .decorations(false)
-        .transparent(true)
-        .shadow(true)
-        .visible(false);
-
-        if let Some((x, y)) = Self::alert_window_position(app, 560.0, 280.0) {
-            let _ = builder.position(x, y).build();
-        } else {
-            let _ = builder.build();
         }
     }
 
@@ -5625,71 +4158,6 @@ impl FirewallEngine {
     /// 3. Kills the embedded proxy backend process if running.
     ///
     /// Safe to call more than once; subsequent calls are no-ops.
-    fn load_website_whitelists(&self) {
-        let website_path = {
-            let settings = self.settings.read().unwrap();
-            if settings.website_path.is_empty() {
-                default_website_path()
-            } else {
-                settings.website_path.clone()
-            }
-        };
-
-        let mut networks = Vec::new();
-        let mut load_network_csv = |path: PathBuf| {
-            if !path.exists() {
-                return;
-            }
-
-            if let Ok(content) = fs::read_to_string(path) {
-                for line in content.lines() {
-                    let entry = line.split(',').next().unwrap_or("").trim();
-                    let entry_lower = entry.to_ascii_lowercase();
-                    if entry.is_empty()
-                        || matches!(
-                            entry_lower.as_str(),
-                            "entry" | "ip" | "ipv4" | "ipv6" | "address"
-                        )
-                    {
-                        continue;
-                    }
-
-                    if entry.contains('.') || entry.contains(':') || entry.contains('/') {
-                        networks.push(entry.to_string());
-                    }
-                }
-            }
-        };
-
-        // --- Highest Priority: CIDR Whitelists (from CIDRWhiteListIPv4/IPv6.csv) ---
-        // These are checked first in packet decisions through the merged CIDR index.
-        // Reference-optimized variants are headerless, so header rows are filtered by value
-        // instead of always skipping the first line.
-        for filename in [
-            "CIDRWhiteListIPv4.csv",
-            "CIDRWhiteListIPv6.csv",
-            "CIDRWhiteListIPv4.optimized.csv",
-            "CIDRWhiteListIPv6.optimized.csv",
-        ] {
-            load_network_csv(PathBuf::from(&website_path).join(filename));
-        }
-
-        // Load IPv4 Whitelist (plain single IPs)
-        load_network_csv(PathBuf::from(&website_path).join("WhiteListIPv4.csv"));
-
-        // Load IPv6 Whitelist (plain single IPs)
-        load_network_csv(PathBuf::from(&website_path).join("WhiteListIPv6.csv"));
-
-        if !networks.is_empty() {
-            let mut settings = self.settings.write().unwrap();
-            settings.network_whitelist.extend(networks);
-            settings.network_whitelist.sort();
-            settings.network_whitelist.dedup();
-            let mut network_whitelist_index = self.network_whitelist_index.write().unwrap();
-            *network_whitelist_index = CidrIndex::from_cidrs(&settings.network_whitelist);
-        }
-    }
-
     pub fn stop(&self) {
         // Signal all worker loops to exit after their current recv() returns.
         self.stop_signal.store(true, Ordering::SeqCst);

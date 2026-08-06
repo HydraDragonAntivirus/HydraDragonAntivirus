@@ -7,13 +7,10 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.6", features = [] }
 embed-resource = "3.0.9"
 
 [dependencies]
 hydradragon-shared = { path = "../hydradragon-shared" }
-tauri = { version = "2.11.1", features = ["tray-icon"] }
-csv = "1.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
@@ -22,15 +19,13 @@ base64 = "0.22"
 hex = "0.4"
 regex = "1.12"
 lazy_static = "1.4"
-glob = "0.3"
 crossbeam-channel = "0.5"
 http-mitm-proxy = { path = "../http-mitm-proxy" }
 http-body-util = "0.1"
 bytes = "1"
 rcgen = "0.14.8"
 moka = { version = "0.12", features = ["sync"] }
-fastbloom = { version = "0.17", features = ["serde"] }
-bincode_next = "2.1.0"
+bincode_next = { package = "bincode", version = "2.0", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 url = "2.5.8"
 sha2 = "0.11.0"
