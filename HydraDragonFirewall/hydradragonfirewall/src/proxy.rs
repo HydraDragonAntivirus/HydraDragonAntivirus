@@ -437,6 +437,7 @@ async fn handle_proxy_request(
     let mock_packet = PacketInfo {
         timestamp: now_ts(),
         protocol: Protocol::TCP,
+        ip_proto: 6,
         src_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         dst_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         src_port: client_port,

@@ -18,8 +18,15 @@ Best-effort mapping (documented limitations):
     patterns match only when they also survive the SDK's lossy payload decode.
   * pcre           -> regex term (delimiters/flags stripped; /i -> (?i:...))
   * content w/ http.host|host|dns.query|tls.sni -> domain.domains
-  * flowbits, byte_test, dsize, within/distance/offset/depth, classtype,
-    reference, metadata, threshold, etc. -> ignored (best effort)
+  * ip_proto:N     -> ip_proto (numeric IP protocol; known names mapped)
+  * dsize:...      -> dsize (exact / min:max / >n / <n / min:max:mod:offset)
+  * byte_test:...  -> byte_test (nbytes/op/value/offset, big|little, string,
+    relative [treated as absolute offset], dec|hex|oct, no_case)
+  * flow:...       -> flow (established, to_client, to_server, stateless)
+  * flowbits:...   -> flowbits ops (set/unset/toggle/isset/isnotset);
+    flowbits:noalert -> private: true (rule still sets flags, emits no alert)
+  * threshold/classtype/reference/metadata/within/distance/offset/depth
+    and other stateful or cosmetic modifiers -> ignored (best effort)
   * bidirectional '<>' rules -> kept forward-only
 
 Every well-formed rule is converted. Negated content (content:!"..") cannot be
@@ -138,6 +145,39 @@ def emit_rule(rule: dict) -> list:
         lines.append("    regex:")
         lines.append("      pattern: %s" % yaml_quote(rule["regex"]["pattern"]))
         lines.append("      case_insensitive: false")
+    if rule.get("ip_proto") is not None:
+        lines.append("    ip_proto: %d" % rule["ip_proto"])
+    if rule.get("dsize"):
+        d = rule["dsize"]
+        lines.append("    dsize:")
+        for k in ("exact", "min", "max", "mod_divisor", "mod_offset"):
+            if d.get(k) is not None:
+                lines.append("      %s: %d" % (k, d[k]))
+    if rule.get("byte_test"):
+        lines.append("    byte_test:")
+        for bt in rule["byte_test"]:
+            lines.append("      - nbytes: %d" % bt["nbytes"])
+            lines.append("        operator: %s" % yaml_quote(bt["operator"]))
+            lines.append("        value: %d" % bt["value"])
+            lines.append("        offset: %d" % bt["offset"])
+            lines.append("        relative: %s" % ("true" if bt["relative"] else "false"))
+            lines.append("        big_endian: %s" % ("true" if bt["big_endian"] else "false"))
+            lines.append("        string: %s" % ("true" if bt["string"] else "false"))
+            lines.append("        base: %s" % bt["base"])
+            lines.append("        no_case: %s" % ("true" if bt["no_case"] else "false"))
+    if rule.get("flow"):
+        f = rule["flow"]
+        lines.append("    flow:")
+        for k in ("established", "to_client", "to_server", "stateless"):
+            if f.get(k):
+                lines.append("      %s: true" % k)
+    if rule.get("flowbits"):
+        lines.append("    flowbits:")
+        for op in rule["flowbits"]:
+            lines.append("      - op: %s" % op["op"])
+            lines.append("        flag: %s" % yaml_quote(op["flag"]))
+    if rule.get("private"):
+        lines.append("    private: true")
     return lines
 
 
@@ -263,6 +303,136 @@ def parse_port_list(token: str):
     return False, ports, ranges
 
 
+IP_PROTO_MAP = {
+    "tcp": 6, "udp": 17, "icmp": 1, "icmpv6": 58, "ipv6-icmp": 58,
+    "igmp": 2, "ggp": 3, "ipv4": 4, "st": 5, "egp": 8, "igp": 9,
+    "gre": 47, "esp": 50, "ah": 51, "sctp": 132, "dccp": 33,
+}
+
+
+def parse_ip_proto(value: str):
+    """ip_proto:N -> int or None. Accepts numbers and common protocol names."""
+    v = value.strip()
+    try:
+        return int(v, 0)
+    except ValueError:
+        return IP_PROTO_MAP.get(v.lower())
+
+
+def parse_dsize(value: str):
+    """dsize:!?N | dsize:>N | dsize:<N | dsize:min:max[:mod:offset] -> dict or None."""
+    v = value.strip()
+    if v.startswith("!"):
+        return None  # negated size cannot be expressed
+    m = {}
+    if v.startswith(">"):
+        try:
+            m["min"] = int(v[1:])
+            return m
+        except ValueError:
+            return None
+    if v.startswith("<"):
+        try:
+            m["max"] = int(v[1:])
+            return m
+        except ValueError:
+            return None
+    parts = v.split(":")
+    try:
+        if len(parts) == 1:
+            m["exact"] = int(parts[0])
+        elif len(parts) == 2:
+            m["min"] = int(parts[0])
+            m["max"] = int(parts[1])
+        elif len(parts) == 4:
+            m["min"] = int(parts[0])
+            m["max"] = int(parts[1])
+            m["mod_divisor"] = int(parts[2])
+            m["mod_offset"] = int(parts[3])
+        else:
+            return None
+    except ValueError:
+        return None
+    return m
+
+
+def _int_base(value: str, radix: int):
+    """Parse int honoring 0x/0o/0b prefixes (Suricata allows them regardless of
+    the base modifier), otherwise parse in the given radix."""
+    s = value.strip()
+    try:
+        if s.lower().startswith(("0x", "0o", "0b")):
+            return int(s, 0)
+        return int(s, radix)
+    except ValueError:
+        return None
+
+
+def parse_byte_test(value: str):
+    """byte_test:bytes_to_convert,operator,value,offset[,mods...] -> dict or None."""
+    v = value.strip().strip('"')
+    parts = v.split(",")
+    if len(parts) < 4:
+        return None
+    try:
+        nbytes = int(parts[0])
+        operator = parts[1]
+    except ValueError:
+        return None
+    mods = set(p.strip().lower() for p in parts[4:] if p.strip())
+    base = "dec"
+    if "hex" in mods:
+        base = "hex"
+    elif "oct" in mods:
+        base = "oct"
+    radix = 16 if base == "hex" else 8 if base == "oct" else 10
+    value_num = _int_base(parts[2], radix)
+    offset = _int_base(parts[3], radix)
+    if value_num is None or offset is None:
+        return None  # variable offsets (e.g. from isdataat) not expressible
+    if nbytes not in (1, 2, 4, 8):
+        nbytes = 1
+    return {
+        "nbytes": nbytes,
+        "operator": operator,
+        "value": value_num,
+        "offset": offset,
+        "relative": "relative" in mods,
+        "big_endian": "little" not in mods,
+        "string": "string" in mods,
+        "base": base,
+        "no_case": "no_case" in mods,
+    }
+
+
+def parse_flow(value: str):
+    """flow:established,to_client,to_server,stateless,... -> dict or None."""
+    mods = set(v.strip().lower() for v in value.split(","))
+    m = {}
+    if "established" in mods:
+        m["established"] = True
+    if "to_client" in mods:
+        m["to_client"] = True
+    if "to_server" in mods:
+        m["to_server"] = True
+    if "stateless" in mods:
+        m["stateless"] = True
+    return m or None
+
+
+def parse_flowbits(value: str):
+    """flowbits:op,flag[,flag...] -> (noalert, ops list)."""
+    parts = [p.strip() for p in value.split(",")]
+    op = parts[0].lower()
+    flags = [p for p in parts[1:] if p]
+    if op == "noalert":
+        return True, []
+    if op not in ("set", "unset", "isset", "isnotset", "toggle"):
+        return False, []
+    ops = [{"op": op, "flag": f} for f in flags]
+    return False, ops
+
+
 def decode_content(value: str):
     """Decode a Suricata content pattern (ascii + |hex| segments) to raw bytes.
     Hex groups may be multi-byte, e.g. |2822| == 0x28 0x22."""
@@ -366,6 +536,12 @@ def convert_line(line: str, rule_index: int = 0):
     domains = []
     domain_case_insensitive = False
     regex_terms = []
+    ip_proto = None
+    dsize = None
+    byte_tests = []
+    flow = None
+    flowbits_ops = []
+    noalert = False
 
     contents = []  # list of (raw, negated, modifiers_set)
     pcres = []     # list of (pattern, ci)
@@ -407,8 +583,29 @@ def convert_line(line: str, rule_index: int = 0):
                 sid = int(value)
             except ValueError:
                 pass
+        elif key == "ip_proto":
+            parsed = parse_ip_proto(value)
+            if parsed is not None:
+                ip_proto = parsed
+        elif key == "dsize":
+            parsed = parse_dsize(value)
+            if parsed is not None:
+                dsize = parsed
+        elif key == "byte_test":
+            parsed = parse_byte_test(value)
+            if parsed is not None:
+                byte_tests.append(parsed)
+        elif key == "flow":
+            parsed = parse_flow(value)
+            if parsed is not None:
+                flow = parsed
+        elif key == "flowbits":
+            noalert_fb, ops = parse_flowbits(value)
+            if noalert_fb:
+                noalert = True
+            flowbits_ops.extend(ops)
         else:
-            # flow, classtype, reference, metadata, flowbits, byte_test, etc.
+            # classtype, reference, metadata, threshold, etc.
             continue
 
     # Dispatch contents
@@ -439,7 +636,9 @@ def convert_line(line: str, rule_index: int = 0):
 
     has_matchers = bool(domains or regex_terms or src_ports or src_ranges
                         or dst_ports or dst_ranges or src_ips or src_cidrs
-                        or dst_ips or dst_cidrs)
+                        or dst_ips or dst_cidrs
+                        or ip_proto is not None or dsize is not None
+                        or byte_tests or flow is not None or flowbits_ops)
     if not has_matchers:
         stats["no_matchers"] += 1
 
@@ -466,6 +665,18 @@ def convert_line(line: str, rule_index: int = 0):
         rule["domain"] = {"domains": domains, "case_insensitive": domain_case_insensitive}
     if regex_terms:
         rule["regex"] = {"pattern": "(?s)" + ".*?".join(regex_terms), "case_insensitive": False}
+    if ip_proto is not None:
+        rule["ip_proto"] = ip_proto
+    if dsize is not None:
+        rule["dsize"] = dsize
+    if byte_tests:
+        rule["byte_test"] = byte_tests
+    if flow is not None:
+        rule["flow"] = flow
+    if flowbits_ops:
+        rule["flowbits"] = flowbits_ops
+    if noalert:
+        rule["private"] = True
 
     return rule
 

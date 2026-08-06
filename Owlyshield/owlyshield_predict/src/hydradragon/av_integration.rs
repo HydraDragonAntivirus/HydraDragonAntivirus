@@ -77,8 +77,6 @@ const PYTHON312_SUFFIX: &str = r"python312\python.exe";
 
 const MAX_SCANNABLE_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
 const SCAN_METADATA_CACHE_LIMIT: usize = 4096;
-const DIE_METADATA_WORKER_LIMIT: usize = 2;
-const DIE_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_millis(750);
 const MIN_PARALLEL_SCAN_REQUEST_WORKERS: usize = 20;
 const MAX_PARALLEL_SCAN_REQUEST_WORKERS: usize = 64;
 
@@ -98,8 +96,6 @@ const LATE_CHILD_SCAN_GRACE_MS: u64 = 30_000;
 const HYDRADRAGON_STATIC_RULES_DIR_NAME: &str = "static_rules";
 const HYDRADRAGON_STATIC_RULE_RELOAD_INTERVAL: Duration = Duration::from_secs(5);
 const SECURITY_DESCRIPTOR_REVISION_VALUE: u32 = 1;
-
-static ACTIVE_DIE_METADATA_SCANS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StaticDetectionMode {
@@ -237,16 +233,9 @@ pub struct EDRScanRequest {
     #[serde(default)]
     pub signature_status: Option<FileSignatureStatus>,
     #[serde(default)]
-    pub yara_x_matches: Option<Vec<String>>,
-    #[serde(default)]
-    pub is_vmprotect: bool,
-    #[serde(default)]
     pub deep_scan: bool,
     #[serde(default = "default_scan_mode")]
     pub scan_mode: String,
-    /// DetectItEasy scan result computed by Owlyshield/Rust.
-    #[serde(default)]
-    pub detectiteasy_scan_result: Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
     /// Root file that initiated this scan chain. Python propagates this to
     /// extracted/decompiled child scans for reporting and late-timeout handling.
     #[serde(default)]
@@ -316,10 +305,8 @@ fn log_skip_large_file(context: &str, path: &Path) {
 #[derive(Debug, Clone)]
 struct ScanMetadata {
     signature_status: Option<FileSignatureStatus>,
-    yara_x_matches: Vec<String>,
     hydradragon_static_matches: Vec<String>,
     hydradragon_static_match_details: Vec<String>,
-    is_vmprotect: bool,
     detectiteasy_scan_result: Option<crate::hydradragon::detectiteasy::DetectItEasyScanResult>,
     should_queue_scan: bool,
 }
@@ -328,10 +315,8 @@ impl ScanMetadata {
     fn new() -> Self {
         ScanMetadata {
             signature_status: None,
-            yara_x_matches: Vec::new(),
             hydradragon_static_matches: Vec::new(),
             hydradragon_static_match_details: Vec::new(),
-            is_vmprotect: false,
             detectiteasy_scan_result: None,
             should_queue_scan: true,
         }
@@ -407,12 +392,8 @@ fn signature_status_is_suspicious(status: &Option<FileSignatureStatus>) -> bool 
         .is_some_and(|s| s.invalid_signature || s.signature_status_issues || s.verification_failed)
 }
 
-fn metadata_is_suspicious(
-    signature_status: &Option<FileSignatureStatus>,
-    yara_x_matches: &[String],
-    is_vmprotect: bool,
-) -> bool {
-    is_vmprotect || !yara_x_matches.is_empty() || signature_status_is_suspicious(signature_status)
+fn metadata_is_suspicious(signature_status: &Option<FileSignatureStatus>) -> bool {
+    signature_status_is_suspicious(signature_status)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1877,8 +1858,6 @@ pub struct AVIntegration<'a> {
     scan_metadata_cache: HashMap<FileIdentity, ScanMetadata>,
     tinyav_recent_scans: HashMap<String, Instant>,
     tinyav_missing_logged: bool,
-    yara_rules: Option<yara_x::Rules>,
-    excluded_yara_rules: std::collections::HashSet<String>,
     hydradragon_static_rules_dir: PathBuf,
     hydradragon_static_rules_marker: Option<u128>,
     hydradragon_static_last_reload: Instant,
@@ -1886,107 +1865,6 @@ pub struct AVIntegration<'a> {
     hydradragon_static_engine: Option<EngineCore>,
     _scan_request_handle: thread::JoinHandle<()>,
     _av_to_edr_listener_handle: thread::JoinHandle<()>,
-}
-
-fn load_excluded_rules() -> std::collections::HashSet<String> {
-    let mut rules = std::collections::HashSet::new();
-    let path = r"C:\Program Files\HydraDragonAntivirus\hydradragon\excluded_yara_rules\excluded_yara_rules.txt";
-    if let Ok(content) = std::fs::read_to_string(path) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                rules.insert(trimmed.to_string());
-            }
-        }
-    }
-    rules
-}
-
-fn load_yara_x_rules() -> Option<yara_x::Rules> {
-    let rules_folder = r"C:\Program Files\HydraDragonAntivirus\hydradragon\yara-x\";
-    if !std::path::Path::new(rules_folder).exists() {
-        return None;
-    }
-
-    let mut compiler = yara_x::Compiler::new();
-    let mut added = false;
-
-    if let Ok(entries) = std::fs::read_dir(rules_folder) {
-        for entry in entries.filter_map(Result::ok) {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("yar") {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Err(e) = compiler.add_source(content.as_str()) {
-                        crate::logging::Logging::error(&format!(
-                            "Failed to compile YARA rule {}: {:?}",
-                            path.display(),
-                            e
-                        ));
-                    } else {
-                        added = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if added { Some(compiler.build()) } else { None }
-}
-
-fn scan_yara_x_metadata(
-    rules: Option<&yara_x::Rules>,
-    excluded_yara_rules: &std::collections::HashSet<String>,
-    scan_target: &Path,
-) -> (Vec<String>, bool) {
-    let Some(rules) = rules else {
-        return (Vec::new(), false);
-    };
-
-    let data = match std::fs::read(scan_target) {
-        Ok(data) => data,
-        Err(error) => {
-            Logging::debug(&format!(
-                "[YARA-X] Failed to read {} for scan: {}",
-                scan_target.display(),
-                error
-            ));
-            return (Vec::new(), false);
-        }
-    };
-
-    let mut matches = Vec::new();
-    let mut is_vmprotect = false;
-    let mut scanner = yara_x::Scanner::new(rules);
-
-    match scanner.scan(&data) {
-        Ok(scan_results) => {
-            for matching_rule in scan_results.matching_rules() {
-                let id = matching_rule.identifier().to_string();
-                let id_lower = id.to_ascii_lowercase();
-
-                // VMProtect is metadata derived from all matched rules.
-                // Excluded rules only control reportable yara_x_matches.
-                if id_lower.contains("vmprotect") {
-                    is_vmprotect = true;
-                }
-
-                if excluded_yara_rules.contains(&id) {
-                    continue;
-                }
-
-                matches.push(id);
-            }
-        }
-        Err(error) => {
-            Logging::debug(&format!(
-                "[YARA-X] Scan failed for {}: {:?}",
-                scan_target.display(),
-                error
-            ));
-        }
-    }
-
-    (matches, is_vmprotect)
 }
 
 fn default_program_files_static_rules_dir() -> Option<PathBuf> {
@@ -2376,45 +2254,6 @@ fn append_hydradragon_static_result(
     }
 }
 
-fn yara_x_service_result(matches: &[String], is_vmprotect: bool) -> Option<RustServiceScanResult> {
-    let reportable_matches: Vec<String> = matches
-        .iter()
-        .filter(|name| !name.trim().is_empty())
-        .cloned()
-        .collect();
-
-    if reportable_matches.is_empty() {
-        return None;
-    }
-
-    let virus_name = reportable_matches
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "YARA-X.Match".to_string());
-
-    Some(RustServiceScanResult {
-        engine: "Owlyshield/YARA-X".to_string(),
-        malicious: true,
-        virus_name,
-        match_details: Some(format!(
-            "Owlyshield/YARA-X matched rule(s): {}",
-            reportable_matches.join(", ")
-        )),
-        is_vmprotect,
-        error: None,
-    })
-}
-
-fn append_yara_x_result(
-    results: &mut Vec<RustServiceScanResult>,
-    matches: &[String],
-    is_vmprotect: bool,
-) {
-    if let Some(result) = yara_x_service_result(matches, is_vmprotect) {
-        results.insert(0, result);
-    }
-}
-
 fn spawn_manual_scan_listener(
     internal_scan_tx: Sender<EDRScanRequest>,
     hydradragon_static_rules_dir: PathBuf,
@@ -2432,8 +2271,6 @@ fn spawn_manual_scan_listener(
 
         let mut pipe_security = create_pipe_security_attributes("[ManualScan]");
         let mut manual_scan_rules_loaded = false;
-        let mut yara_rules = None;
-        let mut excluded_yara_rules = std::collections::HashSet::new();
         let mut hydradragon_static_engine = None;
         let mut hydradragon_static_rules_marker_state = None;
         let mut hydradragon_static_last_reload = Instant::now();
@@ -2571,8 +2408,6 @@ fn spawn_manual_scan_listener(
                                     .unwrap_or_else(|| normalized_file_path.clone());
 
                                 if !manual_scan_rules_loaded {
-                                    excluded_yara_rules = load_excluded_rules();
-                                    yara_rules = load_yara_x_rules();
                                     let (engine, marker) = load_hydradragon_static_engine(
                                         &hydradragon_static_rules_dir,
                                     );
@@ -2592,11 +2427,6 @@ fn spawn_manual_scan_listener(
                                     } else {
                                         (Vec::new(), Vec::new())
                                     };
-                                let (yara_x_matches, is_vmprotect) = scan_yara_x_metadata(
-                                    yara_rules.as_ref(),
-                                    &excluded_yara_rules,
-                                    &scan_target,
-                                );
                                 let detectiteasy_scan_result = run_detectiteasy_metadata_scan(
                                     &normalized_file_path,
                                     &scan_target,
@@ -2640,8 +2470,7 @@ fn spawn_manual_scan_listener(
                                     let _ = CloseHandle(pipe_handle);
                                     continue;
                                 }
-                                let fast_detected = !hydradragon_static_matches.is_empty()
-                                    || !yara_x_matches.is_empty();
+                                let fast_detected = !hydradragon_static_matches.is_empty();
                                 let effective_scan_mode = if fast_detected {
                                     "minimal"
                                 } else if requested_deep_scan {
@@ -2655,11 +2484,6 @@ fn spawn_manual_scan_listener(
                                 } else {
                                     collect_minimal_service_scan_results(&normalized_file_path)
                                 };
-                                append_yara_x_result(
-                                    &mut rust_service_scan_results,
-                                    &yara_x_matches,
-                                    is_vmprotect,
-                                );
                                 append_hydradragon_static_result(
                                     &mut rust_service_scan_results,
                                     &hydradragon_static_matches,
@@ -2685,16 +2509,6 @@ fn spawn_manual_scan_listener(
                                             engine_config.action.as_str().to_string();
                                         trust_level = engine_config.trust_level;
                                         current_action = engine_config.action;
-                                    } else if !yara_x_matches.is_empty() {
-                                        threat_detected = true;
-                                        detection_engine = "YaraX".to_string();
-                                        detection_name = yara_x_matches.join(", ");
-                                        let engine_config =
-                                            settings.get_engine_config(DetectionEngine::YaraX);
-                                        recommended_action =
-                                            engine_config.action.as_str().to_string();
-                                        trust_level = engine_config.trust_level;
-                                        current_action = engine_config.action;
                                     } else if let Some(clamav_result) = rust_service_scan_results
                                         .iter()
                                         .find(|r| r.engine == "ClamAV" && r.malicious)
@@ -2715,7 +2529,6 @@ fn spawn_manual_scan_listener(
                                             .as_str()
                                         {
                                             "ClamAV" => DetectionEngine::ClamAV,
-                                            "YaraX" => DetectionEngine::YaraX,
                                             "HydraDragonStatic" => {
                                                 DetectionEngine::HydraDragonStatic
                                             }
@@ -2774,8 +2587,6 @@ fn spawn_manual_scan_listener(
                                     pid: None,
                                     additional_context: None,
                                     signature_status: None, // Skipped for manual scans via pipe
-                                    yara_x_matches: Some(yara_x_matches),
-                                    is_vmprotect,
                                     deep_scan,
                                     scan_mode: effective_scan_mode.to_string(),
                                     detectiteasy_scan_result: None,
@@ -2905,8 +2716,6 @@ impl<'a> AVIntegration<'a> {
             scan_metadata_cache: HashMap::new(),
             tinyav_recent_scans: HashMap::new(),
             tinyav_missing_logged: false,
-            yara_rules: load_yara_x_rules(),
-            excluded_yara_rules: load_excluded_rules(),
             hydradragon_static_rules_dir,
             hydradragon_static_rules_marker,
             hydradragon_static_last_reload: Instant::now(),
@@ -3080,11 +2889,6 @@ impl<'a> AVIntegration<'a> {
             return;
         }
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path);
-        append_yara_x_result(
-            &mut rust_service_scan_results,
-            &metadata.yara_x_matches,
-            metadata.is_vmprotect,
-        );
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
@@ -3098,8 +2902,6 @@ impl<'a> AVIntegration<'a> {
             pid: Some(iomsg.pid),
             additional_context: Some(format!("Event triggered by GID: {}", precord.gid)),
             signature_status: metadata.signature_status,
-            yara_x_matches: Some(metadata.yara_x_matches),
-            is_vmprotect: metadata.is_vmprotect,
             deep_scan: false,
             scan_mode: "minimal".to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,
@@ -3140,20 +2942,13 @@ impl<'a> AVIntegration<'a> {
             return;
         }
 
-        let fast_detected =
-            !metadata.hydradragon_static_matches.is_empty() || !metadata.yara_x_matches.is_empty();
+        let fast_detected = !metadata.hydradragon_static_matches.is_empty();
 
-        // Sanctum requests deep scan when process behavior is suspicious.
         // If a fast detector already found malware, report that detection and skip deep scan.
         let effective_scan_mode = if fast_detected { "minimal" } else { "deep" };
 
         // Always scan with HydraDragonAV service (ClamAV)
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
-        append_yara_x_result(
-            &mut rust_service_scan_results,
-            &metadata.yara_x_matches,
-            metadata.is_vmprotect,
-        );
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
@@ -3169,8 +2964,6 @@ impl<'a> AVIntegration<'a> {
             pid,
             additional_context,
             signature_status: metadata.signature_status,
-            yara_x_matches: Some(metadata.yara_x_matches),
-            is_vmprotect: metadata.is_vmprotect,
             deep_scan: !fast_detected,
             scan_mode: effective_scan_mode.to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,
@@ -3211,16 +3004,10 @@ impl<'a> AVIntegration<'a> {
             return;
         }
 
-        let fast_detected =
-            !metadata.hydradragon_static_matches.is_empty() || !metadata.yara_x_matches.is_empty();
+        let fast_detected = !metadata.hydradragon_static_matches.is_empty();
         let effective_scan_mode = if fast_detected { "minimal" } else { "deep" };
 
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
-        append_yara_x_result(
-            &mut rust_service_scan_results,
-            &metadata.yara_x_matches,
-            metadata.is_vmprotect,
-        );
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
@@ -3236,8 +3023,6 @@ impl<'a> AVIntegration<'a> {
             pid,
             additional_context,
             signature_status: metadata.signature_status,
-            yara_x_matches: Some(metadata.yara_x_matches),
-            is_vmprotect: metadata.is_vmprotect,
             deep_scan: !fast_detected,
             scan_mode: effective_scan_mode.to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,
@@ -3284,8 +3069,7 @@ impl<'a> AVIntegration<'a> {
         if !metadata.should_queue_scan {
             return;
         }
-        let fast_detected =
-            !metadata.hydradragon_static_matches.is_empty() || !metadata.yara_x_matches.is_empty();
+        let fast_detected = !metadata.hydradragon_static_matches.is_empty();
 
         // For manual scans, respect user's choice unless a fast detector already found malware.
         let effective_scan_mode = if fast_detected {
@@ -3296,11 +3080,6 @@ impl<'a> AVIntegration<'a> {
 
         // Always scan with HydraDragonAV service (ClamAV)
         let mut rust_service_scan_results = collect_minimal_service_scan_results(&file_path_string);
-        append_yara_x_result(
-            &mut rust_service_scan_results,
-            &metadata.yara_x_matches,
-            metadata.is_vmprotect,
-        );
         append_hydradragon_static_result(
             &mut rust_service_scan_results,
             &metadata.hydradragon_static_matches,
@@ -3314,8 +3093,6 @@ impl<'a> AVIntegration<'a> {
             pid,
             additional_context,
             signature_status: metadata.signature_status,
-            yara_x_matches: Some(metadata.yara_x_matches),
-            is_vmprotect: metadata.is_vmprotect,
             deep_scan: effective_scan_mode == "deep",
             scan_mode: effective_scan_mode.to_string(),
             detectiteasy_scan_result: metadata.detectiteasy_scan_result,

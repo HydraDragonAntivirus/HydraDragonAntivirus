@@ -372,6 +372,9 @@ impl Protocol {
 pub struct PacketInfo {
     pub timestamp: u64,
     pub protocol: Protocol,
+    /// Raw IP protocol number (6=TCP, 17=UDP, 1=ICMP, 58=ICMPv6, 41=6in4, ...)
+    #[serde(default)]
+    pub ip_proto: u8,
     pub src_ip: IpAddr,
     pub dst_ip: IpAddr,
     pub src_port: u16,
@@ -3751,6 +3754,11 @@ impl FirewallEngine {
             return None;
         }
         let ip_version = (data[0] >> 4) & 0x0F;
+        let ip_proto = match ip_version {
+            4 if data.len() >= 20 => data[9],
+            6 if data.len() >= 40 => data[6],
+            _ => 0,
+        };
 
         let (protocol, src_ip, dst_ip, header_len) = match ip_version {
             4 => {
@@ -3916,6 +3924,7 @@ impl FirewallEngine {
             PacketInfo {
                 timestamp: Self::now_ts(),
                 protocol,
+                ip_proto,
                 src_ip,
                 dst_ip,
                 src_port,

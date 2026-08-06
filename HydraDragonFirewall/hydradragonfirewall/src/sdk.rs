@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing;
 
@@ -745,6 +745,307 @@ impl RuleCondition {
 // SDK RULE (Features 16, 17, 29, 30)
 // ============================================================================
 
+// ---------------------------------------------------------------------------
+// Suricata-style matchers (ip_proto, dsize, byte_test, flow, flowbits)
+// ---------------------------------------------------------------------------
+
+/// Matches the raw IP protocol number (Suricata `ip_proto`).
+/// Example: 41 = IPv6 encapsulation (6in4), 47 = GRE, 50 = ESP.
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct DsizeMatcher {
+    /// Minimum payload size (inclusive)
+    #[serde(default)]
+    pub min: Option<usize>,
+    /// Maximum payload size (inclusive)
+    #[serde(default)]
+    pub max: Option<usize>,
+    /// Exact payload size
+    #[serde(default)]
+    pub exact: Option<usize>,
+    /// Modulo divisor (Suricata `dsize:min:max:mod:offset`)
+    #[serde(default)]
+    pub mod_divisor: Option<usize>,
+    /// Expected remainder when size % mod_divisor
+    #[serde(default)]
+    pub mod_offset: Option<usize>,
+}
+
+impl DsizeMatcher {
+    pub fn matches(&self, size: usize) -> bool {
+        if let Some(exact) = self.exact {
+            if size != exact {
+                return false;
+            }
+        }
+        if let Some(min) = self.min {
+            if size < min {
+                return false;
+            }
+        }
+        if let Some(max) = self.max {
+            if size > max {
+                return false;
+            }
+        }
+        if let (Some(d), Some(o)) = (self.mod_divisor, self.mod_offset) {
+            if d == 0 {
+                return false;
+            }
+            if size % d != o {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Suricata `byte_test:bytes_to_convert,operator,value,offset[,relative][,big|little][,...]`.
+/// `relative` offsets are treated as absolute from payload start (the SDK does
+/// not anchor to content-match positions).
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ByteTest {
+    #[serde(default)]
+    pub nbytes: usize,
+    #[serde(default)]
+    pub operator: String,
+    #[serde(default)]
+    pub value: u64,
+    #[serde(default)]
+    pub offset: i64,
+    #[serde(default)]
+    pub relative: bool,
+    #[serde(default = "default_true")]
+    pub big_endian: bool,
+    #[serde(default)]
+    pub string: bool,
+    #[serde(default)]
+    pub base: String,
+    #[serde(default)]
+    pub no_case: bool,
+}
+
+impl ByteTest {
+    pub fn matches(&self, payload: &[u8]) -> bool {
+        let n = self.nbytes.clamp(1, 8);
+        let offset = self.offset.max(0) as usize;
+        if offset + n > payload.len() {
+            return false;
+        }
+        let bytes = &payload[offset..offset + n];
+
+        if self.string {
+            let hay = if self.no_case {
+                bytes.to_ascii_lowercase()
+            } else {
+                bytes.to_vec()
+            };
+            let mut needle = if self.big_endian {
+                self.value.to_be_bytes()[8 - n..].to_vec()
+            } else {
+                self.value.to_le_bytes()[..n].to_vec()
+            };
+            if self.no_case {
+                needle = needle.to_ascii_lowercase();
+            }
+            return hay == needle;
+        }
+
+        let num = if self.big_endian {
+            let mut b = [0u8; 8];
+            b[8 - n..].copy_from_slice(bytes);
+            u64::from_be_bytes(b)
+        } else {
+            let mut b = [0u8; 8];
+            b[..n].copy_from_slice(bytes);
+            u64::from_le_bytes(b)
+        };
+
+        match self.operator.as_str() {
+            ">" => num > self.value,
+            "<" => num < self.value,
+            "=" | "==" => num == self.value,
+            "!=" => num != self.value,
+            ">=" => num >= self.value,
+            "<=" => num <= self.value,
+            "&" => (num & self.value) != 0,
+            "^" => (num ^ self.value) != 0,
+            _ => false,
+        }
+    }
+}
+
+/// Suricata `flow:established,to_client,to_server,stateless` matching.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub struct FlowMatcher {
+    #[serde(default)]
+    pub established: bool,
+    #[serde(default)]
+    pub to_client: bool,
+    #[serde(default)]
+    pub to_server: bool,
+    #[serde(default)]
+    pub stateless: bool,
+}
+
+/// Suricata `flowbits:<op>,<flag>` operation. `op` is one of
+/// set / unset / toggle / isset / isnotset. set/unset/toggle are applied after
+/// a rule matches; isset/isnotset gate the rule during evaluation.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct FlowbitOp {
+    #[serde(default)]
+    pub op: String,
+    #[serde(default)]
+    pub flag: String,
+}
+
+/// Bidirectional flow key (5-tuple normalized so a->b == b->a).
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+struct FlowKey {
+    a: (IpAddr, u16),
+    b: (IpAddr, u16),
+    proto: u8,
+}
+
+impl FlowKey {
+    fn new(src_ip: IpAddr, src_port: u16, dst_ip: IpAddr, dst_port: u16, proto: u8) -> Self {
+        let x = (src_ip, src_port);
+        let y = (dst_ip, dst_port);
+        if x <= y {
+            Self { a: x, b: y, proto }
+        } else {
+            Self { a: y, b: x, proto }
+        }
+    }
+}
+
+#[derive(Default)]
+struct FlowEntry {
+    seen_a: bool,
+    seen_b: bool,
+    flags: HashSet<String>,
+    last_seen: u64,
+}
+
+/// Per-flow connection + flowbit state. Tracks which direction of each flow has
+/// been observed (for `flow:established`) and the set of flowbit flags.
+pub struct FlowState {
+    flows: HashMap<FlowKey, FlowEntry>,
+    max_flows: usize,
+    ttl_secs: u64,
+}
+
+impl Default for FlowState {
+    fn default() -> Self {
+        Self {
+            flows: HashMap::new(),
+            max_flows: 20_000,
+            ttl_secs: 300,
+        }
+    }
+}
+
+impl FlowState {
+    fn now() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    fn key_of(info: &PacketInfo) -> FlowKey {
+        FlowKey::new(
+            info.src_ip,
+            info.src_port,
+            info.dst_ip,
+            info.dst_port,
+            info.ip_proto,
+        )
+    }
+
+    /// true if this packet travels from the normalized endpoint `a` to `b`
+    fn is_a_to_b(info: &PacketInfo) -> bool {
+        (info.src_ip, info.src_port) <= (info.dst_ip, info.dst_port)
+    }
+
+    /// Record that a packet of this flow was seen (both directions must be seen
+    /// before the flow counts as established).
+    pub fn record(&mut self, info: &PacketInfo) {
+        let now = Self::now();
+        self.prune(now);
+        let key = Self::key_of(info);
+        let dir_a = Self::is_a_to_b(info);
+        let entry = self.flows.entry(key).or_default();
+        if dir_a {
+            entry.seen_a = true;
+        } else {
+            entry.seen_b = true;
+        }
+        entry.last_seen = now;
+    }
+
+    pub fn is_established(&self, info: &PacketInfo) -> bool {
+        self.flows
+            .get(&Self::key_of(info))
+            .map_or(false, |e| e.seen_a && e.seen_b)
+    }
+
+    pub fn has_flag(&self, info: &PacketInfo, flag: &str) -> bool {
+        self.flows
+            .get(&Self::key_of(info))
+            .map_or(false, |e| e.flags.contains(flag))
+    }
+
+    fn entry_mut(&mut self, info: &PacketInfo) -> &mut FlowEntry {
+        let now = Self::now();
+        self.prune(now);
+        let key = Self::key_of(info);
+        let entry = self.flows.entry(key).or_default();
+        entry.last_seen = now;
+        entry
+    }
+
+    pub fn set_flag(&mut self, info: &PacketInfo, flag: &str) {
+        self.entry_mut(info).flags.insert(flag.to_string());
+    }
+
+    pub fn unset_flag(&mut self, info: &PacketInfo, flag: &str) {
+        self.entry_mut(info).flags.remove(flag);
+    }
+
+    pub fn toggle_flag(&mut self, info: &PacketInfo, flag: &str) {
+        let entry = self.entry_mut(info);
+        if !entry.flags.remove(flag) {
+            entry.flags.insert(flag.to_string());
+        }
+    }
+
+    fn prune(&mut self, now: u64) {
+        if self.flows.len() < self.max_flows {
+            return;
+        }
+        self.flows
+            .retain(|_, e| now.saturating_sub(e.last_seen) < self.ttl_secs);
+        while self.flows.len() >= self.max_flows {
+            let mut oldest_key: Option<FlowKey> = None;
+            let mut oldest_ts = u64::MAX;
+            for (k, e) in &self.flows {
+                if e.last_seen < oldest_ts {
+                    oldest_ts = e.last_seen;
+                    oldest_key = Some(k.clone());
+                }
+            }
+            match oldest_key {
+                Some(k) => {
+                    self.flows.remove(&k);
+                }
+                None => break,
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SdkRule {
     // Feature 29: Rule name
@@ -833,6 +1134,22 @@ pub struct SdkRule {
     /// before this rule can trigger. Example: depends_on: ["private_rule1", "private_rule2"]
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Raw IP protocol number to match (Suricata `ip_proto`), e.g. 41 = 6in4
+    #[serde(default)]
+    pub ip_proto: Option<u8>,
+    /// Payload size matcher (Suricata `dsize`)
+    #[serde(default)]
+    pub dsize: Option<DsizeMatcher>,
+    /// Payload byte tests (Suricata `byte_test`)
+    #[serde(default)]
+    pub byte_test: Vec<ByteTest>,
+    /// Flow state / direction matcher (Suricata `flow`)
+    #[serde(default)]
+    pub flow: Option<FlowMatcher>,
+    /// Flowbit operations (Suricata `flowbits`): isset/isnotset gate matching;
+    /// set/unset/toggle are applied when the rule matches.
+    #[serde(default)]
+    pub flowbits: Vec<FlowbitOp>,
 }
 
 fn default_true() -> bool {
@@ -872,8 +1189,38 @@ impl SdkRule {
         }
     }
 
-    /// Evaluate if this rule matches the packet
+    /// Evaluate if this rule matches the packet (no flow context).
     pub fn matches(&self, packet: &PacketInfo, payload: &[u8]) -> bool {
+        self.matches_impl(packet, payload, None)
+    }
+
+    /// Evaluate with flow context: flowbit isset/isnotset gates are checked and
+    /// flowbit set/unset/toggle ops are applied when the rule matches.
+    pub fn matches_with_flow(
+        &self,
+        packet: &PacketInfo,
+        payload: &[u8],
+        flow: &mut FlowState,
+    ) -> bool {
+        let matched = self.matches_impl(packet, payload, Some(flow));
+        if matched {
+            self.apply_flowbits(packet, flow);
+        }
+        matched
+    }
+
+    fn apply_flowbits(&self, packet: &PacketInfo, flow: &mut FlowState) {
+        for op in &self.flowbits {
+            match op.op.as_str() {
+                "set" => flow.set_flag(packet, &op.flag),
+                "unset" => flow.unset_flag(packet, &op.flag),
+                "toggle" => flow.toggle_flag(packet, &op.flag),
+                _ => {}
+            }
+        }
+    }
+
+    fn matches_impl(&self, packet: &PacketInfo, payload: &[u8], flow: Option<&FlowState>) -> bool {
         if !self.enabled {
             return false;
         }
@@ -883,6 +1230,8 @@ impl SdkRule {
         let mut check_results = std::iter::from_fn({
             let mut step = 0;
             let mut conditions_idx = 0;
+            let mut byte_test_idx = 0;
+            let mut flowbit_idx = 0;
             let mut decoded_payload: Option<Vec<u8>> = None;
 
             move || {
@@ -1012,6 +1361,69 @@ impl SdkRule {
                             if let Some(ref matcher) = self.json_match {
                                 return Some(matcher.matches(payload));
                             }
+                        }
+                        16 => {
+                            step += 1;
+                            if let Some(proto) = self.ip_proto {
+                                return Some(packet.ip_proto == proto);
+                            }
+                        }
+                        17 => {
+                            step += 1;
+                            if let Some(ref matcher) = self.dsize {
+                                return Some(matcher.matches(packet.size));
+                            }
+                        }
+                        18 => {
+                            if byte_test_idx < self.byte_test.len() {
+                                let res = self.byte_test[byte_test_idx].matches(payload);
+                                byte_test_idx += 1;
+                                return Some(res);
+                            }
+                            step += 1;
+                        }
+                        19 => {
+                            step += 1;
+                            if let Some(ref fm) = self.flow {
+                                if fm.to_server && !packet.outbound {
+                                    return Some(false);
+                                }
+                                if fm.to_client && packet.outbound {
+                                    return Some(false);
+                                }
+                                if fm.established {
+                                    match flow {
+                                        Some(f) => {
+                                            if !f.is_established(packet) {
+                                                return Some(false);
+                                            }
+                                        }
+                                        None => {}
+                                    }
+                                }
+                            }
+                        }
+                        20 => {
+                            while flowbit_idx < self.flowbits.len() {
+                                let op = &self.flowbits[flowbit_idx];
+                                flowbit_idx += 1;
+                                match op.op.as_str() {
+                                    "isset" => {
+                                        return Some(match flow {
+                                            Some(f) => f.has_flag(packet, &op.flag),
+                                            None => true,
+                                        });
+                                    }
+                                    "isnotset" => {
+                                        return Some(match flow {
+                                            Some(f) => !f.has_flag(packet, &op.flag),
+                                            None => true,
+                                        });
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            step += 1;
                         }
                         _ => return None,
                     }
@@ -1264,6 +1676,8 @@ pub struct SdkRegistry {
     pub rules: Vec<SdkRule>,
     pub listeners: Vec<Arc<dyn PacketListener>>,
     pub changers: Vec<Arc<dyn PacketChanger>>,
+    /// Per-flow connection + flowbit state (Suricata flow/flowbits)
+    pub flow_state: Mutex<FlowState>,
 }
 
 impl SdkRegistry {
@@ -1272,6 +1686,7 @@ impl SdkRegistry {
             rules: Vec::new(),
             listeners: Vec::new(),
             changers: Vec::new(),
+            flow_state: Mutex::new(FlowState::default()),
         }
     }
 
@@ -1339,6 +1754,13 @@ impl SdkRegistry {
             .all(|dep| matched_private_rules.contains(dep))
     }
 
+    /// Lock the flow state and record this packet so `flow:established` works.
+    fn flow_guard(&self, packet: &PacketInfo) -> std::sync::MutexGuard<'_, FlowState> {
+        let mut guard = self.flow_state.lock().unwrap();
+        guard.record(packet);
+        guard
+    }
+
     /// Evaluate all rules against packet, return first matching rule
     pub fn evaluate(
         &self,
@@ -1348,9 +1770,10 @@ impl SdkRegistry {
         _context: &PacketContext,
     ) -> Option<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
+        let mut flow = self.flow_guard(packet);
 
         for rule in &self.rules {
-            if rule.matches(packet, payload) {
+            if rule.matches_with_flow(packet, payload, &mut flow) {
                 // Track private rule matches for debugging
                 if rule.private {
                     matched_private_rules.push(rule.name.clone());
@@ -1407,10 +1830,11 @@ impl SdkRegistry {
         _context: &PacketContext,
     ) -> Vec<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
+        let mut flow = self.flow_guard(packet);
 
         // First pass: collect private rule matches
         for rule in &self.rules {
-            if rule.matches(packet, payload) && rule.private {
+            if rule.matches_with_flow(packet, payload, &mut flow) && rule.private {
                 matched_private_rules.push(rule.name.clone());
                 tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
             }
@@ -1429,7 +1853,7 @@ impl SdkRegistry {
         self.rules
             .iter()
             .filter_map(|rule| {
-                if rule.matches(packet, payload) && !rule.private {
+                if rule.matches_with_flow(packet, payload, &mut flow) && !rule.private {
                     // Check if dependencies are satisfied (YARA-style)
                     if !Self::dependencies_satisfied(rule, &matched_private_rules) {
                         tracing::debug!(
@@ -1472,12 +1896,13 @@ impl SdkRegistry {
         defer_heavy_rules: bool,
     ) -> Option<RuleMatchResult> {
         let mut matched_private_rules = Vec::new();
+        let mut flow = self.flow_guard(packet);
 
         self.rules
             .iter()
             .filter(|rule| !defer_heavy_rules || !rule.requires_deferred_inspection())
             .find_map(|rule| {
-                if rule.matches(packet, payload) {
+                if rule.matches_with_flow(packet, payload, &mut flow) {
                     if rule.private {
                         matched_private_rules.push(rule.name.clone());
                         tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
