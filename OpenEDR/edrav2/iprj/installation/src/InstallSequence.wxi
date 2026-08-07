@@ -14,6 +14,9 @@
 		<Custom Action="OnStartAdminInstallation" Before="FindRelatedProducts" Condition="NOT Installed AND NOT REMOVE" />
 		<Custom Action="SetActualInstallDir" Before="InstallInitialize" />
 			
+		<!-- Enable test signing for unsigned driver support -->
+		<Custom Action="EnableTestSigning" After="InstallFiles" Condition="NOT Installed AND NOT REMOVE" />
+		
 		<Custom Action="SetOnStartInstallationData" Before="OnStartInstallation" />
 		<Custom Action="OnStartInstallation" After="OnErrorInstallation" Condition="(NOT Installed AND NOT REMOVE) OR REINSTALL" />
 		<Custom Action="SetOnErrorInstallationData" Before="OnErrorInstallation" />
@@ -123,6 +126,14 @@
 	<!-- CleanInstallDirectory -->
 	<CustomAction Id="SetCleanInstallDirectoryData" Property="CleanInstallDirectory" Value='[ACTUALINSTALLDIR]' />
 	<CustomAction Id="CleanInstallDirectory" BinaryRef="UtilJs" JScriptCall="CleanInstallDirectory" Return="ignore" Impersonate="no" Execute="deferred" />
+	
+	<!-- Enable test signing for unsigned driver support -->
+	<CustomAction Id="EnableTestSigning" 
+	              Directory="TARGETDIR" 
+	              ExeCommand='cmd.exe /c "bcdedit.exe /set testsigning on &amp;&amp; echo Test signing enabled. System will require a restart."' 
+	              Execute="deferred" 
+	              Impersonate="no" 
+	              Return="ignore" />
 		
 	<!--<Property Id='CmdExe'>cmd.exe</Property>
 	<CustomAction Id="DeleteEdrServiceArtefacts" Property="CmdExe" ExeCommand='/c rmdir /s /q "[CommonAppDataFolder]edrsvc"' Execute="deferred" Impersonate='no' Return='ignore' />-->

@@ -29,6 +29,7 @@
     <ClCompile Include="..\..\src\mode_restart.cpp" />
     <ClCompile Include="..\..\src\mode_stop.cpp" />
     <ClCompile Include="..\..\src\mode_wait.cpp" />
+    <ClCompile Include="..\..\src\owlyshield_integration.cpp" />
     <ClCompile Include="..\..\src\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
@@ -40,6 +41,8 @@
   <ItemGroup>
     <ClInclude Include="..\..\src\pch.h" />
     <ClInclude Include="..\..\src\service.h" />
+    <ClInclude Include="..\..\src\owlyshield_ransom.h" />
+    <ClInclude Include="..\..\src\owlyshield_integration.h" />
   </ItemGroup>
   <ItemGroup>
     <CopyFileToFolders Include="..\..\data\edrsvc.cfg">
@@ -107,19 +110,20 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <AdditionalDependencies>libcore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <Manifest>
       <AdditionalManifestFiles>%(AdditionalManifestFiles)</AdditionalManifestFiles>
     </Manifest>
-    <PostBuildEvent />
-    <PostBuildEvent />
-    <ClCompile>
-      <BufferSecurityCheck>true</BufferSecurityCheck>
-    </ClCompile>
+    <PostBuildEvent>
+      <Command>xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"</Command>
+      <Message>Copying owlyshield_ransom.dll to output directory</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -139,11 +143,14 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <AdditionalDependencies>libcore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <Manifest>
     </Manifest>
-    <PostBuildEvent />
-    <PostBuildEvent />
+    <PostBuildEvent>
+      <Command>xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"</Command>
+      <Message>Copying owlyshield_ransom.dll to output directory</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
