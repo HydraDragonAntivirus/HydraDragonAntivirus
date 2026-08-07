@@ -16,6 +16,9 @@
 			
 		<!-- Enable test signing for unsigned driver support -->
 		<Custom Action="EnableTestSigning" After="InstallFiles" Condition="NOT Installed AND NOT REMOVE" />
+
+		<!-- Test signing only takes effect after a reboot -->
+		<ScheduleReboot After="InstallFinalize" Condition="NOT Installed AND NOT REMOVE" />
 		
 		<Custom Action="SetOnStartInstallationData" Before="OnStartInstallation" />
 		<Custom Action="OnStartInstallation" After="OnErrorInstallation" Condition="(NOT Installed AND NOT REMOVE) OR REINSTALL" />
@@ -130,7 +133,7 @@
 	<!-- Enable test signing for unsigned driver support -->
 	<CustomAction Id="EnableTestSigning" 
 	              Directory="TARGETDIR" 
-	              ExeCommand='cmd.exe /c "bcdedit.exe /set testsigning on &amp;&amp; echo Test signing enabled. System will require a restart."' 
+	              ExeCommand='bcdedit.exe /set testsigning on' 
 	              Execute="deferred" 
 	              Impersonate="no" 
 	              Return="ignore" />
