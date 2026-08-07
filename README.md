@@ -586,3 +586,6 @@ This document describes the output directories used by the HydraDragon analysis 
 ## Contact
 
 For changes to this README or to add new extractor directories, update this file and check it into your repo so everyone can see the mapping.
+
+## Donate:
+- **For donate HydraDragonAV-Mobile creator go to here:https://boosty.to/yusif_musayev/single-payment/donation/817954/target?share=target_link  (Yusif Musayev HydraDragonAV-Mobile creator)**
