@@ -32,7 +32,7 @@ const CA_CERT_FILE: &str = "hydradragon_ca.der";
 fn ca_dir() -> PathBuf {
     // Store under ProgramData so the CA persists across reinstalls/upgrades and
     // is not tied to the (read-mostly, self-protected) Program Files install dir.
-    let dir = PathBuf::from(r"C:\ProgramData\HydraDragonAntivirus\edrsvc\ca");
+    let dir = PathBuf::from(r"C:\ProgramData\edrsvc\ca");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }

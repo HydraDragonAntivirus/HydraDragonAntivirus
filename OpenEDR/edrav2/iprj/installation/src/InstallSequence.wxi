@@ -140,6 +140,6 @@
 				  HideTarget="yes"/>
 		
 	<!--<Property Id='CmdExe'>cmd.exe</Property>
-	<CustomAction Id="DeleteEdrServiceArtefacts" Property="CmdExe" ExeCommand='/c rmdir /s /q "[CommonAppDataFolder]HydraDragonAntivirus\edrsvc"' Execute="deferred" Impersonate='no' Return='ignore' />-->
+	<CustomAction Id="DeleteEdrServiceArtefacts" Property="CmdExe" ExeCommand='/c rmdir /s /q "[CommonAppDataFolder]edrsvc"' Execute="deferred" Impersonate='no' Return='ignore' />-->
 		
 </Include>
