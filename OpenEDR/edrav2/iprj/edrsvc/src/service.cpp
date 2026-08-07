@@ -12,6 +12,7 @@
 
 #include "pch.h"
 #include "service.h"
+#include "owlyshield_integration.h"
 
 namespace cmd {
 namespace win {
@@ -295,9 +296,16 @@ ErrorCode WinService::runService(bool fAppMode)
 
 	// Perform advanced startup operations
 	reportStatus(SERVICE_START_PENDING, 2000);
+
 	ErrorCode ec = ErrorCode::NoAction;
 	if (doStartup())
 	{
+		if (!cmd::win::InitOwlyshield())
+		{
+			LOGERR("Failed to initialize Owlyshield");
+			return doShutdown(ErrorCode::Unknown);
+		}
+
 		ec = ErrorCode::OK;
 		// Run working mode handler
 		if (!needShutdown())
@@ -308,6 +316,8 @@ ErrorCode WinService::runService(bool fAppMode)
 	}
 
 	// Runs the mode handler
+	cmd::win::ShutdownOwlyshield();
+
 	LOGINF("Service is being stopped");
 	return doShutdown(ec);
 }
