@@ -8,7 +8,6 @@ on:
       - 'Owlyshield/owlyshield_predict/**'
       - '!Owlyshield/owlyshield_predict/**/*.dll'
       - 'Owlyshield/owlyshield_predict/moonfire-tflite/lib/tensorflowlite_c.dll'
-      - 'Owlyshield/hydradragonstatic/**'
       - 'hydradragon/Owlyshield/static_rules/**'
       - 'hydradragon/Owlyshield/rules/**'
       - '.github/workflows/owlyshield-predict.yml'
@@ -16,7 +15,6 @@ on:
     branches: ["**"]
     paths:
       - 'Owlyshield/owlyshield_predict/**'
-      - 'Owlyshield/hydradragonstatic/**'
       - 'hydradragon/Owlyshield/static_rules/**'
       - 'hydradragon/Owlyshield/rules/**'
       - '.github/workflows/owlyshield-predict.yml'
@@ -86,7 +84,7 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
       - name: Cargo check (All Features)
-        run: cargo check --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum,service --verbose
+        run: cargo check --features malware,behavior_engine,firewall,service --verbose
 
   publish:
     if: |
@@ -120,10 +118,9 @@ jobs:
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/win-pe-inspection/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/ring-patch/Cargo.toml --all
           cargo fmt --manifest-path Owlyshield/owlyshield_predict/vfs-kprobes/Cargo.toml --all
-          cargo fmt --manifest-path Owlyshield/hydradragonstatic/Cargo.toml --all
       - name: Build Predict Service
         working-directory: Owlyshield/owlyshield_predict
-        run: cargo build --release --features novelty,malware,hydradragon,behavior_engine,firewall,sanctum,service
+        run: cargo build --release --features malware,behavior_engine,firewall,service
       - name: Stage Predict Files
         shell: pwsh
         run: |

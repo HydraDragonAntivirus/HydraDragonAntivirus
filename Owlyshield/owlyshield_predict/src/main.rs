@@ -28,64 +28,10 @@ use windows_service::{define_windows_service, service_control_handler, service_d
 
 #[cfg(target_os = "windows")]
 use crate::windows::edrsvc_client::Driver;
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-use std::{env, path::Path, sync::OnceLock};
 
-// Conditionally compile AVIntegration `use` statement
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-pub mod hydradragon;
-// Conditionally compile AVIntegration `use` statement
+// Conditionally compile behavior engine module
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 mod behavioral;
-
-// ============================================================================
-// HYDRADRAGON INTEGRATION - CORRECTED APPROACH
-// ============================================================================
-
-/// Check if HydraDragon antivirus is installed
-/// This is safe to use as a static because it only stores a bool
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-pub static HYDRA_DRAGON_ENABLED: OnceLock<bool> = OnceLock::new();
-
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-pub fn is_hydra_dragon_enabled() -> bool {
-    *HYDRA_DRAGON_ENABLED.get_or_init(|| {
-        env::var("ProgramFiles")
-            .map(|pf| Path::new(&pf).join("HydraDragonAntivirus").exists())
-            .unwrap_or(false)
-    })
-}
-
-/// Initialize AVIntegration for the current thread.
-///
-/// CRITICAL: This function MUST be called on the thread that will use the AVIntegration.
-/// The TensorFlow Lite models contain raw pointers (NonNull) that are NOT Send/Sync,
-/// so AVIntegration CANNOT be stored in a static or shared across threads via Mutex/Arc.
-///
-/// # Arguments
-/// * `config` - Reference to the Config instance for this thread
-///
-/// # Returns
-/// * `Some(AVIntegration)` when the HydraDragon feature is compiled in
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-pub fn init_hydra_dragon(
-    config: &crate::config::Config,
-    driver: crate::windows::edrsvc_client::Driver,
-) -> Option<hydradragon::av_integration::AVIntegration<'_>> {
-    if !is_hydra_dragon_enabled() {
-        crate::logging::Logging::warning(
-            "HydraDragon install path was not found; starting pipe integration anyway",
-        );
-    }
-
-    Some(hydradragon::av_integration::AVIntegration::new(
-        config,
-        driver,
-    ))
-}
-
-/*
-*/
 
 use crate::logging::Logging;
 use crate::shared_def::IOMessage;
@@ -95,19 +41,13 @@ mod actions_on_kill;
 mod config;
 // mod app_settings; // removed, now in behavioral
 mod connectors;
-#[cfg(feature = "realtime_learning")]
-mod correlation;
 mod csvwriter;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
 pub(crate) mod driver_com;
-#[cfg(feature = "realtime_learning")]
-mod explainability;
 mod extensions;
 mod jsonrpc;
 mod logging;
-#[cfg(feature = "realtime_learning")]
-mod mitre_attack;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
@@ -124,8 +64,7 @@ pub(crate) use windows::run;
 #[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
 #[path = "linux/run.rs"]
 mod run;
-#[cfg(target_os = "windows")]
-pub use hydradragonstatic::signature_verification;
+mod signature_verification;
 
 #[cfg(all(target_os = "linux", not(feature = "linux-ebpf")))]
 mod run {
@@ -136,8 +75,6 @@ mod run {
     }
 }
 mod globals;
-#[cfg(all(target_os = "windows", feature = "realtime_learning"))]
-pub mod realtime_learning; // Owlyshield realtime-learning module
 mod report;
 #[cfg(target_os = "windows")]
 pub mod services;

@@ -1991,30 +1991,6 @@ pub struct NamedConditionGroup {
     pub trusted_signers: Vec<String>,
     #[serde(default)]
     pub untrusted_signers: Vec<String>,
-    #[serde(default)]
-    pub hypervisor_event_labels: Vec<String>,
-    #[serde(default)]
-    pub detect_hypervisor_event: bool,
-    #[serde(default)]
-    pub hypervisor_event_threshold: usize,
-    #[serde(default)]
-    pub hypervisor_raw_event_types: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_source_pids: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_target_pids: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_raw_arg1_values: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg2_values: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg3_values: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg4_values: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_sizes: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_operation_statuses: Vec<i32>,
 
     // Hook/user-mode API error telemetry conditions. These match non-success
     // operation_status values without counting them as successful API behavior.
@@ -2028,43 +2004,6 @@ pub struct NamedConditionGroup {
     pub hook_error_min_count: Option<usize>,
     #[serde(default)]
     pub hook_error_exclude_benign: bool,
-
-    #[serde(default)]
-    pub hypervisor_thread_handles: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_thread_start_routines: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_access_masks: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_memory_protections: Vec<u32>,
-    #[serde(default)]
-    pub hypervisor_is_executable_memory: Option<bool>,
-    #[serde(default)]
-    pub hypervisor_raw_arg1_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg1_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg2_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg2_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg3_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg3_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg4_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_raw_arg4_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_addresses: Vec<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_address_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_address_max: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_size_min: Option<u64>,
-    #[serde(default)]
-    pub hypervisor_memory_size_max: Option<u64>,
     #[serde(default = "default_zero")]
     pub min_matches: usize,
     #[serde(default)]

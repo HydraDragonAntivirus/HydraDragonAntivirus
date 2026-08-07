@@ -259,17 +259,6 @@ pub fn run() {
             let win_threat_handler = WindowsThreatHandler::from(thread_driver.clone());
             worker = worker.threat_handler(Box::new(win_threat_handler.clone()));
 
-            #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-            {
-                let hydra_dragon_integration =
-                    crate::init_hydra_dragon(&thread_config, thread_driver.clone());
-                worker = worker.av_integration(hydra_dragon_integration);
-
-                // Start Suricata NIDS and Hayabusa EVTX scanner in Rust
-                crate::hydradragon::suricata::start_suricata_monitor();
-                crate::hydradragon::hayabusa::start_hayabusa_monitor();
-            }
-
             worker = worker.exepath_handler(Box::new(ExepathLive));
 
             if cfg!(feature = "malware") {

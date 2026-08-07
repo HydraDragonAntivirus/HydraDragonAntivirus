@@ -389,8 +389,6 @@ async fn handle_proxy_request(
             return Err("Request body timeout".to_string());
         }
     };
-    let raw_request_body_len = raw_body.len();
-
     let body_truncated = raw_body.len() > max_body;
     let body_bytes = if body_truncated {
         raw_body.slice(..max_body)
@@ -550,8 +548,6 @@ async fn handle_proxy_request(
             value.to_str().unwrap_or("<binary>").to_string(),
         );
     }
-    let response_content_type = response_headers.get("content-type").cloned();
-    let response_content_length = response_headers.get("content-length").cloned();
 
     // ── Collect response body with timeout ──────────────────────────────────
     let (mut res_parts, res_body) = res.into_parts();
@@ -569,8 +565,6 @@ async fn handle_proxy_request(
             return Err("Response body timeout".to_string());
         }
     };
-    let raw_response_body_len = raw_res_body.len();
-
     let res_body_truncated = raw_res_body.len() > max_body;
     let res_body_bytes = if res_body_truncated {
         raw_res_body.slice(..max_body)

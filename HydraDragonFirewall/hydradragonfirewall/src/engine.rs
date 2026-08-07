@@ -171,173 +171,8 @@ enum CidrInterval {
     V6(u128, u128),
 }
 
-fn normalize_kernel_block_path_candidate(value: &str) -> Option<String> {
-    let trimmed = value.trim().trim_matches('"');
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown") {
-        return None;
-    }
-
-    let normalized = trimmed.replace('/', "\\");
-    let lower = normalized.to_ascii_lowercase();
-
-    if lower.contains("://") {
-        return None;
-    }
-
-    let chars: Vec<char> = normalized.chars().collect();
-    let is_drive_path =
-        chars.len() >= 3 && chars[1] == ':' && (chars[2] == '\\' || chars[2] == '/');
-    let is_unc_path = normalized.starts_with("\\\\");
-    let is_nt_path = lower.starts_with("\\device\\")
-        || lower.starts_with("\\??\\")
-        || lower.starts_with("\\\\?\\");
-
-    if is_drive_path || is_unc_path || is_nt_path {
-        Some(normalized)
-    } else {
-        None
-    }
-}
-
-fn select_kernel_block_path(alert: &PendingApp) -> Option<String> {
-    alert
-        .target
-        .as_deref()
-        .and_then(normalize_kernel_block_path_candidate)
-        .or_else(|| normalize_kernel_block_path_candidate(&alert.path))
-}
-
 fn kernel_block_message(path: &str) -> String {
     format!("KERNEL_BLOCK_PATH:{}\n", path)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OpenEdrVerdict {
-    Absent,
-    Safe,
-    Malicious,
-    Unknown,
-    Fail,
-}
-
-impl OpenEdrVerdict {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Absent => "Unrecognized",
-            Self::Safe => "Possible Safe",
-            Self::Malicious => "Malware",
-            Self::Unknown => "Unknown",
-            Self::Fail => "Fail",
-        }
-    }
-
-    fn log_level(self) -> LogLevel {
-        match self {
-            Self::Safe => LogLevel::Success,
-            Self::Absent | Self::Unknown | Self::Fail => LogLevel::Warning,
-            Self::Malicious => LogLevel::Error,
-        }
-    }
-
-    fn is_cloud_trusted(self) -> bool {
-        matches!(self, Self::Safe)
-    }
-}
-
-fn normalize_openedr_verdict(raw: Option<&str>, trust_message: bool) -> OpenEdrVerdict {
-    fn from_openedr_token(token: &str) -> Option<OpenEdrVerdict> {
-        match token {
-            "0" | "0x0" | "absent" => Some(OpenEdrVerdict::Absent),
-            "1" | "0x1" | "safe" => Some(OpenEdrVerdict::Safe),
-            "2" | "0x2" | "malicious" | "malware" => Some(OpenEdrVerdict::Malicious),
-            "3" | "0x3" | "unknown" => Some(OpenEdrVerdict::Unknown),
-            "4" | "0x4" | "fail" | "failed" => Some(OpenEdrVerdict::Fail),
-            _ => None,
-        }
-    }
-
-    let value = raw
-        .map(str::trim)
-        .unwrap_or_default()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim();
-
-    if value.is_empty() {
-        return if trust_message {
-            OpenEdrVerdict::Safe
-        } else {
-            OpenEdrVerdict::Unknown
-        };
-    }
-
-    let lowered = value.to_ascii_lowercase();
-    if let Some(verdict) = from_openedr_token(lowered.trim()) {
-        return verdict;
-    }
-
-    for token in lowered
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .filter(|token| !token.is_empty())
-    {
-        if matches!(token, "verdict" | "fls" | "flsverdict" | "fileverdict") {
-            continue;
-        }
-        if let Some(verdict) = from_openedr_token(token) {
-            return verdict;
-        }
-    }
-
-    OpenEdrVerdict::Unknown
-}
-
-fn is_known_browser_process(name: &str) -> bool {
-    let lower = name.trim().to_ascii_lowercase();
-    matches!(
-        lower.as_str(),
-        "firefox.exe"
-            | "chrome.exe"
-            | "msedge.exe"
-            | "brave.exe"
-            | "opera.exe"
-            | "launcher.exe"
-            | "vivaldi.exe"
-            | "librewolf.exe"
-            | "waterfox.exe"
-            | "iexplore.exe"
-    )
-}
-
-fn browser_mitm_error_hint(name: &str) -> &'static str {
-    let lower = name.trim().to_ascii_lowercase();
-    if matches!(
-        lower.as_str(),
-        "firefox.exe" | "librewolf.exe" | "waterfox.exe"
-    ) {
-        "SEC_ERROR_UNKNOWN_ISSUER"
-    } else {
-        "NET::ERR_CERT_AUTHORITY_INVALID"
-    }
-}
-
-fn browser_family(name: &str) -> &'static str {
-    let lower = name.trim().to_ascii_lowercase();
-    if matches!(
-        lower.as_str(),
-        "firefox.exe" | "librewolf.exe" | "waterfox.exe"
-    ) {
-        "firefox"
-    } else {
-        "chromium"
-    }
-}
-
-fn browser_mitm_prompt_decision_key(browser_name: &str, target: &str) -> String {
-    format!(
-        "browser-mitm:{}:{}",
-        browser_name.trim().to_ascii_lowercase(),
-        target.trim().to_ascii_lowercase()
-    )
 }
 
 fn is_unresolved_identity(value: &str) -> bool {
@@ -1305,10 +1140,6 @@ impl AppManager {
         app
     }
 
-    fn reset_view_index(&self) {
-        self.view_index.store(0, Ordering::Relaxed);
-    }
-
     pub fn get_active_alert(&self) -> Option<PendingApp> {
         let active = self.active_alert.read().unwrap().clone();
         active.map(|app| self.with_queue_state(app))
@@ -1749,14 +1580,6 @@ impl FirewallEngine {
         })
     }
 
-    fn select_proxy_bypass_host(alert: &PendingApp) -> Option<String> {
-        Self::select_proxy_bypass_target(
-            alert.hostname.as_deref(),
-            alert.full_url.as_deref(),
-            alert.target.as_deref(),
-        )
-    }
-
     fn wait_for_proxy_listener(addr: std::net::SocketAddr, timeout: Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         let test_addr = if addr.ip().is_unspecified() || addr.ip().is_loopback() {
@@ -1775,43 +1598,6 @@ impl FirewallEngine {
             std::thread::sleep(Duration::from_millis(100));
         }
         false
-    }
-
-    fn add_proxy_bypass_host(&self, host: &str) -> bool {
-        let Some(normalized) = Self::normalize_proxy_bypass_entry(host) else {
-            return false;
-        };
-
-        let tls_proxy_cfg = {
-            let mut settings = self.settings.write().unwrap();
-            if settings.tls_proxy.bypass_hosts.iter().any(|existing| {
-                Self::normalize_proxy_bypass_entry(existing).is_some_and(|normalized_existing| {
-                    normalized_existing.eq_ignore_ascii_case(&normalized)
-                })
-            }) {
-                return false;
-            }
-
-            settings.tls_proxy.bypass_hosts.push(normalized.clone());
-            settings.tls_proxy.clone()
-        };
-
-        if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy && tls_proxy_cfg.auto_start {
-            let now = Self::now_ts();
-            emit_log_event(
-                LogEntry {
-                    id: format!("{}-proxy-bypass-added", now),
-                    timestamp: now,
-                    level: LogLevel::Info,
-                    message: format!(
-                        "TLS proxy bypass saved for {}; Windows proxy settings are left unchanged",
-                        normalized
-                    ),
-                },
-            );
-        }
-
-        true
     }
 
     pub fn sync_proxy_runtime(&self) {
@@ -1968,10 +1754,6 @@ impl FirewallEngine {
             .clone()
             .or_else(|| dns_handler.resolve_ip(&info.dst_ip.to_string()))
             .unwrap_or_else(|| info.dst_ip.to_string());
-        let full_url = info
-            .full_url
-            .clone()
-            .unwrap_or_else(|| format!("https://{}:{}/", host_label, info.dst_port));
         let app_info = am.info_cache.get_info(info.process_id);
 
         let cache_key = format!(
@@ -2369,18 +2151,6 @@ foreach ($store in $stores) {
 
     pub fn request_owlyshield_report(&self) {
         self.send_hydranet_message("GENERATE_REPORT\n".to_string());
-    }
-
-    fn remember_kernel_block_path(&self, path: &str) {
-        let mut settings = self.settings.write().unwrap();
-        if settings
-            .kernel_block_paths
-            .iter()
-            .any(|existing| existing.eq_ignore_ascii_case(path))
-        {
-            return;
-        }
-        settings.kernel_block_paths.push(path.to_string());
     }
 
     pub fn get_process_inventory(&self) -> Vec<ProcessInventoryEntry> {
@@ -2802,8 +2572,6 @@ impl FirewallEngine {
             let dns_w = Arc::clone(&dns);
             let sdk_w = Arc::clone(&self.sdk);
             let fcheck_w = Arc::clone(&self.file_checker);
-            let windows_root_trust_ready_w = Arc::clone(&self.windows_root_trust_ready);
-            let firefox_policy_ready_w = Arc::clone(&self.firefox_policy_ready);
             let browser_mitm_warning_cache_w = Arc::clone(&self.browser_mitm_warning_cache);
             let network_whitelist_index_w = Arc::clone(&self.network_whitelist_index);
             let divert_w = divert.clone();

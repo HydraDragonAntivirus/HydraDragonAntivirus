@@ -182,7 +182,6 @@ pub enum IrpMajorOp {
     IrpProcessTerminateAttempt,
     IrpProcessExit,
     IrpProcessHandleOpen,
-    IrpHypervisorEvent,
     IrpKernelRemoteThread,
     IrpKernelWriteMemory,
     IrpKernelProtectMemory,
@@ -216,9 +215,8 @@ impl IrpMajorOp {
             0x0009 => IrpMajorOp::_IrpCleanUp,
             0x000A | 0x000C => IrpMajorOp::IrpWrite,
             0x000B => IrpMajorOp::IrpRead,
-            0x000D => IrpMajorOp::IrpProcessHandleOpen,
-            0x000E => IrpMajorOp::IrpHypervisorEvent,
-            0x000F => IrpMajorOp::IrpNamedPipeCreate,
+             0x000D => IrpMajorOp::IrpProcessHandleOpen,
+             0x000F => IrpMajorOp::IrpNamedPipeCreate,
             0x0010 => IrpMajorOp::IrpUserModeHookEvent,
             // Sub-event type IDs used by to_sysmonevent_u32 for round-trip (not on LBVS wire)
             0x1009 => IrpMajorOp::IrpProcessTerminateAttempt,
@@ -257,7 +255,6 @@ impl IrpMajorOp {
             IrpMajorOp::IrpProcessCreate => 0x0000,
             IrpMajorOp::IrpProcessTerminate => 0x0001,
             IrpMajorOp::IrpProcessHandleOpen => 0x000D,
-            IrpMajorOp::IrpHypervisorEvent => 0x000E,
             IrpMajorOp::IrpUserModeHookEvent => 0x0010,
             IrpMajorOp::IrpNamedPipeCreate => 0x000F,
             // 0x1000+ range: unique sub-type IDs for round-trip, not LBVS wire values
@@ -359,7 +356,6 @@ mod tests {
             IrpMajorOp::IrpProcessCreate,
             IrpMajorOp::IrpProcessTerminate,
             IrpMajorOp::IrpProcessHandleOpen,
-            IrpMajorOp::IrpHypervisorEvent,
             IrpMajorOp::IrpUserModeHookEvent,
             IrpMajorOp::IrpNamedPipeCreate,
             IrpMajorOp::IrpProcessTerminateAttempt,
@@ -396,11 +392,6 @@ mod tests {
     }
 }
 
-pub const OWLY_VMM_RAW_EVENT_BASE: u32 = 0x1000;
-pub const OWLY_VMM_RAW_CALLBACK_BASE: u32 = 0x1200;
-pub const OWLY_VMM_RAW_HYPEREVADE_BASE: u32 = 0x1300;
-pub const OWLY_VMM_RAW_DISASM_BASE: u32 = 0x1400;
-
 pub fn kernel_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
     match raw_event_type {
         12 => Some("IRP_HYPERVISOR_EVENT"),
@@ -425,50 +416,8 @@ pub fn kernel_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
     }
 }
 
-pub fn hypervisor_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
-    match raw_event_type {
-        0x1201 => Some("VMMCALL"),
-        0x1203 => Some("NMI_BROADCAST"),
-        0x1204 => Some("QUERY_TERMINATE_PROTECTED_RESOURCE"),
-        0x1206 => Some("UNHANDLED_EPT_VIOLATION"),
-        0x1208 => Some("DEBUG_DEBUG_BREAKPOINT_EXCEPTION"),
-        0x1209 => Some("DEBUG_THREAD_INTERCEPTION"),
-        0x120A => Some("CR3_PROCESS_CHANGE"),
-        0x120B => Some("REAPPLY_BREAKPOINT"),
-        0x120C => Some("KD_NMI_CALLBACK"),
-        0x120D => Some("REGISTERED_MTF_HANDLER"),
-        0x120E => Some("DEBUGGER_PROCESS_OR_THREAD_CHANGE"),
-        0x120F => Some("KD_QUERY_THREAD_OR_PROCESS_TRACING"),
-        0x1301 => Some("TRANSPARENT_HIDE_DEBUGGER"),
-        0x1302 => Some("TRANSPARENT_UNHIDE_DEBUGGER"),
-        0x1303 => Some("TRANSPARENT_CPUID"),
-        0x1304 => Some("TRANSPARENT_TRAP_FLAG_AFTER_VMEXIT"),
-        0x1305 => Some("TRANSPARENT_MSR_READ"),
-        0x1306 => Some("TRANSPARENT_MSR_WRITE"),
-        0x1307 => Some("TRANSPARENT_SYSCALL_HOOK"),
-        0x1308 => Some("TRANSPARENT_AFTER_SYSCALL"),
-        0x1401 => Some("DISASM_SHOW_INSTR_NONROOT"),
-        0x1402 => Some("DISASM_ONE_INSTR_NONROOT"),
-        0x1403 => Some("DISASM_ONE_INSTR_ROOT"),
-        0x1404 => Some("DISASM_LENGTH_ENGINE"),
-        0x1405 => Some("DISASM_LENGTH_ENGINE_ROOT_TARGET"),
-        0x1406 => Some("DISASM_LENGTH_ENGINE_BY_PID"),
-        _ => None,
-    }
-}
-
-pub fn is_hypervisor_raw_event_type(raw_event_type: u32) -> bool {
-    matches!(
-        raw_event_type,
-        OWLY_VMM_RAW_EVENT_BASE..=0x11FF
-            | OWLY_VMM_RAW_CALLBACK_BASE..=0x12FF
-            | OWLY_VMM_RAW_HYPEREVADE_BASE..=0x13FF
-            | OWLY_VMM_RAW_DISASM_BASE..=0x14FF
-    )
-}
-
 pub fn known_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
-    kernel_raw_event_name(raw_event_type).or_else(|| hypervisor_raw_event_name(raw_event_type))
+    kernel_raw_event_name(raw_event_type)
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea).
@@ -716,8 +665,7 @@ pub fn effective_hypervisor_raw_event_type(msg: &IOMessage) -> u32 {
 pub fn is_kernel_api_irp(irp_op: &IrpMajorOp) -> bool {
     matches!(
         irp_op,
-        IrpMajorOp::IrpHypervisorEvent
-            | IrpMajorOp::IrpUserModeHookEvent
+        IrpMajorOp::IrpUserModeHookEvent
             | IrpMajorOp::IrpKernelRemoteThread
             | IrpMajorOp::IrpKernelWriteMemory
             | IrpMajorOp::IrpKernelProtectMemory
@@ -740,11 +688,6 @@ pub fn is_kernel_process_protection_irp(irp_op: &IrpMajorOp) -> bool {
             | IrpMajorOp::IrpKernelCreateSection
             | IrpMajorOp::IrpKernelMapSection
     )
-}
-
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-pub fn is_real_hypervisor_irp(irp_op: &IrpMajorOp, raw_event_type: u32) -> bool {
-    matches!(irp_op, IrpMajorOp::IrpHypervisorEvent) && is_hypervisor_raw_event_type(raw_event_type)
 }
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

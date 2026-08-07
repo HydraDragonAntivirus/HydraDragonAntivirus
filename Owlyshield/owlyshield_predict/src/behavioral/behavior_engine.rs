@@ -8,13 +8,11 @@ use crate::process::ProcessRecord;
 #[cfg(all(target_os = "windows", feature = "firewall"))]
 use crate::process::ProcessState;
 use crate::shared_def::{
-    FileChangeInfo, IOMessage, IrpMajorOp, irp_major_op_label, is_hypervisor_raw_event_type,
-    known_raw_event_name,
+    FileChangeInfo, IOMessage, IrpMajorOp, irp_major_op_label, known_raw_event_name,
 };
 use crate::shared_def::{
     effective_hypervisor_irp_byte, effective_hypervisor_raw_event_type, is_kernel_api_irp,
-    is_kernel_process_protection_irp, is_real_hypervisor_irp, normalize_hypervisor_label,
-    resolved_hypervisor_event_name,
+    is_kernel_process_protection_irp, normalize_hypervisor_label, resolved_hypervisor_event_name,
 };
 use crate::signature_verification::verify_signature;
 use crate::threat_handler::ThreatHandler;
@@ -208,20 +206,6 @@ pub fn firewall_file_verdict_for_path(file_path: &str) -> Option<FileVerdictInfo
             .find(|verdict| normalize_firewall_file_verdict_key(&verdict.file_path) == key)
             .cloned()
     })
-}
-
-/// Per-PID stats from Sanctum EDR telemetry (received via HydraSanctumTelemetry pipe).
-#[cfg(all(target_os = "windows", feature = "sanctum"))]
-type FirewallSanctumStats = Arc<
-    std::sync::RwLock<HashMap<u32, crate::realtime_learning::api_tracker::SanctumOperationStats>>,
->;
-
-#[cfg(all(target_os = "windows", feature = "sanctum"))]
-fn shared_firewall_sanctum_stats() -> FirewallSanctumStats {
-    static FIREWALL_SANCTUM_STATS: OnceLock<FirewallSanctumStats> = OnceLock::new();
-    FIREWALL_SANCTUM_STATS
-        .get_or_init(|| Arc::new(std::sync::RwLock::new(HashMap::new())))
-        .clone()
 }
 
 /// Per-PID OpenEDR telemetry stats collected from the direct edrsvc -> Owlyshield feed.
@@ -796,24 +780,11 @@ pub struct IrpOperationRecord {
     pub raw_arguments: [u64; 4], // NEW: For API argument matching
 }
 
-/// Hypervisor event operation details for detailed tracking and forensics
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct HypervisorEventOperation {
-    pub timestamp: SystemTime,
-    pub api_type: IrpMajorOp,
-    pub source_pid: u32,
-    pub target_pid: u32,
-    pub memory_address: u64,
-    pub memory_size: u64,
-    pub operation_details: String,
-}
-
 /// Non-success status from user-mode hook / kernel API telemetry.
 ///
-/// This is intentionally tracked separately from `detected_apis` and
-/// `hypervisor_event_count`: hook/report/query failures are telemetry that
-/// rules may inspect, but they must not be counted as successful API behavior.
+/// This is intentionally tracked separately from `detected_apis`:
+/// hook/report/query failures are telemetry that rules may inspect, but they
+/// must not be counted as successful API behavior.
 #[derive(Debug, Clone)]
 pub struct HookErrorRecord {
     pub timestamp: SystemTime,
@@ -854,8 +825,6 @@ pub struct IrpStatistics {
     pub process_handle_open_count: u64,
     pub process_terminate_attempt_count: u64,
 
-    pub hypervisor_event_count: u64, // Normalized hypervisor event count
-
     // Named Pipe operations
     pub pipe_create_count: u64,
     pub pipe_write_count: u64,
@@ -874,9 +843,6 @@ pub struct IrpStatistics {
     pub high_entropy_files: HashSet<String>,
     pub average_entropy: f64,
     pub entropy_samples: Vec<f64>,
-
-    // Hypervisor event operation history (limited to last 100 for memory efficiency)
-    pub hypervisor_event_operations: Vec<HypervisorEventOperation>,
 
     // Per-SysmonEvent-ID opcode counters for OpenEDR/Owlyshield bridge rules.
     pub raw_irp_counts: HashMap<u32, u64>,
@@ -902,21 +868,12 @@ impl IrpStatistics {
             + self.process_exit_count
             + self.process_handle_open_count
             + self.process_terminate_attempt_count
-            + self.hypervisor_event_count
             + self.pipe_create_count
             + self.pipe_write_count
     }
 
     pub fn get_high_entropy_count(&self) -> usize {
         self.high_entropy_files.len()
-    }
-
-    pub fn get_injection_api_count(&self) -> u64 {
-        self.hypervisor_event_count
-    }
-
-    pub fn has_injection_indicators(&self) -> bool {
-        self.hypervisor_event_count > 0
     }
 
     pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
@@ -999,9 +956,8 @@ impl IrpStatistics {
                 }
             }
 
-            // Hypervisor/VMM and user-mode hook events are tracked together.
+            // User-mode hook and kernel-API events are tracked together.
             IrpMajorOp::IrpUserModeHookEvent
-            | IrpMajorOp::IrpHypervisorEvent
             | IrpMajorOp::IrpKernelRemoteThread
             | IrpMajorOp::IrpKernelWriteMemory
             | IrpMajorOp::IrpKernelProtectMemory
@@ -1009,17 +965,6 @@ impl IrpStatistics {
             | IrpMajorOp::IrpKernelQueueApc
             | IrpMajorOp::IrpKernelCreateSection
             | IrpMajorOp::IrpKernelMapSection => {
-                self.hypervisor_event_count += 1;
-                let details = if rec.function_name.is_empty() {
-                    "API Hooking Event".to_string()
-                } else {
-                    format!("API Hooking Event (raw_name={})", rec.function_name)
-                };
-                self.record_hypervisor_event_operation(
-                    rec,
-                    IrpMajorOp::from_sysmonevent(rec.irp_type),
-                    &details,
-                );
                 if is_real_api_observation(&rec.function_name) {
                     self.all_apis_called.insert(rec.function_name.clone());
                 }
@@ -1049,111 +994,6 @@ impl IrpStatistics {
         }
     }
 
-    /// Record detailed hypervisor event operation for forensics and analysis
-    fn record_hypervisor_event_operation(
-        &mut self,
-        rec: &IrpOperationRecord,
-        api_type: IrpMajorOp,
-        details: &str,
-    ) {
-        let operation = HypervisorEventOperation {
-            timestamp: rec.timestamp,
-            api_type,
-            source_pid: 0, // Will be filled from IOMessage if available
-            target_pid: rec.target_pid,
-            memory_address: 0, // Will be filled from hypervisor event payload if available
-            memory_size: rec.bytes_transferred,
-            operation_details: details.to_string(),
-        };
-
-        self.hypervisor_event_operations.push(operation);
-
-        // Keep only last 100 operations to prevent memory bloat
-        if self.hypervisor_event_operations.len() > 100 {
-            self.hypervisor_event_operations.remove(0);
-        }
-    }
-
-    fn enrich_latest_hypervisor_event_operation(
-        &mut self,
-        msg: &IOMessage,
-        event_name: &str,
-        raw_event_type: u32,
-    ) {
-        let Some(operation) = self.hypervisor_event_operations.last_mut() else {
-            return;
-        };
-
-        let hyper_event = msg.resolved_hypervisor_event();
-        operation.source_pid = hyper_event
-            .as_ref()
-            .map(|event| event.source_process_id)
-            .unwrap_or(msg.kernel_event_info.source_process_id);
-        operation.target_pid = hyper_event
-            .as_ref()
-            .map(|event| event.target_process_id)
-            .unwrap_or_else(|| {
-                if msg.kernel_event_info.target_process_id != 0 {
-                    msg.kernel_event_info.target_process_id
-                } else {
-                    msg.pid
-                }
-            });
-        operation.memory_address = hyper_event
-            .as_ref()
-            .map(|event| event.memory_address)
-            .unwrap_or(msg.kernel_event_info.memory_address);
-        operation.memory_size = hyper_event
-            .as_ref()
-            .map(|event| event.memory_size)
-            .unwrap_or(msg.kernel_event_info.memory_size as u64);
-        let operation_status = hyper_event
-            .as_ref()
-            .map(|event| event.operation_status)
-            .unwrap_or(msg.kernel_event_info.operation_status);
-        let raw_argument1 = hyper_event
-            .as_ref()
-            .map(|event| event.raw_argument1)
-            .unwrap_or(msg.kernel_event_info.raw_argument1);
-        let raw_argument2 = hyper_event
-            .as_ref()
-            .map(|event| event.raw_argument2)
-            .unwrap_or(msg.kernel_event_info.raw_argument2);
-        let raw_argument3 = hyper_event
-            .as_ref()
-            .map(|event| event.raw_argument3)
-            .unwrap_or(msg.kernel_event_info.raw_argument3);
-        let raw_argument4 = hyper_event
-            .as_ref()
-            .map(|event| event.raw_argument4)
-            .unwrap_or(msg.kernel_event_info.raw_argument4);
-        let core_id = hyper_event
-            .as_ref()
-            .map(|event| event.core_id)
-            .unwrap_or(msg.kernel_event_info.core_id);
-        let thread_id = hyper_event
-            .as_ref()
-            .map(|event| event.thread_id)
-            .unwrap_or(msg.kernel_event_info.thread_id);
-        let context = hyper_event
-            .as_ref()
-            .map(|event| event.context)
-            .unwrap_or(msg.kernel_event_info.context);
-        operation.operation_details = format!(
-            "{} raw_event_type=0x{:X} status=0x{:08X} core_id={} thread_id={} context=0x{:X} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
-            event_name,
-            raw_event_type,
-            operation_status as u32,
-            core_id,
-            thread_id,
-            context,
-            raw_argument1,
-            raw_argument2,
-            raw_argument3,
-            raw_argument4
-        );
-    }
-
     pub fn get_operation_count(&self, op_type: &str) -> u64 {
         if let Some(opcode) = irp_opcode_from_operation_token(op_type) {
             return *self.raw_irp_counts.get(&(opcode as u32)).unwrap_or(&0);
@@ -1175,30 +1015,10 @@ impl IrpStatistics {
             "process_exit" => self.process_exit_count,
             "process_handle_open" => self.process_handle_open_count,
             "process_terminate_attempt" => self.process_terminate_attempt_count,
-            "hypervisor_event" => self.hypervisor_event_count,
             "named_pipe_create" | "pipe_create" => self.pipe_create_count,
             "named_pipe_write" | "pipe_write" => self.pipe_write_count,
             _ => 0,
         }
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HypervisorStats {
-    pub hyp_event_count: u64,
-    pub hypervisor_event_count: u64,
-}
-
-#[allow(dead_code)]
-impl HypervisorStats {
-    pub fn get_injection_api_count(&self) -> u64 {
-        self.hypervisor_event_count
-    }
-
-    /// Check if process has any hypervisor event activity.
-    pub fn has_injection_indicators(&self) -> bool {
-        self.hypervisor_event_count > 0
     }
 }
 
@@ -1460,7 +1280,6 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u32> {
         "process_handle_open" | "processhandleopen" | "proc_handle_open" | "prochandleopen" => {
             Some(11)
         }
-        "hypervisor" | "hypervisor_event" | "hypervisorevent" => Some(12),
         "kernel_remote_thread"
         | "kernelremotethread"
         | "kern_remote_thread"
@@ -1691,14 +1510,7 @@ fn canonical_hypervisor_event_label(
         _ => irp_op.clone(),
     };
     match resolved {
-        IrpMajorOp::IrpHypervisorEvent if is_hypervisor_raw_event_type(raw_event_type) => {
-            known_raw_event_name(raw_event_type)
-                .map(|name| name.to_string())
-                .filter(|name| !is_generic_hypervisor_label(name))
-                .or_else(|| Some(format!("RawHypervisorEvent(0x{raw_event_type:X})")))
-        }
-        IrpMajorOp::IrpHypervisorEvent
-        | IrpMajorOp::IrpUserModeHookEvent
+        IrpMajorOp::IrpUserModeHookEvent
         | IrpMajorOp::IrpKernelRemoteThread
         | IrpMajorOp::IrpKernelWriteMemory
         | IrpMajorOp::IrpKernelProtectMemory
@@ -1722,8 +1534,7 @@ fn canonical_hypervisor_event_label(
 fn is_generic_hypervisor_label(raw: &str) -> bool {
     matches!(
         raw.trim(),
-        "IrpHypervisorEvent"
-            | "IrpUserModeHookEvent"
+        "IrpUserModeHookEvent"
             | "IrpKernelRemoteThread"
             | "IrpKernelWriteMemory"
             | "IrpKernelProtectMemory"
@@ -1731,7 +1542,6 @@ fn is_generic_hypervisor_label(raw: &str) -> bool {
             | "IrpKernelQueueApc"
             | "IrpKernelCreateSection"
             | "IrpKernelMapSection"
-            | "IRP_HYPERVISOR_EVENT"
             | "IRP_USER_MODE_HOOK_EVENT"
             | "IRP_KERNEL_REMOTE_THREAD"
             | "IRP_KERNEL_WRITE_MEMORY"
@@ -1824,7 +1634,7 @@ fn is_antitamper_status(operation_status: i32) -> bool {
     )
 }
 
-fn is_benign_hypervisor_failure_status(operation_status: i32, is_acg_enabled: bool) -> bool {
+fn is_benign_kernel_failure_status(operation_status: i32, is_acg_enabled: bool) -> bool {
     if operation_status == 0 {
         return false;
     }
@@ -1841,10 +1651,8 @@ fn is_hook_error_status(operation_status: i32) -> bool {
     operation_status != 0
 }
 
-fn is_actionable_hypervisor_event(
+fn is_actionable_kernel_event(
     irp_op: &IrpMajorOp,
-    raw: &str,
-    raw_event_type: u32,
     operation_status: i32,
     is_acg_enabled: bool,
 ) -> bool {
@@ -1855,26 +1663,12 @@ fn is_actionable_hypervisor_event(
     // Benign handle-race fallout from GUI/WebView/browser lifetime churn should
     // stay visible in low-level telemetry, but must not contaminate behavioral
     // API history or trigger higher-level detections.
-    if is_benign_hypervisor_failure_status(operation_status, is_acg_enabled) {
+    if is_benign_kernel_failure_status(operation_status, is_acg_enabled) {
         return false;
     }
 
-    if is_kernel_process_protection_irp(irp_op)
+    is_kernel_process_protection_irp(irp_op)
         || matches!(irp_op, IrpMajorOp::IrpUserModeHookEvent)
-    {
-        return true;
-    }
-
-    if !is_real_hypervisor_irp(irp_op, raw_event_type) {
-        return false;
-    }
-
-    let normalized = normalize_hypervisor_label(raw);
-    if !normalized.is_empty() && !is_generic_hypervisor_label(&normalized) {
-        return true;
-    }
-
-    is_hypervisor_raw_event_type(raw_event_type)
 }
 
 fn api_function_alias(raw: &str) -> Option<String> {
@@ -2206,7 +2000,6 @@ pub struct ProcessBehaviorState {
     pub irp_operations: Vec<IrpOperationRecord>,
     pub irp_stats: IrpStatistics,
     pub all_apis_called: HashSet<String>,
-    pub observed_hypervisor_event_labels: HashSet<String>,
     pub recent_kernel_api_events: VecDeque<String>,
 
     // Self-defense telemetry from OpenEDR/Owlyshield kernel sensors.
@@ -2222,10 +2015,6 @@ pub struct ProcessBehaviorState {
     pub hook_error_status_counts: HashMap<i32, usize>,
     pub hook_error_api_counts: HashMap<String, usize>,
     pub recent_hook_errors: VecDeque<HookErrorRecord>,
-
-    // Normalized hypervisor event tracking
-    pub hypervisor_event_count: u32,
-    pub hypervisor_events_total: u32,
 
     // Stems collected from create events where the file had an unknown (non-whitelisted) extension.
     // Key: lowercase full path with the last extension stripped.
@@ -2256,13 +2045,6 @@ pub struct ProcessBehaviorState {
 
     /// AMSI analysis results for script content monitored by the engine.
     pub amsi_results: Vec<crate::behavioral::amsi::AmsiAnalysisResult>,
-
-    /// Sanctum EDR telemetry stats for real-time learning.
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub sanctum_stats: crate::realtime_learning::api_tracker::SanctumOperationStats,
-    /// Historical hits for Sanctum suspicious syscalls throughout the process lifetime.
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub sanctum_suspicious_hits: HashSet<String>,
 
     /// True if this process has been implicated in a rootkit finding.
     pub rootkit_implicated: bool,
@@ -2300,23 +2082,6 @@ pub struct ProcessBehaviorState {
     /// Static scan state
     pub static_scan_state: StaticScanState,
 
-    /// DetectItEasy static analysis results (from Owlyshield)
-    pub detectiteasy_result: Option<DetectItEasyResult>,
-    /// Whether the file is packed/protected
-    pub is_packed: bool,
-    pub is_protected: bool,
-    /// Packer/protector names
-    pub packer_name: Option<String>,
-    pub protector_name: Option<String>,
-    /// Special detections
-    pub is_vmprotect: bool,
-    pub is_themida: bool,
-    pub is_dotnet: bool,
-    pub is_pyinstaller: bool,
-    pub is_upx: bool,
-    /// File type from static analysis
-    pub static_file_type: Option<String>,
-
     /// MITRE ATT&CK Integration (only available with behavior_engine feature)
     /// Mapped MITRE ATT&CK techniques observed for this process
     pub mitre_techniques: HashSet<String>,
@@ -2348,26 +2113,6 @@ impl Default for StaticScanState {
     fn default() -> Self {
         StaticScanState::NotScanned
     }
-}
-
-/// DetectItEasy analysis result summary for behavior engine
-#[derive(Debug, Clone)]
-pub struct DetectItEasyResult {
-    pub is_pe: bool,
-    pub is_elf: bool,
-    pub is_packed: bool,
-    pub is_protected: bool,
-    pub packer_name: Option<String>,
-    pub protector_name: Option<String>,
-    pub is_vmprotect: bool,
-    pub is_themida: bool,
-    pub is_dotnet: bool,
-    pub is_pyinstaller: bool,
-    pub is_nuitka: bool,
-    pub is_upx: bool,
-    pub is_go_garble: bool,
-    pub file_type: Option<String>,
-    pub is_broken_executable: bool,
 }
 
 /// MITRE ATT&CK timeline event for behavior tracking
@@ -2430,7 +2175,6 @@ impl ProcessBehaviorState {
         state.irp_operations = Vec::new();
         state.irp_stats = IrpStatistics::default();
         state.all_apis_called = HashSet::new();
-        state.observed_hypervisor_event_labels = HashSet::new();
         state.recent_kernel_api_events = VecDeque::with_capacity(128);
         state.self_defense_events = VecDeque::with_capacity(128);
         state.self_defense_event_count = 0;
@@ -2441,9 +2185,6 @@ impl ProcessBehaviorState {
         state.hook_error_api_counts = HashMap::new();
         state.recent_hook_errors = VecDeque::with_capacity(128);
 
-        // Initialize normalized hypervisor event counters
-        state.hypervisor_event_count = 0;
-        state.hypervisor_events_total = 0;
         state.created_unknown_ext_stems = HashSet::new();
         state.written_unknown_ext_stems = HashSet::new();
         state.script_file = String::new();
@@ -2452,11 +2193,6 @@ impl ProcessBehaviorState {
         {
             state.net_packets = VecDeque::with_capacity(500);
             state.http_body_entries = Vec::new();
-        }
-        #[cfg(all(target_os = "windows", feature = "sanctum"))]
-        {
-            state.sanctum_stats =
-                crate::realtime_learning::api_tracker::SanctumOperationStats::default();
         }
         state.rootkit_implicated = false;
         state.rootkit_findings = Vec::new();
@@ -2479,19 +2215,6 @@ impl ProcessBehaviorState {
         state.static_scan_timestamp = None;
         state.static_files_scanned = 0;
         state.static_scan_state = StaticScanState::NotScanned;
-
-        // Initialize DetectItEasy fields
-        state.detectiteasy_result = None;
-        state.is_packed = false;
-        state.is_protected = false;
-        state.packer_name = None;
-        state.protector_name = None;
-        state.is_vmprotect = false;
-        state.is_themida = false;
-        state.is_dotnet = false;
-        state.is_pyinstaller = false;
-        state.is_upx = false;
-        state.static_file_type = None;
 
         // Initialize MITRE ATT&CK fields (only with behavior_engine feature)
         {
@@ -2676,23 +2399,14 @@ impl ProcessBehaviorState {
             });
         }
 
-        let actionable_hypervisor_event = is_actionable_hypervisor_event(
+        let actionable_kernel_event = is_actionable_kernel_event(
             &irp_kind,
-            &event_name,
-            raw_event_type,
             operation_status,
             msg.kernel_event_info.is_acg_enabled,
         );
 
-        if !is_api_event || actionable_hypervisor_event {
+        if !is_api_event || actionable_kernel_event {
             self.irp_stats.record_operation(&rec);
-            if actionable_hypervisor_event {
-                self.irp_stats.enrich_latest_hypervisor_event_operation(
-                    msg,
-                    &event_name,
-                    raw_event_type,
-                );
-            }
         }
 
         if is_api_event {
@@ -2741,9 +2455,7 @@ impl ProcessBehaviorState {
                 .as_ref()
                 .map(|event| event.context)
                 .unwrap_or(msg.kernel_event_info.context);
-            let event_family = if is_real_hypervisor_irp(&irp_kind, raw_event_type) {
-                "hypervisor"
-            } else if is_kernel_process_protection_irp(&irp_kind) {
+            let event_family = if is_kernel_process_protection_irp(&irp_kind) {
                 "kernel_api"
             } else if matches!(irp_kind, IrpMajorOp::IrpUserModeHookEvent) {
                 "api_hook"
@@ -2773,17 +2485,8 @@ impl ProcessBehaviorState {
             }
             self.recent_kernel_api_events.push_back(event_summary);
 
-            if actionable_hypervisor_event {
-                self.hypervisor_event_count += 1;
-                if let Some(event_label) =
-                    canonical_hypervisor_event_label(&irp_kind, raw_event_type, &event_name)
-                {
-                    self.observed_hypervisor_event_labels.insert(event_label);
-                }
-            }
-
             if real_api {
-                if actionable_hypervisor_event {
+                if actionable_kernel_event {
                     self.detected_apis.insert(event_name.clone());
                     self.all_apis_called.insert(event_name.clone());
                     if let Some(alias) = api_function_alias(&event_name) {
@@ -2792,8 +2495,8 @@ impl ProcessBehaviorState {
                     }
                 }
                 Logging::info(&format!(
-                    "[API HOOKING EVENT{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
-                    if actionable_hypervisor_event {
+                    "[API HOOKING EVENT{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\"",
+                    if actionable_kernel_event {
                         ""
                     } else {
                         " IGNORED"
@@ -2810,15 +2513,12 @@ impl ProcessBehaviorState {
                     raw_argument3,
                     raw_argument4,
                     event_name,
-                    self.hypervisor_event_count
                 ));
             } else {
                 let event_label =
                     canonical_hypervisor_event_label(&irp_kind, raw_event_type, &event_name)
                         .unwrap_or_else(|| event_name.clone());
-                let event_family = if is_real_hypervisor_irp(&irp_kind, raw_event_type) {
-                    "HYPERVISOR EVENT"
-                } else if is_kernel_process_protection_irp(&irp_kind) {
+                let event_family = if is_kernel_process_protection_irp(&irp_kind) {
                     "KERNEL API EVENT"
                 } else if matches!(irp_kind, IrpMajorOp::IrpUserModeHookEvent) {
                     "USERMODE HOOK EVENT"
@@ -2826,9 +2526,9 @@ impl ProcessBehaviorState {
                     "KERNEL EVENT"
                 };
                 Logging::info(&format!(
-                    "[{}{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\" count={}",
+                    "[{}{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\"",
                     event_family,
-                    if actionable_hypervisor_event {
+                    if actionable_kernel_event {
                         ""
                     } else {
                         " IGNORED"
@@ -2845,21 +2545,6 @@ impl ProcessBehaviorState {
                     raw_argument3,
                     raw_argument4,
                     event_label,
-                    self.hypervisor_event_count
-                ));
-            }
-        }
-
-        // Increment total hypervisor events counter and emit activity signal
-        if actionable_hypervisor_event {
-            self.hypervisor_events_total += 1;
-
-            // Check for hypervisor event activity after each normalized event
-            if self.irp_stats.has_injection_indicators() {
-                Logging::warning(&format!(
-                    "[API HOOKING DETECTED] PID {} - Total fallback events: {}",
-                    msg.pid,
-                    self.irp_stats.get_injection_api_count()
                 ));
             }
         }
@@ -3036,46 +2721,6 @@ impl ProcessBehaviorState {
         &self.static_ioc_matches
     }
 
-    /// Record DetectItEasy static analysis results from Owlyshield
-    pub fn record_detectiteasy_result(&mut self, die_result: DetectItEasyResult) {
-        self.is_packed = die_result.is_packed;
-        self.is_protected = die_result.is_protected;
-        self.packer_name = die_result.packer_name.clone();
-        self.protector_name = die_result.protector_name.clone();
-        self.is_vmprotect = die_result.is_vmprotect;
-        self.is_themida = die_result.is_themida;
-        self.is_dotnet = die_result.is_dotnet;
-        self.is_pyinstaller = die_result.is_pyinstaller;
-        self.is_upx = die_result.is_upx;
-        self.static_file_type = die_result.file_type.clone();
-        self.detectiteasy_result = Some(die_result.clone());
-
-        Logging::info(&format!(
-            "[DetectItEasy] PID: {} | Type: {:?} | Packed: {} | Protected: {} | Packer: {:?} | Protector: {:?}",
-            self.pid,
-            die_result.file_type,
-            die_result.is_packed,
-            die_result.is_protected,
-            die_result.packer_name,
-            die_result.protector_name
-        ));
-    }
-
-    /// Check if process executable is packed
-    pub fn is_packed_executable(&self) -> bool {
-        self.is_packed
-    }
-
-    /// Check if process executable is protected
-    pub fn is_protected_executable(&self) -> bool {
-        self.is_protected
-    }
-
-    /// Get DetectItEasy result
-    pub fn get_detectiteasy_result(&self) -> Option<&DetectItEasyResult> {
-        self.detectiteasy_result.as_ref()
-    }
-
     /// Record a MITRE ATT&CK technique observation
     pub fn record_mitre_technique(
         &mut self,
@@ -3182,9 +2827,6 @@ pub struct BehaviorEngine {
     /// Per-PID rolling history of full network packets from the firewall.
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     firewall_full_packets: FirewallFullPackets,
-    /// Per-PID stats from Sanctum EDR telemetry.
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub firewall_sanctum_stats: FirewallSanctumStats,
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     pub generate_report_flag: FirewallGenerateReport,
     /// File verdicts received from the firewall (keyed by file path lowercase).
@@ -3198,19 +2840,6 @@ impl Default for BehaviorEngine {
     fn default() -> Self {
         Self::new()
     }
-}
-
-#[cfg(all(target_os = "windows", feature = "sanctum"))]
-fn sanctum_value_is_truthy(value: &serde_json::Value) -> bool {
-    value.as_bool().unwrap_or(false)
-        || value.as_u64().is_some_and(|num| num == 1)
-        || value
-            .as_str()
-            .map(|text| {
-                let text = text.trim();
-                text == "1" || text.eq_ignore_ascii_case("true")
-            })
-            .unwrap_or(false)
 }
 
 #[derive(Clone, Copy)]
@@ -3265,8 +2894,6 @@ impl BehaviorEngine {
             firewall_http_body_map: shared_firewall_http_body_map(),
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             firewall_full_packets: shared_firewall_full_packets(),
-            #[cfg(all(target_os = "windows", feature = "sanctum"))]
-            firewall_sanctum_stats: shared_firewall_sanctum_stats(),
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             generate_report_flag: shared_firewall_generate_report(),
             #[cfg(all(target_os = "windows", feature = "firewall"))]
@@ -3767,312 +3394,6 @@ impl BehaviorEngine {
             .expect("failed to spawn hydra_net_event_pipe thread");
     }
 
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub(crate) fn sanctum_value<'v>(
-        event: &'v serde_json::Value,
-        args: &'v serde_json::Value,
-        names: &[&str],
-    ) -> Option<&'v serde_json::Value> {
-        for name in names {
-            if let Some(value) = event.get(*name) {
-                return Some(value);
-            }
-            if let Some(value) = args.get(*name) {
-                return Some(value);
-            }
-        }
-        None
-    }
-
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub(crate) fn sanctum_u32_field(
-        event: &serde_json::Value,
-        args: &serde_json::Value,
-        names: &[&str],
-    ) -> u32 {
-        let Some(value) = Self::sanctum_value(event, args, names) else {
-            return 0;
-        };
-
-        if let Some(num) = value.as_u64() {
-            return num.min(u32::MAX as u64) as u32;
-        }
-
-        let Some(text) = value
-            .as_str()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-        else {
-            return 0;
-        };
-
-        let parsed = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
-        {
-            u64::from_str_radix(hex, 16)
-        } else {
-            text.parse::<u64>()
-                .or_else(|_| u64::from_str_radix(text, 16))
-        };
-
-        parsed
-            .map(|num| num.min(u32::MAX as u64) as u32)
-            .unwrap_or(0)
-    }
-
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub(crate) fn sanctum_string_field(
-        event: &serde_json::Value,
-        args: &serde_json::Value,
-        names: &[&str],
-    ) -> String {
-        Self::sanctum_value(event, args, names)
-            .and_then(|value| {
-                value
-                    .as_str()
-                    .map(|text| text.trim().to_string())
-                    .or_else(|| value.as_u64().map(|num| num.to_string()))
-            })
-            .unwrap_or_default()
-    }
-
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub(crate) fn sanctum_bool_field(
-        event: &serde_json::Value,
-        args: &serde_json::Value,
-        names: &[&str],
-    ) -> bool {
-        Self::sanctum_value(event, args, names).is_some_and(sanctum_value_is_truthy)
-    }
-
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub(crate) fn sanctum_event_is_detection(
-        event: &serde_json::Value,
-        args: &serde_json::Value,
-        _source: &str,
-        _function: &str,
-    ) -> bool {
-        if Self::sanctum_value(event, args, &["is_detection"]).is_some_and(sanctum_value_is_truthy)
-        {
-            return true;
-        }
-
-        Self::sanctum_value(event, args, &["event_type"])
-            .and_then(|value| value.as_str())
-            .is_some_and(|text| text.trim().eq_ignore_ascii_case("DETECTION"))
-    }
-
-    /// Ingest a telemetry event from Sanctum EDR.
-    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-    pub fn ingest_sanctum_event(&mut self, event: &serde_json::Value) {
-        let null_args = serde_json::Value::Null;
-        let args = event.get("args").unwrap_or(&null_args);
-
-        let pid = Self::sanctum_u32_field(
-            event,
-            args,
-            &[
-                "pid",
-                "process_id",
-                "source_pid",
-                "attacker_pid",
-                "target_pid",
-                "client_pid",
-            ],
-        );
-        let mut source = Self::sanctum_string_field(event, args, &["source", "provider", "sensor"]);
-        if source.is_empty() {
-            source = "-".to_string();
-        }
-
-        let mut function = Self::sanctum_string_field(
-            event,
-            args,
-            &["function", "api", "syscall", "operation", "event", "name"],
-        );
-        if function.is_empty() {
-            function = "-".to_string();
-        }
-
-        let is_detection = Self::sanctum_event_is_detection(event, args, &source, &function);
-
-        let gid = self.find_gid_by_pid(pid).unwrap_or(0);
-
-        // Register the PID as network-active if Sanctum observes
-        // suspicious cross-process operations (NtOpenProcess etc.)
-        // so firewall and behavior rules can correlate.
-        #[cfg(all(target_os = "windows", feature = "firewall"))]
-        if pid != 0
-            && matches!(
-                function.as_str(),
-                "NtOpenProcess"
-                    | "NtWriteVirtualMemory"
-                    | "NtAllocateVirtualMemory"
-                    | "NtCreateThreadEx"
-                    | "NtProtectVirtualMemory"
-                    | "NtMapViewOfSection"
-                    | "NtQueueApcThread"
-                    | "NtSetContextThread"
-            )
-        {
-            self.firewall_net_pids.write().unwrap().insert(pid);
-            if gid != 0 {
-                if let Some(state) = self.process_states.get_mut(&gid) {
-                    state.detected_apis.insert(function.to_string());
-                }
-            }
-            Logging::warning(&format!(
-                "[SanctumTelemetry] Suspicious syscall from PID {}: {}",
-                pid, function
-            ));
-        }
-
-        // Handle AMSI and EDR bypass attempts from Sanctum (VEH abuse, ETW-TI, Ghost Hunting, etc.)
-        if source == "sanctum_veh"
-            || source == "etw_ti"
-            || source == "syscall_hook"
-            || source == "sanctum_ghost"
-        {
-            if gid != 0 {
-                if let Some(state) = self.process_states.get_mut(&gid) {
-                    let (risk, pattern) = match source.as_str() {
-                        "sanctum_veh" => (
-                            crate::behavioral::amsi::AmsiRiskLevel::Critical,
-                            format!("VEH_ABUSE: {}", function),
-                        ),
-                        "etw_ti" => {
-                            let is_suspicious = args["suspicious"].as_bool().unwrap_or(false);
-                            if is_suspicious {
-                                (
-                                    crate::behavioral::amsi::AmsiRiskLevel::High,
-                                    format!("ETW_TI_SUSPICIOUS: {}", function),
-                                )
-                            } else {
-                                (
-                                    crate::behavioral::amsi::AmsiRiskLevel::Medium,
-                                    format!("ETW_TI: {}", function),
-                                )
-                            }
-                        }
-                        "syscall_hook" => (
-                            crate::behavioral::amsi::AmsiRiskLevel::Medium,
-                            format!("SYSCALL_HOOK: {}", function),
-                        ),
-                        "sanctum_ghost" => (
-                            crate::behavioral::amsi::AmsiRiskLevel::Critical,
-                            format!("DIRECT_SYSCALL: {}", function),
-                        ),
-                        _ => (crate::behavioral::amsi::AmsiRiskLevel::None, String::new()),
-                    };
-
-                    if risk != crate::behavioral::amsi::AmsiRiskLevel::None {
-                        let res = crate::behavioral::amsi::AmsiAnalysisResult {
-                            risk_level: risk,
-                            detected_patterns: vec![pattern],
-                            source: source.to_string(),
-                            content_sample: String::new(),
-                        };
-                        state.amsi_results.push(res);
-                    }
-                }
-            }
-        }
-
-        // Update shared Sanctum stats for real-time learning.
-        if pid != 0 {
-            let mut sanctum_lock = self.firewall_sanctum_stats.write().unwrap();
-            let stats = sanctum_lock.entry(pid).or_insert_with(
-                crate::realtime_learning::api_tracker::SanctumOperationStats::default,
-            );
-            stats.syscall_count += 1;
-            stats.is_detection |= is_detection;
-
-            // Handle forensic syscall telemetry (Ghost Hunting)
-            if source == "sanctum_ghost" {
-                let caller_address = args["caller_address"]
-                    .as_u64()
-                    .or_else(|| event["address"].as_u64())
-                    .unwrap_or(0);
-                let hex_payload = args["hex"]
-                    .as_str()
-                    .or_else(|| event["hex"].as_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                if caller_address != 0 || !hex_payload.is_empty() {
-                    stats.ghost_telemetry.push(
-                        crate::realtime_learning::api_tracker::SanctumGhostTelemetry {
-                            function: function.to_string(),
-                            caller_address,
-                            hex_payload: hex_payload.clone(),
-                            timestamp_ms: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_millis() as u64,
-                        },
-                    );
-
-                    // Cap telemetry to prevent memory bloat
-                    if stats.ghost_telemetry.len() > 100 {
-                        stats.ghost_telemetry.remove(0);
-                    }
-                }
-            }
-
-            stats.last_event = Some(format!(
-                "{} - {}",
-                function,
-                serde_json::to_string(args).unwrap_or_default()
-            ));
-
-            if let Some(target_pid) = args["target_pid"].as_u64() {
-                if target_pid as u32 != pid {
-                    stats.cross_process_handle_count += 1;
-                }
-            } else if args["remote"].as_bool().unwrap_or(false) {
-                stats.cross_process_handle_count += 1;
-            }
-
-            if matches!(
-                function.as_str(),
-                "NtWriteVirtualMemory"
-                    | "NtAllocateVirtualMemory"
-                    | "NtCreateThreadEx"
-                    | "NtProtectVirtualMemory"
-                    | "NtMapViewOfSection"
-                    | "NtQueueApcThread"
-                    | "NtSetContextThread"
-            ) {
-                stats.injection_score += 0.1;
-                stats.suspicious_syscall_hits.push(function.to_string());
-                if stats.suspicious_syscall_hits.len() > 20 {
-                    stats.suspicious_syscall_hits.remove(0);
-                }
-            }
-
-            if stats.injection_score > 1.0 {
-                stats.injection_score = 1.0;
-            }
-
-            if gid != 0
-                && let Some(state) = self.process_states.get_mut(&gid)
-            {
-                state.sanctum_stats = stats.clone();
-                if matches!(
-                    function.as_str(),
-                    "NtWriteVirtualMemory"
-                        | "NtAllocateVirtualMemory"
-                        | "NtCreateThreadEx"
-                        | "NtProtectVirtualMemory"
-                        | "NtMapViewOfSection"
-                        | "NtQueueApcThread"
-                        | "NtSetContextThread"
-                ) {
-                    state.sanctum_suspicious_hits.insert(function.to_string());
-                }
-            }
-        }
-    }
-
     /// Notify the firewall GUI about the OpenEDR FLS verdict for this process.
     #[cfg(all(target_os = "windows", feature = "firewall"))]
     fn notify_firewall_openedr_verdict(
@@ -4359,8 +3680,6 @@ impl BehaviorEngine {
                     | "IRP_ROOTKIT_GENERIC"
             ) {
                 "Rootkit"
-            } else if matches!(event_type, "IRP_HYPERVISOR_EVENT") {
-                "Hypervisor"
             } else {
                 "Other"
             }
@@ -4651,10 +3970,6 @@ impl BehaviorEngine {
                 aliases.push("KernelHook::Rootkit".to_string());
                 aliases.push("KernelHook::Any".to_string());
             }
-            "IRP_HYPERVISOR_EVENT" => {
-                aliases.push("KernelHook::HypervisorEvent".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
             "IRP_NAMED_PIPE_WRITE" => {
                 aliases.push("KernelHook::NamedPipeWrite".to_string());
                 aliases.push("KernelHook::Any".to_string());
@@ -4871,8 +4186,8 @@ impl BehaviorEngine {
             "Input" => stats.input_event_count += 1,
             "User" => stats.user_event_count += 1,
             "SelfDefense" => stats.self_defense_event_count += 1,
-            // Communication.cpp kernel hook / rootkit / hypervisor families
-            "KernelHook" | "Rootkit" | "Hypervisor" => stats.memory_event_count += 1,
+            // Communication.cpp kernel hook / rootkit families
+            "KernelHook" | "Rootkit" => stats.memory_event_count += 1,
             _ => {}
         }
 
@@ -4895,9 +4210,9 @@ impl BehaviorEngine {
             _ => {}
         }
 
-        // ── owlyHook / owlyHv → pending IrpOperationRecord ──────────────────────
+        // ── owlyHook → pending IrpOperationRecord ───────────────────────────────
         // These fields are populated by controller.cpp parseEvent for
-        // DeviceIoControl (hook) and hypervisor events.  We convert them into
+        // DeviceIoControl (hook) events.  We convert them into
         // IrpOperationRecord entries and push them into the shared pending queue so
         // the main Worker thread can apply them to ProcessBehaviorState via
         // record_irp_operation without needing &mut self here.
@@ -4941,10 +4256,8 @@ impl BehaviorEngine {
                 "LLE_PROCESS_DELETE" => Some(SE::ProcessDelete as u32),
                 "LLE_PROCESS_OPEN" => Some(SE::ProcessOpen as u32),
                 "LLE_NAMED_PIPE_CREATE" => Some(SE::NamedPipeCreate as u32),
-                // IRP_ hook/hypervisor/rootkit events carried as DeviceIoControl
-                "IRP_USERMODE_HOOK_EVENT" | "IRP_HYPERVISOR_EVENT" | "LLE_DEVICE_IOCTL" => {
-                    Some(SE::DeviceIoControl as u32)
-                }
+                // IRP_ hook/rootkit events carried as DeviceIoControl
+                "IRP_USERMODE_HOOK_EVENT" | "LLE_DEVICE_IOCTL" => Some(SE::DeviceIoControl as u32),
                 "IRP_KERNEL_REMOTE_THREAD" => Some(SE::DeviceIoControl as u32),
                 "IRP_KERNEL_WRITE_MEMORY" => Some(SE::DeviceIoControl as u32),
                 "IRP_KERNEL_PROTECT_MEMORY" => Some(SE::DeviceIoControl as u32),
@@ -4965,16 +4278,12 @@ impl BehaviorEngine {
 
             if let Some(irp_type) = irp_type_opt {
                 // Build the IrpOperationRecord from available JSON sub-dicts.
-                // owlyHv.* fields come from hypervisor events (LLE_DEVICE_IOCTL).
                 // owlyHook.* fields come from kernel hook events (IRP_*).
                 let hook_event_type = hv_u32(event, "owlyHook", "eventType");
                 let hook_fn = hv_str(event, "owlyHook", "functionName").to_string();
                 let hook_src_pid = hv_u32(event, "owlyHook", "sourcePid");
-                let hv_target_pid = hv_u32(event, "owlyHv", "targetPid");
 
-                let effective_target_pid = if hv_target_pid != 0 {
-                    hv_target_pid
-                } else if hook_src_pid != 0 && hook_src_pid != pid {
+                let effective_target_pid = if hook_src_pid != 0 && hook_src_pid != pid {
                     hook_src_pid
                 } else {
                     target_pid
@@ -5014,7 +4323,7 @@ impl BehaviorEngine {
                         }
                     },
                     entropy: 0.0,
-                    bytes_transferred: hv_u64(event, "owlyHv", "memorySize"),
+                    bytes_transferred: 0,
                     target_pid: effective_target_pid,
                     function_name: if hook_fn.is_empty() {
                         event_type.to_string()
@@ -5341,10 +4650,6 @@ impl BehaviorEngine {
             .as_ref()
             .map(|event| event.irp_op.clone())
             .unwrap_or_else(|| IrpMajorOp::from_byte(effective_hypervisor_irp_byte(msg)));
-        let raw_event_type = hyper_event
-            .as_ref()
-            .map(|event| event.raw_event_type)
-            .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
 
         match irp_op {
             IrpMajorOp::IrpRegistry => Self::file_change_label(file_change)
@@ -5369,12 +4674,6 @@ impl BehaviorEngine {
             IrpMajorOp::IrpProcessTerminateAttempt => "process_terminate_attempt".to_string(),
             IrpMajorOp::IrpProcessExit => "process_exit".to_string(),
             IrpMajorOp::IrpProcessHandleOpen => "process_handle_open".to_string(),
-            IrpMajorOp::IrpHypervisorEvent => canonical_hypervisor_event_label(
-                &irp_op,
-                raw_event_type,
-                &resolved_hypervisor_event_name(msg),
-            )
-            .unwrap_or_else(|| "hypervisor_event".to_string()),
             IrpMajorOp::IrpUserModeHookEvent => "user_mode_hook_event".to_string(),
             IrpMajorOp::IrpKernelRemoteThread => "kernel_remote_thread".to_string(),
             IrpMajorOp::IrpKernelWriteMemory => "kernel_write_memory".to_string(),
@@ -5436,7 +4735,6 @@ impl BehaviorEngine {
                     .unwrap_or_else(|| resolved_hypervisor_event_name(msg));
                 let event_label = match kernel_irp {
                     IrpMajorOp::IrpUserModeHookEvent => "ApiHookEvent",
-                    IrpMajorOp::IrpHypervisorEvent => "HypervisorEvent",
                     IrpMajorOp::IrpKernelRemoteThread
                     | IrpMajorOp::IrpKernelWriteMemory
                     | IrpMajorOp::IrpKernelProtectMemory
@@ -7064,36 +6362,6 @@ impl BehaviorEngine {
         true
     }
 
-    fn has_hypervisor_payload_conditions(cond_group: &NamedConditionGroup) -> bool {
-        !cond_group.hypervisor_raw_event_types.is_empty()
-            || !cond_group.hypervisor_source_pids.is_empty()
-            || !cond_group.hypervisor_target_pids.is_empty()
-            || !cond_group.hypervisor_raw_arg1_values.is_empty()
-            || !cond_group.hypervisor_raw_arg2_values.is_empty()
-            || !cond_group.hypervisor_raw_arg3_values.is_empty()
-            || !cond_group.hypervisor_raw_arg4_values.is_empty()
-            || cond_group.hypervisor_raw_arg1_min.is_some()
-            || cond_group.hypervisor_raw_arg1_max.is_some()
-            || cond_group.hypervisor_raw_arg2_min.is_some()
-            || cond_group.hypervisor_raw_arg2_max.is_some()
-            || cond_group.hypervisor_raw_arg3_min.is_some()
-            || cond_group.hypervisor_raw_arg3_max.is_some()
-            || cond_group.hypervisor_raw_arg4_min.is_some()
-            || cond_group.hypervisor_raw_arg4_max.is_some()
-            || !cond_group.hypervisor_memory_addresses.is_empty()
-            || cond_group.hypervisor_memory_address_min.is_some()
-            || cond_group.hypervisor_memory_address_max.is_some()
-            || !cond_group.hypervisor_memory_sizes.is_empty()
-            || cond_group.hypervisor_memory_size_min.is_some()
-            || cond_group.hypervisor_memory_size_max.is_some()
-            || !cond_group.hypervisor_memory_protections.is_empty()
-            || cond_group.hypervisor_is_executable_memory.is_some()
-            || !cond_group.hypervisor_thread_handles.is_empty()
-            || !cond_group.hypervisor_thread_start_routines.is_empty()
-            || !cond_group.hypervisor_access_masks.is_empty()
-            || !cond_group.hypervisor_operation_statuses.is_empty()
-    }
-
     fn has_hook_error_conditions(cond_group: &NamedConditionGroup) -> bool {
         !cond_group.hook_error_statuses.is_empty()
             || !cond_group.hook_error_api_patterns.is_empty()
@@ -7137,7 +6405,7 @@ impl BehaviorEngine {
         is_acg_enabled: bool,
     ) -> bool {
         if cond_group.hook_error_exclude_benign
-            && is_benign_hypervisor_failure_status(record.operation_status, is_acg_enabled)
+            && is_benign_kernel_failure_status(record.operation_status, is_acg_enabled)
         {
             return false;
         }
@@ -7200,97 +6468,6 @@ impl BehaviorEngine {
             latest.raw_event_type,
             latest.api_name
         ))
-    }
-
-    fn matches_hypervisor_payload_conditions(
-        cond_group: &NamedConditionGroup,
-        msg: &IOMessage,
-        irp_op: &IrpMajorOp,
-    ) -> bool {
-        if !is_kernel_api_irp(irp_op) {
-            return false;
-        }
-
-        let Some(event) = msg.resolved_hypervisor_event() else {
-            return false;
-        };
-
-        let raw_event_type = event.raw_event_type;
-        let event_name = event.event_name;
-        if !is_actionable_hypervisor_event(
-            irp_op,
-            &event_name,
-            raw_event_type,
-            event.operation_status,
-            msg.kernel_event_info.is_acg_enabled,
-        ) {
-            return false;
-        }
-        let source_pid = event.source_process_id;
-        let target_pid = event.target_process_id;
-        let raw_arg1 = event.raw_argument1;
-        let raw_arg2 = event.raw_argument2;
-        let raw_arg3 = event.raw_argument3;
-        let raw_arg4 = event.raw_argument4;
-        let memory_address = event.memory_address;
-        let memory_size = event.memory_size;
-        let memory_protection = event.memory_protection;
-        let is_executable_memory = event.is_executable_memory;
-        let thread_handle = event.thread_handle;
-        let thread_start_routine = event.thread_start_routine;
-        let access_mask = event.access_mask;
-        let operation_status = event.operation_status;
-
-        Self::matches_u32_list(&cond_group.hypervisor_raw_event_types, raw_event_type)
-            && Self::matches_u32_list(&cond_group.hypervisor_source_pids, source_pid)
-            && Self::matches_u32_list(&cond_group.hypervisor_target_pids, target_pid)
-            && Self::matches_u64_list(&cond_group.hypervisor_raw_arg1_values, raw_arg1)
-            && Self::matches_u64_list(&cond_group.hypervisor_raw_arg2_values, raw_arg2)
-            && Self::matches_u64_list(&cond_group.hypervisor_raw_arg3_values, raw_arg3)
-            && Self::matches_u64_list(&cond_group.hypervisor_raw_arg4_values, raw_arg4)
-            && Self::matches_u64_range(
-                raw_arg1,
-                cond_group.hypervisor_raw_arg1_min,
-                cond_group.hypervisor_raw_arg1_max,
-            )
-            && Self::matches_u64_range(
-                raw_arg2,
-                cond_group.hypervisor_raw_arg2_min,
-                cond_group.hypervisor_raw_arg2_max,
-            )
-            && Self::matches_u64_range(
-                raw_arg3,
-                cond_group.hypervisor_raw_arg3_min,
-                cond_group.hypervisor_raw_arg3_max,
-            )
-            && Self::matches_u64_range(
-                raw_arg4,
-                cond_group.hypervisor_raw_arg4_min,
-                cond_group.hypervisor_raw_arg4_max,
-            )
-            && Self::matches_u64_list(&cond_group.hypervisor_memory_addresses, memory_address)
-            && Self::matches_u64_range(
-                memory_address,
-                cond_group.hypervisor_memory_address_min,
-                cond_group.hypervisor_memory_address_max,
-            )
-            && Self::matches_u64_list(&cond_group.hypervisor_memory_sizes, memory_size)
-            && Self::matches_u64_range(
-                memory_size,
-                cond_group.hypervisor_memory_size_min,
-                cond_group.hypervisor_memory_size_max,
-            )
-            && Self::matches_u32_list(&cond_group.hypervisor_memory_protections, memory_protection)
-            && cond_group
-                .hypervisor_is_executable_memory
-                .is_none_or(|required| required == is_executable_memory)
-            && Self::matches_u64_list(&cond_group.hypervisor_thread_handles, thread_handle)
-            && Self::matches_u64_list(
-                &cond_group.hypervisor_thread_start_routines,
-                thread_start_routine,
-            )
-            && Self::matches_u32_list(&cond_group.hypervisor_access_masks, access_mask)
-            && Self::matches_i32_list(&cond_group.hypervisor_operation_statuses, operation_status)
     }
 
     /// Drain the cross-thread pending IRP record queue and apply each entry to
@@ -8192,8 +7369,7 @@ impl BehaviorEngine {
 
         // === STEP 8: HANDLE SPECIAL IRP OPERATIONS ===
         match irp_op {
-            IrpMajorOp::IrpHypervisorEvent
-            | IrpMajorOp::IrpUserModeHookEvent
+            IrpMajorOp::IrpUserModeHookEvent
             | IrpMajorOp::IrpKernelRemoteThread
             | IrpMajorOp::IrpKernelWriteMemory
             | IrpMajorOp::IrpKernelProtectMemory
@@ -8201,7 +7377,7 @@ impl BehaviorEngine {
             | IrpMajorOp::IrpKernelQueueApc
             | IrpMajorOp::IrpKernelCreateSection
             | IrpMajorOp::IrpKernelMapSection => {
-                // handle_hypervisor_event logic is natively merged into record_irp_operation and scan_all_processes.
+                // handle_kernel_event logic is natively merged into record_irp_operation and scan_all_processes.
             }
 
             IrpMajorOp::IrpRootkitSsdtHook
@@ -8244,10 +7420,6 @@ impl BehaviorEngine {
             .map(|event| event.irp_op.clone())
             .unwrap_or_else(|| irp_op.clone());
         let current_irp_opcode = effective_hypervisor_irp_byte(msg);
-        let current_raw_event_type = current_hypervisor_event
-            .as_ref()
-            .map(|event| event.raw_event_type)
-            .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
         let current_event_name = current_hypervisor_event
             .as_ref()
             .map(|event| event.event_name.clone())
@@ -8256,32 +7428,20 @@ impl BehaviorEngine {
             .as_ref()
             .map(|event| event.operation_status)
             .unwrap_or(msg.kernel_event_info.operation_status);
-        let current_actionable_hypervisor_event = is_actionable_hypervisor_event(
+        let current_actionable_kernel_event = is_actionable_kernel_event(
             &current_irp_kind,
-            &current_event_name,
-            current_raw_event_type,
             current_operation_status,
             msg.kernel_event_info.is_acg_enabled,
         );
         let mut current_event_apis = HashSet::new();
         if is_kernel_api_irp(&current_irp_kind)
-            && current_actionable_hypervisor_event
+            && current_actionable_kernel_event
             && is_real_api_observation(&current_event_name)
         {
             current_event_apis.insert(current_event_name.clone());
             if let Some(alias) = api_function_alias(&current_event_name) {
                 current_event_apis.insert(alias);
             }
-        }
-        let mut current_event_hypervisor_labels = HashSet::new();
-        if current_actionable_hypervisor_event
-            && let Some(event_label) = canonical_hypervisor_event_label(
-                &current_irp_kind,
-                current_raw_event_type,
-                &current_event_name,
-            )
-        {
-            current_event_hypervisor_labels.insert(event_label);
         }
 
         for api in &state_detected_apis {
@@ -8482,55 +7642,6 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && !cond_group.hypervisor_event_labels.is_empty() {
-                    let matched_labels: Vec<&String> = cond_group
-                        .hypervisor_event_labels
-                        .iter()
-                        .filter(|required_label| {
-                            let (required_norm, required_has_path) =
-                                Self::normalize_api_signature(required_label);
-                            current_event_hypervisor_labels
-                                .iter()
-                                .any(|observed_label| {
-                                    let (observed_norm, observed_has_path) =
-                                        Self::normalize_api_signature(observed_label);
-                                    if required_has_path {
-                                        observed_has_path
-                                            && Self::matches_pattern_internal(
-                                                &self.regex_cache,
-                                                required_label,
-                                                observed_label,
-                                            )
-                                    } else {
-                                        Self::matches_pattern_internal(
-                                            &self.regex_cache,
-                                            &required_norm,
-                                            &observed_norm,
-                                        )
-                                    }
-                                })
-                        })
-                        .collect();
-
-                    if matched_labels.len()
-                        >= std::cmp::max(1, cond_group.hypervisor_event_threshold)
-                    {
-                        matched = true;
-                        let label_names = matched_labels
-                            .iter()
-                            .map(|s| s.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - Hypervisor event match for PID {}: {} labels detected: {}",
-                            cond_name,
-                            state.pid,
-                            matched_labels.len(),
-                            label_names
-                        ));
-                    }
-                }
-
                 if !matched
                     && let Some(hook_error_summary) =
                         Self::matching_hook_error_summary(&self.regex_cache, cond_group, state)
@@ -8540,54 +7651,6 @@ impl BehaviorEngine {
                     Logging::info(&format!(
                         "[BehaviorEngine] Condition '{}' - Hook error status match for PID {}: {}",
                         cond_name, state.pid, hook_error_summary
-                    ));
-                }
-
-                if !matched
-                    && Self::has_hypervisor_payload_conditions(cond_group)
-                    && Self::matches_hypervisor_payload_conditions(cond_group, msg, irp_op)
-                {
-                    let hyper_event = msg.resolved_hypervisor_event();
-                    let raw_event_type = hyper_event
-                        .as_ref()
-                        .map(|event| event.raw_event_type)
-                        .unwrap_or_else(|| effective_hypervisor_raw_event_type(msg));
-                    let source_pid = hyper_event
-                        .as_ref()
-                        .map(|event| event.source_process_id)
-                        .unwrap_or(msg.kernel_event_info.source_process_id);
-                    let target_pid = hyper_event
-                        .as_ref()
-                        .map(|event| event.target_process_id)
-                        .unwrap_or(msg.kernel_event_info.target_process_id);
-                    let raw_argument1 = hyper_event
-                        .as_ref()
-                        .map(|event| event.raw_argument1)
-                        .unwrap_or(msg.kernel_event_info.raw_argument1);
-                    let raw_argument2 = hyper_event
-                        .as_ref()
-                        .map(|event| event.raw_argument2)
-                        .unwrap_or(msg.kernel_event_info.raw_argument2);
-                    let raw_argument3 = hyper_event
-                        .as_ref()
-                        .map(|event| event.raw_argument3)
-                        .unwrap_or(msg.kernel_event_info.raw_argument3);
-                    let raw_argument4 = hyper_event
-                        .as_ref()
-                        .map(|event| event.raw_argument4)
-                        .unwrap_or(msg.kernel_event_info.raw_argument4);
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - API hooking payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
-                        cond_name,
-                        state.pid,
-                        raw_event_type,
-                        source_pid,
-                        target_pid,
-                        raw_argument1,
-                        raw_argument2,
-                        raw_argument3,
-                        raw_argument4
                     ));
                 }
 
@@ -8736,72 +7799,6 @@ impl BehaviorEngine {
                                 "[BehaviorEngine] Condition '{}' - dns_query_patterns matched for PID {}",
                                 cond_name, state.pid
                             ));
-                        }
-                    }
-                }
-
-                // ── Sanctum-content conditions ──────────────────────────────────
-                #[cfg(all(target_os = "windows", feature = "sanctum"))]
-                if !matched {
-                    if let Some(min_score) = cond_group.sanctum_injection_score_min {
-                        if state.sanctum_stats.injection_score >= min_score {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - sanctum_injection_score_min matched: {} >= {} for PID {}",
-                                cond_name,
-                                state.sanctum_stats.injection_score,
-                                min_score,
-                                state.pid
-                            ));
-                        }
-                    }
-                    if !matched {
-                        if let Some(min_syscalls) = cond_group.sanctum_syscall_count_min {
-                            if state.sanctum_stats.syscall_count >= min_syscalls {
-                                matched = true;
-                                Logging::info(&format!(
-                                    "[BehaviorEngine] Condition '{}' - sanctum_syscall_count_min matched: {} >= {} for PID {}",
-                                    cond_name,
-                                    state.sanctum_stats.syscall_count,
-                                    min_syscalls,
-                                    state.pid
-                                ));
-                            }
-                        }
-                    }
-                    if !matched {
-                        if let Some(require_shellcode) = cond_group.sanctum_shellcode_detected {
-                            if require_shellcode == state.sanctum_stats.shellcode_patterns_found {
-                                matched = true;
-                                Logging::info(&format!(
-                                    "[BehaviorEngine] Condition '{}' - sanctum_shellcode_detected matched: {} for PID {}",
-                                    cond_name, require_shellcode, state.pid
-                                ));
-                            }
-                        }
-                    }
-                    if !matched && !cond_group.sanctum_suspicious_hits.is_empty() {
-                        if cond_group
-                            .sanctum_suspicious_hits
-                            .iter()
-                            .any(|hit| state.sanctum_suspicious_hits.contains(hit))
-                        {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - sanctum_suspicious_hits matched for PID {}",
-                                cond_name, state.pid
-                            ));
-                        }
-                    }
-                    if !matched {
-                        if let Some(require_detected) = cond_group.sanctum_detected {
-                            if require_detected == state.sanctum_stats.is_detection {
-                                matched = true;
-                                Logging::info(&format!(
-                                    "[BehaviorEngine] Condition '{}' - sanctum_detected matched: {} for PID {}",
-                                    cond_name, require_detected, state.pid
-                                ));
-                            }
                         }
                     }
                 }
@@ -9935,18 +8932,6 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched
-                    && cond_group.detect_hypervisor_event
-                    && state.hypervisor_event_count
-                        >= cond_group.hypervisor_event_threshold.max(1) as u32
-                {
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - API hooking fallback detected for PID {}: {} events",
-                        cond_name, state.pid, state.hypervisor_event_count
-                    ));
-                }
-
                 if matched {
                     let scoped_name = Self::scoped_condition_name(rule, cond_name);
                     let match_key = if let Some(path) = matched_artifact_path.as_ref() {
@@ -10169,37 +9154,6 @@ impl BehaviorEngine {
                         }
                     }
                 }
-                // Sync Sanctum telemetry stats.
-                #[cfg(all(target_os = "windows", feature = "sanctum"))]
-                if let Ok(mut sanctum_lock) = self.firewall_sanctum_stats.write() {
-                    if let Some(stats) = sanctum_lock.remove(&pid) {
-                        s.sanctum_stats.syscall_count += stats.syscall_count;
-                        s.sanctum_stats.is_detection |= stats.is_detection;
-                        s.sanctum_stats.injection_score =
-                            (s.sanctum_stats.injection_score + stats.injection_score).min(1.0);
-                        s.sanctum_stats.cross_process_handle_count +=
-                            stats.cross_process_handle_count;
-                        s.sanctum_stats.shellcode_patterns_found |= stats.shellcode_patterns_found;
-                        s.sanctum_stats.last_event = stats.last_event;
-                        for hit in stats.suspicious_syscall_hits {
-                            if !s.sanctum_stats.suspicious_syscall_hits.contains(&hit) {
-                                s.sanctum_stats.suspicious_syscall_hits.push(hit);
-                            }
-                        }
-                        if s.sanctum_stats.suspicious_syscall_hits.len() > 50 {
-                            s.sanctum_stats.suspicious_syscall_hits.remove(0);
-                        }
-
-                        // Sync forensic Ghost Hunting telemetry
-                        for ghost in stats.ghost_telemetry {
-                            s.sanctum_stats.ghost_telemetry.push(ghost);
-                        }
-                        if s.sanctum_stats.ghost_telemetry.len() > 100 {
-                            let drain = s.sanctum_stats.ghost_telemetry.len() - 100;
-                            s.sanctum_stats.ghost_telemetry.drain(0..drain);
-                        }
-                    }
-                }
                 if let Ok(mut openedr_lock) = self.openedr_stats.write() {
                     if let Some(stats) = openedr_lock.remove(&pid) {
                         for alias in stats.detected_apis {
@@ -10261,9 +9215,6 @@ impl BehaviorEngine {
                 if state_ref.rootkit_implicated || !state_ref.rootkit_findings.is_empty() {
                     alert_sources.push("Rootkit");
                 }
-                if !state_ref.observed_hypervisor_event_labels.is_empty() {
-                    alert_sources.push("Hypervisor");
-                }
                 if !state_ref.recent_kernel_api_events.is_empty() {
                     alert_sources.push("KernelApiAlert");
                 }
@@ -10281,13 +9232,6 @@ impl BehaviorEngine {
                 }
                 if state_ref.extension_match_detected {
                     alert_sources.push("ExtensionMatch");
-                }
-
-                #[cfg(all(target_os = "windows", feature = "sanctum"))]
-                {
-                    if !state_ref.sanctum_suspicious_hits.is_empty() {
-                        alert_sources.push("Sanctum");
-                    }
                 }
 
                 let has_behavioral_alerts = !alert_sources.is_empty();
@@ -11138,53 +10082,13 @@ impl BehaviorEngine {
                 hex_patterns,
                 min_matches,
             } => {
-                #[cfg(not(all(target_os = "windows", feature = "sanctum")))]
-                {
-                    let _ = (
-                        functions,
-                        caller_address_patterns,
-                        hex_patterns,
-                        min_matches,
-                    );
-                    false
-                }
-                #[cfg(all(target_os = "windows", feature = "sanctum"))]
-                {
-                    let mut unique_matches = std::collections::HashSet::new();
-                    for ghost in &state.sanctum_stats.ghost_telemetry {
-                        let func_ok = functions.is_empty()
-                            || functions.iter().any(|f| ghost.function.contains(f));
-
-                        let addr_ok = caller_address_patterns.is_empty() || {
-                            let addr_hex = format!("{:X}", ghost.caller_address);
-                            caller_address_patterns.iter().any(|p| {
-                                let p_lower = p.to_lowercase();
-                                if p_lower == "unknown" || p_lower == "unbacked" {
-                                    // If the driver couldn't resolve the caller or it's unbacked, it often reports 0
-                                    ghost.caller_address == 0
-                                } else {
-                                    Self::matches_pattern_internal(&self.regex_cache, p, &addr_hex)
-                                }
-                            })
-                        };
-
-                        let hex_ok = hex_patterns.is_empty()
-                            || hex_patterns.iter().any(|p| {
-                                Self::matches_pattern_internal(
-                                    &self.regex_cache,
-                                    p,
-                                    &ghost.hex_payload,
-                                )
-                            });
-
-                        if func_ok && addr_ok && hex_ok {
-                            // Deduplicate: same function from same caller address counts as 1 unique match
-                            let key = format!("{}_{}", ghost.function, ghost.caller_address);
-                            unique_matches.insert(key);
-                        }
-                    }
-                    unique_matches.len() >= *min_matches
-                }
+                let _ = (
+                    functions,
+                    caller_address_patterns,
+                    hex_patterns,
+                    min_matches,
+                );
+                false
             }
             RuleCondition::Api {
                 functions,
@@ -11357,8 +10261,7 @@ impl BehaviorEngine {
                 // Covers IRP_USERMODE_HOOK_EVENT, IRP_KERNEL_*, and IRP_ROOTKIT_*.
                 fn irp_type_for_token(token: &str) -> Option<u32> {
                     let t = token.trim().to_ascii_uppercase();
-                    // Values mirror Communication.cpp OwlyHypervisorEventDefaultLabel ordering
-                    // and the IrpMajorOp::from_sysmonevent() mapping in shared_def.rs.
+                    // Values mirror the IrpMajorOp::from_sysmonevent() mapping in shared_def.rs.
                     match t.as_str() {
                         "IRP_USERMODE_HOOK_EVENT" => Some(0x13), // 19
                         "IRP_KERNEL_REMOTE_THREAD" => Some(0x14),
@@ -12215,20 +11118,13 @@ impl BehaviorEngine {
             }
 
             // Log Nt API activity summary if any events detected
-            if state.hypervisor_events_total > 0 {
+            if !state.recent_kernel_api_events.is_empty() {
                 Logging::info(&format!(
-                    "[API HOOKING SUMMARY] PID {} ({}) - Total fallback events: {}",
-                    pid, app_name, state.hypervisor_events_total
+                    "[API HOOKING SUMMARY] PID {} ({}) - Total kernel API events: {}",
+                    pid,
+                    app_name,
+                    state.recent_kernel_api_events.len()
                 ));
-
-                if state.irp_stats.has_injection_indicators() {
-                    Logging::warning(&format!(
-                        "[API HOOKING PATTERN] PID {} ({}) shows API hooking activity - Total fallback events: {}",
-                        pid,
-                        app_name,
-                        state.irp_stats.get_injection_api_count()
-                    ));
-                }
             }
 
             let critical_image_display =

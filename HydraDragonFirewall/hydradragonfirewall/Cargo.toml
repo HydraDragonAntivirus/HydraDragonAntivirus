@@ -6,6 +6,10 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "hydradragonfirewall-cli"
+path = "src/main.rs"
+
 [dependencies]
 hydradragon-shared = { path = "../hydradragon-shared" }
 serde = { version = "1.0", features = ["derive"] }

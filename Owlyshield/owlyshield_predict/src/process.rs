@@ -43,8 +43,6 @@ use crate::shared_def::{
 };
 
 use crate::extensions::ExtensionsCount;
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-use crate::hydradragon::av_integration::AVIntegration;
 fn normalize_extension_token(extension: &str) -> String {
     extension
         .trim()
@@ -305,10 +303,6 @@ pub struct ProcessRecord {
 
 impl ProcessRecord {
     /// Create a new ProcessRecord with minimal initialization
-    #[cfg_attr(
-        feature = "realtime_learning",
-        doc = " (for testing/realtime_learning use)"
-    )]
     pub fn new(gid: u64, appname: String, exepath: PathBuf) -> ProcessRecord {
         let (tx, rx) = mpsc::channel::<Clusters>();
 
@@ -657,21 +651,7 @@ impl ProcessRecord {
         }
     }
 
-    /// Public function to add an IRP record, compiled when hydradragon feature is enabled.
-    #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-    pub fn add_irp_record(
-        &mut self,
-        iomsg: &IOMessage,
-        av_integration: Option<&mut AVIntegration>,
-    ) {
-        self.add_irp_record_common(iomsg);
-        if let Some(av) = av_integration {
-            av.queue_file_event(iomsg, self);
-        }
-    }
-
-    /// Public function to add an IRP record, compiled when hydradragon feature is NOT enabled.
-    #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
+    /// Public function to add an IRP record.
     pub fn add_irp_record(&mut self, iomsg: &IOMessage, _av_integration: Option<&mut ()>) {
         self.add_irp_record_common(iomsg);
     }
@@ -715,8 +695,7 @@ impl ProcessRecord {
     fn record_kernel_event_feature(&mut self, irp_op: IrpMajorOp, event_name: &str) {
         let is_kernel_event = matches!(
             irp_op,
-            IrpMajorOp::IrpHypervisorEvent
-                | IrpMajorOp::IrpUserModeHookEvent
+            IrpMajorOp::IrpUserModeHookEvent
                 | IrpMajorOp::IrpKernelRemoteThread
                 | IrpMajorOp::IrpKernelWriteMemory
                 | IrpMajorOp::IrpKernelProtectMemory
@@ -760,7 +739,7 @@ impl ProcessRecord {
             IrpMajorOp::IrpKernelMapSection => {
                 Self::increment_u32(&mut self.kernel_map_section_count);
             }
-            IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent => {
+            IrpMajorOp::IrpUserModeHookEvent => {
                 self.increment_kernel_counter_from_event_name(event_name);
             }
             _ => {}
@@ -1279,13 +1258,6 @@ mod tests {
     }
 
     fn add_record(pr: &mut ProcessRecord, iomsg: &IOMessage) {
-        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-        {
-            use crate::hydradragon::av_integration::AVIntegration;
-            pr.add_irp_record(iomsg, None::<&mut AVIntegration>);
-        }
-
-        #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
         pr.add_irp_record(iomsg, None::<&mut ()>);
     }
 
@@ -1319,13 +1291,6 @@ mod tests {
         let mut pr = ProcessRecord::from(&iomsgs[0], "".to_string(), "".parse().unwrap());
 
         for iomsg in iomsgs {
-            #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-            {
-                use crate::hydradragon::av_integration::AVIntegration;
-                pr.add_irp_record(&iomsg, None::<&mut AVIntegration>);
-            }
-
-            #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
             pr.add_irp_record(&iomsg, None::<&mut ()>);
         }
 
@@ -1530,7 +1495,7 @@ mod tests {
         let mut pr = ProcessRecord::new(gid, "hooked.exe".to_string(), PathBuf::new());
         let normalized_legacy_msg = IOMessage {
             pid: 4242,
-            irp_op: IrpMajorOp::IrpHypervisorEvent.to_sysmonevent_u32(),
+            irp_op: IrpMajorOp::IrpKernelWriteMemory.to_sysmonevent_u32(),
             gid,
             kernel_event_info: KernelEventInfo {
                 event_type: IrpMajorOp::IrpKernelWriteMemory.to_sysmonevent_u32(),

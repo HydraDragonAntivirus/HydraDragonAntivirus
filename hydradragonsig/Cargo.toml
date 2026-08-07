@@ -3,8 +3,8 @@ name = "hydradragonsig"
 version = "0.1.0"
 edition = "2024"
 description = "HydraDragonSig deterministic static scanner with external Yamdle/YAML rules"
-license = "MIT OR Apache-2.0"
-authors = ["HydraDragon"]
+license = "GPLv2"
+authors = ["Emirhan Ucan"]
 
 [[bin]]
 name = "hydradragonsig"

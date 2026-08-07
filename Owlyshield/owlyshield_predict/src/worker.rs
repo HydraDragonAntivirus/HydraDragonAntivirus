@@ -268,10 +268,10 @@ mod process_records {
 pub mod worker_instance {
     use crate::ExepathLive;
     use crate::IOMessage;
-    #[cfg(feature = "realtime_learning")]
-    use crate::actions_on_kill::ActionReportContext;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use crate::actions_on_kill::{ActionsOnKill, ThreatInfo, restart_cleanup_reason};
+    use crate::actions_on_kill::{
+        ActionReportContext, ActionsOnKill, ThreatInfo, restart_cleanup_reason,
+    };
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::app_settings::AppSettings;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -283,8 +283,6 @@ pub mod worker_instance {
     use crate::predictions::prediction::input_tensors::{Timestep, VecvecCappedF32};
     use crate::process::ProcessRecord;
     use crate::process::ProcessState;
-    #[cfg(feature = "realtime_learning")]
-    use crate::realtime_learning::ApiTracker;
     use crate::shared_def::IrpMajorOp;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::shared_def::effective_hypervisor_raw_event_type;
@@ -298,8 +296,8 @@ pub mod worker_instance {
     use chrono::{DateTime, Utc};
 
     use rumqttc::{Client, MqttOptions, QoS};
-    #[cfg(feature = "realtime_learning")]
-    use std::collections::{HashMap, HashSet};
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use std::collections::HashSet;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::ffi::OsStr;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -447,18 +445,8 @@ pub mod worker_instance {
         process_record_handler: Option<Box<dyn ProcessRecordIOHandler + 'a>>,
         exepath_handler: Box<dyn Exepath>,
         iomsg_postprocessors: Vec<Box<dyn IOMsgPostProcessor>>,
-        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-        av_integration: Option<crate::hydradragon::av_integration::AVIntegration<'a>>,
-        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-        process_start_scans_queued: std::collections::HashSet<u32>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub behavior_engine: BehaviorEngine,
-        #[cfg(feature = "realtime_learning")]
-        pub learning_engine: crate::realtime_learning::RealtimeLearningEngine,
-        #[cfg(feature = "realtime_learning")]
-        pub api_trackers: HashMap<u64, ApiTracker>,
-        #[cfg(feature = "realtime_learning")]
-        live_mitre_cache_last_write: HashMap<u64, std::time::Instant>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -483,78 +471,6 @@ pub mod worker_instance {
         #[cfg(target_os = "windows")]
         pub driver: Option<crate::Driver>,
         pub last_report_time: Option<std::time::Instant>,
-    }
-
-    #[cfg(all(
-        target_os = "windows",
-        feature = "behavior_engine",
-        feature = "sanctum"
-    ))]
-    fn handle_sanctum_telemetry_line(behavior_engine: &mut BehaviorEngine, line: &str) {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return;
-        }
-
-        match serde_json::from_str::<serde_json::Value>(trimmed) {
-            Ok(event) => {
-                let null_args = serde_json::Value::Null;
-                let args = event.get("args").unwrap_or(&null_args);
-                let pid = BehaviorEngine::sanctum_u32_field(
-                    &event,
-                    args,
-                    &[
-                        "pid",
-                        "process_id",
-                        "source_pid",
-                        "attacker_pid",
-                        "target_pid",
-                        "client_pid",
-                    ],
-                );
-
-                let mut source = BehaviorEngine::sanctum_string_field(
-                    &event,
-                    args,
-                    &["source", "provider", "sensor"],
-                );
-                if source.is_empty() {
-                    source = "-".to_string();
-                }
-
-                let mut function = BehaviorEngine::sanctum_string_field(
-                    &event,
-                    args,
-                    &["function", "api", "syscall", "operation", "event", "name"],
-                );
-                if function.is_empty() {
-                    function = "-".to_string();
-                }
-
-                let is_detection =
-                    BehaviorEngine::sanctum_event_is_detection(&event, args, &source, &function);
-
-                behavior_engine.ingest_sanctum_event(&event);
-
-                if is_detection {
-                    Logging::alert(&format!(
-                        "[SanctumDetection] 🚨 ALERT: Sanctum EDR flagged PID {} for malicious activity ({}/{})",
-                        pid, source, function
-                    ));
-                }
-
-                Logging::info(&format!(
-                    "[SanctumTele] pid={} src={} fn={} detection={}",
-                    pid, source, function, is_detection
-                ));
-            }
-            Err(e) => {
-                Logging::warning(&format!(
-                    "[SanctumPipe] Failed to parse event JSON: {} | raw={}",
-                    e, trimmed
-                ));
-            }
-        }
     }
 
     impl<'a> Worker<'a> {
@@ -813,11 +729,7 @@ pub mod worker_instance {
         fn build_behavior_engine(config: &Config) -> BehaviorEngine {
             #[cfg(all(target_os = "windows", feature = "firewall"))]
             static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
-            #[cfg(all(target_os = "windows", feature = "sanctum"))]
-            static SANCTUM_PIPE_START: std::sync::Once = std::sync::Once::new();
             static OPENEDR_PIPE_START: std::sync::Once = std::sync::Once::new();
-            #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-            static CAPEMON_PIPE_START: std::sync::Once = std::sync::Once::new();
 
             let extension_source_mode = config.extension_source_mode();
             let engine =
@@ -826,21 +738,10 @@ pub mod worker_instance {
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
             });
-            #[cfg(all(target_os = "windows", feature = "sanctum"))]
-            SANCTUM_PIPE_START.call_once(|| {
-                Self::start_sanctum_telemetry_pipe(engine.clone());
-            });
             OPENEDR_PIPE_START.call_once({
                 let engine = engine.clone();
                 move || {
                     Self::start_openedr_telemetry_pipe(engine);
-                }
-            });
-            #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-            CAPEMON_PIPE_START.call_once({
-                let engine = engine.clone();
-                move || {
-                    crate::hydradragon::capemon_listener::start_capemon_telemetry_pipe(engine);
                 }
             });
 
@@ -969,127 +870,6 @@ pub mod worker_instance {
                 .expect("failed to spawn openedr_telemetry_pipe thread");
         }
 
-        /// Spawn the \\.\pipe\HydraSanctumTelemetry named pipe server thread.
-        /// Moved to Worker.rs as requested (Starting + Detection handling).
-        /// Other ingestion codes remain in BehaviorEngine::ingest_sanctum_event.
-        #[cfg(all(
-            target_os = "windows",
-            feature = "behavior_engine",
-            feature = "sanctum"
-        ))]
-        pub fn start_sanctum_telemetry_pipe(mut behavior_engine: BehaviorEngine) {
-            std::thread::Builder::new()
-                .name("sanctum_telemetry_pipe".to_string())
-                .spawn(move || {
-                    let pipe_name_str = r"\\.\pipe\HydraSanctumTelemetry";
-                    let wide: Vec<u16> = OsStr::new(pipe_name_str)
-                        .encode_wide()
-                        .chain(std::iter::once(0u16))
-                        .collect();
-
-                    Logging::info("[SanctumPipe] Starting Sanctum telemetry pipe server (Worker Managed)");
-
-                    loop {
-                        let handle: HANDLE = unsafe {
-                            CreateNamedPipeW(
-                                PCWSTR(wide.as_ptr()),
-                                PIPE_ACCESS_INBOUND,
-                                NAMED_PIPE_MODE(0),
-                                PIPE_UNLIMITED_INSTANCES,
-                                0,
-                                65536,
-                                0,
-                                None,
-                            )
-                        };
-
-                        if handle == INVALID_HANDLE_VALUE {
-                            Logging::error("[SanctumPipe] CreateNamedPipeW failed; retrying in 2s");
-                            std::thread::sleep(std::time::Duration::from_secs(2));
-                            continue;
-                        }
-
-                        let connected = unsafe { ConnectNamedPipe(handle, None) }.as_bool()
-                            || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
-
-                        if !connected {
-                            Logging::warning("[SanctumPipe] ConnectNamedPipe failed; recreating pipe");
-                            unsafe {
-                                let _ = DisconnectNamedPipe(handle);
-                                let _ = CloseHandle(handle);
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(250));
-                            continue;
-                        }
-
-                        // Validate: accept the installed Sanctum UM engine and dev builds.
-                        let sanctum_client_valid = unsafe {
-                            validate_pipe_client(
-                                handle,
-                                Some(r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\um_engine.exe"),
-                                false,
-                            ) || validate_pipe_client(handle, Some(r"hydradragon\Sanctum\um_engine.exe"), false)
-                                || validate_pipe_client(handle, Some(r"target\debug\um_engine.exe"), false)
-                                || validate_pipe_client(handle, Some(r"target\release\um_engine.exe"), false)
-                        };
-
-                        if !sanctum_client_valid {
-                            Logging::error("[SanctumPipe] Rejected unauthorized client (Sanctum UM engine validation failed)");
-                            unsafe {
-                                let _ = DisconnectNamedPipe(handle);
-                                let _ = CloseHandle(handle);
-                            }
-                            continue;
-                        }
-
-                        Logging::info("[SanctumPipe] Sanctum um_engine connected");
-
-                        let mut buf = vec![0u8; 65536];
-                        let mut leftover = String::new();
-
-                        loop {
-                            let mut bytes_read: u32 = 0;
-                            let ok = unsafe {
-                                ReadFile(
-                                    handle,
-                                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
-                                    buf.len() as u32,
-                                    Some(&mut bytes_read),
-                                    None,
-                                )
-                            };
-                            if !ok.as_bool() || bytes_read == 0 {
-                                break;
-                            }
-                            leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
-
-                            while let Some(pos) = leftover.find('\n') {
-                                let line = leftover[..pos].trim().to_string();
-                                leftover = leftover[pos + 1..].to_string();
-
-                                if line.is_empty() {
-                                    continue;
-                                }
-
-                                handle_sanctum_telemetry_line(&mut behavior_engine, &line);
-                            }
-                        }
-
-                        let trailing = leftover.trim().to_string();
-                        if !trailing.is_empty() {
-                            handle_sanctum_telemetry_line(&mut behavior_engine, &trailing);
-                        }
-
-                        Logging::info("[SanctumPipe] Sanctum um_engine disconnected; waiting for reconnect");
-                        unsafe {
-                            let _ = DisconnectNamedPipe(handle);
-                            let _ = CloseHandle(handle);
-                        }
-                    }
-                })
-                .expect("failed to spawn sanctum_telemetry_pipe thread");
-        }
-
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         #[allow(dead_code)]
         fn apply_behavior_detection_state(record: &mut ProcessRecord, det: &ProcessRecord) {
@@ -1167,121 +947,6 @@ pub mod worker_instance {
                 suspend: det.suspend_requested,
                 notify_user: det.notify_user_requested,
                 revert: det.revert_requested,
-            }
-        }
-
-        #[cfg(feature = "realtime_learning")]
-        fn realtime_learning_output_dir(config: &Config) -> &str {
-            if let Some(path) = config.get_param(Param::RealTimeLearningPath) {
-                return path;
-            }
-
-            "./ml_data/realtime"
-        }
-
-        #[cfg(feature = "realtime_learning")]
-        fn record_realtime_event(
-            learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
-            api_trackers: &mut HashMap<u64, ApiTracker>,
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            behavior_engine: &crate::behavioral::behavior_engine::BehaviorEngine,
-            gid: u64,
-            iomsg: &IOMessage,
-            precord: &ProcessRecord,
-        ) {
-            learning_engine.track_process(gid, precord.appname.clone());
-            learning_engine.update_activity(gid);
-
-            let tracker = api_trackers
-                .entry(gid)
-                .or_insert_with(|| ApiTracker::new(gid, precord.appname.clone()));
-
-            if !precord.appname.is_empty() && tracker.process_name != precord.appname {
-                tracker.process_name = precord.appname.clone();
-            }
-
-            #[cfg(all(
-                target_os = "windows",
-                feature = "behavior_engine",
-                any(feature = "firewall", feature = "sanctum")
-            ))]
-            {
-                if let Some(state) = behavior_engine.process_states.get(&gid) {
-                    #[cfg(all(target_os = "windows", feature = "firewall"))]
-                    {
-                        tracker.net_packets = state.net_packets.clone().into();
-                    }
-                    #[cfg(all(target_os = "windows", feature = "sanctum"))]
-                    {
-                        tracker.sanctum_operations = state.sanctum_stats.clone();
-                    }
-                }
-            }
-
-            tracker.track_io_operation(iomsg, precord);
-        }
-
-        #[cfg(feature = "realtime_learning")]
-        fn report_context_for_gid(
-            api_trackers: &HashMap<u64, ApiTracker>,
-            gid: u64,
-        ) -> ActionReportContext {
-            ActionReportContext {
-                api_tracker: api_trackers.get(&gid).cloned(),
-            }
-        }
-
-        #[cfg(feature = "realtime_learning")]
-        fn write_live_mitre_timeline_if_due(&mut self, gid: u64) {
-            let now = std::time::Instant::now();
-            let interval = std::time::Duration::from_millis(1200);
-
-            if let Some(last_write) = self.live_mitre_cache_last_write.get(&gid).copied()
-                && now.duration_since(last_write) < interval
-            {
-                return;
-            }
-
-            let Some(precord) = self.process_records.process_records.peek(&gid) else {
-                return;
-            };
-
-            let timeline = crate::mitre_attack::TimelineBuilder::new()
-                .build_timeline(precord, self.api_trackers.get(&gid));
-
-            if timeline.events.is_empty() {
-                return;
-            }
-
-            match crate::actions_on_kill::write_latest_timeline_cache(
-                crate::globals::report_dir(),
-                precord,
-                &timeline,
-            ) {
-                Ok(()) => {
-                    self.live_mitre_cache_last_write.insert(gid, now);
-                }
-                Err(err) => Logging::debug(&format!(
-                    "[MITRE LIVE] Failed to write live timeline cache for GID {}: {}",
-                    gid, err
-                )),
-            }
-        }
-
-        #[cfg(feature = "realtime_learning")]
-        fn mark_realtime_process_malicious(
-            learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
-            api_trackers: &HashMap<u64, ApiTracker>,
-            gid: u64,
-            precord: &ProcessRecord,
-        ) {
-            learning_engine.track_process(gid, precord.appname.clone());
-
-            if let Some(tracker) = api_trackers.get(&gid) {
-                learning_engine.mark_detected_malicious(gid, tracker, precord);
-            } else {
-                let tracker = ApiTracker::new(gid, precord.appname.clone());
-                learning_engine.mark_detected_malicious(gid, &tracker, precord);
             }
         }
 
@@ -1409,31 +1074,11 @@ pub mod worker_instance {
                 process_record_handler: None,
                 exepath_handler: Box::<ExepathLive>::default(),
                 threat_handler: None,
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                av_integration: None,
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                process_start_scans_queued: std::collections::HashSet::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings: app_settings.clone(),
                 iomsg_postprocessors: vec![],
-                #[cfg(feature = "realtime_learning")]
-                api_trackers: std::collections::HashMap::new(),
-                #[cfg(feature = "realtime_learning")]
-                live_mitre_cache_last_write: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: Self::build_behavior_engine(config),
-                #[cfg(feature = "realtime_learning")]
-                learning_engine: {
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                    let trust_path = Some(app_settings.win_verify_trust_path.to_str().unwrap());
-                    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                    let trust_path = None;
-
-                    crate::realtime_learning::RealtimeLearningEngine::new(
-                        Self::realtime_learning_output_dir(config),
-                        trust_path,
-                    )
-                },
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hooks_registered: false,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1567,38 +1212,6 @@ pub mod worker_instance {
             None
         }
 
-        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-        fn queue_process_start_scan_if_needed(
-            &mut self,
-            gid: u64,
-            pid: u32,
-            appname: &str,
-            exepath: &Path,
-            reason: &str,
-        ) {
-            if pid == 0
-                || Self::is_internal_service_pid(pid)
-                || exepath.as_os_str().is_empty()
-                || exepath.to_string_lossy().eq_ignore_ascii_case("UNKNOWN")
-                || !exepath.is_file()
-            {
-                return;
-            }
-
-            if !self.process_start_scans_queued.insert(pid) {
-                return;
-            }
-
-            if let Some(av_integration) = self.av_integration.as_mut() {
-                av_integration.queue_process_start_scan_request(
-                    exepath,
-                    Some(pid),
-                    Some(format!("{reason}: {appname} (PID: {pid}, GID: {gid})")),
-                );
-            }
-        }
-
-        #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
         fn queue_process_start_scan_if_needed(
             &mut self,
             _gid: u64,
@@ -1664,14 +1277,6 @@ pub mod worker_instance {
                     let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
                     precord.pids.insert(pid);
                     self.process_records.insert_precord(gid, precord);
-
-                    #[cfg(feature = "realtime_learning")]
-                    {
-                        self.learning_engine.track_process(gid, appname.clone());
-                        self.api_trackers
-                            .entry(gid)
-                            .or_insert_with(|| ApiTracker::new(gid, appname.clone()));
-                    }
                 }
 
                 self.refresh_dynamic_hooks_for_pid_if_due(pid);
@@ -1734,16 +1339,6 @@ pub mod worker_instance {
             postprocessor: Box<dyn IOMsgPostProcessor>,
         ) -> Worker<'a> {
             self.iomsg_postprocessors.push(postprocessor);
-            self
-        }
-
-        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-        #[allow(dead_code)]
-        pub fn av_integration(
-            mut self,
-            av_integration: Option<crate::hydradragon::av_integration::AVIntegration<'a>>,
-        ) -> Worker<'a> {
-            self.av_integration = av_integration;
             self
         }
 
@@ -1826,16 +1421,6 @@ pub mod worker_instance {
             if let Some(mut precord) = precord_opt {
                 precord.process_state = ProcessState::Terminated;
 
-                #[cfg(feature = "realtime_learning")]
-                {
-                    let tracker = self
-                        .api_trackers
-                        .entry(gid)
-                        .or_insert_with(|| ApiTracker::new(gid, precord.appname.clone()));
-                    tracker.is_terminated = true;
-                    tracker.termination_time = Some(std::time::SystemTime::now());
-                }
-
                 // Remove from behavior engine
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
@@ -1852,30 +1437,6 @@ pub mod worker_instance {
                         self.dynamic_hook_last_refresh.remove(pid);
                         self.dynamic_hook_applied_generation.remove(pid);
                         self.dynamic_hook_apply_failures.remove(pid);
-                    }
-                }
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                {
-                    for pid in &precord.pids {
-                        self.process_start_scans_queued.remove(pid);
-                    }
-                }
-
-                // Handle learning engine cleanup
-                #[cfg(feature = "realtime_learning")]
-                {
-                    self.live_mitre_cache_last_write.remove(&gid);
-
-                    if precord.is_malicious {
-                        self.learning_engine.mark_detected_malicious(
-                            gid,
-                            self.api_trackers.get(&gid).unwrap(),
-                            &precord,
-                        );
-                    }
-                    if let Some(tracker) = self.api_trackers.remove(&gid) {
-                        self.learning_engine
-                            .process_terminated(gid, &tracker, &precord);
                     }
                 }
 
@@ -2022,14 +1583,6 @@ pub mod worker_instance {
                         "New process executable scan",
                     );
 
-                    // Register in learning engine
-                    #[cfg(feature = "realtime_learning")]
-                    {
-                        self.learning_engine.track_process(gid, appname.clone());
-                        self.api_trackers
-                            .insert(gid, ApiTracker::new(gid, appname.clone()));
-                    }
-
                     discovered_new += 1;
                 }
 
@@ -2116,13 +1669,6 @@ pub mod worker_instance {
 
                     if let Some((_, record)) = matching_record {
                         Self::apply_behavior_detection_state(record, &det);
-                        #[cfg(feature = "realtime_learning")]
-                        Self::mark_realtime_process_malicious(
-                            &mut self.learning_engine,
-                            &self.api_trackers,
-                            det.gid,
-                            record,
-                        );
                         let rule_name = det
                             .triggered_rule_name
                             .as_deref()
@@ -2131,8 +1677,7 @@ pub mod worker_instance {
                             "[DETECTION] Process {} (GID: {}) marked malicious by rule '{}'",
                             record.appname, det.gid, rule_name
                         ));
-                        let report_context =
-                            Self::report_context_for_gid(&self.api_trackers, det.gid);
+                        let report_context = ActionReportContext::default();
                         ActionsOnKill::with_handler(threat_handler.clone_box())
                             .run_actions_with_info_and_context(
                                 config,
@@ -2155,15 +1700,7 @@ pub mod worker_instance {
                             state.exe_path.clone(),
                         );
                         Self::apply_behavior_detection_state(&mut precord, &det);
-                        #[cfg(feature = "realtime_learning")]
-                        Self::mark_realtime_process_malicious(
-                            &mut self.learning_engine,
-                            &self.api_trackers,
-                            det.gid,
-                            &precord,
-                        );
-                        let report_context =
-                            Self::report_context_for_gid(&self.api_trackers, det.gid);
+                        let report_context = ActionReportContext::default();
                         ActionsOnKill::with_handler(threat_handler.clone_box())
                             .run_actions_with_info_and_context(
                                 config,
@@ -2187,133 +1724,12 @@ pub mod worker_instance {
                     self.cleanup_process(gid, "Killed (behavior detection)");
                 }
 
-                // --- SIXTH: Check for Sanctum Detections (Worker-level Handling) ---
-                #[cfg(all(target_os = "windows", feature = "sanctum"))]
-                {
-                    let sanctum_stats = self
-                        .behavior_engine
-                        .firewall_sanctum_stats
-                        .read()
-                        .unwrap()
-                        .clone();
-                    let mut sanctum_deep_scan_requests: Vec<(PathBuf, u32, String)> = Vec::new();
-                    for (pid, stats) in sanctum_stats {
-                        if stats.is_detection {
-                            if let Some(gid) = self.find_gid_by_pid(pid) {
-                                #[cfg(feature = "realtime_learning")]
-                                {
-                                    let tracker =
-                                        self.api_trackers.entry(gid).or_insert_with(|| {
-                                            ApiTracker::new(gid, format!("PID_{}", pid))
-                                        });
-                                    tracker.sanctum_operations = stats.clone();
-
-                                    if let Some(state) =
-                                        self.behavior_engine.process_states.get(&gid)
-                                    {
-                                        if !state.app_name.is_empty() {
-                                            tracker.process_name = state.app_name.clone();
-                                        }
-                                        #[cfg(all(target_os = "windows", feature = "firewall"))]
-                                        {
-                                            tracker.net_packets = state.net_packets.clone().into();
-                                        }
-                                    }
-                                }
-
-                                let report_context =
-                                    Self::report_context_for_gid(&self.api_trackers, gid);
-
-                                if !terminated_gids.contains(&gid) {
-                                    let matching_record =
-                                        self.process_records.process_records.get_mut(&gid);
-                                    if let Some(record) = matching_record {
-                                        if !record.is_malicious {
-                                            Logging::alert(&format!(
-                                                "[SanctumDetection] 🚨 ENFORCING: Marking PID {} Malicious based on Sanctum telemetry",
-                                                pid
-                                            ));
-                                            record.is_malicious = true;
-                                            record.termination_requested = true;
-                                            record.notify_user_requested = true;
-                                            record.triggered_rule_name =
-                                                Some("SanctumEDR_Detection".to_string());
-
-                                            #[cfg(feature = "realtime_learning")]
-                                            Self::mark_realtime_process_malicious(
-                                                &mut self.learning_engine,
-                                                &self.api_trackers,
-                                                gid,
-                                                record,
-                                            );
-
-                                            let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                                            sanctum_deep_scan_requests.push((
-                                                record.exepath.clone(),
-                                                pid,
-                                                format!(
-                                                    "Sanctum detection: {}",
-                                                    stats.last_event.clone().unwrap_or_default()
-                                                ),
-                                            ));
-                                            let threat_info = ThreatInfo {
-                                                threat_type_label: "Sanctum EDR Detection",
-                                                virus_name: "Sanctum.Malware.Gen",
-                                                prediction: 1.0,
-                                                match_details: Some(format!(
-                                                    "Sanctum Detection: {}",
-                                                    stats.last_event.clone().unwrap_or_default()
-                                                )),
-                                                deny_access: false,
-                                                terminate: true,
-                                                quarantine: false,
-                                                kill_and_remove: false,
-                                                suspend: false,
-                                                notify_user: true,
-                                                revert: false,
-                                            };
-                                            ActionsOnKill::with_handler(threat_handler.clone_box())
-                                                .run_actions_with_info_and_context(
-                                                    config,
-                                                    record,
-                                                    &dummy_pred_mtrx,
-                                                    &threat_info,
-                                                    &report_context,
-                                                );
-
-                                            if restart_cleanup_reason(record, &threat_info)
-                                                .is_none()
-                                            {
-                                                terminated_gids.insert(gid);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                    if let Some(av_integration) = self.av_integration.as_mut() {
-                        for (path, pid, context) in sanctum_deep_scan_requests {
-                            av_integration.queue_deep_scan_request(&path, Some(pid), Some(context));
-                        }
-                    }
-                }
-
                 for gid in terminated_gids {
                     if self.process_records.process_records.contains(&gid) {
-                        self.cleanup_process(gid, "Killed (Sanctum/Behavior Detection)");
+                        self.cleanup_process(gid, "Killed (behavior detection)");
                     }
                 }
 
-                // --- SEVENTH: Real-time learning periodic checks ---
-                #[cfg(feature = "realtime_learning")]
-                {
-                    self.learning_engine
-                        .check_benign_processes(&self.api_trackers, |gid| {
-                            self.process_records.process_records.peek(&gid)
-                        });
-                }
             }
         }
 
@@ -2328,28 +1744,8 @@ pub mod worker_instance {
                 process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
                 exepath_handler: Box::<ExePathReplay>::default(),
                 iomsg_postprocessors: vec![],
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                av_integration: None,
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                process_start_scans_queued: std::collections::HashSet::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: Self::build_behavior_engine(config),
-                #[cfg(feature = "realtime_learning")]
-                learning_engine: {
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                    let trust_path = Some(app_settings.win_verify_trust_path.to_str().unwrap());
-                    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                    let trust_path = None;
-
-                    crate::realtime_learning::RealtimeLearningEngine::new(
-                        Self::realtime_learning_output_dir(config),
-                        trust_path,
-                    )
-                },
-                #[cfg(feature = "realtime_learning")]
-                api_trackers: HashMap::new(),
-                #[cfg(feature = "realtime_learning")]
-                live_mitre_cache_last_write: HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -2411,7 +1807,7 @@ pub mod worker_instance {
                 let irp_kind_for_name_resolution = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
                 if matches!(
                     irp_kind_for_name_resolution,
-                    IrpMajorOp::IrpHypervisorEvent | IrpMajorOp::IrpUserModeHookEvent
+                    IrpMajorOp::IrpUserModeHookEvent
                 ) {
                     iomsg.normalize_hypervisor_event();
 
@@ -2479,33 +1875,8 @@ pub mod worker_instance {
                 // Skipped during startup_complete=false to avoid the O(n²)
                 // per-IrpProcessCreate scan backlog; the periodic 750ms scan covers it.
                 // Add IRP record to process
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                {
-                    if let Some(av_integration) = self.av_integration.as_mut() {
-                        precord.add_irp_record(iomsg, Some(av_integration));
-                    } else {
-                        precord.add_irp_record(iomsg, None);
-                    }
-                }
-
-                #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
                 {
                     precord.add_irp_record(iomsg, None);
-                }
-
-                // Update learning engine before detection-time collection so the
-                // triggering event is part of the malicious sample.
-                #[cfg(feature = "realtime_learning")]
-                {
-                    Self::record_realtime_event(
-                        &mut self.learning_engine,
-                        &mut self.api_trackers,
-                        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                        &self.behavior_engine,
-                        tracking_key,
-                        iomsg,
-                        precord,
-                    );
                 }
 
                 {
@@ -2552,19 +1923,8 @@ pub mod worker_instance {
                     // Process behavioral event
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                     if let Some(ref th) = self.threat_handler {
-                        let was_malicious = precord.is_malicious;
                         self.behavior_engine
                             .process_event(precord, iomsg, config, &**th);
-
-                        #[cfg(feature = "realtime_learning")]
-                        if !was_malicious && precord.is_malicious {
-                            Self::mark_realtime_process_malicious(
-                                &mut self.learning_engine,
-                                &self.api_trackers,
-                                tracking_key,
-                                precord,
-                            );
-                        }
                     }
 
                     // Run process record handler (e.g., prediction)
@@ -2599,9 +1959,6 @@ pub mod worker_instance {
                     self.scan_processes(config, threat_handler);
                 }
             }
-
-            #[cfg(feature = "realtime_learning")]
-            self.write_live_mitre_timeline_if_due(tracking_key);
 
             // FIX: Cleanup on termination - works regardless of feature flags
             if is_process_terminate {
@@ -2720,21 +2077,6 @@ pub mod worker_instance {
                             pid,
                             exepath.clone(),
                             appname.clone(),
-                        );
-                    }
-
-                    // Register in learning engine
-                    #[cfg(feature = "realtime_learning")]
-                    {
-                        self.learning_engine.track_process(gid, appname.clone());
-                        Self::record_realtime_event(
-                            &mut self.learning_engine,
-                            &mut self.api_trackers,
-                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            &self.behavior_engine,
-                            gid,
-                            iomsg,
-                            &precord,
                         );
                     }
 
