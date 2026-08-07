@@ -1893,13 +1893,9 @@ impl FirewallEngine {
     }
 
     fn proxy_ca_cert_path() -> PathBuf {
-        std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
-            .unwrap_or_else(|| PathBuf::from("."))
+        PathBuf::from(r"C:\ProgramData\edrsvc\ca")
             .join("hydradragon_ca.der")
     }
-
 
     /// Install a raw DER certificate into the Windows LocalMachine\Root trust store.
     fn install_ca_der(der: &[u8]) -> Result<(), String> {
