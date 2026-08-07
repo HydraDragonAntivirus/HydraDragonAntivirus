@@ -12,6 +12,12 @@
 		<Launch Condition='(VersionNT64 AND "$(var.Platform)"="x64") OR NOT (VersionNT64 OR "$(var.Platform)"="x64")' Message="This installation package ($(var.Platform)) is not supported by this processor type." />
 		<Launch Condition="VersionNT &gt;= 601" Message="Current Windows version is not supported." />
 
+		<!-- Check if Secure Boot is enabled (Registry UEFISecureBootEnabled = 1) -->
+		<Property Id="SECUREBOOTENABLED" Secure="yes">
+			<RegistrySearch Id="SearchSecureBoot" Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\SecureBoot\State" Name="UEFISecureBootEnabled" Type="raw" />
+		</Property>
+		<Launch Condition="NOT (SECUREBOOTENABLED = &quot;#1&quot;)" Message="Secure Boot is enabled on this system. Please disable Secure Boot in your BIOS/UEFI settings before installing [ProductName] (unsigned driver loading requires Secure Boot to be disabled)." />
+
 		<Media Cabinet="edr_agent.cab" Id="1" EmbedCab="yes" CompressionLevel="high" />
 
     <Property Id="MsiLogging" Value="vx" />
