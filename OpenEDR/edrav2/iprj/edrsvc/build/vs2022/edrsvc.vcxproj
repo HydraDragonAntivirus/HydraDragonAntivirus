@@ -122,7 +122,7 @@
     </Manifest>
     <PostBuildEvent>
       <Command>xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"
-xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert64.dll" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert.dll" "$(OutDir)"
 xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert64.sys" "$(OutDir)"
 xcopy /Y /D /E /I "$(ProjectDir)..\..\..\rules" "$(OutDir)rules\"</Command>
       <Message>Copying owlyshield_ransom.dll, WinDivert64 files, and rules to output directory</Message>
@@ -152,7 +152,7 @@ xcopy /Y /D /E /I "$(ProjectDir)..\..\..\rules" "$(OutDir)rules\"</Command>
     </Manifest>
     <PostBuildEvent>
       <Command>xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"
-xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert64.dll" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert.dll" "$(OutDir)"
 xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert64.sys" "$(OutDir)"
 xcopy /Y /D /E /I "$(ProjectDir)..\..\..\rules" "$(OutDir)rules\"</Command>
       <Message>Copying owlyshield_ransom.dll, WinDivert64 files, and rules to output directory</Message>
