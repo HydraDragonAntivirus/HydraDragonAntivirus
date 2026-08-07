@@ -1,14 +1,14 @@
 use crate::config::Config;
 use crate::globals;
-#[cfg(target_os = "windows")]
+
 use crate::utils::resolve_process_path;
 use chrono::Local;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[cfg(target_os = "windows")]
+
 use winreg::RegKey;
-#[cfg(target_os = "windows")]
+
 use winreg::enums::*;
 
 #[derive(Debug, Clone, Default)]
@@ -179,7 +179,7 @@ impl SystemReport {
         }
     }
 
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     pub fn collect(
         _config: &Config,
         firewall_pids: Option<&std::collections::HashSet<u32>>,
@@ -193,7 +193,7 @@ impl SystemReport {
             .map(|h| h.to_string_lossy().into_owned())
             .unwrap_or_else(|_| "Unknown".into());
 
-        #[cfg(target_os = "windows")]
+        
         {
             report.os_version = "Windows".to_string();
             report.collect_windows_startups();
@@ -217,7 +217,7 @@ impl SystemReport {
         report
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn collect_windows_startups(&mut self) {
         let registry_paths = [
             (
@@ -290,7 +290,7 @@ impl SystemReport {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn collect_hosts_file(&mut self) {
         let path = "C:\\Windows\\System32\\drivers\\etc\\hosts";
         if let Ok(content) = fs::read_to_string(path) {
@@ -303,7 +303,7 @@ impl SystemReport {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn collect_network_listeners(
         &mut self,
         firewall_pids: Option<&std::collections::HashSet<u32>>,
@@ -333,7 +333,7 @@ impl SystemReport {
         // Use firewall-observed PIDs for the report
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn collect_kernel_drivers(&mut self) {
         let hk = RegKey::predef(HKEY_LOCAL_MACHINE);
         if let Ok(services) = hk.open_subkey("SYSTEM\\CurrentControlSet\\Services") {
@@ -358,7 +358,7 @@ impl SystemReport {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn collect_browser_extensions(&mut self) {
         if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
             let chrome_ext =
@@ -436,12 +436,7 @@ impl SystemReport {
         ));
 
         s.push_str("-- HydraDragon Integration (O24) --\n");
-        #[cfg(all(target_os = "windows", feature = "firewall"))]
         s.push_str(&format!("O24 - Firewall Status: Enabled\n"));
-        #[cfg(not(all(target_os = "windows", feature = "firewall")))]
-        s.push_str(&format!(
-            "O24 - Firewall Status: Disabled (Feature-Gated)\n"
-        ));
         s.push_str(&format!(
             "O24 - AV Integration: {}\n",
             if self.av_status.is_enabled {

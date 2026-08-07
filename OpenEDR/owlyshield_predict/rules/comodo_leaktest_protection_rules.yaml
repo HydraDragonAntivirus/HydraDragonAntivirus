@@ -1,0 +1,2519 @@
+# =============================================================================
+# COMODO Leak Test v1.1.0.3 — 100% Protection Rules (v2 semantic alignment)
+# Updated on 2026-04-01 to better align selected rules with original COMODO
+# test semantics while staying compatible with the current behavior engine.
+# =============================================================================
+
+---
+
+# TEST #4: RootkitInstallation:ChangeDrvPath — Prevent driver path modification
+- name: "HEUR:Win.Rootkit.DriverPathRemapping.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects attempts to remap or modify kernel driver ImagePath registry
+    entries to point to alternate locations. Threat actors use this to load
+    rootkits from User-writable directories that bypass kernel driver signing
+    validation.
+    COMODO Test #4: RootkitInstallation:ChangeDrvPath
+    Blocks driver path substitution attacks.
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/msiexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    # explorer.exe legitimately writes Shell\Bags and other HKCU keys via reg_set_value.
+    # Must be explicitly allowlisted to prevent ShellBags false positives (Alert #1).
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+  named_conditions:
+    # Condition 1: Driver service registry path modification.
+    # min_matches: 3 requires one hit from EACH criterion group (key + value + op).
+    # Prevents the condition firing on a reg_set_value operation alone — the root
+    # cause of the ShellBags FP. "Type" and "Start" removed: too generic as substrings
+    # (e.g. "SniffedFolderType" contains "Type"). HKCU paths not listed here.
+    driver_path_modification:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_values:
+        - ImagePath
+        - ServiceDll
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 3  # all three criterion groups must match
+
+    # Condition 2: Driver-load or service-config APIs only.
+    # Removed *RegSetValue*/*RegCreateKey* globs — they fire on ANY registry write.
+    driver_load_api:
+      orderless: true
+      apis:
+        - "*NtLoadDriver*"
+        - "*ZwLoadDriver*"
+        - "*ChangeServiceConfig*"
+        - "*ChangeServiceConfig2*"
+        - "*OpenSCManager*"
+        - "*OpenService*"
+        - "*CreateService*"
+      api_threshold: 1
+      min_matches: 1
+
+    # Condition 3: Payload points to a user-writable or suspicious path.
+    suspicious_driver_payload:
+      orderless: true
+      registry_value_data_patterns:
+        - "*.sys*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+      min_matches: 1
+
+    # Condition 4: Caller must be unsigned — first gate for all branches.
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "unsigned_caller"   # signed Microsoft binaries excluded here + allowlist
+      - or:
+          - condition: "driver_path_modification"
+          - condition: "driver_load_api"
+          - condition: "suspicious_driver_payload"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - rootkit
+    - driver
+    - registry
+    - privilege-escalation
+  mitre_attack:
+    - T1014
+    - T1547.006
+
+---
+
+# TEST #5: Invasion:Runner — Browser tamper followed by network use
+- name: "HEUR:Win.Invasion.Runner.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects tampering with a browser executable followed by network use from
+    the same unsigned process context.
+    COMODO Test #5: Invasion:Runner
+    Best-effort alignment for browser-on-disk tamper plus Internet use.
+  debug: false
+
+  named_conditions:
+    browser_binary_tamper:
+      orderless: true
+      file_paths:
+        - "*\\Internet Explorer\\iexplore.exe"
+        - "*\\Microsoft\\Edge\\Application\\msedge.exe"
+        - "*\\Google\\Chrome\\Application\\chrome.exe"
+        - "*\\Mozilla Firefox\\firefox.exe"
+      file_operations: ["write", "rename", "delete", "setinfo"]
+      min_matches: 1
+
+    network_use:
+      orderless: true
+      has_network_activity: true
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "browser_binary_tamper"
+      - condition: "network_use"
+      - condition: "unsigned_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - invasion
+    - runner
+    - browser-tamper
+    - firewall-bypass
+
+---
+
+# TEST #6: Invasion:RawDisk — Block raw disk device access entirely
+- name: "HEUR:Win.Invasion.RawDiskAccess.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects attempts to open raw disk devices (\Device\HarddiskVolume*,
+    \Device\Harddisk*) with WRITE or DELETE access. Commonly used for:
+    - Bootkit installation
+    - MBR/VBR tampering
+    - Direct partition modification
+    - Ransomware encryption bypass
+    COMODO Test #6: Invasion:RawDisk
+    Blocks raw disk access.
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "%SystemRoot%/System32/diskpart.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/bcdboot.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/reagentc.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/dism.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+  named_conditions:
+    raw_disk_write_access:
+      orderless: true
+      file_paths:
+        - "*\\\\Device\\\\Harddisk*"
+        - "*\\\\Device\\\\HarddiskVolume*"
+        - "*\\\\Device\\\\Harddisk0\\\\DR0*"
+        - "*\\\\Device\\\\Harddisk0\\\\Partition*"
+        - "*\\\\Device\\\\HarddiskVolumeShadowCopy*"
+        - "*\\\\Device\\\\RawDisk*"
+        - "*\\\\??\\\\PhysicalDrive*"
+        - "*\\\\?\\\\PhysicalDrive*"
+        - "*\\\\\\\\.\\\\PhysicalDrive*"
+        - "*\\\\.\\\\PhysicalDrive*"
+        - "*\\\\PhysicalDrive*"
+        - "*physicaldrive*"
+        - "*\\\\GLOBALROOT\\\\Device\\\\Harddisk*"
+        - "*\\\\DosDevices\\\\PhysicalDrive*"
+        - "*\\\\DosDevices\\\\ElRawDisk*"
+        - "*\\\\?\\\\ElRawDisk*"
+        - "*\\\\.\\\\ElRawDisk*"
+        - "*ElRawDisk*"
+        - "*RawDisk*"
+        - "\\\\.\\\\PhysicalDrive*"
+        - "\\\\.\\\\C:"
+        - "\\\\.\\\\D:"
+        - "\\\\.\\\\*:"
+        - "\\\\Device\\\\Harddisk*"
+        - "\\\\Device\\\\HarddiskVolume*"
+        - "\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Services\\*\\Parameters\\RegistryDeviceName"
+        - "\\Device\\RawDisk"
+        - "\\??\\PhysicalDrive*"
+        - "\\\\.\\PhysicalDrive*"
+      file_operations:
+        - read
+        - write
+        - create
+        - setinfo
+        - delete
+      min_matches: 1
+
+  detection_logic:
+    condition: "raw_disk_write_access"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - invasion
+    - raw-disk
+    - bootkit
+    - bootloader
+  mitre_attack:
+    - T1014
+    - T1561.001
+
+---
+
+# TEST #8: Invasion:FileDrop — Prevent suspicious file creation in critical paths
+- name: "HEUR:Win.Invasion.MaliciousFileDrop.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects creation or write of executable/DLL/driver files into core OS
+    directories (System32, SysWOW64, drivers) by an unsigned process that
+    also originates from a user-writable location.
+    COMODO Test #8: Invasion:FileDrop
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/msiexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/drvinst.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+      is_absolute: true
+
+  named_conditions:
+    # ── Condition 1: Write to SPECIFIC sensitive OS directories only ─────────
+    # Anchored to System32\, SysWOW64\, and System32\drivers\ only.
+    # Extension globs are tied to these paths via compound patterns.
+    sensitive_os_dir_write:
+      orderless: true
+      file_paths:
+        # Anchored to System32 — only .exe/.dll/.sys/.drv drops here are dangerous
+        - "C:\\Windows\\System32\\*.exe"
+        - "C:\\Windows\\System32\\*.dll"
+        - "C:\\Windows\\System32\\*.sys"
+        - "C:\\Windows\\System32\\*.drv"
+        # Drivers subdirectory
+        - "C:\\Windows\\System32\\drivers\\*.sys"
+        - "C:\\Windows\\System32\\drivers\\*.dll"
+        # 32-bit compat layer
+        - "C:\\Windows\\SysWOW64\\*.exe"
+        - "C:\\Windows\\SysWOW64\\*.dll"
+        - "C:\\Windows\\SysWOW64\\*.sys"
+      file_operations: ["create", "write"]
+      min_matches: 1
+
+    # ── Condition 2: Caller is unsigned ──────────────────────────────────────
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+    # ── Condition 3: Caller binary lives in a user-writable location ─────────
+    # Requires BOTH unsigned AND user-space origin to reduce false positives.
+    user_space_origin:
+      orderless: true
+      file_paths:
+        - "*\\AppData\\*"
+        - "*\\Downloads\\*"
+        - "*\\Public\\*"
+        - "*\\Temp\\*"
+        - "C:\\Temp\\*"
+        - "%TEMP%\\*"
+      min_matches: 1
+
+    # ── Condition 4: Exclude Prefetch writes (known benign pattern) ───────────
+    prefetch_artifact_write:
+      orderless: true
+      file_paths:
+        - "C:\\Windows\\Prefetch\\"
+        - "*.pf"
+      file_operations: ["create", "write", "setinfo"]
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "sensitive_os_dir_write"
+      - condition: "unsigned_caller"
+      - condition: "user_space_origin"    # ← both unsigned AND from user-space
+      - not:
+          condition: "prefetch_artifact_write"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - invasion
+    - file-drop
+    - persistence
+  mitre_attack:
+    - T1105
+
+---
+
+# TEST #10: Injection:SetWinEventHook — Detect and block hook-based DLL injection
+- name: "HEUR:Win.Injection.WinEventHook.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects SetWinEventHook() calls with remote DLL paths to inject code into
+    target processes from unsigned callers.
+    COMODO Test #10: Injection:SetWinEventHook
+    Blocks hook-based injection.
+  debug: false
+
+  named_conditions:
+    setwineventhook_call:
+      orderless: true
+      apis:
+        - "user32.dll!SetWinEventHook"
+        - "user32.dll!SetWinEventHookA"
+        - "user32.dll!SetWinEventHookW"
+        - "win32u.dll!NtUserSetWinEventHook"
+        - "ntdll.dll!NtUserSetWinEventHook"
+        - "ntdll.dll!ZwUserSetWinEventHook"
+        - "SetWinEventHook"
+        - "SetWinEventHookA"
+        - "SetWinEventHookW"
+        - "NtUserSetWinEventHook"
+        - "*SetWinEventHook*"
+      api_threshold: 1
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "setwineventhook_call"
+      - condition: "unsigned_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - injection
+    - hook
+    - code-injection
+  mitre_attack:
+    - T1547.015
+    - T1179
+
+---
+
+# TEST #11: Injection:SetWindowsHookEx — Detect keyboard/mouse hook injection
+- name: "HEUR:Win.Injection.WindowsHookEx.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects SetWindowsHookEx() calls that inject DLLs into global hook chains
+    affecting keyboard, mouse, or other user-input events from unsigned callers.
+    COMODO Test #11: Injection:SetWindowsHookEx
+    Blocks hook-based keyboard/mouse interception.
+  debug: false
+
+  named_conditions:
+    setwindowshookex_call:
+      orderless: true
+      apis:
+        - "user32.dll!SetWindowsHookEx"
+        - "user32.dll!SetWindowsHookExA"
+        - "user32.dll!SetWindowsHookExW"
+        - "win32u.dll!NtUserSetWindowsHookEx"
+        - "ntdll.dll!NtUserSetWindowsHookEx"
+        - "ntdll.dll!ZwUserSetWindowsHookEx"
+        - "NtUserSetWindowsHookEx"
+        - "SetWindowsHookEx"
+        - "SetWindowsHookExA"
+        - "SetWindowsHookExW"
+        - "*SetWindowsHookEx*"
+      api_threshold: 1
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "setwindowshookex_call"
+      - condition: "unsigned_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - injection
+    - hook
+    - keyboard-logging
+    - credential-access
+  mitre_attack:
+    - T1056.004
+    - T1179
+
+---
+
+# TEST #13: Injection:Services — Block malicious service installation from non-System processes
+- name: "HEUR:Win.Injection.MaliciousServiceCreation.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects service creation (via Services registry key or CreateService API)
+    from non-privileged processes. Service DLL injection allows code execution
+    with SYSTEM privileges across reboots.
+    COMODO Test #13: Injection:Services
+    Blocks unauthorized service installation.
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/msiexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+  named_conditions:
+    service_key_create:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+      min_matches: 2
+
+    service_registry_create:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+      registry_values:
+        - ImagePath
+        - ServiceDll
+        - ObjectName
+        - Type
+        - Start
+      registry_value_data_patterns:
+        - "*.sys*"
+        - "*.dll*"
+        - "*\\system32\\drivers\\*.sys*"
+        - "\\SystemRoot\\System32\\drivers\\*.sys*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+        - "*rundll32*"
+      min_matches: 4
+
+    createservice_api:
+      orderless: true
+      apis:
+        - "advapi32.dll!CreateServiceA"
+        - "advapi32.dll!CreateServiceW"
+        - "advapi32.dll!CreateServiceExA"
+        - "advapi32.dll!CreateServiceExW"
+        - "CreateServiceA"
+        - "CreateServiceW"
+        - "CreateService"
+        - "CreateServiceExA"
+        - "CreateServiceExW"
+      api_threshold: 1
+      min_matches: 1
+
+    service_control_api:
+      orderless: true
+      apis:
+        - "*CreateService*"
+        - "*ChangeServiceConfig*"
+        - "*ChangeServiceConfig2*"
+        - "*NtLoadDriver*"
+        - "*ZwLoadDriver*"
+      api_threshold: 1
+      min_matches: 1
+
+    suspicious_service_payload:
+      orderless: true
+      registry_value_data_patterns:
+        - "*.sys*"
+        - "*.dll*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+        - "*rundll32*"
+      min_matches: 1
+
+    non_system_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "non_system_caller"   # unsigned callers only — signed system processes covered by allowlist
+      - or:
+          - condition: "createservice_api"
+          - condition: "service_control_api"
+          - and:
+              - condition: "service_key_create"
+              - condition: "suspicious_service_payload"
+          - and:
+              - condition: "service_registry_create"
+              - condition: "suspicious_service_payload"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags:
+    - injection
+    - services
+    - persistence
+    - privilege-escalation
+  mitre_attack:
+    - T1543.003
+
+---
+
+# TEST #21: InfoSend:DNS Test — Detect DNS exfiltration and C2 beaconing
+- name: "HEUR:Win.InfoSend.DNSExfiltration.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    Detects rapid or high-frequency DNS queries from processes, indicating:
+    - DNS-based C2 communication
+    - Data exfiltration encoding
+    - DNS tunneling attacks
+    COMODO Test #21: InfoSend:DNS Test
+    Alerts on suspicious DNS patterns.
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+      is_absolute: true
+    - pattern: "C:/Windows/System32/msiexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/chrome.exe"
+      must_be_signed: true
+    - pattern: "C:/Program Files/Mozilla Firefox/firefox.exe"
+      must_be_signed: true
+    - pattern: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+      must_be_signed: true
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+    - pattern: "C:/Program Files/Microsoft Office/root/Office16/outlook.exe"
+      must_be_signed: true
+
+  named_conditions:
+    dns_activity:
+      orderless: true
+      apis:
+        - "*DnsQuery*"
+        - "*DnsQuery_A*"
+        - "*DnsQuery_W*"
+        - "*DnsQueryEx*"
+        - "*getaddrinfo*"
+        - "*GetAddrInfo*"
+        - "*QueryDnsConfig*"
+        - "*GetHostByName*"
+        - "*WSAAsyncGetHostByName*"
+        - "dnsapi.dll!DnsQuery_W"
+        - "dnsapi.dll!DnsQuery_A"
+        - "ws2_32.dll!getaddrinfo"
+        - "ws2_32.dll!GetAddrInfoW"
+        - "nsi.dll!NsiExecuteQuery"
+      has_network_activity: true
+      network_indicators:
+        - "dns"
+      firewall_dst_ports: [53]
+      dns_query_patterns:
+        - "*"
+      min_matches: 1
+
+    process_unsigned:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "dns_activity"
+      - condition: "process_unsigned"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - exfiltration
+    - dns
+    - c2
+    - network
+  mitre_attack:
+    - T1041
+    - T1071.004
+
+---
+
+# TEST #25: Impersonation:Coat — Browser masquerade and network use
+- name: "HEUR:Win.Impersonation.COATProcImpersonate.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects unsigned processes masquerading as common browser executables and
+    performing network activity.
+    COMODO Test #25: Impersonation:Coat
+    Best-effort alignment for default-browser-in-memory impersonation.
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Program Files/Google/Chrome/Application/chrome.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Google*"]
+    - pattern: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Program Files/Mozilla Firefox/firefox.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Mozilla*"]
+    - pattern: "C:/Program Files/Internet Explorer/iexplore.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+  named_conditions:
+    browser_name_masquerade:
+      orderless: true
+      process_names:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "firefox.exe"
+        - "iexplore.exe"
+      min_matches: 1
+
+    network_use:
+      orderless: true
+      has_network_activity: true
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "browser_name_masquerade"
+      - condition: "network_use"
+      - condition: "unsigned_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - impersonation
+    - browser
+    - masquerading
+    - network
+  mitre_attack:
+    - T1036
+    - T1071
+
+---
+
+# TEST #30: Hijacking:SupersedeServiceDll — Block service DLL replacement
+- name: "HEUR:Win.Hijacking.ServiceDLLSupersede.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects modification of service DLL paths (ServiceDll, Parameters registry).
+    Threat actors replace legitimate service DLLs with malicious versions
+    to maintain persistence and execute with SYSTEM privileges.
+    COMODO Test #30: Hijacking:SupersedeServiceDll
+    Blocks service DLL path modification.
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/msiexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+  named_conditions:
+    service_dll_modification:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_values:
+        - ServiceDll
+        - ImagePath
+        - ImagePathValue
+        - ServiceDllUnloadOnStop
+        - FailureCommand
+        - DllName
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    service_reconfigure_api:
+      orderless: true
+      apis:
+        - "*ChangeServiceConfig*"
+        - "*ChangeServiceConfig2*"
+        - "*OpenSCManager*"
+        - "*OpenService*"
+        - "*CreateService*"
+        - "*RegCreateKey*"
+        - "*RegCreateKeyEx*"
+        - "*RegSetValue*"
+        - "*RegSetValueEx*"
+        - "*RegSetKeyValue*"
+        - "*NtCreateKey*"
+        - "*ZwCreateKey*"
+        - "*NtSetValueKey*"
+        - "*ZwSetValueKey*"
+      api_threshold: 1
+      min_matches: 1
+
+    suspicious_service_dll_payload:
+      orderless: true
+      registry_value_data_patterns:
+        - "*.dll*"
+        - "*.sys*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+      min_matches: 1
+
+    caller_unsigned:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "service_dll_modification"
+      - or:
+          - condition: "suspicious_service_dll_payload"
+          - condition: "service_reconfigure_api"
+          - condition: "caller_unsigned"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags:
+    - hijacking
+    - services
+    - persistence
+    - dll-replacement
+  mitre_attack:
+    - T1547.001
+
+---
+
+# TEST #31: Hijacking:StartupPrograms — Block suspicious startup registry modification
+- name: "HEUR:Win.Hijacking.StartupProgramsModification.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects modification of Windows startup registry locations to point to
+    unsigned or non-Microsoft executables. Common startup hijacking points:
+    - Run/RunOnce (HKCU, HKLM)
+    - Startup folders
+    - Image File Execution Options
+    COMODO Test #31: Hijacking:StartupPrograms
+    Blocks suspicious startup program registration.
+  debug: false
+
+  named_conditions:
+    startup_registry_modification:
+      orderless: true
+      registry_keys:
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunServices
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunServices
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce
+        - \REGISTRY\USER\*\Software\Microsoft\Windows\CurrentVersion\Run
+        - \REGISTRY\USER\*\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnceEx
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnceEx
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+        - HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
+        - HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+        - HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
+        - \REGISTRY\USER\*\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+        - \REGISTRY\USER\*\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    startup_folder_write:
+      orderless: true
+      file_paths:
+        - "*\\Startup\\*"
+        - "\\Start Menu\\Programs\\Startup\\"
+        - "\\Programs\\Startup\\"
+        - "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+        - "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+        - "\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+        - "*.lnk"
+        - "*.url"
+        - "*.hta"
+        - "*.js"
+        - "*.vbs"
+        - "*.cmd"
+        - "*.bat"
+      file_operations: ["create", "write", "setinfo"]
+      min_matches: 1
+
+    startup_value_payload:
+      orderless: true
+      registry_keys:
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce
+      registry_value_data_patterns:
+        - "*.exe*"
+        - "*.dll*"
+        - "*.lnk*"
+        - "*.hta*"
+        - "*.js*"
+        - "*.vbs*"
+        - "*.cmd*"
+        - "*.bat*"
+        - "*rundll32*"
+        - "*regsvr32*"
+        - "*powershell*"
+        - "*cmd.exe*"
+        - "*\\users\\*"
+        - "*\\appdata\\*"
+        - "*\\temp\\*"
+        - "*\\public\\*"
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    caller_unsigned:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "caller_unsigned"     # unsigned callers only
+      - or:
+          - condition: "startup_registry_modification"
+          - condition: "startup_folder_write"
+          - condition: "startup_value_payload"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags:
+    - hijacking
+    - startup
+    - persistence
+  mitre_attack:
+    - T1547.001
+    - T1547.008
+
+---
+
+# TEST #32: Hijacking:ChangeDebuggerPath — Prevent Image File Execution Options tampering
+- name: "HEUR:Win.Hijacking.ImageFileExecutionOptions.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects modification of Image File Execution Options registry to redirect
+    process execution or inject debuggers. Threat actors use this to:
+    - Redirect exe execution to malicious payloads
+    - Inject malware via debugger launch
+    - Bypass UAC/Code Integrity checks
+    COMODO Test #32: Hijacking:ChangeDebuggerPath
+    Blocks debugger path and exec redirection.
+  debug: false
+
+  named_conditions:
+    ifeo_registry_modification:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+        - HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+      registry_values:
+        - Debugger
+        - GlobalFlag
+        - PageHeapFlags
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    debugger_path_suspicious:
+      orderless: true
+      cmdline_keywords:
+        - "cmd.exe"
+        - "powershell.exe"
+        - "AppData"
+        - "Temp"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "ifeo_registry_modification"
+      - or:
+          - condition: "debugger_path_suspicious"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags:
+    - hijacking
+    - ifeo
+    - debugger
+    - execution-redirection
+  mitre_attack:
+    - T1547.012
+
+---
+
+# TEST #33: Hijacking:AppinitDlls — Block AppInit_DLLs injection
+- name: "HEUR:Win.Hijacking.AppinitDlls.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-26"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects modification of AppInit_DLLs registry keys to inject arbitrary DLLs
+    into user-mode processes. Threat actors use this for:
+    - Persistent code execution in all processes
+    - Credential theft via DLL hooks
+    - Malware propagation
+    COMODO Test #33: Hijacking:AppinitDlls
+    Blocks AppInit_DLLs injection.
+  debug: false
+
+  named_conditions:
+    appinit_registry_modification:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows
+        - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - \REGISTRY\USER\*\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - \REGISTRY\MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows
+      registry_values:
+        - AppInit_DLLs
+        - LoadAppInit_DLLs
+        - RequireSignedAppInit_DLLs
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    appinit_payload:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows
+      registry_value_data_patterns:
+        - "*.dll*"
+        - "*AppData*"
+        - "*Temp*"
+        - "*Users*"
+        - "*\\public\\*"
+        - "*\\downloads\\*"
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    caller_unsigned:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "caller_unsigned"     # unsigned callers only
+      - or:
+          - condition: "appinit_registry_modification"
+          - condition: "appinit_payload"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+    auto_revert: true
+
+  tags:
+    - hijacking
+    - dll-injection
+    - appinit
+    - persistence
+  mitre_attack:
+    - T1547.010
+
+---
+
+# TEST #31 supplement: Hijacking:BootConfiguration — Protect BCD and Boot.ini
+- name: "HEUR:Win.Hijacking.BootConfigTampering.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-27"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Detects unauthorized modification of Boot Configuration Data (BCD) or
+    boot.ini file. Used by bootkits and ransomware to maintain persistence
+    or disable security features (nointegritychecks, testsigning).
+    COMODO Test #31: Hijacking:Boot.ini/BCD
+  debug: false
+
+  named_conditions:
+    bcd_registry_modification:
+      orderless: true
+      registry_keys:
+        - HKLM\BCD00000000
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    boot_file_modification:
+      orderless: true
+      file_paths:
+        - "C:\\boot.ini"
+        - "C:\\BCD"
+      file_operations: ["write", "create", "delete"]
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "bcd_registry_modification"
+      - condition: "boot_file_modification"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - hijacking
+    - boot
+    - bcd
+    - persistence
+  mitre_attack:
+    - T1542.003
+
+---
+
+# TEST #25: Hijacking:BHO — Block Browser Helper Object registration
+- name: "HEUR:Win.Hijacking.BHO.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-27"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects the registration of new Browser Helper Objects (BHO) in the
+    registry. BHOs are DLLs that load into Internet Explorer and are
+    frequently used for tracking, credential theft, and ad-injection.
+    COMODO Test #25: Hijacking:BHO
+  debug: false
+
+  named_conditions:
+    bho_registry_modification:
+      orderless: true
+      registry_keys:
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects
+        - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    caller_unsigned:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "bho_registry_modification"
+      - condition: "caller_unsigned"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - hijacking
+    - bho
+    - internet-explorer
+    - persistence
+  mitre_attack:
+    - T1176
+
+---
+
+# TEST #30 supplement: Hijacking:GDIPlus — Block GDI+ extension hijacking
+- name: "HEUR:Win.Hijacking.GDIPlus.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-27"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects attempts to hijack or supersede Microsoft's GDI+ library (gdiplus.dll).
+    Threat actors use this to inject malicious code into applications that
+    depend on GDI+ for rendering, bypassing standard DLL search order logic.
+    COMODO Test #30: Hijacking:GDIPlus
+  debug: false
+
+  named_conditions:
+    gdiplus_dll_creation:
+      orderless: true
+      file_paths:
+        - "*\\\\gdiplus.dll"
+      file_operations: ["create", "write"]
+      min_matches: 1
+
+    process_not_trusted:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "gdiplus_dll_creation"
+      - condition: "process_not_trusted"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - hijacking
+    - gdiplus
+    - dll-hijacking
+    - persistence
+  mitre_attack:
+    - T1574.001
+
+---
+
+# REFINEMENT: Injection:Hooks — Strengthen hook-based injection detection
+- name: "HEUR:Win.Injection.HookAPI.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: critical
+  severity: 100
+  description: |
+    Enhanced detection for SetWinEventHook and SetWindowsHookEx based injection
+    from unsigned callers.
+    COMODO Test #10/11: Injection:SetWinEventHook / SetWindowsHookEx
+  debug: false
+
+  named_conditions:
+    hook_api_call:
+      orderless: true
+      apis:
+        - "user32.dll!SetWindowsHookA"
+        - "user32.dll!SetWindowsHookW"
+        - "SetWinEventHook"
+        - "SetWinEventHookA"
+        - "SetWinEventHookW"
+        - "NtUserSetWinEventHook"
+        - "SetWindowsHookEx"
+        - "SetWindowsHookExA"
+        - "SetWindowsHookExW"
+        - "SetWindowsHookA"
+        - "SetWindowsHookW"
+        - "NtUserSetWindowsHookEx"
+        - "*SetWinEventHook*"
+        - "*SetWindowsHookEx*"
+        - "*SetWindowsHook*"
+      api_threshold: 1
+      min_matches: 1
+
+    suspicious_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "hook_api_call"
+      - condition: "suspicious_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+  tags:
+    - injection
+    - hook
+    - code-injection
+  mitre_attack:
+    - T1547.015
+    - T1056.004
+
+---
+
+# TEST #1: RootkitInstallation:MissingDriverLoad — Prevent abandoned service path hijacking
+- name: "HEUR:Win.Rootkit.MissingDriverHijack.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects attempts to create a registry service entry pointing to a non-existent
+    driver file, followed by a file drop of an unsigned binary into that path.
+    COMODO Test #1: RootkitInstallation:MissingDriverLoad
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    driver_service_creation:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
+      registry_values: ["ImagePath"]
+      registry_value_data_patterns:
+        - "*.sys"
+        - "*.sys *"
+        - "*\\System32\\drivers\\*.sys*"
+        - "*\\drivers\\*.sys*"
+        - "\\SystemRoot\\System32\\drivers\\*.sys*"
+      registry_operations: ["reg_set_value", "reg_create_key"]
+      min_matches: 4
+    unsigned_file_drop:
+      orderless: true
+      file_paths:
+        - "*.sys"
+        - "*\\System32\\drivers\\*.sys"
+        - "*\\drivers\\*.sys"
+      file_operations: ["create", "write"]
+      is_signed: false
+      min_matches: 1
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "driver_service_creation"
+      - condition: "unsigned_file_drop"
+      - condition: "unsigned_caller"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #2: RootkitInstallation:LoadAndCallImage — Prevent direct driver loading
+- name: "HEUR:Win.Rootkit.DirectDriverLoad.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects calls to driver loading APIs (NtLoadDriver) from unauthorized processes.
+    COMODO Test #2: RootkitInstallation:LoadAndCallImage
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    driver_load_api:
+      apis:
+        - "ntdll.dll!NtLoadDriver"
+        - "ntdll.dll!ZwLoadDriver"
+        - "NtLoadDriver"
+        - "ZwLoadDriver"
+      api_threshold: 1
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "driver_load_api"
+      - condition: "unsigned_caller"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #3: RootkitInstallation:DriverSupersede — Prevent driver file overwrite
+- name: "HEUR:Win.Rootkit.DriverFileOverwrite.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects attempts to overwrite existing driver files in System32\drivers.
+    COMODO Test #3: RootkitInstallation:DriverSupersede
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    driver_overwrite:
+      file_paths: ["C:\\Windows\\System32\\drivers\\*.sys"]
+      file_operations: ["write", "delete", "setinfo"]
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "driver_overwrite"
+      - condition: "unsigned_caller"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #7: Invasion:PhysicalMemory — Block direct physical memory access
+- name: "HEUR:Win.Invasion.PhysicalMemoryAccess.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects attempts to open the PhysicalMemory device for write access.
+    COMODO Test #7: Invasion:PhysicalMemory
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    phys_mem_access:
+      file_paths: ["\\Device\\PhysicalMemory"]
+      file_operations: ["write", "create"]
+      min_matches: 1
+  detection_logic:
+    condition: "phys_mem_access"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #9: Invasion:DebugControl — Block kernel debug control abuse
+- name: "HEUR:Win.Invasion.SystemDebugControl.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects use of NtSystemDebugControl to manipulate kernel memory or CPU state.
+    COMODO Test #9: Invasion:DebugControl
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    debug_control_api:
+      apis:
+        - "ntdll.dll!NtSystemDebugControl"
+        - "ntdll.dll!ZwSystemDebugControl"
+        - "NtSystemDebugControl"
+        - "ZwSystemDebugControl"
+      api_threshold: 1
+      min_matches: 1
+  detection_logic:
+    condition: "debug_control_api"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #12: Injection:SetThreadContext — Prevent thread context hijacking
+- name: "HEUR:Win.Injection.SetThreadContext.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects attempts to modify the execution context of a thread in another process.
+    COMODO Test #12: Injection:SetThreadContext
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    set_thread_context_api:
+      apis:
+        - "ntdll.dll!NtSetContextThread"
+        - "ntdll.dll!ZwSetContextThread"
+        - "NtSetContextThread"
+        - "ZwSetContextThread"
+      api_threshold: 1
+      min_matches: 1
+    remote_thread_access:
+      apis: ["*OpenThread*", "*GetThreadContext*", "*SetThreadContext*"]
+      # Simplified cross-process logic for rule-level matching
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "set_thread_context_api"
+      - condition: "remote_thread_access"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #14/17/18: Injection:ProcessInject/CreateRemoteThread/APC — Block remote execution
+- name: "HEUR:Win.Injection.RemoteExecution.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects common remote code injection patterns: CreateRemoteThread,
+    NtCreateThreadEx, and QueueUserAPC into target processes.
+    COMODO Test #14: Injection:ProcessInject
+    COMODO Test #17: Injection:CreateRemoteThread
+    COMODO Test #18: Injection:APC dll injection
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    remote_exec_api:
+      apis:
+        - "ntdll.dll!NtCreateThreadEx"
+        - "ntdll.dll!NtQueueApcThread"
+        - "kernel32.dll!CreateRemoteThread"
+        - "kernel32.dll!QueueUserAPC"
+        - "NtCreateThreadEx"
+        - "NtQueueApcThread"
+        - "CreateRemoteThread"
+        - "QueueUserAPC"
+      api_threshold: 1
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "remote_exec_api"
+      - condition: "unsigned_caller"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #15: Injection:KnownDlls — Prevent KnownDlls redirection
+- name: "HEUR:Win.Injection.KnownDllsTamper.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects attempts to modify the KnownDlls registry key or the \KnownDlls object.
+    COMODO Test #15: Injection:KnownDlls
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    knowndlls_tamper:
+      registry_keys:
+        - HKLM\System\CurrentControlSet\Control\Session Manager\KnownDLLs
+        - \REGISTRY\MACHINE\System\CurrentControlSet\Control\Session Manager\KnownDLLs
+      registry_operations: ["reg_set_value", "reg_create_key", "reg_delete_value"]
+      min_matches: 1
+  detection_logic:
+    condition: "knowndlls_tamper"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #16: Injection:DupHandles — Block handle stealing/duplication
+- name: "HEUR:Win.Injection.HandleDuplication.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects DuplicateHandle calls targeting protected system processes.
+    COMODO Test #16: Injection:DupHandles
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    dup_handle_api:
+      apis:
+        - "ntdll.dll!NtDuplicateObject"
+        - "ZwDuplicateObject"
+        - "DuplicateHandle"
+      api_threshold: 1
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "dup_handle_api"
+      - condition: "unsigned_caller"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #19: Injection:AdvancedProcessTermination — Block debug-based termination
+- name: "HEUR:Win.Injection.DebugTermination.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects attempts to terminate processes using debugging APIs.
+    COMODO Test #19: Injection:AdvancedProcessTermination
+  author: "HydraDragon"
+  level: high
+  severity: 90
+  named_conditions:
+    debug_terminate:
+      apis:
+        - "kernel32.dll!DebugActiveProcess"
+        - "kernel32.dll!TerminateProcess"
+        - "ntdll.dll!NtTerminateProcess"
+      api_threshold: 1
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "debug_terminate"
+      - condition: "unsigned_caller"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #20: InfoSend:ICMP Test — Block ICMP-based data exfiltration
+- name: "HEUR:Win.InfoSend.ICMPExfiltration.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects suspicious ICMP traffic from unsigned processes, characteristic of
+    ICMP tunneling used for data exfiltration.
+    COMODO Test #20: InfoSend:ICMP Test
+  author: "HydraDragon"
+  level: high
+  severity: 85
+
+  allowlisted_apps:
+    # The HydraDragon firewall itself sends ICMP for network monitoring — must not self-block
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+      is_absolute: true
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/ping.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/tracert.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/pathping.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+  named_conditions:
+    icmp_activity:
+      has_network_activity: true
+      network_indicators: ["icmp"]
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "icmp_activity"
+      - condition: "unsigned_caller"
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# HEUR:Win.Persist.ServiceInstall.gen — New service registration from non-privileged processes
+# Closes the gap exposed by Alert #2: svchost writing VFUProvider\StartTime should NEVER match.
+# The service_registry_create condition here is intentionally narrow: it only fires on
+# subkey creation or ImagePath/Type/Start writes directly under a Services\<n> path,
+# not on arbitrary SOFTWARE\CurrentVersion\* keys.
+- name: "HEUR:Win.Persist.ServiceInstall.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    Detects new Windows service registration via sc.exe, PowerShell New-Service,
+    or direct registry key creation under HKLM\SYSTEM\*\Services from an
+    unsigned, non-system caller.
+    Scope is intentionally restricted to actual Services registry sub-paths so
+    that legitimate writes such as svchost.exe updating
+    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\VFUProvider\StartTime do NOT
+    trigger this rule.
+    Response is notify-only to avoid disrupting Windows Update workflows.
+  debug: false
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/msiexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/sc.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/wusa.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    # Own firewall may register a driver service during installation
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+      is_absolute: true
+
+  named_conditions:
+    # NARROW scope: only actual service-creation writes under SYSTEM hive.
+    # Uses min_matches: 3 so that key + value + op must ALL match simultaneously.
+    # This prevents a kernel_remote_thread IRP from satisfying the condition via
+    # prefix-match on Services\bam\State\UserSettings\... (the Alert #2 root cause).
+    service_registry_create:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      # Exclude known Windows state/telemetry subkeys under Services\ that are
+      # NOT real service installations (bam, dam, etc.)
+      registry_keys_exclude:
+        - "*\\\\Services\\\\bam\\\\*"
+        - "*\\\\Services\\\\dam\\\\*"
+        - "*\\\\Services\\\\WdiServiceHost\\\\*"
+        - "*\\\\Services\\\\Tcpip\\\\Parameters\\\\*"
+      registry_values:
+        - ImagePath
+        - ServiceDll
+        - ObjectName
+        - Type
+        - Start
+      # Only real write ops — kernel_remote_thread and read ops excluded
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+      min_matches: 3  # key group + value group + op group must ALL match
+
+    createservice_api:
+      orderless: true
+      apis:
+        - "advapi32.dll!CreateServiceA"
+        - "advapi32.dll!CreateServiceW"
+        - "CreateServiceA"
+        - "CreateServiceW"
+        - "CreateService"
+      api_threshold: 1
+      min_matches: 1
+
+    # Must be unsigned — blocks the entire rule for any signed Microsoft binary
+    non_system_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - or:
+          - condition: "service_registry_create"
+          - condition: "createservice_api"
+      - condition: "non_system_caller"   # signed system processes are excluded here AND via allowlist
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false   # notify-only: avoids disrupting borderline installers
+    status_access_denied: false
+    record: true
+
+  tags:
+    - persistence
+    - services
+    - privilege-escalation
+  mitre_attack:
+    - T1543.003
+
+---
+
+# TEST #22: Impersonation:OLE automation — IE control from unsigned callers
+- name: "HEUR:Win.Impersonation.OLEAutomation.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects attempts to start and control Internet Explorer through OLE
+    automation from unsigned processes.
+    COMODO Test #22: Impersonation:OLE automation
+  debug: false
+
+  named_conditions:
+    ole_control:
+      orderless: true
+      apis:
+        - "ole32.dll!CoCreateInstance"
+        - "CoCreateInstance"
+      min_matches: 1
+
+    target_ie:
+      orderless: true
+      created_processes:
+        - "*iexplore.exe"
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "ole_control"
+      - condition: "target_ie"
+      - condition: "unsigned_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #23: Impersonation:ExplorerAsParent — Engine-compatible approximation
+- name: "HEUR:Win.Impersonation.ExplorerParentSpoof.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Best-effort approximation for COMODO Test #23 using current engine fields.
+    Detects unsigned callers that spawn explorer.exe and also show network
+    activity. Exact ParentPID spoof detection requires dedicated parent-spoof
+    telemetry not currently exposed by the behavior engine.
+    COMODO Test #23: Impersonation:ExplorerAsParent
+  debug: false
+
+  named_conditions:
+    spawned_explorer:
+      orderless: true
+      created_processes:
+        - "*explorer.exe"
+      min_matches: 1
+
+    network_use:
+      orderless: true
+      has_network_activity: true
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "spawned_explorer"
+      - condition: "network_use"
+      - condition: "unsigned_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #24: Impersonation:DDE — IE control via DDE from unsigned callers
+- name: "HEUR:Win.Impersonation.DDE.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-04-01"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Detects DDE-based control of Internet Explorer from unsigned processes.
+    COMODO Test #24: Impersonation:DDE
+  debug: false
+
+  named_conditions:
+    dde_control:
+      orderless: true
+      apis:
+        - "user32.dll!DdeInitialize*"
+        - "user32.dll!DdeConnect"
+        - "DdeInitialize*"
+        - "DdeConnect"
+      min_matches: 1
+
+    target_ie:
+      orderless: true
+      created_processes:
+        - "*iexplore.exe"
+      min_matches: 1
+
+    unsigned_caller:
+      orderless: true
+      is_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "dde_control"
+      - condition: "target_ie"
+      - condition: "unsigned_caller"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #26: Impersonation:BITS — Block BITS service abuse
+- name: "HEUR:Win.Impersonation.BITSTamper.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects unauthorized use of the BITS service for background file transfers.
+    COMODO Test #26: Impersonation:BITS
+  author: "HydraDragon"
+  level: high
+  severity: 85
+  named_conditions:
+    bits_usage:
+      apis:
+        - "*IBackgroundCopyManager*"
+        - "bitsprx*.dll!*"
+      min_matches: 1
+    unsigned_caller:
+      is_signed: false
+      min_matches: 1
+  detection_logic:
+    and:
+      - condition: "bits_usage"
+      - condition: "unsigned_caller"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #27/28/29: Hijacking:Winlogon/Userinit/UIHost — Protect logon persistence
+- name: "HEUR:Win.Hijacking.LogonPersistence.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects modification of critical logon-related registry keys used for persistence.
+    COMODO Test #27: Hijacking:WinlogonNotify
+    COMODO Test #28: Hijacking:Userinit
+    COMODO Test #29: Hijacking:UIHost
+  author: "HydraDragon"
+  level: critical
+  severity: 100
+  named_conditions:
+    logon_registry_tamper:
+      registry_keys:
+        - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify
+        - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit
+        - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\UIHost
+        - \REGISTRY\MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify
+        - \REGISTRY\MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit
+        - \REGISTRY\MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\UIHost
+      registry_operations: ["reg_set_value", "reg_create_key"]
+      min_matches: 1
+  detection_logic:
+    condition: "logon_registry_tamper"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    terminate_process: false
+    status_access_denied: true
+    record: true
+
+---
+
+# TEST #34: Hijacking:ActiveDesktop — Protect desktop wallpaper/HTML
+- name: "HEUR:Win.Hijacking.ActiveDesktopTamper.gen"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects modification of Active Desktop registry keys to point to malicious HTML.
+    COMODO Test #34: Hijacking:ActiveDesktop
+  author: "HydraDragon"
+  level: medium
+  severity: 70
+  named_conditions:
+    desktop_tamper:
+      registry_keys:
+        - HKCU\Control Panel\Desktop\Wallpaper
+        - HKCU\Software\Microsoft\Internet Explorer\Desktop\SafeHtml
+        - \REGISTRY\USER\*\Control Panel\Desktop\Wallpaper
+        - \REGISTRY\USER\*\Software\Microsoft\Internet Explorer\Desktop\SafeHtml
+      registry_operations: ["reg_set_value"]
+      min_matches: 1
+  detection_logic:
+    condition: "desktop_tamper"
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    status_access_denied: true
+    record: true

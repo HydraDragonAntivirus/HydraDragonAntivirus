@@ -1,5 +1,5 @@
 pub mod engine;
-#[cfg(target_os = "windows")]
+
 mod ffi;
 pub mod file_magic;
 pub mod headless;
@@ -10,12 +10,12 @@ pub mod sdk;
 pub mod tls_parser;
 pub mod windivert_api;
 
-use crate::engine::{FirewallEngine, LogEntry, LogLevel, emit_log_event};
+use self::engine::{FirewallEngine, LogEntry, LogLevel, emit_log_event};
 use std::sync::Arc;
 
 /// Read the Firewall SDK rules folder path from the Windows Registry.
 /// Falls back to None if the key is absent or the OS is not Windows.
-#[cfg(target_os = "windows")]
+
 pub(crate) fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
     use winreg::RegKey;
     use winreg::enums::HKEY_LOCAL_MACHINE;
@@ -26,32 +26,25 @@ pub(crate) fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
-    None
-}
 
 /// Headless in-process entry point. Registers the single engine instance,
 /// starts packet capture, and blocks forever.
 pub fn run() {
     println!("--- HydraDragon Firewall Booting (headless in-process) ---");
 
-    #[cfg(target_os = "windows")]
-    {
-        use winreg::RegKey;
-        use winreg::enums::HKEY_LOCAL_MACHINE;
-        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
-        // Create SOFTWARE\Owlyshield\SDK and ensure RULES_PATH exists.
-        // The registry value is treated as a directory that contains YAML rule files.
-        if let Ok((key, _)) = hklm.create_subkey(r"SOFTWARE\Owlyshield\SDK") {
-            if key.get_value::<String, _>("RULES_PATH").is_err() {
-                let default_dir = std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|d| d.join("rules")))
-                    .unwrap_or_else(|| std::path::PathBuf::from("rules"));
-                let _ = key.set_value("RULES_PATH", &default_dir.to_string_lossy().to_string());
-            }
+    // Create SOFTWARE\Owlyshield\SDK and ensure RULES_PATH exists.
+    // The registry value is treated as a directory that contains YAML rule files.
+    if let Ok((key, _)) = hklm.create_subkey(r"SOFTWARE\Owlyshield\SDK") {
+        if key.get_value::<String, _>("RULES_PATH").is_err() {
+            let default_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("rules")))
+                .unwrap_or_else(|| std::path::PathBuf::from("rules"));
+            let _ = key.set_value("RULES_PATH", &default_dir.to_string_lossy().to_string());
         }
     }
 

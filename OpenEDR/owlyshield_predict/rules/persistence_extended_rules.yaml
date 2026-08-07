@@ -1,0 +1,635 @@
+# ─── PERSISTENCE (EXTENDED) ──────────────────────────────────────────────────
+# Rules detecting techniques adversaries use to maintain access across
+# reboots, logoffs, and remediation attempts.
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: "INFO:Win.Persist.RunKeyModification.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: medium
+  severity: 55
+  description: |
+    Informational: a process modified the Run/RunOnce registry keys used
+    for startup persistence. Malware commonly adds entries to ensure
+    execution on every logon. Logged for correlation.
+    Equivalent to Sigma: Registry Run Keys Modification (T1547.001).
+  debug: false
+
+  run_key_write:
+    orderless: true
+    registry_keys:
+      - HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+      - HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+      - HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+      - HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce
+      - HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
+    registry_operations:
+      - reg_create_key
+      - reg_set_value
+      - reg_delete_value
+      - reg_delete_key
+      - reg_rename_key
+      - reg_query_value
+      - reg_query_key
+      - reg_open_key
+      - reg_enum_key
+      - reg_enum_value
+    min_matches: 1
+
+  detection_logic:
+    condition: "run_key_write"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "setup.exe"
+      must_be_signed: true
+    - pattern: "install*.exe"
+      must_be_signed: true
+    - pattern: "update*.exe"
+      must_be_signed: true
+
+  tags:
+    - persistence
+    - registry
+    - run-key
+    - info
+  mitre_attack:
+    - T1547.001
+  false_positives:
+    - "Legitimate software installers adding startup entries"
+    - "User-configured auto-start applications"
+
+
+- name: "HEUR:Win.Persist.ScheduledTaskCreation.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: medium
+  severity: 60
+  description: |
+    Detects scheduled task creation via schtasks.exe or PowerShell
+    New-ScheduledTask/Register-ScheduledTask targeting suspicious
+    directories (Temp, AppData, ProgramData) or common persistence triggers.
+    Equivalent to Sigma: Scheduled Task Creation (T1053.005).
+  debug: false
+
+  named_conditions:
+    schtasks_create_temp:
+      orderless: false
+      created_processes:
+        - "schtasks.exe"
+      cmdline_keywords:
+        - "/create"
+        - "Temp"
+      min_matches: 1
+
+    schtasks_create_appdata:
+      orderless: false
+      created_processes:
+        - "schtasks.exe"
+      cmdline_keywords:
+        - "/create"
+        - "AppData"
+      min_matches: 1
+
+    schtasks_create_logon:
+      orderless: false
+      created_processes:
+        - "schtasks.exe"
+      cmdline_keywords:
+        - "/create"
+        - "ONLOGON"
+      min_matches: 1
+
+    schtasks_create_startup:
+      orderless: false
+      created_processes:
+        - "schtasks.exe"
+      cmdline_keywords:
+        - "/create"
+        - "ONSTART"
+      min_matches: 1
+
+    powershell_register_task:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Register-ScheduledTask"
+        - "New-ScheduledTask"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "schtasks_create_temp"
+      - condition: "schtasks_create_appdata"
+      - condition: "schtasks_create_logon"
+      - condition: "schtasks_create_startup"
+      - condition: "powershell_register_task"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags:
+    - persistence
+    - scheduled-task
+    - info
+  mitre_attack:
+    - T1053.005
+  false_positives:
+    - "Legitimate software scheduling update checks"
+    - "IT management tools configuring maintenance tasks"
+
+
+- name: "HEUR:Win.Persist.WMIEventSubscription.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 82
+  description: |
+    Detects WMI event subscription creation, a stealthy persistence mechanism
+    that survives reboots and runs in the WMI service process (wmiprvse.exe).
+    Attackers use permanent WMI subscriptions to maintain persistence without
+    registry run keys or scheduled tasks.
+    Equivalent to Sigma: WMI Persistence Script Event Consumer (T1546.003).
+  debug: false
+
+  named_conditions:
+    wmic_subscription:
+      orderless: false
+      created_processes:
+        - "wmic.exe"
+      cmdline_keywords:
+        - "__EventFilter"
+        - "__EventConsumer"
+        - "__FilterToConsumerBinding"
+      min_matches: 1
+
+    powershell_wmi_subscription:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Set-WMIInstance"
+        - "New-CimInstance"
+        - "__EventFilter"
+        - "ActiveScriptEventConsumer"
+        - "CommandLineEventConsumer"
+      min_matches: 1
+
+    mofcomp_execution:
+      orderless: true
+      created_processes:
+        - "mofcomp.exe"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "wmic_subscription"
+      - condition: "powershell_wmi_subscription"
+      - condition: "mofcomp_execution"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    record: true
+
+  tags:
+    - persistence
+    - wmi
+    - event-subscription
+  mitre_attack:
+    - T1546.003
+  false_positives:
+    - "IT monitoring tools using WMI subscriptions for event collection"
+    - "Management software registering legitimate WMI providers"
+
+
+- name: "INFO:Win.Persist.StartupFolderDrop.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: medium
+  severity: 58
+  description: |
+    Informational: a file was written to the Windows Startup folder.
+    Items placed in Startup execute automatically at logon. This is a
+    common persistence mechanism for malware and also used legitimately
+    by some software.
+    Equivalent to Sigma: Startup Items (T1547.001).
+  debug: false
+
+  named_conditions:
+    startup_folder_write:
+      orderless: true
+      file_paths:
+        - \Microsoft\Windows\Start Menu\Programs\Startup\
+        - \ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\
+        - \AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\
+      file_operations:
+        - create
+        - write
+      min_matches: 1
+
+  detection_logic:
+    condition: "startup_folder_write"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "setup.exe"
+      must_be_signed: true
+    - pattern: "install*.exe"
+      must_be_signed: true
+
+  tags:
+    - persistence
+    - startup-folder
+    - info
+  mitre_attack:
+    - T1547.001
+  false_positives:
+    - "Legitimate software placing shortcuts in Startup"
+    - "User-configured startup applications"
+
+
+- name: "TEST:Win.Persist.ServiceInstall.legacy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: medium
+  severity: 65
+  description: |
+    Detects new Windows service registration via sc.exe, PowerShell
+    New-Service, or direct registry key creation under Services.
+    Malware installs services for persistent code execution with
+    SYSTEM privileges. Correlate with binary origin.
+    Equivalent to Sigma: New Service Created (T1543.003).
+  debug: false
+
+  named_conditions:
+    sc_create_service:
+      orderless: false
+      created_processes:
+        - "sc.exe"
+      cmdline_keywords:
+        - "create"
+      min_matches: 1
+
+    powershell_new_service:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "New-Service"
+      min_matches: 1
+
+    service_registry_create:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Services
+        - HKLM\SYSTEM\ControlSet001\Services
+        - HKLM\SYSTEM\ControlSet002\Services
+        - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet001\Services
+        - \REGISTRY\MACHINE\SYSTEM\ControlSet002\Services
+      registry_keys_exclude:
+        - "*/services/bam/*"
+        - "*/services/dam/*"
+        - "*/services/wdiservicehost/*"
+        - "*/services/tcpip/parameters/*"
+        - "*/services/eventlog/*"
+      registry_values:
+        - ImagePath
+        - ServiceDll
+        - ObjectName
+        - Type
+        - Start
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+      min_matches: 3
+
+  detection_logic:
+    or:
+      - condition: "sc_create_service"
+      - condition: "powershell_new_service"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "setup.exe"
+      must_be_signed: true
+    - pattern: "drvinst.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+      must_be_signed: false
+      is_absolute: true
+
+  tags:
+    - persistence
+    - service-install
+    - info
+  mitre_attack:
+    - T1543.003
+  false_positives:
+    - "Software installers creating legitimate services"
+    - "IT tools deploying management agents"
+
+
+- name: "HEUR:Win.Persist.AppInitDLLHijack.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 88
+  description: |
+    Detects modification of AppInit_DLLs registry key, which causes the
+    specified DLL to be loaded into every user-mode process that loads
+    user32.dll. This is a classic DLL injection persistence technique.
+    Equivalent to Sigma: AppInit DLLs Modification (T1546.010).
+  debug: false
+
+  named_conditions:
+    appinit_dll_write:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+        - HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Windows
+      registry_values:
+        - AppInit_DLLs
+        - LoadAppInit_DLLs
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+  detection_logic:
+    condition: "appinit_dll_write"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+  tags:
+    - persistence
+    - dll-injection
+    - appinit
+  mitre_attack:
+    - T1546.010
+  false_positives:
+    - "Accessibility software using AppInit_DLLs (rare legitimate use)"
+
+
+- name: "HEUR:Win.Persist.ImageFileExecutionOptions.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 85
+  description: |
+    Detects modification of Image File Execution Options (IFEO) to hijack
+    process execution via Debugger or GlobalFlag. Attackers use this to
+    redirect execution of target processes (sethc.exe → cmd.exe for sticky
+    keys backdoor) or for persistence.
+    Equivalent to Sigma: IFEO Injection (T1546.012).
+  debug: false
+
+  named_conditions:
+    ifeo_debugger:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+      registry_values:
+        - Debugger
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    ifeo_globalflag:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+      registry_values:
+        - GlobalFlag
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    accessibility_hijack:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\utilman.exe
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\osk.exe
+        - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\magnify.exe
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "ifeo_debugger"
+      - condition: "ifeo_globalflag"
+      - condition: "accessibility_hijack"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+  tags:
+    - persistence
+    - privilege-escalation
+    - ifeo
+    - sticky-keys
+  mitre_attack:
+    - T1546.012
+    - T1546.008
+  false_positives:
+    - "Legitimate debuggers registered via IFEO for development"
+    - "Application verifier settings"
+
+
+- name: "INFO:Win.Persist.RDPEnable.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 75
+  description: |
+    Informational: Remote Desktop Protocol (RDP) was enabled or its port
+    changed via registry modification or netsh. Attackers enable RDP for
+    persistent remote access to compromised systems.
+    Equivalent to Sigma: RDP Port Change (T1021.001).
+  debug: false
+
+  named_conditions:
+    rdp_enable_registry:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server
+      registry_values:
+        - fDenyTSConnections
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    rdp_port_change:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp
+      registry_values:
+        - PortNumber
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    netsh_rdp_enable:
+      orderless: false
+      created_processes:
+        - "netsh.exe"
+      cmdline_keywords:
+        - "remotedesktop"
+        - "enable"
+      min_matches: 1
+
+    powershell_rdp_enable:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "EnableRemoteDesktop"
+        - "fDenyTSConnections"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "rdp_enable_registry"
+      - condition: "rdp_port_change"
+      - condition: "netsh_rdp_enable"
+      - condition: "powershell_rdp_enable"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags:
+    - persistence
+    - lateral-movement
+    - rdp
+    - info
+  mitre_attack:
+    - T1021.001
+    - T1112
+  false_positives:
+    - "IT administrators enabling RDP for management"
+    - "Remote support tools configuring RDP access"

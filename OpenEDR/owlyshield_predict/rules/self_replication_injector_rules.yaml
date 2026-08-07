@@ -1,0 +1,209 @@
+- name: "HEUR:Win.Malware.SelfReplica.InjectorOrPersist.gen"
+  should_trust_comodo_cloud: false
+  author: "Codex"
+  date: "2026-04-22"
+  status: test
+  level: critical
+  severity: 96
+  description: |
+    Detects a process that writes a launchable payload to a user-writable location
+    and then launches that newly written payload, followed by either cross-process
+    injection activity or strong persistence/cleanup behavior. This is designed to
+    catch unknown self-copying trojans, worm-like replica launch chains, and
+    injector malware without relying on Temp-only heuristics.
+  debug: false
+
+  named_conditions:
+    launches_recent_user_payload:
+      detect_recently_written_payload_launch: true
+      file_paths:
+        - "%LOCALAPPDATA%/*"
+        - "%APPDATA%/*"
+        - "%TEMP%/*"
+        - "%KNOWNFOLDER_DESKTOP%/*"
+        - "%KNOWNFOLDER_DOWNLOADS%/*"
+        - "%KNOWNFOLDER_STARTUP%/*"
+        - "%KNOWNFOLDER_COMMONSTARTUP%/*"
+        - "%PUBLIC%/*"
+        - "%PROGRAMDATA%/*"
+        - "users/*/appdata/local/*"
+        - "users/*/appdata/roaming/*"
+        - "users/public/*"
+        - "programdata/*"
+        - "$recycle.bin/*"
+        - "windows/temp/*"
+      file_extensions:
+        - ".exe"
+        - ".com"
+        - ".scr"
+        - ".dll"
+        - ".bat"
+        - ".cmd"
+        - ".ps1"
+        - ".vbs"
+        - ".vbe"
+        - ".js"
+        - ".jse"
+        - ".wsf"
+        - ".wsh"
+        - ".hta"
+        - ".cpl"
+        - ".pif"
+      min_matches: 1
+
+    unsigned_or_untrusted:
+      is_valid_signed: false
+      min_matches: 1
+
+    injection_apis:
+      apis:
+        - "kernel32.dll!VirtualAllocEx"
+        - "kernel32.dll!WriteProcessMemory"
+        - "kernel32.dll!CreateRemoteThread"
+        - "kernel32.dll!CreateRemoteThreadEx"
+        - "kernel32.dll!QueueUserAPC"
+        - "kernel32.dll!SetThreadContext"
+        - "kernel32.dll!ResumeThread"
+        - "ntdll.dll!NtAllocateVirtualMemory"
+        - "ntdll.dll!NtWriteVirtualMemory"
+        - "ntdll.dll!NtCreateThreadEx"
+        - "ntdll.dll!NtQueueApcThread"
+        - "ntdll.dll!NtSetContextThread"
+      api_threshold: 2
+      min_matches: 1
+
+    cleanup_original:
+      detect_parent_image_delete: true
+      detect_parent_image_rename: true
+      min_matches: 1
+
+    runkey_user_payload:
+      registry_keys:
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+        - "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run"
+      registry_operations:
+        - "reg_create_key"
+        - "reg_set_value"
+      registry_value_data_patterns:
+        - "*%APPDATA%*"
+        - "*%LOCALAPPDATA%*"
+        - "*%PROGRAMDATA%*"
+        - "*%TEMP%*"
+        - "*%KNOWNFOLDER_DESKTOP%*"
+        - "*%KNOWNFOLDER_DOWNLOADS%*"
+        - "*%PUBLIC%*"
+        - "*\\users\\*\\appdata\\*"
+        - "*\\programdata\\*"
+        - "*\\users\\public\\*"
+        - "*\\windows\\temp\\*"
+      min_matches: 1
+
+    startup_folder_drop:
+      file_paths:
+        - "%KNOWNFOLDER_STARTUP%/*"
+        - "%KNOWNFOLDER_COMMONSTARTUP%/*"
+      file_operations:
+        - "create"
+        - "write"
+      file_extensions:
+        - ".exe"
+        - ".com"
+        - ".scr"
+        - ".bat"
+        - ".cmd"
+        - ".ps1"
+        - ".vbs"
+        - ".js"
+        - ".hta"
+      min_matches: 1
+
+    schtasks_user_payload:
+      created_processes:
+        - "schtasks.exe"
+      cmdline_patterns:
+        - pattern: "*/create*%APPDATA%*"
+        - pattern: "*/create*%LOCALAPPDATA%*"
+        - pattern: "*/create*%PROGRAMDATA%*"
+        - pattern: "*/create*%TEMP%*"
+        - pattern: "*/create*%KNOWNFOLDER_DESKTOP%*"
+        - pattern: "*/create*%KNOWNFOLDER_DOWNLOADS%*"
+        - pattern: "*/create*%PUBLIC%*"
+        - pattern: '(?i)(?:^|[\s"])/create(?:$|[\s"]).*(?:appdata|programdata|users\\|public\\|windows\\temp).*(?:\.exe|\.dll|\.scr|\.com|\.bat|\.cmd|\.ps1|\.vbs|\.js|\.hta)\b'
+          is_regex: true
+      min_matches: 1
+
+    service_user_payload:
+      created_processes:
+        - "sc.exe"
+      cmdline_patterns:
+        - pattern: "*create*binpath*=*%APPDATA%*"
+        - pattern: "*create*binpath*=*%LOCALAPPDATA%*"
+        - pattern: "*create*binpath*=*%PROGRAMDATA%*"
+        - pattern: "*create*binpath*=*%TEMP%*"
+        - pattern: "*create*binpath*=*%KNOWNFOLDER_DESKTOP%*"
+        - pattern: "*create*binpath*=*%KNOWNFOLDER_DOWNLOADS%*"
+        - pattern: "*create*binpath*=*%PUBLIC%*"
+        - pattern: '(?i)(?:^|[\s"])create(?:$|[\s"]).*binpath\s*=.*(?:appdata|programdata|users\\|public\\|windows\\temp).*(?:\.exe|\.dll|\.scr|\.com|\.bat|\.cmd|\.ps1|\.vbs|\.js|\.hta)\b'
+          is_regex: true
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - and:
+          - condition: "launches_recent_user_payload"
+          - condition: "unsigned_or_untrusted"
+          - condition: "injection_apis"
+      - and:
+          - condition: "launches_recent_user_payload"
+          - condition: "unsigned_or_untrusted"
+          - at_least: 2
+            conditions:
+              - "cleanup_original"
+              - "runkey_user_payload"
+              - "startup_folder_drop"
+              - "schtasks_user_payload"
+              - "service_user_payload"
+
+  response:
+    status_access_denied: true
+    terminate_process: true
+    quarantine: true
+    notify_user: true
+    auto_revert: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "msiexec.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "setup.exe"
+      must_be_signed: true
+    - pattern: "install*.exe"
+      must_be_signed: true
+    - pattern: "update*.exe"
+      must_be_signed: true
+    - pattern: "updater*.exe"
+      must_be_signed: true
+
+  tags:
+    - "self-replication"
+    - "worm"
+    - "dropper"
+    - "process-injection"
+    - "persistence"
+    - "user-writable-execution"
+
+  mitre_attack:
+    - "T1055"
+    - "T1547.001"
+    - "T1053.005"
+    - "T1543.003"
+    - "T1070.004"
+
+  false_positives:
+    - "Unsigned in-house updaters that copy a new binary into AppData/ProgramData and also register persistence or injector-like behavior"
+    - "Custom enterprise deployment tools that relaunch from user-writable paths and aggressively replace the original image"

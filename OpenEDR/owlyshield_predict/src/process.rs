@@ -34,7 +34,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, SystemTime};
 use std::{fmt, thread};
 
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+
 use crate::shared_def::effective_hypervisor_irp_byte;
 use crate::shared_def::{
     DriveType,
@@ -681,16 +681,12 @@ impl ProcessRecord {
         self.time = iomsg.time;
     }
 
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     fn update_kernel_event_features(&mut self, iomsg: &IOMessage, _raw_irp: &IrpMajorOp) {
         let effective_irp = IrpMajorOp::from_sysmonevent(effective_hypervisor_irp_byte(iomsg));
         self.record_kernel_event_feature(effective_irp, &iomsg.kernel_event_info.object_name);
     }
 
-    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-    fn update_kernel_event_features(&mut self, _iomsg: &IOMessage, raw_irp: &IrpMajorOp) {
-        self.record_kernel_event_feature(raw_irp.clone(), "");
-    }
 
     fn record_kernel_event_feature(&mut self, irp_op: IrpMajorOp, event_name: &str) {
         let is_kernel_event = matches!(
@@ -1018,7 +1014,7 @@ impl fmt::Display for ProcessState {
 mod tests {
     use crate::extensions::ExtensionCategory::{DocsMedia, Exe};
     use crate::process::{FileId, ProcessRecord};
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use crate::shared_def::KernelEventInfo;
     use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, RuntimeFeatures};
     use std::collections::HashSet;
@@ -1047,9 +1043,9 @@ mod tests {
                 file_location_info : 0,
                 filepathstr : r"C:\Users\Dev\AppData\Local\Mozilla\Firefox\Profiles\71ovz528.dev-edition-default\cache2\entries\173C426CDA68AF66D616B5C27D808FD8C6EB89AA".parse().unwrap(),
                 gid : 1883,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 10899,
@@ -1069,9 +1065,9 @@ mod tests {
                 file_location_info : 0,
                 filepathstr : r"C:\Program Files\MyProgram\Images\logo-red.icos\DeliveryOptimization\Cache".parse().unwrap(),
                 gid : 2008,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : -1,
@@ -1091,9 +1087,9 @@ mod tests {
                 file_location_info : 0,
                 filepathstr : r"C:\ProgramData\McAfee\WebAdvisor\WATaskManager.dll\log_0020005F003E001500060033005D.txt".parse().unwrap(),
                 gid : 27,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 61086,
@@ -1113,9 +1109,9 @@ mod tests {
                 file_location_info : 0,
                 filepathstr : r"C:\Users\Dev\AppData\Local\Mozilla\Firefox\Profiles\71ovz528.dev-edition-default\cache2\entries\1291463B146203711386759F4387CBD020F9C25F".parse().unwrap(),
                 gid : 1883,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 16184,
@@ -1135,9 +1131,9 @@ mod tests {
                 file_location_info : 0,
                 filepathstr : r"C:\Program Files\MyProgram\Images\logo-red.ico".parse().unwrap(),
                 gid : 2008,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 218070,
@@ -1157,9 +1153,9 @@ mod tests {
                 file_location_info : 0,
                 filepathstr : r"C:\Users\Dev\AppData\Local\JetBrains\IntelliJIdea2022.1\tmp\sendctrlc.x64.B37C5E935F3DA60B2940592241F826DA.exe".parse().unwrap(),
                 gid : 1883,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 90112,
@@ -1179,9 +1175,9 @@ mod tests {
                 file_location_info : 0,
                 filepathstr : r"C:\Users\Dev\AppData\Local\Mozilla\Firefox\Profiles\71ovz528.dev-edition-default\cache2\entries\B5C78DC28F7E98EF882C0BA6DC0CCB4FEFF5D25B".parse().unwrap(),
                 gid : 1883,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : -1,
@@ -1201,9 +1197,9 @@ mod tests {
                 file_location_info : 0,
                 filepathstr : r"C:\Users\Dev\AppData\Local\Mozilla\Firefox\Profiles\71ovz528.dev-edition-default\cache2\entries\95858FA1CCC13FA3E7E6D35C7FE6A8CF014CD91F".parse().unwrap(),
                 gid : 1883,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : -1,
@@ -1223,9 +1219,9 @@ mod tests {
                 file_location_info : 1,
                 filepathstr : r"C:\Users\Dev\AppData\Local\Mozilla\Firefox\Profiles\71ovz528.dev-edition-default\cache2".parse().unwrap(),
                 gid : 1883,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 4096,
@@ -1245,9 +1241,9 @@ mod tests {
                 file_location_info : 1,
                 filepathstr : r"C:\Program Files\MyProgram\Images\logo-red.ico".parse().unwrap(),
                 gid : 2008,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_pid: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 attacker_gid: 0,
                 runtime_features: RuntimeFeatures::new(),
                 file_size : 218070,
@@ -1488,7 +1484,7 @@ mod tests {
         assert_eq!(pr.kernel_events_max_individual, 1);
     }
 
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     #[test]
     fn test_effective_kernel_opcodes_update_prediction_features() {
         let gid = 602;

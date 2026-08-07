@@ -1,4 +1,4 @@
-use crate::engine::{FirewallEngine, LogEntry, LogLevel, emit_log_event};
+use super::engine::{FirewallEngine, LogEntry, LogLevel, emit_log_event};
 use std::ffi::c_char;
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ fn clear_last_error() {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn HydraDragonFirewall_IsRunning() -> i32 {
-    if crate::headless::engine().is_some() {
+    if super::headless::engine().is_some() {
         1
     } else {
         0
@@ -27,13 +27,13 @@ pub extern "system" fn HydraDragonFirewall_IsRunning() -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn HydraDragonFirewall_Start() -> i32 {
-    if crate::headless::engine().is_some() {
+    if super::headless::engine().is_some() {
         clear_last_error();
         return 1;
     }
 
     let engine = Arc::new(FirewallEngine::new());
-    if !crate::headless::register(Arc::clone(&engine)) {
+    if !super::headless::register(Arc::clone(&engine)) {
         set_last_error("Firewall engine is already registered");
         return 0;
     }
@@ -55,7 +55,7 @@ pub extern "system" fn HydraDragonFirewall_Start() -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn HydraDragonFirewall_Stop() -> i32 {
-    crate::headless::unregister_and_stop();
+    super::headless::unregister_and_stop();
     clear_last_error();
     1
 }

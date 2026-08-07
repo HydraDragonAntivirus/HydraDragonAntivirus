@@ -20,8 +20,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::sync::oneshot;
 
-use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
-use crate::sdk::{PacketContext, RuleAction, SdkRegistry};
+use super::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
+use super::sdk::{PacketContext, RuleAction, SdkRegistry};
 
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
@@ -421,7 +421,7 @@ async fn handle_proxy_request(
     let mut app_path = String::new();
 
     if client_port != 0 {
-        if let Some(engine) = crate::headless::engine() {
+        if let Some(engine) = super::headless::engine() {
             if let Some(pid) = engine.app_manager.get_pid_for_port(client_port) {
                 resolved_pid = pid;
                 let info = engine.app_manager.info_cache.get_info(pid);

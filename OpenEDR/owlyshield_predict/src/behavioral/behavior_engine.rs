@@ -5,7 +5,7 @@ use crate::extensions::ExtensionList;
 use crate::logging::Logging;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::ProcessRecord;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 use crate::process::ProcessState;
 use crate::shared_def::{
     FileChangeInfo, IOMessage, IrpMajorOp, irp_major_op_label, known_raw_event_name,
@@ -16,13 +16,13 @@ use crate::shared_def::{
 };
 use crate::signature_verification::verify_signature;
 use crate::threat_handler::ThreatHandler;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 use crate::utils::validate_pipe_client;
 use crate::utils::{
     format_process_descriptor_with_fallback, resolve_process_path,
     suspicious_critical_process_reason,
 };
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 use crate::windows::edrsvc_client::with_shared_driver;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -30,42 +30,42 @@ use serde_yaml;
 use std::collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use num::FromPrimitive;
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallNetPids = Arc<std::sync::RwLock<HashSet<u32>>>;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallBlockedExes = Arc<std::sync::RwLock<HashMap<String, FirewallDetection>>>;
 /// Per-PID list of (dst_ip, dst_port) pairs observed by the firewall (NET_EVENT).
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallNetDetails = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, u16)>>>>;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallPipeStarted = Arc<AtomicBool>;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallHipsPendingPrompts = Arc<std::sync::RwLock<HashMap<String, FirewallHipsPromptState>>>;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallHipsDecisions = Arc<std::sync::RwLock<HashMap<String, FirewallHipsDecision>>>;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallHipsAllowOnce = Arc<std::sync::RwLock<HashSet<String>>>;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallHipsAllowAlways = Arc<std::sync::RwLock<HashSet<String>>>;
 /// Per-PID list of (request_body, response_body) pairs received via FULL_PACKED_DATA pipe messages.
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallHttpBodyMap = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, String)>>>>;
 /// Per-PID rolling history of full PacketInfo structures from the firewall.
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallFullPackets = Arc<std::sync::RwLock<HashMap<u32, VecDeque<PacketInfo>>>>;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallGenerateReport = Arc<AtomicBool>;
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 type FirewallFileVerdicts = Arc<std::sync::RwLock<HashMap<String, FileVerdictInfo>>>;
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 #[derive(Clone, Debug, Deserialize)]
 struct FirewallPackedDataMessage {
     packet: PacketInfo,
@@ -93,7 +93,7 @@ fn should_log_rule_load_error(key: &str) -> bool {
     cache.insert(key.to_string())
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_net_pids() -> FirewallNetPids {
     static FIREWALL_NET_PIDS: OnceLock<FirewallNetPids> = OnceLock::new();
     FIREWALL_NET_PIDS
@@ -101,7 +101,7 @@ fn shared_firewall_net_pids() -> FirewallNetPids {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_blocked_exes() -> FirewallBlockedExes {
     static FIREWALL_BLOCKED_EXES: OnceLock<FirewallBlockedExes> = OnceLock::new();
     FIREWALL_BLOCKED_EXES
@@ -109,7 +109,7 @@ fn shared_firewall_blocked_exes() -> FirewallBlockedExes {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_net_details() -> FirewallNetDetails {
     static FIREWALL_NET_DETAILS: OnceLock<FirewallNetDetails> = OnceLock::new();
     FIREWALL_NET_DETAILS
@@ -117,7 +117,7 @@ fn shared_firewall_net_details() -> FirewallNetDetails {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_http_body_map() -> FirewallHttpBodyMap {
     static FIREWALL_HTTP_BODY_MAP: OnceLock<FirewallHttpBodyMap> = OnceLock::new();
     FIREWALL_HTTP_BODY_MAP
@@ -125,7 +125,7 @@ fn shared_firewall_http_body_map() -> FirewallHttpBodyMap {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_full_packets() -> FirewallFullPackets {
     static FIREWALL_FULL_PACKETS: OnceLock<FirewallFullPackets> = OnceLock::new();
     FIREWALL_FULL_PACKETS
@@ -133,7 +133,7 @@ fn shared_firewall_full_packets() -> FirewallFullPackets {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_pipe_started() -> FirewallPipeStarted {
     static FIREWALL_PIPE_STARTED: OnceLock<FirewallPipeStarted> = OnceLock::new();
     FIREWALL_PIPE_STARTED
@@ -141,7 +141,7 @@ fn shared_firewall_pipe_started() -> FirewallPipeStarted {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_hips_pending_prompts() -> FirewallHipsPendingPrompts {
     static FIREWALL_HIPS_PENDING_PROMPTS: OnceLock<FirewallHipsPendingPrompts> = OnceLock::new();
     FIREWALL_HIPS_PENDING_PROMPTS
@@ -149,7 +149,7 @@ fn shared_firewall_hips_pending_prompts() -> FirewallHipsPendingPrompts {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_hips_decisions() -> FirewallHipsDecisions {
     static FIREWALL_HIPS_DECISIONS: OnceLock<FirewallHipsDecisions> = OnceLock::new();
     FIREWALL_HIPS_DECISIONS
@@ -157,7 +157,7 @@ fn shared_firewall_hips_decisions() -> FirewallHipsDecisions {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_hips_allow_once() -> FirewallHipsAllowOnce {
     static FIREWALL_HIPS_ALLOW_ONCE: OnceLock<FirewallHipsAllowOnce> = OnceLock::new();
     FIREWALL_HIPS_ALLOW_ONCE
@@ -165,7 +165,7 @@ fn shared_firewall_hips_allow_once() -> FirewallHipsAllowOnce {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_hips_allow_always() -> FirewallHipsAllowAlways {
     static FIREWALL_HIPS_ALLOW_ALWAYS: OnceLock<FirewallHipsAllowAlways> = OnceLock::new();
     FIREWALL_HIPS_ALLOW_ALWAYS
@@ -173,7 +173,7 @@ fn shared_firewall_hips_allow_always() -> FirewallHipsAllowAlways {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_generate_report() -> FirewallGenerateReport {
     static FIREWALL_GENERATE_REPORT: OnceLock<FirewallGenerateReport> = OnceLock::new();
     FIREWALL_GENERATE_REPORT
@@ -181,7 +181,7 @@ fn shared_firewall_generate_report() -> FirewallGenerateReport {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn shared_firewall_file_verdicts() -> FirewallFileVerdicts {
     static FIREWALL_FILE_VERDICTS: OnceLock<FirewallFileVerdicts> = OnceLock::new();
     FIREWALL_FILE_VERDICTS
@@ -189,12 +189,12 @@ fn shared_firewall_file_verdicts() -> FirewallFileVerdicts {
         .clone()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 fn normalize_firewall_file_verdict_key(file_path: &str) -> String {
     file_path.trim().replace('/', "\\").to_ascii_lowercase()
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 pub fn firewall_file_verdict_for_path(file_path: &str) -> Option<FileVerdictInfo> {
     let key = normalize_firewall_file_verdict_key(file_path);
     let verdicts = shared_firewall_file_verdicts();
@@ -608,7 +608,7 @@ fn is_openedr_fls_safe_code(code: Option<u8>) -> bool {
 /// File verdict information received from the firewall via VERDICT messages.
 /// Contains file reputation data that can be used for allow/block decisions.
 #[derive(Debug, Clone)]
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 pub struct FileVerdictInfo {
     /// SHA256 hash of the file
     pub sha256: String,
@@ -625,7 +625,7 @@ pub struct FileVerdictInfo {
 /// All detection context sent by the firewall when it confirms malicious traffic.
 /// Populated from BLOCK_EXE messages and used to build rich ThreatInfo for reports.
 #[derive(Debug, Clone)]
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 pub struct FirewallDetection {
     pub dst_ip: String,
     pub dst_port: u16,
@@ -645,7 +645,7 @@ pub struct FirewallDetection {
     pub matched_private_rules: Vec<String>,
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 #[allow(dead_code)]
 impl FirewallDetection {
     pub fn is_pending_user_decision(&self) -> bool {
@@ -717,7 +717,7 @@ impl FirewallDetection {
     }
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 #[derive(Debug, Clone)]
 struct FirewallHipsPromptState {
     request_id: String,
@@ -725,7 +725,7 @@ struct FirewallHipsPromptState {
     allow_signature: String,
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FirewallHipsDecision {
     Deny,
@@ -735,7 +735,7 @@ enum FirewallHipsDecision {
     AllowAlways,
 }
 
-#[cfg(all(target_os = "windows", feature = "firewall"))]
+
 impl FirewallHipsDecision {
     fn from_wire(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
@@ -2036,11 +2036,11 @@ pub struct ProcessBehaviorState {
     pub script_file_path: String,
 
     /// HTTP body pairs (request_body, response_body) received via the FULL_PACKED_DATA pipe message.
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub http_body_entries: Vec<(String, String)>,
 
     /// Rolling history of network packets captured for this process (FULL_PACKED_DATA).
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub net_packets: VecDeque<PacketInfo>,
 
     /// AMSI analysis results for script content monitored by the engine.
@@ -2189,7 +2189,7 @@ impl ProcessBehaviorState {
         state.written_unknown_ext_stems = HashSet::new();
         state.script_file = String::new();
         state.script_file_path = String::new();
-        #[cfg(all(target_os = "windows", feature = "firewall"))]
+        
         {
             state.net_packets = VecDeque::with_capacity(500);
             state.http_body_entries = Vec::new();
@@ -2800,37 +2800,37 @@ pub struct BehaviorEngine {
     /// same underlying queue with the main-thread `BehaviorEngine`.
     pub pending_irp_records: Arc<Mutex<std::collections::VecDeque<(u32, IrpOperationRecord)>>>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub firewall_net_pids: FirewallNetPids,
     /// Per-PID list of (dst_ip, dst_port) connection records from NET_EVENT messages.
     /// Used by named-condition rules to match specific IPs or ports.
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub firewall_net_details: FirewallNetDetails,
     /// Exe paths for which the firewall confirmed malicious traffic (BLOCK_EXE).
     /// Value holds full detection details for report generation.
     /// scan_all_processes marks matching processes as malicious and acts on them.
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub firewall_blocked_exes: FirewallBlockedExes,
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     firewall_pipe_started: FirewallPipeStarted,
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     firewall_hips_pending_prompts: FirewallHipsPendingPrompts,
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     firewall_hips_decisions: FirewallHipsDecisions,
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     firewall_hips_allow_once: FirewallHipsAllowOnce,
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     firewall_hips_allow_always: FirewallHipsAllowAlways,
     /// Per-PID HTTP body pairs captured by the MITM proxy (received via HTTP_BODY pipe messages).
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     firewall_http_body_map: FirewallHttpBodyMap,
     /// Per-PID rolling history of full network packets from the firewall.
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     firewall_full_packets: FirewallFullPackets,
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub generate_report_flag: FirewallGenerateReport,
     /// File verdicts received from the firewall (keyed by file path lowercase).
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub firewall_file_verdicts: FirewallFileVerdicts,
     pub rootkit_findings: Vec<RootkitFinding>,
     pub amsi_analyzer: crate::behavioral::amsi::AmsiAnalyzer,
@@ -2874,29 +2874,29 @@ impl BehaviorEngine {
             openedr_stats: shared_openedr_stats(),
             self_defense_telemetry: shared_self_defense_telemetry(),
             pending_irp_records: Arc::new(Mutex::new(std::collections::VecDeque::new())),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_net_pids: shared_firewall_net_pids(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_net_details: shared_firewall_net_details(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_blocked_exes: shared_firewall_blocked_exes(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_pipe_started: shared_firewall_pipe_started(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_hips_pending_prompts: shared_firewall_hips_pending_prompts(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_hips_decisions: shared_firewall_hips_decisions(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_hips_allow_once: shared_firewall_hips_allow_once(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_hips_allow_always: shared_firewall_hips_allow_always(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_http_body_map: shared_firewall_http_body_map(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_full_packets: shared_firewall_full_packets(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             generate_report_flag: shared_firewall_generate_report(),
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             firewall_file_verdicts: shared_firewall_file_verdicts(),
             rootkit_findings: Vec::new(),
             amsi_analyzer: crate::behavioral::amsi::AmsiAnalyzer::new(),
@@ -2961,7 +2961,7 @@ impl BehaviorEngine {
     /// Updates the same shared state as the HydraNetEvent pipe handler so that
     /// behavior-rule matching and HTTP-body analysis work regardless of which
     /// path delivers the packet.
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub fn ingest_firewall_packed_data(&self, json: &str) {
         match serde_json::from_str::<FirewallPackedDataMessage>(json) {
             Ok(packed) => {
@@ -3111,7 +3111,7 @@ impl BehaviorEngine {
     /// Legacy BLOCK_EXE messages are still accepted defensively, but firewall
     /// network blocks should stay firewall activity and not become process kills.
     /// Call once after constructing BehaviorEngine, before the scan loop starts.
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     pub fn start_firewall_pipe(&self) {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
@@ -3134,13 +3134,13 @@ impl BehaviorEngine {
         let net_details = Arc::clone(&self.firewall_net_details);
         let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
         let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
-        let http_body_map = Arc::clone(&self.firewall_http_body_map);
-        let full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> =
+        let _http_body_map = Arc::clone(&self.firewall_http_body_map);
+        let _full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> =
             Arc::clone(&self.firewall_full_packets);
         let generate_report_flag = Arc::clone(&self.generate_report_flag);
         let file_verdicts = Arc::clone(&self.firewall_file_verdicts);
-        let regex_cache = Arc::clone(&self.regex_cache);
-        let rules_clone = self.rules.clone();
+        let _regex_cache = Arc::clone(&self.regex_cache);
+        let _rules_clone = self.rules.clone();
 
         std::thread::Builder::new()
             .name("hydra_net_event_pipe".to_string())
@@ -3395,7 +3395,7 @@ impl BehaviorEngine {
     }
 
     /// Notify the firewall GUI about the OpenEDR FLS verdict for this process.
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn notify_firewall_openedr_verdict(
         &self,
         pid: u32,
@@ -3512,15 +3512,6 @@ impl BehaviorEngine {
         ));
     }
 
-    #[cfg(not(all(target_os = "windows", feature = "firewall")))]
-    fn notify_firewall_openedr_verdict(
-        &self,
-        _pid: u32,
-        _exe_path: &str,
-        _verdict: OpenEdrFlsVerdict,
-        _analysis_type: &str,
-    ) {
-    }
 
     /// Notify the firewall GUI via HydraHipEvent about an OpenEDR-sourced threat.
     fn notify_openedr_threat(&self, pid: u32, exe_path: &str, label: &str, analysis_type: &str) {
@@ -4492,7 +4483,7 @@ impl BehaviorEngine {
         ));
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn sanitize_firewall_hips_field(value: &str) -> String {
         value
             .replace('\r', " ")
@@ -4502,7 +4493,7 @@ impl BehaviorEngine {
             .to_string()
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn is_registry_condition_group(cond_group: &NamedConditionGroup) -> bool {
         !cond_group.registry_keys.is_empty()
             || !cond_group.autorun_keys.is_empty()
@@ -4510,7 +4501,7 @@ impl BehaviorEngine {
             || !cond_group.registry_value_data_patterns.is_empty()
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn detect_firewall_hips_alert_kind(
         rule: &BehaviorRule,
         state: &ProcessBehaviorState,
@@ -5298,7 +5289,7 @@ impl BehaviorEngine {
         best_match.map(|(_, value)| PathBuf::from(value.replace('/', "\\")))
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn build_firewall_hips_target(
         &self,
         rule: &BehaviorRule,
@@ -5351,7 +5342,7 @@ impl BehaviorEngine {
         }
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn build_firewall_hips_reason(rule: &BehaviorRule) -> String {
         let description = rule.description.trim();
         if description.is_empty() {
@@ -5361,7 +5352,7 @@ impl BehaviorEngine {
         }
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn build_firewall_hips_request_signature(
         gid: u64,
         pid: u32,
@@ -5381,7 +5372,7 @@ impl BehaviorEngine {
         )
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn build_firewall_hips_allow_signature(
         rule_name: &str,
         alert_kind: &str,
@@ -5397,7 +5388,7 @@ impl BehaviorEngine {
         )
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn build_firewall_hips_request_id(gid: u64, pid: u32, rule_name: &str) -> String {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -5416,7 +5407,7 @@ impl BehaviorEngine {
         )
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn send_firewall_hips_prompt(
         &self,
         request_id: &str,
@@ -5539,7 +5530,7 @@ impl BehaviorEngine {
         false
     }
 
-    #[cfg(all(target_os = "windows", feature = "firewall"))]
+    
     fn resolve_firewall_hips_prompt(
         &self,
         gid: u64,
@@ -5652,15 +5643,6 @@ impl BehaviorEngine {
         }
     }
 
-    #[cfg(not(all(target_os = "windows", feature = "firewall")))]
-    fn resolve_firewall_hips_prompt(
-        &self,
-        _gid: u64,
-        _state: &ProcessBehaviorState,
-        _rule: &BehaviorRule,
-    ) -> FirewallHipsPromptOutcome {
-        FirewallHipsPromptOutcome::Allowed
-    }
 
     #[allow(dead_code)]
     fn safe_pattern_match(text: &str, pattern: &str) -> bool {
@@ -6340,27 +6322,6 @@ impl BehaviorEngine {
         filter.is_empty() || filter.contains(&value)
     }
 
-    fn matches_u64_list(filter: &[u64], value: u64) -> bool {
-        filter.is_empty() || filter.contains(&value)
-    }
-
-    fn matches_i32_list(filter: &[i32], value: i32) -> bool {
-        filter.is_empty() || filter.contains(&value)
-    }
-
-    fn matches_u64_range(value: u64, min: Option<u64>, max: Option<u64>) -> bool {
-        if let Some(min_v) = min
-            && value < min_v
-        {
-            return false;
-        }
-        if let Some(max_v) = max
-            && value > max_v
-        {
-            return false;
-        }
-        true
-    }
 
     fn has_hook_error_conditions(cond_group: &NamedConditionGroup) -> bool {
         !cond_group.hook_error_statuses.is_empty()
@@ -7667,7 +7628,7 @@ impl BehaviorEngine {
                 }
 
                 // ── Firewall-content conditions ──────────────────────────────────
-                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                
                 if !matched {
                     let exe_path_lc = state.exe_path.to_string_lossy().to_lowercase();
                     let fw_blocked_map = self.firewall_blocked_exes.read().unwrap();
@@ -9134,7 +9095,7 @@ impl BehaviorEngine {
         let state_ref = match self.process_states.get_mut(&gid) {
             Some(s) => {
                 let pid = s.pid;
-                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                
                 {
                     // Sync HTTP body entries from the shared map into the per-process state.
                     if let Ok(mut body_map) = self.firewall_http_body_map.write() {
@@ -9443,7 +9404,7 @@ impl BehaviorEngine {
                 }
             }
 
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             {
                 if !rule.http_request_body_patterns.is_empty() {
                     legacy_total += 1;
@@ -9549,22 +9510,10 @@ impl BehaviorEngine {
                     legacy_ratio
                 };
 
-                #[cfg_attr(
-                    not(all(target_os = "windows", feature = "firewall")),
-                    allow(unused_mut)
-                )]
                 let mut prompted_deny = false;
-                #[cfg_attr(
-                    not(all(target_os = "windows", feature = "firewall")),
-                    allow(unused_mut)
-                )]
                 let mut prompted_block = false;
-                #[cfg_attr(
-                    not(all(target_os = "windows", feature = "firewall")),
-                    allow(unused_mut)
-                )]
                 let mut prompted_quarantine = false;
-                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                
                 if rule.response.ask_user {
                     match self.resolve_firewall_hips_prompt(gid, &state_ref, rule) {
                         FirewallHipsPromptOutcome::Pending => {
@@ -10024,18 +9973,10 @@ impl BehaviorEngine {
                 }
             }),
             RuleCondition::NetworkCondition(net_rule) => {
-                #[cfg(all(target_os = "windows", feature = "firewall"))]
-                {
-                    state
-                        .net_packets
-                        .iter()
-                        .any(|pkt| net_rule.matches_packet(&self.regex_cache, pkt, &[]))
-                }
-                #[cfg(not(all(target_os = "windows", feature = "firewall")))]
-                {
-                    let _ = net_rule;
-                    false
-                }
+                state
+                    .net_packets
+                    .iter()
+                    .any(|pkt| net_rule.matches_packet(&self.regex_cache, pkt, &[]))
             }
             RuleCondition::Amsi {
                 risk_at_least,
@@ -10951,14 +10892,7 @@ impl BehaviorEngine {
     fn pid_has_network_activity(&self, pid: u32) -> bool {
         let openedr_observed = self.openedr_net_pids.read().unwrap().contains(&pid);
 
-        #[cfg(all(target_os = "windows", feature = "firewall"))]
-        {
-            openedr_observed || self.firewall_net_pids.read().unwrap().contains(&pid)
-        }
-        #[cfg(not(all(target_os = "windows", feature = "firewall")))]
-        {
-            openedr_observed
-        }
+        openedr_observed || self.firewall_net_pids.read().unwrap().contains(&pid)
     }
 
     fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
@@ -11055,7 +10989,7 @@ impl BehaviorEngine {
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
 
         // Snapshot firewall-confirmed malicious exe paths once per scan cycle
-        #[cfg(all(target_os = "windows", feature = "firewall"))]
+        
         let fw_blocked: HashMap<String, FirewallDetection> =
             self.firewall_blocked_exes.read().unwrap().clone();
 
@@ -11091,7 +11025,7 @@ impl BehaviorEngine {
 
             // Firewall-confirmed malicious network traffic: act immediately,
             // bypass the normal rule evaluation loop entirely.
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             if !exe_path_str.is_empty()
                 && exe_path_str.to_lowercase() != "unknown"
                 && let Some(detection) = fw_blocked.get(&exe_path_str.to_lowercase())

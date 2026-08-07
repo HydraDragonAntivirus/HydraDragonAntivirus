@@ -1,0 +1,74 @@
+- name: "HEUR:Win.Process.SelfDelete.ByChild"
+  should_trust_comodo_cloud: false
+  description: "Detects a child process deleting or renaming its parent executable image, a common self-delete and anti-forensics cleanup technique."
+
+  named_conditions:
+    parent_image_delete:
+      detect_parent_image_delete: true
+      min_matches: 1
+
+    parent_image_rename:
+      detect_parent_image_rename: true
+      min_matches: 1
+
+    helper_shell:
+      process_names:
+        - "cmd.exe"
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "wscript.exe"
+        - "cscript.exe"
+        - "mshta.exe"
+        - "rundll32.exe"
+        - "regsvr32.exe"
+      min_matches: 1
+
+    cleanup_cmdline:
+      cmdline_keywords:
+        - "cmd /c del"
+        - " /c del "
+        - "erase "
+        - "remove-item"
+        - "rename-item"
+        - "move-item"
+        - "del /f"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - and:
+          - any_of:
+              - "parent_image_delete"
+              - "parent_image_rename"
+          - any_of:
+              - "helper_shell"
+              - "cleanup_cmdline"
+      - condition: "parent_image_delete"
+      - condition: "parent_image_rename"
+
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    notify_user: true
+    record: true
+
+  severity: 88
+  level: high
+  status: test
+  author: "Emirhan Ucan"
+
+  mitre_attack:
+    - "T1070"
+    - "T1070.004"
+
+  tags:
+    - "self_delete"
+    - "anti_forensics"
+    - "indicator_removal"
+    - "child_cleanup"
+
+  false_positives:
+    - "Legitimate software updaters replacing an older parent executable"
+    - "Installer cleanup helpers launched by a signed setup process"

@@ -1,5 +1,5 @@
-use crate::file_magic::FileMagicChecker;
-use crate::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
+use super::file_magic::FileMagicChecker;
+use super::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
 use bincode_next::serde::{decode_from_slice, encode_to_vec};
 use hydradragon_shared::{QUARANTINE_PATH, TlsInspectionMode, TlsProxyConfig};
 use lazy_static::lazy_static;
@@ -368,7 +368,7 @@ pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
 }
 
 pub fn emit_log_event(entry: LogEntry) {
-    let settings_snapshot = crate::headless::engine()
+    let settings_snapshot = super::headless::engine()
         .map(|engine| engine.settings.read().unwrap().clone());
     persist_log_entry(&entry, settings_snapshot.as_ref());
 }
@@ -914,7 +914,7 @@ impl AppInfoCache {
                     PWSTR(wide_buffer.as_mut_ptr()),
                     &mut wide_len,
                 )
-                .is_ok();
+                .as_bool();
 
                 if wide_ok && wide_len > 0 {
                     let full_path = String::from_utf16_lossy(&wide_buffer[..wide_len as usize]);
@@ -928,7 +928,7 @@ impl AppInfoCache {
                 }
 
                 let mut ansi_buffer = [0u8; 1024];
-                let ansi_len = GetModuleFileNameExA(Some(handle), None, &mut ansi_buffer);
+                let ansi_len = GetModuleFileNameExA(handle, None, &mut ansi_buffer);
                 let _ = CloseHandle(handle);
 
                 if ansi_len > 0 {
@@ -1409,11 +1409,10 @@ pub struct FirewallEngine {
     pub app_manager: Arc<AppManager>,
     pub settings: Arc<RwLock<FirewallSettings>>,
     pub stop_signal: Arc<AtomicBool>,
-    pub sdk: Arc<RwLock<crate::sdk::SdkRegistry>>,
+    pub sdk: Arc<RwLock<super::sdk::SdkRegistry>>,
     pub file_checker: Arc<FileMagicChecker>,
     pub tls_proxy_backend_child: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     pub windows_root_trust_ready: Arc<AtomicBool>,
-    pub firefox_policy_ready: Arc<AtomicBool>,
     pub browser_mitm_warning_cache: Arc<Mutex<HashSet<String>>>,
     network_whitelist_index: Arc<RwLock<CidrIndex>>,
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
@@ -1454,10 +1453,9 @@ impl FirewallEngine {
         let network_whitelist_index = Arc::new(RwLock::new(CidrIndex::from_cidrs(&[])));
         let app_manager = Arc::new(AppManager::new(HashMap::new()));
         let settings = Arc::new(RwLock::new(settings_data));
-        let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
+        let sdk = Arc::new(RwLock::new(super::sdk::SdkRegistry::with_defaults()));
         let tls_proxy_backend_child = Arc::new(Mutex::new(None));
         let windows_root_trust_ready = Arc::new(AtomicBool::new(false));
-        let firefox_policy_ready = Arc::new(AtomicBool::new(false));
         let browser_mitm_warning_cache = Arc::new(Mutex::new(HashSet::new()));
         let divert_handle = Arc::new(Mutex::new(None));
         let hydranet_tx = Arc::new(Mutex::new(None));
@@ -1473,7 +1471,6 @@ impl FirewallEngine {
             file_checker,
             tls_proxy_backend_child,
             windows_root_trust_ready,
-            firefox_policy_ready,
             browser_mitm_warning_cache,
             network_whitelist_index,
             divert_handle,
@@ -1806,7 +1803,7 @@ impl FirewallEngine {
             .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
         let addr_string = format!("127.0.0.1:{}", listen_port);
 
-        let ca_bundle = crate::proxy::generate_ca();
+        let ca_bundle = super::proxy::generate_ca();
 
         // Silent CA auto-registration: install into Windows Trusted Root and Firefox
         // policy so browsers accept interception without MITM warnings or a consent
@@ -1838,33 +1835,6 @@ impl FirewallEngine {
             }
         }
 
-        let firefox_ca_path = Self::proxy_ca_cert_path();
-        match Self::install_firefox_ca_policy(&firefox_ca_path) {
-            Ok(()) => {
-                self.firefox_policy_ready.store(true, Ordering::SeqCst);
-                let now = Self::now_ts();
-                emit_log_event(LogEntry {
-                    id: format!("{}-firefox-policy-installed", now),
-                    timestamp: now,
-                    level: LogLevel::Success,
-                    message: "Firefox enterprise policy configured.".to_string(),
-                });
-            }
-            Err(e) => {
-                self.firefox_policy_ready.store(false, Ordering::SeqCst);
-                let now = Self::now_ts();
-                emit_log_event(LogEntry {
-                    id: format!("{}-firefox-policy-failed", now),
-                    timestamp: now,
-                    level: LogLevel::Error,
-                    message: format!(
-                        "Firefox policy setup failed: {}. Firefox will show SEC_ERROR_UNKNOWN_ISSUER. Manual fix: Import '{}' in Firefox Settings > Privacy & Security > Certificates > View Certificates > Authorities > Import.",
-                        e,
-                        firefox_ca_path.display()
-                    ),
-                });
-            }
-        }
 
         let (stop_tx_main, stop_rx_main) = oneshot::channel::<()>();
 
@@ -1874,8 +1844,8 @@ impl FirewallEngine {
         let sdk = self.sdk.clone();
         let settings = self.settings.clone();
 
-        let ca_bundle = crate::proxy::generate_ca();
-        crate::headless::spawn(crate::proxy::run_proxy(
+        let ca_bundle = super::proxy::generate_ca();
+        super::headless::spawn(super::proxy::run_proxy(
             addr_v4,
             ca_bundle.issuer,
             sdk,
@@ -1931,42 +1901,6 @@ impl FirewallEngine {
             .join("hydradragon_ca.der")
     }
 
-    fn install_firefox_ca_policy(cert_path: &Path) -> Result<(), String> {
-        #[cfg(target_os = "windows")]
-        {
-            use winreg::RegKey;
-            use winreg::enums::*;
-
-            let cert_path_string = cert_path.to_string_lossy().to_string();
-            let write_policy = |root: RegKey| -> Result<(), String> {
-                let (certs_key, _) = root
-                    .create_subkey(r"Software\Policies\Mozilla\Firefox\Certificates")
-                    .map_err(|e| e.to_string())?;
-                certs_key
-                    .set_value("ImportEnterpriseRoots", &1u32)
-                    .map_err(|e| e.to_string())?;
-
-                let (install_key, _) = root
-                    .create_subkey(r"Software\Policies\Mozilla\Firefox\Certificates\Install")
-                    .map_err(|e| e.to_string())?;
-                install_key
-                    .set_value("1", &cert_path_string)
-                    .map_err(|e| e.to_string())?;
-                Ok(())
-            };
-
-            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            write_policy(hkcu)?;
-
-            let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-            let _ = write_policy(hklm);
-
-            return Ok(());
-        }
-
-        #[allow(unreachable_code)]
-        Ok(())
-    }
 
     /// Install a raw DER certificate into the Windows LocalMachine\Root trust store.
     fn install_ca_der(der: &[u8]) -> Result<(), String> {
@@ -1979,22 +1913,23 @@ impl FirewallEngine {
             let store = CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr()))
                 .map_err(|e| format!("CertOpenSystemStoreA: {:?}", e))?;
             let result = CertAddEncodedCertificateToStore(
-                Some(store),
+                store,
                 X509_ASN_ENCODING,
                 der,
                 CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
                 None,
             );
-            let _ = CertCloseStore(Some(store), 0);
-            match result {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("CertAddEncodedCertificateToStore: {:?}", e)),
+            let _ = CertCloseStore(store, 0);
+            if result.as_bool() {
+                Ok(())
+            } else {
+                Err("CertAddEncodedCertificateToStore failed".to_string())
             }
         }
     }
 
     fn remove_firewall_ca_from_windows_stores() -> Result<(), String> {
-        #[cfg(target_os = "windows")]
+        
         {
             let script = r#"
 $ErrorActionPreference = "SilentlyContinue"
@@ -2037,59 +1972,16 @@ foreach ($store in $stores) {
                 ))
             }
         }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            Ok(())
-        }
     }
 
-    fn remove_firefox_ca_policy(cert_path: &Path) -> Result<(), String> {
-        #[cfg(target_os = "windows")]
-        {
-            use winreg::RegKey;
-            use winreg::enums::*;
-
-            let cert_path_string = cert_path.to_string_lossy().to_string();
-            let remove_policy = |root: RegKey| -> Result<(), String> {
-                if let Ok(install_key) = root.open_subkey_with_flags(
-                    r"Software\Policies\Mozilla\Firefox\Certificates\Install",
-                    KEY_READ | KEY_WRITE,
-                ) {
-                    if install_key
-                        .get_value::<String, _>("1")
-                        .is_ok_and(|value| value.eq_ignore_ascii_case(&cert_path_string))
-                    {
-                        let _ = install_key.delete_value("1");
-                    }
-                }
-                Ok(())
-            };
-
-            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            remove_policy(hkcu)?;
-
-            let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-            let _ = remove_policy(hklm);
-
-            return Ok(());
-        }
-
-        #[allow(unreachable_code)]
-        Ok(())
-    }
 
     pub fn install_firewall_certificate(&self) -> Result<String, String> {
-        let ca_bundle = crate::proxy::generate_ca();
+        let ca_bundle = super::proxy::generate_ca();
         Self::install_ca_der(&ca_bundle.cert_der)?;
         self.windows_root_trust_ready.store(true, Ordering::SeqCst);
 
-        let cert_path = Self::proxy_ca_cert_path();
-        Self::install_firefox_ca_policy(&cert_path)?;
-        self.firefox_policy_ready.store(true, Ordering::SeqCst);
-
         let message =
-            "HydraDragon Firewall CA installed into Windows trust and Firefox policy.".to_string();
+            "HydraDragon Firewall CA installed into Windows trust store.".to_string();
         emit_log_event(LogEntry {
             id: format!("{}-certificate-installed-manual", Self::now_ts()),
             timestamp: Self::now_ts(),
@@ -2105,16 +1997,12 @@ foreach ($store in $stores) {
         if let Err(error) = Self::remove_firewall_ca_from_windows_stores() {
             errors.push(error);
         }
-        if let Err(error) = Self::remove_firefox_ca_policy(&Self::proxy_ca_cert_path()) {
-            errors.push(error);
-        }
 
         self.windows_root_trust_ready.store(false, Ordering::SeqCst);
-        self.firefox_policy_ready.store(false, Ordering::SeqCst);
 
         if errors.is_empty() {
             let message =
-                "HydraDragon Firewall CA removed from trust stores and Firefox policy.".to_string();
+                "HydraDragon Firewall CA removed from trust stores.".to_string();
             emit_log_event(LogEntry {
                 id: format!("{}-certificate-removed-manual", Self::now_ts()),
                 timestamp: Self::now_ts(),
@@ -2154,15 +2042,7 @@ foreach ($store in $stores) {
     }
 
     pub fn get_process_inventory(&self) -> Vec<ProcessInventoryEntry> {
-        #[cfg(target_os = "windows")]
-        {
-            return self.get_process_inventory_windows();
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            Vec::new()
-        }
+        self.get_process_inventory_windows()
     }
 
     pub fn get_settings(&self) -> FirewallSettings {
@@ -2188,7 +2068,7 @@ foreach ($store in $stores) {
         load_saved_logs(limit)
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn get_process_inventory_windows(&self) -> Vec<ProcessInventoryEntry> {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -2253,7 +2133,7 @@ foreach ($store in $stores) {
             let mut entry = PROCESSENTRY32W::default();
             entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
 
-            if Process32FirstW(snapshot, &mut entry).is_ok() {
+            if Process32FirstW(snapshot, &mut entry).as_bool() {
                 loop {
                     let pid = entry.th32ProcessID;
                     let fallback_name = process_name_from_entry(&entry);
@@ -2291,7 +2171,7 @@ foreach ($store in $stores) {
                         openedr_verdict: openedr_verdicts.get(&pid).cloned(),
                     });
 
-                    if Process32NextW(snapshot, &mut entry).is_err() {
+                    if !Process32NextW(snapshot, &mut entry).as_bool() {
                         break;
                     }
                 }
@@ -2516,10 +2396,10 @@ impl FirewallEngine {
                                 use windows::Win32::System::Pipes::GetNamedPipeServerProcessId;
 
                                 let mut server_pid: u32 = 0;
-                                let handle = HANDLE(file.as_raw_handle() as *mut _);
+                                let handle = HANDLE(file.as_raw_handle() as isize);
                                 let ok = unsafe { GetNamedPipeServerProcessId(handle, &mut server_pid) };
 
-                                if ok.is_ok() && server_pid != 0 {
+                                if ok.as_bool() && server_pid != 0 {
                                     if server_pid != 0 {
                                         pipe_opt = Some(file);
                                     } else {
@@ -2647,7 +2527,7 @@ impl FirewallEngine {
                                         p_info.dst_port
                                     };
                                     let is_tcp =
-                                        matches!(p_info.protocol, crate::engine::Protocol::TCP);
+                                        matches!(p_info.protocol, super::engine::Protocol::TCP);
 
                                     // WinDivert native PID already set above (step 1).
                                     // Fall through to TCP/UDP table if it returned 0.
@@ -2727,7 +2607,7 @@ impl FirewallEngine {
                                         if let Some((ref p_info, _)) = pre_parsed {
                                             is_tcp = matches!(
                                                 p_info.protocol,
-                                                crate::engine::Protocol::TCP
+                                                super::engine::Protocol::TCP
                                             );
                                             src_port = p_info.src_port;
                                             dst_port = p_info.dst_port;
@@ -2914,7 +2794,7 @@ impl FirewallEngine {
         am: &Arc<AppManager>,
         settings: &Arc<RwLock<FirewallSettings>>,
         dns_handler: &Arc<DnsHandler>,
-        sdk: &Arc<RwLock<crate::sdk::SdkRegistry>>,
+        sdk: &Arc<RwLock<super::sdk::SdkRegistry>>,
         file_checker: &Arc<FileMagicChecker>,
         process_id: u32,
         pre_parsed: &Option<(PacketInfo, usize)>,
@@ -2947,7 +2827,7 @@ impl FirewallEngine {
 
         // 2. Resolve Process Metadata
         let app_info = am.info_cache.get_info(pid);
-        let sdk_context = crate::sdk::PacketContext {
+        let sdk_context = super::sdk::PacketContext {
             process_id: pid,
             process_name: app_info.name.clone(),
             process_path: app_info.path.clone(),
@@ -3123,18 +3003,18 @@ impl FirewallEngine {
 
             if let Some(finding) = first_match {
                 match finding.action {
-                    crate::sdk::RuleAction::Block => {
+                    super::sdk::RuleAction::Block => {
                         should_forward = false;
                         reason = Some(format!(
                             "SDK Rule [{}]: {}",
                             finding.rule_name, finding.description
                         ));
                     }
-                    crate::sdk::RuleAction::Allow => {
+                    super::sdk::RuleAction::Allow => {
                         should_forward = true;
                         reason = Some(format!("SDK Rule [{}]: Allowed", finding.rule_name));
                     }
-                    crate::sdk::RuleAction::TrafficAttack => {
+                    super::sdk::RuleAction::TrafficAttack => {
                         // Log as attack but still forward (monitoring)
                         emit_log_event(LogEntry {
                             id: format!("{}-attack", Self::now_ts()),
@@ -3146,19 +3026,19 @@ impl FirewallEngine {
                             ),
                         });
                     }
-                    crate::sdk::RuleAction::Terminate => {
+                    super::sdk::RuleAction::Terminate => {
                         should_forward = false;
                         Self::terminate_process(pid);
                         reason = Some(format!("SDK Rule [{}]: Terminated", finding.rule_name));
                     }
-                    crate::sdk::RuleAction::Quarantine => {
+                    super::sdk::RuleAction::Quarantine => {
                         should_forward = false;
                         let quarantine_reason =
                             format!("SDK Rule [{}]: {}", finding.rule_name, finding.description);
                         Self::quarantine_file(&app_info.path, &quarantine_reason);
                         reason = Some(format!("SDK Rule [{}]: Quarantined", finding.rule_name));
                     }
-                    crate::sdk::RuleAction::KillAndRemove => {
+                    super::sdk::RuleAction::KillAndRemove => {
                         should_forward = false;
                         Self::terminate_process(pid);
                         let quarantine_reason =
@@ -3352,13 +3232,13 @@ impl FirewallEngine {
         }
     }
 
-    pub fn get_sdk_rules(&self) -> Vec<crate::sdk::SdkRule> {
+    pub fn get_sdk_rules(&self) -> Vec<super::sdk::SdkRule> {
         let sdk = self.sdk.read().unwrap();
         sdk.rules.clone()
     }
 
     pub fn get_rules_raw(&self) -> String {
-        #[cfg(target_os = "windows")]
+        
         if let Some(path) = self.get_sdk_rules_path_from_registry() {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 return content;
@@ -3368,10 +3248,10 @@ impl FirewallEngine {
     }
 
     pub fn save_rules_raw(&self, content: String) -> Result<(), String> {
-        if let Err(e) = serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
+        if let Err(e) = serde_yaml::from_str::<super::sdk::SdkRuleFile>(&content) {
             return Err(format!("Invalid YAML: {}", e));
         }
-        #[cfg(target_os = "windows")]
+        
         if let Some(path) = self.get_sdk_rules_path_from_registry() {
             return std::fs::write(&path, content).map_err(|e| e.to_string());
         }
@@ -3379,7 +3259,7 @@ impl FirewallEngine {
         std::fs::write("rules/rules.yaml", content).map_err(|e| e.to_string())
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn get_sdk_rules_path_from_registry(&self) -> Option<PathBuf> {
         use winreg::RegKey;
         use winreg::enums::HKEY_LOCAL_MACHINE;
@@ -3391,7 +3271,7 @@ impl FirewallEngine {
     }
 
     pub fn validate_rules_raw(&self, content: String) -> Result<String, String> {
-        match serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
+        match serde_yaml::from_str::<super::sdk::SdkRuleFile>(&content) {
             Ok(_) => Ok("YAML Syntax is Valid.".to_string()),
             Err(e) => Err(format!("Syntax Error: {}", e)),
         }
@@ -3618,8 +3498,8 @@ impl FirewallEngine {
 
                 // Check for HTTPS (port 443) - TLS SNI extraction
                 if dst_port == 443 || src_port == 443 {
-                    tls_handshake = crate::tls_parser::is_tls_handshake(payload);
-                    if let Some(sni_host) = crate::tls_parser::extract_sni(payload) {
+                    tls_handshake = super::tls_parser::is_tls_handshake(payload);
+                    if let Some(sni_host) = super::tls_parser::extract_sni(payload) {
                         // Treat HTTPS SNI as a URL root so downstream hostname/url
                         // checks work the same way they do for HTTP payloads.
                         full_url.get_or_insert_with(|| format!("https://{}/", sni_host));
@@ -3628,11 +3508,11 @@ impl FirewallEngine {
                 }
 
                 // Check for HTTP regardless of port if the payload looks like HTTP traffic
-                if crate::http_parser::is_http_request(payload) || dst_port == 80 || src_port == 80
+                if super::http_parser::is_http_request(payload) || dst_port == 80 || src_port == 80
                 {
                     let hinted_port = if outbound { dst_port } else { src_port };
                     if let Some(http_info) =
-                        crate::http_parser::extract_http_info(payload, Some(hinted_port))
+                        super::http_parser::extract_http_info(payload, Some(hinted_port))
                     {
                         hostname = http_info.host.clone().or(hostname);
                         full_url = http_info.full_url.or(full_url);

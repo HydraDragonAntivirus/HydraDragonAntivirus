@@ -1,0 +1,219 @@
+# Bootkit-focused behavior detections.
+# These rules target EFI System Partition exposure and suspicious .efi drops.
+
+- name: "HEUR:Win.Bootkit.ESPMount.Access.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: high
+  severity: 82
+  description: |
+    Detects direct use of mountvol.exe with the /s switch to expose the EFI
+    System Partition. This does not prove maliciousness on its own, but it is a
+    common precursor to bootkit staging and persistence.
+
+  named_conditions:
+    mountvol_process:
+      orderless: false
+      process_names:
+        - "mountvol.exe"
+      min_matches: 1
+
+    esp_switch_cmdline:
+      orderless: false
+      cmdline_keywords:
+        - "/s"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "mountvol_process"
+      - condition: "esp_switch_cmdline"
+
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    record: true
+
+  tags:
+    - "bootkit"
+    - "efi"
+    - "esp"
+    - "mountvol"
+    - "persistence"
+
+  mitre_attack:
+    - "T1542.001"
+    - "T1059"
+
+  false_positives:
+    - "Manual EFI maintenance performed by an administrator"
+    - "Low-level recovery workflows that intentionally expose the EFI System Partition"
+
+
+- name: "HEUR:Win.Bootkit.ESPWrite.AfterMount.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: critical
+  severity: 98
+  description: |
+    Detects a process family that exposes the EFI System Partition with mountvol
+    and then writes or renames an .efi payload into EFI boot paths. This is a
+    strong bootkit signal and is remediated automatically.
+
+  named_conditions:
+    esp_mount_child:
+      orderless: false
+      created_processes:
+        - "mountvol.exe"
+      cmdline_keywords:
+        - "/s"
+      min_matches: 1
+
+    efi_drop_to_boot_partition:
+      orderless: true
+      file_paths:
+        - "\\EFI\\"
+        - "\\EFI\\Boot\\"
+        - "\\EFI\\Microsoft\\Boot\\"
+      file_operations:
+        - "create"
+        - "write"
+        - "rename"
+      file_extensions:
+        - ".efi"
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "esp_mount_child"
+      - condition: "efi_drop_to_boot_partition"
+
+  response:
+    ask_user: true
+    deny_while_ask: true
+    kill_and_remove: true
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "setuphost.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "tiworker.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "trustedinstaller.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "dism.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "reagentc.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "bcdboot.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+  tags:
+    - "bootkit"
+    - "efi"
+    - "esp"
+    - "mountvol"
+    - "persistence"
+    - "remediation"
+
+  mitre_attack:
+    - "T1542.001"
+    - "T1036"
+
+  false_positives:
+    - "Windows servicing or recovery components replacing signed EFI boot files"
+
+
+- name: "HEUR:Win.Bootkit.ESPDirectEfiWrite.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: critical
+  severity: 94
+  description: |
+    Detects direct creation, overwrite, or rename of .efi files inside EFI boot
+    paths even when the EFI System Partition was already mounted or accessed via
+    a device path. The matched EFI artifact is selected for direct cleanup.
+
+  named_conditions:
+    efi_drop_to_boot_partition:
+      orderless: true
+      file_paths:
+        - "\\EFI\\"
+        - "\\EFI\\Boot\\"
+        - "\\EFI\\Microsoft\\Boot\\"
+      file_operations:
+        - "create"
+        - "write"
+        - "rename"
+      file_extensions:
+        - ".efi"
+      min_matches: 1
+
+  detection_logic:
+    condition: "efi_drop_to_boot_partition"
+
+  response:
+    ask_user: true
+    deny_while_ask: true
+    kill_and_remove: true
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "setuphost.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "tiworker.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "trustedinstaller.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "dism.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "reagentc.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "bcdboot.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+  tags:
+    - "bootkit"
+    - "efi"
+    - "esp"
+    - "persistence"
+    - "remediation"
+
+  mitre_attack:
+    - "T1542.001"
+
+  false_positives:
+    - "Windows recovery or upgrade workflows refreshing EFI boot files"

@@ -1,0 +1,211 @@
+- name: "HEUR:Win.Ransom.BehavesLike.FileEncryptor.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-02-09"
+  status: test
+  level: critical
+  severity: 99
+  description: |
+    Detects ransomware-like encryption behavior across the full disk scope.
+    Uses bulk file modifications, encryption-oriented APIs, and extension-change activity
+    without restricting detection to user-profile folders only.
+    Correlation policy:
+    - same-file prerequisites are declared per condition in YAML
+    - rename branch requires read+write on the same file
+    - delete branch requires read on the same file
+  debug: true
+
+  named_conditions:
+    ransomware_read_activity:
+      # NOT orderless: read must precede write/rename/delete in the encryption
+      # pipeline. Order is meaningful — a file must be read before it can be
+      # encrypted and then renamed or deleted.
+      orderless: false
+      file_operations: ["read"]
+      min_matches: 1
+
+    mass_disk_writes:
+      # orderless: file_operations is an unordered set; any combination of
+      # write/create/setinfo/rename events counts toward min_matches.
+      orderless: true
+      file_operations: ["write", "create", "setinfo", "rename"]
+      min_matches: 4
+
+    suspicious_encryption_apis:
+      # orderless: the API list below is evaluated as an unordered set.
+      # The engine counts distinct API types observed; call sequence does not matter.
+      # A single crypto API call is normal for browsers (TLS), .NET runtimes,
+      # DPAPI, and system services.  Ransomware must assemble a full encryption
+      # pipeline (acquire/open + key-setup + encrypt/export), so it always
+      # produces at least 2 distinct API types from this list.
+      # NOTE: The list is intentionally interleaved across DLL boundaries
+      # (advapi32/bcrypt/ncrypt/ntdll) — no grouping by category or library —
+      # so static analysis of rule order cannot fingerprint detection coverage.
+      orderless: true
+      apis:
+        - "advapi32.dll!CryptAcquireContextA"
+        - "bcrypt.dll!BCryptOpenAlgorithmProvider"
+        - "ncrypt.dll!NCryptEncrypt"
+        - "advapi32.dll!CryptGenKey"
+        - "bcrypt.dll!BCryptGenerateKeyPair"
+        - "ncrypt.dll!NCryptImportKey"
+        - "advapi32.dll!CryptEncrypt"
+        - "bcrypt.dll!BCryptEncrypt"
+        - "ncrypt.dll!NCryptCreatePersistedKey"
+        - "advapi32.dll!CryptHashData"
+        - "bcrypt.dll!BCryptImportKey"
+        - "ncrypt.dll!NCryptExportKey"
+        - "advapi32.dll!CryptExportKey"
+        - "bcrypt.dll!BCryptDeriveKey"
+        - "ncrypt.dll!NCryptSignHash"
+        - "advapi32.dll!CryptAcquireContextW"
+        - "bcrypt.dll!BCryptFinalizeKeyPair"
+        - "ncrypt.dll!NCryptSecretAgreement"
+        - "advapi32.dll!CryptImportKey"
+        - "bcrypt.dll!BCryptGenerateSymmetricKey"
+        - "ncrypt.dll!NCryptDeriveKey"
+        - "advapi32.dll!CryptCreateHash"
+        - "bcrypt.dll!BCryptCloseAlgorithmProvider"
+        - "ncrypt.dll!NCryptFinalizeKey"
+        - "advapi32.dll!CryptSetKeyParam"
+        - "bcrypt.dll!BCryptImportKeyPair"
+        - "advapi32.dll!CryptDeriveKey"
+        - "bcrypt.dll!BCryptExportKey"
+        - "advapi32.dll!CryptGetKeyParam"
+        - "bcrypt.dll!BCryptSetProperty"
+        - "advapi32.dll!CryptGetHashParam"
+        - "bcrypt.dll!BCryptSecretAgreement"
+        - "advapi32.dll!SystemFunction036"
+        - "ntdll.dll!RtlEncryptMemory"
+      api_threshold: 2
+
+    ransomware_write_activity:
+      # orderless: single file_operation type; order is irrelevant.
+      orderless: true
+      file_operations: ["write"]
+      min_matches: 1
+
+    ransomware_rename_activity:
+      # orderless: rename events are counted as a set; same-file prerequisites
+      # are enforced by the engine independently of arrival order.
+      # require_same_file_write is commented out to avoid anti-detection evasion:
+      # ransomware writes encrypted output to a NEW file (same stem, unknown ext)
+      # then renames the original — the renamed file was never written directly.
+      # require_same_stem_written_unknown_extension catches this pattern instead.
+      orderless: true
+      file_operations: ["rename"]
+      require_same_file_read: true
+      # require_same_file_write: true  # commented out to avoid anti-detection evasion
+      require_same_stem_written_unknown_extension: true
+      detect_extension_changes: true
+      detect_known_to_unknown_extension_change: true
+      min_matches: 1
+
+    ransomware_create_activity:
+      # orderless: create events are counted as a set regardless of sequence.
+      # Requires the created file to have an unknown (non-whitelisted) or no extension so
+      # that ordinary file creation (e.g. temp files, documents) does not satisfy
+      # this condition; encrypted output may be .winball/.encrypted or extensionless.
+      orderless: true
+      file_operations: ["create"]
+      detect_non_whitelisted_extensions: true
+      min_matches: 1
+
+    ransomware_delete_activity:
+      # orderless: delete events are counted as a set regardless of sequence.
+      orderless: true
+      file_operations: ["delete"]
+      require_same_stem_created_unknown_extension: true
+      min_matches: 1
+
+  detection_logic:
+    or:
+      # Branches A / B — file-operation evidence AND encryption APIs (both required).
+      - and:
+          - or:
+              # Branch A: read + write + rename with extension change (same-file prerequisites).
+              - and:
+                  - condition: "ransomware_read_activity"
+                  - condition: "ransomware_write_activity"
+                  - condition: "ransomware_rename_activity"
+              # Branch B: read + create + delete (shadow-copy / replace style).
+              - and:
+                  - condition: "ransomware_read_activity"
+                  - condition: "ransomware_create_activity"
+                  - condition: "ransomware_delete_activity"
+          # Encryption APIs required for A / B.
+          - condition: "suspicious_encryption_apis"
+      # Branch C+D: mass disk writes AND crypto APIs — two independent signals
+      # required so neither alone can trigger a false positive.
+      # mass_disk_writes catches bulk file modification visible in the minifilter
+      # even when API hooking misses ctypes / custom loaders.
+      # suspicious_encryption_apis confirms the crypto intent.
+      - and:
+          - condition: "mass_disk_writes"
+          - condition: "suspicious_encryption_apis"
+
+  response:
+    terminate_process: true
+    quarantine: true
+    auto_revert: true
+    record: true
+
+  allowlisted_apps:
+    # Archivers / compression tools
+    - pattern: "7z.exe"
+      must_be_signed: true
+      signers:
+        - "igor pavlov"
+    - pattern: "7zg.exe"
+      must_be_signed: true
+      signers:
+        - "igor pavlov"
+    - pattern: "winrar.exe"
+      must_be_signed: true
+      signers:
+        - "rarlab"
+    # Microsoft bulk-file tools
+    - pattern: "robocopy.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "onedrive.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "msmpeng.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "mssense.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "searchindexer.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "srtasks.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    # Backup / imaging tools
+    - pattern: "backup*.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "wbengine.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+  tags:
+    - "ransomware"
+    - "file-encryption"
+    - "bulk-modification"
+    - "poc-detection"
+
+  false_positives:
+    - "Third-party backup suites (Acronis, Veeam, Macrium) — add signed binary to allowlisted_apps"
+    - "Mass file migration / conversion tools writing many files rapidly"
+    - "Encryption-at-rest agents that rename files after encrypting in-place"

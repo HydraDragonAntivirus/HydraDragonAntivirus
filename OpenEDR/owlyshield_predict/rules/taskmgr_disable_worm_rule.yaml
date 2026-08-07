@@ -1,0 +1,114 @@
+- name: "TaskMgr Disable / Worm Sabotage"
+  should_trust_comodo_cloud: false
+  description: |
+    Detects batch-script style malware that disables Task Manager, locks shell tooling, and plants autorun persistence.
+  author: "Emirhan Ucan"
+  status: stable
+  level: critical
+  severity: 95
+  tags:
+    - worm
+    - persistence
+    - registry-sabotage
+    - defense-evasion
+  mitre_attack:
+    - "T1112"
+    - "T1547.001"
+    - "T1562.001"
+  detection_logic:
+    or:
+      - condition: taskmgr_policy_disable
+      - condition: taskmgr_binary_tamper
+      - at_least: 2
+        conditions:
+          - shell_lockdown_policy
+          - startup_persistence
+          - run_key_persistence
+  named_conditions:
+    taskmgr_policy_disable:
+      registry_keys:
+        - "*software/microsoft/windows/currentversion/policies/system/*disabletaskmgr*"
+        - "*software/policies/microsoft/windows/system/*disabletaskmgr*"
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+      orderless: true
+    taskmgr_binary_tamper:
+      file_paths:
+        - "*windows/system32/taskmgr.exe"
+        - "*windows/syswow64/taskmgr.exe"
+      file_operations:
+        - delete
+        - rename
+        - setinfo
+        - write
+      min_matches: 1
+      orderless: true
+    shell_lockdown_policy:
+      registry_keys:
+        - "*software/policies/microsoft/windows/system/*disablecmd*"
+        - "*software/microsoft/windows/currentversion/policies/system/*disableregistrytools*"
+        - "*software/microsoft/windows/currentversion/policies/explorer/*disallowrun*"
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+      orderless: true
+    startup_persistence:
+      file_paths:
+        - "*programdata/microsoft/windows/start menu/programs/startup/*"
+        - "*users/*/appdata/roaming/microsoft/windows/start menu/programs/startup/*"
+      file_operations:
+        - create
+        - write
+      min_matches: 1
+      orderless: true
+    run_key_persistence:
+      autorun_keys:
+        - "*software/microsoft/windows/currentversion/run/*"
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+      orderless: true
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: true
+    kill_and_remove: true
+    notify_user: true
+    auto_revert: true
+    record: true
+  date: '2026-03-31'
+  debug: false
+  false_positives:
+    - Legitimate administrative, installer, or enterprise-management activity
+    - Authorized security, backup, or maintenance tooling
+    - Expected behavior from trusted software during servicing or remediation
+

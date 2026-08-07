@@ -1,0 +1,748 @@
+# =============================================================================
+# HydraDragon Rootkit Detection Rules
+# File: rootkit_detection.yml
+# =============================================================================
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 1: SSDT Hook — any SSDT entry redirected outside ntoskrnl
+# Severity: critical. Terminate immediately, no quarantine needed.
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.SsdtHook"
+  should_trust_comodo_cloud: false
+  description: >
+    SSDT service table entry points outside ntoskrnl address range.
+    Classic rootkit technique to intercept system calls at kernel level.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - ssdt
+    - kernel
+  mitre_attack:
+    - "T1014"   # Rootkit
+    - "T1562"   # Impair Defenses
+
+  named_conditions:
+    ssdt_hooked:
+      rootkit_event_types: ["ssdt_hook"]
+      rootkit_event_min_count: 1
+
+  detection_logic:
+    condition: "ssdt_hooked"
+
+  response:
+    ask_user: false
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 8: Unsupported file-object callback filtering
+# Detects object-manager tampering used to intercept or deny file-handle opens.
+# This can be used to shield malicious files or block security tooling.
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.FileObjectCallbackTamper"
+  should_trust_comodo_cloud: false
+  description: >
+    File-object callback support or active callback registrations were detected
+    on a kernel object type that normally does not expose file-handle callback
+    filtering. This requires undocumented object-manager tampering and can be
+    used to protect malicious files or deny antivirus access.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - object_type
+    - callback_tamper
+    - file_protection
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1562"
+
+  named_conditions:
+    file_object_callback_tamper:
+      rootkit_event_types: ["generic"]
+      rootkit_description_contains:
+        - "file object callbacks enabled"
+        - "file object callback list populated"
+
+  detection_logic:
+    condition: "file_object_callback_tamper"
+
+  response:
+    terminate_process: false
+    notify_user: true
+    record: true
+
+---
+
+# ---------------------------------------------------------------------------
+# Kernel-origin UEFI and boot tamper signals
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.UefiRawDeviceWrite"
+  should_trust_comodo_cloud: false
+  description: >
+    A process opened a raw disk or volume device with write or delete intent.
+    This is a common precursor to low-level UEFI or bootloader tampering and is
+    recorded for rule-driven response.
+  author: "HydraDragon"
+  severity: 4
+  tags:
+    - rootkit
+    - bootkit
+    - uefi
+    - raw_device
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1542.001"
+
+  named_conditions:
+    raw_device_write:
+      rootkit_event_types: ["generic"]
+      rootkit_description_contains:
+        - "uefi raw device write access:"
+
+  detection_logic:
+    condition: "raw_device_write"
+
+  response:
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/diskpart.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/SetupHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/Dism.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/reagentc.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/bcdboot.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+- name: "HEUR:Win64.Rootkit.UefiBootArtifactTamper"
+  should_trust_comodo_cloud: false
+  description: >
+    A process attempted to create, overwrite, rename, or delete a UEFI boot
+    artifact inside EFI paths. This is a strong bootkit signal and the matched
+    artifact is selected for direct cleanup.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - bootkit
+    - uefi
+    - esp
+    - remediation
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1542.001"
+
+  named_conditions:
+    uefi_boot_file_tamper:
+      rootkit_event_types: ["generic"]
+      rootkit_description_contains:
+        - "uefi boot file tamper:"
+
+  detection_logic:
+    condition: "uefi_boot_file_tamper"
+
+  response:
+    ask_user: false
+    terminate_process: false
+    kill_and_remove: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/SetupHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/Dism.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/reagentc.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/bcdboot.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+- name: "HEUR:Win64.Rootkit.UefiBootConfigTamper"
+  should_trust_comodo_cloud: false
+  description: >
+    A process attempted to modify or delete UEFI boot configuration data such
+    as BCD paths. This is a strong persistence signal, but automated removal is
+    withheld because boot configuration rollback is more delicate than deleting
+    a dropped EFI payload.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - bootkit
+    - uefi
+    - bcd
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1542.001"
+
+  named_conditions:
+    uefi_boot_config_tamper:
+      rootkit_event_types: ["generic"]
+      rootkit_description_contains:
+        - "uefi boot configuration tamper:"
+
+  detection_logic:
+    condition: "uefi_boot_config_tamper"
+
+  response:
+    ask_user: false
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/SetupHost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/Dism.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/reagentc.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/bcdboot.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 2: Hidden Process (DKOM) — process in PspCidTable but not EPROCESS list
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.HiddenProcess.DKOM"
+  should_trust_comodo_cloud: false
+  description: >
+    Process found in PspCidTable but absent from EPROCESS ActiveProcessLinks.
+    Direct Kernel Object Manipulation (DKOM) used to hide a running process.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - dkom
+    - hidden_process
+    - kernel
+  mitre_attack:
+    - "T1014"   # Rootkit
+    - "T1564"   # Hide Artifacts
+
+  named_conditions:
+    hidden_proc:
+      rootkit_event_types: ["hidden_process"]
+      rootkit_event_min_count: 1
+
+  detection_logic:
+    condition: "hidden_proc"
+
+  response:
+    ask_user: false
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 3: Hidden Driver — driver present in memory but not in module list
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.HiddenDriver"
+  should_trust_comodo_cloud: false
+  description: >
+    A driver object exists in the \Driver directory but its base address is
+    absent from PsLoadedModuleList / ZwQuerySystemInformation module list.
+    Indicates the driver unlinked itself to avoid detection.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - hidden_driver
+    - kernel
+  mitre_attack:
+    - "T1014"   # Rootkit
+    - "T1547"   # Boot or Logon Autostart Execution
+
+  named_conditions:
+    hidden_drv:
+      rootkit_event_types: ["hidden_driver"]
+      rootkit_event_min_count: 1
+
+  detection_logic:
+    condition: "hidden_drv"
+
+  response:
+    ask_user: false
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 4: Kernel Inline Hook — JMP patch on monitored ntoskrnl export
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.KernelInlineHook"
+  should_trust_comodo_cloud: false
+  description: >
+    A monitored ntoskrnl export (NtCreateFile, NtAllocateVirtualMemory, etc.)
+    has been patched with a JMP instruction redirecting execution outside
+    ntoskrnl. Classic ring-0 inline hook used by rootkits and some malware.
+  author: "HydraDragon"
+  severity: 4
+  tags:
+    - rootkit
+    - kernel_hook
+    - inline_hook
+    - kernel
+  mitre_attack:
+    - "T1014"   # Rootkit
+    - "T1055"   # Process Injection
+
+  named_conditions:
+    kernel_hook:
+      rootkit_event_types: ["kernel_hook"]
+      rootkit_event_min_count: 1
+
+  detection_logic:
+    condition: "kernel_hook"
+
+  response:
+    ask_user: false
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 5: Rootkit + Process Injection combo
+# A process that both performs kernel-level injection AND triggers a rootkit
+# finding is almost certainly malware. Terminate + quarantine.
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.PlusInjection"
+  should_trust_comodo_cloud: false
+  description: >
+    Process triggered both a kernel rootkit finding (SSDT hook or inline hook)
+    AND performed memory injection (WriteVirtualMemory / CreateRemoteThread).
+    High-confidence rootkit dropper / loader.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - injection
+    - kernel
+  mitre_attack:
+    - "T1014"
+    - "T1055"
+
+  named_conditions:
+    any_rootkit:
+      rootkit_total_min: 1
+
+    injection_apis:
+      apis:
+        - "ntdll!NtWriteVirtualMemory"
+        - "ntdll!NtCreateThreadEx"
+        - "ntdll!NtQueueApcThread"
+      api_threshold: 1
+
+  detection_logic:
+    and:
+      - condition: "any_rootkit"
+      - condition: "injection_apis"
+
+  response:
+    ask_user: false
+    terminate_process: false
+    quarantine: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 6: Multiple rootkit finding types — full rootkit toolkit
+# Fires when more than one finding category is triggered (e.g., hidden driver
+# AND SSDT hook). Strong indicator of a sophisticated rootkit.
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.MultiVector"
+  should_trust_comodo_cloud: false
+  description: >
+    Multiple distinct rootkit detection categories triggered for the same
+    process context. Indicative of a sophisticated, multi-component rootkit.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - multi_vector
+    - kernel
+  mitre_attack:
+    - "T1014"
+
+  named_conditions:
+    ssdt_finding:
+      rootkit_event_types: ["ssdt_hook"]
+
+    driver_finding:
+      rootkit_event_types: ["hidden_driver"]
+
+    hook_finding:
+      rootkit_event_types: ["kernel_hook"]
+
+    proc_finding:
+      rootkit_event_types: ["hidden_process"]
+
+  detection_logic:
+    # At least two distinct rootkit categories.
+    count:
+      - "ssdt_finding"
+      - "driver_finding"
+      - "hook_finding"
+      - "proc_finding"
+    comparison: gte
+    threshold: 2
+
+  response:
+    ask_user: false
+    terminate_process: false
+    quarantine: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+---
+
+# ---------------------------------------------------------------------------
+# Rule 7: Rootkit on NtCreateFile hook specifically
+# Low-false-positive: hooking NtCreateFile outside ntoskrnl is almost always
+# malicious (legitimate products use minifilters instead).
+# ---------------------------------------------------------------------------
+- name: "HEUR:Win64.Rootkit.NtCreateFileHook"
+  should_trust_comodo_cloud: false
+  description: >
+    NtCreateFile has been inline-hooked by code outside ntoskrnl.
+    Legitimate security products use minifilters; direct SSDT/inline hooks
+    on file I/O functions are characteristic of rootkits.
+  author: "HydraDragon"
+  severity: 5
+  tags:
+    - rootkit
+    - kernel_hook
+    - file_hook
+
+  named_conditions:
+    createfile_hook:
+      rootkit_event_types: ["kernel_hook"]
+      rootkit_description_contains:
+        - "NtCreateFile"
+
+  detection_logic:
+    condition: "createfile_hook"
+
+  response:
+    ask_user: false
+    terminate_process: false
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/explorer.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]

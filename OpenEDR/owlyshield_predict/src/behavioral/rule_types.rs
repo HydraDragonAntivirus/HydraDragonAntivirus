@@ -20,7 +20,7 @@ pub fn default_true() -> bool {
     true
 }
 
-#[cfg(target_os = "windows")]
+
 fn wide_ptr_len(ptr: *const u16) -> usize {
     let mut len = 0usize;
     unsafe {
@@ -31,7 +31,7 @@ fn wide_ptr_len(ptr: *const u16) -> usize {
     len
 }
 
-#[cfg(target_os = "windows")]
+
 fn get_known_folder_path(folder_id: &windows::core::GUID) -> Option<String> {
     use std::ffi::{OsString, c_void};
     use std::os::windows::ffi::OsStringExt;
@@ -57,7 +57,7 @@ fn get_known_folder_path(folder_id: &windows::core::GUID) -> Option<String> {
     }
 }
 
-#[cfg(target_os = "windows")]
+
 fn resolve_special_environment_variable(var_name: &str) -> Option<String> {
     use windows::Win32::UI::Shell::{
         FOLDERID_CommonStartup, FOLDERID_Desktop, FOLDERID_Downloads, FOLDERID_Startup,
@@ -89,10 +89,6 @@ fn resolve_special_environment_variable(var_name: &str) -> Option<String> {
     cache.get(var_name).cloned().flatten()
 }
 
-#[cfg(not(target_os = "windows"))]
-fn resolve_special_environment_variable(_var_name: &str) -> Option<String> {
-    None
-}
 
 pub fn expand_environment_variables(text: &str) -> String {
     if !text.contains('%') {

@@ -1,5 +1,5 @@
 use configparser::ini::Ini;
-#[cfg(target_os = "windows")]
+
 use registry::{Hive, Security};
 use std::collections::HashMap;
 use std::ops::Index;
@@ -48,7 +48,7 @@ pub enum KillPolicy {
 }
 
 impl Param {
-    #[cfg(target_os = "windows")]
+    
     fn convert_to_str(param: &Param) -> &str {
         match param {
             Param::ConfigPath => "CONFIG_PATH", // incidents reports, exclusions list
@@ -144,7 +144,7 @@ impl Param {
         ret
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn convert_from_str(param: String) -> Param {
         match param.as_str() {
             "CONFIG_PATH" => Param::ConfigPath, // incidents reports, exclusions list
@@ -323,7 +323,7 @@ impl Config {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn get_params() -> HashMap<Param, String> {
         let mut params: HashMap<Param, String> = HashMap::new();
         let param_names = Param::get_string_vec();
@@ -364,7 +364,7 @@ impl Index<Param> for Config {
 pub struct ConfigReader {}
 
 impl ConfigReader {
-    #[cfg(target_os = "windows")]
+    
     pub fn read_param(param: String, location: &str, _bloc: &str) -> String {
         Self::read_param_from_registry(param.as_str(), location)
     }
@@ -374,7 +374,7 @@ impl ConfigReader {
         Self::read_param_from_file(param.as_str(), location, bloc)
     }
 
-    #[cfg(target_os = "windows")]
+    
     #[allow(dead_code)]
     pub fn read_params(
         params: Vec<String>,
@@ -397,7 +397,7 @@ impl ConfigReader {
         config.get(bloc, param).unwrap_or_default()
     }
 
-    #[cfg(target_os = "windows")]
+    
     pub fn read_param_from_registry(param: &str, location: &str) -> String {
         let regkey = match Hive::LocalMachine.open(location, Security::Read) {
             Ok(key) => key,
@@ -435,7 +435,7 @@ impl ConfigReader {
         ret
     }
 
-    #[cfg(target_os = "windows")]
+    
     fn read_params_from_registry(params: Vec<String>, location: &str) -> HashMap<String, String> {
         let mut ret: HashMap<String, String> = HashMap::new();
         for param in params {

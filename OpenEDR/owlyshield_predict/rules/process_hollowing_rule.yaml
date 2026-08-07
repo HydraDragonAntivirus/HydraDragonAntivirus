@@ -1,0 +1,97 @@
+- name: "Process Hollowing"
+  should_trust_comodo_cloud: false
+  description: "Detects a classic process hollowing chain: suspended process creation, remote image unmap or memory replacement, thread context manipulation, and thread resumption."
+  author: "Codex"
+  status: experimental
+  level: critical
+  severity: 99
+  tags:
+    - process-hollowing
+    - code-injection
+    - defense-evasion
+    - process-injection
+  mitre_attack:
+    - "T1055"
+    - "T1055.012"
+  references:
+    - "MITRE ATT&CK T1055.012 - Process Hollowing"
+  false_positives:
+    - "Some debuggers, packers, EDRs, sandbox agents, and software updaters can manipulate remote process memory."
+    - "Review trusted development or security tools before enforcing automatic removal."
+
+  detection_logic:
+    and:
+      - condition: hollowing_bootstrap
+      - condition: remote_memory_replacement
+      - condition: thread_takeover_and_resume
+      - at_least: 1
+        conditions:
+          - remote_process_access
+          - kernel_hollowing_telemetry
+
+  named_conditions:
+    hollowing_bootstrap:
+      apis:
+        - "CreateProcessA"
+        - "CreateProcessW"
+        - "CreateProcessAsUserA"
+        - "CreateProcessAsUserW"
+        - "CreateProcessWithLogonW"
+        - "CreateProcessWithTokenW"
+        - "CreateProcessInternalW"
+        - "NtCreateUserProcess"
+        - "ZwCreateUserProcess"
+      api_threshold: 1
+      min_matches: 1
+
+    remote_process_access:
+      apis:
+        - "OpenProcess"
+        - "NtOpenProcess"
+        - "ZwOpenProcess"
+      api_threshold: 1
+      min_matches: 1
+
+    remote_memory_replacement:
+      apis:
+        - "NtUnmapViewOfSection"
+        - "ZwUnmapViewOfSection"
+        - "VirtualAllocEx"
+        - "NtAllocateVirtualMemory"
+        - "ZwAllocateVirtualMemory"
+        - "WriteProcessMemory"
+        - "NtWriteVirtualMemory"
+        - "ZwWriteVirtualMemory"
+      api_threshold: 2
+      min_matches: 1
+
+    thread_takeover_and_resume:
+      apis:
+        - "GetThreadContext"
+        - "Wow64GetThreadContext"
+        - "SetThreadContext"
+        - "Wow64SetThreadContext"
+        - "NtSetContextThread"
+        - "ZwSetContextThread"
+        - "ResumeThread"
+        - "NtResumeThread"
+        - "ZwResumeThread"
+      api_threshold: 2
+      min_matches: 1
+
+    kernel_hollowing_telemetry:
+      hypervisor_raw_event_types:
+        - 14
+        - 15
+        - 16
+        - 18
+        - 19
+      min_matches: 2
+
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: true
+    notify_user: true
+    record: true

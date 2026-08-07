@@ -1,0 +1,258 @@
+- name: "HEUR:Win.DefEvasion.ProxyTrustTamper.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: medium
+  severity: 68
+  description: |
+    Detects proxy, certificate-store, and browser trust-surface tampering that can
+    be used to defeat local HTTPS interception or enterprise trust. This can be
+    legitimate administrative activity, security tooling, or explicit anti-MITM
+    behavior by malware, so it is surfaced for user review instead of automatic
+    termination.
+  debug: false
+
+  named_conditions:
+    winhttp_reset_proxy:
+      orderless: false
+      created_processes:
+        - "netsh.exe"
+      cmdline_keywords:
+        - "winhttp"
+        - "reset"
+        - "proxy"
+      min_matches: 1
+
+    winhttp_set_proxy:
+      orderless: false
+      created_processes:
+        - "netsh.exe"
+      cmdline_keywords:
+        - "winhttp"
+        - "set"
+        - "proxy"
+      min_matches: 1
+
+    internet_settings_proxy_tamper:
+      orderless: true
+      registry_keys:
+        - HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings*
+        - HKLM\Software\Microsoft\Windows\CurrentVersion\Internet Settings*
+      registry_values:
+        - ProxyEnable
+        - ProxyServer
+        - ProxyOverride
+        - AutoConfigURL
+        - MigrateProxy
+        - EnableAutodial
+        - DefaultConnectionSettings
+        - SavedLegacySettings
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    root_store_tamper:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\SystemCertificates\Root*
+        - HKCU\SOFTWARE\Microsoft\SystemCertificates\Root*
+        - HKLM\SOFTWARE\Microsoft\SystemCertificates\CA*
+        - HKCU\SOFTWARE\Microsoft\SystemCertificates\CA*
+        - HKLM\SOFTWARE\Policies\Mozilla\Firefox\Certificates*
+        - HKCU\SOFTWARE\Policies\Mozilla\Firefox\Certificates*
+      registry_values:
+        - ImportEnterpriseRoots
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    certutil_store_delete:
+      orderless: false
+      created_processes:
+        - "certutil.exe"
+      cmdline_keywords:
+        - "delstore"
+      min_matches: 1
+
+    powershell_cert_store_remove:
+      orderless: false
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "remove-item"
+        - "cert:\\"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "winhttp_reset_proxy"
+      - condition: "winhttp_set_proxy"
+      - condition: "internet_settings_proxy_tamper"
+      - condition: "root_store_tamper"
+      - condition: "certutil_store_delete"
+      - condition: "powershell_cert_store_remove"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    record: true
+
+  tags:
+    - defense-evasion
+    - anti-mitm
+    - proxy-tamper
+    - certificate-store
+  mitre_attack:
+    - T1112
+    - T1562.001
+  false_positives:
+    - "Administrators changing proxy settings or enterprise trust policy"
+    - "Security software installing, removing, or rotating interception certificates"
+
+
+- name: "HEUR:Win.Info.BrowserAntiMitmIndicators.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-25"
+  status: test
+  level: low
+  severity: 42
+  description: |
+    Informational rule for browser-side anti-MITM indicators such as explicit
+    no-proxy or ignore-certificate launch flags, and non-browser processes
+    rewriting Firefox-family trust or proxy profile files. These signals can be
+    benign developer behavior, browser troubleshooting, or malware trying to
+    avoid local HTTPS inspection.
+  debug: false
+
+  named_conditions:
+    browser_ignore_cert_errors:
+      orderless: false
+      created_processes:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "brave.exe"
+        - "opera.exe"
+        - "vivaldi.exe"
+        - "firefox.exe"
+        - "librewolf.exe"
+        - "waterfox.exe"
+      cmdline_keywords:
+        - "--ignore-certificate-errors"
+      min_matches: 1
+
+    browser_no_proxy_server:
+      orderless: false
+      created_processes:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "brave.exe"
+        - "opera.exe"
+        - "vivaldi.exe"
+      cmdline_keywords:
+        - "--no-proxy-server"
+      min_matches: 1
+
+    browser_direct_proxy_mode:
+      orderless: false
+      created_processes:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "brave.exe"
+        - "opera.exe"
+        - "vivaldi.exe"
+      cmdline_keywords:
+        - "--proxy-server=direct://"
+      min_matches: 1
+
+    browser_loopback_bypass:
+      orderless: false
+      created_processes:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "brave.exe"
+        - "opera.exe"
+        - "vivaldi.exe"
+      cmdline_keywords:
+        - "--proxy-bypass-list=<-loopback>"
+      min_matches: 1
+
+    firefox_profile_trust_tamper_writer:
+      orderless: true
+      process_names:
+        - "powershell.exe"
+        - "pwsh.exe"
+        - "cmd.exe"
+        - "python.exe"
+        - "wscript.exe"
+        - "cscript.exe"
+        - "mshta.exe"
+        - "rundll32.exe"
+      min_matches: 1
+
+    firefox_profile_trust_tamper_file:
+      orderless: true
+      file_paths:
+        - '*\mozilla\firefox\profiles\*\prefs.js'
+        - '*\mozilla\firefox\profiles\*\user.js'
+        - '*\mozilla\firefox\profiles\*\cert9.db'
+        - '*\mozilla\firefox\profiles\*\pkcs11.txt'
+        - '*\mozilla\firefox\distribution\policies.json'
+        - '*\librewolf\profiles\*\prefs.js'
+        - '*\waterfox\profiles\*\prefs.js'
+      file_operations:
+        - write
+        - create
+        - setinfo
+        - rename
+        - delete
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "browser_ignore_cert_errors"
+      - condition: "browser_no_proxy_server"
+      - condition: "browser_direct_proxy_mode"
+      - condition: "browser_loopback_bypass"
+      - and:
+          - condition: "firefox_profile_trust_tamper_writer"
+          - condition: "firefox_profile_trust_tamper_file"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags:
+    - info
+    - anti-mitm
+    - browser
+    - proxy-bypass
+  mitre_attack:
+    - T1562.001
+  false_positives:
+    - "Developers launching browsers with debugging or proxy troubleshooting flags"
+    - "User scripts or enterprise tools updating Firefox-family profile trust files"

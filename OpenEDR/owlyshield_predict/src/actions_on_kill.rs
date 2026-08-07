@@ -12,7 +12,7 @@ use log::warn;
 use crate::config::Config;
 use crate::connectors::register::Connectors;
 use crate::logging::Logging;
-use crate::notifications::notify;
+
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::utils::{
@@ -110,7 +110,6 @@ pub struct ActionsOnKill {
 }
 
 pub struct WriteReportFile();
-pub struct WriteReportHtmlFile();
 
 pub trait ActionOnKill {
     fn run(
@@ -373,7 +372,6 @@ impl ActionsOnKill {
         ActionsOnKill {
             actions: vec![
                 Box::new(WriteReportFile()),
-                Box::new(WriteReportHtmlFile()),
                 Box::new(Connectors),
                 Box::new(Logging),
             ],
@@ -390,7 +388,6 @@ impl ActionsOnKill {
                     handler: handler.clone_box(),
                 }),
                 Box::new(WriteReportFile()),
-                Box::new(WriteReportHtmlFile()),
                 Box::new(Connectors),
                 Box::new(Logging),
             ],
@@ -550,124 +547,6 @@ impl ActionOnKill for WriteReportFile {
     }
 }
 
-fn html_escape(value: &str) -> String {
-    value
-        .chars()
-        .flat_map(|ch| match ch {
-            '&' => "&amp;".chars().collect::<Vec<_>>(),
-            '<' => "&lt;".chars().collect::<Vec<_>>(),
-            '>' => "&gt;".chars().collect::<Vec<_>>(),
-            '"' => "&quot;".chars().collect::<Vec<_>>(),
-            '\'' => "&#39;".chars().collect::<Vec<_>>(),
-            _ => vec![ch],
-        })
-        .collect()
-}
-
-impl ActionOnKill for WriteReportHtmlFile {
-    fn run(
-        &self,
-        _config: &Config,
-        proc: &mut ProcessRecord,
-        _pred_mtrx: &VecvecCappedF32,
-        // MODIFIED: Use ThreatInfo
-        threat_info: &ThreatInfo,
-        _report_context: &ActionReportContext,
-        now: &str,
-    ) -> Result<(), Box<dyn Error>> {
-        if !threat_info.should_notify() {
-            return Ok(());
-        }
-
-        let report_dir = crate::globals::report_dir();
-        std::fs::create_dir_all(report_dir)?;
-        let basename = Path::new(&proc.appname)
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
-        let temp = match proc.process_state {
-            ProcessState::Suspended => report_dir.join(Path::new(&format!(
-                "~{}_{}_report_{}.html",
-                &basename, now, &proc.gid,
-            ))),
-            _ => report_dir.join(Path::new(&format!(
-                "{}_{}_report_{}.html",
-                &basename, now, &proc.gid,
-            ))),
-        };
-
-        let report_path = temp.to_str().unwrap_or("");
-        println!("{report_path}");
-        let mut file = File::create(Path::new(&report_path))?;
-        let stime_started: DateTime<Local> = proc.time_started.into();
-        let display_process = best_process_display(proc);
-        file.write_all(b"<!DOCTYPE html><html><head>")?;
-        file.write_all(format!("<title>Owlyshield Report {}</title><link rel='icon' href='https://static.thenounproject.com/png/3420953-200.png'/><meta name='viewport' content='width=device-width, initial-scale=1'/>\n", proc.gid).as_bytes())?;
-
-        // Include report CSS
-        file.write_all(b"<style>body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:20px;background:#f5f7fa;color:#1f2933;}.tab{display:flex;flex-wrap:wrap;gap:4px;border:1px solid #ccd3dc;background:#eef2f7;padding:6px;margin:20px auto;max-width:1180px;}.tab button{background:#fff;border:1px solid #ccd3dc;outline:none;cursor:pointer;padding:12px 14px;transition:0.2s;font-size:14px;min-width:150px;flex:1 1 auto;}.tab button:hover{background:#e5edf7;}.tab button.active{background:#1f5fbf;color:white;border-color:#1f5fbf;}.tabcontent{display:none;padding:12px;max-width:1180px;margin:0 auto 20px auto;background:white;border:1px solid #d9e1ec;}table{width:80%;align:center;margin-left:auto;margin-right:auto;}th{background-color:red;}select{width:100%;align:center;margin-left:auto;margin-right:auto;}.raw-panel{white-space:pre-wrap;overflow:auto;max-height:680px;background:#0f172a;color:#dbeafe;padding:16px;border-radius:6px;font:12px/1.5 Consolas,monospace;}.raw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;}")?;
-        file.write_all(b"</style>")?;
-        file.write_all(b"</head><body>\n")?;
-        let threat_label_html = html_escape(threat_info.threat_type_label);
-        let display_process_html = html_escape(&display_process);
-        let process_state_html = html_escape(&proc.process_state.to_string());
-        let response_label_html = html_escape(threat_info.response_label_for(proc));
-        let response_time_label_html = html_escape(threat_info.response_time_label_for(proc));
-        let virus_name_html = html_escape(threat_info.virus_name);
-        let details_html = threat_info
-            .match_details
-            .as_deref()
-            .map(html_escape)
-            .unwrap_or_else(|| "N/A".to_string());
-
-        // MODIFIED: Use threat_type_label
-        file.write_all(
-                format!("<table><tr><th><h1><b>Owlyshield detected a </b><span style='color: white;'>{}</span><b>!</b></h1></th></tr></table>\n", 
-                threat_label_html).as_bytes()
-            )?;
-        // MODIFIED: Use threat_type_label and add Detection (virus_name)
-        file.write_all(format!(
-                "<br/><table><tr><td style='text-align: center;'><h3>{} detected running from: <span style='color: red;' id='fullPath'>{}</span></h3></td></tr><tr valign='top'><td style='text-align: left;'><ul><li>Process State:<b id='processState'> {}</b></li><li>Started on<b id='startDate'> {}</b></li><li>Response:<b id='response'> {}</b></li><li>{}<b id='responseDate'> {}</b></li><li>GID: <b id='gid'> {}</b></li><li>Detection: <b id='detection'> {}</b></li><li>Certainty: <b id='certainty'> {}</b></li><li>Details:<pre id='details' class='raw-panel'>{}</pre></li></ul></td></tr></table>\n",
-                threat_label_html, // 1. Threat Type
-                display_process_html, // 2. Path
-                process_state_html, // 3. State
-                stime_started.format(LONG_TIME_FORMAT), // 4. Start time
-                response_label_html, // 5. Response action
-                response_time_label_html, // 6. Response time label
-                DateTime::<Local>::from(proc.time_killed.unwrap_or_else(SystemTime::now)).format(LONG_TIME_FORMAT), // 7. Response time
-                proc.gid, // 8. GID
-                virus_name_html, // 9. Virus Name
-                threat_info.prediction, // 10. Certainty
-                details_html // 11. Details
-            ).as_bytes())?;
-
-        {
-            file.write_all(b"<table><tr><td><div class='tab'>\n")?;
-            file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_u')\" id='defaultOpen'>Files updated ({})</button>\n", &proc.fpaths_updated.len()).as_bytes())?;
-            file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_c')\">Files created ({})</button>\n", &proc.fpaths_created.len()).as_bytes())?;
-            file.write_all(b"</div></td></tr></table>\n")?;
-
-            file.write_all(b"<div id='files_u' class='tabcontent'><table><tr><td><select name='files_u' size='30' multiple='multiple'>\n")?;
-            for f in &proc.fpaths_updated {
-                file.write_all(format!("<option value='{f}'>{f}</option>\n").as_bytes())?;
-            }
-            file.write_all(b"</select></td></tr></table></div>\n")?;
-
-            file.write_all(b"<div id='files_c' class='tabcontent'><table><tr><td><select name='files_c' size='30' multiple='multiple'>\n")?;
-            for f in &proc.fpaths_created {
-                file.write_all(format!("<option value='{f}'>{f}</option>\n").as_bytes())?;
-            }
-            file.write_all(b"</select></td></tr></table></div>\n")?;
-
-            file.write_all(b"<script>function openTab(evt, tab) { var i, tabcontent, tablinks; tabcontent = document.getElementsByClassName('tabcontent'); for (i = 0; i != tabcontent.length; i++) { tabcontent[i].style.display = 'none'; } tablinks = document.getElementsByClassName('tablinks'); for (i = 0; i != tablinks.length; i++) { tablinks[i].className = tablinks[i].className.replace(' active', ''); } document.getElementById(tab).style.display = 'block'; evt.currentTarget.className += ' active'; } document.getElementById('defaultOpen').click();</script>\n")?;
-        }
-
-        file.write_all(b"</body></html>")?;
-        Ok(())
-    }
-}
-
 impl ActionOnKill for Connectors {
     fn run(
         &self,
@@ -802,14 +681,10 @@ impl ActionOnKill for KillAction {
                 self.handler.schedule_cleanup_on_reboot(remediation_path);
             }
 
-            let _ = notify(
-                config,
-                &format!(
-                    "Malware cleanup for {} was queued for the next restart.",
+            Logging::alert(&format!(
+                    "[ActionOnKill] Malware cleanup for {} was queued for the next restart.",
                     proc.appname
-                ),
-                "",
-            );
+                ));
             return Ok(());
         }
 

@@ -1,0 +1,614 @@
+# ─── DEFENSE EVASION ─────────────────────────────────────────────────────────
+# Rules detecting techniques adversaries use to avoid detection.
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: "HEUR:Win.DefEvasion.AMSIBypass.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 85
+  description: |
+    Detects AMSI (Antimalware Scan Interface) bypass attempts via registry
+    tampering, DLL patching, or known PowerShell bypass strings.
+    Attackers disable AMSI to load malicious scripts without AV inspection.
+    Equivalent to Sigma: AMSI Bypass via Registry Key (T1562.001).
+  debug: false
+
+  named_conditions:
+    amsi_registry_disable:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\Windows Script\Settings
+        - HKCU\SOFTWARE\Microsoft\Windows Script\Settings
+      registry_values:
+        - AmsiEnable
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    amsi_powershell_bypass:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "AmsiUtils"
+        - "amsiInitFailed"
+        - "amsiContext"
+        - "Reflection.Assembly"
+        - "[Runtime.InteropServices.Marshal]"
+      min_matches: 1
+
+    amsi_provider_removal:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Microsoft\AMSI\Providers
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    powershell_clm_bypass:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "__PSLockdownPolicy"
+        - "ConstrainedLanguage"
+        - "LanguageMode"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "amsi_registry_disable"
+      - condition: "amsi_powershell_bypass"
+      - condition: "amsi_provider_removal"
+      - condition: "powershell_clm_bypass"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    record: true
+
+  tags:
+    - defense-evasion
+    - amsi-bypass
+    - powershell
+  mitre_attack:
+    - T1562.001
+    - T1059.001
+  false_positives:
+    - "Security research tools testing AMSI coverage"
+    - "Legitimate scripting engines in restricted environments"
+
+
+- name: "HEUR:Win.DefEvasion.Base64EncodedCommand.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: medium
+  severity: 60
+  description: |
+    Detects PowerShell or cmd invoked with Base64-encoded command payloads
+    (-EncodedCommand, -enc, -e). Adversaries encode commands to evade
+    signature-based detection and command-line logging.
+    Equivalent to Sigma: Encoded PowerShell Command Line (T1027).
+  debug: false
+
+  named_conditions:
+    powershell_encoded:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "-EncodedCommand"
+        - "-enc "
+        - " -e "
+        - "-ec "
+      min_matches: 1
+
+    cmd_certutil_decode:
+      orderless: false
+      created_processes:
+        - "certutil.exe"
+      cmdline_keywords:
+        - "-decode"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "powershell_encoded"
+      - condition: "cmd_certutil_decode"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags:
+    - defense-evasion
+    - obfuscation
+    - info
+  mitre_attack:
+    - T1027
+    - T1059.001
+  false_positives:
+    - "Legitimate automation scripts using encoded commands"
+    - "Software installers that encode long argument strings"
+
+
+- name: "HEUR:Win.DefEvasion.FileAttributeHiding.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: low
+  severity: 35
+  description: |
+    Informational: attrib.exe used to set hidden/system attributes on files.
+    Malware commonly hides its dropped files with +h +s to evade casual
+    inspection. Logged for correlation with other indicators.
+    Equivalent to Sigma: Hiding Files with Attrib (T1564.001).
+  debug: false
+
+  named_conditions:
+    attrib_hide:
+      orderless: false
+      created_processes:
+        - "attrib.exe"
+      cmdline_keywords:
+        - "+h"
+      min_matches: 1
+
+    attrib_system:
+      orderless: false
+      created_processes:
+        - "attrib.exe"
+      cmdline_keywords:
+        - "+s"
+      min_matches: 1
+
+    powershell_hide_item:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Hidden"
+        - "Set-ItemProperty"
+        - "Attributes"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "attrib_hide"
+      - condition: "attrib_system"
+      - condition: "powershell_hide_item"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags:
+    - defense-evasion
+    - file-hiding
+    - info
+  mitre_attack:
+    - T1564.001
+  false_positives:
+    - "Legitimate software hiding installation caches"
+    - "Backup tools marking files system/hidden"
+
+
+- name: "HEUR:Win.DefEvasion.SafeModeServicePersistence.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: critical
+  severity: 95
+  description: |
+    Detects a process modifying boot configuration (bcdedit) to enable Safe Mode
+    or registering a service/driver under the SafeBoot registry key.
+    BlackMatter/REvil ransomware abuses this to run during Safe Mode when most
+    security tools are disabled.
+    Equivalent to Sigma: Safe Boot Persistence via Registry (T1112, T1543.003).
+  debug: false
+
+  named_conditions:
+    bcdedit_safeboot:
+      orderless: false
+      created_processes:
+        - "bcdedit.exe"
+      cmdline_keywords:
+        - "safeboot"
+        - "minimal"
+        - "network"
+      min_matches: 1
+
+    safeboot_registry_service:
+      orderless: true
+      registry_keys:
+        - HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal
+        - HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Network
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "bcdedit_safeboot"
+      - condition: "safeboot_registry_service"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+  tags:
+    - defense-evasion
+    - persistence
+    - safe-mode
+    - ransomware
+  mitre_attack:
+    - T1112
+    - T1543.003
+    - T1490
+  false_positives:
+    - "IT administrators configuring boot options"
+    - "Recovery tools that require Safe Mode boot"
+
+
+- name: "HEUR:Win.DefEvasion.ShadowCopyDeletion.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: critical
+  severity: 98
+  description: |
+    Detects deletion or disabling of Volume Shadow Copies via vssadmin, wmic,
+    wbadmin, or PowerShell. This is a hallmark ransomware pre-encryption step
+    to prevent victims from restoring files from shadow copies.
+    Equivalent to Sigma: Shadow Copies Deletion Using OS Utilities (T1490).
+  debug: false
+
+  named_conditions:
+    vssadmin_delete:
+      orderless: false
+      created_processes:
+        - "vssadmin.exe"
+      cmdline_keywords:
+        - "delete"
+        - "shadows"
+      min_matches: 1
+
+    wmic_shadow_delete:
+      orderless: false
+      created_processes:
+        - "wmic.exe"
+      cmdline_keywords:
+        - "shadowcopy"
+        - "delete"
+      min_matches: 1
+
+    wbadmin_delete:
+      orderless: false
+      created_processes:
+        - "wbadmin.exe"
+      cmdline_keywords:
+        - "delete"
+        - "catalog"
+      min_matches: 1
+
+    powershell_shadow_delete:
+      orderless: false
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Win32_ShadowCopy"
+        - "Delete()"
+      min_matches: 1
+
+    bcdedit_recovery_disable:
+      orderless: false
+      created_processes:
+        - "bcdedit.exe"
+      cmdline_keywords:
+        - "recoveryenabled"
+        - "no"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "vssadmin_delete"
+      - condition: "wmic_shadow_delete"
+      - condition: "wbadmin_delete"
+      - condition: "powershell_shadow_delete"
+      - condition: "bcdedit_recovery_disable"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    record: true
+
+  tags:
+    - defense-evasion
+    - impact
+    - ransomware
+    - shadow-copy
+  mitre_attack:
+    - T1490
+  false_positives:
+    - "IT administrators performing legitimate disk cleanup"
+    - "Backup software managing its own shadow copy lifecycle"
+
+
+- name: "INFO:Win.DefEvasion.ClearEventLog.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: medium
+  severity: 65
+  description: |
+    Informational: event logs cleared via wevtutil, PowerShell Clear-EventLog,
+    or auditpol. Attackers clear logs to erase forensic evidence after
+    compromise. Logged for immediate analyst attention.
+    Equivalent to Sigma: Security Eventlog Cleared (T1070.001).
+  debug: false
+
+  named_conditions:
+    wevtutil_clear:
+      orderless: false
+      created_processes:
+        - "wevtutil.exe"
+      cmdline_keywords:
+        - "cl"
+        - "clear-log"
+      min_matches: 1
+
+    powershell_clear_log:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Clear-EventLog"
+        - "Limit-EventLog"
+        - "Remove-EventLog"
+      min_matches: 1
+
+    auditpol_disable:
+      orderless: false
+      created_processes:
+        - "auditpol.exe"
+      cmdline_keywords:
+        - "/set"
+        - "no auditing"
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "wevtutil_clear"
+      - condition: "powershell_clear_log"
+      - condition: "auditpol_disable"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags:
+    - defense-evasion
+    - log-clearing
+    - info
+  mitre_attack:
+    - T1070.001
+    - T1070.002
+  false_positives:
+    - "IT administrators performing log rotation"
+    - "Compliance tools resetting audit policy"
+
+
+- name: "INFO:Win.DefEvasion.ProcessInjectionAPIs.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 80
+  description: |
+    Informational: process injection API sequence detected — VirtualAllocEx,
+    WriteProcessMemory, CreateRemoteThread or NtCreateThreadEx.
+    This pattern is used by process injection techniques (shellcode injection,
+    DLL injection, process hollowing) to execute code inside another process.
+    Equivalent to Sigma: Injection via CreateRemoteThread (T1055).
+  debug: false
+
+  named_conditions:
+    classic_injection_apis:
+      orderless: true
+      apis:
+        - "kernel32.dll!VirtualAllocEx"
+        - "kernel32.dll!WriteProcessMemory"
+        - "kernel32.dll!CreateRemoteThread"
+      api_threshold: 2
+
+    nt_inject_apis:
+      orderless: true
+      apis:
+        - "ntdll.dll!NtAllocateVirtualMemory"
+        - "ntdll.dll!NtWriteVirtualMemory"
+        - "ntdll.dll!NtCreateThreadEx"
+        - "ntdll.dll!RtlCreateUserThread"
+      api_threshold: 2
+
+    apc_injection:
+      orderless: true
+      apis:
+        - "kernel32.dll!QueueUserAPC"
+        - "ntdll.dll!NtQueueApcThread"
+      api_threshold: 1
+
+  detection_logic:
+    or:
+      - condition: "classic_injection_apis"
+      - condition: "nt_inject_apis"
+      - condition: "apc_injection"
+
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    record: true
+
+  tags:
+    - defense-evasion
+    - process-injection
+    - info
+  mitre_attack:
+    - T1055
+    - T1055.001
+    - T1055.002
+    - T1055.004
+  false_positives:
+    - "Legitimate debuggers and development tools"
+    - "Security software performing memory inspection"
+    - "Game anti-cheat systems"
+
+
+- name: "INFO:Win.DefEvasion.DisableWindowsDefender.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: high
+  severity: 82
+  description: |
+    Detects attempts to disable Windows Defender via registry, PowerShell
+    Set-MpPreference, or sc.exe stopping WinDefend service.
+    Equivalent to Sigma: Windows Defender Disabled via Registry (T1562.001).
+  debug: false
+
+  named_conditions:
+    defender_registry_disable:
+      orderless: true
+      registry_keys:
+        - HKLM\SOFTWARE\Policies\Microsoft\Windows Defender
+        - HKLM\SOFTWARE\Microsoft\Windows Defender
+      registry_values:
+        - DisableAntiSpyware
+        - DisableAntiVirus
+        - DisableRealtimeMonitoring
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    powershell_mppreference:
+      orderless: true
+      created_processes:
+        - "powershell.exe"
+        - "pwsh.exe"
+      cmdline_keywords:
+        - "Set-MpPreference"
+        - "DisableRealtimeMonitoring"
+        - "DisableIOAVProtection"
+        - "DisableScriptScanning"
+      min_matches: 1
+
+    sc_stop_defender:
+      orderless: false
+      created_processes:
+        - "sc.exe"
+      cmdline_patterns:
+        - pattern: '(?i)(?:^|\\s|")stop(?:\\s|")+(?:windefend|wdnisvc|sense|securityhealthservice)(?:$|\\s|")'
+          is_regex: true
+      min_matches: 1
+
+    net_stop_defender:
+      orderless: false
+      created_processes:
+        - "net.exe"
+        - "net1.exe"
+      cmdline_patterns:
+        - pattern: '(?i)(?:^|\\s|")stop(?:\\s|")+(?:windefend|wdnisvc|sense|securityhealthservice)(?:$|\\s|")'
+          is_regex: true
+      min_matches: 1
+
+  detection_logic:
+    or:
+      - condition: "defender_registry_disable"
+      - condition: "powershell_mppreference"
+      - condition: "sc_stop_defender"
+      - condition: "net_stop_defender"
+
+  response:
+    notify_user: true
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+  tags:
+    - defense-evasion
+    - antivirus-disable
+    - windows-defender
+  mitre_attack:
+    - T1562.001
+  false_positives:
+    - "IT administrators managing Defender exclusions"
+    - "Enterprise security tools with their own AV managing Defender state"

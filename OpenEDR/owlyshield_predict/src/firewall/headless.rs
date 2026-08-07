@@ -1,4 +1,4 @@
-use crate::engine::FirewallEngine;
+use super::engine::FirewallEngine;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Global registry of the single in-process `FirewallEngine` instance.

@@ -1,0 +1,1947 @@
+- rule_id: HD-AMSI-CRIT-0001
+  name: '[CRITICAL] AMSI Bypass - AmsiUtils reflection type lookup'
+  description: Detects AMSI bypass content associated with amsiutils reflection type lookup using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)System\.Management\.Automation\.AmsiUtils
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0002
+  name: '[CRITICAL] AMSI Bypass - amsiInitFailed static field flip'
+  description: Detects AMSI bypass content associated with amsiinitfailed static field flip using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)amsi.{0,8}init.{0,8}failed
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0003
+  name: '[CRITICAL] AMSI Bypass - AmsiScanBuffer export resolution'
+  description: Detects AMSI bypass content associated with amsiscanbuffer export resolution using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 98
+  severity: 98
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(GetProcAddress|GetDelegateForFunctionPointer|UnsafeNativeMethods).{0,160}AmsiScan(Buffer|String)|AmsiScan(Buffer|String).{0,160}(GetProcAddress|GetDelegateForFunctionPointer|UnsafeNativeMethods|VirtualProtect|patch)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0004
+  name: '[CRITICAL] AMSI Bypass - AmsiOpenSession patch target'
+  description: Detects AMSI bypass content associated with amsiopensession patch target using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 96
+  severity: 96
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)AmsiOpenSession.{0,160}(patch|VirtualProtect|Write(Int32|ProcessMemory)|Marshal|0xC3|0xB8)|(?:patch|VirtualProtect|Write(Int32|ProcessMemory)|Marshal|0xC3|0xB8).{0,160}AmsiOpenSession
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0005
+  name: '[CRITICAL] AMSI Bypass - AmsiContext or AmsiSession corruption'
+  description: Detects AMSI bypass content associated with amsicontext or amsisession corruption using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 96
+  severity: 96
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(WriteInt32|PtrToStructure|Marshal|SetValue|zero|null|corrupt|overwrite).{0,160}amsi(Context|Session)|amsi(Context|Session).{0,160}(WriteInt32|PtrToStructure|Marshal|SetValue|zero|null|corrupt|overwrite)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0006
+  name: '[CRITICAL] AMSI Bypass - VirtualProtect against AMSI region'
+  description: Detects AMSI bypass content associated with virtualprotect against amsi region using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)VirtualProtect.{0,120}(amsi|AmsiScanBuffer|amsi\.dll)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0007
+  name: '[CRITICAL] AMSI Bypass - Marshal Copy AMSI memory patch'
+  description: Detects AMSI bypass content associated with marshal copy amsi memory patch using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(Marshal::Copy|System\.Runtime\.InteropServices\.Marshal).{0,120}(amsi|AmsiScanBuffer)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0008
+  name: '[CRITICAL] AMSI Bypass - NonPublic Static GetField reflection'
+  description: Detects AMSI bypass content associated with nonpublic static getfield reflection using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 98
+  severity: 98
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)GetField\(.{0,80}(NonPublic|Static).{0,80}(amsi|initfailed|context)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0009
+  name: '[CRITICAL] AMSI Bypass - SetValue null true AMSI flip'
+  description: Detects AMSI bypass content associated with setvalue null true amsi flip using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 96
+  severity: 96
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)SetValue\(\s*\$?null\s*,\s*\$?true\s*\)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0010
+  name: '[CRITICAL] AMSI Bypass - LoadLibrary amsi.dll'
+  description: Detects AMSI bypass content associated with loadlibrary amsi.dll using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 96
+  severity: 96
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)LoadLibrary(A|W)?\(.{0,80}amsi\.dll.{0,220}(GetProcAddress|AmsiScanBuffer|VirtualProtect|patch)|(?:GetProcAddress|AmsiScanBuffer|VirtualProtect|patch).{0,220}LoadLibrary(A|W)?\(.{0,80}amsi\.dll
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0011
+  name: '[CRITICAL] AMSI Bypass - GetProcAddress AmsiScanBuffer'
+  description: Detects AMSI bypass content associated with getprocaddress amsiscanbuffer using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 98
+  severity: 98
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)GetProcAddress.{0,80}AmsiScanBuffer
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0012
+  name: '[CRITICAL] AMSI Bypass - AMSI E_INVALIDARG patch bytes'
+  description: Detects AMSI bypass content associated with amsi e_invalidarg patch bytes using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(0xb8|184).{0,32}(0x57|87).{0,32}(0x00|0).{0,32}(0x07|7).{0,32}(0x80|128).{0,32}(0xc3|195)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0013
+  name: '[HIGH] AMSI Bypass - Byte array return clean patch'
+  description: Detects AMSI bypass content associated with byte array return clean patch using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(AmsiScanBuffer|ScanBuffer|amsi).{0,180}(\[Byte\[\]\]|0x31|0x33|0xC3|195)|(?:\[Byte\[\]\]|0x31|0x33|0xC3|195).{0,180}(AmsiScanBuffer|ScanBuffer|amsi)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0014
+  name: '[HIGH] AMSI Bypass - ScriptBlockAst manipulation'
+  description: Detects AMSI bypass content associated with scriptblockast manipulation using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1027
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(ScriptBlockAst|AstInternal|InternalScriptExtent).{0,220}(Amsi|Bypass|Invoke-Expression|IEX|EncodedCommand|FromBase64String|obfuscat|replace)|(?:Amsi|Bypass|Invoke-Expression|IEX|EncodedCommand|FromBase64String|obfuscat|replace).{0,220}(ScriptBlockAst|AstInternal|InternalScriptExtent)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0015
+  name: '[HIGH] AMSI Bypass - ScriptBlock Create from obfuscated string'
+  description: Detects AMSI bypass content associated with scriptblock create from obfuscated string using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 86
+  severity: 86
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1027
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)ScriptBlock\s*::\s*Create
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0016
+  name: '[HIGH] AMSI Bypass - Cached group policy logging suppression'
+  description: Detects AMSI bypass content associated with cached group policy logging suppression using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)cachedGroupPolicySettings
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0017
+  name: '[HIGH] AMSI Bypass - Script block logging disabled'
+  description: Detects AMSI bypass content associated with script block logging disabled using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)EnableScriptBlockLogging.{0,80}(0|false)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0018
+  name: '[HIGH] AMSI Bypass - ETW EventWrite tamper from script'
+  description: Detects AMSI bypass content associated with etw eventwrite tamper from script using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 92
+  severity: 92
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.006
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(EtwEventWrite|EventProvider|TraceLoggingProvider).{0,120}(patch|VirtualProtect|Write)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0019
+  name: '[HIGH] AMSI Bypass - .NET Assembly.Load from Base64'
+  description: Detects AMSI bypass content associated with .net assembly.load from base64 using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1620
+  - T1027
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)FromBase64String.{0,200}(Assembly\.Load|Load\()
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0020
+  name: '[HIGH] AMSI Bypass - Add-Type DllImport VirtualProtect'
+  description: Detects AMSI bypass content associated with add-type dllimport virtualprotect using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1106
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)Add-Type.{0,200}DllImport.{0,160}VirtualProtect
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0021
+  name: '[HIGH] AMSI Bypass - Delegate GetFunctionPointerForDelegate'
+  description: Detects AMSI bypass content associated with delegate getfunctionpointerfordelegate using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 85
+  severity: 85
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1106
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(GetFunctionPointerForDelegate|GetDelegateForFunctionPointer).{0,220}(VirtualProtect|VirtualAlloc|CreateThread|Amsi|ScanBuffer|shellcode)|(?:VirtualProtect|VirtualAlloc|CreateThread|Amsi|ScanBuffer|shellcode).{0,220}(GetFunctionPointerForDelegate|GetDelegateForFunctionPointer)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0022
+  name: '[HIGH] AMSI Bypass - UnsafeNativeMethods GetProcAddress'
+  description: Detects AMSI bypass content associated with unsafenativemethods getprocaddress using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1106
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)UnsafeNativeMethods.{0,120}GetProcAddress
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0023
+  name: '[HIGH] AMSI Bypass - WriteInt32 amsiContext overwrite'
+  description: Detects AMSI bypass content associated with writeint32 amsicontext overwrite using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 92
+  severity: 92
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)WriteInt32.{0,120}amsi(Context|Session)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0024
+  name: '[HIGH] AMSI Bypass - PtrToStructure amsi context manipulation'
+  description: Detects AMSI bypass content associated with ptrtostructure amsi context manipulation using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)PtrToStructure.{0,120}amsi(Context|Session)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-CRIT-0025
+  name: '[CRITICAL] AMSI Bypass - Hardware breakpoint AMSI bypass'
+  description: Detects AMSI bypass content associated with hardware breakpoint amsi bypass using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 96
+  severity: 96
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(HardwareBreakpoint|DR0|DR7|VectoredExceptionHandler|AddVectoredExceptionHandler)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0026
+  name: '[HIGH] AMSI Bypass - AmsiX64/AmsiX32 patch helper'
+  description: Detects AMSI bypass content associated with amsix64/amsix32 patch helper using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(AmsiX64|AmsiX32|FindAmsiFun|ScanBufferPatch)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0027
+  name: '[HIGH] AMSI Bypass - AMSI provider nulling'
+  description: Detects AMSI bypass content associated with amsi provider nulling using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(AntimalwareProvider|AmsiProvider|IAntimalwareProvider).{0,120}(null|blank|patch|free)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0028
+  name: '[HIGH] AMSI Bypass - CLR amsi scan patcher'
+  description: Detects AMSI bypass content associated with clr amsi scan patcher using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)clr\.dll.{0,160}(amsi|patch|VirtualProtect|WriteProcessMemory)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0029
+  name: '[HIGH] AMSI Bypass - Concatenated AmsiUtils string'
+  description: Detects AMSI bypass content associated with concatenated amsiutils string using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 86
+  severity: 86
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1027
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)am.{0,8}si.{0,20}ut.{0,8}ils
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-MED-0030
+  name: '[MEDIUM] AMSI Bypass - char-code AMSI string build'
+  description: Detects AMSI bypass content associated with char-code amsi string build using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 84
+  severity: 84
+  level: medium
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1027
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Low
+      patterns:
+      - (?i)(\[char\]|\[cHaR\]|0x41).{0,160}(0x6d|109|0x73|115|0x69|105)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0031
+  name: '[HIGH] AMSI Bypass - ScanBuffer forced clean/invalid return'
+  description: Detects AMSI bypass content associated with scanbuffer forced clean/invalid return using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)scan.{0,16}buffer.{0,160}(clean|invalidarg|return|bypass)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0032
+  name: '[HIGH] AMSI Bypass - PowerShell v2 downgrade'
+  description: Detects AMSI bypass content associated with powershell v2 downgrade using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 86
+  severity: 86
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.010
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(powershell|pwsh).{0,80}(-version| -v)\s*2(\.0)?
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0033
+  name: '[HIGH] AMSI Bypass - NOP hidden encoded PowerShell'
+  description: Detects AMSI bypass content associated with nop hidden encoded powershell using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1059.001
+  - T1027
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(-nop|-noprofile).{0,80}(-w hidden|-windowstyle hidden).{0,80}(-enc|-encodedcommand)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0034
+  name: '[HIGH] AMSI Bypass - Reflection BindingFlags NonPublic Static'
+  description: Detects AMSI bypass content associated with reflection bindingflags nonpublic static using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 86
+  severity: 86
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1027
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(Reflection\.)?BindingFlags.{0,180}NonPublic.{0,120}Static.{0,220}(AmsiUtils|amsiInitFailed|amsiContext|amsiSession)|(?:AmsiUtils|amsiInitFailed|amsiContext|amsiSession).{0,220}(Reflection\.)?BindingFlags.{0,180}NonPublic.{0,120}Static
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0035
+  name: '[HIGH] AMSI Bypass - AppDomain assembly enumeration for AMSI'
+  description: Detects AMSI bypass content associated with appdomain assembly enumeration for amsi using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 86
+  severity: 86
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)AppDomain\.CurrentDomain\.GetAssemblies\(\).{0,160}(Automation|Amsi|System\.Management)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-MED-0036
+  name: '[MEDIUM] AMSI Bypass - Obfuscated web cradle plus invoke expression'
+  description: Detects AMSI bypass content associated with obfuscated web cradle plus invoke expression using AMSI regex or
+    wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 75
+  severity: 75
+  level: medium
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1059.001
+  - T1105
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Low
+      patterns:
+      - (?i)(DownloadString|WebClient|Invoke-WebRequest|iwr).{0,200}(IEX|Invoke-Expression)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-MED-0037
+  name: '[MEDIUM] AMSI Bypass - PowerShell Defender preference disable'
+  description: Detects AMSI bypass content associated with powershell defender preference disable using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 82
+  severity: 82
+  level: medium
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Low
+      patterns:
+      - (?i)Set-MpPreference.{0,120}(DisableRealtimeMonitoring|DisableIOAVProtection|DisableScriptScanning)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0038
+  name: '[HIGH] AMSI Bypass - AMSI.fail generated bypass markers'
+  description: Detects AMSI bypass content associated with amsi.fail generated bypass markers using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 94
+  severity: 94
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1562.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(AmsiScanBuffer|amsiInitFailed|AmsiUtils).{0,240}(VirtualProtect|Marshal|NonPublic|SetValue)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-HIGH-0039
+  name: '[HIGH] AMSI Bypass - Reflection Emit shellcode loader'
+  description: Detects AMSI bypass content associated with reflection emit shellcode loader using AMSI regex or wildcard matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1620
+  - T1055
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Medium
+      patterns:
+      - (?i)(DefineDynamicAssembly|DefineDynamicModule|DefineType).{0,220}(VirtualAlloc|CreateThread|GetProcAddress)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true
+- rule_id: HD-AMSI-MED-0040
+  name: '[MEDIUM] AMSI Bypass - Suspicious base64 compressed PowerShell'
+  description: Detects AMSI bypass content associated with suspicious base64 compressed powershell using AMSI regex or wildcard
+    matching.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 78
+  severity: 78
+  level: medium
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - amsi
+  - powershell
+  - dotnet-reflection
+  - defense-evasion
+  mitre_attack:
+  - T1027
+  - T1059.001
+  references:
+  - https://amsi.fail/
+  - https://discuss.elastic.co/t/exception-for-potential-antimalware-scan-interface-bypass-via-powershell/378627
+  false_positives:
+  - Security research tools, AMSI test harnesses, and administrator hardening scripts can reference AMSI internals without
+    malicious intent.
+  stages:
+  - name: AMSI content regex
+    conditions:
+    - type: Amsi
+      risk_at_least: Low
+      patterns:
+      - (?i)(FromBase64String|GzipStream|DeflateStream).{0,200}(IEX|Invoke-Expression|Amsi)
+      cmdline_patterns:
+      - '*powershell*'
+      - '*pwsh*'
+      - '*wscript*'
+      - '*cscript*'
+      - '*mshta*'
+      - '*rundll32*'
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+    notify_user: true
+    record: true

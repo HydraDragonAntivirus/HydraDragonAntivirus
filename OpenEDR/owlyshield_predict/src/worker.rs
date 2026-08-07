@@ -5,9 +5,9 @@ pub mod process_record_handling {
 
     use chrono::Local;
     use lru::LruCache;
-    #[cfg(target_os = "windows")]
+    
     use windows::Win32::Foundation::CloseHandle;
-    #[cfg(target_os = "windows")]
+    
     use windows::Win32::System::Threading::{
         OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
         QueryFullProcessImageNameW,
@@ -28,7 +28,7 @@ pub mod process_record_handling {
     pub struct ExepathLive;
 
     impl Exepath for ExepathLive {
-        #[cfg(target_os = "windows")]
+        
         fn exepath(&self, iomsg: &IOMessage) -> Option<PathBuf> {
             let pid = iomsg.pid;
             unsafe {
@@ -255,13 +255,13 @@ mod process_records {
 pub mod worker_instance {
     use crate::ExepathLive;
     use crate::IOMessage;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use crate::actions_on_kill::{
         ActionReportContext, ActionsOnKill, ThreatInfo, restart_cleanup_reason,
     };
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use crate::behavioral::app_settings::AppSettings;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use crate::behavioral::behavior_engine::BehaviorEngine;
     use crate::config::{Config, Param};
     use crate::logging::Logging;
@@ -269,38 +269,38 @@ pub mod worker_instance {
     use crate::process::ProcessRecord;
     use crate::process::ProcessState;
     use crate::shared_def::IrpMajorOp;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use crate::shared_def::effective_hypervisor_raw_event_type;
     use crate::threat_handler::ThreatHandler;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use crate::utils::validate_pipe_client;
     use crate::worker::process_record_handling::{
         ExePathReplay, Exepath, ProcessRecordHandlerReplay, ProcessRecordIOHandler,
     };
     use crate::worker::process_records::ProcessRecords;
     use chrono::{DateTime, Utc};
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use std::collections::HashSet;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use std::ffi::OsStr;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc::{Sender, channel};
     use std::thread;
     use sysinfo::{ProcessesToUpdate, System};
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use windows::Win32::Foundation::{
         CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
     };
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_INBOUND, ReadFile};
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use windows::Win32::System::Pipes::{
         ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
         PIPE_UNLIMITED_INSTANCES,
     };
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    
     use windows::core::PCWSTR;
 
     pub trait IOMsgPostProcessor {
@@ -326,54 +326,51 @@ pub mod worker_instance {
         process_record_handler: Option<Box<dyn ProcessRecordIOHandler + 'a>>,
         exepath_handler: Box<dyn Exepath>,
         iomsg_postprocessors: Vec<Box<dyn IOMsgPostProcessor>>,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         pub behavior_engine: BehaviorEngine,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         pub app_settings: AppSettings,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         dynamic_hooks_registered: bool,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         dynamic_hook_event_map: std::collections::HashMap<u32, String>,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         dynamic_registered_apis: HashSet<String>,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         next_dynamic_hook_event_id: u32,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         dynamic_hook_registration_blocked: bool,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         dynamic_hook_last_refresh: std::collections::HashMap<u32, std::time::Instant>,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         dynamic_hook_target_generation: u64,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         dynamic_hook_applied_generation: std::collections::HashMap<u32, u64>,
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         dynamic_hook_apply_failures: std::collections::HashMap<u32, u32>,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
-        #[cfg(target_os = "windows")]
+        
         pub driver: Option<crate::Driver>,
         pub last_report_time: Option<std::time::Instant>,
     }
 
     impl<'a> Worker<'a> {
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         pub fn generate_system_report(&mut self) {
             let config = self.config;
             let _ = &config[crate::config::Param::ConfigPath]; // Explicit read to ensure compiler sees it as used
             let signatures_count = self.behavior_engine.rules.len();
             let rootkit_findings = self.behavior_engine.get_rootkit_findings();
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             let fw_pids = self.behavior_engine.firewall_net_pids.read().unwrap();
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
             let firewall_pids = Some(&*fw_pids);
-            #[cfg(not(all(target_os = "windows", feature = "firewall")))]
-            let firewall_pids = None;
             let mut report = crate::report::SystemReport::collect(
                 config,
                 firewall_pids,
                 signatures_count,
                 rootkit_findings,
             );
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             let fw_net_details = self.behavior_engine.firewall_net_details.read().unwrap();
 
             // Collect process snapshots from behavior engine
@@ -524,7 +521,7 @@ pub mod worker_instance {
                 snapshot.detected_apis.sort();
                 snapshot.detected_apis.dedup();
 
-                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                
                 if let Some(targets) = fw_net_details.get(&state.pid) {
                     let mut network_targets = targets
                         .iter()
@@ -569,20 +566,17 @@ pub mod worker_instance {
         }
 
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         const DYNAMIC_HOOK_EVENT_ID_START: u32 = 0x6000;
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         const DYNAMIC_HOOK_MAX_FAILURES: u32 = 3;
 
-        #[cfg(target_os = "windows")]
+        
         fn is_internal_service_pid(pid: u32) -> bool {
             pid == std::process::id()
         }
 
-        #[cfg(not(target_os = "windows"))]
-        fn is_internal_service_pid(_pid: u32) -> bool {
-            false
-        }
+
 
         fn is_rootkit_irp(irp_op: &IrpMajorOp) -> bool {
             matches!(
@@ -597,7 +591,7 @@ pub mod worker_instance {
             )
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn is_unattributed_rootkit_event(iomsg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
             Self::is_rootkit_irp(irp_op)
                 && iomsg.gid == 0
@@ -606,16 +600,16 @@ pub mod worker_instance {
                 && iomsg.kernel_event_info.source_process_id == 0
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn build_behavior_engine(config: &Config) -> BehaviorEngine {
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
             static OPENEDR_PIPE_START: std::sync::Once = std::sync::Once::new();
 
             let extension_source_mode = config.extension_source_mode();
             let engine =
                 BehaviorEngine::new_with_extension_source_mode(extension_source_mode.as_deref());
-            #[cfg(all(target_os = "windows", feature = "firewall"))]
+            
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
             });
@@ -629,7 +623,7 @@ pub mod worker_instance {
             engine
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         pub fn start_openedr_telemetry_pipe(behavior_engine: BehaviorEngine) {
             std::thread::Builder::new()
                 .name("openedr_telemetry_pipe".to_string())
@@ -714,7 +708,7 @@ pub mod worker_instance {
                                     continue;
                                 }
 
-                                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                                
                                 if let Some(json) = line.strip_prefix("FULL_PACKED_DATA:") {
                                     behavior_engine.ingest_firewall_packed_data(json);
                                 } else {
@@ -729,16 +723,6 @@ pub mod worker_instance {
                                         )),
                                     }
                                 }
-                                #[cfg(not(all(target_os = "windows", feature = "firewall")))]
-                                match serde_json::from_str::<serde_json::Value>(&line) {
-                                    Ok(event) => {
-                                        behavior_engine.ingest_openedr_event(&event);
-                                    }
-                                    Err(err) => Logging::warning(&format!(
-                                        "[OpenEDRTelemetry] Failed to parse direct event JSON: {}",
-                                        err
-                                    )),
-                                }
                             }
                         }
 
@@ -751,7 +735,7 @@ pub mod worker_instance {
                 .expect("failed to spawn openedr_telemetry_pipe thread");
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         #[allow(dead_code)]
         fn apply_behavior_detection_state(record: &mut ProcessRecord, det: &ProcessRecord) {
             record.is_malicious = true;
@@ -767,7 +751,7 @@ pub mod worker_instance {
             record.remediation_target_path = det.remediation_target_path.clone();
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         #[allow(dead_code)]
         fn build_behavior_threat_info<'b>(det: &'b ProcessRecord, context: &str) -> ThreatInfo<'b> {
             let mut virus_name = det
@@ -831,17 +815,17 @@ pub mod worker_instance {
             }
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn default_dynamic_hook_event_map() -> std::collections::HashMap<u32, String> {
             std::collections::HashMap::new()
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn default_registered_dynamic_apis() -> HashSet<String> {
             HashSet::new()
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn should_refresh_dynamic_hooks_for_pid(&mut self, pid: u32) -> bool {
             if pid == 0 {
                 return false;
@@ -860,7 +844,7 @@ pub mod worker_instance {
             true
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn refresh_dynamic_hooks_for_pid_if_due(&mut self, pid: u32) {
             if Self::should_skip_dynamic_hooks_for_pid(pid) {
                 return;
@@ -871,7 +855,7 @@ pub mod worker_instance {
             }
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn should_skip_dynamic_hooks_for_pid(pid: u32) -> bool {
             if pid == 0 || Self::is_internal_service_pid(pid) {
                 return true;
@@ -888,14 +872,7 @@ pub mod worker_instance {
             let pid = if iomsg.pid != 0 {
                 iomsg.pid
             } else {
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    iomsg.attacker_pid
-                }
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    0
-                }
+                iomsg.attacker_pid
             };
             if pid == 0 {
                 return;
@@ -917,16 +894,12 @@ pub mod worker_instance {
                 return;
             }
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             let behavior_pid_conflict = self
                 .behavior_engine
                 .process_states
                 .get(&iomsg.gid)
                 .map(|s| s.pid != 0 && s.pid != pid)
                 .unwrap_or(false);
-
-            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-            let behavior_pid_conflict = false;
 
             let record_pid_conflict = self
                 .process_records
@@ -946,7 +919,7 @@ pub mod worker_instance {
         }
         pub fn new(
             config: &'a Config,
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             app_settings: AppSettings,
         ) -> Self {
             Worker {
@@ -955,30 +928,30 @@ pub mod worker_instance {
                 process_record_handler: None,
                 exepath_handler: Box::<ExepathLive>::default(),
                 threat_handler: None,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 app_settings: app_settings.clone(),
                 iomsg_postprocessors: vec![],
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 behavior_engine: Self::build_behavior_engine(config),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hooks_registered: false,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_event_map: Self::default_dynamic_hook_event_map(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_registered_apis: Self::default_registered_dynamic_apis(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_registration_blocked: false,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_last_refresh: std::collections::HashMap::new(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_target_generation: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_applied_generation: std::collections::HashMap::new(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
-                #[cfg(target_os = "windows")]
+                
                 driver: None,
                 last_report_time: None,
             }
@@ -1027,7 +1000,7 @@ pub mod worker_instance {
                 self.process_records.insert_precord(gid, precord);
 
                 // Register in behavior engine
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 {
                     self.behavior_engine.register_process(
                         gid,
@@ -1073,7 +1046,7 @@ pub mod worker_instance {
         /// Returns the GID if we're already tracking this PID
         fn find_gid_by_pid(&self, pid: u32) -> Option<u64> {
             // Check behavior engine first (most likely location)
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             {
                 for (gid, state) in &self.behavior_engine.process_states {
                     if state.pid == pid {
@@ -1102,12 +1075,6 @@ pub mod worker_instance {
             _reason: &str,
         ) {
         }
-
-        #[cfg(all(
-            target_os = "windows",
-            feature = "behavior_engine",
-            feature = "firewall"
-        ))]
         fn sync_firewall_process_contexts(&mut self) {
             let firewall_pids: Vec<u32> = self
                 .behavior_engine
@@ -1207,9 +1174,9 @@ pub mod worker_instance {
             self
         }
 
-        #[cfg(target_os = "windows")]
+        
         pub fn driver(mut self, driver: crate::Driver) -> Worker<'a> {
-            #[cfg(target_os = "windows")]
+            
             crate::windows::edrsvc_client::register_shared_driver(driver.clone());
             self.driver = Some(driver);
             self
@@ -1230,7 +1197,7 @@ pub mod worker_instance {
         /// Validate all tracked processes and remove any with dead PIDs
         /// This is a safety net to catch processes tracked with mismatched GIDs
         pub fn validate_tracked_processes(&mut self) {
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             {
                 use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
                 use windows::Win32::System::Threading::{
@@ -1303,10 +1270,10 @@ pub mod worker_instance {
                 precord.process_state = ProcessState::Terminated;
 
                 // Remove from behavior engine
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 {
                     self.behavior_engine.process_states.remove(&gid);
-                    #[cfg(all(target_os = "windows", feature = "firewall"))]
+                    
                     {
                         let mut firewall_pids =
                             self.behavior_engine.firewall_net_pids.write().unwrap();
@@ -1343,18 +1310,10 @@ pub mod worker_instance {
         /// Scan all tracked processes for behavioral detections
         pub fn scan_processes(
             &mut self,
-            #[cfg_attr(
-                not(all(target_os = "windows", feature = "behavior_engine")),
-                allow(unused_variables)
-            )]
             config: &Config,
-            #[cfg_attr(
-                not(all(target_os = "windows", feature = "behavior_engine")),
-                allow(unused_variables)
-            )]
             threat_handler: Box<dyn ThreatHandler>,
         ) {
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             {
                 // Import necessary Win32 modules for the Kernel Check
                 use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
@@ -1407,7 +1366,7 @@ pub mod worker_instance {
                 // and apply them to ProcessBehaviorState::irp_statistics.
                 // This is the only &mut self call site, so no locking needed beyond
                 // the Arc<Mutex<_>> inside drain_pending_irp_records itself.
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 self.behavior_engine.drain_pending_irp_records();
 
                 // --- SECOND: Discover any new processes that started since last scan ---
@@ -1475,7 +1434,7 @@ pub mod worker_instance {
                 }
 
                 // --- THIRD: Sync behavior engine state to process_records ---
-                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                
                 self.sync_firewall_process_contexts();
                 let mut process_sync_scans = Vec::new();
                 for (gid, state) in self.behavior_engine.process_states.iter() {
@@ -1616,7 +1575,7 @@ pub mod worker_instance {
 
         pub fn new_replay(
             config: &'a Config,
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             app_settings: AppSettings,
         ) -> Worker<'a> {
             Worker {
@@ -1625,30 +1584,30 @@ pub mod worker_instance {
                 process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
                 exepath_handler: Box::<ExePathReplay>::default(),
                 iomsg_postprocessors: vec![],
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 behavior_engine: Self::build_behavior_engine(config),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 app_settings,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hooks_registered: false,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_event_map: Self::default_dynamic_hook_event_map(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_registered_apis: Self::default_registered_dynamic_apis(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_registration_blocked: false,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_last_refresh: std::collections::HashMap::new(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_target_generation: 0,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_applied_generation: std::collections::HashMap::new(),
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 threat_handler: None,
-                #[cfg(target_os = "windows")]
+                
                 driver: None,
                 last_report_time: None,
             }
@@ -1658,19 +1617,17 @@ pub mod worker_instance {
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
             self.normalize_tracking_gid(iomsg);
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             {
                 let now = std::time::Instant::now();
                 let report_interval = std::time::Duration::from_secs(3600); // 1 hour
-                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                
                 use std::sync::atomic::Ordering; // Import Ordering
-                #[cfg(all(target_os = "windows", feature = "firewall"))]
+                
                 let force_report = self
                     .behavior_engine
                     .generate_report_flag
                     .swap(false, Ordering::SeqCst);
-                #[cfg(not(all(target_os = "windows", feature = "firewall")))]
-                let force_report = false;
                 if force_report
                     || self
                         .last_report_time
@@ -1683,9 +1640,7 @@ pub mod worker_instance {
                 }
             }
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            {
-                let irp_kind_for_name_resolution = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
+            let irp_kind_for_name_resolution = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
                 if matches!(
                     irp_kind_for_name_resolution,
                     IrpMajorOp::IrpUserModeHookEvent
@@ -1708,7 +1663,7 @@ pub mod worker_instance {
             let _ = is_process_create;
             let _ = is_process_terminate;
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             if Self::is_unattributed_rootkit_event(iomsg, &irp_op) {
                 Logging::warning(&format!(
                     "[ROOTKIT] Routing unattributed kernel finding through global handler only: opcode={:?} desc={}",
@@ -1723,7 +1678,7 @@ pub mod worker_instance {
             self.register_precord(iomsg);
             let tracking_key = iomsg.gid;
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             if !is_process_terminate {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
@@ -1736,16 +1691,11 @@ pub mod worker_instance {
                 iomsg.runtime_features.command_line = precord.command_line.clone();
             }
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             if is_process_create {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
 
-            #[cfg(all(
-                target_os = "windows",
-                feature = "behavior_engine",
-                feature = "firewall"
-            ))]
             if is_process_create && self.threat_handler.is_some() {
                 self.sync_firewall_process_contexts();
             }
@@ -1787,7 +1737,7 @@ pub mod worker_instance {
                         }
                         // Propagate to behavior engine state so rule matching
                         // and allowlists are also correct immediately.
-                        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                        
                         if let Some(state) =
                             self.behavior_engine.process_states.get_mut(&tracking_key)
                             && (state.app_name.is_empty()
@@ -1802,7 +1752,7 @@ pub mod worker_instance {
                     }
 
                     // Process behavioral event
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                    
                     if let Some(ref th) = self.threat_handler {
                         self.behavior_engine
                             .process_event(precord, iomsg, config, &**th);
@@ -1829,7 +1779,7 @@ pub mod worker_instance {
                 }
             }
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            
             if is_process_create {
                 let th_opt = self.threat_handler.as_ref().map(|h| h.clone_box());
                 if let Some(threat_handler) = th_opt {
@@ -1951,7 +1901,7 @@ pub mod worker_instance {
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
 
                     // Register in behavior engine
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                    
                     {
                         self.behavior_engine.register_process(
                             gid,
@@ -1994,7 +1944,7 @@ pub mod worker_instance {
                             precord.appname = name.clone();
 
                             // Update behavior engine
-                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                            
                             {
                                 if let Some(state) =
                                     self.behavior_engine.process_states.get_mut(&gid)
@@ -2028,13 +1978,13 @@ pub mod worker_instance {
             exepath.file_name()?.to_str().map(|s| s.to_string())
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn is_api_already_registered(&self, api_spec: &str) -> bool {
             self.dynamic_registered_apis
                 .contains(&api_spec.to_ascii_lowercase())
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn resolve_or_allocate_dynamic_event_id(&mut self, api_spec: &str) -> Option<u32> {
             if let Some((event_id, _)) = self
                 .dynamic_hook_event_map
@@ -2059,7 +2009,7 @@ pub mod worker_instance {
             Some(candidate)
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn normalize_hook_module_name(raw: &str) -> String {
             let module = raw.trim();
             if module.is_empty() || module == "*" {
@@ -2084,7 +2034,7 @@ pub mod worker_instance {
             format!("{module}.dll")
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn looks_like_hook_offset(raw: &str) -> bool {
             let mut value = raw.trim();
             if value.is_empty() {
@@ -2104,7 +2054,7 @@ pub mod worker_instance {
             !value.is_empty() && value.chars().all(|c| c.is_ascii_hexdigit())
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn split_module_rva_target(api_spec: &str) -> Option<(&str, &str)> {
             let trimmed = api_spec.trim();
             let (module_raw, offset_raw) = trimmed.rsplit_once('+')?;
@@ -2122,7 +2072,7 @@ pub mod worker_instance {
             Some((module, offset))
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn push_unique_hook_target(
             seen_lower: &mut HashSet<String>,
             targets: &mut Vec<String>,
@@ -2140,7 +2090,7 @@ pub mod worker_instance {
             }
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn known_hook_function_variants(function_pattern: &str) -> Vec<&'static str> {
             let lowered = function_pattern.trim().to_ascii_lowercase();
             let mut variants = Vec::new();
@@ -2472,7 +2422,7 @@ pub mod worker_instance {
             variants
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn expand_dynamic_hook_api_target(api_spec: &str) -> Vec<String> {
             let trimmed = api_spec.trim();
             if trimmed.is_empty() {
@@ -2690,7 +2640,7 @@ pub mod worker_instance {
             expanded
         }
 
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
             let mut seen_lower = HashSet::new();
             let mut merged = Vec::new();
@@ -2717,7 +2667,7 @@ pub mod worker_instance {
         /// Register high-interest API hooks for a specific PID
         /// Keeps dynamic hooks rule-driven. Import-wide expansion is intentionally
         /// disabled because broad hook sets are too unstable.
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
             if Self::should_skip_dynamic_hooks_for_pid(pid) {
                 return;

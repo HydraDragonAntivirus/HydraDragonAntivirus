@@ -1,0 +1,2942 @@
+- rule_id: HD-ZT-CRIT-0001
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - vssadmin delete all shadows'
+  description: Detects recovery inhibition via vssadmin delete all shadows, including ransomware-prep variants beyond simple
+    vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\vssadmin.exe'
+      command_line_patterns:
+      - pattern: (?i)delete\s+shadows.*(/all|/for=).*(/quiet)?
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0002
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - vssadmin resize shadowstorage tiny'
+  description: Detects recovery inhibition via vssadmin resize shadowstorage tiny, including ransomware-prep variants beyond
+    simple vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\vssadmin.exe'
+      command_line_patterns:
+      - pattern: '(?i)resize\s+shadowstorage.*(/?maxsize=|/maxsize:).*(401MB|[0-9]{1,3}(KB|MB|B)|1GB)'
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0003
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - wmic shadowcopy delete'
+  description: Detects recovery inhibition via wmic shadowcopy delete, including ransomware-prep variants beyond simple vssadmin
+    execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\wmic.exe'
+      command_line_patterns:
+      - pattern: (?i)shadowcopy\s+(delete|call\s+delete)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0004
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - PowerShell WMI shadow copy delete'
+  description: Detects recovery inhibition via PowerShell WMI shadow copy delete, including ransomware-prep variants beyond
+    simple vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      command_line_patterns:
+      - pattern: (?i)(Get-WmiObject|gwmi|Get-CimInstance).{0,120}Win32_ShadowCopy.{0,120}(Delete|Remove-CimInstance)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0005
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - wbadmin backup catalog deletion'
+  description: Detects recovery inhibition via wbadmin backup catalog deletion, including ransomware-prep variants beyond
+    simple vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\wbadmin.exe'
+      command_line_patterns:
+      - pattern: (?i)delete\s+(catalog|systemstatebackup|backup).*(-quiet|-keepVersions:0)?
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0006
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - diskshadow deletes all shadows'
+  description: Detects recovery inhibition via diskshadow deletes all shadows, including ransomware-prep variants beyond simple
+    vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\diskshadow.exe'
+      command_line_patterns:
+      - pattern: (?i)(delete\s+shadows\s+all|delete\s+shadows\s+volume|reset)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0007
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - bcdedit disables recovery'
+  description: Detects recovery inhibition via bcdedit disables recovery, including ransomware-prep variants beyond simple
+    vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\bcdedit.exe'
+      command_line_patterns:
+      - pattern: (?i)(recoveryenabled\s+no|bootstatuspolicy\s+ignoreallfailures)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0008
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - reagentc disables WinRE'
+  description: Detects recovery inhibition via reagentc disables WinRE, including ransomware-prep variants beyond simple vssadmin
+    execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\reagentc.exe'
+      command_line_patterns:
+      - pattern: (?i)/disable
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0009
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - PowerShell deletes restore points'
+  description: Detects recovery inhibition via PowerShell deletes restore points, including ransomware-prep variants beyond
+    simple vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      command_line_patterns:
+      - pattern: (?i)(Checkpoint-Computer|RestorePoint|SystemRestore).{0,120}(Disable|Delete|Remove)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0010
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - registry disables system restore'
+  description: Detects recovery inhibition via registry disables system restore, including ransomware-prep variants beyond
+    simple vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\reg.exe'
+      command_line_patterns:
+      - pattern: (?i)add\s+.*SystemRestore.*(DisableSR|DisableConfig).*\s1
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0011
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - VSS service stop or disable'
+  description: Detects recovery inhibition via VSS service stop or disable, including ransomware-prep variants beyond simple
+    vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\sc.exe'
+      - '*\net.exe'
+      - '*\powershell.exe'
+      command_line_patterns:
+      - pattern: (?i)(stop|config|Set-Service|Stop-Service).{0,80}(vss|swprv).{0,80}(disabled|demand|stop)?
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0012
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - backup product service termination'
+  description: Detects recovery inhibition via backup product service termination, including ransomware-prep variants beyond
+    simple vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\taskkill.exe'
+      - '*\sc.exe'
+      - '*\net.exe'
+      command_line_patterns:
+      - pattern: (?i)(veeam|acronis|macrium|backup|sqlwriter|sophos|sentinel|defender).*(/f|stop|delete|disabled)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0013
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - delete Windows backup files'
+  description: Detects recovery inhibition via delete Windows backup files, including ransomware-prep variants beyond simple
+    vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\del.exe'
+      command_line_patterns:
+      - pattern: (?i)(del|remove-item|erase).{0,120}(\.vhdx|\.vhd|\.bkf|\.vbk|\.vib|WindowsImageBackup)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0014
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - wevtutil clears logs pre-impact'
+  description: Detects recovery inhibition via wevtutil clears logs pre-impact, including ransomware-prep variants beyond
+    simple vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 96
+  severity: 96
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\wevtutil.exe'
+      command_line_patterns:
+      - pattern: (?i)(cl|clear-log)\s+(system|security|application|powershell)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-CRIT-0015
+  name: '[CRITICAL] Shadow Copy / Recovery Destruction - compound recovery sabotage chain'
+  description: Detects recovery inhibition via compound recovery sabotage chain, including ransomware-prep variants beyond
+    simple vssadmin execution.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 100
+  severity: 100
+  level: critical
+  status: experimental
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:critical
+  - ransomware
+  - shadow-copy
+  - inhibit-recovery
+  - process-tree
+  mitre_attack:
+  - T1490
+  - T1486
+  references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/impact_volume_shadow_copy_deletion_or_resized_via_vssadmin
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Backup administration, disaster-recovery testing, and OS deployment tooling may perform similar actions during planned
+    maintenance.
+  stages:
+  - name: Recovery sabotage process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\wscript.exe'
+      - '*\services.exe'
+      - '*\explorer.exe'
+      child_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      command_line_patterns:
+      - pattern: (?i)(vssadmin|wmic|wbadmin|bcdedit|diskshadow).{0,240}(delete|recoveryenabled|ignoreallfailures|shadowcopy)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    terminate_process: true
+    quarantine: false
+    status_access_denied: true
+    notify_user: true
+    record: true
+- rule_id: HD-ZT-HIGH-0016
+  name: '[HIGH] Ransomware IO Pattern - High-rate encrypted document writes'
+  description: 'Detects ransomware-style file I/O behavior: high-rate encrypted document writes.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: OperationCount
+      op_type: write
+      comparison: gte
+      threshold: 150
+    - type: EntropyThreshold
+      metric: file_entropy
+      comparison: gte
+      threshold: 7.2
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0017
+  name: '[HIGH] Ransomware IO Pattern - Mass rename to ransomware extensions'
+  description: 'Detects ransomware-style file I/O behavior: mass rename to ransomware extensions.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: OperationCount
+      op_type: rename
+      comparison: gte
+      threshold: 75
+    - type: ExtensionPattern
+      op_type: rename
+      match_mode: Any
+      patterns:
+      - (?i)^\.?(lockbit|lockbit3|blackcat|alphv|encrypted|locked|akira|8base)$
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0018
+  name: '[HIGH] Ransomware IO Pattern - Intermittent encryption write-rename cadence'
+  description: 'Detects ransomware-style file I/O behavior: intermittent encryption write-rename cadence.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: MultiCondition
+      operator: at_least
+      require_same_source_pid: true
+      conditions:
+      - type: OperationCount
+        op_type: write
+        comparison: gte
+        threshold: 80
+      - type: OperationCount
+        op_type: rename
+        comparison: gte
+        threshold: 40
+      - type: ByteThreshold
+        direction: write
+        comparison: gte
+        threshold: 10485760
+      min_matches: 2
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0019
+  name: '[HIGH] Ransomware IO Pattern - Partial overwrite of many user files'
+  description: 'Detects ransomware-style file I/O behavior: partial overwrite of many user files.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 88
+  severity: 88
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: SensitivePathAccess
+      op_type: write
+      patterns:
+      - '%USERPROFILE%\Documents\*'
+      - '%USERPROFILE%\Desktop\*'
+      - '%USERPROFILE%\Pictures\*'
+      - '%USERPROFILE%\OneDrive\*'
+      min_unique_paths: 25
+    - type: ByteThreshold
+      direction: write
+      comparison: gte
+      threshold: 52428800
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0020
+  name: '[HIGH] Ransomware IO Pattern - Ransom note fan-out'
+  description: 'Detects ransomware-style file I/O behavior: ransom note fan-out.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 86
+  severity: 86
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: File
+      op: write
+      path_pattern: (?i).*[\\/](readme|restore|decrypt|how_to|recover)[-_ ]?(my[-_ ]?)?files?.*\.(txt|html|hta)$
+    - type: OperationCount
+      op_type: write
+      comparison: gte
+      threshold: 50
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: false
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0021
+  name: '[HIGH] Ransomware IO Pattern - LockBit style extension and note'
+  description: 'Detects ransomware-style file I/O behavior: lockbit style extension and note.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: MultiCondition
+      operator: at_least
+      require_same_source_pid: true
+      conditions:
+      - type: ExtensionPattern
+        op_type: rename
+        match_mode: Any
+        patterns:
+        - (?i)^\.?(lockbit|lockbit3|abcd|id-.+)$
+      - type: File
+        op: write
+        path_pattern: (?i).*[\\/]Restore-My-Files.*\.txt$
+      min_matches: 2
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0022
+  name: '[HIGH] Ransomware IO Pattern - BlackCat/ALPHV extension and note'
+  description: 'Detects ransomware-style file I/O behavior: blackcat/alphv extension and note.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: MultiCondition
+      operator: at_least
+      require_same_source_pid: true
+      conditions:
+      - type: ExtensionPattern
+        op_type: rename
+        match_mode: Any
+        patterns:
+        - (?i)^\.?(alphv|blackcat|onion|locked)$
+      - type: File
+        op: write
+        path_pattern: (?i).*[\\/]RECOVER.*FILES.*\.(txt|html)$
+      min_matches: 2
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-MED-0023
+  name: '[MEDIUM] Ransomware IO Pattern - Mass office file rewrites'
+  description: 'Detects ransomware-style file I/O behavior: mass office file rewrites.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 78
+  severity: 78
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: ExtensionPattern
+      op_type: write
+      match_mode: Any
+      patterns:
+      - (?i)^\.?(doc|docx|xls|xlsx|ppt|pptx|pdf)$
+    - type: OperationCount
+      op_type: write
+      comparison: gte
+      threshold: 100
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+- rule_id: HD-ZT-MED-0024
+  name: '[MEDIUM] Ransomware IO Pattern - Mass source-code file rewrites'
+  description: 'Detects ransomware-style file I/O behavior: mass source-code file rewrites.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: ExtensionPattern
+      op_type: write
+      match_mode: Any
+      patterns:
+      - (?i)^\.?(cs|cpp|h|py|js|ts|java|go|rs)$
+    - type: OperationCount
+      op_type: write
+      comparison: gte
+      threshold: 120
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+- rule_id: HD-ZT-MED-0025
+  name: '[MEDIUM] Ransomware IO Pattern - High entropy writes after archive staging'
+  description: 'Detects ransomware-style file I/O behavior: high entropy writes after archive staging.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 80
+  severity: 80
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1560
+  - T1486
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: ArchiveCreation
+      extensions:
+      - ".zip"
+      - ".7z"
+      - ".rar"
+      min_size: 10485760
+      in_temp: true
+    - type: EntropyThreshold
+      metric: file_entropy
+      comparison: gte
+      threshold: 7.0
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+- rule_id: HD-ZT-MED-0026
+  name: '[MEDIUM] Ransomware IO Pattern - Rapid delete after unknown extension create'
+  description: 'Detects ransomware-style file I/O behavior: rapid delete after unknown extension create.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 78
+  severity: 78
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - ransomware
+  - intermittent-encryption
+  - file-io
+  mitre_attack:
+  - T1486
+  - T1070.004
+  references:
+  - https://www.trendmicro.com/content/dam/trendmicro/global/en/research/24/b/lockbit-attempts-to-stay-afloat-with-a-new-version/technical-appendix-lockbit-ng-dev-analysis.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+  - https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/
+  false_positives:
+  - Bulk compression, DLP scanning, backup software, and enterprise migration tools can modify many files quickly.
+  stages:
+  - name: Ransomware IO heuristic
+    conditions:
+    - type: OperationCount
+      op_type: delete
+      comparison: gte
+      threshold: 50
+    - type: ExtensionPattern
+      op_type: create
+      match_mode: Any
+      patterns:
+      - (?i)^\.?(tmp|locked|encrypted|crypt|pay)$
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0027
+  name: '[HIGH] Credential Dumping - procdump dumps LSASS'
+  description: 'Detects credential dumping behavior: procdump dumps lsass.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - credential-access
+  - lsass
+  - process-tree
+  mitre_attack:
+  - T1003.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1003/001/
+  false_positives:
+  - Memory forensics, crash dump collection, and approved EDR tools may access LSASS during incident response.
+  stages:
+  - name: Credential access process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\procdump.exe'
+      - '*\procdump64.exe'
+      command_line_patterns:
+      - pattern: (?i)procdump(64)?\.exe.*(-ma|-mm|-mp).*(lsass|lsass\.exe)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0028
+  name: '[HIGH] Credential Dumping - rundll32 comsvcs MiniDump LSASS'
+  description: 'Detects credential dumping behavior: rundll32 comsvcs minidump lsass.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - credential-access
+  - lsass
+  - process-tree
+  mitre_attack:
+  - T1003.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1003/001/
+  false_positives:
+  - Memory forensics, crash dump collection, and approved EDR tools may access LSASS during incident response.
+  stages:
+  - name: Credential access process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\rundll32.exe'
+      command_line_patterns:
+      - pattern: (?i)rundll32(\.exe)?.*comsvcs\.dll.*MiniDump.*lsass
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0029
+  name: '[HIGH] Credential Dumping - Task manager style LSASS dump'
+  description: 'Detects credential dumping behavior: task manager style lsass dump.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - credential-access
+  - lsass
+  - process-tree
+  mitre_attack:
+  - T1003.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1003/001/
+  false_positives:
+  - Memory forensics, crash dump collection, and approved EDR tools may access LSASS during incident response.
+  stages:
+  - name: Credential access process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\taskmgr.exe'
+      - '*\createdump.exe'
+      - '*\werfault.exe'
+      command_line_patterns:
+      - pattern: (?i)(lsass\.dmp|lsass.*dump|createdump.*lsass)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0030
+  name: '[HIGH] Credential Dumping - nanodump/ppldump LSASS'
+  description: 'Detects credential dumping behavior: nanodump/ppldump lsass.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - credential-access
+  - lsass
+  - process-tree
+  mitre_attack:
+  - T1003.001
+  - T1562.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1003/001/
+  false_positives:
+  - Memory forensics, crash dump collection, and approved EDR tools may access LSASS during incident response.
+  stages:
+  - name: Credential access process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*.exe'
+      command_line_patterns:
+      - pattern: (?i)(nanodump|ppldump|sekurlsa|lsassy|dumpert)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0031
+  name: '[HIGH] Credential Dumping - reg save SAM SYSTEM SECURITY'
+  description: 'Detects credential dumping behavior: reg save sam system security.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - credential-access
+  - lsass
+  - process-tree
+  mitre_attack:
+  - T1003.002
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1003/001/
+  false_positives:
+  - Memory forensics, crash dump collection, and approved EDR tools may access LSASS during incident response.
+  stages:
+  - name: Credential access process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\reg.exe'
+      command_line_patterns:
+      - pattern: (?i)reg(\.exe)?.*save.*(hklm\\sam|hklm\\system|hklm\\security|HKLM\\SAM|HKLM\\SYSTEM)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0032
+  name: '[HIGH] Credential Dumping - ntdsutil creates IFM dump'
+  description: 'Detects credential dumping behavior: ntdsutil creates ifm dump.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - credential-access
+  - lsass
+  - process-tree
+  mitre_attack:
+  - T1003.003
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1003/001/
+  false_positives:
+  - Memory forensics, crash dump collection, and approved EDR tools may access LSASS during incident response.
+  stages:
+  - name: Credential access process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\ntdsutil.exe'
+      command_line_patterns:
+      - pattern: (?i)ntdsutil.*(ifm|create full|activate instance ntds)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0033
+  name: '[HIGH] Credential Dumping - vssadmin exposes NTDS shadow copy'
+  description: 'Detects credential dumping behavior: vssadmin exposes ntds shadow copy.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - credential-access
+  - lsass
+  - process-tree
+  mitre_attack:
+  - T1003.003
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1003/001/
+  false_positives:
+  - Memory forensics, crash dump collection, and approved EDR tools may access LSASS during incident response.
+  stages:
+  - name: Credential access process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\vssadmin.exe'
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      command_line_patterns:
+      - pattern: (?i)(ntds\.dit|GLOBALROOT|HarddiskVolumeShadowCopy)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-HIGH-0034
+  name: '[HIGH] Credential Dumping - credential API memory read chain'
+  description: Detects OpenProcess plus memory-read or minidump behavior often used against LSASS.
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 90
+  severity: 90
+  level: high
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:high
+  - credential-access
+  - lsass
+  - multi-condition
+  mitre_attack:
+  - T1003.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1003/001/
+  false_positives:
+  - Security tools, debuggers, profilers, EDR sensors, and malware-analysis sandboxes may produce similar low-level telemetry.
+  stages:
+  - name: Credential API chain
+    conditions:
+    - type: MultiCondition
+      operator: at_least
+      require_same_source_pid: true
+      conditions:
+      - type: Api
+        name_pattern: [OpenProcess]
+        module_pattern: '*'
+      - type: Api
+        name_pattern: [ReadProcessMemory]
+        module_pattern: '*'
+      - type: Api
+        name_pattern: [MiniDumpWriteDump]
+        module_pattern: '*'
+      within_ms: 1500
+      min_matches: 2
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: true
+    terminate_process: true
+    notify_user: true
+    record: true
+    quarantine: false
+- rule_id: HD-ZT-MED-0035
+  name: '[MEDIUM] Persistence - schtasks creates hidden system task'
+  description: 'Detects persistence behavior: schtasks creates hidden system task.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1053.005
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\schtasks.exe'
+      command_line_patterns:
+      - pattern: (?i)/create.*(/sc\s+(minute|onlogon|onstart)|/tn\s+.*(update|system|onedrive|chrome)).*(/ru\s+system|/rl\s+highest)?
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0036
+  name: '[MEDIUM] Persistence - PowerShell scheduled task registration'
+  description: 'Detects persistence behavior: powershell scheduled task registration.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1053.005
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      command_line_patterns:
+      - pattern: (?i)(Register-ScheduledTask|New-ScheduledTaskAction).{0,200}(powershell|cmd|wscript|mshta|rundll32)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0037
+  name: '[MEDIUM] Persistence - WMI event filter persistence'
+  description: 'Detects persistence behavior: wmi event filter persistence.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1546.003
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\wmic.exe'
+      - '*\powershell.exe'
+      command_line_patterns:
+      - pattern: (?i)(__EventFilter|CommandLineEventConsumer|__FilterToConsumerBinding|Set-WmiInstance|Register-WmiEvent)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0038
+  name: '[MEDIUM] Persistence - Run key persistence'
+  description: 'Detects persistence behavior: run key persistence.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1060
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\reg.exe'
+      - '*\powershell.exe'
+      command_line_patterns:
+      - pattern: (?i)(CurrentVersion\\Run|CurrentVersion\\RunOnce|Policies\\Explorer\\Run).{0,200}(add|New-ItemProperty|Set-ItemProperty)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0039
+  name: '[MEDIUM] Persistence - Startup folder dropped script'
+  description: 'Detects persistence behavior: startup folder dropped script.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1547.001
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\wscript.exe'
+      command_line_patterns:
+      - pattern: (?i)(Startup|Start Menu).{0,160}(\.lnk|\.vbs|\.js|\.ps1|\.bat)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0040
+  name: '[MEDIUM] Persistence - service creation for persistence'
+  description: 'Detects persistence behavior: service creation for persistence.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1543.003
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\sc.exe'
+      - '*\powershell.exe'
+      command_line_patterns:
+      - pattern: (?i)(create|New-Service).{0,120}(binPath|BinaryPathName).{0,200}(appdata|temp|programdata|powershell|cmd)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0041
+  name: '[MEDIUM] Persistence - BITS job persistence or download'
+  description: 'Detects persistence behavior: bits job persistence or download.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1197
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\bitsadmin.exe'
+      - '*\powershell.exe'
+      command_line_patterns:
+      - pattern: (?i)(bitsadmin|Start-BitsTransfer|Set-BitsTransfer).{0,200}(http|https|/create|/addfile|/resume)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0042
+  name: '[MEDIUM] Persistence - mshta remote script execution'
+  description: 'Detects persistence behavior: mshta remote script execution.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1218.005
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\mshta.exe'
+      command_line_patterns:
+      - pattern: (?i)mshta(\.exe)?.{0,120}(http|https|vbscript:|javascript:|about:)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0043
+  name: '[MEDIUM] Persistence - rundll32 JavaScript or scriptlet proxy'
+  description: 'Detects persistence behavior: rundll32 javascript or scriptlet proxy.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1218.011
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\rundll32.exe'
+      command_line_patterns:
+      - pattern: (?i)(javascript:|mshtml|RunHTMLApplication|scrobj\.dll|url\.dll)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0044
+  name: '[MEDIUM] Persistence - installutil/regsvr32 LOLBin persistence'
+  description: 'Detects persistence behavior: installutil/regsvr32 lolbin persistence.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 76
+  severity: 76
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - persistence
+  - process-tree
+  - lolbin
+  mitre_attack:
+  - T1218.010
+  - T1218.009
+  references:
+  - https://attack.mitre.org/tactics/TA0003/
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  false_positives:
+  - Software deployment, endpoint management, and administrator automation can create scheduled tasks, services, or WMI subscriptions.
+  stages:
+  - name: Persistence process tree
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\cmd.exe'
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\explorer.exe'
+      - '*\services.exe'
+      child_patterns:
+      - '*\installutil.exe'
+      - '*\regsvr32.exe'
+      command_line_patterns:
+      - pattern: (?i)(/i|/u|/s|/n|/i:http|scrobj\.dll|scriptlet|http)
+        is_regex: true
+  min_stages_satisfied: 1
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+- rule_id: HD-ZT-MED-0045
+  name: '[MEDIUM] Suspicious Network Beaconing - Dynamic DNS beacon domain'
+  description: 'Detects suspicious outbound network pattern: dynamic dns beacon domain.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1071.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.duckdns.org'
+        - '*.ddns.net'
+        - '*.hopto.org'
+        - '*.no-ip.org'
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - '*.duckdns.org'
+    - '*.ddns.net'
+    - '*.hopto.org'
+    - '*.no-ip.org'
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0046
+  name: '[MEDIUM] Suspicious Network Beaconing - Paste/service C2 staging'
+  description: 'Detects suspicious outbound network pattern: paste/service c2 staging.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1105
+  - T1071.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - pastebin.com
+        - '*.pastebin.com'
+        - raw.githubusercontent.com
+        - gist.githubusercontent.com
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - pastebin.com
+    - '*.pastebin.com'
+    - raw.githubusercontent.com
+    - gist.githubusercontent.com
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0047
+  name: '[MEDIUM] Suspicious Network Beaconing - Telegram bot API beacon'
+  description: 'Detects suspicious outbound network pattern: telegram bot api beacon.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1102
+  - T1071.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - api.telegram.org
+        case_insensitive: true
+      regex:
+        pattern: .*/bot[0-9]{5,}:[A-Za-z0-9_-]{20,}/(sendMessage|sendDocument|getUpdates).*
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - api.telegram.org
+    case_insensitive: true
+  regex:
+    pattern: .*/bot[0-9]{5,}:[A-Za-z0-9_-]{20,}/(sendMessage|sendDocument|getUpdates).*
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0048
+  name: '[MEDIUM] Suspicious Network Beaconing - Discord webhook exfil'
+  description: 'Detects suspicious outbound network pattern: discord webhook exfil.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1102
+  - T1041
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - discord.com
+        - discordapp.com
+        case_insensitive: true
+      regex:
+        pattern: .*/api/webhooks/[0-9]+/[A-Za-z0-9_-]+.*
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - discord.com
+    - discordapp.com
+    case_insensitive: true
+  regex:
+    pattern: .*/api/webhooks/[0-9]+/[A-Za-z0-9_-]+.*
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0049
+  name: '[MEDIUM] Suspicious Network Beaconing - Cloudflare tunnel client beacon'
+  description: 'Detects suspicious outbound network pattern: cloudflare tunnel client beacon.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1090
+  - T1105
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.trycloudflare.com'
+        - '*.cloudflareaccess.com'
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - '*.trycloudflare.com'
+    - '*.cloudflareaccess.com'
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0050
+  name: '[MEDIUM] Suspicious Network Beaconing - Ngrok tunnel client beacon'
+  description: 'Detects suspicious outbound network pattern: ngrok tunnel client beacon.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1090
+  - T1105
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.ngrok-free.app'
+        - '*.ngrok.io'
+        - '*.ngrok.app'
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - '*.ngrok-free.app'
+    - '*.ngrok.io'
+    - '*.ngrok.app'
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0051
+  name: '[MEDIUM] Suspicious Network Beaconing - Tor bootstrap from non-browser'
+  description: 'Detects suspicious outbound network pattern: tor bootstrap from non-browser.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1090.003
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.torproject.org'
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - '*.torproject.org'
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0052
+  name: '[MEDIUM] Suspicious Network Beaconing - Suspicious IP check and payload fetch'
+  description: 'Detects suspicious outbound network pattern: suspicious ip check and payload fetch.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1016
+  - T1105
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - api.ipify.org
+        - ifconfig.me
+        - ipinfo.io
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - api.ipify.org
+    - ifconfig.me
+    - ipinfo.io
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0053
+  name: '[MEDIUM] Suspicious Network Beaconing - Object storage payload staging'
+  description: 'Detects suspicious outbound network pattern: object storage payload staging.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1105
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      domain:
+        domains:
+        - '*.s3.amazonaws.com'
+        - '*.blob.core.windows.net'
+        - storage.googleapis.com
+        case_insensitive: true
+      regex:
+        pattern: .*(payload|update|stage|agent|client).*(exe|dll|ps1|bin).*
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  domain:
+    domains:
+    - '*.s3.amazonaws.com'
+    - '*.blob.core.windows.net'
+    - storage.googleapis.com
+    case_insensitive: true
+  regex:
+    pattern: .*(payload|update|stage|agent|client).*(exe|dll|ps1|bin).*
+    case_insensitive: true
+- rule_id: HD-ZT-MED-0054
+  name: '[MEDIUM] Suspicious Network Beaconing - Rare user-agent beacon body marker'
+  description: 'Detects suspicious outbound network pattern: rare user-agent beacon body marker.'
+  enabled: true
+  should_trust_comodo_cloud: false
+  severity_score: 72
+  severity: 72
+  level: medium
+  status: stable
+  author: Emirhan Ucan
+  date: '2026-05-15'
+  tags:
+  - category:medium
+  - network
+  - beaconing
+  - process-tree
+  mitre_attack:
+  - T1071.001
+  references:
+  - https://www.elastic.co/docs/reference/integrations/endpoint
+  - https://attack.mitre.org/techniques/T1071/001/
+  false_positives:
+  - Developer tooling, CI agents, package managers, and chat integrations can contact these services legitimately.
+  stages:
+  - name: Suspicious network packet match
+    conditions:
+    - type: NetworkCondition
+      protocol: https
+      condition_logic: and
+      regex:
+        pattern: .*(Mozilla/5\.0.{0,40}(bot|client|agent)|POST /gate|/api/checkin|beacon_id).*
+        case_insensitive: true
+  - name: Suspicious LOLBin/script network launcher
+    conditions:
+    - type: ProcessTree
+      parent_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      child_patterns:
+      - '*\powershell.exe'
+      - '*\pwsh.exe'
+      - '*\cmd.exe'
+      - '*\wscript.exe'
+      - '*\cscript.exe'
+      - '*\mshta.exe'
+      - '*\rundll32.exe'
+      - '*\curl.exe'
+      - '*\wget.exe'
+      - '*\bitsadmin.exe'
+      - '*\certutil.exe'
+      command_line_patterns:
+      - pattern: (?i)\b(https?://|invoke-webrequest|invoke-restmethod|webclient|downloadstring|curl\s+https?://|wget\s+https?://|bitsadmin|certutil\s+.*-urlcache)\b
+        is_regex: true
+  min_stages_satisfied: 2
+  response:
+    ask_user: true
+    deny_while_ask: false
+    notify_user: true
+    record: true
+    terminate_process: false
+    quarantine: false
+    status_access_denied: false
+  protocol: https
+  action: ask
+  condition_logic: and
+  regex:
+    pattern: .*(Mozilla/5\.0.{0,40}(bot|client|agent)|POST /gate|/api/checkin|beacon_id).*
+    case_insensitive: true

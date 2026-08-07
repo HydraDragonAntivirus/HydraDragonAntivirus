@@ -1,19 +1,19 @@
-#[cfg(target_os = "windows")]
+
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
-#[cfg(target_os = "windows")]
+
 use windows::core::{PCWSTR, PWSTR};
-#[cfg(target_os = "windows")]
+
 use windows::Win32::Foundation::ERROR_SUCCESS;
-#[cfg(target_os = "windows")]
+
 use windows::Win32::Security::Cryptography::{
     CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext, CertGetNameStringW,
     CryptMsgClose, CryptQueryObject, CERT_NAME_SIMPLE_DISPLAY_TYPE,
     CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_FORMAT_FLAG_BINARY,
     CERT_QUERY_OBJECT_FILE, HCERTSTORE,
 };
-#[cfg(target_os = "windows")]
+
 use windows::Win32::Security::WinTrust::{
     WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_UICONTEXT,
     WINTRUST_FILE_INFO, WTD_CHOICE_FILE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY,
@@ -41,17 +41,17 @@ impl SignatureStatus {
     }
 }
 
-#[cfg(target_os = "windows")]
+
 const TRUST_E_NOSIGNATURE: i32 = 0x800B_0100u32 as i32;
-#[cfg(target_os = "windows")]
+
 const TRUST_E_PROVIDER_UNKNOWN: i32 = 0x800B_0001u32 as i32;
-#[cfg(target_os = "windows")]
+
 const TRUST_E_SUBJECT_FORM_UNKNOWN: i32 = 0x800B_0003u32 as i32;
-#[cfg(target_os = "windows")]
+
 const CERT_E_UNTRUSTEDROOT: i32 = 0x800B_0109u32 as i32;
-#[cfg(target_os = "windows")]
+
 const TRUST_E_BAD_DIGEST: i32 = 0x8009_6010u32 as i32;
-#[cfg(target_os = "windows")]
+
 const TRUST_E_CERT_SIGNATURE: i32 = 0x8009_6004u32 as i32;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -87,7 +87,7 @@ impl Default for SignatureInfo {
     }
 }
 
-#[cfg(target_os = "windows")]
+
 fn is_authenticode_binary_path(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -111,7 +111,7 @@ fn is_authenticode_binary_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(target_os = "windows")]
+
 fn is_no_signature_for_non_authenticode_file(path: &Path, result: i32) -> bool {
     // WinVerifyTrust commonly returns provider/subject-form errors for ordinary
     // source/data files. Those files are still unsigned for metadata and tests.
@@ -125,7 +125,7 @@ fn is_no_signature_for_non_authenticode_file(path: &Path, result: i32) -> bool {
         )
 }
 
-#[cfg(target_os = "windows")]
+
 fn status_text_for(status: SignatureStatus, raw_hresult: u32) -> String {
     match status {
         SignatureStatus::Trusted => "Valid".to_string(),
@@ -140,7 +140,7 @@ fn status_text_for(status: SignatureStatus, raw_hresult: u32) -> String {
     }
 }
 
-#[cfg(target_os = "windows")]
+
 fn classify_wintrust_result(path: &Path, result: i32) -> SignatureStatus {
     if result == ERROR_SUCCESS.0 as i32 {
         SignatureStatus::Trusted
@@ -157,7 +157,7 @@ fn classify_wintrust_result(path: &Path, result: i32) -> SignatureStatus {
     }
 }
 
-#[cfg(target_os = "windows")]
+
 pub fn verify_signature(path: &Path) -> SignatureInfo {
     let raw_hresult: u32;
     let mut status: SignatureStatus;
@@ -256,7 +256,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
     }
 }
 
-#[cfg(target_os = "windows")]
+
 unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
     unsafe {
         let mut msg_handle: *mut std::ffi::c_void = std::ptr::null_mut();
@@ -313,7 +313,3 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn verify_signature(_path: &Path) -> SignatureInfo {
-    SignatureInfo::default()
-}

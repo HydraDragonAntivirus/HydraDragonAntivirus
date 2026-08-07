@@ -1,0 +1,84 @@
+- name: "HEUR:Win.DefEvasion.CriticalProcessAbuse.gen"
+  should_trust_comodo_cloud: false
+  author: "HydraDragon"
+  date: "2026-03-28"
+  status: stable
+  level: critical
+  severity: 99
+  description: |
+    Detects a process trying to mark itself or another process as Windows-critical
+    by toggling BreakOnTermination or using RtlSetProcessIsCritical. Malware abuses
+    this to turn a cleanup attempt into a CRITICAL_PROCESS_DIED crash. Block the file
+    and stop the process before the flag can be abused further.
+  debug: false
+
+  named_conditions:
+    critical_process_apis:
+      orderless: true
+      apis:
+        - "ntdll.dll!NtSetInformationProcess"
+        - "ntdll.dll!ZwSetInformationProcess"
+        - "ntdll.dll!RtlSetProcessIsCritical"
+        - "kernel32.dll!SetProcessInformation"
+      api_threshold: 1
+
+    unsigned_or_untrusted:
+      orderless: true
+      is_valid_signed: false
+      min_matches: 1
+
+  detection_logic:
+    and:
+      - condition: "critical_process_apis"
+      - condition: "unsigned_or_untrusted"
+
+  response:
+    status_access_denied: true
+    terminate_process: true
+    quarantine: true
+    notify_user: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/smss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/csrss.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/wininit.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/winlogon.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/lsass.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/services.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+
+  tags:
+    - "defense-evasion"
+    - "critical-process"
+    - "break-on-termination"
+    - "anti-cleanup"
+
+  mitre_attack:
+    - "T1497"
+    - "T1562.001"
+    - "T1542"
+
+  false_positives:
+    - "Trusted Microsoft core processes that legitimately manage Windows critical-process state"

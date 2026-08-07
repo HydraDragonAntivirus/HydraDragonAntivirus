@@ -6,7 +6,7 @@ pub static LONG_TIME_FORMAT: &str = "%d/%m/%Y %H:%M:%S";
 pub static FILE_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
 pub static LOG_TIME_FORMAT: &str = "%b %d %H:%M:%S";
 
-#[cfg(target_os = "windows")]
+
 pub fn protected_process_reason(pid: u32, _fallback_path: Option<&Path>) -> Option<String> {
     if pid == 0 {
         return Some("PID 0 is not a terminable user process".to_string());
@@ -23,12 +23,8 @@ pub fn protected_process_reason(pid: u32, _fallback_path: Option<&Path>) -> Opti
     None
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn protected_process_reason(_pid: u32, _fallback_path: Option<&Path>) -> Option<String> {
-    None
-}
 
-#[cfg(target_os = "windows")]
+
 fn is_process_marked_critical(pid: u32) -> bool {
     use windows::Win32::Foundation::{BOOL, CloseHandle};
     use windows::Win32::System::Threading::{
@@ -49,10 +45,6 @@ fn is_process_marked_critical(pid: u32) -> bool {
     false
 }
 
-#[cfg(not(target_os = "windows"))]
-fn is_process_marked_critical(_pid: u32) -> bool {
-    false
-}
 
 pub fn protected_process_record_reason(proc: &ProcessRecord) -> Option<String> {
     for pid in &proc.pids {
@@ -116,47 +108,40 @@ pub fn resolve_process_path(pid: u32) -> Option<PathBuf> {
         return None;
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{
-            OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-            QueryFullProcessImageNameW,
-        };
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        QueryFullProcessImageNameW,
+    };
 
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-            if let Ok(h) = handle {
-                if h.is_invalid() || h.0 == 0 {
-                    return None;
-                }
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if let Ok(h) = handle {
+            if h.is_invalid() || h.0 == 0 {
+                return None;
+            }
 
-                let mut buffer = vec![0u16; 1024];
-                let mut size = buffer.len() as u32;
-                let res = QueryFullProcessImageNameW(
-                    h,
-                    PROCESS_NAME_WIN32,
-                    ::windows::core::PWSTR(buffer.as_mut_ptr()),
-                    &mut size,
-                );
-                CloseHandle(h);
+            let mut buffer = vec![0u16; 1024];
+            let mut size = buffer.len() as u32;
+            let res = QueryFullProcessImageNameW(
+                h,
+                PROCESS_NAME_WIN32,
+                ::windows::core::PWSTR(buffer.as_mut_ptr()),
+                &mut size,
+            );
+            CloseHandle(h);
 
-                if res.as_bool() && size > 0 {
-                    let path = String::from_utf16_lossy(&buffer[..size as usize]);
-                    if !path.trim().is_empty() {
-                        return Some(PathBuf::from(path));
-                    }
+            if res.as_bool() && size > 0 {
+                let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                if !path.trim().is_empty() {
+                    return Some(PathBuf::from(path));
                 }
             }
         }
-        None
     }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::fs::read_link(format!("/proc/{pid}/exe")).ok()
-    }
+    None
 }
+
 
 pub fn format_process_descriptor_with_fallback(pid: u32, fallback_path: Option<&Path>) -> String {
     let fallback = fallback_path.and_then(|path| {
@@ -181,33 +166,26 @@ pub fn format_process_descriptor_with_fallback(pid: u32, fallback_path: Option<&
 
 /// Check if a process is still alive by its PID.
 pub fn is_process_alive(pid: u32) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-            if let Ok(h) = handle {
-                CloseHandle(h);
-                true
-            } else {
-                false
-            }
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if let Ok(h) = handle {
+            CloseHandle(h);
+            true
+        } else {
+            false
         }
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        use std::path::Path;
-        Path::new(&format!("/proc/{}", pid)).exists()
-    }
 }
+
 
 /// Validate the client connecting to a named pipe by its process path or PID.
 ///
 /// # Safety
 /// This function is unsafe because it interacts with raw handles and Windows API calls.
 /// The caller must ensure that `pipe_handle` is a valid, open handle to a named pipe.
-#[cfg(target_os = "windows")]
+
 pub unsafe fn validate_pipe_client(
     pipe_handle: ::windows::Win32::Foundation::HANDLE,
     expected_path: Option<&str>,

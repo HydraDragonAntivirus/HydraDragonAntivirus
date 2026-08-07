@@ -1,0 +1,204 @@
+- name: "HEUR:Win64.Loader.BehavesLike.SafeModeAbuse.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-03-22"
+  status: test
+  level: critical
+  severity: 100
+  description: |
+    Detects the safe-mode-abuse loader pattern used to bypass antivirus software.
+    Attack chain:
+      1. Probes sandbox by creating an arbitrary directory under %ProgramFiles%, exits 0 on failure
+         (directory name is trivially changed — detection is on the generic ProgramFiles create behavior)
+      2. Kills all network interfaces via netsh to cut AV cloud / auto-update
+      3. Poisons system date (loops setting date to 2037) to break AV license and SSL cert validation
+      4. Arms safe mode: bcdedit /set {current} safeboot minimal
+         — most AV drivers are NOT in the Safe Boot driver list and will not load on next boot
+      5. Drops a payload executable to the system drive root (C:\explorer.exe)
+         — masquerades as explorer.exe but is NOT in %SystemRoot%\
+      6. Hijacks the system PATH: prepends %SystemDrive%\ so C:\explorer.exe
+         is found before C:\Windows\explorer.exe
+      7. Writes Winlogon Shell = "cmd.exe /c explorer.exe" so the fake explorer
+         runs at every login after reboot
+      8. Forces immediate reboot: shutdown.exe -r -f -t 2
+    On reboot the system enters Safe Mode, Winlogon runs the payload, AVs are absent.
+    Detection must trigger BEFORE the reboot — catching the loader in stage 1-8
+    is the only window before AV protection is stripped.
+  debug: true
+
+  named_conditions:
+
+    bcdedit_safemode:
+      # bcdedit /set {current} safeboot minimal — the core bypass primitive.
+      # No legitimate software arms safeboot from user-mode at runtime.
+      # orderless: false — /set must come with safeboot and minimal args.
+      orderless: false
+      created_processes:
+        - "bcdedit.exe"
+      cmdline_keywords:
+        - "safeboot"
+        - "minimal"
+      min_matches: 1
+
+    network_kill:
+      # netsh interface set interface <name> disable — severs AV cloud connection
+      # and prevents AV signature/license updates before safe-mode reboot.
+      # orderless: true — each interface disable is independent.
+      orderless: true
+      created_processes:
+        - "netsh.exe"
+      cmdline_keywords:
+        - "disable"
+        - "interface"
+      min_matches: 1
+
+    system_date_poison:
+      # Loops setting system date to 12-12-2037 to break AV license checks
+      # and SSL certificate date validation. cmd /C "date ..." spawned in a loop.
+      # orderless: true — repeated date-change processes counted as a set.
+      orderless: true
+      created_processes:
+        - "cmd.exe"
+      cmdline_keywords:
+        - "date"
+        - "2037"
+      min_matches: 1
+
+    payload_drop_system_root:
+      # Writes an executable directly to the system drive root (C:\explorer.exe).
+      # Legitimate software NEVER writes executables to C:\ root.
+      # The filename masquerades as explorer.exe but is not in %SystemRoot%\System32
+      # or %SystemRoot%\ — the path starts with the drive letter and no subdirectory.
+      # orderless: true — create and write events are an unordered set.
+      orderless: true
+      file_paths:
+        - ":\explorer.exe"
+      file_operations:
+        - create
+        - write
+      min_matches: 1
+
+    path_hijack_setx:
+      # setx /M PATH "%SystemDrive%\;..." — prepends the system drive root to the
+      # machine-wide PATH so C:\explorer.exe is found before C:\Windows\explorer.exe.
+      # Legitimate PATH changes via setx never prepend the raw drive root.
+      # orderless: true — process creation is a single event.
+      orderless: true
+      created_processes:
+        - "setx.exe"
+      cmdline_keywords:
+        - "/M"
+        - "PATH"
+      min_matches: 1
+
+    winlogon_shell_hijack:
+      orderless: true
+      registry_keys:
+        - SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+      registry_values:
+        - Shell
+      registry_operations:
+        - reg_create_key
+        - reg_set_value
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+        - reg_query_value
+        - reg_query_key
+        - reg_open_key
+        - reg_enum_key
+        - reg_enum_value
+      min_matches: 1
+
+    forced_reboot:
+      # shutdown.exe -r -f -t 2 — forced 2-second reboot to enter safe mode
+      # before the user or AV can intervene.
+      # orderless: true — single process creation event.
+      orderless: true
+      created_processes:
+        - "shutdown.exe"
+      cmdline_keywords:
+        - "-r"
+        - "-f"
+      min_matches: 1
+
+    sandbox_probe:
+      # detect_non_whitelisted_extensions also covers extensionless drops; this
+      # catches loader probes that avoid suffix-based extension lists entirely.
+      orderless: true
+      file_paths:
+        - Program Files
+      file_operations:
+        - create
+      detect_non_whitelisted_extensions: true
+      min_matches: 1
+
+  detection_logic:
+    or:
+      # Branch A: bcdedit safeboot + forced reboot — the minimal two-event bypass.
+      # This alone is conclusive: no legitimate software does both.
+      - and:
+          - condition: "bcdedit_safemode"
+          - condition: "forced_reboot"
+
+      # Branch B: bcdedit safeboot + Winlogon Shell hijack.
+      # Arms persistence for payload execution after safe-mode reboot.
+      - and:
+          - condition: "bcdedit_safemode"
+          - condition: "winlogon_shell_hijack"
+
+      # Branch C: payload drop to C:\ root + PATH hijack.
+      # The executable masquerade + PATH prepend combo is unique to this loader.
+      - and:
+          - condition: "payload_drop_system_root"
+          - condition: "path_hijack_setx"
+
+      # Branch D: full loader chain — network kill + safeboot + reboot.
+      - and:
+          - condition: "network_kill"
+          - condition: "bcdedit_safemode"
+          - condition: "forced_reboot"
+
+      # Branch E: date poison + safeboot — AV evasion combo.
+      - and:
+          - condition: "system_date_poison"
+          - condition: "bcdedit_safemode"
+
+      # Branch F: sandbox probe + bcdedit — early-stage detection before reboot.
+      - and:
+          - condition: "sandbox_probe"
+          - condition: "bcdedit_safemode"
+
+  response:
+    terminate_process: true
+    quarantine: true
+    auto_revert: true
+    record: true
+
+  allowlisted_apps: []
+
+  tags:
+    - safemode-abuse
+    - bcdedit
+    - loader
+    - winlogon-hijack
+    - path-hijack
+    - network-kill
+    - date-poison
+    - sandbox-evasion
+    - pre-reboot-detection
+
+  mitre_attack:
+    - T1562.001
+    - T1547.004
+    - T1562.009
+    - T1036.005
+    - T1574.007
+    - T1490
+    - T1070.006
+
+  false_positives:
+    - "No known legitimate software calls bcdedit /set safeboot minimal at runtime"
+    - "Dual-boot setup tools may write bcdedit — require combination with Winlogon Shell write or forced reboot"
+    - "IT recovery scripts may use shutdown -r -f — require combination with bcdedit safeboot"
+    - "Legitimate installers create directories under Program Files — sandbox_probe condition must always be combined with bcdedit_safemode to avoid FP on real installers"

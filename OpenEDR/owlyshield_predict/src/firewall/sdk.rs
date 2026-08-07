@@ -4,7 +4,7 @@
 // Traffic Attack, Block, Allow, Ask, Change Packet, Solve Packet,
 // Port, Localhost, Routine, AND/OR Conditions, Rule Name, Description
 
-use crate::engine::{FirewallSettings, PacketInfo, Protocol};
+use super::engine::{FirewallSettings, PacketInfo, Protocol};
 use base64::Engine;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -1697,9 +1697,9 @@ impl SdkRegistry {
     }
 
     pub fn load_default_rules(&mut self) {
-        #[cfg(target_os = "windows")]
+        
         {
-            if let Some(path) = crate::get_firewall_sdk_rules_path() {
+            if let Some(path) = super::get_firewall_sdk_rules_path() {
                 let path_str = path.to_string_lossy().to_string();
                 if self.load_rules_from_file(&path_str).is_ok() {
                     println!(
