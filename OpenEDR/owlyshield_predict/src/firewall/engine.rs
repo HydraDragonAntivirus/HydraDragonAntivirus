@@ -307,7 +307,7 @@ fn firewall_data_dir() -> PathBuf {
 
 fn firewall_log_file_path() -> PathBuf {
     firewall_data_dir()
-        .join("logs")
+        .join("log")
         .join("firewall_activity.jsonl")
 }
 
