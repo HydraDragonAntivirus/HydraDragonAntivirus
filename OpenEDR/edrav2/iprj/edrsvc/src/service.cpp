@@ -280,7 +280,7 @@ ErrorCode WinService::process()
 }
 
 //
-// Start service
+// Start service 
 //
 ErrorCode WinService::runService(bool fAppMode)
 {
@@ -302,22 +302,22 @@ ErrorCode WinService::runService(bool fAppMode)
 	{
 		if (!cmd::win::InitOwlyshield())
 		{
-			return doShutdown(ec);
+			LOGERR("Failed to initialize Owlyshield");
+			return doShutdown(ErrorCode::Unknown);
 		}
 
 		ec = ErrorCode::OK;
-
 		// Run working mode handler
 		if (!needShutdown())
 		{
 			reportStatus(SERVICE_RUNNING);
 			ec = runMode();
 		}
-
-		cmd::win::ShutdownOwlyshield();
 	}
 
 	// Runs the mode handler
+	cmd::win::ShutdownOwlyshield();
+
 	LOGINF("Service is being stopped");
 	return doShutdown(ec);
 }
