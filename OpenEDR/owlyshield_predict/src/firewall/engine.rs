@@ -1900,33 +1900,44 @@ impl FirewallEngine {
     /// Install a raw DER certificate into the Windows LocalMachine\Root trust store.
     fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
-            CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, CertAddEncodedCertificateToStore,
-            CertCloseStore, CertOpenSystemStoreA, X509_ASN_ENCODING,
+            CertAddCertificateContextToStore, CertCloseStore, CertCreateCertificateContext,
+            CertOpenSystemStoreA, X509_ASN_ENCODING,
+            CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
         };
         use windows::core::PCSTR;
+
         unsafe {
             let store = CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr()))
                 .map_err(|e| format!("CertOpenSystemStoreA: {:?}", e))?;
-            let result = CertAddEncodedCertificateToStore(
-                store,
+
+            let cert = CertCreateCertificateContext(
                 X509_ASN_ENCODING,
-                der,
+                Some(der),
+            )
+            .map_err(|e| {
+                let _ = CertCloseStore(store, 0);
+                format!("CertCreateCertificateContext: {:?}", e)
+            })?;
+
+            let result = CertAddCertificateContextToStore(
+                store,
+                cert,
                 CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
                 None,
             );
+
             let _ = CertCloseStore(store, 0);
-            if result.as_bool() {
+
+            if result.is_ok() {
                 Ok(())
             } else {
-                let error = windows::Win32::Foundation::GetLastError();
                 Err(format!(
-                    "CertAddEncodedCertificateToStore failed: {}",
-                    error.0
+                    "CertAddCertificateContextToStore failed: {:?}",
+                    result
                 ))
             }
         }
     }
-
     fn remove_firewall_ca_from_windows_stores() -> Result<(), String> {
         
         {
