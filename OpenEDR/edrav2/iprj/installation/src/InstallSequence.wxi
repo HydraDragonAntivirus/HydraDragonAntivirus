@@ -123,7 +123,7 @@
 	<CustomAction Id="RestartEdrService" BinaryRef="UtilJs" JScriptCall="RestartEdrService" Return="ignore" Impersonate="no" Execute="deferred" />
 
 	<!-- DeleteEdrServiceArtefacts -->
-	<CustomAction Id="SetDeleteEdrServiceArtefactsData" Property="DeleteEdrServiceArtefacts" Value='[CommonAppDataFolder]edrsvc' />
+	<CustomAction Id="SetDeleteEdrServiceArtefactsData" Property="DeleteEdrServiceArtefacts" Value='[CommonAppDataFolder]HydraDragonAntivirus\edrsvc' />
 	<CustomAction Id="DeleteEdrServiceArtefacts" BinaryRef="UtilJs" JScriptCall="DeleteEdrServiceArtefacts" Return="ignore" Impersonate="no" Execute="deferred" />
 
 	<!-- CleanInstallDirectory -->
@@ -139,6 +139,6 @@
 	              Return="ignore" />
 		
 	<!--<Property Id='CmdExe'>cmd.exe</Property>
-	<CustomAction Id="DeleteEdrServiceArtefacts" Property="CmdExe" ExeCommand='/c rmdir /s /q "[CommonAppDataFolder]edrsvc"' Execute="deferred" Impersonate='no' Return='ignore' />-->
+	<CustomAction Id="DeleteEdrServiceArtefacts" Property="CmdExe" ExeCommand='/c rmdir /s /q "[CommonAppDataFolder]HydraDragonAntivirus\edrsvc"' Execute="deferred" Impersonate='no' Return='ignore' />-->
 		
 </Include>

@@ -85,8 +85,8 @@
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield">
 					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]rules" Type="string" KeyPath="yes" />
 					<RegistryValue Name="VERBOSE_LOGGING" Value="1" Type="string" />
-					<RegistryValue Name="LOG_PATH" Value="[INSTALLDIR]log" Type="string" />
-					<RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR]reports" Type="string" />
+					<RegistryValue Name="LOG_PATH" Value="[CommonAppDataFolder]HydraDragonAntivirus\edrsvc\log\owlyshield" Type="string" />
+					<RegistryValue Name="REPORTS_PATH" Value="[CommonAppDataFolder]HydraDragonAntivirus\edrsvc\log\reports" Type="string" />
 				</RegistryKey>
 			</Component>
 			<Files Include="$(var.SourceBinDir)**" />

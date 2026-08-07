@@ -30,11 +30,11 @@ const CA_KEY_FILE: &str = "hydradragon_ca.key.der";
 const CA_CERT_FILE: &str = "hydradragon_ca.der";
 
 fn ca_dir() -> PathBuf {
-    // Store next to the running executable so the same cert is reused.
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
+    // Store under ProgramData so the CA persists across reinstalls/upgrades and
+    // is not tied to the (read-mostly, self-protected) Program Files install dir.
+    let dir = PathBuf::from(r"C:\ProgramData\HydraDragonAntivirus\edrsvc\ca");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 // ── CA generation ──────────────────────────────────────────────────────────────
