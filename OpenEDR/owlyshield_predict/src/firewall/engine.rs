@@ -302,8 +302,7 @@ fn default_queue_total() -> usize {
 
 fn firewall_data_dir() -> PathBuf {
     PathBuf::from("C:\\ProgramData")
-        .join("HydraDragonAntivirus")
-        .join("HydraDragonFirewall")
+        .join("edrsvc")
 }
 
 fn firewall_log_file_path() -> PathBuf {
