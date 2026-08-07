@@ -1912,12 +1912,16 @@ impl FirewallEngine {
 
             let cert = CertCreateCertificateContext(
                 X509_ASN_ENCODING,
-                Some(der),
-            )
-            .map_err(|e| {
+                der,
+            );
+
+            if cert.is_null() {
                 let _ = CertCloseStore(store, 0);
-                format!("CertCreateCertificateContext: {:?}", e)
-            })?;
+                return Err(format!(
+                    "CertCreateCertificateContext failed: {}",
+                    windows::Win32::Foundation::GetLastError().0
+                ));
+            }
 
             let result = CertAddCertificateContextToStore(
                 store,
@@ -1928,12 +1932,12 @@ impl FirewallEngine {
 
             let _ = CertCloseStore(store, 0);
 
-            if result.is_ok() {
+            if result.as_bool() {
                 Ok(())
             } else {
                 Err(format!(
-                    "CertAddCertificateContextToStore failed: {:?}",
-                    result
+                    "CertAddCertificateContextToStore failed: {}",
+                    windows::Win32::Foundation::GetLastError().0
                 ))
             }
         }
