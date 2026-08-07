@@ -121,8 +121,11 @@
       <AdditionalManifestFiles>%(AdditionalManifestFiles)</AdditionalManifestFiles>
     </Manifest>
     <PostBuildEvent>
-      <Command>xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"</Command>
-      <Message>Copying owlyshield_ransom.dll to output directory</Message>
+      <Command>xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert64.dll" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert64.sys" "$(OutDir)"
+xcopy /Y /D /E /I "$(ProjectDir)..\..\..\rules" "$(OutDir)rules\"</Command>
+      <Message>Copying owlyshield_ransom.dll, WinDivert64 files, and rules to output directory</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -148,8 +151,11 @@
     <Manifest>
     </Manifest>
     <PostBuildEvent>
-      <Command>xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"</Command>
-      <Message>Copying owlyshield_ransom.dll to output directory</Message>
+      <Command>xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert64.dll" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\..\WinDivert\WinDivert64.sys" "$(OutDir)"
+xcopy /Y /D /E /I "$(ProjectDir)..\..\..\rules" "$(OutDir)rules\"</Command>
+      <Message>Copying owlyshield_ransom.dll, WinDivert64 files, and rules to output directory</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
