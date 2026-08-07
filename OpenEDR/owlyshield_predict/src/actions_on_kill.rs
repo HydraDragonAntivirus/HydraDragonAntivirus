@@ -615,7 +615,7 @@ fn termination_block_reason(proc: &ProcessRecord) -> Option<String> {
 impl ActionOnKill for KillAction {
     fn run(
         &self,
-        config: &Config,
+        _config: &Config,
         proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         threat_info: &ThreatInfo,

@@ -976,14 +976,10 @@ impl ProcessRecord {
     /// This function is to reduce the frequency of clustering on some applications whose clustering requires a lot of CPU.
     fn is_to_cluster(&self) -> bool {
         if !self.is_thread_clustering_running {
-            if cfg!(feature = "replay") {
-                true
-            } else {
-                let multiplicator = 100;
-                self.last_thread_clustering_time
-                    + self.last_thread_clustering_duration.mul(multiplicator)
-                    <= SystemTime::now()
-            }
+            let multiplicator = 100;
+            self.last_thread_clustering_time
+                + self.last_thread_clustering_duration.mul(multiplicator)
+                <= SystemTime::now()
         } else {
             false
         }

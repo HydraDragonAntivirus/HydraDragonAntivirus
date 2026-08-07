@@ -1,11 +1,6 @@
 pub mod process_record_handling {
     use std::path::PathBuf;
-    use std::thread;
-    use std::time::Duration;
 
-    use chrono::Local;
-    use lru::LruCache;
-    
     use windows::Win32::Foundation::CloseHandle;
     
     use windows::Win32::System::Threading::{
@@ -14,11 +9,9 @@ pub mod process_record_handling {
     };
 
     use crate::IOMessage;
-    use crate::config::{Config, Param};
-    use crate::logging::Logging;
+    use crate::config::Config;
     use crate::process::ProcessRecord;
     use crate::threat_handler::ThreatHandler;
-    use crate::watchlist::WatchList;
 
     pub trait Exepath {
         fn exepath(&self, iomsg: &IOMessage) -> Option<PathBuf>;
@@ -98,6 +91,7 @@ pub mod process_record_handling {
         }
     }
 
+    #[allow(dead_code)]
     pub struct ProcessRecordHandlerReplay {
         timesteps_stride: usize,
     }
@@ -263,7 +257,7 @@ pub mod worker_instance {
     use crate::behavioral::app_settings::AppSettings;
     
     use crate::behavioral::behavior_engine::BehaviorEngine;
-    use crate::config::{Config, Param};
+    use crate::config::Config;
     use crate::logging::Logging;
     use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::process::ProcessRecord;
@@ -278,7 +272,6 @@ pub mod worker_instance {
         ExePathReplay, Exepath, ProcessRecordHandlerReplay, ProcessRecordIOHandler,
     };
     use crate::worker::process_records::ProcessRecords;
-    use chrono::{DateTime, Utc};
     
     use std::collections::HashSet;
     
@@ -286,8 +279,7 @@ pub mod worker_instance {
     
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
-    use std::sync::mpsc::{Sender, channel};
-    use std::thread;
+
     use sysinfo::{ProcessesToUpdate, System};
     
     use windows::Win32::Foundation::{
@@ -1655,7 +1647,6 @@ pub mod worker_instance {
                         iomsg.kernel_event_info.object_name = mapped_api.clone();
                     }
                 }
-            }
 
             let irp_op = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;

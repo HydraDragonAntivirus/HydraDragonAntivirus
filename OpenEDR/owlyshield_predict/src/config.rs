@@ -126,9 +126,7 @@ impl Param {
         if cfg!(target_os = "windows") {
             params.append(&mut vec![Param::AppId, Param::UtilsPath]);
         }
-        if cfg!(feature = "mqtt") {
-            params.push(Param::MqttServer);
-        }
+
 
         params.push(Param::RulesPath);
         params.push(Param::StaticRulesPath);
