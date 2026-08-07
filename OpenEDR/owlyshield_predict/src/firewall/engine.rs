@@ -1918,7 +1918,11 @@ impl FirewallEngine {
             if result.as_bool() {
                 Ok(())
             } else {
-                Err("CertAddEncodedCertificateToStore failed".to_string())
+                let error = windows::Win32::Foundation::GetLastError();
+                Err(format!(
+                    "CertAddEncodedCertificateToStore failed: {}",
+                    error.0
+                ))
             }
         }
     }

@@ -1,0 +1,67 @@
+# HydraDragonFirewall SDK Rules
+# This file uses YAML format with # comments allowed (Feature 17)
+
+rules:
+  # Block Telegram Bot Exfiltration
+  - name: "Block Telegram Bots"
+    description: "Prevents data exfiltration via Telegram bots when JSON is sent"
+    enabled: true
+    protocol: https
+    action: traffic_attack
+    condition_logic: and
+    domain:
+      domains:
+        - "api.telegram.org"
+      case_insensitive: true
+    url:
+      patterns:
+        - "*/bot*/sendMessage*"
+        - "*/bot*/sendDocument*"
+    json_match:
+      key: "chat_id"
+      # Empty value intentionally means any value for this key in the current SDK matcher.
+      value: ""
+
+  # Block Discord Webhook Exfiltration (Features 12, 13, 19, 29, 30)
+  - name: "Block Discord Webhooks"
+    description: "Prevents data exfiltration via Discord webhooks when JSON is sent"
+    enabled: true
+    protocol: https
+    action: traffic_attack
+    condition_logic: and
+    domain:
+      domains:
+        - "discord.com"
+        - "*.discord.com"
+        - "discordapp.com"
+        - "*.discordapp.com"
+      case_insensitive: true
+    url:
+      patterns:
+        - "*/api/webhooks/*"
+    json_match:
+      key: "content"
+      # Empty value intentionally means any value for this key in the current SDK matcher.
+      value: ""
+
+  # Detect Base64 Encoded PowerShell (Features 2, 6, 15, 18)
+  - name: "Detect Encoded PowerShell"
+    description: "Detects base64-encoded PowerShell commands in traffic"
+    enabled: true
+    protocol: any
+    action: traffic_attack
+    encoding: base64
+    regex:
+      pattern: "powershell.*-enc"
+      case_insensitive: true
+
+  # Monitor Traffic Routine (Feature 27)
+  - name: "Monitor Gateway Traffic"
+    description: "Watch traffic going through the gateway"
+    enabled: true
+    protocol: any
+    action: allow
+    routine:
+      from_ip: "any"
+      to_ip: "192.168.1.1"
+      to_port: 53

@@ -1712,14 +1712,14 @@ impl SdkRegistry {
         }
 
         // Load from rules.yaml if it exists
-        match SdkRuleFile::load_from_file("rules/rules.yaml") {
+        match SdkRuleFile::load_from_file("firewall-rules/rules.yaml") {
             Ok(rule_file) => {
                 let rule_count = rule_file.rules.len();
                 self.rules = Self::sanitize_rules(rule_file.rules);
-                println!("[SDK] Loaded {} rules from rules/rules.yaml", rule_count);
+                println!("[SDK] Loaded {} rules from firewall-rules/rules.yaml", rule_count);
             }
             Err(e) => {
-                eprintln!("[SDK] Failed to load rules/rules.yaml: {}", e);
+                eprintln!("[SDK] Failed to load firewall-rules/rules.yaml: {}", e);
             }
         }
     }

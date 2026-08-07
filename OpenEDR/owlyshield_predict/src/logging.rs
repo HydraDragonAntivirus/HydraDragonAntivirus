@@ -67,9 +67,7 @@ impl Logging {
         if let Some(program_data) = std::env::var_os("ProgramData") {
             dirs.push(
                 PathBuf::from(program_data)
-                    .join("HydraDragonAntivirus")
-                    .join("hydradragon")
-                    .join("Owlyshield")
+                    .join("edrsvc")
                     .join("log"),
             );
         }
