@@ -84,5 +84,9 @@
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.cfg, *.qsc, *.src, *.act) do "$(CmdRootDir)\out\bin\$(CmdOutDirName)\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*evm.cloud.src, *evm.local.src) do copy "%%~i" "%%~i.new" /Y' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
+    <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(OutDir)"' />
+    <Exec Command='xcopy /Y /D "$(ProjectDir)......\WinDivert\WinDivert.dll" "$(OutDir)"' />
+    <Exec Command='xcopy /Y /D "$(ProjectDir)......\WinDivert\WinDivert64.sys" "$(OutDir)"' />
+    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)......\rules" "$(OutDir)rules"' />
   </Target>
 </Project>
