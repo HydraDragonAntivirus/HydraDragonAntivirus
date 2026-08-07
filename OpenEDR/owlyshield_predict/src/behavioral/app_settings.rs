@@ -26,3 +26,12 @@ impl AppSettings {
         Ok(settings)
     }
 }
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        AppSettings {
+            behavior_rules_path: PathBuf::new(),
+            win_verify_trust_path: PathBuf::new(),
+        }
+    }
+}

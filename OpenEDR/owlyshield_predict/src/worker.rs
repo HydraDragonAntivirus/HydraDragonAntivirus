@@ -15,9 +15,7 @@ pub mod process_record_handling {
 
     use crate::IOMessage;
     use crate::config::{Config, Param};
-    use crate::csvwriter::CsvWriter;
     use crate::logging::Logging;
-    use crate::predictions::prediction::input_tensors::Timestep;
     use crate::process::ProcessRecord;
     use crate::threat_handler::ThreatHandler;
     use crate::watchlist::WatchList;
@@ -101,29 +99,18 @@ pub mod process_record_handling {
     }
 
     pub struct ProcessRecordHandlerReplay {
-        csvwriter: CsvWriter,
         timesteps_stride: usize,
     }
 
     impl ProcessRecordIOHandler for ProcessRecordHandlerReplay {
-        fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            let timestep = Timestep::from(precord);
-            if precord
-                .driver_msg_count
-                .is_multiple_of(self.timesteps_stride)
-            {
-                thread::sleep(Duration::from_millis(2));
-                self.csvwriter
-                    .write_debug_csv_files(&precord.appname, precord.gid, &timestep, precord.time)
-                    .expect("Cannot write csv learn file");
-            }
+        fn handle_io(&mut self, _precord: &mut ProcessRecord) {
+            // CSV export removed (no ML model)
         }
     }
 
     impl ProcessRecordHandlerReplay {
         pub fn new(config: &Config) -> ProcessRecordHandlerReplay {
             ProcessRecordHandlerReplay {
-                csvwriter: CsvWriter::from(config),
                 timesteps_stride: config.timesteps_stride,
             }
         }
@@ -277,10 +264,8 @@ pub mod worker_instance {
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::behavior_engine::BehaviorEngine;
     use crate::config::{Config, Param};
-    use crate::csvwriter::CsvWriter;
-    use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::logging::Logging;
-    use crate::predictions::prediction::input_tensors::{Timestep, VecvecCappedF32};
+    use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::process::ProcessRecord;
     use crate::process::ProcessState;
     use crate::shared_def::IrpMajorOp;
@@ -294,8 +279,6 @@ pub mod worker_instance {
     };
     use crate::worker::process_records::ProcessRecords;
     use chrono::{DateTime, Utc};
-
-    use rumqttc::{Client, MqttOptions, QoS};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use std::collections::HashSet;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -324,118 +307,16 @@ pub mod worker_instance {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);
     }
 
-    pub struct IOMsgPostProcessorWriter {
-        csv_writer: CsvWriter,
-    }
+    /// No-op post-processor (CSV/MQTT/RPC pipeline removed).
+    pub struct IOMsgPostProcessorWriter;
 
     impl IOMsgPostProcessor for IOMsgPostProcessorWriter {
-        fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord) {
-            iomsg.runtime_features.exepath = precord.exepath.clone();
-            iomsg.runtime_features.exe_still_exists = true;
-            let buf = rmp_serde::to_vec(&iomsg).unwrap();
-            self.csv_writer
-                .write_irp_csv_files(&buf)
-                .expect("Cannot write irp file");
-        }
+        fn postprocess(&mut self, _iomsg: &mut IOMessage, _precord: &ProcessRecord) {}
     }
 
     impl IOMsgPostProcessorWriter {
-        pub fn from(config: &Config) -> IOMsgPostProcessorWriter {
-            let filename = &Path::new(&config[Param::RealTimeLearningPath])
-                .join(Path::new("drivermessages.txt"));
-            IOMsgPostProcessorWriter {
-                csv_writer: CsvWriter::from_path(filename),
-            }
-        }
-    }
-
-    pub struct IOMsgPostProcessorMqtt {
-        pub client: Option<Client>,
-        channel: String,
-    }
-
-    impl IOMsgPostProcessorMqtt {
-        pub fn new(mqtt_server: String) -> IOMsgPostProcessorMqtt {
-            let mut mqtt_options = MqttOptions::new("iomsg", mqtt_server, 1883);
-            mqtt_options.set_keep_alive(std::time::Duration::from_secs(5));
-
-            let (client, mut connection) = Client::new(mqtt_options, 10);
-
-            thread::spawn(move || {
-                for _ in connection.iter() {
-                    // Poll connection to keep it alive
-                }
-            });
-
-            let hostname = hostname::get()
-                .unwrap()
-                .to_str()
-                .unwrap_or("Unknown host")
-                .to_string();
-
-            IOMsgPostProcessorMqtt {
-                client: Some(client),
-                channel: String::from("data/") + &hostname,
-            }
-        }
-    }
-
-    impl IOMsgPostProcessor for IOMsgPostProcessorMqtt {
-        fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord) {
-            if let Some(client) = &self.client {
-                if precord.driver_msg_count.is_multiple_of(250) {
-                    let c2 = client.clone();
-                    thread::spawn(move || {
-                        let _ = c2.publish("owlyshield/heartbeat", QoS::AtMostOnce, false, "{}");
-                    });
-                }
-                let channel = self.channel.clone();
-                let vec = Timestep::from(precord).to_vec_f32();
-
-                let datetime: DateTime<Utc> = iomsg.time.into();
-                let mut process_vec = vec![
-                    String::from(&precord.appname),
-                    precord.gid.to_string(),
-                    datetime.timestamp_millis().to_string(),
-                ];
-
-                let client_clone = client.clone();
-                thread::spawn(move || {
-                    process_vec
-                        .append(&mut vec.iter().map(|f| f.to_string()).collect::<Vec<String>>());
-                    let csv = process_vec.join(",");
-                    let _ = client_clone.publish(channel, QoS::ExactlyOnce, false, csv);
-                });
-            }
-        }
-    }
-
-    pub struct IOMsgPostProcessorRPC {
-        tx: Sender<RPCMessage>,
-    }
-
-    impl IOMsgPostProcessor for IOMsgPostProcessorRPC {
-        fn postprocess(&mut self, _iomsg: &mut IOMessage, precord: &ProcessRecord) {
-            let timestep = Timestep::from(precord);
-            let rpcmsg = RPCMessage::from(precord.appname.clone(), timestep);
-            self.tx.send(rpcmsg).unwrap();
-        }
-    }
-
-    impl Default for IOMsgPostProcessorRPC {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl IOMsgPostProcessorRPC {
-        pub fn new() -> IOMsgPostProcessorRPC {
-            let (tx, rx) = channel::<RPCMessage>();
-            thread::spawn(move || {
-                let mut jsonrpc = Jsonrpc::from(rx);
-                jsonrpc.start_server();
-            });
-            IOMsgPostProcessorRPC { tx }
+        pub fn from(_config: &Config) -> IOMsgPostProcessorWriter {
+            IOMsgPostProcessorWriter
         }
     }
 

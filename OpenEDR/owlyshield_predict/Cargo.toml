@@ -7,10 +7,10 @@ license-file = "LICENSE.txt"
 [lib]
 name = "owlyshield_ransom"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 slc-paths = { path = "slc-paths" }
-win-pe-inspection = { path = "win-pe-inspection" }
 wchar = "0.11.0"
 registry = "1.2.0"
 strum = "0.24.1"
@@ -26,30 +26,19 @@ serde_yaml = "0.9.17"
 log = "0.4.17"
 rmp-serde = "1.1.0"
 hostname = "0.3.1"
-curl = "0.4.43"
-jsonrpc-http-server = "18.0.0"
 configparser = "3.0.2"
-rumqttc = "0.24.0"
-lru = "^0.16"
-md-5 = "0.10.6"
 regex = "1.12.2"
 sha2 = "0.11.0"
 hex = "0.4.3"
-bincode-next = { version = "2.0", features = ["serde"] }
 sysinfo = "0.38.0"
-base64 = "0.21.0"
-bs58 = "0.4.0"
-goblin = "0.10.5"
-apk-info = "1.0.11"
-zip = { version = "8.6.0", default-features = false }
-
-bson = "2.9.0"
-csv = "1.3.1"
+lru = "0.16"
+bson = "2"
+base64 = "0.21"
+bs58 = "0.4"
 
 #Windows
 [target.'cfg(target_os = "windows")'.dependencies]
 winlog = { version = "0.2.6", features=["env_logger"] }
-windows-service = "0.6"
 widestring = "1.0.2"
 winreg = "0.55.0"
 
@@ -81,34 +70,11 @@ features = [
     "Win32_UI_Shell"
 ]
 
-# Linux
-[target.'cfg(target_os = "linux")'.dependencies]
-tokio = { version = "1.52", features = ["macros", "rt", "rt-multi-thread", "signal", "time", "io-util", "net", "sync"] }
-tracing-subscriber = "0.3"
-tracing = "0.1"
-futures = "0.3"
-psutil = "3.2"
-bytemuck = "1.13"
-libc = "0.2"
-aya = { git = "https://github.com/aya-rs/aya", rev = "8015e100796c550804ccf8fea691c63ec1ac36b8", features = ["async_tokio"] }
-aya-log = { git = "https://github.com/aya-rs/aya", rev = "8015e100796c550804ccf8fea691c63ec1ac36b8" }
-ebpf-monitor-common = { path = "./vfs-kprobes/ebpf-monitor-common", features = ["user"] }
-bytes = "1.11"
-anyhow = "1"
 
 [features]
 default = []
-linux-ebpf = []
-service = []
 malware = []
-record = []
-replay = []
-jsonrpc = []
-mqtt = []
 # --- Windows-Only Features ---
 firewall = []
 behavior_engine = []
-
-[patch.crates-io]
-ring = { path = "ring-patch" }
 

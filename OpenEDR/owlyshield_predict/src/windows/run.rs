@@ -18,9 +18,7 @@ use crate::watchlist::WatchList;
 use crate::worker::process_record_handling::{
     ExepathLive, ProcessRecordHandlerLive,
 };
-use crate::worker::worker_instance::{
-    IOMsgPostProcessorMqtt, IOMsgPostProcessorRPC, IOMsgPostProcessorWriter, Worker,
-};
+use crate::worker::worker_instance::{IOMsgPostProcessorWriter, Worker};
 use crate::{Driver, Logging, config};
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -274,16 +272,6 @@ pub fn run() {
                 ));
             }
 
-            if cfg!(feature = "jsonrpc") {
-                worker =
-                    worker.register_iomsg_postprocessor(Box::new(IOMsgPostProcessorRPC::new()));
-            }
-
-            if cfg!(feature = "mqtt") {
-                worker = worker.register_iomsg_postprocessor(Box::new(
-                    IOMsgPostProcessorMqtt::new(thread_config[Param::MqttServer].clone()),
-                ));
-            }
 
             worker = worker.build();
 
@@ -344,5 +332,23 @@ pub fn run() {
         loop {
             thread::sleep(std::time::Duration::from_secs(60));
         }
+    }
+}
+/// Entry point for the DLL worker loop used by `ffi.rs`.
+/// Receives IOMessages from `edrsvc` and processes them through the behavior engine.
+pub fn run_worker_loop(rx: std::sync::mpsc::Receiver<crate::shared_def::IOMessage>, _driver: crate::windows::edrsvc_client::Driver) {
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use crate::behavioral::app_settings::AppSettings;
+
+    let config = crate::config::Config::new();
+
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    let mut worker = crate::worker::worker_instance::Worker::new(&config, AppSettings::default());
+
+    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+    let mut worker = crate::worker::worker_instance::Worker::new(&config);
+
+    for mut iomsg in rx {
+        worker.process_io(&mut iomsg, &config);
     }
 }
