@@ -32,7 +32,7 @@ bool InitOwlyshield()
 	g_hOwlyshieldDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 	if (g_hOwlyshieldDll == nullptr)
 	{
-		LOGERROR("Failed to load owlyshield_ransom.dll (error: " << ::GetLastError() << ")");
+		LOGLVL(Debug, "Failed to load owlyshield_ransom.dll (error: " << ::GetLastError() << ")");
 		return false;
 	}
 
@@ -45,7 +45,7 @@ bool InitOwlyshield()
 	    g_owlyshield_dll_ingest == nullptr || 
 	    g_owlyshield_dll_stop == nullptr)
 	{
-		LOGERROR("Failed to get Owlyshield DLL function addresses");
+		LOGLVL(Debug, "Failed to get Owlyshield DLL function addresses");
 		::FreeLibrary(g_hOwlyshieldDll);
 		g_hOwlyshieldDll = nullptr;
 		return false;
@@ -55,13 +55,13 @@ bool InitOwlyshield()
 	int32_t result = g_owlyshield_dll_start();
 	if (result != OWLY_OK)
 	{
-		LOGERROR("owlyshield_dll_start failed with code: " << result);
+		LOGLVL(Debug, "owlyshield_dll_start failed with code: " << result);
 		::FreeLibrary(g_hOwlyshieldDll);
 		g_hOwlyshieldDll = nullptr;
 		return false;
 	}
 
-	LOGINFO("Owlyshield ransomware protection initialized successfully");
+	LOGLVL(Debug, "Owlyshield ransomware protection initialized successfully");
 	return true;
 }
 
@@ -87,7 +87,7 @@ void ShutdownOwlyshield()
 		if (g_owlyshield_dll_stop != nullptr)
 		{
 			g_owlyshield_dll_stop();
-			LOGINFO("Owlyshield engine stopped");
+			LOGLVL(Debug, "Owlyshield engine stopped");
 		}
 
 		::FreeLibrary(g_hOwlyshieldDll);
