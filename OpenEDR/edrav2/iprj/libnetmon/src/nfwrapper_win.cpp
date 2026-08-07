@@ -120,9 +120,7 @@ std::vector<std::filesystem::path> getFirewallBridgeCandidates(const std::wstrin
 {
 	std::vector<std::filesystem::path> result;
 
-	// Use only the fixed installed bridge path. Do not probe build folders,
-	// executable-relative paths, or alternate install layouts.
-	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\hydradragonfirewall.dll)");
+	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\OpenEDR\owlyshield_ransom.dll)");
 
 	return result;
 }

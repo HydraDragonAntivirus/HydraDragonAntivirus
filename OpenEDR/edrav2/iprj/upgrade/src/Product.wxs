@@ -78,6 +78,12 @@
                     <fire:FirewallException Id="SvcFirewallRulesX64" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
                     <ServiceControl Id="StopEdrSvcX64" Name="edrsvc" Stop="uninstall" />
                     <RemoveFile Id="RemovingDriverX64" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
+                    <RegistryKey Root="HKLM" Key="Software\Owlyshield">
+                        <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]rules" Type="string" KeyPath="yes" />
+                        <RegistryValue Name="VERBOSE_LOGGING" Value="1" Type="string" />
+                        <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
+                        <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
+                    </RegistryKey>
                 </Component>
                 <Files Include="$(var.SourceBinDir64)**" />
             </ComponentGroup>
@@ -89,6 +95,12 @@
                     <fire:FirewallException Id="SvcFirewallRulesX86" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
                     <ServiceControl Id="StopEdrSvcX86" Name="edrsvc" Stop="uninstall" />
                     <RemoveFile Id="RemovingDriverX86" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
+                    <RegistryKey Root="HKLM" Key="Software\Owlyshield">
+                        <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]rules" Type="string" KeyPath="yes" />
+                        <RegistryValue Name="VERBOSE_LOGGING" Value="1" Type="string" />
+                        <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
+                        <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
+                    </RegistryKey>
                 </Component>
                 <Files Include="$(var.SourceBinDir32)**" />
             </ComponentGroup>

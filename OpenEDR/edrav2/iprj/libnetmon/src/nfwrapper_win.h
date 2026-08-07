@@ -30,7 +30,7 @@ class NetFilterWrapper : public ObjectBase<CLSID_NetFilterWrapper>,
 {
 private:
 	inline static const wchar_t c_sDefaultPipeName[] = LR"(\\.\pipe\HydraNetEvent)";
-	inline static const wchar_t c_sDefaultFirewallBridgeDllName[] = L"hydradragonfirewall.dll";
+	inline static const wchar_t c_sDefaultFirewallBridgeDllName[] = L"owlyshield_ransom.dll";
 	inline static constexpr size_t c_nReadBufferSize = 8192;
 
 	using FnHydraDragonFirewallStart = int(__stdcall*)();
