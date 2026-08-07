@@ -9,7 +9,6 @@
 ///
 #include "pch.h"
 #include "service.h"
-#include "owlyshield_ransom.h"
 
 namespace cmd {
 
@@ -56,15 +55,8 @@ int wmain(int argc, wchar_t* argv[])
 		pApp->addMode("server", cmd::createAppMode_wait());
 		//pApp->addMode("dump", cmd::createAppMode_dump());
 		//pApp->addMode("test", cmd::createAppMode_wait());
-
-		if (!cmd::win::InitOwlyshield())
-			return 1;
-
 		ec = pApp->run("edrsvc", "Comodo EDR service", argc, argv);
-
-		cmd::win::ShutdownOwlyshield();
 	}
-
 	// std::cout << "Application finished." << std::endl;
 	SetConsoleOutputCP(nConsoleCP);
 	return ec;
