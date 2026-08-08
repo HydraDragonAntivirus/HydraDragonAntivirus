@@ -682,6 +682,38 @@ void FlsService::enrichFileVerdict(Variant vFile)
 	auto verdict = getFileVerdict(sFileHash);
 	putByPath(vFile, "fls.verdict", verdict, true /* fCreatePaths */);
 
+	if (verdict == FileVerdict::Malicious)
+	{
+		std::string sFilePath = vFile["path"];
+		if (!sFilePath.empty())
+		{
+			LOGLVL(Normal, "FLS Verdict is Malicious! Dynamically invoking Owlyshield Quarantine for: <" << sFilePath << ">");
+			HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			if (hDll != nullptr)
+			{
+				typedef int32_t (*OwlyshieldDllQuarantineFileFn)(const uint8_t*, uint32_t);
+				auto fnQuarantine = (OwlyshieldDllQuarantineFileFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+				if (fnQuarantine != nullptr)
+				{
+					int32_t qRes = fnQuarantine(
+						reinterpret_cast<const uint8_t*>(sFilePath.data()),
+						static_cast<uint32_t>(sFilePath.size())
+					);
+					LOGLVL(Normal, "Owlyshield Quarantine executed for <" << sFilePath << "> with result: " << qRes);
+				}
+				else
+				{
+					LOGLVL(Critical, "Failed to locate owlyshield_dll_quarantine_file in loaded DLL");
+				}
+				::FreeLibrary(hDll);
+			}
+			else
+			{
+				LOGLVL(Critical, "Failed to load owlyshield_ransom.dll for dynamic quarantine");
+			}
+		}
+	}
+
 	auto optItem = m_pFileVerdictProvider->getCacheItem(sFileHash);
 	if (optItem.has_value())
 	{

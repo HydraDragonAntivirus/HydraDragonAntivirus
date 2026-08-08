@@ -374,6 +374,7 @@ impl ActionsOnKill {
                 Box::new(WriteReportFile()),
                 Box::new(Connectors),
                 Box::new(Logging),
+                Box::new(WriteOpenEdrEventLog()),
             ],
         }
     }
@@ -390,6 +391,7 @@ impl ActionsOnKill {
                 Box::new(WriteReportFile()),
                 Box::new(Connectors),
                 Box::new(Logging),
+                Box::new(WriteOpenEdrEventLog()),
             ],
         }
     }
@@ -543,6 +545,85 @@ impl ActionOnKill for WriteReportFile {
         for f in &proc.fpaths_updated {
             file.write_all(format!("\t{f:?}\n").as_bytes())?;
         }
+        Ok(())
+    }
+}
+
+pub struct WriteOpenEdrEventLog();
+
+impl ActionOnKill for WriteOpenEdrEventLog {
+    fn run(
+        &self,
+        _config: &Config,
+        proc: &mut ProcessRecord,
+        _pred_mtrx: &VecvecCappedF32,
+        threat_info: &ThreatInfo,
+        _report_context: &ActionReportContext,
+        _now: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        if !threat_info.should_notify() {
+            return Ok(());
+        }
+
+        // Determine output directory: place in same output_events folder OpenEDR uses.
+        let log_path_val = crate::config::ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield");
+        let log_dir = if !log_path_val.trim().is_empty() {
+            PathBuf::from(log_path_val)
+        } else if let Some(program_data) = std::env::var_os("ProgramData") {
+            PathBuf::from(program_data).join("edrsvc").join("log")
+        } else {
+            std::env::temp_dir().join("owlyshield")
+        };
+
+        // Go up one level from 'owlyshield' subdirectory to get the main 'log' folder if needed
+        let mut base_log_dir = log_dir.clone();
+        if base_log_dir.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("owlyshield")) {
+            base_log_dir.pop();
+        }
+
+        let output_events_dir = base_log_dir.join("output_events");
+        std::fs::create_dir_all(&output_events_dir)?;
+
+        // Daily file name: owlyshield_YYYYMMDD.log
+        let today = chrono::Local::now().format("%Y%m%d").to_string();
+        let log_file_path = output_events_dir.join(format!("owlyshield_{}.log", today));
+
+        // Create the JSON event matching OpenEDR format
+        let event_time_iso = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+        let event = serde_json::json!({
+            "customerId": crate::config::ConfigReader::read_param_from_registry("CUSTOMER_ID", r"SOFTWARE\Owlyshield"),
+            "endpointId": crate::config::ConfigReader::read_param_from_registry("ENDPOINT_ID", r"SOFTWARE\Owlyshield"),
+            "eventGroup": "THREAT",
+            "eventType": "BEHAVIORAL_ALERT",
+            "eventTime": event_time_iso,
+            "status": "ALERT",
+            "threat": {
+                "type": threat_info.threat_type_label,
+                "name": threat_info.virus_name,
+                "certainty": threat_info.prediction,
+                "matchDetails": threat_info.match_details,
+                "response": threat_info.response_label_for(proc),
+                "remediation": proc.primary_remediation_path().to_string_lossy()
+            },
+            "process": {
+                "processId": proc.pids.iter().next().copied().unwrap_or(0),
+                "processPath": proc.exepath.to_string_lossy(),
+                "processName": proc.appname,
+                "processGroupId": proc.gid
+            },
+            "filesModified": proc.fpaths_updated.iter().collect::<Vec<&String>>()
+        });
+
+        // Open file in append mode
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file_path)?;
+
+        let json_line = serde_json::to_string(&event)?;
+        writeln!(file, "{}", json_line)?;
+
         Ok(())
     }
 }
