@@ -3372,6 +3372,13 @@ impl BehaviorEngine {
                                             "[OpenEDRVerdict] Marked {} as malicious based on OpenEDR verdict",
                                             file_path
                                         ));
+
+                                        // Quarantine mode: seal the file into a .hqf container
+                                        // and remove the original.
+                                        Self::quarantine_verdict_file(
+                                            &file_path,
+                                            &format!("OpenEDR FLS Verdict: {}", verdict_label),
+                                        );
                                     }
                                 } else {
                                     Logging::warning(&format!(
@@ -3392,6 +3399,33 @@ impl BehaviorEngine {
 
             })
             .expect("failed to spawn hydra_net_event_pipe thread");
+    }
+
+    /// Seal a file into a .hqf quarantine container and remove the original.
+    fn quarantine_verdict_file(file_path: &str, detection: &str) {
+        if file_path.is_empty()
+            || file_path.to_lowercase() == "unknown"
+            || file_path.to_lowercase() == "system"
+        {
+            return;
+        }
+        let src = Path::new(file_path);
+        if !src.exists() {
+            return;
+        }
+
+        match crate::windows::quarantine::quarantine_path(src, detection) {
+            Ok(dst) => Logging::warning(&format!(
+                "[OpenEDRVerdict] Quarantined {} into {} ({})",
+                file_path,
+                dst.display(),
+                detection
+            )),
+            Err(e) => Logging::error(&format!(
+                "[OpenEDRVerdict] Failed to quarantine {}: {}",
+                file_path, e
+            )),
+        }
     }
 
     /// Notify the firewall GUI about the OpenEDR FLS verdict for this process.
@@ -4365,6 +4399,10 @@ impl BehaviorEngine {
                     .as_deref()
                     .unwrap_or("OpenEDR static verdict");
                 self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 2 (Malware)");
+                Self::quarantine_verdict_file(
+                    exe_path,
+                    &format!("OpenEDR FLS static verdict: {label}"),
+                );
             }
 
             if let Some(dynamic_label) = cloud.get("dynamic_label").and_then(|v| v.as_str()) {
@@ -4388,6 +4426,10 @@ impl BehaviorEngine {
                     .as_deref()
                     .unwrap_or("OpenEDR dynamic verdict");
                 self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 2 (Malware)");
+                Self::quarantine_verdict_file(
+                    exe_path,
+                    &format!("OpenEDR FLS dynamic verdict: {label}"),
+                );
             }
         }
     }
@@ -11038,6 +11080,7 @@ impl BehaviorEngine {
                 p.is_malicious = true;
                 p.pids.insert(pid);
                 p.termination_requested = true;
+                p.quarantine_requested = true;
                 p.notify_user_requested = true;
                 p.triggered_rule_name = Some(detection.threat_type_label().to_string());
                 p.triggered_rule_details = Some(detection.match_details());
@@ -11172,11 +11215,7 @@ impl BehaviorEngine {
                     } else {
                         rule.response.terminate_process
                     };
-                    p.quarantine_requested = if rule.response.ask_user {
-                        prompted_quarantine
-                    } else {
-                        rule.response.quarantine
-                    };
+                    p.quarantine_requested = true;
                     p.deny_access_requested = if rule.response.ask_user {
                         (prompted_deny || prompted_block || prompted_quarantine)
                             && rule.response.status_access_denied

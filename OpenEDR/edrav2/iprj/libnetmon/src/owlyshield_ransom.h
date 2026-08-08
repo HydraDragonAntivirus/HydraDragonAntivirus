@@ -13,6 +13,7 @@ constexpr int OWLY_DRIVER_ERROR = 2;
 constexpr int OWLY_NOT_STARTED = 3;
 constexpr int OWLY_DESERIALIZE_ERROR = 4;
 constexpr int OWLY_CA_INSTALL_ERROR = 5;
+constexpr int OWLY_QUARANTINE_ERROR = 6;
 
 // Initialize and start the Owlyshield ransomware protection engine
 // Returns OWLY_OK on success, or an error code on failure
@@ -22,6 +23,12 @@ __declspec(dllimport) int32_t owlyshield_dll_start();
 // Driver-independent: called by edrsvc during setup, before the driver loads.
 // Returns OWLY_OK on success, or an error code on failure
 __declspec(dllimport) int32_t owlyshield_dll_install_ca();
+
+// Quarantine a file into an encrypted .hqf container and remove the original.
+// file_path: pointer to UTF-8 file path
+// len: length of the path in bytes
+// Returns OWLY_OK on success, or an error code on failure
+__declspec(dllimport) int32_t owlyshield_dll_quarantine_file(const uint8_t* file_path, uint32_t len);
 
 // Ingest a serialized IOMessage event from the driver
 // data: pointer to MessagePack-serialized IOMessage

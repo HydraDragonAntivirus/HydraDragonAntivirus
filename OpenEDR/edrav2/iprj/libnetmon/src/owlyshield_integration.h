@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace cmd {
 namespace win {
@@ -23,6 +24,12 @@ void ShutdownOwlyshield();
 /// (e.g. from the edrsvc install script).
 /// @return true on success, false on failure
 bool OwlyshieldInstallCa();
+
+/// Quarantine a file into an encrypted .hqf container and remove the original.
+/// Driver-independent; safe to call before the edrdrv driver is loaded.
+/// @param filePath Wide-character path of the file to quarantine
+/// @return true on success, false on failure
+bool OwlyshieldQuarantineFile(const std::wstring& filePath);
 
 } // namespace win
 } // namespace cmd

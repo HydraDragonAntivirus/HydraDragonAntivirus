@@ -1898,10 +1898,14 @@ impl FirewallEngine {
     }
 
     /// Install a raw DER certificate into the Windows LocalMachine\Root trust store.
+    ///
+    /// Idempotent: if a certificate with the same subject already exists in the
+    /// ROOT store it is left untouched and `Ok(())` is returned.
     pub fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
             CertAddCertificateContextToStore, CertCloseStore, CertCreateCertificateContext,
-            CertOpenSystemStoreA, X509_ASN_ENCODING,
+            CertFindCertificateInStore, CertFreeCertificateContext, CertOpenSystemStoreA,
+            X509_ASN_ENCODING, CERT_FIND_SUBJECT_STR,
             CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
         };
         use windows::core::PCSTR;
@@ -1921,6 +1925,21 @@ impl FirewallEngine {
                     "CertCreateCertificateContext failed: {}",
                     windows::Win32::Foundation::GetLastError().0
                 ));
+            }
+
+            // If a certificate with the same subject already exists, skip the install.
+            let existing = CertFindCertificateInStore(
+                store,
+                X509_ASN_ENCODING,
+                0,
+                CERT_FIND_SUBJECT_STR,
+                Some(b"HydraDragon Firewall CA\0".as_ptr().cast()),
+                None,
+            );
+            if !existing.is_null() {
+                let _ = CertFreeCertificateContext(Some(existing));
+                let _ = CertCloseStore(store, 0);
+                return Ok(());
             }
 
             let result = CertAddCertificateContextToStore(

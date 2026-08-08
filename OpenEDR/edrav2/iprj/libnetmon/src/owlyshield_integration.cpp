@@ -117,6 +117,60 @@ bool OwlyshieldInstallCa()
 }
 
 ///
+/// Quarantine a file into an encrypted .hqf container and remove the original.
+///
+/// Driver-independent: uses a private DLL handle so it does not interfere with
+/// the engine state used by InitOwlyshield()/ShutdownOwlyshield().
+///
+bool OwlyshieldQuarantineFile(const std::wstring& filePath)
+{
+	typedef int32_t (*OwlyshieldDllQuarantineFileFn)(const uint8_t*, uint32_t);
+
+	if (filePath.empty())
+	{
+		LOGLVL(Debug, "OwlyshieldQuarantineFile: empty path");
+		return false;
+	}
+
+	// Convert wide path to UTF-8 for the Rust FFI.
+	std::string sUtf8 = string::convertWCharToUtf8(filePath);
+	if (sUtf8.empty())
+	{
+		LOGLVL(Debug, "OwlyshieldQuarantineFile: failed to convert path to UTF-8");
+		return false;
+	}
+
+	HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+	if (hDll == nullptr)
+	{
+		LOGLVL(Debug, "Failed to load owlyshield_ransom.dll for quarantine (error: " << ::GetLastError() << ")");
+		return false;
+	}
+
+	auto fnQuarantine = (OwlyshieldDllQuarantineFileFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+	if (fnQuarantine == nullptr)
+	{
+		LOGLVL(Debug, "Failed to get owlyshield_dll_quarantine_file address");
+		::FreeLibrary(hDll);
+		return false;
+	}
+
+	int32_t result = fnQuarantine(
+		reinterpret_cast<const uint8_t*>(sUtf8.data()),
+		static_cast<uint32_t>(sUtf8.size()));
+	::FreeLibrary(hDll);
+
+	if (result != OWLY_OK)
+	{
+		LOGLVL(Debug, "owlyshield_dll_quarantine_file failed with code: " << result);
+		return false;
+	}
+
+	LOGLVL(Debug, "File quarantined into encrypted container");
+	return true;
+}
+
+///
 /// Shutdown Owlyshield and unload the DLL
 ///
 void ShutdownOwlyshield()

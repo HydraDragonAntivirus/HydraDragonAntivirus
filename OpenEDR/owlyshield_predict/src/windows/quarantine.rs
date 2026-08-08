@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const QUARANTINE_MAGIC: &[u8; 7] = b"HYDRA\x00\x01";
@@ -105,6 +105,54 @@ pub fn quarantine_file(
     file.write_all(&xored)?;
 
     Ok(())
+}
+
+/// Build a unique quarantine destination path in `qdir`.
+pub fn build_quarantine_destination(src: &Path, qdir: &Path) -> PathBuf {
+    let filename = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("quarantined_file");
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let prefix = format!("{}_{}", ts.as_secs(), ts.subsec_nanos());
+
+    let mut counter = 0_u32;
+    loop {
+        let suffix = if counter == 0 {
+            String::new()
+        } else {
+            format!("_{counter}")
+        };
+        let dst = qdir.join(format!("{prefix}_{filename}{suffix}.hqf"));
+        if !dst.exists() {
+            return dst;
+        }
+        counter = counter.saturating_add(1);
+    }
+}
+
+/// Seal a file into a .hqf quarantine container and remove the original.
+/// Returns the quarantine container path on success.
+pub fn quarantine_path(src: &Path, detection: &str) -> Result<PathBuf, QuarantineError> {
+    let qdir = Path::new(crate::shared_def::QUARANTINE_PATH);
+    std::fs::create_dir_all(qdir)?;
+    let dst = build_quarantine_destination(src, qdir);
+    let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());
+
+    quarantine_file(src, &dst, detection, &sha256)?;
+
+    if let Ok(metadata) = std::fs::metadata(src) {
+        let mut permissions = metadata.permissions();
+        if permissions.readonly() {
+            permissions.set_readonly(false);
+            let _ = std::fs::set_permissions(src, permissions);
+        }
+    }
+    std::fs::remove_file(src)?;
+    Ok(dst)
 }
 
 /// Restore a .hqf quarantine file back to its original bytes.

@@ -17,6 +17,7 @@ const OWLY_DRIVER_ERROR: i32 = 2;
 const OWLY_NOT_STARTED: i32 = 3;
 const OWLY_DESERIALIZE_ERROR: i32 = 4;
 const OWLY_CA_INSTALL_ERROR: i32 = 5;
+const OWLY_QUARANTINE_ERROR: i32 = 6;
 
 static SENDER: OnceLock<Sender<IOMessage>> = OnceLock::new();
 
@@ -126,6 +127,58 @@ pub extern "C" fn owlyshield_dll_install_ca() -> i32 {
                 "[Owlyshield FFI] Firewall CA install failed: {e}"
             ));
             OWLY_CA_INSTALL_ERROR
+        }
+    }
+}
+
+/// Quarantine a file into an encrypted .hqf container and remove the original.
+///
+/// Driver-independent: reads `file_path` (UTF-8), XOR-encrypts the payload into
+/// `C:\ProgramData\HydraDragonQuarantine\*.hqf` and deletes the source file.
+/// Called by the OpenEDR C++ layer when it receives an FLS verdict of 2
+/// (Malicious) for a file.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_dll_quarantine_file(file_path: *const u8, len: u32) -> i32 {
+    if file_path.is_null() || len == 0 {
+        Logging::error("[Owlyshield FFI] owlyshield_dll_quarantine_file: null or empty path");
+        return OWLY_QUARANTINE_ERROR;
+    }
+
+    let bytes = unsafe { std::slice::from_raw_parts(file_path, len as usize) };
+    let path_str = match std::str::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            Logging::error(&format!(
+                "[Owlyshield FFI] owlyshield_dll_quarantine_file: invalid UTF-8 path: {e}"
+            ));
+            return OWLY_QUARANTINE_ERROR;
+        }
+    };
+
+    let src = std::path::Path::new(path_str);
+    if !src.exists() {
+        Logging::error(&format!(
+            "[Owlyshield FFI] owlyshield_dll_quarantine_file: source does not exist: {}",
+            src.display()
+        ));
+        return OWLY_QUARANTINE_ERROR;
+    }
+
+    match crate::windows::quarantine::quarantine_path(src, "OpenEDR FLS Malicious Verdict") {
+        Ok(dst) => {
+            Logging::warning(&format!(
+                "[Owlyshield FFI] Quarantined {} into {}",
+                src.display(),
+                dst.display()
+            ));
+            OWLY_OK
+        }
+        Err(e) => {
+            Logging::error(&format!(
+                "[Owlyshield FFI] Quarantine failed for {}: {e}",
+                src.display()
+            ));
+            OWLY_QUARANTINE_ERROR
         }
     }
 }
