@@ -88,6 +88,9 @@
 					<RegistryValue Name="LOG_PATH" Value="[CommonAppDataFolder]edrsvc\log\owlyshield" Type="string" />
 					<RegistryValue Name="REPORTS_PATH" Value="[CommonAppDataFolder]edrsvc\log\reports" Type="string" />
 				</RegistryKey>
+				<RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
+					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]firewall-rules" Type="string" />
+				</RegistryKey>
 			</Component>
 			<Files Include="$(var.SourceBinDir)**" />
 		</ComponentGroup>

@@ -71,6 +71,10 @@
     <Exec Command='md "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64"' />
     <Exec Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
     <Exec Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-x64" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
+    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\rules\"' />
+    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\rules\"' />
+    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\firewall-rules\"' />
+    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\firewall-rules\"' />
     <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.cfg, *.qsc, ptm.*, evm.*, policy.l?c) do "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
     <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
     <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.cfg, *.qsc, ptm.*, evm.*, policy.l?c) do "$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />

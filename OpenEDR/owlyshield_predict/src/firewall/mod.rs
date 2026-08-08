@@ -42,8 +42,8 @@ pub fn run() {
         if key.get_value::<String, _>("RULES_PATH").is_err() {
             let default_dir = std::env::current_exe()
                 .ok()
-                .and_then(|p| p.parent().map(|d| d.join("rules")))
-                .unwrap_or_else(|| std::path::PathBuf::from("rules"));
+                .and_then(|p| p.parent().map(|d| d.join("firewall-rules")))
+                .unwrap_or_else(|| std::path::PathBuf::from("firewall-rules"));
             let _ = key.set_value("RULES_PATH", &default_dir.to_string_lossy().to_string());
         }
     }

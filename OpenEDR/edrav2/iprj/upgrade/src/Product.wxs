@@ -90,6 +90,9 @@
                         <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
                         <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
                     </RegistryKey>
+                    <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
+                        <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
+                    </RegistryKey>
                 </Component>
                 <Files Include="$(var.SourceBinDir64)**" />
             </ComponentGroup>
@@ -106,6 +109,9 @@
                         <RegistryValue Name="VERBOSE_LOGGING" Value="1" Type="string" />
                         <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
                         <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
+                    </RegistryKey>
+                    <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
+                        <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
                     </RegistryKey>
                 </Component>
                 <Files Include="$(var.SourceBinDir32)**" />
