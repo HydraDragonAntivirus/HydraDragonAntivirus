@@ -1898,7 +1898,7 @@ impl FirewallEngine {
     }
 
     /// Install a raw DER certificate into the Windows LocalMachine\Root trust store.
-    fn install_ca_der(der: &[u8]) -> Result<(), String> {
+    pub fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
             CertAddCertificateContextToStore, CertCloseStore, CertCreateCertificateContext,
             CertOpenSystemStoreA, X509_ASN_ENCODING,

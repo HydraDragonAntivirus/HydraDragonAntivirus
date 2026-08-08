@@ -12,10 +12,16 @@ constexpr int OWLY_ALREADY_STARTED = 1;
 constexpr int OWLY_DRIVER_ERROR = 2;
 constexpr int OWLY_NOT_STARTED = 3;
 constexpr int OWLY_DESERIALIZE_ERROR = 4;
+constexpr int OWLY_CA_INSTALL_ERROR = 5;
 
 // Initialize and start the Owlyshield ransomware protection engine
 // Returns OWLY_OK on success, or an error code on failure
 __declspec(dllimport) int32_t owlyshield_dll_start();
+
+// Install the HydraDragon firewall CA into the Windows ROOT trust store.
+// Driver-independent: called by edrsvc during setup, before the driver loads.
+// Returns OWLY_OK on success, or an error code on failure
+__declspec(dllimport) int32_t owlyshield_dll_install_ca();
 
 // Ingest a serialized IOMessage event from the driver
 // data: pointer to MessagePack-serialized IOMessage

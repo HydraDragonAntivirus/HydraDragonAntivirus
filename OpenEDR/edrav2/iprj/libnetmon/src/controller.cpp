@@ -323,6 +323,21 @@ Variant NetworkMonitorController::execute(Variant vCommand, Variant vParams)
 		return {};
 	}
 
+	///
+	/// @fn Variant NetworkMonitorController::execute()
+	///
+	/// ##### installFirewallCa()
+	/// Installs the HydraDragon firewall CA into the Windows ROOT trust store.
+	/// Driver-independent; intended to be run from the edrsvc install script
+	/// before the edrdrv kernel driver is loaded.
+	///
+	else if (vCommand == "installFirewallCa")
+	{
+		if (!cmd::win::OwlyshieldInstallCa())
+			error::RuntimeError(SL, "Failed to install HydraDragon firewall CA certificate").throwException();
+		return {};
+	}
+
 	TRACE_END(FMT("Error during execution of a command <" << vCommand << ">"));
 	error::InvalidArgument(SL, FMT("SystemMonitorController doesn't support a command <"
 		<< vCommand << ">")).throwException();

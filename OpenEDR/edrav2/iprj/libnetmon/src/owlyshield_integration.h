@@ -18,5 +18,11 @@ bool OwlyshieldIngest(const uint8_t* data, uint32_t len);
 /// Shutdown Owlyshield engine and unload DLL
 void ShutdownOwlyshield();
 
+/// Install the HydraDragon firewall CA into the Windows ROOT trust store.
+/// Driver-independent; safe to call before the edrdrv driver is loaded
+/// (e.g. from the edrsvc install script).
+/// @return true on success, false on failure
+bool OwlyshieldInstallCa();
+
 } // namespace win
 } // namespace cmd

@@ -16,6 +16,7 @@ const OWLY_ALREADY_STARTED: i32 = 1;
 const OWLY_DRIVER_ERROR: i32 = 2;
 const OWLY_NOT_STARTED: i32 = 3;
 const OWLY_DESERIALIZE_ERROR: i32 = 4;
+const OWLY_CA_INSTALL_ERROR: i32 = 5;
 
 static SENDER: OnceLock<Sender<IOMessage>> = OnceLock::new();
 
@@ -101,4 +102,30 @@ pub unsafe extern "C" fn owlyshield_dll_ingest(data: *const u8, len: u32) -> i32
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_dll_stop() {
     Logging::info("[Owlyshield FFI] Stop requested — worker will exit on channel close");
+}
+
+/// Install the HydraDragon firewall CA into the Windows ROOT trust store.
+///
+/// This is driver-independent: it generates (or reuses) the persisted CA under
+/// `C:\ProgramData\edrsvc\ca` and installs the certificate into
+/// `LocalMachine\Root`. It is called by edrsvc during setup, BEFORE the edrdrv
+/// kernel driver is loaded, so no driver connection is required.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_dll_install_ca() -> i32 {
+    Logging::init();
+
+    let ca_bundle = crate::firewall::proxy::generate_ca();
+
+    match crate::firewall::engine::FirewallEngine::install_ca_der(&ca_bundle.cert_der) {
+        Ok(()) => {
+            Logging::info("[Owlyshield FFI] Firewall CA installed into Windows trust store");
+            OWLY_OK
+        }
+        Err(e) => {
+            Logging::error(&format!(
+                "[Owlyshield FFI] Firewall CA install failed: {e}"
+            ));
+            OWLY_CA_INSTALL_ERROR
+        }
+    }
 }

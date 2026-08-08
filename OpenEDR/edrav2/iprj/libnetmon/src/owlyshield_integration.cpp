@@ -78,6 +78,45 @@ bool OwlyshieldIngest(const uint8_t* data, uint32_t len)
 }
 
 ///
+/// Install the HydraDragon firewall CA into the Windows ROOT trust store.
+///
+/// Driver-independent: generates (or reuses) the persisted CA and installs the
+/// certificate. Uses a private DLL handle so it does not interfere with the
+/// engine state used by InitOwlyshield()/ShutdownOwlyshield().
+///
+bool OwlyshieldInstallCa()
+{
+	typedef int32_t (*OwlyshieldDllInstallCaFn)();
+
+	HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+	if (hDll == nullptr)
+	{
+		LOGLVL(Debug, "Failed to load owlyshield_ransom.dll for CA install (error: " << ::GetLastError() << ")");
+		return false;
+	}
+
+	auto fnInstallCa = (OwlyshieldDllInstallCaFn)::GetProcAddress(hDll, "owlyshield_dll_install_ca");
+	if (fnInstallCa == nullptr)
+	{
+		LOGLVL(Debug, "Failed to get owlyshield_dll_install_ca address");
+		::FreeLibrary(hDll);
+		return false;
+	}
+
+	int32_t result = fnInstallCa();
+	::FreeLibrary(hDll);
+
+	if (result != OWLY_OK)
+	{
+		LOGLVL(Debug, "owlyshield_dll_install_ca failed with code: " << result);
+		return false;
+	}
+
+	LOGLVL(Debug, "HydraDragon firewall CA installed into Windows trust store");
+	return true;
+}
+
+///
 /// Shutdown Owlyshield and unload the DLL
 ///
 void ShutdownOwlyshield()
