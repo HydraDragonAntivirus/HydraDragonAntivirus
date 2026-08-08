@@ -383,6 +383,7 @@ impl ThreatHandler for WindowsThreatHandler {
             return;
         }
 
+        let mut killed = false;
         match self.driver.try_kill(gid) {
             Ok(hres) => {
                 if hres.is_ok() {
@@ -390,6 +391,7 @@ impl ThreatHandler for WindowsThreatHandler {
                         "[ThreatHandler] Successfully killed process group GID: {}",
                         gid
                     ));
+                    killed = true;
                 } else {
                     Logging::error(&format!(
                         "[ThreatHandler] Driver failed to kill GID: {}. HRESULT: 0x{:08X}",
@@ -402,6 +404,17 @@ impl ThreatHandler for WindowsThreatHandler {
                     "[ThreatHandler] Failed to communicate with driver for GID: {}. Error: {}",
                     gid, e
                 ));
+            }
+        }
+
+        if !killed {
+            let pid = (gid & 0xFFFF_FFFF) as u32;
+            if pid > 4 {
+                Logging::warning(&format!(
+                    "[ThreatHandler] Attempting user-mode TerminateProcess fallback for PID {} (from GID {})",
+                    pid, gid
+                ));
+                let _ = self.kill_pid_direct(pid);
             }
         }
     }
@@ -482,6 +495,7 @@ impl ThreatHandler for WindowsThreatHandler {
                 )),
             }
         } else {
+            let mut killed = false;
             match self.driver.try_kill(gid) {
                 Ok(hres) => {
                     if hres.is_ok() {
@@ -489,6 +503,7 @@ impl ThreatHandler for WindowsThreatHandler {
                             "[ThreatHandler] Successfully killed process group GID: {} for quarantine",
                             gid
                         ));
+                        killed = true;
                     } else {
                         Logging::warning(&format!(
                             "[ThreatHandler] Driver returned HRESULT 0x{:08X} when killing GID: {} for quarantine",
@@ -501,6 +516,17 @@ impl ThreatHandler for WindowsThreatHandler {
                         "[ThreatHandler] Failed to communicate with driver for GID: {} during quarantine. Error: {}",
                         gid, e
                     ));
+                }
+            }
+
+            if !killed {
+                let pid = (gid & 0xFFFF_FFFF) as u32;
+                if pid > 4 {
+                    Logging::warning(&format!(
+                        "[ThreatHandler] Attempting user-mode TerminateProcess fallback for PID {} during quarantine (GID {})",
+                        pid, gid
+                    ));
+                    let _ = self.kill_pid_direct(pid);
                 }
             }
         }

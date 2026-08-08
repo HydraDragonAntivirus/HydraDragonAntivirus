@@ -38,7 +38,7 @@ const MAX_FILE_NAME_LENGTH: usize = 520;
 /// WCHAR quarantine_path[520] @1056. Total = 4 + 4 + 8 + 2*520*2 = 2096.
 const COM_MESSAGE_SIZE: usize = 4 + 4 + 8 + MAX_FILE_NAME_LENGTH * 2 + MAX_FILE_NAME_LENGTH * 2;
 
-// COM_MESSAGE_TYPE enum (SharedDefs.h)
+// COM_MESSAGE_TYPE enum (SharedDefs.h) - full driver protocol map
 const MESSAGE_ADD_SCAN_DIRECTORY: u32 = 0;
 const MESSAGE_REM_SCAN_DIRECTORY: u32 = 1;
 const MESSAGE_GET_OPS: u32 = 2;
@@ -183,6 +183,50 @@ impl Driver {
         self.ioctl(IOCTL_OWLY_COMPAT_MESSAGE, &input, &mut output)
             .map_err(|e| format!("try_kill(gid={gid}) failed: {e}"))?;
         Ok(HRESULT(i32::from_le_bytes(output)))
+    }
+
+    /// Ask the driver to kill only the process group.
+    pub fn kill_only_driver(&self, gid: u64) -> Result<HRESULT, String> {
+        let input = build_com_message(MESSAGE_KILL_ONLY_GID, 0, gid, &[], &[]);
+        let mut output = [0u8; 4];
+        self.ioctl(IOCTL_OWLY_COMPAT_MESSAGE, &input, &mut output)
+            .map_err(|e| format!("kill_only_driver(gid={gid}) failed: {e}"))?;
+        Ok(HRESULT(i32::from_le_bytes(output)))
+    }
+
+    /// Ask the driver to kill the process group and quarantine the artifact.
+    pub fn kill_and_quarantine_driver(&self, gid: u64, path: &Path) -> Result<HRESULT, String> {
+        let path_wide: Vec<u16> = path.to_string_lossy().encode_utf16().collect();
+        let input = build_com_message(MESSAGE_KILL_AND_QUARANTINE_GID, 0, gid, &path_wide, &[]);
+        let mut output = [0u8; 4];
+        self.ioctl(IOCTL_OWLY_COMPAT_MESSAGE, &input, &mut output)
+            .map_err(|e| format!("kill_and_quarantine_driver(gid={gid}) failed: {e}"))?;
+        Ok(HRESULT(i32::from_le_bytes(output)))
+    }
+
+    /// Add a directory to the driver scan list.
+    pub fn add_scan_directory(&self, path: &Path) -> Result<(), String> {
+        let path_wide: Vec<u16> = path.to_string_lossy().encode_utf16().collect();
+        let input = build_com_message(MESSAGE_ADD_SCAN_DIRECTORY, 0, 0, &path_wide, &[]);
+        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input)
+            .map_err(|e| format!("add_scan_directory failed: {e}"))
+    }
+
+    /// Remove a directory from the driver scan list.
+    pub fn remove_scan_directory(&self, path: &Path) -> Result<(), String> {
+        let path_wide: Vec<u16> = path.to_string_lossy().encode_utf16().collect();
+        let input = build_com_message(MESSAGE_REM_SCAN_DIRECTORY, 0, 0, &path_wide, &[]);
+        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input)
+            .map_err(|e| format!("remove_scan_directory failed: {e}"))
+    }
+
+    /// Query operations counter from the driver.
+    pub fn get_ops(&self) -> Result<u64, String> {
+        let input = build_com_message(MESSAGE_GET_OPS, 0, 0, &[], &[]);
+        let mut output = [0u8; 8];
+        self.ioctl(IOCTL_OWLY_COMPAT_MESSAGE, &input, &mut output)
+            .map_err(|e| format!("get_ops failed: {e}"))?;
+        Ok(u64::from_le_bytes(output))
     }
 
     /// Ask the driver to kill the process group and delete the on-disk artifact.
