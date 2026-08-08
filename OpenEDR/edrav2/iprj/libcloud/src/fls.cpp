@@ -703,13 +703,13 @@ void FlsService::enrichFileVerdict(Variant vFile)
 				}
 				else
 				{
-					LOGWRN("Failed to locate owlyshield_dll_quarantine_file in loaded DLL");
+					LOGLVL(Critical, "Failed to locate owlyshield_dll_quarantine_file in loaded DLL");
 				}
 				::FreeLibrary(hDll);
 			}
 			else
 			{
-				LOGWRN("Failed to load owlyshield_ransom.dll for dynamic quarantine");
+				LOGLVL(Critical, "Failed to load owlyshield_ransom.dll for dynamic quarantine");
 			}
 		}
 	}
