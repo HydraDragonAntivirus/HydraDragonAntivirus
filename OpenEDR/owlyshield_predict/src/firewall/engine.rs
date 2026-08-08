@@ -1909,8 +1909,8 @@ impl FirewallEngine {
     /// already present in the Windows LocalMachine\Root trust store.
     pub fn ca_certificate_installed() -> bool {
         use windows::Win32::Security::Cryptography::{
-            CertCloseStore, CertFindCertificateInStore, CertFreeCertificateContext,
-            CertOpenSystemStoreA, X509_ASN_ENCODING, CERT_FIND_SUBJECT_STR_A,
+            CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext,
+            CertGetNameStringW, CertOpenSystemStoreA, CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
         };
         use windows::core::PCSTR;
 
@@ -1920,17 +1920,34 @@ impl FirewallEngine {
                 Err(_) => return false,
             };
 
-            let existing = CertFindCertificateInStore(
-                store,
-                X509_ASN_ENCODING,
-                0,
-                CERT_FIND_SUBJECT_STR_A,
-                Some(b"HydraDragon Firewall CA\0".as_ptr().cast()),
-                None,
-            );
-            let found = !existing.is_null();
-            if found {
-                let _ = CertFreeCertificateContext(Some(existing));
+            let mut found = false;
+            let mut prev: *const CERT_CONTEXT = std::ptr::null();
+            loop {
+                let current = CertEnumCertificatesInStore(store, Some(prev));
+                if current.is_null() {
+                    break;
+                }
+                let mut buf = [0u16; 256];
+                let n = CertGetNameStringW(
+                    current,
+                    CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                    0,
+                    None,
+                    Some(&mut buf),
+                );
+                if n > 1 {
+                    let name = String::from_utf16_lossy(&buf[..(n - 1) as usize])
+                        .trim()
+                        .to_string();
+                    if name == "HydraDragon Firewall CA" {
+                        found = true;
+                    }
+                }
+                CertFreeCertificateContext(Some(current));
+                if found {
+                    break;
+                }
+                prev = current;
             }
             let _ = CertCloseStore(store, 0);
             found
@@ -1944,8 +1961,8 @@ impl FirewallEngine {
     pub fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
             CertAddCertificateContextToStore, CertCloseStore, CertCreateCertificateContext,
-            CertFindCertificateInStore, CertFreeCertificateContext, CertOpenSystemStoreA,
-            X509_ASN_ENCODING, CERT_FIND_SUBJECT_STR_A,
+            CertEnumCertificatesInStore, CertFreeCertificateContext, CertGetNameStringW,
+            CertOpenSystemStoreA, X509_ASN_ENCODING, CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
             CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
         };
         use windows::core::PCSTR;
@@ -1953,6 +1970,44 @@ impl FirewallEngine {
         unsafe {
             let store = CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr()))
                 .map_err(|e| format!("CertOpenSystemStoreA: {:?}", e))?;
+
+            // Idempotency: enumerate every cert in the ROOT store and compare its
+            // simple display name. CERT_FIND_SUBJECT_STR can miss due to X.500
+            // subject formatting differences; this enumeration is authoritative.
+            let mut existing_found = false;
+            let mut prev: *const CERT_CONTEXT = std::ptr::null();
+            loop {
+                let current = CertEnumCertificatesInStore(store, Some(prev));
+                if current.is_null() {
+                    break;
+                }
+                let mut buf = [0u16; 256];
+                let n = CertGetNameStringW(
+                    current,
+                    CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                    0,
+                    None,
+                    Some(&mut buf),
+                );
+                if n > 1 {
+                    let name = String::from_utf16_lossy(&buf[..(n - 1) as usize])
+                        .trim()
+                        .to_string();
+                    if name == "HydraDragon Firewall CA" {
+                        existing_found = true;
+                    }
+                }
+                CertFreeCertificateContext(Some(current));
+                if existing_found {
+                    break;
+                }
+                prev = current;
+            }
+
+            if existing_found {
+                let _ = CertCloseStore(store, 0);
+                return Ok(());
+            }
 
             let cert = CertCreateCertificateContext(
                 X509_ASN_ENCODING,
@@ -1965,21 +2020,6 @@ impl FirewallEngine {
                     "CertCreateCertificateContext failed: {}",
                     windows::Win32::Foundation::GetLastError().0
                 ));
-            }
-
-            // If a certificate with the same subject already exists, skip the install.
-            let existing = CertFindCertificateInStore(
-                store,
-                X509_ASN_ENCODING,
-                0,
-                CERT_FIND_SUBJECT_STR_A,
-                Some(b"HydraDragon Firewall CA\0".as_ptr().cast()),
-                None,
-            );
-            if !existing.is_null() {
-                let _ = CertFreeCertificateContext(Some(existing));
-                let _ = CertCloseStore(store, 0);
-                return Ok(());
             }
 
             let result = CertAddCertificateContextToStore(

@@ -13,7 +13,7 @@
   <img
     width="420"
     alt="HydraDragon Antivirus — retro mark"
-    src="hydradragon/assets/HydraDragon-H-logo.png"
+    src="hydradragon/assets/image.png"
   />
 </p>
 
