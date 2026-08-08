@@ -82,18 +82,31 @@ pub fn run() {
         worker = worker.build();
 
         // Load behavior rules
-        
         {
-            let rules_path = worker.app_settings.behavior_rules_path.clone();
+            let rules_path = crate::globals::rules_path();
             Logging::info(&format!(
                 "[Owlyshield] Handing rules off to BehaviorEngine from path: {:?}",
                 rules_path
             ));
-            if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
+            if let Err(e) = worker.behavior_engine.load_rules(rules_path) {
                 Logging::error(&format!(
                     "Failed to load behavior rules from {:?}: {}",
                     rules_path, e
                 ));
+            }
+
+            let firewall_rules_path = rules_path.join("firewall-rules");
+            if firewall_rules_path.exists() {
+                Logging::info(&format!(
+                    "[Owlyshield] Loading firewall rules off to BehaviorEngine from path: {:?}",
+                    firewall_rules_path
+                ));
+                if let Err(e) = worker.behavior_engine.load_rules(&firewall_rules_path) {
+                    Logging::error(&format!(
+                        "Failed to load firewall behavior rules from {:?}: {}",
+                        firewall_rules_path, e
+                    ));
+                }
             }
         }
 
