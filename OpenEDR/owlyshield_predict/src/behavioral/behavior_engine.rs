@@ -3739,12 +3739,40 @@ impl BehaviorEngine {
             .or_else(|| str_at(event, &["process", "imageFile", "rawPath"]))
             .or_else(|| str_at(event, &["process.imageFile.rawPath"]))
             .or_else(|| str_at(event, &["process_path"]))
+            .or_else(|| str_at(event, &["imagePath"]))
             .unwrap_or("Unknown");
         let file_path = str_at(event, &["file", "path"])
             .or_else(|| str_at(event, &["file", "rawPath"]))
             .or_else(|| str_at(event, &["file.rawPath"]))
             .or_else(|| str_at(event, &["path"]))
+            .or_else(|| str_at(event, &["imagePath"]))
             .unwrap_or("");
+
+        // OpenEDR process-report events (RP1.1.*) carry the FLS verdict at the
+        // top level (flsVerdict / verdict) together with imagePath. Treat a
+        // Malicious verdict exactly like the VERDICT pipe path: quarantine now.
+        {
+            let top_verdict = event
+                .get("flsVerdict")
+                .or_else(|| event.get("verdict"))
+                .and_then(OpenEdrFlsVerdict::from_json_value);
+            if let Some(verdict) = top_verdict {
+                if verdict.is_malicious() {
+                    let label = verdict.display_label();
+                    let target = if exe_path != "Unknown" {
+                        exe_path
+                    } else {
+                        file_path
+                    };
+                    if !target.is_empty() && target != "Unknown" {
+                        Self::quarantine_verdict_file(
+                            target,
+                            &format!("OpenEDR process report verdict (FLS): {label}"),
+                        );
+                    }
+                }
+            }
+        }
         let registry_path = str_at(event, &["registry", "path"])
             .or_else(|| str_at(event, &["registry", "rawPath"]))
             .or_else(|| str_at(event, &["registry.rawPath"]))
