@@ -1,7 +1,7 @@
 ## Editing Alerting Policies 
 The agent uses network driver, file driver, and DLL injection to capture events that occur on the endpoint. It enriches the event data with various information, then filters these events according to the policy rules and sends them to the server. 
 
-You can customize your policy with your own policy. Within the installation folder which is "C:\Program Files\Comodo\EdrAgentV2" policy file called   "evm.local.src"
+You can customize your policy with your own policy. Within the installation folder which is "C:\Program Files\OpenEdr\EdrAgentV2" policy file called   "evm.local.src"
 
 For Comodo suggested rules please check the rule repo https://github.com/ComodoSecurity/OpenEDRRules
 

@@ -3710,14 +3710,80 @@ impl BehaviorEngine {
             }
         }
 
-        let event_type = str_at(event, &["type"])
+        // Resolve event_type — some events use numeric `baseEventType` instead
+        // of a string `type` field, so we convert the number to a synthetic tag.
+        let event_type_owned: String;
+        let event_type = match str_at(event, &["type"])
             .or_else(|| str_at(event, &["event_type"]))
             .or_else(|| str_at(event, &["baseType"]))
-            .unwrap_or("")
-            .trim();
+        {
+            Some(t) => t.trim(),
+            None => {
+                event_type_owned = u64_at(event, &["baseEventType"])
+                    .map(|code| format!("BASE_EVENT_{code}"))
+                    .unwrap_or_default();
+                event_type_owned.as_str()
+            }
+        };
+
+        // --- Nested verdict scan (processes[] / childProcess) ----------------
+        // MLE_INTEGRITY_LEVEL_ELEVATION and child-process creation events carry
+        // flsVerdict inside `processes[]` items and/or a `childProcess` object
+        // rather than at the top level. We must scan these **before** the
+        // pid == 0 early-return guard, because these events often lack a
+        // top-level PID.
+        if let Some(processes) = event.get("processes").and_then(|v| v.as_array()) {
+            for proc in processes {
+                let verdict = proc
+                    .get("flsVerdict")
+                    .or_else(|| proc.get("verdict"))
+                    .and_then(OpenEdrFlsVerdict::from_json_value);
+                if verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
+                    if let Some(path) = proc.get("imagePath").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) {
+                        Logging::warning(&format!(
+                            "[OpenEDRVerdict] Malicious flsVerdict in processes[] for {}",
+                            path
+                        ));
+                        Self::quarantine_verdict_file(
+                            path,
+                            &format!("OpenEDR nested process verdict (FLS): Malware"),
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(child) = event.get("childProcess") {
+            let verdict = child
+                .get("flsVerdict")
+                .or_else(|| child.get("verdict"))
+                .and_then(OpenEdrFlsVerdict::from_json_value);
+            if verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
+                if let Some(path) = child.get("imagePath").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) {
+                    Logging::warning(&format!(
+                        "[OpenEDRVerdict] Malicious flsVerdict in childProcess for {}",
+                        path
+                    ));
+                    Self::quarantine_verdict_file(
+                        path,
+                        &format!("OpenEDR childProcess verdict (FLS): Malware"),
+                    );
+                }
+            }
+        }
+
+        // PID resolution — also try extracting from childProcess or first
+        // entry of the processes array as a fallback.
         let pid = u64_at(event, &["process", "pid"])
             .or_else(|| u64_at(event, &["process.pid"]))
             .or_else(|| u64_at(event, &["pid"]))
+            .or_else(|| u64_at(event, &["childProcess", "pid"]))
+            .or_else(|| {
+                event.get("processes")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.last())
+                    .and_then(|p| u64_at(p, &["pid"]))
+            })
             .unwrap_or(0)
             .min(u32::MAX as u64) as u32;
         if pid == 0 || event_type.is_empty() {

@@ -1921,9 +1921,9 @@ impl FirewallEngine {
             };
 
             let mut found = false;
-            let mut prev: *const CERT_CONTEXT = std::ptr::null();
+            let mut prev: Option<*const CERT_CONTEXT> = None;
             loop {
-                let current = CertEnumCertificatesInStore(store, Some(prev));
+                let current = CertEnumCertificatesInStore(store, prev);
                 if current.is_null() {
                     break;
                 }
@@ -1943,11 +1943,11 @@ impl FirewallEngine {
                         found = true;
                     }
                 }
-                CertFreeCertificateContext(Some(current));
                 if found {
+                    CertFreeCertificateContext(Some(current));
                     break;
                 }
-                prev = current;
+                prev = Some(current);
             }
             let _ = CertCloseStore(store, 0);
             found
@@ -1975,9 +1975,9 @@ impl FirewallEngine {
             // simple display name. CERT_FIND_SUBJECT_STR can miss due to X.500
             // subject formatting differences; this enumeration is authoritative.
             let mut existing_found = false;
-            let mut prev: *const CERT_CONTEXT = std::ptr::null();
+            let mut prev: Option<*const CERT_CONTEXT> = None;
             loop {
-                let current = CertEnumCertificatesInStore(store, Some(prev));
+                let current = CertEnumCertificatesInStore(store, prev);
                 if current.is_null() {
                     break;
                 }
@@ -1997,11 +1997,11 @@ impl FirewallEngine {
                         existing_found = true;
                     }
                 }
-                CertFreeCertificateContext(Some(current));
                 if existing_found {
+                    CertFreeCertificateContext(Some(current));
                     break;
                 }
-                prev = current;
+                prev = Some(current);
             }
 
             if existing_found {
