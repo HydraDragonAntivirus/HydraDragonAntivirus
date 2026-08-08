@@ -70,8 +70,6 @@
     <Exec Command='if exist "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" rd "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" /S /Q' />
     <Exec Command='md "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)"' />
     <Exec Command='xcopy "$(CmdRootDir)\out\bin\$(CmdOutDirName)" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" /Q /E /I /Exclude:$(ProjectDir)..\..\src\exclude.list' />
-    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\rules" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\rules\"' />
-    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\"' />
     <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.cfg, *.qsc, *.src, *.act) do "$(CmdRootDir)\out\bin\$(CmdOutDirName)\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
     <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*evm.cloud.src, *evm.local.src) do copy "%%~i" "%%~i.new" /Y' />
     <Exec Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
