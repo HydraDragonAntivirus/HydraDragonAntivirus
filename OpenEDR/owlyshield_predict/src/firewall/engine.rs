@@ -1816,8 +1816,6 @@ impl FirewallEngine {
             .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
         let addr_string = format!("127.0.0.1:{}", listen_port);
 
-        let ca_bundle = super::proxy::generate_ca();
-
         // CA installation is performed only during the dedicated install step
         // (edrsvc.cfg installScript "installFirewallCa"). At proxy startup we
         // only verify that the CA is already trusted; we never re-install it.
