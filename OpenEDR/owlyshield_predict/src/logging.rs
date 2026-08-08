@@ -17,6 +17,11 @@ use windows::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ, FI
 
 static VERBOSE_LOGGING: AtomicBool = AtomicBool::new(false);
 
+/// Whether verbose logging is enabled (read from HKLM\SOFTWARE\Owlyshield\VERBOSE_LOGGING).
+pub fn is_verbose_logging_enabled() -> bool {
+    VERBOSE_LOGGING.load(Ordering::Relaxed)
+}
+
 #[derive(Copy, Clone)]
 enum Status {
     Start,   // Program starting

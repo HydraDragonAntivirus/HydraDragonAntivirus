@@ -268,6 +268,14 @@ pub enum LogLevel {
     Error,
 }
 
+impl LogLevel {
+    /// A malicious/actionable event is one the operator must see: blocked traffic,
+    /// rule matches, and failures. `Info`/`Success` are routine telemetry.
+    fn is_actionable(&self) -> bool {
+        matches!(self, Self::Warning | Self::Error)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LogEntry {
     pub id: String,
@@ -313,6 +321,12 @@ fn firewall_log_file_path() -> PathBuf {
 
 fn persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) {
     if settings.is_some_and(|current| !current.save_all_logs) {
+        return;
+    }
+
+    // When verbose logging is off, persist only actionable (malicious) events so
+    // firewall_activity.jsonl stays small instead of writing every I/O event.
+    if !crate::logging::is_verbose_logging_enabled() && !entry.level.is_actionable() {
         return;
     }
 
