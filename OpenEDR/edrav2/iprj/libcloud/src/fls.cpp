@@ -687,7 +687,7 @@ void FlsService::enrichFileVerdict(Variant vFile)
 		std::string sFilePath = vFile["path"];
 		if (!sFilePath.empty())
 		{
-			LOGLVL(Info, "FLS Verdict is Malicious! Dynamically invoking Owlyshield Quarantine for: <" << sFilePath << ">");
+			LOGLVL(Detailed, "FLS Verdict is Malicious! Dynamically invoking Owlyshield Quarantine for: <" << sFilePath << ">");
 			HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 			if (hDll != nullptr)
 			{
@@ -699,17 +699,17 @@ void FlsService::enrichFileVerdict(Variant vFile)
 						reinterpret_cast<const uint8_t*>(sFilePath.data()),
 						static_cast<uint32_t>(sFilePath.size())
 					);
-					LOGLVL(Info, "Owlyshield Quarantine executed for <" << sFilePath << "> with result: " << qRes);
+					LOGLVL(Detailed, "Owlyshield Quarantine executed for <" << sFilePath << "> with result: " << qRes);
 				}
 				else
 				{
-					LOGLVL(Warning, "Failed to locate owlyshield_dll_quarantine_file in loaded DLL");
+					LOGLVL(Error, "Failed to locate owlyshield_dll_quarantine_file in loaded DLL");
 				}
 				::FreeLibrary(hDll);
 			}
 			else
 			{
-				LOGLVL(Warning, "Failed to load owlyshield_ransom.dll for dynamic quarantine");
+				LOGLVL(Error, "Failed to load owlyshield_ransom.dll for dynamic quarantine");
 			}
 		}
 	}
