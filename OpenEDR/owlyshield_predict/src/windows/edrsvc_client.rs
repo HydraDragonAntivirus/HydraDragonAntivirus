@@ -2,7 +2,10 @@
 //!
 //! Opens the edrdrv IOCTL device (`\\.\{157980D8-...}`) and exposes typed
 //! methods for kill-process, block-path, registry-revert, and dynamic API
-//! hook registration.  All IOCTL codes match `edrdrvapi.hpp`.
+//! hook registration.  All commands are serialized as a `COM_MESSAGE`
+//! (SharedDefs.h) and sent through the single `IOCTL_OWLY_COMPAT_MESSAGE`
+//! control code — the only owlyshield command channel the integrated edrdrv
+//! exposes.
 //!
 //! A process-wide shared `Driver` instance is maintained via `SHARED_DRIVER`
 //! so that the single FltPort connection limit is not exceeded.
@@ -21,51 +24,61 @@ use windows::core::{HRESULT, PCWSTR};
 
 const IOCTL_DEVICE_WIN32_NAME: &str = r"\\.\{157980D8-09B4-4580-B8B6-D32971D056DA}";
 
-// ── IOCTL code helpers (mirror edrdrvapi.hpp CTL_CODE macro) ─────────────────
-//
-//  CTL_CODE(DeviceType=0x8001, Function=0x0800+code, Method=METHOD_BUFFERED=0,
-//           Access)
-//  FILE_READ_ACCESS  = 0x0001
-//  FILE_WRITE_ACCESS = 0x0002
-//  METHOD_BUFFERED   = 0
+// ── IOCTL code & COM_MESSAGE protocol (mirror SharedDefs.h) ──────────────────
 
-#[inline(always)]
-const fn ctl_code(code: u32, read: bool, write: bool) -> u32 {
-    let device_type: u32 = 0x8001;
-    let function: u32 = 0x0800 + code;
-    let method: u32 = 0; // METHOD_BUFFERED
-    let access: u32 = (if read { 0x0001u32 } else { 0 }) | (if write { 0x0002u32 } else { 0 });
-    (device_type << 16) | (access << 14) | (function << 2) | method
+/// Sole command channel implemented by the integrated edrdrv.
+/// `CTL_CODE(FILE_DEVICE_UNKNOWN=0x22, 0x921, METHOD_BUFFERED, FILE_ANY_ACCESS)`
+const IOCTL_OWLY_COMPAT_MESSAGE: u32 = 0x222484;
+
+/// WCHAR count of `COM_MESSAGE.path` / `COM_MESSAGE.quarantine_path`.
+const MAX_FILE_NAME_LENGTH: usize = 520;
+
+/// Byte size of the `COM_MESSAGE` struct (SharedDefs.h):
+/// ULONG type @0, ULONG pid @4, ULONGLONG gid @8, WCHAR path[520] @16,
+/// WCHAR quarantine_path[520] @1056. Total = 4 + 4 + 8 + 2*520*2 = 2096.
+const COM_MESSAGE_SIZE: usize = 4 + 4 + 8 + MAX_FILE_NAME_LENGTH * 2 + MAX_FILE_NAME_LENGTH * 2;
+
+// COM_MESSAGE_TYPE enum (SharedDefs.h)
+const MESSAGE_ADD_SCAN_DIRECTORY: u32 = 0;
+const MESSAGE_REM_SCAN_DIRECTORY: u32 = 1;
+const MESSAGE_GET_OPS: u32 = 2;
+const MESSAGE_SET_PID: u32 = 3;
+const MESSAGE_KILL_GID: u32 = 4;
+const MESSAGE_KILL_AND_QUARANTINE_GID: u32 = 5;
+const MESSAGE_KILL_ONLY_GID: u32 = 6;
+const MESSAGE_KILL_AND_REMOVE_GID: u32 = 7;
+const MESSAGE_REVERT_REGISTRY_CHANGES: u32 = 8;
+const MESSAGE_ADD_HOOK: u32 = 9;
+const MESSAGE_HOOK_PROCESS: u32 = 10;
+const MESSAGE_ADD_BLOCK_PATH: u32 = 11;
+
+/// Serialize a `COM_MESSAGE` into its 2096-byte wire layout.
+fn build_com_message(
+    msg_type: u32,
+    pid: u32,
+    gid: u64,
+    path: &[u16],
+    quarantine_path: &[u16],
+) -> Vec<u8> {
+    let mut buf = vec![0u8; COM_MESSAGE_SIZE];
+    buf[0..4].copy_from_slice(&msg_type.to_le_bytes());
+    buf[4..8].copy_from_slice(&pid.to_le_bytes());
+    buf[8..16].copy_from_slice(&gid.to_le_bytes());
+    write_wide_string(&mut buf[16..16 + MAX_FILE_NAME_LENGTH * 2], path);
+    write_wide_string(&mut buf[16 + MAX_FILE_NAME_LENGTH * 2..], quarantine_path);
+    buf
 }
 
-/// Kill process group by GID.
-/// Input: 8-byte little-endian GID. Output: 4-byte HRESULT.
-const IOCTL_KILL_GID: u32 = ctl_code(0x10, true, false);
-
-/// Kill and remove file by GID + path.
-/// Input: 8-byte GID + UTF-16LE null-terminated path. Output: 4-byte HRESULT.
-const IOCTL_KILL_AND_REMOVE: u32 = ctl_code(0x11, true, false);
-
-/// Block path access in the minifilter.
-/// Input: UTF-16LE null-terminated path. Output: none.
-const IOCTL_BLOCK_PATH: u32 = ctl_code(0x12, true, false);
-
-/// Revert registry changes for a GID.
-/// Input: 8-byte little-endian GID. Output: none.
-const IOCTL_REVERT_REGISTRY: u32 = ctl_code(0x13, true, false);
-
-/// Register an API hook target (module + function + event_id).
-/// Input: 4-byte event_id + UTF-16LE module\0function\0. Output: none.
-const IOCTL_ADD_HOOK_TARGET: u32 = ctl_code(0x20, true, false);
-
-/// Apply registered hooks to a process.
-/// Input: 4-byte PID. Output: none.
-const IOCTL_HOOK_PROCESS: u32 = ctl_code(0x21, true, false);
-
-/// Set the current process PID as the owlyshield monitor process.
-/// Input: 4-byte PID. Output: none.
-/// Note: Must use FILE_ANY_ACCESS (false, false) to match driver definition.
-const IOCTL_SET_APP_PID: u32 = ctl_code(0x30, false, false); // Calculates 0x800120C0
+/// Copy a UTF-16LE string into a fixed `WCHAR[MAX_FILE_NAME_LENGTH]` field,
+/// truncating and always NUL-terminating (matches driver's `path[...-1]=L'\0'`).
+fn write_wide_string(dst: &mut [u8], src: &[u16]) {
+    let max_chars = MAX_FILE_NAME_LENGTH - 1;
+    let n = src.len().min(max_chars);
+    for (i, &w) in src[..n].iter().enumerate() {
+        dst[i * 2..i * 2 + 2].copy_from_slice(&w.to_le_bytes());
+    }
+    dst[n * 2..n * 2 + 2].copy_from_slice(&0u16.to_le_bytes());
+}
 
 // ── Shared driver singleton ──────────────────────────────────────────────────
 
@@ -155,8 +168,8 @@ impl Driver {
     /// Inform the driver of this process's PID so it can exclude self-events.
     pub fn driver_set_app_pid(&self) -> Result<(), String> {
         let pid = std::process::id();
-        let input = pid.to_le_bytes();
-        self.ioctl_no_output(IOCTL_SET_APP_PID, &input)
+        let input = build_com_message(MESSAGE_SET_PID, pid, 0, &[], &[]);
+        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input)
             .map_err(|e| format!("driver_set_app_pid failed: {e}"))
     }
 
@@ -165,45 +178,38 @@ impl Driver {
     /// Returns the HRESULT reported by the driver so callers can distinguish
     /// "killed" (`is_ok()`) from "process already gone" etc.
     pub fn try_kill(&self, gid: u64) -> Result<HRESULT, String> {
-        let input = gid.to_le_bytes();
+        let input = build_com_message(MESSAGE_KILL_GID, 0, gid, &[], &[]);
         let mut output = [0u8; 4];
-        self.ioctl(IOCTL_KILL_GID, &input, &mut output)
+        self.ioctl(IOCTL_OWLY_COMPAT_MESSAGE, &input, &mut output)
             .map_err(|e| format!("try_kill(gid={gid}) failed: {e}"))?;
         Ok(HRESULT(i32::from_le_bytes(output)))
     }
 
     /// Ask the driver to kill the process group and delete the on-disk artifact.
     pub fn kill_and_remove_driver(&self, gid: u64, path: &Path) -> Result<HRESULT, String> {
-        let path_wide: Vec<u16> = path
-            .to_string_lossy()
-            .encode_utf16()
-            .chain(std::iter::once(0u16))
-            .collect();
-
-        let mut buf = Vec::with_capacity(8 + path_wide.len() * 2);
-        buf.extend_from_slice(&gid.to_le_bytes());
-        for w in &path_wide {
-            buf.extend_from_slice(&w.to_le_bytes());
-        }
-
+        let path_wide: Vec<u16> = path.to_string_lossy().encode_utf16().collect();
+        let input = build_com_message(MESSAGE_KILL_AND_REMOVE_GID, 0, gid, &path_wide, &[]);
         let mut output = [0u8; 4];
-        self.ioctl(IOCTL_KILL_AND_REMOVE, &buf, &mut output)
+        self.ioctl(IOCTL_OWLY_COMPAT_MESSAGE, &input, &mut output)
             .map_err(|e| format!("kill_and_remove_driver(gid={gid}) failed: {e}"))?;
         Ok(HRESULT(i32::from_le_bytes(output)))
     }
 
     /// Register a file path in the minifilter block list.
     pub fn add_block_path(&self, path: &str) -> Result<(), String> {
-        let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0u16)).collect();
-        let bytes: Vec<u8> = wide.iter().flat_map(|w| w.to_le_bytes()).collect();
-        self.ioctl_no_output(IOCTL_BLOCK_PATH, &bytes)
+        let wide: Vec<u16> = path.encode_utf16().collect();
+        let input = build_com_message(MESSAGE_ADD_BLOCK_PATH, 0, 0, &wide, &[]);
+        // Driver's WriteBoolResult needs >= 1 output byte.
+        let mut output = [0u8; 1];
+        self.ioctl(IOCTL_OWLY_COMPAT_MESSAGE, &input, &mut output)
+            .map(|_| ())
             .map_err(|e| format!("add_block_path('{path}') failed: {e}"))
     }
 
     /// Signal the driver to roll back tracked registry changes for a process group.
     pub fn revert_registry_changes(&self, gid: u64) -> Result<(), String> {
-        let input = gid.to_le_bytes();
-        self.ioctl_no_output(IOCTL_REVERT_REGISTRY, &input)
+        let input = build_com_message(MESSAGE_REVERT_REGISTRY_CHANGES, 0, gid, &[], &[]);
+        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input)
             .map_err(|e| format!("revert_registry_changes(gid={gid}) failed: {e}"))
     }
 
@@ -217,35 +223,34 @@ impl Driver {
         function: &str,
         event_id: u32,
     ) -> Result<(), windows::core::Error> {
-        // Wire format: [event_id: u32 LE] [module: UTF-16LE NUL] [function: UTF-16LE NUL]
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&event_id.to_le_bytes());
-        for w in module.encode_utf16().chain(std::iter::once(0u16)) {
-            buf.extend_from_slice(&w.to_le_bytes());
-        }
-        for w in function.encode_utf16().chain(std::iter::once(0u16)) {
-            buf.extend_from_slice(&w.to_le_bytes());
-        }
-
-        self.ioctl_no_output(IOCTL_ADD_HOOK_TARGET, &buf)
-            .map_err(|e| {
-                windows::core::Error::new(
-                    windows::core::HRESULT(0x80070000u32 as i32),
-                    windows::core::HSTRING::from(e),
-                )
-            })
+        // MESSAGE_ADD_HOOK: ModuleName=path, FunctionName=quarantine_path,
+        // EventId=(ULONG)gid.
+        let module_wide: Vec<u16> = module.encode_utf16().collect();
+        let function_wide: Vec<u16> = function.encode_utf16().collect();
+        let input = build_com_message(
+            MESSAGE_ADD_HOOK,
+            0,
+            event_id as u64,
+            &module_wide,
+            &function_wide,
+        );
+        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input).map_err(|e| {
+            windows::core::Error::new(
+                windows::core::HRESULT(0x80070000u32 as i32),
+                windows::core::HSTRING::from(e),
+            )
+        })
     }
 
     /// Apply all registered hook targets to the process identified by `pid`.
     pub fn hook_process(&self, pid: u32) -> Result<(), windows::core::Error> {
-        let input = pid.to_le_bytes();
-        self.ioctl_no_output(IOCTL_HOOK_PROCESS, &input)
-            .map_err(|e| {
-                windows::core::Error::new(
-                    windows::core::HRESULT(0x80070000u32 as i32),
-                    windows::core::HSTRING::from(e),
-                )
-            })
+        let input = build_com_message(MESSAGE_HOOK_PROCESS, pid, 0, &[], &[]);
+        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input).map_err(|e| {
+            windows::core::Error::new(
+                windows::core::HRESULT(0x80070000u32 as i32),
+                windows::core::HSTRING::from(e),
+            )
+        })
     }
 
     // ── private helpers ──────────────────────────────────────────────────────
