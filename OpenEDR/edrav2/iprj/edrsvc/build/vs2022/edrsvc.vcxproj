@@ -29,7 +29,6 @@
     <ClCompile Include="..\..\src\mode_restart.cpp" />
     <ClCompile Include="..\..\src\mode_stop.cpp" />
     <ClCompile Include="..\..\src\mode_wait.cpp" />
-    <ClCompile Include="..\..\src\owlyshield_integration.cpp" />
     <ClCompile Include="..\..\src\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
@@ -42,7 +41,6 @@
     <ClInclude Include="..\..\src\pch.h" />
     <ClInclude Include="..\..\src\service.h" />
     <ClInclude Include="..\..\src\owlyshield_ransom.h" />
-    <ClInclude Include="..\..\src\owlyshield_integration.h" />
   </ItemGroup>
   <ItemGroup>
     <CopyFileToFolders Include="..\..\data\edrsvc.cfg">

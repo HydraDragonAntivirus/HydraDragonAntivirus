@@ -11,6 +11,7 @@
 /// @{
 #include "pch.h"
 #include "controller.h"
+#include "owlyshield_integration.h"
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "netmon"
@@ -252,6 +253,7 @@ Variant NetworkMonitorController::saveState()
 void NetworkMonitorController::start()
 {
 	m_pNetFilterWrapper->start();
+	cmd::win::InitOwlyshield();
 	m_fStarted = true;
 }
 
@@ -263,6 +265,7 @@ void NetworkMonitorController::stop()
 	if (!m_fStarted)
 		return;
 	m_pNetFilterWrapper->stop();
+	cmd::win::ShutdownOwlyshield();
 }
 
 //

@@ -64,7 +64,8 @@ const IOCTL_HOOK_PROCESS: u32 = ctl_code(0x21, true, false);
 
 /// Set the current process PID as the owlyshield monitor process.
 /// Input: 4-byte PID. Output: none.
-const IOCTL_SET_APP_PID: u32 = ctl_code(0x30, true, false);
+/// Note: Must use FILE_ANY_ACCESS (false, false) to match driver definition.
+const IOCTL_SET_APP_PID: u32 = ctl_code(0x30, false, false); // Calculates 0x800120C0
 
 // ── Shared driver singleton ──────────────────────────────────────────────────
 

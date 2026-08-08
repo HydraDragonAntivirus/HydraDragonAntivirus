@@ -9,7 +9,6 @@
 ///
 #include "pch_win.h"
 #include "nfwrapper_win.h"
-#include "owlyshield_integration.h"
 
 #include <array>
 #include <chrono>
