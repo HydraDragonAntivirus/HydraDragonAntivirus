@@ -1804,34 +1804,30 @@ impl FirewallEngine {
 
         let ca_bundle = super::proxy::generate_ca();
 
-        // Silent CA auto-registration: install into Windows Trusted Root and Firefox
-        // policy so browsers accept interception without MITM warnings or a consent
-        // prompt. Consent is handled up-front by the host Windows application.
-        match Self::install_ca_der(&ca_bundle.cert_der) {
-            Ok(()) => {
-                self.windows_root_trust_ready.store(true, Ordering::SeqCst);
-                let now = Self::now_ts();
-                emit_log_event(LogEntry {
-                    id: format!("{}-ca-installed", now),
-                    timestamp: now,
-                    level: LogLevel::Success,
-                    message: "Certificate installed to Windows Root Trust Store.".to_string(),
-                });
-            }
-            Err(e) => {
-                self.windows_root_trust_ready.store(false, Ordering::SeqCst);
-                let now = Self::now_ts();
-                emit_log_event(LogEntry {
-                    id: format!("{}-ca-install-failed", now),
-                    timestamp: now,
-                    level: LogLevel::Error,
-                    message: format!(
-                        "Certificate installation failed (run as admin): {}. Browsers will show certificate warnings. Manual installation: Open certmgr.msc, import '{}' to Trusted Root Certification Authorities.",
-                        e,
-                        Self::proxy_ca_cert_path().display()
-                    ),
-                });
-            }
+        // CA installation is performed only during the dedicated install step
+        // (edrsvc.cfg installScript "installFirewallCa"). At proxy startup we
+        // only verify that the CA is already trusted; we never re-install it.
+        if Self::ca_certificate_installed() {
+            self.windows_root_trust_ready.store(true, Ordering::SeqCst);
+            let now = Self::now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-ca-installed", now),
+                timestamp: now,
+                level: LogLevel::Success,
+                message: "Certificate already present in Windows Root Trust Store.".to_string(),
+            });
+        } else {
+            self.windows_root_trust_ready.store(false, Ordering::SeqCst);
+            let now = Self::now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-ca-install-failed", now),
+                timestamp: now,
+                level: LogLevel::Error,
+                message: format!(
+                    "HydraDragon Firewall CA is not installed in the trust store. Run the installer (installFirewallCa) to add it. Browsers will show certificate warnings. Manual installation: Open certmgr.msc, import '{}' to Trusted Root Certification Authorities.",
+                    Self::proxy_ca_cert_path().display()
+                ),
+            });
         }
 
 
@@ -1897,6 +1893,38 @@ impl FirewallEngine {
             .join("hydradragon_ca.der")
     }
 
+    /// Check whether a certificate with the HydraDragon Firewall CA subject is
+    /// already present in the Windows LocalMachine\Root trust store.
+    pub fn ca_certificate_installed() -> bool {
+        use windows::Win32::Security::Cryptography::{
+            CertCloseStore, CertFindCertificateInStore, CertFreeCertificateContext,
+            CertOpenSystemStoreA, X509_ASN_ENCODING, CERT_FIND_SUBJECT_STR_A,
+        };
+        use windows::core::PCSTR;
+
+        unsafe {
+            let store = match CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr())) {
+                Ok(s) => s,
+                Err(_) => return false,
+            };
+
+            let existing = CertFindCertificateInStore(
+                store,
+                X509_ASN_ENCODING,
+                0,
+                CERT_FIND_SUBJECT_STR_A,
+                Some(b"HydraDragon Firewall CA\0".as_ptr().cast()),
+                None,
+            );
+            let found = !existing.is_null();
+            if found {
+                let _ = CertFreeCertificateContext(Some(existing));
+            }
+            let _ = CertCloseStore(store, 0);
+            found
+        }
+    }
+
     /// Install a raw DER certificate into the Windows LocalMachine\Root trust store.
     ///
     /// Idempotent: if a certificate with the same subject already exists in the
@@ -1905,7 +1933,7 @@ impl FirewallEngine {
         use windows::Win32::Security::Cryptography::{
             CertAddCertificateContextToStore, CertCloseStore, CertCreateCertificateContext,
             CertFindCertificateInStore, CertFreeCertificateContext, CertOpenSystemStoreA,
-            X509_ASN_ENCODING, CERT_FIND_SUBJECT_STR,
+            X509_ASN_ENCODING, CERT_FIND_SUBJECT_STR_A,
             CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
         };
         use windows::core::PCSTR;
@@ -1932,7 +1960,7 @@ impl FirewallEngine {
                 store,
                 X509_ASN_ENCODING,
                 0,
-                CERT_FIND_SUBJECT_STR,
+                CERT_FIND_SUBJECT_STR_A,
                 Some(b"HydraDragon Firewall CA\0".as_ptr().cast()),
                 None,
             );
