@@ -12,7 +12,9 @@ Best-effort mapping (documented limitations):
     ($HOME_NET, $EXTERNAL_NET, other $vars, negations '!' -> treated as any)
   * ports          -> src_port / dst_port PortMatcher
     ($vars and negations -> treated as any)
-  * content        -> regex term (payload contains, in order, via '.*?' join)
+  * content        -> regex term (payload contains, in order, joined by
+    bounded '.' gaps instead of '.*?' whenever offset/depth/within/distance
+    are present; '\\A' anchors offset/depth of the first term)
     hex |..| segments are decoded to raw bytes; the resulting byte string is
     lossy-decoded exactly like the SDK (String::from_utf8_lossy), so binary
     patterns match only when they also survive the SDK's lossy payload decode.
@@ -25,8 +27,11 @@ Best-effort mapping (documented limitations):
   * flow:...       -> flow (established, to_client, to_server, stateless)
   * flowbits:...   -> flowbits ops (set/unset/toggle/isset/isnotset);
     flowbits:noalert -> private: true (rule still sets flags, emits no alert)
-  * threshold/classtype/reference/metadata/within/distance/offset/depth
-    and other stateful or cosmetic modifiers -> ignored (best effort)
+  * threshold/classtype/reference/metadata and other cosmetic modifiers ->
+    ignored (best effort). Content positional modifiers offset/depth/within/
+    distance ARE honored (see content above); within/distance of a content
+    that has no preceding content, or offset/depth on a non-first content,
+    cannot be expressed and fall back to '.*?'.
   * bidirectional '<>' rules -> kept forward-only
 
 Every well-formed rule is converted. Negated content (content:!"..") cannot be
@@ -326,14 +331,16 @@ def parse_dsize(value: str):
         return None  # negated size cannot be expressed
     m = {}
     if v.startswith(">"):
+        # Suricata 'dsize:>N' means size > N (strict); SDK min is inclusive.
         try:
-            m["min"] = int(v[1:])
+            m["min"] = int(v[1:]) + 1
             return m
         except ValueError:
             return None
     if v.startswith("<"):
+        # Suricata 'dsize:<N' means size < N (strict); SDK max is inclusive.
         try:
-            m["max"] = int(v[1:])
+            m["max"] = int(v[1:]) - 1
             return m
         except ValueError:
             return None
@@ -496,6 +503,73 @@ def regex_escape_literal(text: bytes) -> str:
     return re.escape(lossy(text))
 
 
+# Above this, a bounded '.' gap blows the Rust regex crate's compiled-size
+# limit (huge repetitions expand its NFA); values this large are effectively
+# "match anywhere" for a payload anyway, so we fall back to '.*?'.
+MAX_GAP = 2048
+
+
+def _gap_between(lo, hi):
+    """Format a '.' gap between content terms, clamping oversized bounds."""
+    if hi is None:
+        if lo > MAX_GAP:
+            return r".*?"
+        return r".{%d,}" % lo
+    if lo > MAX_GAP or hi > MAX_GAP:
+        return r".*?"
+    if lo == hi:
+        return r".{%d}" % lo
+    return r".{%d,%d}" % (lo, hi)
+
+
+def compose_regex(chunks):
+    """Build a single regex from ordered (term, clen, pos) chunks.
+
+    Positional content modifiers become bounded '.' gaps instead of '.*?'.
+    The regex is matched against the SDK's lossy-decoded payload text, so
+    byte offsets are approximated by character counts; every bound below is a
+    safe superset of the Suricata constraint (no false negatives, still far
+    fewer false positives than the old unbounded '.*?')."""
+    if not chunks:
+        return None
+    parts = []
+    first = True
+    for term, clen, pos in chunks:
+        pos = pos or {}
+        if first:
+            if "offset" in pos:
+                o = max(0, pos["offset"])
+                gap = r"\A.{0,%d}" % o if o <= MAX_GAP else r"\A.*?"
+            elif "depth" in pos:
+                d = max(0, pos["depth"] - (clen or 0))
+                gap = r"\A.{0,%d}" % d if d <= MAX_GAP else r"\A.*?"
+            elif "within" in pos:
+                w = max(0, pos["within"])
+                gap = r"\A.{0,%d}" % w if w <= MAX_GAP else r"\A.*?"
+            else:
+                gap = r"\A.*?"
+        else:
+            within = pos.get("within")
+            distance = pos.get("distance")
+            if within is not None and distance is not None:
+                # Negative distance (content may start before the previous
+                # match ends) can't be expressed in a sequential regex; clamp.
+                lo, hi = max(0, distance), max(0, within)
+                if lo > hi:
+                    lo, hi = hi, lo
+                gap = _gap_between(lo, hi)
+            elif within is not None:
+                gap = _gap_between(0, max(0, within))
+            elif distance is not None:
+                gap = _gap_between(max(0, distance), None)
+            else:
+                gap = r".*?"
+        parts.append(gap)
+        parts.append(term)
+        first = False
+    return "(?s)" + "".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Rule conversion
 # ---------------------------------------------------------------------------
@@ -543,7 +617,7 @@ def convert_line(line: str, rule_index: int = 0):
     flowbits_ops = []
     noalert = False
 
-    contents = []  # list of (raw, negated, modifiers_set)
+    contents = []  # list of (raw, negated, modifiers_set, positional_dict)
     pcres = []     # list of (pattern, ci)
     current = None
 
@@ -566,8 +640,14 @@ def convert_line(line: str, rule_index: int = 0):
                 stats["dropped_bad_content"] += 1
                 current = None
                 continue
-            current = [raw, negated, set()]
+            current = [raw, negated, set(), {}]
             contents.append(current)
+        elif key in ("offset", "depth", "within", "distance"):
+            if current is not None:
+                try:
+                    current[3][key] = int(value)
+                except ValueError:
+                    pass
         elif key == "pcre":
             pat, ci = parse_pcre(value)
             if pat is None:
@@ -609,7 +689,8 @@ def convert_line(line: str, rule_index: int = 0):
             continue
 
     # Dispatch contents
-    for raw, negated, mods in contents:
+    regex_chunks = []  # (term, clen_or_None, pos_or_None)
+    for raw, negated, mods, pos in contents:
         lower_mods = {m.lower() for m in mods}
         if negated:
             # The SDK cannot express "must NOT contain"; keep the rule but
@@ -626,13 +707,16 @@ def convert_line(line: str, rule_index: int = 0):
                 term = "(?i:%s)" % term
             else:
                 term = "(?-i:%s)" % term
-            regex_terms.append(term)
+            regex_chunks.append((term, len(lossy(raw)), pos))
 
     for pat, ci in pcres:
         if ci:
-            regex_terms.append("(?i:%s)" % pat)
+            regex_chunks.append(("(?i:%s)" % pat, None, None))
         else:
-            regex_terms.append("(?-i:%s)" % pat)
+            regex_chunks.append(("(?-i:%s)" % pat, None, None))
+
+    pattern = compose_regex(regex_chunks)
+    regex_terms = [pattern] if pattern else []
 
     has_matchers = bool(domains or regex_terms or src_ports or src_ranges
                         or dst_ports or dst_ranges or src_ips or src_cidrs
@@ -664,7 +748,7 @@ def convert_line(line: str, rule_index: int = 0):
     if domains:
         rule["domain"] = {"domains": domains, "case_insensitive": domain_case_insensitive}
     if regex_terms:
-        rule["regex"] = {"pattern": "(?s)" + ".*?".join(regex_terms), "case_insensitive": False}
+        rule["regex"] = {"pattern": regex_terms[0], "case_insensitive": False}
     if ip_proto is not None:
         rule["ip_proto"] = ip_proto
     if dsize is not None:
