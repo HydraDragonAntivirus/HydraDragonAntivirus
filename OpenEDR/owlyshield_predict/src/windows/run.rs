@@ -81,34 +81,9 @@ pub fn run() {
 
         worker = worker.build();
 
-        // Load behavior rules
-        {
-            let rules_path = crate::globals::rules_path();
-            Logging::info(&format!(
-                "[Owlyshield] Handing rules off to BehaviorEngine from path: {:?}",
-                rules_path
-            ));
-            if let Err(e) = worker.behavior_engine.load_rules(rules_path) {
-                Logging::error(&format!(
-                    "Failed to load behavior rules from {:?}: {}",
-                    rules_path, e
-                ));
-            }
-
-            let firewall_rules_path = rules_path.join("firewall-rules");
-            if firewall_rules_path.exists() {
-                Logging::info(&format!(
-                    "[Owlyshield] Loading firewall rules off to BehaviorEngine from path: {:?}",
-                    firewall_rules_path
-                ));
-                if let Err(e) = worker.behavior_engine.load_rules(&firewall_rules_path) {
-                    Logging::error(&format!(
-                        "Failed to load firewall behavior rules from {:?}: {}",
-                        firewall_rules_path, e
-                    ));
-                }
-            }
-        }
+        // Behavior rules are loaded inside build_behavior_engine() before the
+        // telemetry-pipe clone is taken, so both this worker and the pipe thread
+        // have detection rules.
 
         worker.discover_existing_processes();
 
@@ -155,13 +130,32 @@ pub fn run() {
 /// Entry point for the DLL worker loop used by `ffi.rs`.
 /// Receives IOMessages from `edrsvc` and processes them through the behavior engine.
 pub fn run_worker_loop(rx: std::sync::mpsc::Receiver<crate::shared_def::IOMessage>, _driver: crate::windows::edrsvc_client::Driver) {
-    
     use crate::behavioral::app_settings::AppSettings;
 
     let config = crate::config::Config::new();
+    crate::globals::init_globals(&config);
 
-    
-    let mut worker = crate::worker::worker_instance::Worker::new(&config, AppSettings::default());
+    let rules_dir = crate::globals::rules_path().to_path_buf();
+    Logging::info(&format!(
+        "[Owlyshield] Using rules directory: {:?}",
+        rules_dir
+    ));
+
+    let app_settings = AppSettings::load(&rules_dir)
+        .map_err(|e| {
+            Logging::error(&format!(
+                "Failed to load app settings from rules/settings.yaml at {:?}: {}",
+                rules_dir, e
+            ));
+            e
+        })
+        .expect("Critical: Failed to load app settings");
+
+    let mut worker = crate::worker::worker_instance::Worker::new(&config, app_settings);
+
+    // Behavior rules are loaded inside build_behavior_engine() before the
+    // telemetry-pipe clone is taken, so both this worker and the pipe thread
+    // have detection rules.
 
     for mut iomsg in rx {
         worker.process_io(&mut iomsg, &config);

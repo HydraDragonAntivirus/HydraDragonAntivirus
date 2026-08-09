@@ -1697,16 +1697,22 @@ impl SdkRegistry {
     }
 
     pub fn load_default_rules(&mut self) {
-        
         {
             if let Some(path) = super::get_firewall_sdk_rules_path() {
-                let path_str = path.to_string_lossy().to_string();
-                if self.load_rules_from_file(&path_str).is_ok() {
-                    println!(
-                        "[SDK] Loaded {} rules from registry-defined path",
-                        self.rules.len()
-                    );
-                    return;
+                let rules_file = if path.is_dir() {
+                    path.join("rules.yaml")
+                } else {
+                    path.clone()
+                };
+                if rules_file.is_file() {
+                    let path_str = rules_file.to_string_lossy().to_string();
+                    if self.load_rules_from_file(&path_str).is_ok() {
+                        println!(
+                            "[SDK] Loaded {} rules from registry-defined path",
+                            self.rules.len()
+                        );
+                        return;
+                    }
                 }
             }
         }

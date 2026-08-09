@@ -599,9 +599,35 @@ pub mod worker_instance {
             static OPENEDR_PIPE_START: std::sync::Once = std::sync::Once::new();
 
             let extension_source_mode = config.extension_source_mode();
-            let engine =
+            let mut engine =
                 BehaviorEngine::new_with_extension_source_mode(extension_source_mode.as_deref());
-            
+
+            // Load behavior rules BEFORE any clone is handed to the telemetry
+            // pipe thread, so both the worker engine and the pipe-thread clone
+            // have detection capability.
+            if let Some(rules_dir) = crate::globals::RULES_PATH.get() {
+                if let Ok(app_settings) = AppSettings::load(&rules_dir.to_path_buf()) {
+                    let rules_path = app_settings.behavior_rules_path.clone();
+                    Logging::info(&format!(
+                        "[Owlyshield] Handing rules off to BehaviorEngine from path: {:?}",
+                        rules_path
+                    ));
+                    if let Err(e) = engine.load_rules(&rules_path) {
+                        Logging::error(&format!(
+                            "Failed to load behavior rules from {:?}: {}",
+                            rules_path, e
+                        ));
+                    }
+                } else {
+                    Logging::error(&format!(
+                        "[Owlyshield] Failed to load app settings from rules/settings.yaml at {:?}",
+                        rules_dir
+                    ));
+                }
+            } else {
+                Logging::error("[Owlyshield] RULES_PATH globals not initialized; behavior rules not loaded");
+            }
+
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
             });
