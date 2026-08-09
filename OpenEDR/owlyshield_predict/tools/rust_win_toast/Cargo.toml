@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-winrt-notification = "0.5.1"
+win-toast-notify = "0.1.6"
 
 [profile.release]
 lto = true

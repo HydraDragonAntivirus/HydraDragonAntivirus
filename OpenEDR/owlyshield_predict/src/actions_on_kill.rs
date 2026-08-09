@@ -484,7 +484,7 @@ fn best_process_display(proc: &mut ProcessRecord) -> String {
 impl ActionOnKill for WriteReportFile {
     fn run(
         &self,
-        _config: &Config,
+        config: &Config,
         proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         // MODIFIED: Use ThreatInfo
@@ -545,6 +545,16 @@ impl ActionOnKill for WriteReportFile {
         for f in &proc.fpaths_updated {
             file.write_all(format!("\t{f:?}\n").as_bytes())?;
         }
+
+        let msg = format!(
+            "{} detected running from: {} with certainty {} (detection: {}) (response: {})",
+            threat_info.threat_type_label,
+            display_process,
+            threat_info.prediction,
+            threat_info.virus_name,
+            threat_info.response_label_for(proc)
+        );
+        let _ = crate::notifications::notify(config, &msg, report_path);
         Ok(())
     }
 }

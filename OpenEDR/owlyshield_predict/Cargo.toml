@@ -9,6 +9,10 @@ name = "owlyshield_ransom"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+service = []
+
 [dependencies]
 slc-paths = { path = "slc-paths" }
 wchar = "0.11.0"
