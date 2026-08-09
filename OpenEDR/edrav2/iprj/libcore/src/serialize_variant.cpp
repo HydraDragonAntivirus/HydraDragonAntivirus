@@ -168,7 +168,17 @@ nljson saveVariantToJson(const cmd::Variant& vElement)
 		}
 		case ValueType::Object:
 		{
-			return saveVariantToJson(serializeObject(vElement));
+			try
+			{
+				return saveVariantToJson(serializeObject(vElement));
+			}
+			catch (...)
+			{
+				ObjPtr<IObject> pObj = vElement;
+				if (pObj == nullptr)
+					return nljson(nljson::value_t::null);
+				return nljson(string::convertToHex(pObj->getClassId()));
+			}
 		}
 	}
 	error::TypeError(SL, "Unsupported element type in Variant").throwException();
@@ -347,7 +357,17 @@ Json::Value saveVariantToJson(const cmd::Variant& vValue)
 		}
 		case ValueType::Object:
 		{
-			return saveVariantToJson(serializeObject(vValue));
+			try
+			{
+				return saveVariantToJson(serializeObject(vValue));
+			}
+			catch (...)
+			{
+				ObjPtr<IObject> pObj = vValue;
+				if (pObj == nullptr)
+					return {};
+				return Json::Value(string::convertToHex(pObj->getClassId()));
+			}
 		}
 	}
 	error::TypeError(SL, "Unsupported element type in Variant").throwException();
