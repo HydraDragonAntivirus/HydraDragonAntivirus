@@ -53,9 +53,13 @@
             <Directory Id="COMPANYNAMEGROUP" Name="HydraDragonAntivirus">
                 <Directory Id="INSTALLDIR" Name="OpenEDR">
                     <?if $(var.Platform) = "x64" ?>
-                        <Directory Id="INSTALLDIR_PLATFORM" Name="x64" />
+                        <Directory Id="INSTALLDIR_PLATFORM" Name="x64">
+                            <Directory Id="MODELSDIR_X64" Name="models" />
+                        </Directory>
                     <?else?>
-                        <Directory Id="INSTALLDIR_PLATFORM" Name="x86" />
+                        <Directory Id="INSTALLDIR_PLATFORM" Name="x86">
+                            <Directory Id="MODELSDIR_X86" Name="models" />
+                        </Directory>
                     <?endif?>
                 </Directory>
             </Directory>
@@ -78,6 +82,10 @@
     <Fragment>
         <?if $(var.Platform) = "x64" ?>
             <ComponentGroup Id="ProductComponentsX64" Directory="INSTALLDIR_PLATFORM">
+                <Component Id="ModelBinariesX64" Guid="{A2D1B36C-CE4F-4638-B7E0-7A9EF73BF640}" Directory="MODELSDIR_X64">
+                    <File Id="JS_Model_Mpk_X64" Source="$(var.SourceBinDir64)models\js_model.mpk" KeyPath="yes" />
+                    <File Id="PE_Model_Mpk_X64" Source="$(var.SourceBinDir64)models\pe_model.mpk" />
+                </Component>
                 <Component Id="PreparingX64" Guid="{4BEB1048-A6EB-4021-ADAA-74A75EDA5EAE}">
                     <CopyFile Id="CopyingDefaultCfgX64" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR_PLATFORM" />
                     <CopyFile Id="CopyingCacertPemX64" SourceDirectory="TARGETDIR" SourceName="cacert.pem" DestinationDirectory="INSTALLDIR_PLATFORM" />
@@ -98,6 +106,10 @@
             </ComponentGroup>
         <?else?>
             <ComponentGroup Id="ProductComponentsX86" Directory="INSTALLDIR_PLATFORM">
+                <Component Id="ModelBinariesX86" Guid="{074D90EE-0D34-406C-B434-6FB8D2DF3EAD}" Directory="MODELSDIR_X86">
+                    <File Id="JS_Model_Mpk_X86" Source="$(var.SourceBinDir32)models\js_model.mpk" KeyPath="yes" />
+                    <File Id="PE_Model_Mpk_X86" Source="$(var.SourceBinDir32)models\pe_model.mpk" />
+                </Component>
                 <Component Id="PreparingX86" Guid="{01DBBA23-4B02-48AF-99BC-5DF1922AD981}">
                     <CopyFile Id="CopyingDefaultCfgX86" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR_PLATFORM" />
                     <CopyFile Id="CopyingCacertPemX86" SourceDirectory="TARGETDIR" SourceName="cacert.pem" DestinationDirectory="INSTALLDIR_PLATFORM" />

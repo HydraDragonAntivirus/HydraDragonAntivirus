@@ -1768,6 +1768,57 @@ pub mod worker_instance {
                         }
                     }
 
+                    // Run fast static detections for MZ executables and JavaScript files
+                    let mut fast_det = None;
+
+                    if is_process_create {
+                        let exe_path_str = precord.exepath.to_string_lossy().into_owned();
+                        fast_det = crate::ml::fast_detect::fast_detect_file(&exe_path_str, iomsg);
+                    }
+
+                    if fast_det.is_none() && !iomsg.filepathstr.is_empty() {
+                        fast_det = crate::ml::fast_detect::fast_detect_file(&iomsg.filepathstr, iomsg);
+                    }
+
+                    if let Some(det) = fast_det {
+                        precord.is_malicious = true;
+                        precord.termination_requested = true;
+                        precord.quarantine_requested = true;
+                        precord.triggered_rule_name = Some(det.detection_name.clone());
+                        precord.triggered_rule_details = Some(det.reason.clone());
+
+                        Logging::warning(&format!(
+                            "[FastDetection] Process {} (PID: {}) triggered static detection '{}': {}",
+                            precord.appname, iomsg.pid, det.detection_name, det.reason
+                        ));
+
+                        if let Some(ref threat_handler) = self.threat_handler {
+                            let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                            let threat_info = crate::actions_on_kill::ThreatInfo {
+                                threat_type_label: "Fast Static Detection",
+                                virus_name: &det.detection_name,
+                                prediction: 1.0,
+                                match_details: Some(det.reason.clone()),
+                                deny_access: false,
+                                terminate: true,
+                                quarantine: true,
+                                kill_and_remove: false,
+                                suspend: false,
+                                notify_user: true,
+                                revert: false,
+                            };
+                            let report_context = crate::actions_on_kill::ActionReportContext::default();
+                            crate::actions_on_kill::ActionsOnKill::with_handler(threat_handler.clone_box())
+                                .run_actions_with_info_and_context(
+                                    config,
+                                    precord,
+                                    &dummy_pred_mtrx,
+                                    &threat_info,
+                                    &report_context,
+                                );
+                        }
+                    }
+
                     // Process behavioral event
                     
                     if let Some(ref th) = self.threat_handler {

@@ -12,6 +12,7 @@ pub mod ffi;
 pub mod firewall;
 pub mod globals;
 pub mod logging;
+pub mod ml;
 pub mod notifications;
 pub mod predictions;
 pub mod process;

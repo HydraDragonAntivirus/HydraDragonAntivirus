@@ -51,6 +51,7 @@
 			<Directory Id="COMPANYNAMEGROUP" Name="HydraDragonAntivirus">
 				<Directory Id="INSTALLDIR" Name="OpenEDR">
 					<!--<Directory Id="QSC_DIR" Name="qsc"></Directory>-->
+					<Directory Id="MODELSDIR" Name="models" />
 				</Directory>
 			</Directory>
 		</StandardDirectory>
@@ -73,6 +74,10 @@
 
 	<Fragment>
 		<ComponentGroup Id="ProductComponents" Directory="INSTALLDIR">
+			<Component Id="ModelBinaries" Guid="{A2D1B36C-CE4F-4638-B7E0-7A9EF73BF640}" Directory="MODELSDIR">
+				<File Id="JS_Model_Mpk" Source="$(var.SourceBinDir)models\js_model.mpk" KeyPath="yes" />
+				<File Id="PE_Model_Mpk" Source="$(var.SourceBinDir)models\pe_model.mpk" />
+			</Component>
 			<Component Id="Preparing" Guid="{01DBBA23-4B02-48AF-99BC-5DF1922AD981}">
 				<!-- Copy config files to INSTALLDIR -->
 				<CopyFile Id="CopyingDefaultCfg" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR" />

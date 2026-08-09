@@ -52,6 +52,17 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 bincode_next = { package = "bincode", version = "2.0", features = ["serde"] }
 
+# ML / Burn / Disassembly / JavaScript parser
+goblin = "0.10.5"
+capstone = "0.12"
+oxc_parser = "0.135"
+oxc_ast = "0.135"
+oxc_allocator = "0.135"
+oxc_span = "0.135"
+burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
+burn-ndarray = "0.21"
+burn-dataset = "0.21"
+
 #Windows
 [target.'cfg(target_os = "windows")'.dependencies]
 winlog = { version = "0.2.6", features=["env_logger"] }
