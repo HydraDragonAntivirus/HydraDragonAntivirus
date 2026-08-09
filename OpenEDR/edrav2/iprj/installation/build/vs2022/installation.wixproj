@@ -87,6 +87,7 @@
     <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\WinDivert\WinDivert.dll" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\"' />
     <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\WinDivert\WinDivert64.sys" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\"' />
     <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\"' />
+    <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\tools\rust_win_toast\target\release\RustWindowsToast.exe" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\"' />
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\rules" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\rules\"' />
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\"' />
   </Target>
