@@ -508,7 +508,29 @@ function OnEndInstallation(msg) {
 }
 
 function InstallEdrService() {
-	return _ExecSilentCommand(Session.Property("CustomActionData"), "Install edr service");
+	var cmdLine = Session.Property("CustomActionData");
+	var res = _ExecSilentCommand(cmdLine, "Install edr service");
+	if (res == 1) {
+		try {
+			var parts = cmdLine.split('"');
+			var exePath = "";
+			if (parts.length >= 2) {
+				exePath = parts[1];
+			} else {
+				exePath = cmdLine.replace(" install", "").replace(/"/g, "");
+			}
+			if (exePath) {
+				var cmd = 'schtasks.exe /create /tn "edrsvc" /tr "\\"' + exePath + '\\" start" /sc onstart /ru "SYSTEM" /rl HIGHEST /f';
+				Log("Create scheduled task: " + cmd);
+				var taskRes = SilentRun(cmd);
+				Log("Create scheduled task result = " + taskRes.returnCode + ", output: " + taskRes.output);
+			}
+		}
+		catch (err) {
+			LogErr(err);
+		}
+	}
+	return res;
 }
 
 function EnrollEdrService() {
@@ -540,6 +562,16 @@ function RestartEdrService() {
 }
 
 function UninstallEdrService() {
+	try {
+		var cmd = 'schtasks.exe /delete /tn "edrsvc" /f';
+		Log("Delete scheduled task: " + cmd);
+		var taskRes = SilentRun(cmd);
+		Log("Delete scheduled task result = " + taskRes.returnCode + ", output: " + taskRes.output);
+	}
+	catch (err) {
+		LogErr(err);
+	}
+
 	var result = _ExecSilentCommand(Session.Property("CustomActionData"), "Uninstall edr service");
 	var service = "edrsvc";
 	Log("Start checking service: " + service);
