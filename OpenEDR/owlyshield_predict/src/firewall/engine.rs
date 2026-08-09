@@ -2938,6 +2938,38 @@ impl FirewallEngine {
         let mut data_vec = data.to_vec();
         let pid = info.process_id;
 
+        // 1b. SELF-TRAFFIC EXCLUSION (must run before any interception logic,
+        // SDK listeners, or event emission below).
+        //
+        // edrsvc.exe's own internal loopback IPC (e.g. control-channel
+        // handshakes between its internal components) was previously falling
+        // into the embedded-proxy fast path below, which:
+        //   1. Logged a "Proxy Intercept" event for every such connection.
+        //   2. Because each self-connection uses a fresh ephemeral port pair,
+        //      the driver-side per-process de-dup filter (which hashes on
+        //      connection.remote.id + protocol) never matched twice, so
+        //      every single one became a *new* event.
+        //   3. This flooded edrav2's Queue Manager "input" queue
+        //      (maxSize: 20000 in edrsvc.cfg) faster than it could drain
+        //      during service start, tripping CLSID_QueueManager's overflow
+        //      protection (0xE0020006 "Limit is exceeded") and aborting the
+        //      service start (SCM timeout).
+        //
+        // Fix: allow the firewall's own process traffic immediately, with no
+        // further processing, so it never reaches the proxy-interception
+        // path, SDK listeners, or the log/telemetry pipeline at all.
+        if pid == std::process::id() {
+            stats.packets_total.fetch_add(1, Ordering::Relaxed);
+            stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
+            return PacketDecision {
+                packet_data: data_vec,
+                address_data: address_data.to_vec(),
+                should_forward: true,
+                recalc_checksums: false,
+                _reason: "Self-traffic (edrsvc.exe) allowed, not intercepted".to_string(),
+            };
+        }
+
         // 2. Resolve Process Metadata
         let app_info = am.info_cache.get_info(pid);
         let sdk_context = super::sdk::PacketContext {
@@ -3016,7 +3048,8 @@ impl FirewallEngine {
         // Only the firewall's own embedded proxy listener is fast-allowed on
         // loopback so we do not interfere with the interception path itself.
         // All other localhost traffic must continue through normal rule and
-        // app-decision evaluation.
+        // app-decision evaluation. (edrsvc.exe's own traffic never reaches
+        // this point at all — it's excluded above in step 1b.)
         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
             && Self::is_proxy_listener_flow(&info, &tls_proxy_cfg)
         {
