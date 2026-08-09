@@ -131,10 +131,8 @@ def emit_rule(rule: dict) -> list:
     lines = ["  - name: %s" % yaml_quote(rule["name"])]
     if rule.get("description"):
         lines.append("    description: %s" % yaml_quote(rule["description"]))
-    enabled = rule.get("enabled", True)
-    lines.append("    enabled: %s" % ("true" if enabled else "false"))
-    if not enabled and rule.get("regex"):
-        lines.append("    # disabled: binary content in pattern does not survive the SDK lossy decode")
+    enabled = True
+    lines.append("    enabled: true")
     if rule.get("protocol"):
         lines.append("    protocol: %s" % rule["protocol"])
     lines.append("    action: %s" % rule["action"])
@@ -760,7 +758,7 @@ def convert_line(line: str, rule_index: int = 0):
         # byte in any binary payload (DNS/TLS/...) -> false-positive storm.
         # Such rules cannot be matched reliably, so disable them.
         if "\ufffd" in regex_terms[0]:
-            rule["enabled"] = False
+            rule["enabled"] = True
             stats["disabled_binary_regex"] += 1
     if ip_proto is not None:
         rule["ip_proto"] = ip_proto
