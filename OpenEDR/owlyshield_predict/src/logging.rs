@@ -1,8 +1,7 @@
 
 use crate::config::ConfigReader;
-use crate::utils::LOG_TIME_FORMAT;
-use chrono::{DateTime, Local};
 use log::{debug, error, info, warn};
+use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 
@@ -13,6 +12,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use windows::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE};
+
+/// Structured JSONL entry appended to `owlyshield.jsonl`. Mirrors the firewall's
+/// `LogEntry` shape so Filebeat / Logstash / Elasticsearch can index both files
+/// with one pipeline.
+#[derive(Debug, Clone, Serialize)]
+struct JsonlLogEntry {
+    pub id: String,
+    pub timestamp: u64,
+    pub level: String,
+    pub message: String,
+}
 
 
 static VERBOSE_LOGGING: AtomicBool = AtomicBool::new(false);
@@ -57,7 +67,7 @@ impl Logging {
             .create(true)
             .append(true)
             .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
-            .open(dir.join("owlyshield.log"))
+            .open(dir.join("owlyshield.jsonl"))
     }
 
 
@@ -188,25 +198,20 @@ impl Logging {
 
 
     fn log_in_file(status: Status, message: &str, dir: &str) {
-        let now = (DateTime::from(SystemTime::now()) as DateTime<Local>)
-            .format(LOG_TIME_FORMAT)
-            .to_string();
+        let now_millis = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
 
-        let comment = if message.is_empty() {
-            format!(
-                "{} localhost owlyshield[{}]: {}",
-                now,
-                std::process::id(),
-                status.to_str()
-            )
-        } else {
-            format!(
-                "{} localhost owlyshield[{}]: {}: {}",
-                now,
-                std::process::id(),
-                status.to_str(),
-                message
-            )
+        let entry = JsonlLogEntry {
+            id: format!("owlyshield-{}-{}", now_millis, status.to_str().to_lowercase()),
+            timestamp: now_millis,
+            level: status.to_str().to_string(),
+            message: message.to_string(),
+        };
+
+        let Ok(line) = serde_json::to_string(&entry) else {
+            return;
         };
 
         let mut last_error: Option<(PathBuf, std::io::Error)> = None;
@@ -216,7 +221,7 @@ impl Logging {
 
             match open_result {
                 Ok(mut file) => {
-                    if let Err(e) = writeln!(file, "{comment}") {
+                    if let Err(e) = writeln!(file, "{line}") {
                         eprintln!("Couldn't write to log file {}: {}", log_dir.display(), e);
                     }
                     return;

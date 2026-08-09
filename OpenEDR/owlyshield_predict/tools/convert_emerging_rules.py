@@ -65,7 +65,8 @@ PROTO_MAP = {"tcp": "tcp", "udp": "udp", "icmp": "icmp",
 HOST_MODIFIERS = {"http.host", "host", "dns.query", "tls.sni"}
 
 stats = {"lines": 0, "rules": 0, "skipped_header": 0, "skipped_action": 0,
-         "dropped_negated": 0, "dropped_bad_content": 0, "no_matchers": 0}
+         "dropped_negated": 0, "dropped_bad_content": 0, "no_matchers": 0,
+         "disabled_binary_regex": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +131,10 @@ def emit_rule(rule: dict) -> list:
     lines = ["  - name: %s" % yaml_quote(rule["name"])]
     if rule.get("description"):
         lines.append("    description: %s" % yaml_quote(rule["description"]))
-    lines.append("    enabled: true")
+    enabled = rule.get("enabled", True)
+    lines.append("    enabled: %s" % ("true" if enabled else "false"))
+    if not enabled and rule.get("regex"):
+        lines.append("    # disabled: binary content in pattern does not survive the SDK lossy decode")
     if rule.get("protocol"):
         lines.append("    protocol: %s" % rule["protocol"])
     lines.append("    action: %s" % rule["action"])
@@ -732,6 +736,7 @@ def convert_line(line: str, rule_index: int = 0):
         "action": rule_action,
         "domain": None,
         "regex": None,
+        "enabled": True,
     }
     if rule["name"] is None:
         rule["name"] = "rule:%d" % rule_index
@@ -749,6 +754,14 @@ def convert_line(line: str, rule_index: int = 0):
         rule["domain"] = {"domains": domains, "case_insensitive": domain_case_insensitive}
     if regex_terms:
         rule["regex"] = {"pattern": regex_terms[0], "case_insensitive": False}
+        # Binary content (raw bytes >= 0x80 that are not valid UTF-8) is
+        # lossy-decoded to U+FFFD on BOTH sides (converter and SDK payload
+        # decode). A pattern containing U+FFFD therefore matches any invalid
+        # byte in any binary payload (DNS/TLS/...) -> false-positive storm.
+        # Such rules cannot be matched reliably, so disable them.
+        if "\ufffd" in regex_terms[0]:
+            rule["enabled"] = False
+            stats["disabled_binary_regex"] += 1
     if ip_proto is not None:
         rule["ip_proto"] = ip_proto
     if dsize is not None:
@@ -800,7 +813,7 @@ def main():
     print("\nConverted rules written: %d" % rule_count)
     print("Total lines read: %d" % stats["lines"])
     for key in ("skipped_header", "skipped_action", "dropped_negated",
-                "dropped_bad_content", "no_matchers"):
+                "dropped_bad_content", "no_matchers", "disabled_binary_regex"):
         if stats[key]:
             print("  %s: %d" % (key, stats[key]))
 
