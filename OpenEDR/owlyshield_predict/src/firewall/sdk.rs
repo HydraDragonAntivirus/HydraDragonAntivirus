@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing;
 
@@ -389,12 +389,68 @@ impl FileTypeMatcher {
 // REGEX MATCHING (Feature 15)
 // ============================================================================
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Default)]
 pub struct RegexMatcher {
-    #[serde(default)]
     pub pattern: String,
-    #[serde(default)]
     pub case_insensitive: bool,
+    /// Compiled lazily on first use, then reused for every subsequent packet.
+    /// Recompiling the pattern per-packet (the old behavior) is what caused
+    /// a ~50k-rule YAML to bring throughput to a crawl: regex compilation is
+    /// orders of magnitude more expensive than running an already-compiled
+    /// regex, and every worker thread was paying that cost per packet.
+    compiled: OnceLock<Option<Regex>>,
+}
+
+// Manual Clone: OnceLock<Option<Regex>> is Clone-able in std, but we want a
+// fresh cell on clone regardless, since clones are cheap to recompile lazily
+// and this avoids depending on OnceLock's Clone semantics across versions.
+impl Clone for RegexMatcher {
+    fn clone(&self) -> Self {
+        Self {
+            pattern: self.pattern.clone(),
+            case_insensitive: self.case_insensitive,
+            compiled: OnceLock::new(),
+        }
+    }
+}
+
+impl Serialize for RegexMatcher {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct RegexMatcherRepr<'a> {
+            pattern: &'a str,
+            case_insensitive: bool,
+        }
+        RegexMatcherRepr {
+            pattern: &self.pattern,
+            case_insensitive: self.case_insensitive,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for RegexMatcher {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize, Default)]
+        struct RegexMatcherRepr {
+            #[serde(default)]
+            pattern: String,
+            #[serde(default)]
+            case_insensitive: bool,
+        }
+        let repr = RegexMatcherRepr::deserialize(deserializer)?;
+        Ok(RegexMatcher {
+            pattern: repr.pattern,
+            case_insensitive: repr.case_insensitive,
+            compiled: OnceLock::new(),
+        })
+    }
 }
 
 impl RegexMatcher {
@@ -403,16 +459,23 @@ impl RegexMatcher {
             return true;
         }
 
-        let text = String::from_utf8_lossy(data);
-        let pattern_str = if self.case_insensitive {
-            format!("(?i){}", self.pattern)
-        } else {
-            self.pattern.clone()
-        };
+        // Compiled exactly once per rule (first packet that reaches this
+        // matcher), then reused for the lifetime of the loaded ruleset.
+        let compiled = self.compiled.get_or_init(|| {
+            let pattern_str = if self.case_insensitive {
+                format!("(?i){}", self.pattern)
+            } else {
+                self.pattern.clone()
+            };
+            Regex::new(&pattern_str).ok()
+        });
 
-        match Regex::new(&pattern_str) {
-            Ok(re) => re.is_match(&text),
-            Err(_) => false,
+        match compiled {
+            Some(re) => {
+                let text = String::from_utf8_lossy(data);
+                re.is_match(&text)
+            }
+            None => false,
         }
     }
 }
