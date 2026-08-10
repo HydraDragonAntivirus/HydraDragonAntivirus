@@ -119,102 +119,225 @@ namespace petools {
 	return getSystemModuleHandle(ansiName);
 }
 
-[[nodiscard]] PVOID getProcAddress(const PVOID ImageBase, const ANSI_STRING& ProcName)
+extern "C" {
+NTSTATUS NTAPI MmCopyVirtualMemory(
+	PEPROCESS SourceProcess,
+	PVOID SourceAddress,
+	PEPROCESS TargetProcess,
+	PVOID TargetAddress,
+	SIZE_T BufferSize,
+	KPROCESSOR_MODE PreviousMode,
+	PSIZE_T NumberOfBytesCopied
+);
+}
+
+static NTSTATUS SafeReadProcessMemory(PEPROCESS Process, PVOID SourceAddress, PVOID TargetBuffer, SIZE_T Size)
 {
-	NT_ASSERT(ARGUMENT_PRESENT(ImageBase) && ProcName.Buffer != nullptr && ProcName.Length != 0);
+	SIZE_T bytesCopied = 0;
+	return MmCopyVirtualMemory(Process, SourceAddress, PsGetCurrentProcess(), TargetBuffer, Size, KernelMode, &bytesCopied);
+}
 
-	__try
+[[nodiscard]] PVOID getProcAddressInternal(PEPROCESS Process, const PVOID ImageBase, const ANSI_STRING& ProcName)
+{
+	if (!ImageBase || !ProcName.Buffer || ProcName.Length == 0)
 	{
-		// For user-mode addresses, we rely on exception handling rather than MmIsAddressValid
-		// which doesn't work reliably for user-mode memory even after process attachment
-		
-		// Parse DOS header
-		PIMAGE_DOS_HEADER dosHeader = static_cast<PIMAGE_DOS_HEADER>(ImageBase);
-		if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid DOS signature at %p (magic: 0x%X)\r\n", ImageBase, dosHeader->e_magic);
-			return nullptr;
-		}
-
-		// Validate e_lfanew is reasonable
-		if (dosHeader->e_lfanew == 0 || dosHeader->e_lfanew > 0x10000000)
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid e_lfanew offset: 0x%X\r\n", dosHeader->e_lfanew);
-			return nullptr;
-		}
-
-		// Parse NT headers
-		PIMAGE_NT_HEADERS ntHeaders = static_cast<PIMAGE_NT_HEADERS>(Add2Ptr(ImageBase, dosHeader->e_lfanew));
-		if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid NT signature at %p (sig: 0x%X)\r\n", ntHeaders, ntHeaders->Signature);
-			return nullptr;
-		}
-
-		// Get export directory
-		PIMAGE_DATA_DIRECTORY exportDataDir = &ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
-		if (exportDataDir->VirtualAddress == 0 || exportDataDir->Size == 0)
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "No export directory for image %p\r\n", ImageBase);
-			return nullptr;
-		}
-
-		// Validate export directory RVA is within reasonable bounds
-		if (exportDataDir->VirtualAddress > 0x10000000 || exportDataDir->Size > 0x1000000)
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory RVA/Size out of bounds (RVA: 0x%X, Size: 0x%X)\r\n",
-				exportDataDir->VirtualAddress, exportDataDir->Size);
-			return nullptr;
-		}
-
-		ULONG exportSize = exportDataDir->Size;
-		const PIMAGE_EXPORT_DIRECTORY exportDirectory = static_cast<PIMAGE_EXPORT_DIRECTORY>(
-			Add2Ptr(ImageBase, exportDataDir->VirtualAddress));
-
-		// Validate export table pointers
-		if (exportDirectory->AddressOfNames == 0 ||
-			exportDirectory->AddressOfNameOrdinals == 0 ||
-			exportDirectory->AddressOfFunctions == 0)
-		{
-			LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory has null RVAs\r\n");
-			return nullptr;
-		}
-
-		// Get export tables - exception handling will catch invalid memory access
-		const PULONG nameTableBase = static_cast<PULONG>(Add2Ptr(ImageBase, exportDirectory->AddressOfNames));
-		const PUSHORT ordinalsTableBase = static_cast<PUSHORT>(Add2Ptr(ImageBase, exportDirectory->AddressOfNameOrdinals));
-		const PULONG addressTableBase = static_cast<PULONG>(Add2Ptr(ImageBase, exportDirectory->AddressOfFunctions));
-
-		// Search for the function by name
-		for (ULONG hintIndex = 0; hintIndex < exportDirectory->NumberOfNames; hintIndex++)
-		{
-			const PSTR currentName = static_cast<PSTR>(Add2Ptr(ImageBase, nameTableBase[hintIndex]));
-			
-			const ULONG maxLength = PtrOffset(currentName, Add2Ptr(exportDirectory, exportSize));
-			if (!equalStrings(currentName, ProcName.Buffer, min(maxLength, ProcName.MaximumLength)))
-				continue;
-
-			// Found the function name, get its ordinal
-			const USHORT ordinal = ordinalsTableBase[hintIndex];
-			
-			// Validate ordinal is within bounds
-			if (ordinal >= exportDirectory->NumberOfFunctions)
-			{
-				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Ordinal %u exceeds function count %lu\r\n", ordinal, exportDirectory->NumberOfFunctions);
-				return nullptr;
-			}
-
-			// Get function address
-			PVOID functionAddress = Add2Ptr(ImageBase, addressTableBase[ordinal]);
-			return functionAddress;
-		}
-	}
-	__except (EXCEPTION_EXECUTE_HANDLER)
-	{
-		LOGERROR(GetExceptionCode(), "getProcAddress exception at ImageBase=%p, ProcName=%Z\r\n", ImageBase, &ProcName);
 		return nullptr;
 	}
-	return nullptr;
+
+	// Parse DOS header
+	IMAGE_DOS_HEADER dosHeader;
+	NTSTATUS status = SafeReadProcessMemory(Process, ImageBase, &dosHeader, sizeof(IMAGE_DOS_HEADER));
+	if (!NT_SUCCESS(status))
+	{
+		LOGERROR(status, "Failed to read DOS header at %p\r\n", ImageBase);
+		return nullptr;
+	}
+
+	if (dosHeader.e_magic != IMAGE_DOS_SIGNATURE)
+	{
+		LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid DOS signature at %p (magic: 0x%X)\r\n", ImageBase, dosHeader.e_magic);
+		return nullptr;
+	}
+
+	// Validate e_lfanew is reasonable
+	if (dosHeader.e_lfanew == 0 || dosHeader.e_lfanew > 0x10000000)
+	{
+		LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid e_lfanew offset: 0x%X\r\n", dosHeader.e_lfanew);
+		return nullptr;
+	}
+
+	// Read basic NT headers (Signature + FileHeader + Magic) to check 32-bit vs 64-bit
+	struct {
+		ULONG Signature;
+		IMAGE_FILE_HEADER FileHeader;
+		USHORT Magic;
+	} ntHeaderBasic;
+
+	status = SafeReadProcessMemory(Process, Add2Ptr(ImageBase, dosHeader.e_lfanew), &ntHeaderBasic, sizeof(ntHeaderBasic));
+	if (!NT_SUCCESS(status))
+	{
+		LOGERROR(status, "Failed to read basic NT headers\r\n");
+		return nullptr;
+	}
+
+	if (ntHeaderBasic.Signature != IMAGE_NT_SIGNATURE)
+	{
+		LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid NT signature at %p (sig: 0x%X)\r\n", Add2Ptr(ImageBase, dosHeader.e_lfanew), ntHeaderBasic.Signature);
+		return nullptr;
+	}
+
+	IMAGE_DATA_DIRECTORY exportDataDir;
+
+	if (ntHeaderBasic.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+	{
+		IMAGE_NT_HEADERS32 ntHeaders32;
+		status = SafeReadProcessMemory(Process, Add2Ptr(ImageBase, dosHeader.e_lfanew), &ntHeaders32, sizeof(IMAGE_NT_HEADERS32));
+		if (!NT_SUCCESS(status))
+		{
+			LOGERROR(status, "Failed to read NT headers 32\r\n");
+			return nullptr;
+		}
+		exportDataDir = ntHeaders32.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+	}
+	else if (ntHeaderBasic.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+	{
+		IMAGE_NT_HEADERS64 ntHeaders64;
+		status = SafeReadProcessMemory(Process, Add2Ptr(ImageBase, dosHeader.e_lfanew), &ntHeaders64, sizeof(IMAGE_NT_HEADERS64));
+		if (!NT_SUCCESS(status))
+		{
+			LOGERROR(status, "Failed to read NT headers 64\r\n");
+			return nullptr;
+		}
+		exportDataDir = ntHeaders64.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+	}
+	else
+	{
+		LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Invalid NT headers magic: 0x%X\r\n", ntHeaderBasic.Magic);
+		return nullptr;
+	}
+
+	// Validate and parse export directory
+	if (exportDataDir.VirtualAddress == 0 || exportDataDir.Size == 0)
+	{
+		LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "No export directory for image %p\r\n", ImageBase);
+		return nullptr;
+	}
+
+	if (exportDataDir.VirtualAddress > 0x10000000 || exportDataDir.Size > 0x1000000)
+	{
+		LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory RVA/Size out of bounds (RVA: 0x%X, Size: 0x%X)\r\n",
+			exportDataDir.VirtualAddress, exportDataDir.Size);
+		return nullptr;
+	}
+
+	IMAGE_EXPORT_DIRECTORY exportDirectory;
+	status = SafeReadProcessMemory(Process, Add2Ptr(ImageBase, exportDataDir.VirtualAddress), &exportDirectory, sizeof(IMAGE_EXPORT_DIRECTORY));
+	if (!NT_SUCCESS(status))
+	{
+		LOGERROR(status, "Failed to read export directory\r\n");
+		return nullptr;
+	}
+
+	if (exportDirectory.AddressOfNames == 0 ||
+		exportDirectory.AddressOfNameOrdinals == 0 ||
+		exportDirectory.AddressOfFunctions == 0)
+	{
+		LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Export directory has null RVAs\r\n");
+		return nullptr;
+	}
+
+	ULONG nameCount = exportDirectory.NumberOfNames;
+	if (nameCount == 0)
+	{
+		return nullptr;
+	}
+
+	if (nameCount > 65536)
+	{
+		nameCount = 65536;
+	}
+
+	ULONG* nameTable = static_cast<ULONG*>(ExAllocatePoolWithTag(PagedPool, nameCount * sizeof(ULONG), 'tpeP'));
+	if (!nameTable)
+	{
+		LOGERROR(STATUS_INSUFFICIENT_RESOURCES, "Failed to allocate memory for name table\r\n");
+		return nullptr;
+	}
+
+	status = SafeReadProcessMemory(Process, Add2Ptr(ImageBase, exportDirectory.AddressOfNames), nameTable, nameCount * sizeof(ULONG));
+	if (!NT_SUCCESS(status))
+	{
+		ExFreePoolWithTag(nameTable, 'tpeP');
+		LOGERROR(status, "Failed to read name table\r\n");
+		return nullptr;
+	}
+
+	USHORT* ordinalTable = static_cast<USHORT*>(ExAllocatePoolWithTag(PagedPool, nameCount * sizeof(USHORT), 'tpeP'));
+	if (!ordinalTable)
+	{
+		ExFreePoolWithTag(nameTable, 'tpeP');
+		LOGERROR(STATUS_INSUFFICIENT_RESOURCES, "Failed to allocate memory for ordinal table\r\n");
+		return nullptr;
+	}
+
+	status = SafeReadProcessMemory(Process, Add2Ptr(ImageBase, exportDirectory.AddressOfNameOrdinals), ordinalTable, nameCount * sizeof(USHORT));
+	if (!NT_SUCCESS(status))
+	{
+		ExFreePoolWithTag(ordinalTable, 'tpeP');
+		ExFreePoolWithTag(nameTable, 'tpeP');
+		LOGERROR(status, "Failed to read ordinal table\r\n");
+		return nullptr;
+	}
+
+	char* nameBuf = static_cast<char*>(ExAllocatePoolWithTag(PagedPool, ProcName.Length + 1, 'npeP'));
+	if (!nameBuf)
+	{
+		LOGERROR(STATUS_INSUFFICIENT_RESOURCES, "Failed to allocate memory for name buffer\r\n");
+		ExFreePoolWithTag(ordinalTable, 'tpeP');
+		ExFreePoolWithTag(nameTable, 'tpeP');
+		return nullptr;
+	}
+
+	PVOID resultAddress = nullptr;
+
+	for (ULONG hintIndex = 0; hintIndex < nameCount; hintIndex++)
+	{
+		RtlZeroMemory(nameBuf, ProcName.Length + 1);
+		status = SafeReadProcessMemory(Process, Add2Ptr(ImageBase, nameTable[hintIndex]), nameBuf, ProcName.Length + 1);
+		if (!NT_SUCCESS(status))
+			continue;
+
+		if (nameBuf[ProcName.Length] == '\0' && strlen(nameBuf) == ProcName.Length && equalStrings(nameBuf, ProcName.Buffer, ProcName.Length))
+		{
+			USHORT ordinal = ordinalTable[hintIndex];
+			if (ordinal >= exportDirectory.NumberOfFunctions)
+			{
+				LOGERROR(STATUS_INVALID_IMAGE_FORMAT, "Ordinal %u exceeds function count %lu\r\n", ordinal, exportDirectory.NumberOfFunctions);
+				break;
+			}
+
+			ULONG functionRVA = 0;
+			status = SafeReadProcessMemory(Process, Add2Ptr(ImageBase, exportDirectory.AddressOfFunctions + ordinal * sizeof(ULONG)), &functionRVA, sizeof(ULONG));
+			if (!NT_SUCCESS(status))
+			{
+				LOGERROR(status, "Failed to read function RVA\r\n");
+				break;
+			}
+
+			resultAddress = Add2Ptr(ImageBase, functionRVA);
+			break;
+		}
+	}
+
+	ExFreePoolWithTag(nameBuf, 'npeP');
+	ExFreePoolWithTag(ordinalTable, 'tpeP');
+	ExFreePoolWithTag(nameTable, 'tpeP');
+	return resultAddress;
+}
+
+[[nodiscard]] PVOID getProcAddress(const PVOID ImageBase, const ANSI_STRING& ProcName)
+{
+	return getProcAddressInternal(PsGetCurrentProcess(), ImageBase, ProcName);
 }
 
 [[nodiscard]] PVOID getProcAddressForProcess(const ULONG ProcessId, const PVOID ImageBase, const ANSI_STRING& ProcName)
@@ -229,30 +352,7 @@ namespace petools {
 		return nullptr;
 	}
 
-	PVOID result = nullptr;
-	KAPC_STATE apcState;
-	
-	__try
-	{
-		// Attach to the target process context to access its memory
-		KeStackAttachProcess(process, &apcState);
-
-		__try
-		{
-			// Now we're in the target process context, memory should be accessible
-			result = getProcAddress(ImageBase, ProcName);
-		}
-		__finally
-		{
-			// Always detach from the process
-			KeUnstackDetachProcess(&apcState);
-		}
-	}
-	__except (EXCEPTION_EXECUTE_HANDLER)
-	{
-		LOGERROR(GetExceptionCode(), "Exception in getProcAddressForProcess for PID %lu, ImageBase=%p\r\n", ProcessId, ImageBase);
-		result = nullptr;
-	}
+	PVOID result = getProcAddressInternal(process, ImageBase, ProcName);
 
 	ObDereferenceObject(process);
 	return result;
