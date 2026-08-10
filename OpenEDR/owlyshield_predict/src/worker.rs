@@ -267,7 +267,6 @@ pub mod worker_instance {
     use crate::shared_def::effective_hypervisor_raw_event_type;
     use crate::threat_handler::ThreatHandler;
     
-    use crate::utils::validate_pipe_client;
     use crate::worker::process_record_handling::{
         ExePathReplay, Exepath, ProcessRecordHandlerReplay, ProcessRecordIOHandler,
     };
@@ -683,19 +682,6 @@ pub mod worker_instance {
                                 let _ = CloseHandle(handle);
                             }
                             std::thread::sleep(std::time::Duration::from_millis(250));
-                            continue;
-                        }
-
-                        if !unsafe {
-                            validate_pipe_client(handle, Some(r"OpenEDR\edrsvc.exe"), false)
-                        } {
-                            Logging::error(
-                                "[OpenEDRTelemetry] Rejected unauthorized OpenEDR telemetry client",
-                            );
-                            unsafe {
-                                let _ = DisconnectNamedPipe(handle);
-                                let _ = CloseHandle(handle);
-                            }
                             continue;
                         }
 
