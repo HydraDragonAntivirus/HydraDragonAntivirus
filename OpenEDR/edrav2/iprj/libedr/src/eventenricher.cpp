@@ -547,7 +547,7 @@ void EventEnricher::put(const Variant& vEventRef)
 	}
 	case Event::LLE_DEVICE_IOCTL:
 	{
-		// Kernel hook / hypervisor event carrier.
+		// Kernel hook event carrier.
 		// owlyHook and owlyHv sub-dicts are already built by controller.cpp::parseEvent.
 		// No additional enrichment needed here — pass through to Owlyshield as-is.
 		break;
