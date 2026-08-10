@@ -5,11 +5,18 @@
 #include "pch.h"
 #include "owlyshield_ransom.h"
 #include <windows.h>
+#include <atomic>
 
 namespace cmd {
 namespace win {
 
 static HMODULE g_hOwlyshieldDll = nullptr;
+
+// True only once owlyshield_dll_start() has actually returned OWLY_OK.
+// Resolving GetProcAddress is not enough: the pointers can be non-null
+// while the Rust engine hasn't finished start() yet, which is exactly
+// what produced "ingest called before start" in the DLL's own log.
+static std::atomic<bool> g_bOwlyshieldStarted{ false };
 
 // Function pointers
 typedef int32_t (*OwlyshieldDllStartFn)();
@@ -59,16 +66,24 @@ bool InitOwlyshield()
 		return false;
 	}
 
-	// Start the Owlyshield engine
+	// Start the Owlyshield engine. Only flip g_bOwlyshieldStarted AFTER this
+	// returns OK — until then, ingest calls must be rejected on the C++ side
+	// even though the function pointers are already non-null.
 	int32_t result = g_owlyshield_dll_start();
 	if (result != OWLY_OK)
 	{
 		LOGLVL(Debug, "owlyshield_dll_start failed with code: " << result);
 		::FreeLibrary(g_hOwlyshieldDll);
 		g_hOwlyshieldDll = nullptr;
+		g_owlyshield_dll_start = nullptr;
+		g_owlyshield_dll_ingest = nullptr;
+		g_owlyshield_dll_ingest_openedr_event = nullptr;
+		g_owlyshield_dll_ingest_firewall_packed_data = nullptr;
+		g_owlyshield_dll_stop = nullptr;
 		return false;
 	}
 
+	g_bOwlyshieldStarted.store(true, std::memory_order_release);
 	LOGLVL(Debug, "Owlyshield ransomware protection initialized successfully");
 	return true;
 }
@@ -78,7 +93,7 @@ bool InitOwlyshield()
 ///
 bool OwlyshieldIngest(const uint8_t* data, uint32_t len)
 {
-	if (g_owlyshield_dll_ingest == nullptr)
+	if (!g_bOwlyshieldStarted.load(std::memory_order_acquire) || g_owlyshield_dll_ingest == nullptr)
 		return false;
 
 	int32_t result = g_owlyshield_dll_ingest(data, len);
@@ -93,7 +108,7 @@ bool OwlyshieldIngestOpenedrEvent(const std::string& sPayload)
 	if (sPayload.empty())
 		return false;
 
-	if (g_owlyshield_dll_ingest_openedr_event == nullptr)
+	if (!g_bOwlyshieldStarted.load(std::memory_order_acquire) || g_owlyshield_dll_ingest_openedr_event == nullptr)
 		return false;
 
 	int32_t result = g_owlyshield_dll_ingest_openedr_event(
@@ -110,7 +125,7 @@ bool OwlyshieldIngestFirewallPackedData(const std::string& sPayload)
 	if (sPayload.empty())
 		return false;
 
-	if (g_owlyshield_dll_ingest_firewall_packed_data == nullptr)
+	if (!g_bOwlyshieldStarted.load(std::memory_order_acquire) || g_owlyshield_dll_ingest_firewall_packed_data == nullptr)
 		return false;
 
 	int32_t result = g_owlyshield_dll_ingest_firewall_packed_data(
@@ -219,6 +234,10 @@ void ShutdownOwlyshield()
 {
 	if (g_hOwlyshieldDll != nullptr)
 	{
+		// Flip the flag first so any in-flight ingest call from another
+		// thread bails out instead of racing with FreeLibrary().
+		g_bOwlyshieldStarted.store(false, std::memory_order_release);
+
 		if (g_owlyshield_dll_stop != nullptr)
 		{
 			g_owlyshield_dll_stop();
