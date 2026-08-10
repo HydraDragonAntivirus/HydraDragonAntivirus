@@ -3161,16 +3161,24 @@ impl FirewallEngine {
                         reason = Some(format!("SDK Rule [{}]: Allowed", finding.rule_name));
                     }
                     super::sdk::RuleAction::TrafficAttack => {
-                        // Log as attack but still forward (monitoring)
-                        emit_log_event(LogEntry {
-                            id: format!("{}-attack", Self::now_ts()),
-                            timestamp: Self::now_ts(),
-                            level: LogLevel::Warning,
-                            message: format!(
-                                "Attack detected by [{}]: {}",
-                                finding.rule_name, finding.description
-                            ),
-                        });
+                        // Log as attack but still forward (monitoring).
+                        // Skip informational-severity rules (e.g. ET P2P
+                        // detections) to reduce alert noise.
+                        let is_informational = finding
+                            .severity
+                            .as_deref()
+                            .is_some_and(|s| s.eq_ignore_ascii_case("informational"));
+                        if !is_informational {
+                            emit_log_event(LogEntry {
+                                id: format!("{}-attack", Self::now_ts()),
+                                timestamp: Self::now_ts(),
+                                level: LogLevel::Warning,
+                                message: format!(
+                                    "Attack detected by [{}]: {}",
+                                    finding.rule_name, finding.description
+                                ),
+                            });
+                        }
                     }
                     super::sdk::RuleAction::Terminate => {
                         should_forward = false;

@@ -1053,6 +1053,10 @@ pub struct SdkRule {
     // Feature 30: Description
     #[serde(default)]
     pub description: String,
+    /// Severity level (from EmergingThreats `signature_severity` metadata):
+    /// informational / low / medium / high / critical. Absent when unknown.
+    #[serde(default)]
+    pub severity: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     // Private rule flag (YARA-style): evaluated but doesn't generate alerts
@@ -1648,6 +1652,9 @@ pub struct RuleMatchResult {
     pub rule_name: String,
     pub action: RuleAction,
     pub description: String,
+    /// Severity of the matched rule, if known (informational/low/medium/high/critical)
+    #[serde(default)]
+    pub severity: Option<String>,
     pub change_data: Option<String>,
     pub change_request_body: Option<String>,
     pub change_response_body: Option<String>,
@@ -1814,6 +1821,7 @@ impl SdkRegistry {
                     rule_name: rule.name.clone(),
                     action: rule.action.clone(),
                     description: rule.description.clone(),
+                    severity: rule.severity.clone(),
                     change_data: rule.change_data.clone(),
                     change_request_body: rule.change_request_body.clone(),
                     change_response_body: rule.change_response_body.clone(),
@@ -1877,6 +1885,7 @@ impl SdkRegistry {
                         rule_name: rule.name.clone(),
                         action: rule.action.clone(),
                         description: rule.description.clone(),
+                        severity: rule.severity.clone(),
                         change_data: rule.change_data.clone(),
                         change_request_body: rule.change_request_body.clone(),
                         change_response_body: rule.change_response_body.clone(),
@@ -1935,6 +1944,7 @@ impl SdkRegistry {
                         rule_name: rule.name.clone(),
                         action: rule.action.clone(),
                         description: rule.description.clone(),
+                        severity: rule.severity.clone(),
                         change_data: rule.change_data.clone(),
                         change_request_body: rule.change_request_body.clone(),
                         change_response_body: rule.change_response_body.clone(),

@@ -131,6 +131,8 @@ def emit_rule(rule: dict) -> list:
     lines = ["  - name: %s" % yaml_quote(rule["name"])]
     if rule.get("description"):
         lines.append("    description: %s" % yaml_quote(rule["description"]))
+    if rule.get("severity"):
+        lines.append("    severity: %s" % yaml_quote(rule["severity"]))
     enabled = True
     lines.append("    enabled: true")
     if rule.get("protocol"):
@@ -609,6 +611,7 @@ def convert_line(line: str, rule_index: int = 0):
 
     description = ""
     sid = None
+    severity = None
     domains = []
     domain_case_insensitive = False
     regex_terms = []
@@ -686,6 +689,16 @@ def convert_line(line: str, rule_index: int = 0):
             if noalert_fb:
                 noalert = True
             flowbits_ops.extend(ops)
+        elif key == "metadata":
+            # Extract EmergingThreats `signature_severity` from metadata:
+            # metadata:..., signature_severity Informational, ... (case-insensitive)
+            m = re.search(
+                r"\bsignature_severity\s+([A-Za-z]+)",
+                value,
+                flags=re.IGNORECASE,
+            )
+            if m:
+                severity = m.group(1).lower()
         else:
             # classtype, reference, metadata, threshold, etc.
             continue
@@ -736,6 +749,8 @@ def convert_line(line: str, rule_index: int = 0):
         "regex": None,
         "enabled": True,
     }
+    if severity is not None:
+        rule["severity"] = severity
     if rule["name"] is None:
         rule["name"] = "rule:%d" % rule_index
     if protocol:
