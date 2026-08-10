@@ -130,13 +130,14 @@
 	<CustomAction Id="SetCleanInstallDirectoryData" Property="CleanInstallDirectory" Value='[ACTUALINSTALLDIR]' />
 	<CustomAction Id="CleanInstallDirectory" BinaryRef="UtilJs" JScriptCall="CleanInstallDirectory" Return="ignore" Impersonate="no" Execute="deferred" />
 	
-	<!-- Enable test signing for unsigned driver support -->
+	<!-- Enable test signing for unsigned driver support (Type=34 = QtExec, no CMD window) -->
 	<CustomAction Id="EnableTestSigning" 
 	              Directory="TARGETDIR" 
 	              ExeCommand='bcdedit.exe /set testsigning on' 
 	              Execute="deferred" 
 	              Impersonate="no" 
-	              Return="ignore" 
+	              Return="ignore"
+	              Type="34"
 				  HideTarget="yes"/>
 		
 	<!--<Property Id='CmdExe'>cmd.exe</Property>
