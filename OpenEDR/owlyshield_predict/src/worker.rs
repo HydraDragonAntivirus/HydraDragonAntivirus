@@ -1380,13 +1380,6 @@ pub mod worker_instance {
                     }
                 }
 
-                // Drain IRP records queued by the OpenEDR telemetry pipe thread
-                // and apply them to ProcessBehaviorState::irp_statistics.
-                // This is the only &mut self call site, so no locking needed beyond
-                // the Arc<Mutex<_>> inside drain_pending_irp_records itself.
-                
-                self.behavior_engine.drain_pending_irp_records();
-
                 // --- SECOND: Discover any new processes that started since last scan ---
                 let mut discovered_new = 0;
                 for (pid, process) in sys.processes() {
@@ -1484,6 +1477,34 @@ pub mod worker_instance {
                         &exepath,
                         "Behavior-engine process executable scan",
                     );
+                }
+
+                // Drain IRP records queued by the OpenEDR telemetry pipe thread and
+                // route them through process_event so OpenEDR-only (non-edrdrv)
+                // events get the same named-condition + rule evaluation as driver
+                // events (e.g. the non-whitelisted-extension ransomware rule).
+                // Runs after process discovery/sync so freshly seen processes are
+                // already tracked. No additional locking needed beyond the
+                // Arc<Mutex<_>> inside drain_pending_irp_records itself.
+                let drained_records = self.behavior_engine.drain_pending_irp_records();
+                for (gid, iomsg) in drained_records {
+                    // Ensure a precord exists so process_event can resolve extension
+                    // history and file-id state for this GID.
+                    if self.process_records.get_precord_by_gid(gid).is_none() {
+                        let (app_name, exe_path) = self
+                            .behavior_engine
+                            .process_states
+                            .get(&gid)
+                            .map(|s| (s.app_name.clone(), s.exe_path.clone()))
+                            .unwrap_or_default();
+                        let mut precord = ProcessRecord::new(gid, app_name, exe_path);
+                        precord.pids.insert(iomsg.pid);
+                        self.process_records.insert_precord(gid, precord);
+                    }
+                    if let Some(precord) = self.process_records.get_precord_mut_by_gid(gid) {
+                        self.behavior_engine
+                            .process_event(precord, &iomsg, config, &*threat_handler);
+                    }
                 }
 
                 // Log Current Status

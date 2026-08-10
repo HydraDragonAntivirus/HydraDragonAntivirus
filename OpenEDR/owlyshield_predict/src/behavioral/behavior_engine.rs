@@ -4432,7 +4432,14 @@ impl BehaviorEngine {
                     } else {
                         pipe_name.clone()
                     },
-                    file_change: 0,
+                    file_change: match event_type {
+                        "LLE_FILE_CREATE" => FileChangeInfo::ChangeNewFile as u8,
+                        "LLE_FILE_DELETE" => FileChangeInfo::ChangeDeleteFile as u8,
+                        "LLE_FILE_DATA_CHANGE" | "LLE_FILE_DATA_WRITE_FULL" => {
+                            FileChangeInfo::ChangeWrite as u8
+                        }
+                        _ => 0,
+                    },
                     extension: {
                         let p = protected_path;
                         if let Some(pos) = p.rfind('.') {
@@ -6567,27 +6574,30 @@ impl BehaviorEngine {
         ))
     }
 
-    /// Drain the cross-thread pending IRP record queue and apply each entry to
-    /// the corresponding `ProcessBehaviorState` via `record_irp_operation`.
+    /// Drain the cross-thread pending IRP record queue.
     ///
     /// Called from the main Worker thread (which owns `&mut self`) so that the
     /// pipe thread — which only holds a cloned `BehaviorEngine` with `&self` access
-    /// — can still feed IRP telemetry into `IrpStatistics` without race conditions.
-    pub fn drain_pending_irp_records(&mut self) {
+    /// — can still feed IRP telemetry without race conditions.
+    /// Returns each record as a `(gid, IOMessage)` pair so the Worker can route
+    /// them through `process_event` — giving OpenEDR-only (non-edrdrv) events the
+    /// same named-condition group + rule evaluation as driver events.
+    pub fn drain_pending_irp_records(&mut self) -> Vec<(u64, IOMessage)> {
         let records: Vec<(u32, IrpOperationRecord)> = {
             match self.pending_irp_records.lock() {
                 Ok(mut q) => {
                     let v: Vec<(u32, IrpOperationRecord)> = q.drain(..).collect();
                     v
                 }
-                Err(_) => return,
+                Err(_) => return Vec::new(),
             }
         };
 
         if records.is_empty() {
-            return;
+            return Vec::new();
         }
 
+        let mut drained = Vec::with_capacity(records.len());
         for (pid, rec) in records {
             // Find the GID for this PID
             let gid_opt = self.find_gid_by_pid(pid);
@@ -6596,39 +6606,48 @@ impl BehaviorEngine {
                 None => continue, // Process not yet tracked — drop the record
             };
 
-            if let Some(state) = self.process_states.get_mut(&gid) {
-                let irp_op = rec.irp_type;
-                state.record_irp_operation(
-                    // record_irp_operation expects &IOMessage — build a minimal one
-                    &{
-                        use crate::shared_def::{
-                            FileId, IOMessage, KernelEventInfo, RuntimeFeatures,
-                        };
-                        IOMessage {
-                            extension: rec.extension.clone(),
-                            file_id_id: FileId::default(),
-                            mem_sized_used: 0,
-                            entropy: rec.entropy,
-                            pid,
-                            irp_op,
-                            is_entropy_calc: 0,
-                            file_change: rec.file_change,
-                            file_location_info: 0,
-                            filepathstr: rec.file_path.clone(),
-                            gid,
-                            parent_pid: 0,
-                            attacker_pid: 0,
-                            attacker_gid: 0,
-                            kernel_event_info: KernelEventInfo::default(),
-                            runtime_features: RuntimeFeatures::default(),
-                            file_size: rec.bytes_transferred as i64,
-                            time: rec.timestamp,
-                        }
-                    },
+            use crate::shared_def::{FileId, KernelEventInfo, RuntimeFeatures, SysmonEvent};
+            let raw_irp_type = rec.irp_type;
+            // Legacy Communication.cpp hypervisor/hook sub-types (12-29) are
+            // carried on the DeviceIoControl (0x000E) LBVS carrier with the
+            // specific opcode in kernel_event_info.event_type — mirror the
+            // driver's encoding so effective_hypervisor_irp_byte resolves it.
+            let (irp_op, event_type): (u32, u32) =
+                if (12..=29).contains(&raw_irp_type) || raw_irp_type == 0x000E {
+                    (
+                        SysmonEvent::DeviceIoControl as u32,
+                        if (12..=29).contains(&raw_irp_type) { raw_irp_type } else { 0 },
+                    )
+                } else {
+                    (raw_irp_type, 0)
+                };
+            let iomsg = IOMessage {
+                    extension: rec.extension.clone(),
+                    file_id_id: FileId::default(),
+                    mem_sized_used: 0,
+                    entropy: rec.entropy,
+                    pid,
                     irp_op,
-                );
-            }
+                    is_entropy_calc: 0,
+                    file_change: rec.file_change,
+                    file_location_info: 0,
+                    filepathstr: rec.file_path.clone(),
+                    gid,
+                    parent_pid: 0,
+                    attacker_pid: 0,
+                    attacker_gid: 0,
+                    kernel_event_info: KernelEventInfo {
+                        object_name: rec.function_name.clone(),
+                        event_type,
+                        ..Default::default()
+                    },
+                    runtime_features: RuntimeFeatures::default(),
+                    file_size: rec.bytes_transferred as i64,
+                    time: rec.timestamp,
+                };
+            drained.push((gid, iomsg));
         }
+        drained
     }
 
     pub fn register_process(&mut self, gid: u64, pid: u32, exe_path: PathBuf, app_name: String) {
