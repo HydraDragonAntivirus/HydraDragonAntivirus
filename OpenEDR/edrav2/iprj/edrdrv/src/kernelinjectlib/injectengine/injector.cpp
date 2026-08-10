@@ -285,13 +285,18 @@ void Injector::onImageLoad(PDEVICE_OBJECT DeviceObject, HANDLE ProcessId, PUNICO
 	}
 
 	UniqueLock lock(m_processListLock);
+	bool found = false;
 	for (auto& process : m_processList)
 	{
 		if (HandleToUlong(ProcessId) != process.GetProcessId())
 			continue;
 
 		IFERR_LOG_RET(process.AddMappedImage(ImageInfo->ImageBase, ImageInfo->ImageSize, fileNameInfo->FinalComponent), "Failed to add mapped image %wZ\r\n", &fileNameInfo->Name);
+		found = true;
 	}
+
+	if (found)
+		return;
 
 	imageInfo::ProcessDllInfo newItem(HandleToUlong(ProcessId));
 	IFERR_LOG_RET(newItem.initialize(), "Failed to initialize synch\r\n");
