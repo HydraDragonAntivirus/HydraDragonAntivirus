@@ -97,7 +97,9 @@
 					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]firewall-rules" Type="string" />
 				</RegistryKey>
 			</Component>
-			<Files Include="$(var.SourceBinDir)**" />
+			<Files Include="$(var.SourceBinDir)**">
+				<Exclude Files="$(var.SourceBinDir)models\**" />
+			</Files>
 		</ComponentGroup>
 	</Fragment>
 </Wix>

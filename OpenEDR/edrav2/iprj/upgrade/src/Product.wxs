@@ -102,7 +102,9 @@
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
                     </RegistryKey>
                 </Component>
-                <Files Include="$(var.SourceBinDir64)**" />
+                <Files Include="$(var.SourceBinDir64)**">
+                    <Exclude Files="$(var.SourceBinDir64)models\**" />
+                </Files>
             </ComponentGroup>
         <?else?>
             <ComponentGroup Id="ProductComponentsX86" Directory="INSTALLDIR_PLATFORM">
@@ -126,7 +128,9 @@
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
                     </RegistryKey>
                 </Component>
-                <Files Include="$(var.SourceBinDir32)**" />
+                <Files Include="$(var.SourceBinDir32)**">
+                    <Exclude Files="$(var.SourceBinDir32)models\**" />
+                </Files>
             </ComponentGroup>
         <?endif?>
     </Fragment>

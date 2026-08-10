@@ -25,7 +25,7 @@
   <PropertyGroup>
     <OutputPath>$(CmdRootDir)\out\upgrade\$(CmdOutDirName)\</OutputPath>
     <IntermediateOutputPath>$(CmdRootDir)\out\temp\$(CmdOutDirName)\$(OutputName)\</IntermediateOutputPath>
-    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir32=$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\;SourceBinDir64=$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64</DefineConstants>
+    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir32=$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\;SourceBinDir64=$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\</DefineConstants>
     <IncludeSearchPaths>..\..\src;..\..\..\installation\src</IncludeSearchPaths>
   </PropertyGroup>
 
@@ -90,6 +90,8 @@
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\rules\"' />
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\firewall-rules\"' />
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\firewall-rules\"' />
+    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\..\owlyshield_predict\models" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\models\"' />
+    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\..\owlyshield_predict\models" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\models\"' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />

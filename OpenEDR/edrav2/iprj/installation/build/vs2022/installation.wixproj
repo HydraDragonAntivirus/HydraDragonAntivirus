@@ -12,34 +12,29 @@
     <HarvestDirectorySuppressFragments>true</HarvestDirectorySuppressFragments>
     <HarvestDirectorySuppressRegistry>true</HarvestDirectorySuppressRegistry>
     <HarvestDirectorySuppressRootDirectory>true</HarvestDirectorySuppressRootDirectory>
-	<AcceptEula>wix6</AcceptEula>
+    <AcceptEula>wix6</AcceptEula>
   </PropertyGroup>
-
   <PropertyGroup>
     <PlatformName Condition=" '$(Platform)' == 'x86' ">Win32</PlatformName>
     <PlatformName Condition=" '$(Platform)' == 'x64' ">x64</PlatformName>
   </PropertyGroup>
-
   <Import Project="..\..\..\build\vs2022\consts.props" />
-
   <PropertyGroup>
     <OutputPath>$(CmdRootDir)\out\install\$(CmdOutDirName)\</OutputPath>
     <IntermediateOutputPath>$(CmdRootDir)\out\temp\$(CmdOutDirName)\$(OutputName)\</IntermediateOutputPath>
-    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\</DefineConstants>
+    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;
+	
+	=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\</DefineConstants>
     <IncludeSearchPaths>..\..\src</IncludeSearchPaths>
   </PropertyGroup>
-
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <DefineConstants>$(DefineConstants);Debug</DefineConstants>
   </PropertyGroup>
-
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
     <DefineConstants>$(DefineConstants);Debug</DefineConstants>
   </PropertyGroup>
-
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
   </PropertyGroup>
-
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
     <SuppressIces>ICE61</SuppressIces>
   </PropertyGroup>
@@ -48,7 +43,6 @@
       <Link>Product.wxs</Link>
     </Compile>
   </ItemGroup>
-
   <ItemGroup>
     <Content Include="..\..\src\Define.wxi">
       <Link>Define.wxi</Link>
@@ -63,32 +57,29 @@
       <Link>util.js</Link>
     </Content>
   </ItemGroup>
-
   <ItemGroup>
     <BindPath Include="..\..\src" />
   </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="WixToolset.Firewall.wixext" Version="6.0.2" />
     <PackageReference Include="WixToolset.Heat" Version="6.0.2" />
   </ItemGroup>
-
   <Target Name="ValidateSourceBinaries" BeforeTargets="PrepareInstallationPayload">
     <Warning Condition="!Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Text="Source binaries not found in '$(CmdRootDir)\out\bin\$(CmdOutDirName)'. The installer will be empty." />
   </Target>
-
   <Target Name="PrepareInstallationPayload" BeforeTargets="CoreCompile">
-    <Exec Command='if exist "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" rd "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" /S /Q' />
-    <Exec Command='md "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)"' />
-    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='xcopy "$(CmdRootDir)\out\bin\$(CmdOutDirName)" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" /Q /E /I /Exclude:$(ProjectDir)..\..\src\exclude.list' />
-    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.cfg, *.qsc, *.src, *.act) do "$(CmdRootDir)\out\bin\$(CmdOutDirName)\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
-    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*evm.cloud.src, *evm.local.src) do copy "%%~i" "%%~i.new" /Y' />
-    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command='FOR /r "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
-    <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\WinDivert\WinDivert.dll" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\"' />
-    <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\WinDivert\WinDivert64.sys" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\"' />
-    <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\"' />
-    <Exec Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\owlyshield_predict\tools\rust_win_toast\target\release\RustWindowsToast.exe" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\"' />
-    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\rules" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\rules\"' />
-    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\"' />
+    <Exec Command="if exist &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)&quot; rd &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)&quot; /S /Q" />
+    <Exec Command="md &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)&quot;" />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command="xcopy &quot;$(CmdRootDir)\out\bin\$(CmdOutDirName)&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)&quot; /Q /E /I /Exclude:$(ProjectDir)..\..\src\exclude.list" />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command="FOR /r &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)&quot; %%i in (*.cfg, *.qsc, *.src, *.act) do &quot;$(CmdRootDir)\out\bin\$(CmdOutDirName)\edrcon.exe&quot; file encrypt -f &quot;%%~i&quot; -o &quot;%%~i.new&quot; -e aes" />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command="FOR /r &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)&quot; %%i in (*evm.cloud.src, *evm.local.src) do copy &quot;%%~i&quot; &quot;%%~i.new&quot; /Y" />
+    <Exec Condition="Exists('$(CmdRootDir)\out\bin\$(CmdOutDirName)')" Command="FOR /r &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)&quot; %%i in (*.new) do del &quot;%%~dpni&quot; /F /Q &amp; ren &quot;%%~i&quot; &quot;%%~ni&quot;" />
+    <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\WinDivert\WinDivert.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
+    <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\WinDivert\WinDivert64.sys&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
+    <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
+    <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\tools\rust_win_toast\target\release\RustWindowsToast.exe&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
+    <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\rules\&quot;" />
+    <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\firewall-rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\&quot;" />
+    <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\models&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\models\&quot;" />
   </Target>
 </Project>
