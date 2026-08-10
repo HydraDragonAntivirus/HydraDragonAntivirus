@@ -1,10 +1,10 @@
 //! C-ABI FFI surface exported by `owlyshield_predict.dll`.
 //!
-//! OpenEDR (`edrsvc.exe`) calls these three symbols after loading the DLL
+//! OpenEDR (`edrsvc.exe`) calls these symbols after loading the DLL
 //! with `LoadLibraryW`. No Windows service is required.
 
 use std::sync::mpsc::{self, Sender};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 use crate::shared_def::IOMessage;
@@ -21,6 +21,39 @@ const OWLY_QUARANTINE_ERROR: i32 = 6;
 
 static SENDER: OnceLock<Sender<IOMessage>> = OnceLock::new();
 
+/// In-process telemetry event delivered from `edrsvc.exe` straight into the
+/// behavior engine. Replaces the former
+/// `\\.\pipe\Global\HydraDragonOpenEdrTelemetry` named pipe so that no
+/// untrusted usermode process can inject events.
+pub enum TelemetryLine {
+    FirewallPackedData(String),
+    OpenedrEvent(String),
+}
+
+static TELEMETRY_SENDER: OnceLock<Sender<TelemetryLine>> = OnceLock::new();
+static TELEMETRY_RECEIVER: OnceLock<Mutex<Option<mpsc::Receiver<TelemetryLine>>>> =
+    OnceLock::new();
+
+/// Initialize the in-process OpenEDR telemetry channel. Safe to call more than
+/// once; only the first call sets the channel.
+pub fn init_telemetry_channel() {
+    if TELEMETRY_SENDER.get().is_some() {
+        return;
+    }
+    let (tx, rx) = mpsc::channel::<TelemetryLine>();
+    let _ = TELEMETRY_SENDER.set(tx);
+    let _ = TELEMETRY_RECEIVER.set(Mutex::new(Some(rx)));
+}
+
+/// Take the telemetry receiver for the single consumer thread. Returns `None`
+/// if the channel has not been initialized or has already been taken.
+pub fn telemetry_receiver() -> Option<mpsc::Receiver<TelemetryLine>> {
+    TELEMETRY_RECEIVER
+        .get()
+        .and_then(|m| m.lock().ok())
+        .and_then(|mut guard| guard.take())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_dll_start() -> i32 {
     if SENDER.get().is_some() {
@@ -33,6 +66,11 @@ pub extern "C" fn owlyshield_dll_start() -> i32 {
         Logging::error(&format!("[Owlyshield FFI] Critical panic: {pi}"));
     }));
     Logging::start();
+
+    // The C++ side may start ingesting telemetry events as soon as the worker
+    // thread is spawned below; initialize the channel up front so no events
+    // are dropped while the consumer thread starts up.
+    init_telemetry_channel();
 
     let driver = match Driver::open_kernel_driver_com() {
         Ok(d) => d,
@@ -94,6 +132,78 @@ pub unsafe extern "C" fn owlyshield_dll_ingest(data: *const u8, len: u32) -> i32
     };
 
     if sender.send(iomsg).is_err() {
+        return OWLY_NOT_STARTED;
+    }
+
+    OWLY_OK
+}
+
+/// Ingest a serialized OpenEDR enriched event (JSON) into the behavior engine.
+/// Called directly by `edrsvc.exe` via GetProcAddress; the old global named
+/// pipe has been removed so no other usermode process can inject events.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn owlyshield_dll_ingest_openedr_event(data: *const u8, len: u32) -> i32 {
+    let sender = match TELEMETRY_SENDER.get() {
+        Some(s) => s,
+        None => {
+            Logging::error("[Owlyshield FFI] owlyshield_dll_ingest_openedr_event called before start");
+            return OWLY_NOT_STARTED;
+        }
+    };
+
+    if data.is_null() || len == 0 {
+        return OWLY_OK;
+    }
+
+    let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
+    let payload = match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_string(),
+        Err(e) => {
+            Logging::error(&format!(
+                "[Owlyshield FFI] owlyshield_dll_ingest_openedr_event: invalid UTF-8: {e}"
+            ));
+            return OWLY_DESERIALIZE_ERROR;
+        }
+    };
+
+    if sender.send(TelemetryLine::OpenedrEvent(payload)).is_err() {
+        return OWLY_NOT_STARTED;
+    }
+
+    OWLY_OK
+}
+
+/// Ingest firewall FULL_PACKET packed data (JSON) into the behavior engine.
+/// Called directly by `edrsvc.exe` via GetProcAddress; see
+/// `owlyshield_dll_ingest_openedr_event` for why there is no pipe anymore.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn owlyshield_dll_ingest_firewall_packed_data(data: *const u8, len: u32) -> i32 {
+    let sender = match TELEMETRY_SENDER.get() {
+        Some(s) => s,
+        None => {
+            Logging::error(
+                "[Owlyshield FFI] owlyshield_dll_ingest_firewall_packed_data called before start",
+            );
+            return OWLY_NOT_STARTED;
+        }
+    };
+
+    if data.is_null() || len == 0 {
+        return OWLY_OK;
+    }
+
+    let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
+    let payload = match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_string(),
+        Err(e) => {
+            Logging::error(&format!(
+                "[Owlyshield FFI] owlyshield_dll_ingest_firewall_packed_data: invalid UTF-8: {e}"
+            ));
+            return OWLY_DESERIALIZE_ERROR;
+        }
+    };
+
+    if sender.send(TelemetryLine::FirewallPackedData(payload)).is_err() {
         return OWLY_NOT_STARTED;
     }
 

@@ -15,13 +15,10 @@ namespace cmd {
 
 namespace {
 
-constexpr wchar_t c_sOwlyshieldOpenEdrPipeEnricher[] = LR"(\\.\pipe\Global\HydraDragonOpenEdrTelemetry)";
-constexpr DWORD c_nOwlyshieldOpenEdrPipeWaitMsEnricher = 250;
+constexpr wchar_t c_sOwlyshieldRansomDll[] = L"owlyshield_ransom.dll";
 
 void sendEnrichedTelemetryToOwlyshield(const Variant& vEvent)
 {
-	static std::mutex s_mtxPipeSend;
-
 	std::string sPayload;
 	CMD_TRY
 	{
@@ -37,38 +34,27 @@ void sendEnrichedTelemetryToOwlyshield(const Variant& vEvent)
 	if (sPayload.empty())
 		return;
 
-	sPayload.push_back('\n');
+	// Deliver straight into the in-process FFI telemetry channel. The former
+	// global named pipe is gone so no untrusted usermode process can inject
+	// events into the behavior engine.
+	typedef int32_t(__stdcall* FnIngestOpenedrEvent)(const uint8_t*, uint32_t);
 
-	std::scoped_lock lock(s_mtxPipeSend);
-
-	if (!::WaitNamedPipeW(c_sOwlyshieldOpenEdrPipeEnricher, c_nOwlyshieldOpenEdrPipeWaitMsEnricher))
+	HMODULE hDll = ::GetModuleHandleW(c_sOwlyshieldRansomDll);
+	if (hDll == nullptr)
 		return;
 
-	HANDLE hPipe = ::CreateFileW(
-		c_sOwlyshieldOpenEdrPipeEnricher,
-		GENERIC_WRITE,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		nullptr,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		nullptr);
-	if (hPipe == INVALID_HANDLE_VALUE)
+	auto fnIngest = reinterpret_cast<FnIngestOpenedrEvent>(
+		::GetProcAddress(hDll, "owlyshield_dll_ingest_openedr_event"));
+	if (fnIngest == nullptr)
 		return;
 
-	DWORD nWritten = 0;
-	const BOOL fOk = ::WriteFile(
-		hPipe,
-		sPayload.data(),
-		static_cast<DWORD>(sPayload.size()),
-		&nWritten,
-		nullptr);
-	if (!fOk || nWritten != sPayload.size())
+	const int32_t nResult = fnIngest(
+		reinterpret_cast<const uint8_t*>(sPayload.data()),
+		static_cast<uint32_t>(sPayload.size()));
+	if (nResult != 0)
 	{
-		LOGLVL(Trace, "Failed to send enriched telemetry to Owlyshield pipe");
+		LOGLVL(Trace, "Failed to send enriched telemetry to Owlyshield (code: " << nResult << ")");
 	}
-
-	::FlushFileBuffers(hPipe);
-	::CloseHandle(hPipe);
 }
 
 } // anonymous namespace

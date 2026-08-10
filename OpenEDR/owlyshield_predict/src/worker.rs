@@ -274,25 +274,9 @@ pub mod worker_instance {
     
     use std::collections::HashSet;
     
-    use std::ffi::OsStr;
-    
-    use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
 
     use sysinfo::{ProcessesToUpdate, System};
-    
-    use windows::Win32::Foundation::{
-        CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
-    };
-    
-    use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_INBOUND, ReadFile};
-    
-    use windows::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
-        PIPE_UNLIMITED_INSTANCES,
-    };
-    
-    use windows::core::PCWSTR;
 
     pub trait IOMsgPostProcessor {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);
@@ -595,15 +579,15 @@ pub mod worker_instance {
         fn build_behavior_engine(config: &Config) -> BehaviorEngine {
             
             static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
-            static OPENEDR_PIPE_START: std::sync::Once = std::sync::Once::new();
+            static OPENEDR_TELEMETRY_START: std::sync::Once = std::sync::Once::new();
 
             let extension_source_mode = config.extension_source_mode();
             let mut engine =
                 BehaviorEngine::new_with_extension_source_mode(extension_source_mode.as_deref());
 
             // Load behavior rules BEFORE any clone is handed to the telemetry
-            // pipe thread, so both the worker engine and the pipe-thread clone
-            // have detection capability.
+            // consumer thread, so both the worker engine and the consumer-thread
+            // clone have detection capability.
             if let Some(rules_dir) = crate::globals::RULES_PATH.get() {
                 if let Ok(app_settings) = AppSettings::load(&rules_dir.to_path_buf()) {
                     let rules_path = app_settings.behavior_rules_path.clone();
@@ -630,10 +614,10 @@ pub mod worker_instance {
             FIREWALL_PIPE_START.call_once(|| {
                 engine.start_firewall_pipe();
             });
-            OPENEDR_PIPE_START.call_once({
+            OPENEDR_TELEMETRY_START.call_once({
                 let engine = engine.clone();
                 move || {
-                    Self::start_openedr_telemetry_pipe(engine);
+                    Self::start_openedr_telemetry_consumer(engine);
                 }
             });
 
@@ -641,102 +625,44 @@ pub mod worker_instance {
         }
 
         
-        pub fn start_openedr_telemetry_pipe(behavior_engine: BehaviorEngine) {
+        pub fn start_openedr_telemetry_consumer(behavior_engine: BehaviorEngine) {
             std::thread::Builder::new()
-                .name("openedr_telemetry_pipe".to_string())
+                .name("openedr_telemetry_consumer".to_string())
                 .spawn(move || {
-                    let pipe_name_str = r"\\.\pipe\Global\HydraDragonOpenEdrTelemetry";
-                    let wide: Vec<u16> = OsStr::new(pipe_name_str)
-                        .encode_wide()
-                        .chain(std::iter::once(0u16))
-                        .collect();
+                    let Some(rx) = crate::ffi::telemetry_receiver() else {
+                        Logging::error(
+                            "[OpenEDRTelemetry] Telemetry channel not initialized; consumer exiting",
+                        );
+                        return;
+                    };
 
-                    Logging::info("[OpenEDRTelemetry] Starting direct OpenEDR telemetry pipe");
+                    Logging::info(
+                        "[OpenEDRTelemetry] Direct OpenEDR telemetry consumer started (in-process)",
+                    );
 
-                    loop {
-                        let handle: HANDLE = unsafe {
-                            CreateNamedPipeW(
-                                PCWSTR(wide.as_ptr()),
-                                PIPE_ACCESS_INBOUND,
-                                NAMED_PIPE_MODE(0),
-                                PIPE_UNLIMITED_INSTANCES,
-                                0,
-                                65536,
-                                0,
-                                None,
-                            )
-                        };
-
-                        if handle == INVALID_HANDLE_VALUE {
-                            Logging::error("[OpenEDRTelemetry] CreateNamedPipeW failed; retrying");
-                            std::thread::sleep(std::time::Duration::from_secs(2));
-                            continue;
-                        }
-
-                        let connected = unsafe { ConnectNamedPipe(handle, None) }.as_bool()
-                            || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
-
-                        if !connected {
-                            unsafe {
-                                let _ = DisconnectNamedPipe(handle);
-                                let _ = CloseHandle(handle);
+                    while let Ok(line) = rx.recv() {
+                        match line {
+                            crate::ffi::TelemetryLine::FirewallPackedData(json) => {
+                                behavior_engine.ingest_firewall_packed_data(&json);
                             }
-                            std::thread::sleep(std::time::Duration::from_millis(250));
-                            continue;
-                        }
-
-                        let mut buf = vec![0u8; 65536];
-                        let mut leftover = String::new();
-
-                        loop {
-                            let mut bytes_read: u32 = 0;
-                            let ok = unsafe {
-                                ReadFile(
-                                    handle,
-                                    Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
-                                    buf.len() as u32,
-                                    Some(&mut bytes_read),
-                                    None,
-                                )
-                            };
-                            if !ok.as_bool() || bytes_read == 0 {
-                                break;
-                            }
-
-                            leftover
-                                .push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
-                            while let Some(pos) = leftover.find('\n') {
-                                let line = leftover[..pos].trim().to_string();
-                                leftover = leftover[pos + 1..].to_string();
-                                if line.is_empty() {
-                                    continue;
-                                }
-
-                                
-                                if let Some(json) = line.strip_prefix("FULL_PACKED_DATA:") {
-                                    behavior_engine.ingest_firewall_packed_data(json);
-                                } else {
-                                    match serde_json::from_str::<serde_json::Value>(&line) {
-                                        Ok(event) => {
-                                            // Always process for behavioral analysis
-                                            behavior_engine.ingest_openedr_event(&event);
-                                        }
-                                        Err(err) => Logging::warning(&format!(
-                                            "[OpenEDRTelemetry] Failed to parse direct event JSON: {}",
-                                            err
-                                        )),
+                            crate::ffi::TelemetryLine::OpenedrEvent(json) => {
+                                match serde_json::from_str::<serde_json::Value>(&json) {
+                                    Ok(event) => {
+                                        // Always process for behavioral analysis
+                                        behavior_engine.ingest_openedr_event(&event);
                                     }
+                                    Err(err) => Logging::warning(&format!(
+                                        "[OpenEDRTelemetry] Failed to parse direct event JSON: {}",
+                                        err
+                                    )),
                                 }
                             }
-                        }
-
-                        unsafe {
-                            let _ = DisconnectNamedPipe(handle);
-                            let _ = CloseHandle(handle);
                         }
                     }
+
+                    Logging::warning("[OpenEDRTelemetry] Telemetry channel closed; consumer exiting");
                 })
-                .expect("failed to spawn openedr_telemetry_pipe thread");
+                .expect("failed to spawn openedr_telemetry_consumer thread");
         }
 
         

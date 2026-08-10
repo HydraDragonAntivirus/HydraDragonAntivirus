@@ -16,6 +16,18 @@ bool InitOwlyshield();
 /// @return true on success, false on failure
 bool OwlyshieldIngest(const uint8_t* data, uint32_t len);
 
+/// Ingest a serialized OpenEDR enriched event (single-line JSON) into the
+/// behavior engine over the in-process FFI channel.
+/// @param sPayload UTF-8 JSON event payload
+/// @return true on success, false on failure
+bool OwlyshieldIngestOpenedrEvent(const std::string& sPayload);
+
+/// Ingest firewall FULL_PACKET packed data (single-line JSON) into the
+/// behavior engine over the in-process FFI channel.
+/// @param sPayload UTF-8 JSON packed-data payload
+/// @return true on success, false on failure
+bool OwlyshieldIngestFirewallPackedData(const std::string& sPayload);
+
 /// Shutdown Owlyshield engine and unload DLL
 void ShutdownOwlyshield();
 

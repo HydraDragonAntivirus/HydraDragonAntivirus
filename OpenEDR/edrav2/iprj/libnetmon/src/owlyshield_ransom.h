@@ -36,6 +36,16 @@ __declspec(dllimport) int32_t owlyshield_dll_quarantine_file(const uint8_t* file
 // Returns OWLY_OK on success, or an error code on failure
 __declspec(dllimport) int32_t owlyshield_dll_ingest(const uint8_t* data, uint32_t len);
 
+// Ingest a serialized OpenEDR enriched event (single-line JSON) into the
+// behavior engine. data: UTF-8 JSON payload, len: length in bytes.
+// Returns OWLY_OK on success, or an error code on failure
+__declspec(dllimport) int32_t owlyshield_dll_ingest_openedr_event(const uint8_t* data, uint32_t len);
+
+// Ingest firewall FULL_PACKET packed data (single-line JSON) into the behavior
+// engine. data: UTF-8 JSON payload, len: length in bytes.
+// Returns OWLY_OK on success, or an error code on failure
+__declspec(dllimport) int32_t owlyshield_dll_ingest_firewall_packed_data(const uint8_t* data, uint32_t len);
+
 // Stop the Owlyshield engine and cleanup resources
 __declspec(dllimport) void owlyshield_dll_stop();
 

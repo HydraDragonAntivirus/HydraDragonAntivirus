@@ -178,3 +178,83 @@ pub fn is_process_alive(pid: u32) -> bool {
         }
     }
 }
+
+/// Validate the client connecting to a named pipe by its process path or PID.
+///
+/// # Safety
+/// This function is unsafe because it interacts with raw handles and Windows API calls.
+/// The caller must ensure that `pipe_handle` is a valid, open handle to a named pipe.
+///
+/// Used to authenticate the external HydraDragonFirewall.exe producer on the
+/// `HydraNetEvent` pipe (a real cross-process channel). The OpenEDR telemetry
+/// channel is in-process and does NOT use a pipe anymore.
+pub unsafe fn validate_pipe_client(
+    pipe_handle: ::windows::Win32::Foundation::HANDLE,
+    expected_path: Option<&str>,
+    allow_kernel: bool,
+) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+    };
+
+    let mut client_pid: u32 = 0;
+    if !unsafe { GetNamedPipeClientProcessId(pipe_handle, &mut client_pid) }.as_bool() {
+        return false;
+    }
+
+    if allow_kernel && client_pid == 4 {
+        return true;
+    }
+
+    if let Some(expected) = expected_path {
+        let expected_lc = expected.replace('/', "\\").to_ascii_lowercase();
+        let is_full_path = Path::new(expected).is_absolute();
+
+        if let Some(path) = resolve_process_path(client_pid) {
+            let resolved = path
+                .to_string_lossy()
+                .replace('/', "\\")
+                .to_ascii_lowercase();
+            if is_full_path {
+                if resolved == expected_lc {
+                    return true;
+                }
+            } else {
+                if resolved.ends_with(&expected_lc) {
+                    return true;
+                }
+            }
+        }
+
+        if let Ok(h_proc) = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                false,
+                client_pid,
+            )
+        } {
+            let mut buffer = [0u8; 1024];
+            let len = unsafe { GetModuleFileNameExA(h_proc, None, &mut buffer) };
+            let _ = unsafe { CloseHandle(h_proc) };
+            if len > 0 {
+                let path = String::from_utf8_lossy(&buffer[..len as usize])
+                    .replace('/', "\\")
+                    .to_ascii_lowercase();
+                if is_full_path {
+                    if path == expected_lc {
+                        return true;
+                    }
+                } else {
+                    if path.ends_with(&expected_lc) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}

@@ -9,6 +9,7 @@
 ///
 #include "pch_win.h"
 #include "nfwrapper_win.h"
+#include "owlyshield_integration.h"
 
 #include <array>
 #include <chrono>
@@ -40,42 +41,16 @@ AddressFamily detectAddressFamily(const std::string& sIp)
 	return sIp.find(':') == std::string::npos ? AddressFamily::Inet : AddressFamily::Inet6;
 }
 
-/// Forward a raw firewall telemetry line to Owlyshield's OpenEDR telemetry pipe.
-/// Uses a per-call connect/write/close to avoid holding a persistent handle.
+/// Forward a raw firewall telemetry line to Owlyshield via the in-process FFI
+/// channel. The former global named pipe has been removed so no other usermode
+/// process can inject events into the behavior engine.
 void forwardRawTelemetryToOwlyshield(const std::string& sLine)
 {
 	if (sLine.empty())
 		return;
 
-	std::string sPayload = sLine + "\n";
-
-	constexpr wchar_t c_sPipeName[] = LR"(\\.\pipe\Global\HydraDragonOpenEdrTelemetry)";
-	constexpr DWORD c_nPipeWaitMs = 250;
-
-	if (!::WaitNamedPipeW(c_sPipeName, c_nPipeWaitMs))
-		return;
-
-	HANDLE hPipe = ::CreateFileW(
-		c_sPipeName,
-		GENERIC_WRITE,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		nullptr,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		nullptr);
-	if (hPipe == INVALID_HANDLE_VALUE)
-		return;
-
-	DWORD nWritten = 0;
-	::WriteFile(
-		hPipe,
-		sPayload.data(),
-		static_cast<DWORD>(sPayload.size()),
-		&nWritten,
-		nullptr);
-
-	::FlushFileBuffers(hPipe);
-	::CloseHandle(hPipe);
+	if (!cmd::win::OwlyshieldIngestFirewallPackedData(sLine))
+		LOGLVL(Trace, "Failed to forward firewall packed data to Owlyshield");
 }
 
 IpProtocol convertProtocol(const Variant& vProtocol)
@@ -322,9 +297,9 @@ void NetFilterWrapper::processNetEventLine(const std::string& sPayload)
 
 void NetFilterWrapper::processFullPacketLine(const std::string& sPayload)
 {
-	// Forward the full raw line to Owlyshield via the shared OpenEDR telemetry pipe
+	// Forward the full raw line to Owlyshield via the in-process FFI channel
 	// so it can run its own behavior rule matching on the packet.
-	forwardRawTelemetryToOwlyshield("FULL_PACKED_DATA:" + sPayload);
+	forwardRawTelemetryToOwlyshield(sPayload);
 
 	try
 	{

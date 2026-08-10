@@ -14,10 +14,14 @@ static HMODULE g_hOwlyshieldDll = nullptr;
 // Function pointers
 typedef int32_t (*OwlyshieldDllStartFn)();
 typedef int32_t (*OwlyshieldDllIngestFn)(const uint8_t*, uint32_t);
+typedef int32_t (*OwlyshieldDllIngestOpenedrEventFn)(const uint8_t*, uint32_t);
+typedef int32_t (*OwlyshieldDllIngestFirewallPackedDataFn)(const uint8_t*, uint32_t);
 typedef void (*OwlyshieldDllStopFn)();
 
 static OwlyshieldDllStartFn g_owlyshield_dll_start = nullptr;
 static OwlyshieldDllIngestFn g_owlyshield_dll_ingest = nullptr;
+static OwlyshieldDllIngestOpenedrEventFn g_owlyshield_dll_ingest_openedr_event = nullptr;
+static OwlyshieldDllIngestFirewallPackedDataFn g_owlyshield_dll_ingest_firewall_packed_data = nullptr;
 static OwlyshieldDllStopFn g_owlyshield_dll_stop = nullptr;
 
 ///
@@ -39,10 +43,14 @@ bool InitOwlyshield()
 	// Get function pointers
 	g_owlyshield_dll_start = (OwlyshieldDllStartFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_start");
 	g_owlyshield_dll_ingest = (OwlyshieldDllIngestFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest");
+	g_owlyshield_dll_ingest_openedr_event = (OwlyshieldDllIngestOpenedrEventFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest_openedr_event");
+	g_owlyshield_dll_ingest_firewall_packed_data = (OwlyshieldDllIngestFirewallPackedDataFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest_firewall_packed_data");
 	g_owlyshield_dll_stop = (OwlyshieldDllStopFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_stop");
 
 	if (g_owlyshield_dll_start == nullptr || 
 	    g_owlyshield_dll_ingest == nullptr || 
+	    g_owlyshield_dll_ingest_openedr_event == nullptr ||
+	    g_owlyshield_dll_ingest_firewall_packed_data == nullptr ||
 	    g_owlyshield_dll_stop == nullptr)
 	{
 		LOGLVL(Debug, "Failed to get Owlyshield DLL function addresses");
@@ -74,6 +82,40 @@ bool OwlyshieldIngest(const uint8_t* data, uint32_t len)
 		return false;
 
 	int32_t result = g_owlyshield_dll_ingest(data, len);
+	return (result == OWLY_OK);
+}
+
+///
+/// Ingest an OpenEDR enriched event (single-line JSON) over the in-process FFI channel.
+///
+bool OwlyshieldIngestOpenedrEvent(const std::string& sPayload)
+{
+	if (sPayload.empty())
+		return false;
+
+	if (g_owlyshield_dll_ingest_openedr_event == nullptr)
+		return false;
+
+	int32_t result = g_owlyshield_dll_ingest_openedr_event(
+		reinterpret_cast<const uint8_t*>(sPayload.data()),
+		static_cast<uint32_t>(sPayload.size()));
+	return (result == OWLY_OK);
+}
+
+///
+/// Ingest firewall FULL_PACKET packed data (single-line JSON) over the in-process FFI channel.
+///
+bool OwlyshieldIngestFirewallPackedData(const std::string& sPayload)
+{
+	if (sPayload.empty())
+		return false;
+
+	if (g_owlyshield_dll_ingest_firewall_packed_data == nullptr)
+		return false;
+
+	int32_t result = g_owlyshield_dll_ingest_firewall_packed_data(
+		reinterpret_cast<const uint8_t*>(sPayload.data()),
+		static_cast<uint32_t>(sPayload.size()));
 	return (result == OWLY_OK);
 }
 
@@ -187,6 +229,8 @@ void ShutdownOwlyshield()
 		g_hOwlyshieldDll = nullptr;
 		g_owlyshield_dll_start = nullptr;
 		g_owlyshield_dll_ingest = nullptr;
+		g_owlyshield_dll_ingest_openedr_event = nullptr;
+		g_owlyshield_dll_ingest_firewall_packed_data = nullptr;
 		g_owlyshield_dll_stop = nullptr;
 	}
 }

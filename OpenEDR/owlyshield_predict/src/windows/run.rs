@@ -20,6 +20,10 @@ pub fn run() {
 
     Logging::start();
 
+    // Initialize the in-process OpenEDR telemetry channel before the worker
+    // thread starts so the consumer thread can attach.
+    crate::ffi::init_telemetry_channel();
+
     // Open driver early (used for realtime handling in main loop)
     let driver = Driver::open_kernel_driver_com()
         .expect("Cannot open driver communication (is the minifilter started?)");
@@ -117,12 +121,12 @@ pub fn run() {
         }
     });
 
-    // Main thread: kernel telemetry is received via edrsvc named pipe.
+    // Main thread: kernel telemetry is received from edrsvc directly.
     // edrsvc.exe reads from edrdrv and forwards all events (opcodes 0-30+)
-    // to Owlyshield over \\.\pipe\Global\HydraDragonOpenEdrTelemetry.
+    // to Owlyshield via the in-process FFI telemetry channel.
     // Worker thread above consumes IOMessages from rx_iomsgs channel.
-    // This thread parks itself — all work is pipe-driven.
-    Logging::info("[Owlyshield] Main thread parked. Telemetry via edrsvc pipe.");
+    // This thread parks itself — all work is channel-driven.
+    Logging::info("[Owlyshield] Main thread parked. Telemetry via edrsvc FFI.");
     loop {
         thread::sleep(std::time::Duration::from_secs(60));
     }
