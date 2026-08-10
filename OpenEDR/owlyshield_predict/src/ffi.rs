@@ -54,6 +54,15 @@ pub fn telemetry_receiver() -> Option<mpsc::Receiver<TelemetryLine>> {
         .and_then(|mut guard| guard.take())
 }
 
+/// Send a telemetry line directly into the in-process channel.
+pub fn send_telemetry_line(line: TelemetryLine) -> bool {
+    if let Some(sender) = TELEMETRY_SENDER.get() {
+        sender.send(line).is_ok()
+    } else {
+        false
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_dll_start() -> i32 {
     if SENDER.get().is_some() {

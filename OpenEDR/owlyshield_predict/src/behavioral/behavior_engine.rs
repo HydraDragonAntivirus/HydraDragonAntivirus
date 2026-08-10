@@ -17,7 +17,6 @@ use crate::shared_def::{
 use crate::signature_verification::verify_signature;
 use crate::threat_handler::ThreatHandler;
 
-use crate::utils::validate_pipe_client;
 use crate::utils::{
     format_process_descriptor_with_fallback, resolve_process_path,
     suspicious_critical_process_reason,
@@ -44,8 +43,6 @@ type FirewallBlockedExes = Arc<std::sync::RwLock<HashMap<String, FirewallDetecti
 /// Per-PID list of (dst_ip, dst_port) pairs observed by the firewall (NET_EVENT).
 
 type FirewallNetDetails = Arc<std::sync::RwLock<HashMap<u32, Vec<(String, u16)>>>>;
-
-type FirewallPipeStarted = Arc<AtomicBool>;
 
 type FirewallHipsPendingPrompts = Arc<std::sync::RwLock<HashMap<String, FirewallHipsPromptState>>>;
 
@@ -134,12 +131,7 @@ fn shared_firewall_full_packets() -> FirewallFullPackets {
 }
 
 
-fn shared_firewall_pipe_started() -> FirewallPipeStarted {
-    static FIREWALL_PIPE_STARTED: OnceLock<FirewallPipeStarted> = OnceLock::new();
-    FIREWALL_PIPE_STARTED
-        .get_or_init(|| Arc::new(AtomicBool::new(false)))
-        .clone()
-}
+
 
 
 fn shared_firewall_hips_pending_prompts() -> FirewallHipsPendingPrompts {
@@ -2812,7 +2804,7 @@ pub struct BehaviorEngine {
     
     pub firewall_blocked_exes: FirewallBlockedExes,
     
-    firewall_pipe_started: FirewallPipeStarted,
+
     
     firewall_hips_pending_prompts: FirewallHipsPendingPrompts,
     
@@ -2881,7 +2873,7 @@ impl BehaviorEngine {
             
             firewall_blocked_exes: shared_firewall_blocked_exes(),
             
-            firewall_pipe_started: shared_firewall_pipe_started(),
+
             
             firewall_hips_pending_prompts: shared_firewall_hips_pending_prompts(),
             
@@ -3112,293 +3104,192 @@ impl BehaviorEngine {
     /// network blocks should stay firewall activity and not become process kills.
     /// Call once after constructing BehaviorEngine, before the scan loop starts.
     
-    pub fn start_firewall_pipe(&self) {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use windows::Win32::Foundation::{
-            CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
-        };
-        use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_INBOUND, ReadFile};
-        use windows::Win32::System::Pipes::{
-            ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
-            PIPE_UNLIMITED_INSTANCES,
-        };
-        use windows::core::PCWSTR;
-
-        if self.firewall_pipe_started.swap(true, Ordering::SeqCst) {
-            Logging::info("[HydraNetPipe] Firewall pipe server already active");
+    /// Process a raw telemetry line (e.g. NET_EVENT, BLOCK_EXE, HIPS_DECISION, KERNEL_BLOCK_PATH, VERDICT, FULL_PACKED_DATA).
+    /// Delivered in-process via the FFI telemetry channel instead of named pipes.
+    pub fn ingest_firewall_raw_line(&self, line: &str) {
+        let line = line.trim();
+        if line.is_empty() {
             return;
         }
 
-        let net_pids = Arc::clone(&self.firewall_net_pids);
-        let net_details = Arc::clone(&self.firewall_net_details);
-        let blocked_exes = Arc::clone(&self.firewall_blocked_exes);
-        let hips_decisions = Arc::clone(&self.firewall_hips_decisions);
-        let _http_body_map = Arc::clone(&self.firewall_http_body_map);
-        let _full_packets: Arc<RwLock<HashMap<u32, VecDeque<PacketInfo>>>> =
-            Arc::clone(&self.firewall_full_packets);
-        let generate_report_flag = Arc::clone(&self.generate_report_flag);
-        let file_verdicts = Arc::clone(&self.firewall_file_verdicts);
-        let _regex_cache = Arc::clone(&self.regex_cache);
-        let _rules_clone = self.rules.clone();
-
-        std::thread::Builder::new()
-            .name("hydra_net_event_pipe".to_string())
-            .spawn(move || {
-                let pipe_name_str = r"\\.\pipe\HydraNetEvent";
-                let wide: Vec<u16> = OsStr::new(pipe_name_str)
-                    .encode_wide()
-                    .chain(std::iter::once(0u16))
-                    .collect();
-
-                loop {
-                    let handle: HANDLE = unsafe {
-                        CreateNamedPipeW(
-                            PCWSTR(wide.as_ptr()),
-                            PIPE_ACCESS_INBOUND,
-                            NAMED_PIPE_MODE(0), // PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
-                            PIPE_UNLIMITED_INSTANCES,
-                            0,
-                            4096,
-                            0,
-                            None,
-                        )
-                    };
-
-                    if handle == INVALID_HANDLE_VALUE {
-                        Logging::error("[HydraNetPipe] CreateNamedPipeW failed; retrying");
-                        std::thread::sleep(std::time::Duration::from_secs(2));
-                        continue;
-                    }
-
-                    let connected = unsafe { ConnectNamedPipe(handle, None) }.as_bool()
-                        || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
-
-                    if !connected {
-                        Logging::warning("[HydraNetPipe] ConnectNamedPipe failed; recreating pipe");
-                        unsafe {
-                            let _ = DisconnectNamedPipe(handle);
-                            let _ = CloseHandle(handle);
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(250));
-                        continue;
-                    }
-
-                    // Validation: Only allow HydraDragon Firewall from the fixed install path.
-                    const HYDRADRAGON_FIREWALL_EXE: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\HydraDragonFirewall.exe";
-                    if !unsafe { validate_pipe_client(handle, Some(HYDRADRAGON_FIREWALL_EXE), false) } {
-                        Logging::error("[HydraNetPipe] Rejected unauthorized client connection");
-                        unsafe {
-                            use windows::Win32::System::Pipes::DisconnectNamedPipe;
-                            let _ = DisconnectNamedPipe(handle);
-                            let _ = CloseHandle(handle);
-                        }
-                        continue;
-                    }
-
-                    Logging::info("[HydraNetPipe] Client connected to HydraNetEvent pipe");
-
-                    let mut buf = vec![0u8; 4096];
-                    let mut leftover = String::new();
-
-                    loop {
-                        let mut bytes_read: u32 = 0;
-                        let ok = unsafe {
-                            ReadFile(
-                                handle,
-                                Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
-                                buf.len() as u32,
-                                Some(&mut bytes_read),
-                                None,
-                            )
-                        };
-                        if !ok.as_bool() || bytes_read == 0 {
-                            break;
-                        }
-                        leftover.push_str(&String::from_utf8_lossy(&buf[..bytes_read as usize]));
-
-                        while let Some(pos) = leftover.find('\n') {
-                            let line = leftover[..pos].trim().to_string();
-                            leftover = leftover[pos + 1..].to_string();
-
-                            if let Some(rest) = line.strip_prefix("NET_EVENT:") {
-                                let mut parts = rest.splitn(3, ':');
-                                if let Some(pid_str) = parts.next()
-                                    && let Ok(pid) = pid_str.parse::<u32>() {
-                                        net_pids.write().unwrap().insert(pid);
-                                        let dst_ip   = parts.next().unwrap_or("").trim().to_string();
-                                        let dst_port = parts.next().unwrap_or("0").trim()
-                                            .parse::<u16>().unwrap_or(0);
-                                        if !dst_ip.is_empty() {
-                                            net_details.write().unwrap()
-                                                .entry(pid)
-                                                .or_default()
-                                                .push((dst_ip, dst_port));
-                                        }
-                                    }
-                            } else if let Some(rest) = line.strip_prefix("BLOCK_EXE:") {
-                                // BLOCK_EXE:<exe>|<dst_ip>|<dst_port>|<hostname>|<reason>
-                                let mut parts = rest.splitn(5, '|');
-                                let exe      = parts.next().unwrap_or("").trim().to_string();
-                                let dst_ip   = parts.next().unwrap_or("").trim().to_string();
-                                let dst_port = parts.next().unwrap_or("0").trim()
-                                    .parse::<u16>().unwrap_or(0);
-                                let hostname = parts.next().unwrap_or("").trim().to_string();
-                                let reason   = parts.next().unwrap_or("Firewall block").trim().to_string();
-
-                                if !exe.is_empty() {
-                                    let detection = FirewallDetection {
-                                        dst_ip,
-                                        dst_port,
-                                        hostname: hostname.clone(),
-                                        reason: reason.clone(),
-                                        is_private_rule_match: false,
-                                        detected_subdomain: None,
-                                        detected_domain: None,
-                                        used_public_suffix_list: false,
-                                        matched_private_rules: Vec::new(),
-                                    };
-                                    if detection.is_pending_user_decision() {
-                                        Logging::info(&format!(
-                                            "[FirewallPipe] Pending user decision for {}; not treating as confirmed malicious",
-                                            exe
-                                        ));
-                                        continue;
-                                    }
-                                    Logging::warning(&format!(
-                                        "[FirewallPipe] Confirmed malicious: {} -> {}:{} ({}) - {}",
-                                        exe,
-                                        detection.dst_ip,
-                                        detection.dst_port,
-                                        hostname,
-                                        reason
-                                    ));
-                                    blocked_exes.write().unwrap().insert(exe, detection);
-                                }
-                            } else if let Some(rest) = line.strip_prefix("HIPS_DECISION:") {
-                                let mut parts = rest.splitn(2, '|');
-                                let request_id = parts.next().unwrap_or("").trim().to_string();
-                                let decision_raw = parts.next().unwrap_or("").trim();
-
-                                if !request_id.is_empty() {
-                                    if let Some(decision) = FirewallHipsDecision::from_wire(decision_raw) {
-                                        hips_decisions.write().unwrap().insert(request_id.clone(), decision);
-                                        Logging::info(&format!(
-                                            "[HydraNetPipe] Received Owlyshield HIPS decision for request {}: {}",
-                                            request_id,
-                                            decision_raw
-                                        ));
-                                    } else {
-                                        Logging::warning(&format!(
-                                            "[HydraNetPipe] Ignored unknown Owlyshield HIPS decision '{}'",
-                                            decision_raw
-                                        ));
-                                    }
-                                }
-                            } else if let Some(rest) = line.strip_prefix("KERNEL_BLOCK_PATH:") {
-                                let block_path = rest.trim().trim_matches('"').replace('/', "\\");
-                                if !block_path.is_empty() && !block_path.eq_ignore_ascii_case("unknown") {
-                                    let applied = with_shared_driver(|driver| driver.add_block_path(&block_path));
-                                    match applied {
-                                        Some(Ok(())) => Logging::warning(&format!(
-                                            "[HydraNetPipe] Installed kernel block path: {}",
-                                            block_path
-                                        )),
-                                        Some(Err(ref err)) => Logging::error(&format!(
-                                            "[HydraNetPipe] Failed to install kernel block path {}: {}",
-                                            block_path,
-                                            err
-                                        )),
-                                        None => Logging::warning(&format!(
-                                            "[HydraNetPipe] No shared driver handle available for kernel block path {}",
-                                            block_path
-                                        )),
-                                    }
-                                }
-                            } else if line == "GENERATE_REPORT" {
-                                generate_report_flag.store(true, Ordering::SeqCst);
-                                Logging::info("[HydraNetPipe] Received on-demand report request");
-                            } else if let Some(rest) = line.strip_prefix("VERDICT:") {
-                                // VERDICT:<file_path>|<sha256>|<verdict_code>|<verdict_label>
-                                // OpenEDR FLS: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail.
-                                let mut parts = rest.splitn(4, '|');
-                                let file_path = parts.next().unwrap_or("").trim().to_string();
-                                let sha256 = parts.next().unwrap_or("").trim().to_string();
-                                let verdict_code_raw = parts.next().unwrap_or("3").trim();
-                                let verdict_label_raw = parts.next().unwrap_or("").trim();
-                                let verdict = verdict_code_raw
-                                    .parse::<u8>()
-                                    .ok()
-                                    .and_then(OpenEdrFlsVerdict::from_code)
-                                    .or_else(|| OpenEdrFlsVerdict::from_token(verdict_code_raw))
-                                    .or_else(|| OpenEdrFlsVerdict::from_token(verdict_label_raw))
-                                    .unwrap_or(OpenEdrFlsVerdict::Unknown);
-                                let verdict_code = verdict.code();
-                                let verdict_label = verdict.display_label().to_string();
-
-                                if !file_path.is_empty() && !sha256.is_empty() {
-                                    let verdict_info = FileVerdictInfo {
-                                        sha256: sha256.clone(),
-                                        file_path: file_path.clone(),
-                                        verdict: verdict_code,
-                                        verdict_label: verdict_label.clone(),
-                                        timestamp: SystemTime::now(),
-                                    };
-
-                                    let file_path_key =
-                                        normalize_firewall_file_verdict_key(&file_path);
-                                    file_verdicts.write().unwrap().insert(file_path_key.clone(), verdict_info);
-
-                                    Logging::info(&format!(
-                                        "[OpenEDRVerdict] Received file verdict for {}: {} (code {})",
-                                        file_path, verdict_label, verdict_code
-                                    ));
-
-                                    // If verdict is Malicious (2), also add to blocked_exes for immediate action.
-                                    if verdict.is_malicious() {
-                                        let detection = FirewallDetection {
-                                            dst_ip: String::new(),
-                                            dst_port: 0,
-                                            hostname: String::new(),
-                                            reason: format!("File Verdict: {} (SHA256: {})", verdict_label, sha256),
-                                            is_private_rule_match: false,
-                                            detected_subdomain: None,
-                                            detected_domain: None,
-                                            used_public_suffix_list: false,
-                                            matched_private_rules: Vec::new(),
-                                        };
-                                        blocked_exes.write().unwrap().insert(file_path_key, detection);
-                                        Logging::warning(&format!(
-                                            "[OpenEDRVerdict] Marked {} as malicious based on OpenEDR verdict",
-                                            file_path
-                                        ));
-
-                                        // Quarantine mode: seal the file into a .hqf container
-                                        // and remove the original.
-                                        Self::quarantine_verdict_file(
-                                            &file_path,
-                                            &format!("OpenEDR FLS Verdict: {}", verdict_label),
-                                        );
-                                    }
-                                } else {
-                                    Logging::warning(&format!(
-                                        "[OpenEDRVerdict] Received incomplete VERDICT message: {}",
-                                        rest
-                                    ));
-                                }
-                            }
-                        }
-                    }
-
-                    Logging::info("[HydraNetPipe] Client disconnected; waiting for next firewall connection");
-                    unsafe {
-                        let _ = DisconnectNamedPipe(handle);
-                        let _ = CloseHandle(handle);
-                    }
+        if let Some(json) = line.strip_prefix("FULL_PACKED_DATA:") {
+            self.ingest_firewall_packed_data(json);
+        } else if let Some(rest) = line.strip_prefix("NET_EVENT:") {
+            let mut parts = rest.splitn(3, ':');
+            if let Some(pid_str) = parts.next()
+                && let Ok(pid) = pid_str.parse::<u32>()
+            {
+                self.firewall_net_pids.write().unwrap().insert(pid);
+                let dst_ip = parts.next().unwrap_or("").trim().to_string();
+                let dst_port = parts
+                    .next()
+                    .unwrap_or("0")
+                    .trim()
+                    .parse::<u16>()
+                    .unwrap_or(0);
+                if !dst_ip.is_empty() {
+                    self.firewall_net_details
+                        .write()
+                        .unwrap()
+                        .entry(pid)
+                        .or_default()
+                        .push((dst_ip, dst_port));
                 }
+            }
+        } else if let Some(rest) = line.strip_prefix("BLOCK_EXE:") {
+            let mut parts = rest.splitn(5, '|');
+            let exe = parts.next().unwrap_or("").trim().to_string();
+            let dst_ip = parts.next().unwrap_or("").trim().to_string();
+            let dst_port = parts
+                .next()
+                .unwrap_or("0")
+                .trim()
+                .parse::<u16>()
+                .unwrap_or(0);
+            let hostname = parts.next().unwrap_or("").trim().to_string();
+            let reason = parts.next().unwrap_or("Firewall block").trim().to_string();
 
-            })
-            .expect("failed to spawn hydra_net_event_pipe thread");
+            if !exe.is_empty() {
+                let detection = FirewallDetection {
+                    dst_ip,
+                    dst_port,
+                    hostname: hostname.clone(),
+                    reason: reason.clone(),
+                    is_private_rule_match: false,
+                    detected_subdomain: None,
+                    detected_domain: None,
+                    used_public_suffix_list: false,
+                    matched_private_rules: Vec::new(),
+                };
+                if detection.is_pending_user_decision() {
+                    Logging::info(&format!(
+                        "[FirewallTelemetry] Pending user decision for {}; not treating as confirmed malicious",
+                        exe
+                    ));
+                    return;
+                }
+                Logging::warning(&format!(
+                    "[FirewallTelemetry] Confirmed malicious: {} -> {}:{} ({}) - {}",
+                    exe, detection.dst_ip, detection.dst_port, hostname, reason
+                ));
+                self.firewall_blocked_exes.write().unwrap().insert(exe, detection);
+            }
+        } else if let Some(rest) = line.strip_prefix("HIPS_DECISION:") {
+            let mut parts = rest.splitn(2, '|');
+            let request_id = parts.next().unwrap_or("").trim().to_string();
+            let decision_raw = parts.next().unwrap_or("").trim();
+
+            if !request_id.is_empty() {
+                if let Some(decision) = FirewallHipsDecision::from_wire(decision_raw) {
+                    self.firewall_hips_decisions
+                        .write()
+                        .unwrap()
+                        .insert(request_id.clone(), decision);
+                    Logging::info(&format!(
+                        "[FirewallTelemetry] Received Owlyshield HIPS decision for request {}: {}",
+                        request_id, decision_raw
+                    ));
+                } else {
+                    Logging::warning(&format!(
+                        "[FirewallTelemetry] Ignored unknown Owlyshield HIPS decision '{}'",
+                        decision_raw
+                    ));
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("KERNEL_BLOCK_PATH:") {
+            let block_path = rest.trim().trim_matches('"').replace('/', "\\");
+            if !block_path.is_empty() && !block_path.eq_ignore_ascii_case("unknown") {
+                let applied = with_shared_driver(|driver| driver.add_block_path(&block_path));
+                match applied {
+                    Some(Ok(())) => Logging::warning(&format!(
+                        "[FirewallTelemetry] Installed kernel block path: {}",
+                        block_path
+                    )),
+                    Some(Err(ref err)) => Logging::error(&format!(
+                        "[FirewallTelemetry] Failed to install kernel block path {}: {}",
+                        block_path, err
+                    )),
+                    None => Logging::warning(&format!(
+                        "[FirewallTelemetry] No shared driver handle available for kernel block path {}",
+                        block_path
+                    )),
+                }
+            }
+        } else if line == "GENERATE_REPORT" {
+            self.generate_report_flag.store(true, Ordering::SeqCst);
+            Logging::info("[FirewallTelemetry] Received on-demand report request");
+        } else if let Some(rest) = line.strip_prefix("VERDICT:") {
+            let mut parts = rest.splitn(4, '|');
+            let file_path = parts.next().unwrap_or("").trim().to_string();
+            let sha256 = parts.next().unwrap_or("").trim().to_string();
+            let verdict_code_raw = parts.next().unwrap_or("3").trim();
+            let verdict_label_raw = parts.next().unwrap_or("").trim();
+            let verdict = verdict_code_raw
+                .parse::<u8>()
+                .ok()
+                .and_then(OpenEdrFlsVerdict::from_code)
+                .or_else(|| OpenEdrFlsVerdict::from_token(verdict_code_raw))
+                .or_else(|| OpenEdrFlsVerdict::from_token(verdict_label_raw))
+                .unwrap_or(OpenEdrFlsVerdict::Unknown);
+            let verdict_code = verdict.code();
+            let verdict_label = verdict.display_label().to_string();
+
+            if !file_path.is_empty() && !sha256.is_empty() {
+                let verdict_info = FileVerdictInfo {
+                    sha256: sha256.clone(),
+                    file_path: file_path.clone(),
+                    verdict: verdict_code,
+                    verdict_label: verdict_label.clone(),
+                    timestamp: SystemTime::now(),
+                };
+
+                let file_path_key = normalize_firewall_file_verdict_key(&file_path);
+                self.firewall_file_verdicts
+                    .write()
+                    .unwrap()
+                    .insert(file_path_key.clone(), verdict_info);
+
+                Logging::info(&format!(
+                    "[OpenEDRVerdict] Received file verdict for {}: {} (code {})",
+                    file_path, verdict_label, verdict_code
+                ));
+
+                if verdict.is_malicious() {
+                    let detection = FirewallDetection {
+                        dst_ip: String::new(),
+                        dst_port: 0,
+                        hostname: String::new(),
+                        reason: format!("File Verdict: {} (SHA256: {})", verdict_label, sha256),
+                        is_private_rule_match: false,
+                        detected_subdomain: None,
+                        detected_domain: None,
+                        used_public_suffix_list: false,
+                        matched_private_rules: Vec::new(),
+                    };
+                    self.firewall_blocked_exes
+                        .write()
+                        .unwrap()
+                        .insert(file_path_key, detection);
+                    Logging::warning(&format!(
+                        "[OpenEDRVerdict] Marked {} as malicious based on OpenEDR verdict",
+                        file_path
+                    ));
+
+                    Self::quarantine_verdict_file(
+                        &file_path,
+                        &format!("OpenEDR FLS Verdict: {}", verdict_label),
+                    );
+                }
+            } else {
+                Logging::warning(&format!(
+                    "[OpenEDRVerdict] Received incomplete VERDICT message: {}",
+                    rest
+                ));
+            }
+        } else {
+            // Default: ingest as packed data or JSON event
+            self.ingest_firewall_packed_data(line);
+        }
     }
 
     /// Seal a file into a .hqf quarantine container and remove the original.

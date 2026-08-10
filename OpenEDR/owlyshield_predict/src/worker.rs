@@ -578,7 +578,6 @@ pub mod worker_instance {
         
         fn build_behavior_engine(config: &Config) -> BehaviorEngine {
             
-            static FIREWALL_PIPE_START: std::sync::Once = std::sync::Once::new();
             static OPENEDR_TELEMETRY_START: std::sync::Once = std::sync::Once::new();
 
             let extension_source_mode = config.extension_source_mode();
@@ -611,9 +610,6 @@ pub mod worker_instance {
                 Logging::error("[Owlyshield] RULES_PATH globals not initialized; behavior rules not loaded");
             }
 
-            FIREWALL_PIPE_START.call_once(|| {
-                engine.start_firewall_pipe();
-            });
             OPENEDR_TELEMETRY_START.call_once({
                 let engine = engine.clone();
                 move || {
@@ -642,8 +638,8 @@ pub mod worker_instance {
 
                     while let Ok(line) = rx.recv() {
                         match line {
-                            crate::ffi::TelemetryLine::FirewallPackedData(json) => {
-                                behavior_engine.ingest_firewall_packed_data(&json);
+                            crate::ffi::TelemetryLine::FirewallPackedData(raw_line) => {
+                                behavior_engine.ingest_firewall_raw_line(&raw_line);
                             }
                             crate::ffi::TelemetryLine::OpenedrEvent(json) => {
                                 match serde_json::from_str::<serde_json::Value>(&json) {

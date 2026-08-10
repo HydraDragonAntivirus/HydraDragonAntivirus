@@ -2481,78 +2481,21 @@ impl FirewallEngine {
         {
             let stop_pipe = Arc::clone(&stop);
             std::thread::Builder::new()
-                .name("net_event_pipe_writer".to_string())
+                .name("net_event_telemetry_writer".to_string())
                 .spawn(move || {
-                    use std::io::Write;
-                    const PIPE: &str = r"\\.\pipe\HydraNetEvent";
-                    let mut pipe_opt: Option<std::fs::File> = None;
-                    let mut pending_msgs: VecDeque<String> = VecDeque::new();
-
                     while !stop_pipe.load(Ordering::Relaxed) {
-                        loop {
-                            match net_event_rx.try_recv() {
-                                Ok(msg) => {
-                                    pending_msgs.push_back(msg);
-                                }
-                                Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                                Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                        match net_event_rx.recv_timeout(Duration::from_millis(50)) {
+                            Ok(msg) => {
+                                crate::ffi::send_telemetry_line(
+                                    crate::ffi::TelemetryLine::FirewallPackedData(msg),
+                                );
                             }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                         }
-
-                        if pipe_opt.is_none() && !pending_msgs.is_empty() {
-                            if let Ok(file) = std::fs::OpenOptions::new()
-                                .write(true)
-                                .open(PIPE)
-                            {
-                                use std::os::windows::io::AsRawHandle;
-                                use windows::Win32::Foundation::HANDLE;
-                                use windows::Win32::System::Pipes::GetNamedPipeServerProcessId;
-
-                                let mut server_pid: u32 = 0;
-                                let handle = HANDLE(file.as_raw_handle() as isize);
-                                let ok = unsafe { GetNamedPipeServerProcessId(handle, &mut server_pid) };
-
-                                if ok.as_bool() && server_pid != 0 {
-                                    if server_pid != 0 {
-                                        pipe_opt = Some(file);
-                                    } else {
-                                        println!(
-                                            "WARNING: Rejected HydraNetEvent server with invalid PID"
-                                        );
-                                    }
-                                }
-                            }
-                        }
-
-                        while pipe_opt.is_some() {
-                            let Some(msg) = pending_msgs.front() else {
-                                break;
-                            };
-
-                            let write_res = {
-                                let pipe = pipe_opt.as_mut().unwrap();
-                                pipe.write_all(msg.as_bytes())
-                            };
-
-                            if write_res.is_ok() {
-                                pending_msgs.pop_front();
-                            } else {
-                                pipe_opt = None;
-                                break;
-                            }
-                        }
-
-                        let sleep_ms = if pending_msgs.is_empty() {
-                            10
-                        } else if pipe_opt.is_some() {
-                            5
-                        } else {
-                            250
-                        };
-                        std::thread::sleep(Duration::from_millis(sleep_ms));
                     }
                 })
-                .expect("failed to spawn net_event_pipe_writer thread");
+                .expect("failed to spawn net_event_telemetry_writer thread");
         }
 
         // Worker Pool - RADICAL REFACTOR: Each worker is a fully independent capture loop
