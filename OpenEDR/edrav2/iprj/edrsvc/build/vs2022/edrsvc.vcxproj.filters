@@ -13,10 +13,12 @@
     <ClCompile Include="..\..\src\pch.cpp" />
     <ClCompile Include="..\..\src\service.cpp" />
     <ClCompile Include="..\..\src\mode_enroll.cpp" />
+    <ClCompile Include="..\..\src\mode_controlbar.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\pch.h" />
     <ClInclude Include="..\..\src\service.h" />
+    <ClInclude Include="..\..\src\owlyshield_ransom.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="data">

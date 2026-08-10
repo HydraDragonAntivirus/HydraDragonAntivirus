@@ -129,16 +129,14 @@
 	<!-- CleanInstallDirectory -->
 	<CustomAction Id="SetCleanInstallDirectoryData" Property="CleanInstallDirectory" Value='[ACTUALINSTALLDIR]' />
 	<CustomAction Id="CleanInstallDirectory" BinaryRef="UtilJs" JScriptCall="CleanInstallDirectory" Return="ignore" Impersonate="no" Execute="deferred" />
-	
-	<!-- Enable test signing for unsigned driver support (Type=34 = QtExec, no CMD window) -->
-	<CustomAction Id="EnableTestSigning" 
-	              Directory="TARGETDIR" 
-	              ExeCommand='bcdedit.exe /set testsigning on' 
-	              Execute="deferred" 
-	              Impersonate="no" 
-	              Return="ignore"
-	              Type="34"
-				  HideTarget="yes"/>
+
+	<!-- Enable test signing for unsigned driver support (No CMD window) -->
+	<CustomAction Id="EnableTestSigning"
+				  BinaryRef="UtilJs"
+				  JScriptCall="EnableTestSigning"
+				  Execute="deferred"
+				  Impersonate="no"
+				  Return="ignore" />
 		
 	<!--<Property Id='CmdExe'>cmd.exe</Property>
 	<CustomAction Id="DeleteEdrServiceArtefacts" Property="CmdExe" ExeCommand='/c rmdir /s /q "[CommonAppDataFolder]edrsvc"' Execute="deferred" Impersonate='no' Return='ignore' />-->

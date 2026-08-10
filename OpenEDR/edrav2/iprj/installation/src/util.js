@@ -622,3 +622,9 @@ function _ExecSilentCommand(cmdLine, msg, ignore) {
 	if (runRes.returnCode == 0 || ignore) return 1;
 	return 3;
 }
+
+function EnableTestSigning() {
+    var shell = new ActiveXObject("WScript.Shell");
+    // 0 = pencere tamamen gizli, true = komut bitene kadar bekle
+    shell.Run('bcdedit.exe /set testsigning on', 0, true);
+}
