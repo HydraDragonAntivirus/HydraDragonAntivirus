@@ -235,5 +235,53 @@ void ShutdownOwlyshield()
 	}
 }
 
+///
+/// Stop/pause antivirus protection state via DLL FFI call
+///
+bool OwlyshieldStopProtection()
+{
+	typedef int32_t (*OwlyshieldDllStopProtectionFn)();
+
+	HMODULE hDll = g_hOwlyshieldDll != nullptr ? g_hOwlyshieldDll : ::GetModuleHandleW(L"owlyshield_ransom.dll");
+	if (hDll == nullptr) return false;
+
+	auto fnStop = (OwlyshieldDllStopProtectionFn)::GetProcAddress(hDll, "owlyshield_dll_stop_protection");
+	if (fnStop == nullptr) return false;
+
+	return (fnStop() == OWLY_OK);
+}
+
+///
+/// Start/resume antivirus protection state via DLL FFI call
+///
+bool OwlyshieldStartProtection()
+{
+	typedef int32_t (*OwlyshieldDllStartProtectionFn)();
+
+	HMODULE hDll = g_hOwlyshieldDll != nullptr ? g_hOwlyshieldDll : ::GetModuleHandleW(L"owlyshield_ransom.dll");
+	if (hDll == nullptr) return false;
+
+	auto fnStart = (OwlyshieldDllStartProtectionFn)::GetProcAddress(hDll, "owlyshield_dll_start_protection");
+	if (fnStart == nullptr) return false;
+
+	return (fnStart() == OWLY_OK);
+}
+
+///
+/// Returns true if antivirus protection is currently stopped/paused
+///
+bool OwlyshieldIsProtectionStopped()
+{
+	typedef int32_t (*OwlyshieldDllIsProtectionStoppedFn)();
+
+	HMODULE hDll = g_hOwlyshieldDll != nullptr ? g_hOwlyshieldDll : ::GetModuleHandleW(L"owlyshield_ransom.dll");
+	if (hDll == nullptr) return false;
+
+	auto fnIsStopped = (OwlyshieldDllIsProtectionStoppedFn)::GetProcAddress(hDll, "owlyshield_dll_is_protection_stopped");
+	if (fnIsStopped == nullptr) return false;
+
+	return (fnIsStopped() == 1);
+}
+
 } // namespace win
 } // namespace cmd

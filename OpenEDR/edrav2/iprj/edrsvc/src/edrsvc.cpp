@@ -24,6 +24,7 @@ extern std::shared_ptr<IApplicationMode> createAppMode_start();
 extern std::shared_ptr<IApplicationMode> createAppMode_stop();
 extern std::shared_ptr<IApplicationMode> createAppMode_enroll();
 extern std::shared_ptr<IApplicationMode> createAppMode_restart();
+extern std::shared_ptr<IApplicationMode> createAppMode_controlbar();
 
 } // namespace cmd
 
@@ -53,6 +54,7 @@ int wmain(int argc, wchar_t* argv[])
 		pApp->addMode("enroll", cmd::createAppMode_enroll());
 		pApp->addMode("uninstall", cmd::createAppMode_install());
 		pApp->addMode("server", cmd::createAppMode_wait());
+		pApp->addMode("controlbar", cmd::createAppMode_controlbar());
 		//pApp->addMode("dump", cmd::createAppMode_dump());
 		//pApp->addMode("test", cmd::createAppMode_wait());
 		ec = pApp->run("edrsvc", "Comodo EDR service", argc, argv);

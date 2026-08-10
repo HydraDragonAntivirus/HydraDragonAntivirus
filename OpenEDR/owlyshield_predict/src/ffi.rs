@@ -3,9 +3,40 @@
 //! OpenEDR (`edrsvc.exe`) calls these symbols after loading the DLL
 //! with `LoadLibraryW`. No Windows service is required.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
+
+static ENGINE_STOPPED: AtomicBool = AtomicBool::new(false);
+
+/// Returns true if antivirus protection has been paused/stopped via control interface.
+pub fn is_protection_stopped() -> bool {
+    ENGINE_STOPPED.load(Ordering::Relaxed)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_dll_stop_protection() -> i32 {
+    ENGINE_STOPPED.store(true, Ordering::SeqCst);
+    Logging::warning("[Owlyshield FFI] Antivirus protection STOPPED via control interface");
+    OWLY_OK
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_dll_start_protection() -> i32 {
+    ENGINE_STOPPED.store(false, Ordering::SeqCst);
+    Logging::info("[Owlyshield FFI] Antivirus protection STARTED via control interface");
+    OWLY_OK
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_dll_is_protection_stopped() -> i32 {
+    if ENGINE_STOPPED.load(Ordering::Relaxed) {
+        1
+    } else {
+        0
+    }
+}
 
 use crate::shared_def::IOMessage;
 use crate::windows::run::run_worker_loop;

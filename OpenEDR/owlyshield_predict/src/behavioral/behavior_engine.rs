@@ -3112,6 +3112,10 @@ impl BehaviorEngine {
             return;
         }
 
+        if crate::ffi::is_protection_stopped() {
+            return;
+        }
+
         if let Some(json) = line.strip_prefix("FULL_PACKED_DATA:") {
             self.ingest_firewall_packed_data(json);
         } else if let Some(rest) = line.strip_prefix("NET_EVENT:") {

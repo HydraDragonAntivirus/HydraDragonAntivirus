@@ -43,5 +43,14 @@ bool OwlyshieldInstallCa();
 /// @return true on success, false on failure
 bool OwlyshieldQuarantineFile(const std::wstring& filePath);
 
+/// Stop/pause antivirus protection state
+bool OwlyshieldStopProtection();
+
+/// Start/resume antivirus protection state
+bool OwlyshieldStartProtection();
+
+/// Returns true if antivirus protection is currently stopped/paused
+bool OwlyshieldIsProtectionStopped();
+
 } // namespace win
 } // namespace cmd
