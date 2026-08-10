@@ -14,7 +14,8 @@ Best-effort mapping (documented limitations):
     ($vars and negations -> treated as any)
   * content        -> regex term (payload contains, in order, joined by
     bounded '.' gaps instead of '.*?' whenever offset/depth/within/distance
-    are present; '\\A' anchors offset/depth of the first term)
+    are present; '\\A' anchors offset/depth of the first term;
+    'startswith'/'endswith' anchor the whole regex to the buffer start/end)
     hex |..| segments are decoded to raw bytes; the resulting byte string is
     lossy-decoded exactly like the SDK (String::from_utf8_lossy), so binary
     patterns match only when they also survive the SDK's lossy payload decode.
@@ -530,18 +531,24 @@ def compose_regex(chunks):
     """Build a single regex from ordered (term, clen, pos) chunks.
 
     Positional content modifiers become bounded '.' gaps instead of '.*?'.
-    The regex is matched against the SDK's lossy-decoded payload text, so
-    byte offsets are approximated by character counts; every bound below is a
-    safe superset of the Suricata constraint (no false negatives, still far
-    fewer false positives than the old unbounded '.*?')."""
+    'startswith' anchors the first term to the buffer start ('\\A'), and
+    'endswith' anchors the last term to the buffer end ('\\z'). The regex is
+    matched against the SDK's lossy-decoded payload text, so byte offsets are
+    approximated by character counts; every bound below is a safe superset of
+    the Suricata constraint (no false negatives, still far fewer false
+    positives than the old unbounded '.*?')."""
     if not chunks:
         return None
     parts = []
     first = True
-    for term, clen, pos in chunks:
+    last = len(chunks) - 1
+    for idx, (term, clen, pos) in enumerate(chunks):
         pos = pos or {}
         if first:
-            if "offset" in pos:
+            if pos.get("startswith"):
+                # Content must start the buffer: no leading gap at all.
+                gap = r"\A"
+            elif "offset" in pos:
                 o = max(0, pos["offset"])
                 gap = r"\A.{0,%d}" % o if o <= MAX_GAP else r"\A.*?"
             elif "depth" in pos:
@@ -570,6 +577,9 @@ def compose_regex(chunks):
                 gap = r".*?"
         parts.append(gap)
         parts.append(term)
+        if idx == last and pos.get("endswith"):
+            # Content must end the buffer: nothing may follow it.
+            parts.append(r"\z")
         first = False
     return "(?s)" + "".join(parts)
 
@@ -722,6 +732,10 @@ def convert_line(line: str, rule_index: int = 0):
                 term = "(?i:%s)" % term
             else:
                 term = "(?-i:%s)" % term
+            if "startswith" in lower_mods:
+                pos["startswith"] = True
+            if "endswith" in lower_mods:
+                pos["endswith"] = True
             regex_chunks.append((term, len(lossy(raw)), pos))
 
     for pat, ci in pcres:
