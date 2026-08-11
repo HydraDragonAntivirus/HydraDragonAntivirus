@@ -17,6 +17,92 @@ namespace {
 
 constexpr wchar_t c_sOwlyshieldRansomDll[] = L"owlyshield_ransom.dll";
 
+typedef int32_t(__stdcall* FnOwlyshieldDllStart)();
+typedef int32_t(__stdcall* FnIngestOpenedrEvent)(const uint8_t*, uint32_t);
+
+namespace {
+
+enum class OwlyshieldEngineState
+{
+	NotInitialized,
+	Started,
+	Failed
+};
+
+std::mutex g_mtxOwlyshieldEngine;
+OwlyshieldEngineState g_eOwlyshieldEngineState = OwlyshieldEngineState::NotInitialized;
+
+//
+// Resolve the owlyshield_ransom.dll module. Falls back to explicit loads from
+// well-known locations so telemetry delivery does not depend on the DLL being
+// loadable by bare name from the process search path.
+//
+HMODULE getOwlyshieldDllHandle()
+{
+	HMODULE hDll = ::GetModuleHandleW(c_sOwlyshieldRansomDll);
+	if (hDll != nullptr)
+		return hDll;
+
+	wchar_t szExePath[MAX_PATH];
+	const DWORD nExeLen = ::GetModuleFileNameW(nullptr, szExePath, MAX_PATH);
+	if (nExeLen > 0 && nExeLen < MAX_PATH)
+	{
+		std::wstring sDllPath(szExePath, nExeLen);
+		const auto nSlash = sDllPath.rfind(L'\\');
+		if (nSlash != std::wstring::npos)
+		{
+			sDllPath.replace(nSlash + 1, sDllPath.length(), c_sOwlyshieldRansomDll);
+			hDll = ::LoadLibraryW(sDllPath.c_str());
+			if (hDll != nullptr)
+				return hDll;
+		}
+	}
+
+	constexpr wchar_t c_sOwlyshieldInstallPath[] =
+		L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\owlyshield_ransom.dll";
+	hDll = ::LoadLibraryW(c_sOwlyshieldInstallPath);
+	if (hDll != nullptr)
+		return hDll;
+
+	return ::LoadLibraryW(c_sOwlyshieldRansomDll);
+}
+
+//
+// Make sure the Owlyshield behavior engine has been started before events are
+// delivered. The Rust side treats a second start call as a no-op success, so
+// this is safe even if another component (e.g. libnetmon) already started it.
+//
+bool ensureOwlyshieldEngineStarted(HMODULE hDll)
+{
+	std::scoped_lock _lock(g_mtxOwlyshieldEngine);
+	if (g_eOwlyshieldEngineState == OwlyshieldEngineState::Started)
+		return true;
+	if (g_eOwlyshieldEngineState == OwlyshieldEngineState::Failed)
+		return false;
+
+	auto fnStart = reinterpret_cast<FnOwlyshieldDllStart>(
+		::GetProcAddress(hDll, "owlyshield_dll_start"));
+	if (fnStart == nullptr)
+	{
+		LOGLVL(Debug, "Failed to resolve owlyshield_dll_start from <" << c_sOwlyshieldRansomDll << ">");
+		g_eOwlyshieldEngineState = OwlyshieldEngineState::Failed;
+		return false;
+	}
+
+	const int32_t nResult = fnStart();
+	if (nResult == 0 || nResult == 1) // OWLY_OK / OWLY_ALREADY_STARTED
+	{
+		g_eOwlyshieldEngineState = OwlyshieldEngineState::Started;
+		return true;
+	}
+
+	LOGLVL(Debug, "Failed to start Owlyshield engine (code: " << nResult << ")");
+	g_eOwlyshieldEngineState = OwlyshieldEngineState::Failed;
+	return false;
+}
+
+} // anonymous namespace
+
 void sendEnrichedTelemetryToOwlyshield(const Variant& vEvent)
 {
 	std::string sPayload;
@@ -37,10 +123,11 @@ void sendEnrichedTelemetryToOwlyshield(const Variant& vEvent)
 	// Deliver straight into the in-process FFI telemetry channel. The former
 	// global named pipe is gone so no untrusted usermode process can inject
 	// events into the behavior engine.
-	typedef int32_t(__stdcall* FnIngestOpenedrEvent)(const uint8_t*, uint32_t);
-
-	HMODULE hDll = ::GetModuleHandleW(c_sOwlyshieldRansomDll);
+	HMODULE hDll = getOwlyshieldDllHandle();
 	if (hDll == nullptr)
+		return;
+
+	if (!ensureOwlyshieldEngineStarted(hDll))
 		return;
 
 	auto fnIngest = reinterpret_cast<FnIngestOpenedrEvent>(

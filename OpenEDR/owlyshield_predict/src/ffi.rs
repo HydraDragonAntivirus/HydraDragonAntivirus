@@ -97,8 +97,10 @@ pub fn send_telemetry_line(line: TelemetryLine) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_dll_start() -> i32 {
     if SENDER.get().is_some() {
-        Logging::error("[Owlyshield FFI] owlyshield_dll_start called more than once");
-        return OWLY_ALREADY_STARTED;
+        Logging::info(
+            "[Owlyshield FFI] owlyshield_dll_start called again; engine already running",
+        );
+        return OWLY_OK;
     }
 
     Logging::init();
