@@ -14,6 +14,12 @@
 namespace cmd {
 namespace win {
 
+//
+// Shows the control bar window (defined in mode_controlbar.cpp).
+// Used by the "controlbar" and "start" app modes.
+//
+ErrorCode runControlBar();
+
 inline ObjPtr<ICommandProcessor> startElevatedInstanceWithParams(const std::wstring& params)
 {
 	const std::wstring wPath = getCatalogData("app.imageFile");

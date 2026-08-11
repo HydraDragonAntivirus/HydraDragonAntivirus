@@ -241,6 +241,51 @@ static LRESULT CALLBACK ControlBarWndProc(HWND hwnd, UINT uMsg,
 }
 
 // ---------------------------------------------------------------------------
+// runControlBar — creates the control bar window and runs its message loop
+// until the window is closed. Shared by the "controlbar" and "start" modes.
+// ---------------------------------------------------------------------------
+ErrorCode runControlBar()
+{
+    HINSTANCE hInst = ::GetModuleHandleW(nullptr);
+
+    const wchar_t CLASS_NAME[] = L"EdrsvcControlBarWnd";
+    WNDCLASSW wc     = {};
+    wc.lpfnWndProc   = ControlBarWndProc;
+    wc.hInstance     = hInst;
+    wc.lpszClassName = CLASS_NAME;
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.hCursor       = ::LoadCursorW(nullptr, IDC_ARROW);
+    wc.hIcon         = ::LoadIconW(nullptr, IDI_SHIELD);
+    ::RegisterClassW(&wc);
+
+    int sw = ::GetSystemMetrics(SM_CXSCREEN);
+    int sh = ::GetSystemMetrics(SM_CYSCREEN);
+    const int W = 470, H = 128;
+
+    g_hWnd = ::CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
+        CLASS_NAME,
+        L"HydraDragon Antivirus — Control Bar",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        (sw - W) / 2, (sh - H) / 2, W, H,
+        nullptr, nullptr, hInst, nullptr);
+
+    if (!g_hWnd) return ErrorCode::RuntimeError;
+
+    ::ShowWindow(g_hWnd, SW_SHOWNORMAL);
+    ::UpdateWindow(g_hWnd);
+
+    MSG msg = {};
+    while (::GetMessageW(&msg, nullptr, 0, 0))
+    {
+        ::TranslateMessage(&msg);
+        ::DispatchMessageW(&msg);
+    }
+
+    return ErrorCode::OK;
+}
+
+// ---------------------------------------------------------------------------
 // AppMode_controlbar — registered as "controlbar" in edrsvc.cpp
 // ---------------------------------------------------------------------------
 class AppMode_controlbar : public IApplicationMode
@@ -248,43 +293,7 @@ class AppMode_controlbar : public IApplicationMode
 public:
     virtual ErrorCode main(Application* /*pApp*/) override
     {
-        HINSTANCE hInst = ::GetModuleHandleW(nullptr);
-
-        const wchar_t CLASS_NAME[] = L"EdrsvcControlBarWnd";
-        WNDCLASSW wc     = {};
-        wc.lpfnWndProc   = ControlBarWndProc;
-        wc.hInstance     = hInst;
-        wc.lpszClassName = CLASS_NAME;
-        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-        wc.hCursor       = ::LoadCursorW(nullptr, IDC_ARROW);
-        wc.hIcon         = ::LoadIconW(nullptr, IDI_SHIELD);
-        ::RegisterClassW(&wc);
-
-        int sw = ::GetSystemMetrics(SM_CXSCREEN);
-        int sh = ::GetSystemMetrics(SM_CYSCREEN);
-        const int W = 470, H = 128;
-
-        g_hWnd = ::CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
-            CLASS_NAME,
-            L"HydraDragon Antivirus — Control Bar",
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-            (sw - W) / 2, (sh - H) / 2, W, H,
-            nullptr, nullptr, hInst, nullptr);
-
-        if (!g_hWnd) return ErrorCode::RuntimeError;
-
-        ::ShowWindow(g_hWnd, SW_SHOWNORMAL);
-        ::UpdateWindow(g_hWnd);
-
-        MSG msg = {};
-        while (::GetMessageW(&msg, nullptr, 0, 0))
-        {
-            ::TranslateMessage(&msg);
-            ::DispatchMessageW(&msg);
-        }
-
-        return ErrorCode::OK;
+        return runControlBar();
     }
 };
 

@@ -48,7 +48,9 @@ public:
 			throw;
 		}
 		stopElevatedInstance(pProcessor, true);
-		return ErrorCode::OK;
+
+		// After the service is up, show the control bar UI
+		return runControlBar();
 	}
 };
 
