@@ -642,6 +642,10 @@ pub mod worker_instance {
                                 behavior_engine.ingest_firewall_raw_line(&raw_line);
                             }
                             crate::ffi::TelemetryLine::OpenedrEvent(json) => {
+                                Logging::debug(&format!(
+                                    "[OpenEDRTelemetry] EVENT RECEIVED: {}",
+                                    json
+                                ));
                                 match serde_json::from_str::<serde_json::Value>(&json) {
                                     Ok(event) => {
                                         // Always process for behavioral analysis

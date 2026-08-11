@@ -1885,6 +1885,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "daachorse"
+version = "4.0.0"
+source = "git+https://github.com/HydraDragonAntivirus/daachorse#4193be0863f8fdc87bfe79b584911f205c52d856"
+
+[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4411,6 +4416,7 @@ dependencies = [
  "chrono",
  "configparser",
  "crossbeam-channel",
+ "daachorse",
  "goblin",
  "hex",
  "hostname",
