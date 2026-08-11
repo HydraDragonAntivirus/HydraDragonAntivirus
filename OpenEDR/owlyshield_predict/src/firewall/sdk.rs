@@ -6,6 +6,7 @@
 
 use super::engine::{FirewallSettings, PacketInfo, Protocol};
 use base64::Engine;
+use daachorse::clamav_fast::ClamavFastScanner;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -1744,6 +1745,11 @@ pub struct RuleMatchResult {
 
 pub struct SdkRegistry {
     pub rules: Vec<SdkRule>,
+    domain_index: Option<ClamavFastScanner<u32>>,
+    url_index: Option<ClamavFastScanner<u32>>,
+    domain_pattern_rules: Vec<Box<[usize]>>,
+    url_pattern_rules: Vec<Box<[usize]>>,
+    unindexed_rules: Vec<usize>,
     pub listeners: Vec<Arc<dyn PacketListener>>,
     pub changers: Vec<Arc<dyn PacketChanger>>,
     /// Per-flow connection + flowbit state (Suricata flow/flowbits)
@@ -1754,6 +1760,11 @@ impl SdkRegistry {
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
+            domain_index: None,
+            url_index: None,
+            domain_pattern_rules: Vec::new(),
+            url_pattern_rules: Vec::new(),
+            unindexed_rules: Vec::new(),
             listeners: Vec::new(),
             changers: Vec::new(),
             flow_state: Mutex::new(FlowState::default()),
@@ -1792,6 +1803,7 @@ impl SdkRegistry {
             Ok(rule_file) => {
                 let rule_count = rule_file.rules.len();
                 self.rules = Self::sanitize_rules(rule_file.rules);
+                self.rebuild_match_index();
                 println!("[SDK] Loaded {} rules from firewall-rules/rules.yaml", rule_count);
             }
             Err(e) => {
@@ -1803,11 +1815,147 @@ impl SdkRegistry {
     pub fn load_rules_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), String> {
         let rule_file = SdkRuleFile::load_from_file(path)?;
         self.rules = Self::sanitize_rules(rule_file.rules);
+        self.rebuild_match_index();
         Ok(())
     }
 
     pub fn add_rule(&mut self, rule: SdkRule) {
         self.rules.extend(Self::sanitize_rules(vec![rule]));
+        self.rebuild_match_index();
+    }
+
+    fn rebuild_match_index(&mut self) {
+        use std::collections::HashMap;
+
+        let mut domain_patterns: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
+        let mut url_patterns: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
+        let mut unindexed = Vec::new();
+
+        for (rule_id, rule) in self.rules.iter().enumerate() {
+            if !rule.enabled {
+                continue;
+            }
+
+            let mut indexed = false;
+
+            if let Some(matcher) = &rule.domain {
+                if matcher.domains.is_empty() {
+                    indexed = true;
+                } else {
+                    for pattern in &matcher.domains {
+                        if pattern == "*" || pattern.eq_ignore_ascii_case("any") {
+                            indexed = true;
+                            continue;
+                        }
+                        if let Some(literal) = Self::domain_index_literal(pattern) {
+                            domain_patterns
+                                .entry(literal.to_lowercase().into_bytes())
+                                .or_default()
+                                .push(rule_id);
+                            indexed = true;
+                        }
+                    }
+                }
+            }
+
+            if let Some(matcher) = &rule.url {
+                if matcher.patterns.is_empty() {
+                    indexed = true;
+                } else {
+                    for pattern in &matcher.patterns {
+                        if pattern == "*" || pattern.eq_ignore_ascii_case("any") {
+                            indexed = true;
+                            continue;
+                        }
+                        if let Some(literal) = Self::url_index_literal(pattern) {
+                            url_patterns
+                                .entry(literal.to_lowercase().into_bytes())
+                                .or_default()
+                                .push(rule_id);
+                            indexed = true;
+                        }
+                    }
+                }
+            }
+
+            // Rules without a usable content index remain in the cheap fallback
+            // set so protocol/IP/port-only and wildcard rules are never skipped.
+            if !indexed {
+                unindexed.push(rule_id);
+            }
+        }
+
+        let (domain_index, domain_pattern_rules) = Self::build_daachorse_index(domain_patterns);
+        let (url_index, url_pattern_rules) = Self::build_daachorse_index(url_patterns);
+
+        self.domain_index = domain_index;
+        self.url_index = url_index;
+        self.domain_pattern_rules = domain_pattern_rules;
+        self.url_pattern_rules = url_pattern_rules;
+        self.unindexed_rules = unindexed;
+    }
+
+    fn build_daachorse_index(
+        patterns: HashMap<Vec<u8>, Vec<usize>>,
+    ) -> (Option<ClamavFastScanner<u32>>, Vec<Box<[usize]>>) {
+        if patterns.is_empty() {
+            return (None, Vec::new());
+        }
+
+        let mut pattern_rules = Vec::with_capacity(patterns.len());
+        let mut entries = Vec::with_capacity(patterns.len());
+
+        for (value, (pattern, rules)) in patterns.into_iter().enumerate() {
+            entries.push((pattern, value as u32));
+            pattern_rules.push(rules.into_boxed_slice());
+        }
+
+        let scanner = ClamavFastScanner::with_values(entries)
+            .expect("firewall Daachorse index build should succeed");
+
+        (Some(scanner), pattern_rules)
+    }
+
+    fn domain_index_literal(pattern: &str) -> Option<String> {
+        if pattern.starts_with("*.") {
+            return Some(pattern[2..].to_string());
+        }
+        let literal = pattern.trim_matches('*');
+        (!literal.is_empty()).then(|| literal.to_string())
+    }
+
+    fn url_index_literal(pattern: &str) -> Option<String> {
+        pattern
+            .split('*')
+            .filter(|part| !part.is_empty())
+            .max_by_key(|part| part.len())
+            .map(str::to_string)
+    }
+
+    fn indexed_rule_ids(&self, packet: &PacketInfo) -> Vec<usize> {
+        let mut ids = self.unindexed_rules.clone();
+
+        if let (Some(scanner), Some(hostname)) = (&self.domain_index, packet.hostname.as_deref()) {
+            let haystack = hostname.to_lowercase();
+            for m in scanner.find_iter(haystack.as_bytes()) {
+                if let Some(rules) = self.domain_pattern_rules.get(m.value() as usize) {
+                    ids.extend(rules.iter().copied());
+                }
+            }
+        }
+
+        if let (Some(scanner), Some(url)) = (&self.url_index, packet.full_url.as_deref()) {
+            let haystack = url.to_lowercase();
+            for m in scanner.find_iter(haystack.as_bytes()) {
+                if let Some(rules) = self.url_pattern_rules.get(m.value() as usize) {
+                    ids.extend(rules.iter().copied());
+                }
+            }
+        }
+
+        ids.sort_unstable();
+        ids.dedup();
+        ids
     }
 
     pub fn register_listener(&mut self, listener: Arc<dyn PacketListener>) {
@@ -1976,8 +2124,9 @@ impl SdkRegistry {
         let mut matched_private_rules = Vec::new();
         let mut flow = self.flow_guard(packet);
 
-        self.rules
-            .iter()
+        self.indexed_rule_ids(packet)
+            .into_iter()
+            .filter_map(|rule_id| self.rules.get(rule_id))
             .filter(|rule| !defer_heavy_rules || !rule.requires_deferred_inspection())
             .find_map(|rule| {
                 if rule.matches_with_flow(packet, payload, &mut flow) {
