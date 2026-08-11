@@ -518,28 +518,35 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 				vHook.put("arg4",         vEvent.get("owlyHookArg4", uint64_t(0)));
 				vHook.put("sourcePid",    vEvent.get("owlyHookSourcePid", uint32_t(0)));
 				vEvent.put("owlyHook", vHook);
+				// Kernel hook events share the IOCTL baseType so EventEnricher
+				// (which overwrites "type" from baseType) emits LLE_DEVICE_IOCTL
+				// and Owlyshield dispatches them via the owlyHook sub-dict.
+				eEvent = Event::LLE_DEVICE_IOCTL;
 			}
 
-			// Build the owlyHv sub-dict from owlyHv.* LBVS fields (hypervisor path)
-			if (vEvent.has("owlyHv.memoryAddress"))
+			// Build the owlyHv sub-dict from the nested owlyHv.* dict (hypervisor
+			// path). The LBVS deserializer creates a nested dictionary for the
+			// dotted schema names ("owlyHv.memoryAddress" -> { owlyHv: { ... } }).
+			if (vEvent.has("owlyHv"))
 			{
+				Variant vHvRaw = vEvent.get("owlyHv");
 				Dictionary vHv;
-				vHv.put("memoryAddress",      vEvent.get("owlyHv.memoryAddress",      uint64_t(0)));
-				vHv.put("memorySize",         vEvent.get("owlyHv.memorySize",         uint64_t(0)));
-				vHv.put("memoryProtection",   vEvent.get("owlyHv.memoryProtection",   uint32_t(0)));
-				vHv.put("isExecutableMemory", vEvent.get("owlyHv.isExecutableMemory", uint32_t(0)));
-				vHv.put("threadHandle",       vEvent.get("owlyHv.threadHandle",       uint64_t(0)));
-				vHv.put("threadStartRoutine", vEvent.get("owlyHv.threadStartRoutine", uint64_t(0)));
-				vHv.put("accessMask",         vEvent.get("owlyHv.accessMask",         uint32_t(0)));
-				vHv.put("operationStatus",    vEvent.get("owlyHv.operationStatus",    uint32_t(0)));
-				vHv.put("coreId",             vEvent.get("owlyHv.coreId",             uint32_t(0)));
-				vHv.put("threadId",           vEvent.get("owlyHv.threadId",           uint32_t(0)));
-				vHv.put("isDllLoad",          vEvent.get("owlyHv.isDllLoad",          uint32_t(0)));
-				vHv.put("isApiBasedLoad",     vEvent.get("owlyHv.isApiBasedLoad",     uint32_t(0)));
-				vHv.put("loadedDllPath",      vEvent.get("owlyHv.loadedDllPath",      L""));
-				vHv.put("isAcgEnabled",       vEvent.get("owlyHv.isAcgEnabled",       uint32_t(0)));
-				vHv.put("timestamp",          vEvent.get("owlyHv.timestamp",          uint64_t(0)));
-				vHv.put("targetPid",          vEvent.get("owlyHv.targetPid",          uint32_t(0)));
+				vHv.put("memoryAddress",      vHvRaw.get("memoryAddress",      uint64_t(0)));
+				vHv.put("memorySize",         vHvRaw.get("memorySize",         uint64_t(0)));
+				vHv.put("memoryProtection",   vHvRaw.get("memoryProtection",   uint32_t(0)));
+				vHv.put("isExecutableMemory", vHvRaw.get("isExecutableMemory", uint32_t(0)));
+				vHv.put("threadHandle",       vHvRaw.get("threadHandle",       uint64_t(0)));
+				vHv.put("threadStartRoutine", vHvRaw.get("threadStartRoutine", uint64_t(0)));
+				vHv.put("accessMask",         vHvRaw.get("accessMask",         uint32_t(0)));
+				vHv.put("operationStatus",    vHvRaw.get("operationStatus",    uint32_t(0)));
+				vHv.put("coreId",             vHvRaw.get("coreId",             uint32_t(0)));
+				vHv.put("threadId",           vHvRaw.get("threadId",           uint32_t(0)));
+				vHv.put("isDllLoad",          vHvRaw.get("isDllLoad",          uint32_t(0)));
+				vHv.put("isApiBasedLoad",     vHvRaw.get("isApiBasedLoad",     uint32_t(0)));
+				vHv.put("loadedDllPath",      vHvRaw.get("loadedDllPath",      L""));
+				vHv.put("isAcgEnabled",       vHvRaw.get("isAcgEnabled",       uint32_t(0)));
+				vHv.put("timestamp",          vHvRaw.get("timestamp",          uint64_t(0)));
+				vHv.put("targetPid",          vHvRaw.get("targetPid",          uint32_t(0)));
 				vEvent.put("owlyHv", vHv);
 				// Hypervisor events get a distinct baseType
 				eEvent = Event::LLE_DEVICE_IOCTL;

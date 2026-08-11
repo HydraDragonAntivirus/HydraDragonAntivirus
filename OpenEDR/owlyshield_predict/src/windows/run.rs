@@ -133,7 +133,14 @@ pub fn run() {
 }
 /// Entry point for the DLL worker loop used by `ffi.rs`.
 /// Receives IOMessages from `edrsvc` and processes them through the behavior engine.
-pub fn run_worker_loop(rx: std::sync::mpsc::Receiver<crate::shared_def::IOMessage>, _driver: crate::windows::edrsvc_client::Driver) {
+/// A short-cadence housekeeping loop drives process discovery and dynamic
+/// kernel-hook registration (`scan_processes` -> `MESSAGE_HOOK_PROCESS`) that
+/// otherwise never runs in the in-process FFI architecture, where OpenEDR
+/// telemetry bypasses `process_io` and flows straight into the behavior engine.
+pub fn run_worker_loop(
+    rx: std::sync::mpsc::Receiver<crate::shared_def::IOMessage>,
+    driver: crate::windows::edrsvc_client::Driver,
+) {
     use crate::behavioral::app_settings::AppSettings;
 
     let config = crate::config::Config::new();
@@ -155,13 +162,51 @@ pub fn run_worker_loop(rx: std::sync::mpsc::Receiver<crate::shared_def::IOMessag
         })
         .expect("Critical: Failed to load app settings");
 
-    let mut worker = crate::worker::worker_instance::Worker::new(&config, app_settings);
+    let mut worker =
+        crate::worker::worker_instance::Worker::new(&config, app_settings).driver(driver.clone());
+
+    // Initialize threat handler early to reuse the driver connection
+    let win_threat_handler = WindowsThreatHandler::from(driver.clone());
+    worker = worker.threat_handler(Box::new(win_threat_handler.clone()));
+
+    worker = worker.exepath_handler(Box::new(ExepathLive));
+
+    worker = worker.process_record_handler(Box::new(ProcessRecordHandlerLive::new(
+        &config,
+        Box::new(win_threat_handler.clone()),
+    )));
+
+    worker = worker.build();
 
     // Behavior rules are loaded inside build_behavior_engine() before the
     // telemetry-pipe clone is taken, so both this worker and the pipe thread
     // have detection rules.
 
-    for mut iomsg in rx {
-        worker.process_io(&mut iomsg, &config);
+    worker.discover_existing_processes();
+
+    // Event-driven loop with periodic housekeeping that discovers new processes
+    // and registers dynamic kernel hooks. The telemetry for behavioral analysis
+    // flows through the in-process FFI channel, so this loop only needs to keep
+    // the hook registration / process-pruning machinery alive.
+    let mut last_housekeeping = std::time::Instant::now();
+    let housekeeping_interval = std::time::Duration::from_millis(750);
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(250)) {
+            Ok(mut iomsg) => {
+                worker.process_io(&mut iomsg, &config);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+
+        if last_housekeeping.elapsed() >= housekeeping_interval {
+            let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
+            if let Some(th) = th_opt {
+                worker.validate_tracked_processes();
+                worker.scan_processes(&config, th.clone_box());
+                worker.process_suspended_records(&config, th);
+            }
+            last_housekeeping = std::time::Instant::now();
+        }
     }
 }
