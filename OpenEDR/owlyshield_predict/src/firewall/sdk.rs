@@ -1731,6 +1731,19 @@ pub struct RuleMatchResult {
 
 pub struct SdkRegistry {
     pub rules: Vec<SdkRule>,
+    domain_index: Option<DoubleArrayAhoCorasick<u32>>,
+    url_index: Option<DoubleArrayAhoCorasick<u32>>,
+    content_index: Option<DoubleArrayAhoCorasick<u32>>,
+    domain_pattern_rules: Vec<Box<[usize]>>,
+    url_pattern_rules: Vec<Box<[usize]>>,
+    content_pattern_rules: Vec<Box<[usize]>>,
+    unindexed_rules: Vec<usize>,
+    pub listeners: Vec<Arc<dyn PacketListener>>,
+    pub changers: Vec<Arc<dyn PacketChanger>>,
+    /// Per-flow connection + flowbit state (Suricata flow/flowbits)
+    pub flow_state: Mutex<FlowState>,
+}
+
 fn compile_sdk_regex(pattern_str: &str) -> Option<Regex> {
     regex::RegexBuilder::new(pattern_str)
         .size_limit(4 * 1024 * 1024)
