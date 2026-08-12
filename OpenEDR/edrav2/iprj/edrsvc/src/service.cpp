@@ -245,7 +245,7 @@ void WinService::doSelfcheck()
 //
 ErrorCode WinService::process()
 {
-	if (!getCatalogData("app.config.isService", false))
+	if (!getCatalogData("app.config.isService", false) || m_sAppMode == "controlbar")
 	{
 		LOGINF("Service is being started as an Application");
 		return runService(true);
