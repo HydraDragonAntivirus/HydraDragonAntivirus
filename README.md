@@ -140,6 +140,7 @@ This project does not aim to replace your primary daily antivirus solution.
 - The goal is long-term detection improvement rather than quick but shallow detection.
 - This does NOT mean the project achieves a 99% detection rate — it reflects the development philosophy only.
 - This antivirus not only uses his best signatures but almost every new signatures. That's why it's heavy.
+- UPDATE: Detection philosophy is highly changed we prefer 90% instant detection instead of 99% very slow detection
 
 ---
 
