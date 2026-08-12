@@ -108,6 +108,18 @@ void WINAPI WinService::runService(DWORD dwArgc, PTSTR* pszArgv)
 
 	try
 	{
+		if (dwArgc > 0 && pszArgv != nullptr && pszArgv[0] != nullptr)
+		{
+			std::string sMode = string::convertWCharToUtf8(pszArgv[0]);
+			if (sMode == "controlbar")
+			{
+				pSvcApp->m_sAppMode = sMode;
+				auto itAppMode = pSvcApp->m_appModes.find(sMode);
+				if (itAppMode != pSvcApp->m_appModes.end())
+					pSvcApp->m_pAppMode = itAppMode->second;
+			}
+		}
+
 		pSvcApp->runService(false);
 	}
 	catch (error::Exception& ex)
@@ -645,6 +657,7 @@ Variant WinService::execute(Variant vCommand, Variant vParams)
 		return execCommand(createObject(CLSID_WinServiceController), "start", Dictionary({ 
 			{ "name", c_sServiceName }, 
 			{ "startMode",  nStartMode},
+			{ "params", "controlbar" }
 		}));
 	}
 

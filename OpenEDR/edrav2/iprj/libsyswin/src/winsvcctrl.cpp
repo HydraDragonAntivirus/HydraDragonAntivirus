@@ -329,7 +329,18 @@ Variant startService(Variant vParam)
 	}
 
 	(void) enableLoadDriverPrivelege();
-	if (!::StartService(hService, 0, NULL))
+
+	std::wstring sServiceParam;
+	DWORD nArgc = 0;
+	LPCWSTR pArgv[1] = { nullptr };
+	if (vParam.has("params"))
+	{
+		sServiceParam = vParam["params"];
+		pArgv[0] = sServiceParam.c_str();
+		nArgc = 1;
+	}
+
+	if (!::StartService(hService, nArgc, pArgv))
 	{
 		DWORD eError = ::GetLastError();
 		if (eError == ERROR_SERVICE_ALREADY_RUNNING)
@@ -341,7 +352,7 @@ Variant startService(Variant vParam)
 				SERVICE_NO_CHANGE, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 			if (!fSuccess)
 				error::win::WinApiError(SL, ::GetLastError(), "Can't change service startup mode").throwException();
-			if (!::StartService(hService, 0, NULL))
+			if (!::StartService(hService, nArgc, pArgv))
 			{
 				if (eError == ERROR_SERVICE_ALREADY_RUNNING)
 					return false;
