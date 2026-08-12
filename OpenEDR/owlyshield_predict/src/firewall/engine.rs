@@ -320,7 +320,10 @@ fn firewall_log_file_path() -> PathBuf {
 }
 
 fn persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) {
-    if settings.is_some_and(|current| !current.save_all_logs) {
+    // save_all_logs only controls routine telemetry. Blocked/actionable events
+    // (Warning/Error) are always persisted so the UI can show dropped traffic
+    // even when verbose telemetry logging is disabled.
+    if settings.is_some_and(|current| !current.save_all_logs) && !entry.level.is_actionable() {
         return;
     }
 
@@ -2164,14 +2167,25 @@ foreach ($store in $stores) {
 
     pub fn get_saved_logs(&self) -> Vec<LogEntry> {
         let settings = self.settings.read().unwrap().clone();
-        if !settings.save_all_logs {
-            return Vec::new();
+
+        if settings.save_all_logs {
+            // When showing only blocked, filter to actionables instead of returning
+            // everything; otherwise return the whole saved log window.
+            if !settings.show_blocked_logs_only {
+                let limit = if settings.prune_old_logs {
+                    Some(settings.max_visible_logs.max(1))
+                } else {
+                    None
+                };
+                return load_saved_logs(limit);
+            }
         }
 
-        if settings.show_blocked_logs_only {
-            return Vec::new();
-        }
-
+        // Surviving paths: save_all_logs on + show_blocked_logs_only, or
+        // save_all_logs off. In both cases only actionable (blocked/threat/error)
+        // entries are relevant — with save_all_logs off the file only contains
+        // those anyway. Filtering by severity keeps the UI honest: never claim
+        // "no traffic blocked" when dropped packets were recorded.
         let limit = if settings.prune_old_logs {
             Some(settings.max_visible_logs.max(1))
         } else {
@@ -2179,6 +2193,9 @@ foreach ($store in $stores) {
         };
 
         load_saved_logs(limit)
+            .into_iter()
+            .filter(|entry| entry.level.is_actionable())
+            .collect()
     }
 
     
@@ -3302,7 +3319,7 @@ impl FirewallEngine {
                     emit_log_event(LogEntry {
                         id: format!("{}-blocked", now),
                         timestamp: now,
-                        level: LogLevel::Info,
+                        level: LogLevel::Warning,
                         message: format!(
                             "Firewall activity: blocked network | {} | {}",
                             log_reason, context
