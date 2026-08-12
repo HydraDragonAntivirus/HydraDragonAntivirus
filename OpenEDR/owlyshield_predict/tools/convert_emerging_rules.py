@@ -20,7 +20,15 @@ Best-effort mapping (documented limitations):
     lossy-decoded exactly like the SDK (String::from_utf8_lossy), so binary
     patterns match only when they also survive the SDK's lossy payload decode.
   * pcre           -> regex term (delimiters/flags stripped; /i -> (?i:...))
+  * sticky buffers (dotted keywords: http.request_line, http.header,
+    http.request_body, http.method, http.uri, dns.query, tls.sni, file.data,
+    ...) -> tracked and applied to every content/pcre that follows them,
+    not just the one they happen to precede in the option list; pkt_data
+    resets back to the raw payload buffer. Legacy non-dotted post-content
+    modifiers (nocase, startswith, endswith, fast_pattern, http_uri,
+    http_host, dns_query, ...) still apply only to the content they follow.
   * content w/ http.host|host|dns.query|tls.sni -> domain.domains
+    (works whether the sticky buffer appears before or after the content)
   * ip_proto:N     -> ip_proto (numeric IP protocol; known names mapped)
   * dsize:...      -> dsize (exact / min:max / >n / <n / min:max:mod:offset)
   * byte_test:...  -> byte_test (nbytes/op/value/offset, big|little, string,
@@ -67,7 +75,19 @@ HOST_MODIFIERS = {"http.host", "host", "dns.query", "tls.sni"}
 
 stats = {"lines": 0, "rules": 0, "skipped_header": 0, "skipped_action": 0,
          "dropped_negated": 0, "dropped_bad_content": 0, "no_matchers": 0,
-         "disabled_binary_regex": 0}
+         "disabled_binary_regex": 0, "overridden": 0}
+
+# Hand-tuned regex overrides keyed by rule SID. Applied after normal
+# conversion (and after the binary-regex check) so signature-specific fixes
+# survive regenerating the rules YAML.
+SID_OVERRIDES = {
+    # ET WEB_SPECIFIC_APPS Apache 2.4.0 -> 2.4.55 HTTP Smuggling M1
+    # (CVE-2023-25690): the source rule's lone `content:"GET|20 2f|"; startswith;`
+    # converts to `\A(?-i:GET\ /)`, which matches virtually every GET request.
+    # Require a full request line ending in HTTP/1.[01] plus a
+    # Transfer-Encoding header instead.
+    2056423: r"(?s)\A(?-i:GET )[^\r\n]* HTTP/1\.[01]\r\n(?-i:.*?Transfer-Encoding:)",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -635,15 +655,38 @@ def convert_line(line: str, rule_index: int = 0):
     contents = []  # list of (raw, negated, modifiers_set, positional_dict)
     pcres = []     # list of (pattern, ci)
     current = None
+    # Suricata "sticky buffer" keywords (dotted names: http.request_line,
+    # http.header, http.request_body, dns.query, tls.sni, file.data, ...)
+    # SELECT which buffer subsequent content/pcre terms match against, and
+    # stay active until another sticky buffer keyword (or pkt_data/file_data
+    # reset) appears. They normally appear BEFORE the content(s) they apply
+    # to, so they must be remembered and applied at content-creation time,
+    # not just attached to whatever content happened to precede them.
+    sticky_buffer = set()
 
     for opt_raw in split_options(body):
         opt = opt_raw.strip()
         if not opt:
             continue
         if ":" not in opt:
-            # bare modifier applies to the last content
-            if current is not None:
-                current[2].add(opt)
+            if opt == "pkt_data":
+                # Explicit reset back to the raw packet/payload buffer.
+                sticky_buffer = set()
+                continue
+            if "." in opt or opt == "file_data":
+                # Sticky buffer selector: applies going forward, and also
+                # to the immediately preceding content if one is already
+                # open (covers rules that mix legacy post-modifiers with a
+                # sticky buffer on the same content).
+                sticky_buffer = {opt}
+                if current is not None:
+                    current[2].add(opt)
+            else:
+                # Legacy per-content modifier (nocase, startswith, endswith,
+                # fast_pattern, http_uri, http_host, dns_query, ...):
+                # applies only to the content it directly follows.
+                if current is not None:
+                    current[2].add(opt)
             continue
         key, _, value = opt.partition(":")
         key = key.strip().lower()
@@ -655,7 +698,7 @@ def convert_line(line: str, rule_index: int = 0):
                 stats["dropped_bad_content"] += 1
                 current = None
                 continue
-            current = [raw, negated, set(), {}]
+            current = [raw, negated, set(sticky_buffer), {}]
             contents.append(current)
         elif key in ("offset", "depth", "within", "distance"):
             if current is not None:
@@ -789,6 +832,10 @@ def convert_line(line: str, rule_index: int = 0):
         if "\ufffd" in regex_terms[0]:
             rule["enabled"] = True
             stats["disabled_binary_regex"] += 1
+    if sid is not None and sid in SID_OVERRIDES:
+        rule["regex"] = {"pattern": SID_OVERRIDES[sid], "case_insensitive": False}
+        rule["enabled"] = True
+        stats["overridden"] += 1
     if ip_proto is not None:
         rule["ip_proto"] = ip_proto
     if dsize is not None:
@@ -840,7 +887,8 @@ def main():
     print("\nConverted rules written: %d" % rule_count)
     print("Total lines read: %d" % stats["lines"])
     for key in ("skipped_header", "skipped_action", "dropped_negated",
-                "dropped_bad_content", "no_matchers", "disabled_binary_regex"):
+                "dropped_bad_content", "no_matchers", "disabled_binary_regex",
+                "overridden"):
         if stats[key]:
             print("  %s: %d" % (key, stats[key]))
 
