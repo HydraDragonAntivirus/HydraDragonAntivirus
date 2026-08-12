@@ -93,23 +93,13 @@ impl Logging {
 
 
     
-    fn should_write_to_file(status: Status, message: &str) -> bool {
-        if !VERBOSE_LOGGING.load(Ordering::Relaxed) {
-            if matches!(status, Status::Debug) {
-                return false;
-            }
-
-            if matches!(status, Status::Info) {
-                return !message.starts_with("[DIAG] API HOOKING EVENT")
-                    && !message.starts_with("[DIAG] VMM HOOK EVENT")
-                    && !message.starts_with("[DIAG] USERMODE HOOK EVENT")
-                    && !message.starts_with("[DIAG] KERNEL EVENT")
-                    && !message.starts_with("[DIAG] EVENT RECEIVED")
-                    && !message.starts_with("[API HOOKING EVENT]");
-            }
-        }
-
-        true
+    fn should_write_to_file(status: Status, _message: &str) -> bool {
+        // The structured `owlyshield.jsonl` feed is consumed by Filebeat / Logstash /
+        // Elasticsearch and must contain ONLY detections. All INFO/WARNING/DEBUG
+        // chatter is still sent to the Windows Event Log and console so operators can
+        // debug, but the JSONL stream stays small and high-signal. VERBOSE_LOGGING
+        // no longer bypasses this filter.
+        matches!(status, Status::Alert)
     }
 
 
