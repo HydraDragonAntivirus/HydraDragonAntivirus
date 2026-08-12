@@ -1744,42 +1744,6 @@ pub struct SdkRegistry {
     pub flow_state: Mutex<FlowState>,
 }
 
-fn compile_sdk_regex(pattern_str: &str) -> Option<Regex> {
-    regex::RegexBuilder::new(pattern_str)
-        .size_limit(4 * 1024 * 1024)
-        .dfa_size_limit(4 * 1024 * 1024)
-        .build()
-        .ok()
-}
-
-impl RegexMatcher {
-    pub fn matches(&self, data: &[u8]) -> bool {
-        if self.pattern.is_empty() {
-            return true;
-        }
-
-        let pattern_str = if self.case_insensitive {
-            format!("(?i){}", self.pattern)
-        } else {
-            self.pattern.clone()
-        };
-
-        let Some(re) = compile_sdk_regex(&pattern_str) else {
-            return false;
-        };
-
-        let text = String::from_utf8_lossy(data);
-        re.is_match(&text)
-    }
-}
-
-    unindexed_rules: Vec<usize>,
-    pub listeners: Vec<Arc<dyn PacketListener>>,
-    pub changers: Vec<Arc<dyn PacketChanger>>,
-    /// Per-flow connection + flowbit state (Suricata flow/flowbits)
-    pub flow_state: Mutex<FlowState>,
-}
-
 impl SdkRegistry {
     pub fn new() -> Self {
         Self {
@@ -1787,13 +1751,9 @@ impl SdkRegistry {
             domain_index: None,
             url_index: None,
             content_index: None,
-            regex_index: None,
-            regex_ci_index: None,
             domain_pattern_rules: Vec::new(),
             url_pattern_rules: Vec::new(),
             content_pattern_rules: Vec::new(),
-            regex_pattern_rules: Vec::new(),
-            regex_ci_pattern_rules: Vec::new(),
             unindexed_rules: Vec::new(),
             listeners: Vec::new(),
             changers: Vec::new(),
@@ -1855,11 +1815,11 @@ impl SdkRegistry {
     }
 
     fn rebuild_match_index(&mut self) {
+        use std::collections::HashMap;
+
         let mut domain_patterns: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
         let mut url_patterns: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
         let mut content_patterns: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
-        let mut regex_patterns: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
-        let mut regex_ci_patterns: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
         let mut unindexed = Vec::new();
 
         for (rule_id, rule) in self.rules.iter().enumerate() {
@@ -1867,84 +1827,64 @@ impl SdkRegistry {
                 continue;
             }
 
-            // OR rules cannot safely be eliminated by a single prefilter because
-            // another matcher may satisfy the OR expression.
-            if matches!(rule.condition_logic, ConditionLogic::Or) {
-                unindexed.push(rule_id);
-                continue;
-            }
-
             let mut indexed = false;
 
             if let Some(matcher) = &rule.domain {
-                for pattern in &matcher.domains {
-                    if pattern == "*" || pattern.eq_ignore_ascii_case("any") {
-                        continue;
-                    }
-                    if let Some(literal) = Self::domain_index_literal(pattern) {
-                        domain_patterns
-                            .entry(literal.to_lowercase().into_bytes())
-                            .or_default()
-                            .push(rule_id);
-                        indexed = true;
-                    }
-                }
-            }
-
-            if let Some(matcher) = &rule.url {
-                for pattern in &matcher.patterns {
-                    if pattern == "*" || pattern.eq_ignore_ascii_case("any") {
-                        continue;
-                    }
-                    if let Some(literal) = Self::url_index_literal(pattern) {
-                        url_patterns
-                            .entry(literal.to_lowercase().into_bytes())
-                            .or_default()
-                            .push(rule_id);
-                        indexed = true;
-                    }
-                }
-            }
-
-            if let Some(matcher) = &rule.content {
-                if !matcher.literal.is_empty() {
-                    if matcher.case_insensitive {
-                        // CI content is kept out of the byte index because the
-                        // matcher itself performs Unicode-aware lowercasing.
-                    } else {
-                        content_patterns
-                            .entry(matcher.literal.as_bytes().to_vec())
-                            .or_default()
-                            .push(rule_id);
-                        indexed = true;
-                    }
-                }
-            }
-
-            // Regex prefilter is only safe for AND rules using the plain payload.
-            // Encoded payloads must be decoded before regex evaluation, so they
-            // remain in the fallback set.
-            if let Some(matcher) = &rule.regex {
-                if rule.encoding == ContentEncoding::Plain {
-                    if let Some(literal) = Self::regex_index_literal(&matcher.pattern) {
-                        if literal.len() >= 2 {
-                            if matcher.case_insensitive && literal.is_ascii() {
-                                regex_ci_patterns
-                                    .entry(literal.to_lowercase().into_bytes())
-                                    .or_default()
-                                    .push(rule_id);
-                            } else {
-                                regex_patterns
-                                    .entry(literal.into_bytes())
-                                    .or_default()
-                                    .push(rule_id);
-                            }
+                if matcher.domains.is_empty() {
+                    indexed = true;
+                } else {
+                    for pattern in &matcher.domains {
+                        if pattern == "*" || pattern.eq_ignore_ascii_case("any") {
+                            indexed = true;
+                            continue;
+                        }
+                        if let Some(literal) = Self::domain_index_literal(pattern) {
+                            domain_patterns
+                                .entry(literal.to_lowercase().into_bytes())
+                                .or_default()
+                                .push(rule_id);
                             indexed = true;
                         }
                     }
                 }
             }
 
+            if let Some(matcher) = &rule.url {
+                if matcher.patterns.is_empty() {
+                    indexed = true;
+                } else {
+                    for pattern in &matcher.patterns {
+                        if pattern == "*" || pattern.eq_ignore_ascii_case("any") {
+                            indexed = true;
+                            continue;
+                        }
+                        if let Some(literal) = Self::url_index_literal(pattern) {
+                            url_patterns
+                                .entry(literal.to_lowercase().into_bytes())
+                                .or_default()
+                                .push(rule_id);
+                            indexed = true;
+                        }
+                    }
+                }
+            }
+
+            if let Some(matcher) = &rule.content {
+                if matcher.literal.is_empty() {
+                    indexed = true;
+                } else if !matcher.case_insensitive {
+                    // Case-insensitive contents cannot safely share the
+                    // lowercased haystack of this index; they stay unindexed.
+                    content_patterns
+                        .entry(matcher.literal.as_bytes().to_vec())
+                        .or_default()
+                        .push(rule_id);
+                    indexed = true;
+                }
+            }
+
+            // Rules without a usable content index remain in the cheap fallback
+            // set so protocol/IP/port-only and wildcard rules are never skipped.
             if !indexed {
                 unindexed.push(rule_id);
             }
@@ -1953,19 +1893,13 @@ impl SdkRegistry {
         let (domain_index, domain_pattern_rules) = Self::build_daachorse_index(domain_patterns);
         let (url_index, url_pattern_rules) = Self::build_daachorse_index(url_patterns);
         let (content_index, content_pattern_rules) = Self::build_daachorse_index(content_patterns);
-        let (regex_index, regex_pattern_rules) = Self::build_daachorse_index(regex_patterns);
-        let (regex_ci_index, regex_ci_pattern_rules) = Self::build_daachorse_index(regex_ci_patterns);
 
         self.domain_index = domain_index;
         self.url_index = url_index;
         self.content_index = content_index;
-        self.regex_index = regex_index;
-        self.regex_ci_index = regex_ci_index;
         self.domain_pattern_rules = domain_pattern_rules;
         self.url_pattern_rules = url_pattern_rules;
         self.content_pattern_rules = content_pattern_rules;
-        self.regex_pattern_rules = regex_pattern_rules;
-        self.regex_ci_pattern_rules = regex_ci_pattern_rules;
         self.unindexed_rules = unindexed;
     }
 
@@ -2006,86 +1940,6 @@ impl SdkRegistry {
             .map(str::to_string)
     }
 
-    /// Extract a mandatory literal atom from a regex for Daachorse prefiltering.
-    /// This is deliberately conservative: if the regex contains no safe literal,
-    /// it stays in `unindexed_rules` and is evaluated normally.
-    fn regex_index_literal(pattern: &str) -> Option<String> {
-        // Alternation and optional/repeating quantifiers can make a literal
-        // non-mandatory, so do not use them as a prefilter atom.
-        if pattern.contains('|') || pattern.contains('{') || pattern.contains('}') {
-            return None;
-        }
-
-        let bytes = pattern.as_bytes();
-        let mut best = Vec::new();
-        let mut current = Vec::new();
-        let mut escaped = false;
-        let mut in_class = false;
-
-        let flush = |current: &mut Vec<u8>, best: &mut Vec<u8>| {
-            if current.len() > best.len() {
-                *best = std::mem::take(current);
-            } else {
-                current.clear();
-            }
-        };
-
-        for &b in bytes {
-            if escaped {
-                if !in_class {
-                    if b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'/' | b':') {
-                        current.push(b);
-                    } else {
-                        flush(&mut current, &mut best);
-                    }
-                } else {
-                    flush(&mut current, &mut best);
-                }
-                escaped = false;
-                continue;
-            }
-
-            if b == b'\\' {
-                escaped = true;
-                continue;
-            }
-
-            if b == b'[' {
-                flush(&mut current, &mut best);
-                in_class = true;
-                continue;
-            }
-            if b == b']' && in_class {
-                in_class = false;
-                continue;
-            }
-            if in_class {
-                flush(&mut current, &mut best);
-                continue;
-            }
-
-            if b == b'?' || b == b'*' {
-                // The preceding atom is optional/repeatable and therefore
-                // cannot safely be used as a mandatory prefilter literal.
-                current.clear();
-                continue;
-            }
-
-            if b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'/' | b':') {
-                current.push(b);
-            } else {
-                flush(&mut current, &mut best);
-            }
-        }
-
-        flush(&mut current, &mut best);
-        if best.len() >= 2 {
-            String::from_utf8(best).ok()
-        } else {
-            None
-        }
-    }
-
     fn indexed_rule_ids(&self, packet: &PacketInfo, payload: &[u8]) -> Vec<usize> {
         let mut ids = self.unindexed_rules.clone();
 
@@ -2110,23 +1964,6 @@ impl SdkRegistry {
         if let Some(scanner) = &self.content_index {
             for m in scanner.find_overlapping_iter(payload) {
                 if let Some(rules) = self.content_pattern_rules.get(m.value() as usize) {
-                    ids.extend(rules.iter().copied());
-                }
-            }
-        }
-
-        if let Some(scanner) = &self.regex_index {
-            for m in scanner.find_overlapping_iter(payload) {
-                if let Some(rules) = self.regex_pattern_rules.get(m.value() as usize) {
-                    ids.extend(rules.iter().copied());
-                }
-            }
-        }
-
-        if let Some(scanner) = &self.regex_ci_index {
-            let haystack = payload.to_ascii_lowercase();
-            for m in scanner.find_overlapping_iter(&haystack) {
-                if let Some(rules) = self.regex_ci_pattern_rules.get(m.value() as usize) {
                     ids.extend(rules.iter().copied());
                 }
             }
@@ -2175,8 +2012,7 @@ impl SdkRegistry {
         let mut matched_private_rules = Vec::new();
         let mut flow = self.flow_guard(packet);
 
-        for rule_id in self.indexed_rule_ids(packet, payload) {
-            let Some(rule) = self.rules.get(rule_id) else { continue; };
+        for rule in &self.rules {
             if rule.matches_with_flow(packet, payload, &mut flow) {
                 // Track private rule matches for debugging
                 if rule.private {
@@ -2237,11 +2073,8 @@ impl SdkRegistry {
         let mut matched_private_rules = Vec::new();
         let mut flow = self.flow_guard(packet);
 
-        let candidate_ids = self.indexed_rule_ids(packet, payload);
-
         // First pass: collect private rule matches
-        for rule_id in &candidate_ids {
-            let Some(rule) = self.rules.get(*rule_id) else { continue; };
+        for rule in &self.rules {
             if rule.matches_with_flow(packet, payload, &mut flow) && rule.private {
                 matched_private_rules.push(rule.name.clone());
                 tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
@@ -2258,9 +2091,8 @@ impl SdkRegistry {
         }
 
         // Second pass: collect public rule matches
-        candidate_ids
-            .into_iter()
-            .filter_map(|rule_id| self.rules.get(rule_id))
+        self.rules
+            .iter()
             .filter_map(|rule| {
                 if rule.matches_with_flow(packet, payload, &mut flow) && !rule.private {
                     // Check if dependencies are satisfied (YARA-style)
