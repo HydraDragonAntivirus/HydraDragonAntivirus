@@ -1886,8 +1886,9 @@ dependencies = [
 
 [[package]]
 name = "daachorse"
-version = "4.0.0"
-source = "git+https://github.com/HydraDragonAntivirus/daachorse#4193be0863f8fdc87bfe79b584911f205c52d856"
+version = "3.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5614204febbc33cc07a2806aa6440b904ac012b68eecc37f4493ea4a76455a3d"
 
 [[package]]
 name = "darling"

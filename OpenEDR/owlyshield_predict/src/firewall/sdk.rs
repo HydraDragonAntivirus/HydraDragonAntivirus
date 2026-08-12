@@ -6,7 +6,7 @@
 
 use super::engine::{FirewallSettings, PacketInfo, Protocol};
 use base64::Engine;
-use daachorse::clamav_fast::ClamavFastScanner;
+use daachorse::DoubleArrayAhoCorasick;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -1745,8 +1745,8 @@ pub struct RuleMatchResult {
 
 pub struct SdkRegistry {
     pub rules: Vec<SdkRule>,
-    domain_index: Option<ClamavFastScanner<u32>>,
-    url_index: Option<ClamavFastScanner<u32>>,
+    domain_index: Option<DoubleArrayAhoCorasick<u32>>,
+    url_index: Option<DoubleArrayAhoCorasick<u32>>,
     domain_pattern_rules: Vec<Box<[usize]>>,
     url_pattern_rules: Vec<Box<[usize]>>,
     unindexed_rules: Vec<usize>,
@@ -1897,7 +1897,7 @@ impl SdkRegistry {
 
     fn build_daachorse_index(
         patterns: HashMap<Vec<u8>, Vec<usize>>,
-    ) -> (Option<ClamavFastScanner<u32>>, Vec<Box<[usize]>>) {
+    ) -> (Option<DoubleArrayAhoCorasick<u32>>, Vec<Box<[usize]>>) {
         if patterns.is_empty() {
             return (None, Vec::new());
         }
@@ -1910,7 +1910,7 @@ impl SdkRegistry {
             pattern_rules.push(rules.into_boxed_slice());
         }
 
-        let scanner = ClamavFastScanner::with_values(entries)
+        let scanner = DoubleArrayAhoCorasick::with_values(entries)
             .expect("firewall Daachorse index build should succeed");
 
         (Some(scanner), pattern_rules)
@@ -1937,7 +1937,7 @@ impl SdkRegistry {
 
         if let (Some(scanner), Some(hostname)) = (&self.domain_index, packet.hostname.as_deref()) {
             let haystack = hostname.to_lowercase();
-            for m in scanner.find_iter(haystack.as_bytes()) {
+            for m in scanner.find_overlapping_iter(haystack.as_bytes()) {
                 if let Some(rules) = self.domain_pattern_rules.get(m.value() as usize) {
                     ids.extend(rules.iter().copied());
                 }
@@ -1946,7 +1946,7 @@ impl SdkRegistry {
 
         if let (Some(scanner), Some(url)) = (&self.url_index, packet.full_url.as_deref()) {
             let haystack = url.to_lowercase();
-            for m in scanner.find_iter(haystack.as_bytes()) {
+            for m in scanner.find_overlapping_iter(haystack.as_bytes()) {
                 if let Some(rules) = self.url_pattern_rules.get(m.value() as usize) {
                     ids.extend(rules.iter().copied());
                 }

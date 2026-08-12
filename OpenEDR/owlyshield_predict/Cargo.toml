@@ -71,7 +71,7 @@ winreg = "0.55.0"
 windivert = { path = "../../HydraDragonFirewall/windivert-rust/windivert", features = ["vendored"] }
 
 #Aho-Corsaick
-daachorse = { git = "https://github.com/HydraDragonAntivirus/daachorse" }
+daachorse = "5.0.0"
 
 [target.'cfg(target_os = "windows")'.dependencies.windows]
 version = "0.48.0"
