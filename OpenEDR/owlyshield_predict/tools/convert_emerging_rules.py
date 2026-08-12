@@ -73,6 +73,8 @@ PROTO_MAP = {"tcp": "tcp", "udp": "udp", "icmp": "icmp",
 # Host-like content modifiers -> domain matcher
 HOST_MODIFIERS = {"http.host", "host", "dns.query", "tls.sni"}
 
+DISABLED_SIDS = {2100640, 2009247, 2009285}
+
 stats = {"lines": 0, "rules": 0, "skipped_header": 0, "skipped_action": 0,
          "dropped_negated": 0, "dropped_bad_content": 0, "no_matchers": 0,
          "content_patterns": 0, "pcre_rules": 0, "overridden": 0}
@@ -144,8 +146,8 @@ def emit_rule(rule: dict) -> list:
         lines.append("    description: %s" % yaml_quote(rule["description"]))
     if rule.get("severity"):
         lines.append("    severity: %s" % yaml_quote(rule["severity"]))
-    enabled = True
-    lines.append("    enabled: true")
+    enabled = rule.get("enabled", True)
+    lines.append("    enabled: %s" % ("true" if enabled else "false"))
     if rule.get("protocol"):
         lines.append("    protocol: %s" % rule["protocol"])
     lines.append("    action: %s" % rule["action"])
@@ -737,7 +739,7 @@ def convert_line(line: str, rule_index: int = 0):
         "domain": None,
         "contents": None,
         "regex": None,
-        "enabled": True,
+        "enabled": sid not in DISABLED_SIDS,
     }
     if severity is not None:
         rule["severity"] = severity
