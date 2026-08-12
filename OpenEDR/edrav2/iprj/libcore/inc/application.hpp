@@ -95,8 +95,6 @@ class Application : public ObjectBase<CLSID_Application>,
 	public ICommandProcessor
 {
 private:
-	std::map<std::string, std::shared_ptr<IApplicationMode>> m_appModes;
-	
 	bool m_fTerminate = false;
 	std::string m_sCmdLine;
 	std::mutex m_mtxTerminate;
@@ -139,6 +137,8 @@ protected:
 
 	std::string m_sAppMode;
 	std::shared_ptr<IApplicationMode> m_pAppMode;
+
+	std::map<std::string, std::shared_ptr<IApplicationMode>> m_appModes;
 
 	///
 	/// Initializes primary global catalog data.
