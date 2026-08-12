@@ -75,19 +75,9 @@ HOST_MODIFIERS = {"http.host", "host", "dns.query", "tls.sni"}
 
 stats = {"lines": 0, "rules": 0, "skipped_header": 0, "skipped_action": 0,
          "dropped_negated": 0, "dropped_bad_content": 0, "no_matchers": 0,
-         "disabled_binary_regex": 0, "overridden": 0}
+         "content_patterns": 0, "pcre_rules": 0, "overridden": 0}
 
-# Hand-tuned regex overrides keyed by rule SID. Applied after normal
-# conversion (and after the binary-regex check) so signature-specific fixes
-# survive regenerating the rules YAML.
-SID_OVERRIDES = {
-    # ET WEB_SPECIFIC_APPS Apache 2.4.0 -> 2.4.55 HTTP Smuggling M1
-    # (CVE-2023-25690): the source rule's lone `content:"GET|20 2f|"; startswith;`
-    # converts to `\A(?-i:GET\ /)`, which matches virtually every GET request.
-    # Require a full request line ending in HTTP/1.[01] plus a
-    # Transfer-Encoding header instead.
-    2056423: r"(?s)\A(?-i:GET )[^\r\n]* HTTP/1\.[01]\r\n(?-i:.*?Transfer-Encoding:)",
-}
+# No content-to-regex overrides. Binary Suricata `content:` is kept byte-native.
 
 
 # ---------------------------------------------------------------------------
@@ -171,10 +161,27 @@ def emit_rule(rule: dict) -> list:
         lines.append("    domain:")
         lines.append("      domains: [%s]" % ", ".join(yaml_quote(d) for d in rule["domain"]["domains"]))
         lines.append("      case_insensitive: %s" % ("true" if rule["domain"].get("case_insensitive") else "false"))
+    if rule.get("contents"):
+        lines.append("    contents:")
+        for content in rule["contents"]:
+            lines.append("      - hex: %s" % yaml_quote(content["hex"]))
+            lines.append("        case_insensitive: %s" % ("true" if content.get("case_insensitive") else "false"))
+            if content.get("offset") is not None:
+                lines.append("        offset: %d" % content["offset"])
+            if content.get("depth") is not None:
+                lines.append("        depth: %d" % content["depth"])
+            if content.get("within") is not None:
+                lines.append("        within: %d" % content["within"])
+            if content.get("distance") is not None:
+                lines.append("        distance: %d" % content["distance"])
+            if content.get("startswith"):
+                lines.append("        startswith: true")
+            if content.get("endswith"):
+                lines.append("        endswith: true")
     if rule.get("regex"):
         lines.append("    regex:")
         lines.append("      pattern: %s" % yaml_quote(rule["regex"]["pattern"]))
-        lines.append("      case_insensitive: false")
+        lines.append("      case_insensitive: %s" % ("true" if rule["regex"].get("case_insensitive") else "false"))
     if rule.get("ip_proto") is not None:
         lines.append("    ip_proto: %d" % rule["ip_proto"])
     if rule.get("dsize"):
@@ -524,84 +531,9 @@ def lossy(text: bytes) -> str:
     return text.decode("utf-8", errors="replace")
 
 
-def regex_escape_literal(text: bytes) -> str:
-    return re.escape(lossy(text))
-
-
-# Above this, a bounded '.' gap blows the Rust regex crate's compiled-size
-# limit (huge repetitions expand its NFA); values this large are effectively
-# "match anywhere" for a payload anyway, so we fall back to '.*?'.
-MAX_GAP = 2048
-
-
-def _gap_between(lo, hi):
-    """Format a '.' gap between content terms, clamping oversized bounds."""
-    if hi is None:
-        if lo > MAX_GAP:
-            return r".*?"
-        return r".{%d,}" % lo
-    if lo > MAX_GAP or hi > MAX_GAP:
-        return r".*?"
-    if lo == hi:
-        return r".{%d}" % lo
-    return r".{%d,%d}" % (lo, hi)
-
-
-def compose_regex(chunks):
-    """Build a single regex from ordered (term, clen, pos) chunks.
-
-    Positional content modifiers become bounded '.' gaps instead of '.*?'.
-    'startswith' anchors the first term to the buffer start ('\\A'), and
-    'endswith' anchors the last term to the buffer end ('\\z'). The regex is
-    matched against the SDK's lossy-decoded payload text, so byte offsets are
-    approximated by character counts; every bound below is a safe superset of
-    the Suricata constraint (no false negatives, still far fewer false
-    positives than the old unbounded '.*?')."""
-    if not chunks:
-        return None
-    parts = []
-    first = True
-    last = len(chunks) - 1
-    for idx, (term, clen, pos) in enumerate(chunks):
-        pos = pos or {}
-        if first:
-            if pos.get("startswith"):
-                # Content must start the buffer: no leading gap at all.
-                gap = r"\A"
-            elif "offset" in pos:
-                o = max(0, pos["offset"])
-                gap = r"\A.{0,%d}" % o if o <= MAX_GAP else r"\A.*?"
-            elif "depth" in pos:
-                d = max(0, pos["depth"] - (clen or 0))
-                gap = r"\A.{0,%d}" % d if d <= MAX_GAP else r"\A.*?"
-            elif "within" in pos:
-                w = max(0, pos["within"])
-                gap = r"\A.{0,%d}" % w if w <= MAX_GAP else r"\A.*?"
-            else:
-                gap = r"\A.*?"
-        else:
-            within = pos.get("within")
-            distance = pos.get("distance")
-            if within is not None and distance is not None:
-                # Negative distance (content may start before the previous
-                # match ends) can't be expressed in a sequential regex; clamp.
-                lo, hi = max(0, distance), max(0, within)
-                if lo > hi:
-                    lo, hi = hi, lo
-                gap = _gap_between(lo, hi)
-            elif within is not None:
-                gap = _gap_between(0, max(0, within))
-            elif distance is not None:
-                gap = _gap_between(max(0, distance), None)
-            else:
-                gap = r".*?"
-        parts.append(gap)
-        parts.append(term)
-        if idx == last and pos.get("endswith"):
-            # Content must end the buffer: nothing may follow it.
-            parts.append(r"\z")
-        first = False
-    return "(?s)" + "".join(parts)
+def bytes_to_hex(data: bytes) -> str:
+    """Serialize raw Suricata content bytes without converting them to text."""
+    return data.hex(" ").upper()
 
 
 # ---------------------------------------------------------------------------
@@ -756,41 +688,41 @@ def convert_line(line: str, rule_index: int = 0):
             # classtype, reference, metadata, threshold, etc.
             continue
 
-    # Dispatch contents
-    regex_chunks = []  # (term, clen_or_None, pos_or_None)
+    # Dispatch contents. Suricata `content:` stays byte-native.
+    content_patterns = []
     for raw, negated, mods, pos in contents:
         lower_mods = {m.lower() for m in mods}
         if negated:
-            # The SDK cannot express "must NOT contain"; keep the rule but
-            # drop this negative constraint (best-effort superset match).
             stats["dropped_negated"] += 1
             continue
+
         if lower_mods & HOST_MODIFIERS:
             domains.append(lossy(raw))
             if "nocase" in lower_mods:
                 domain_case_insensitive = True
-        else:
-            term = regex_escape_literal(raw)
-            if "nocase" in lower_mods:
-                term = "(?i:%s)" % term
-            else:
-                term = "(?-i:%s)" % term
-            if "startswith" in lower_mods:
-                pos["startswith"] = True
-            if "endswith" in lower_mods:
-                pos["endswith"] = True
-            regex_chunks.append((term, len(lossy(raw)), pos))
+            continue
 
-    for pat, ci in pcres:
-        if ci:
-            regex_chunks.append(("(?i:%s)" % pat, None, None))
-        else:
-            regex_chunks.append(("(?-i:%s)" % pat, None, None))
+        item = {
+            "hex": bytes_to_hex(raw),
+            "case_insensitive": "nocase" in lower_mods,
+        }
+        for key in ("offset", "depth", "within", "distance"):
+            if key in pos:
+                item[key] = pos[key]
+        if "startswith" in lower_mods:
+            item["startswith"] = True
+        if "endswith" in lower_mods:
+            item["endswith"] = True
 
-    pattern = compose_regex(regex_chunks)
-    regex_terms = [pattern] if pattern else []
+        content_patterns.append(item)
+        stats["content_patterns"] += 1
 
-    has_matchers = bool(domains or regex_terms or src_ports or src_ranges
+    regex_terms = []
+    if pcres:
+        regex_terms = [({"pattern": pat, "case_insensitive": ci}) for pat, ci in pcres]
+        stats["pcre_rules"] += 1
+
+    has_matchers = bool(domains or content_patterns or regex_terms or src_ports or src_ranges
                         or dst_ports or dst_ranges or src_ips or src_cidrs
                         or dst_ips or dst_cidrs
                         or ip_proto is not None or dsize is not None
@@ -803,6 +735,7 @@ def convert_line(line: str, rule_index: int = 0):
         "description": description,
         "action": rule_action,
         "domain": None,
+        "contents": None,
         "regex": None,
         "enabled": True,
     }
@@ -822,20 +755,10 @@ def convert_line(line: str, rule_index: int = 0):
         rule["dst_port"] = {"ports": dst_ports, "ranges": dst_ranges}
     if domains:
         rule["domain"] = {"domains": domains, "case_insensitive": domain_case_insensitive}
+    if content_patterns:
+        rule["contents"] = content_patterns
     if regex_terms:
-        rule["regex"] = {"pattern": regex_terms[0], "case_insensitive": False}
-        # Binary content (raw bytes >= 0x80 that are not valid UTF-8) is
-        # lossy-decoded to U+FFFD on BOTH sides (converter and SDK payload
-        # decode). A pattern containing U+FFFD therefore matches any invalid
-        # byte in any binary payload (DNS/TLS/...) -> false-positive storm.
-        # Such rules cannot be matched reliably, so disable them.
-        if "\ufffd" in regex_terms[0]:
-            rule["enabled"] = True
-            stats["disabled_binary_regex"] += 1
-    if sid is not None and sid in SID_OVERRIDES:
-        rule["regex"] = {"pattern": SID_OVERRIDES[sid], "case_insensitive": False}
-        rule["enabled"] = True
-        stats["overridden"] += 1
+        rule["regex"] = regex_terms[0]
     if ip_proto is not None:
         rule["ip_proto"] = ip_proto
     if dsize is not None:
@@ -887,8 +810,8 @@ def main():
     print("\nConverted rules written: %d" % rule_count)
     print("Total lines read: %d" % stats["lines"])
     for key in ("skipped_header", "skipped_action", "dropped_negated",
-                "dropped_bad_content", "no_matchers", "disabled_binary_regex",
-                "overridden"):
+                "dropped_bad_content", "no_matchers", "content_patterns",
+                "pcre_rules", "overridden"):
         if stats[key]:
             print("  %s: %d" % (key, stats[key]))
 
