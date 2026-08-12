@@ -821,6 +821,26 @@ impl ActionOnKill for KillAction {
                 Logging::info(&format!("[ActionOnKill] Terminating: {}", proc.appname));
                 self.handler.kill(proc.gid);
             }
+        } else if threat_info.quarantine {
+            // Quarantine without termination (e.g. `action: traffic_attack`
+            // network rules): the offending artifact still has to be sealed.
+            let remediation_path = proc.primary_remediation_path();
+            if remediation_path.as_os_str().is_empty() {
+                Logging::warning(&format!(
+                    "[ActionOnKill] Cannot quarantine {} (GID: {}) because no remediation path is known",
+                    proc.appname, proc.gid
+                ));
+            } else {
+                Logging::info(&format!(
+                    "[ActionOnKill] Quarantining without termination: {}",
+                    remediation_path.display()
+                ));
+                let quarantine_metadata = QuarantineMetadata {
+                    detection: quarantine_detection_label(proc, threat_info),
+                };
+                self.handler
+                    .quarantine_only(remediation_path, &quarantine_metadata);
+            }
         }
         Ok(())
     }
@@ -873,5 +893,177 @@ impl ActionOnKill for RevertAction {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::threat_handler::QuarantineMetadata;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct RecordingThreatHandler {
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl RecordingThreatHandler {
+        fn push(&self, call: &str) {
+            self.calls.lock().unwrap().push(call.to_string());
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl ThreatHandler for RecordingThreatHandler {
+        fn suspend(&self, _proc: &mut ProcessRecord) {
+            self.push("suspend");
+        }
+
+        fn kill(&self, _gid: u64) {
+            self.push("kill");
+        }
+
+        fn deny_path_access(&self, _path: &Path) {
+            self.push("deny_path_access");
+        }
+
+        fn kill_and_quarantine(
+            &self,
+            _gid: u64,
+            _path: &Path,
+            _metadata: &QuarantineMetadata,
+        ) {
+            self.push("kill_and_quarantine");
+        }
+
+        fn quarantine_only(&self, path: &Path, _metadata: &QuarantineMetadata) {
+            self.push(&format!("quarantine_only:{}", path.display()));
+        }
+
+        fn kill_and_remove(&self, _gid: u64, _path: &Path) {
+            self.push("kill_and_remove");
+        }
+
+        fn schedule_cleanup_on_reboot(&self, _path: &Path) {
+            self.push("schedule_cleanup_on_reboot");
+        }
+
+        fn awake(&self, _proc: &mut ProcessRecord, _kill_proc_on_exit: bool) {
+            self.push("awake");
+        }
+
+        fn revert_registry(&self, _gid: u64) {
+            self.push("revert_registry");
+        }
+
+        fn restore_files_from_shadow_copy(&self, _paths: &[PathBuf]) {
+            self.push("restore_files_from_shadow_copy");
+        }
+
+        fn clone_box(&self) -> Box<dyn ThreatHandler> {
+            Box::new(self.clone())
+        }
+    }
+
+    fn traffic_attack_threat_info() -> ThreatInfo<'static> {
+        ThreatInfo {
+            threat_type_label: "Network Attack",
+            virus_name: "Traffic attack rule [ET SHELLCODE] matched",
+            prediction: 1.0,
+            match_details: Some("1.2.3.4:80 — Traffic attack rule matched".to_string()),
+            deny_access: false,
+            terminate: false,
+            quarantine: true,
+            kill_and_remove: false,
+            suspend: false,
+            notify_user: true,
+            revert: false,
+        }
+    }
+
+    fn test_process_record() -> ProcessRecord {
+        ProcessRecord::new(
+            1,
+            "attacker.exe".to_string(),
+            PathBuf::from(r"C:\tmp\attacker.exe"),
+        )
+    }
+
+    #[test]
+    fn quarantine_without_terminate_seals_the_artifact() {
+        let handler = RecordingThreatHandler::default();
+        let action = KillAction {
+            handler: handler.clone_box(),
+        };
+
+        let mut proc = test_process_record();
+        action
+            .run(
+                &Config::new(),
+                &mut proc,
+                &VecvecCappedF32::new(0, 0),
+                &traffic_attack_threat_info(),
+                &ActionReportContext::default(),
+                "now",
+            )
+            .unwrap();
+
+        assert_eq!(
+            handler.calls(),
+            vec![format!(r"quarantine_only:C:\tmp\attacker.exe")]
+        );
+    }
+
+    #[test]
+    fn quarantine_with_terminate_still_kills_first() {
+        let handler = RecordingThreatHandler::default();
+        let action = KillAction {
+            handler: handler.clone_box(),
+        };
+
+        let mut threat_info = traffic_attack_threat_info();
+        threat_info.terminate = true;
+
+        let mut proc = test_process_record();
+        action
+            .run(
+                &Config::new(),
+                &mut proc,
+                &VecvecCappedF32::new(0, 0),
+                &threat_info,
+                &ActionReportContext::default(),
+                "now",
+            )
+            .unwrap();
+
+        assert_eq!(handler.calls(), vec!["kill_and_quarantine".to_string()]);
+    }
+
+    #[test]
+    fn no_quarantine_and_no_terminate_does_nothing() {
+        let handler = RecordingThreatHandler::default();
+        let action = KillAction {
+            handler: handler.clone_box(),
+        };
+
+        let mut threat_info = traffic_attack_threat_info();
+        threat_info.quarantine = false;
+
+        let mut proc = test_process_record();
+        action
+            .run(
+                &Config::new(),
+                &mut proc,
+                &VecvecCappedF32::new(0, 0),
+                &threat_info,
+                &ActionReportContext::default(),
+                "now",
+            )
+            .unwrap();
+
+        assert!(handler.calls().is_empty());
     }
 }

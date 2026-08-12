@@ -12,6 +12,12 @@ pub trait ThreatHandler: Send + Sync {
     fn kill(&self, gid: u64);
     fn deny_path_access(&self, path: &Path);
     fn kill_and_quarantine(&self, gid: u64, path: &Path, metadata: &QuarantineMetadata);
+    /// Quarantine an artifact without terminating the owning process first.
+    ///
+    /// Used by responses that request `quarantine` without `terminate_process`
+    /// (e.g. `action: traffic_attack` network rules), where the offending file
+    /// must be sealed even though the process is left running.
+    fn quarantine_only(&self, path: &Path, metadata: &QuarantineMetadata);
     fn kill_and_remove(&self, gid: u64, path: &Path);
     fn schedule_cleanup_on_reboot(&self, path: &Path);
     fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool);

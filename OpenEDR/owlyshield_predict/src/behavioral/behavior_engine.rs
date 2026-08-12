@@ -635,6 +635,11 @@ pub struct FirewallDetection {
     pub used_public_suffix_list: bool,
     /// List of private rule names that matched during evaluation
     pub matched_private_rules: Vec<String>,
+    /// True when the detection came from a rule whose action is `traffic_attack`
+    /// (Suricata `alert` semantics). The traffic itself is not blocked inline,
+    /// but the process that produced it is remediated like any other confirmed
+    /// malicious exe.
+    pub is_traffic_attack: bool,
 }
 
 
@@ -658,6 +663,8 @@ impl FirewallDetection {
             "Exploit"
         } else if r.contains("intelligence") || r.contains("malware") {
             "Malware"
+        } else if self.is_traffic_attack {
+            "Network Attack"
         } else if r.contains("sdk rule") {
             "Policy Violation"
         } else {
@@ -3018,12 +3025,15 @@ impl BehaviorEngine {
                             && (rule.response.status_access_denied
                                 || rule.response.quarantine
                                 || rule.response.kill_and_remove
-                                || rule.response.terminate_process)
+                                || rule.response.terminate_process
+                                || rule.response.traffic_attack)
                         {
                             let blocked_exes_arc = shared_firewall_blocked_exes();
                             let mut blocked = blocked_exes_arc.write().unwrap();
 
-                            let reason = if rule.response.change_request_body.is_some()
+                            let reason = if rule.response.traffic_attack {
+                                format!("Traffic attack rule [{}] matched", rule.name)
+                            } else if rule.response.change_request_body.is_some()
                                 || rule.response.change_response_body.is_some()
                             {
                                 format!("Rule [{}] matched (Replacement suggested)", rule.name)
@@ -3054,7 +3064,7 @@ impl BehaviorEngine {
                                 };
 
                             blocked.insert(
-                                pkt.image_path.clone(),
+                                normalize_firewall_file_verdict_key(&pkt.image_path),
                                 FirewallDetection {
                                     dst_ip: pkt.dst_ip.to_string(),
                                     dst_port: pkt.dst_port,
@@ -3069,6 +3079,7 @@ impl BehaviorEngine {
                                     } else {
                                         Vec::new()
                                     },
+                                    is_traffic_attack: rule.response.traffic_attack,
                                 },
                             );
                         }
@@ -3164,6 +3175,7 @@ impl BehaviorEngine {
                     detected_domain: None,
                     used_public_suffix_list: false,
                     matched_private_rules: Vec::new(),
+                    is_traffic_attack: reason.to_ascii_lowercase().contains("traffic attack"),
                 };
                 if detection.is_pending_user_decision() {
                     Logging::info(&format!(
@@ -3176,7 +3188,10 @@ impl BehaviorEngine {
                     "[FirewallTelemetry] Confirmed malicious: {} -> {}:{} ({}) - {}",
                     exe, detection.dst_ip, detection.dst_port, hostname, reason
                 ));
-                self.firewall_blocked_exes.write().unwrap().insert(exe, detection);
+                self.firewall_blocked_exes
+                    .write()
+                    .unwrap()
+                    .insert(normalize_firewall_file_verdict_key(&exe), detection);
             }
         } else if let Some(rest) = line.strip_prefix("HIPS_DECISION:") {
             let mut parts = rest.splitn(2, '|');
@@ -3269,6 +3284,7 @@ impl BehaviorEngine {
                         detected_domain: None,
                         used_public_suffix_list: false,
                         matched_private_rules: Vec::new(),
+                        is_traffic_attack: false,
                     };
                     self.firewall_blocked_exes
                         .write()
@@ -11084,19 +11100,44 @@ impl BehaviorEngine {
                     continue;
                 }
 
+                // `traffic_attack` carries Suricata `alert` semantics and can be
+                // driven by very broad rulesets, so never seal a validly signed
+                // image on the strength of a single alert match.
+                if detection.is_traffic_attack
+                    && state.signature_checked
+                    && state.has_valid_signature
+                {
+                    Logging::info(&format!(
+                        "[FirewallPipe] Traffic-attack match on validly signed image {} (PID {}); reporting only — {}",
+                        exe_path_str,
+                        pid,
+                        detection.match_details()
+                    ));
+                    continue;
+                }
+
                 let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path_buf.clone());
                 p.is_malicious = true;
                 p.pids.insert(pid);
-                p.termination_requested = true;
+                // `traffic_attack` keeps Suricata `alert` semantics: the packet
+                // is still forwarded and the process is left running, but the
+                // exe that produced the attack traffic is quarantined.
+                p.termination_requested = !detection.is_traffic_attack;
                 p.quarantine_requested = true;
                 p.notify_user_requested = true;
+                p.remediation_target_path = Some(exe_path_buf.clone());
                 p.triggered_rule_name = Some(detection.threat_type_label().to_string());
                 p.triggered_rule_details = Some(detection.match_details());
                 Logging::warning(&format!(
-                    "[FirewallPipe] Acting on firewall-confirmed malicious exe: {} (PID {}) — {}",
+                    "[FirewallPipe] Acting on firewall-confirmed malicious exe: {} (PID {}) — {} (response: {})",
                     exe_path_str,
                     pid,
-                    detection.match_details()
+                    detection.match_details(),
+                    if detection.is_traffic_attack {
+                        "quarantine"
+                    } else {
+                        "kill and quarantine"
+                    }
                 ));
                 detected_processes.push(p);
                 continue;
