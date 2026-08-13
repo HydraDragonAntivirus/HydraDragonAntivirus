@@ -3730,6 +3730,19 @@ impl BehaviorEngine {
             })
             .unwrap_or(0)
             .min(u32::MAX as u64) as u32;
+
+        // Usermode API hook events: the driver writes process.pid as the
+        // resolved TargetPid, which is 0 for file/registry APIs (no process
+        // handle in the arguments). The process that actually made the call —
+        // the one we hooked — is in owlyHook.sourcePid. Attribute the event to
+        // that process, otherwise pid==0 drops the record before it ever logs.
+        let hook_caller_pid = u64_at(event, &["owlyHook", "sourcePid"]).unwrap_or(0);
+        let pid = if hook_caller_pid != 0 {
+            hook_caller_pid.min(u32::MAX as u64) as u32
+        } else {
+            pid
+        };
+
         if pid == 0 || event_type.is_empty() {
             return;
         }
