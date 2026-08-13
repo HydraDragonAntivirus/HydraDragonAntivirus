@@ -12,6 +12,14 @@
 // FIXME: Wrong file headers and documentation links!!!
 #include <libcore\inc\variant\lbvs.hpp>
 
+// Hypervisor (VMM/HyperDbg) bridge support switch. The standalone hypervisor
+// is no longer part of the product; this compiles to 0 so the VMM registration
+// and hypervisor-event paths are disabled. Set to 1 only if an external
+// hypervisor is reintroduced.
+#ifndef OWLY_HYPERVISOR_SUPPORT
+#define OWLY_HYPERVISOR_SUPPORT 0
+#endif
+
 namespace cmd {
 namespace edrdrv {
 

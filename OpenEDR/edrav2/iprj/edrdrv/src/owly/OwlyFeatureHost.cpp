@@ -24,7 +24,9 @@ static bool g_ProcessProtectionInitialized = false;
 static bool g_UserHookInitialized = false;
 static bool g_RootkitInitialized = false;
 static bool g_HookDeviceInitialized = false;
+#if OWLY_HYPERVISOR_SUPPORT
 static bool g_VmmInitialized = false;
+#endif
 static bool g_RegeditInitialized = false;
 
 static NTSTATUS CreateWorkItemDevice(_In_ PDRIVER_OBJECT DriverObject)
@@ -95,8 +97,10 @@ NTSTATUS InitializeFeatureHost(_In_ PDRIVER_OBJECT DriverObject)
     status = InitHookNotifyDevice(DriverObject);
     if (NT_SUCCESS(status)) g_HookDeviceInitialized = true;
 
+#if OWLY_HYPERVISOR_SUPPORT
     status = InitVmmCommunication();
     if (NT_SUCCESS(status)) g_VmmInitialized = true;
+#endif
 
     status = RegeditDriverEntry();
     if (NT_SUCCESS(status)) g_RegeditInitialized = true;
@@ -138,11 +142,13 @@ VOID FinalizeFeatureHost()
         g_ProcessProtectionInitialized = false;
     }
 
+#if OWLY_HYPERVISOR_SUPPORT
     if (g_VmmInitialized)
     {
         CleanupVmmCommunication();
         g_VmmInitialized = false;
     }
+#endif
 
     if (g_HookDeviceInitialized)
     {

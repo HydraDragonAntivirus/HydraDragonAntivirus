@@ -13,6 +13,8 @@ extern "C" NTSTATUS SetHookExcludeRulesFromBuffer(
     _In_ ULONG BytesRead);
 #endif
 
+#if OWLY_HYPERVISOR_SUPPORT
+
 // IOCTL for Hypervisor communication
 #define IOCTL_REGISTER_OWLY_CALLBACK CTL_CODE(FILE_DEVICE_UNKNOWN, 0x815, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define OWLY_HV_COMM_MAGIC 0x4F574C59
@@ -246,6 +248,8 @@ VOID CleanupVmmCommunication()
         g_HvDeviceObject = NULL;
     }
 }
+
+#endif // OWLY_HYPERVISOR_SUPPORT
 
 
 // IoCreateDriver is an undocumented ntoskrnl export - not declared in any WDK
@@ -842,10 +846,9 @@ extern "C" PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID)
     return g_HookNotifyDevice;
 }
 
+#if OWLY_HYPERVISOR_SUPPORT
+
 #define OWLY_HV_EVENT_QUEUE_TAG 'vHwO'
-#define OWLY_UMH_DRAIN_POOL_TAG 'dHuM'
-#define OWLY_UMH_DRAIN_BATCH_EVENTS 64UL
-#define OWLY_UMH_DRAIN_MAX_ROUNDS_PER_PID 16UL
 
 typedef struct _OWLY_HV_EVENT_ENTRY
 {
@@ -868,6 +871,14 @@ static VOID EnsureQueuedHypervisorEventsInitialized(VOID)
         g_OwlyHvEventQueueInitialized = TRUE;
     }
 }
+
+#endif // OWLY_HYPERVISOR_SUPPORT
+
+#define OWLY_UMH_DRAIN_POOL_TAG 'dHuM'
+#define OWLY_UMH_DRAIN_BATCH_EVENTS 64UL
+#define OWLY_UMH_DRAIN_MAX_ROUNDS_PER_PID 16UL
+
+#if OWLY_HYPERVISOR_SUPPORT
 
 static PCWSTR OwlyHypervisorEventDefaultLabel(_In_ ULONG EventType)
 {
@@ -1060,6 +1071,8 @@ send_done:
     return TRUE;
 }
 
+#endif // OWLY_HYPERVISOR_SUPPORT
+
 static VOID DrainUserModeHookRingEvents(VOID)
 {
     ULONG processIds[MAX_HOOKED_PROCESSES] = {0};
@@ -1164,6 +1177,8 @@ static VOID DrainUserModeHookRingEvents(VOID)
     ExFreePoolWithTag(events, OWLY_UMH_DRAIN_POOL_TAG);
 }
 
+#if OWLY_HYPERVISOR_SUPPORT
+
 VOID ResetQueuedHypervisorEvents(VOID)
 {
     KIRQL oldIrql;
@@ -1261,6 +1276,8 @@ VOID DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID
     }
 }
 
+#endif // OWLY_HYPERVISOR_SUPPORT
+
 NTSTATUS InitCommData()
 {
     NTSTATUS status;
@@ -1268,7 +1285,9 @@ NTSTATUS InitCommData()
     UNICODE_STRING uniString;
     PSECURITY_DESCRIPTOR sd = NULL;
 
+#if OWLY_HYPERVISOR_SUPPORT
     EnsureQueuedHypervisorEventsInitialized();
+#endif
 
     RtlInitUnicodeString(&uniString, ComPortName);
 
@@ -1866,7 +1885,9 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
             return STATUS_INVALID_PARAMETER;
         }
         *ReturnOutputBufferLength = 0;
+#if OWLY_HYPERVISOR_SUPPORT
         DrainQueuedHypervisorEvents(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
+#endif
         DrainUserModeHookRingEvents();
         driverData->DriverGetIrps(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
         return STATUS_SUCCESS;

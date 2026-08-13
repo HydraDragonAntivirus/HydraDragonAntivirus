@@ -527,6 +527,7 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 			// Build the owlyHv sub-dict from the nested owlyHv.* dict (hypervisor
 			// path). The LBVS deserializer creates a nested dictionary for the
 			// dotted schema names ("owlyHv.memoryAddress" -> { owlyHv: { ... } }).
+#if OWLY_HYPERVISOR_SUPPORT
 			if (vEvent.has("owlyHv"))
 			{
 				Variant vHvRaw = vEvent.get("owlyHv");
@@ -551,6 +552,7 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 				// Hypervisor events get a distinct baseType
 				eEvent = Event::LLE_DEVICE_IOCTL;
 			}
+#endif // OWLY_HYPERVISOR_SUPPORT
 		}
 
 		vEvent.put("baseType", eEvent);

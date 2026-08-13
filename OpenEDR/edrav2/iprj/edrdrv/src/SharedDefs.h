@@ -15,6 +15,16 @@ Environment :
 --*/
 
 //
+// Hypervisor (VMM/HyperDbg) bridge support switch.
+// The standalone hypervisor is no longer part of the product; this compiles
+// to 0 so the VMM registration and hypervisor-event queue code is disabled.
+// Set to 1 only if an external hypervisor is reintroduced.
+//
+#ifndef OWLY_HYPERVISOR_SUPPORT
+#define OWLY_HYPERVISOR_SUPPORT 0
+#endif
+
+//
 // IMPORTANT:
 // This shared header assumes core Windows/WDK types are already available
 // through the including translation unit (for example via <fltKernel.h>).
