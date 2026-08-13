@@ -9270,13 +9270,12 @@ impl BehaviorEngine {
                         // those sets must only contain real user-mode hook / kernel-API
                         // observations (e.g. "ntdll!NtCreateFile"). Normal OpenEDR events
                         // stay visible below via recent_events instead.
-                        for event in stats.recent_events {
-                            if s.recent_kernel_api_events.len() >= 128 {
-                                s.recent_kernel_api_events.pop_front();
-                            }
-                            s.recent_kernel_api_events
-                                .push_back(format!("openedr:{}", event));
-                        }
+                        // NOTE: telemetry is intentionally NOT appended to
+                        // recent_kernel_api_events either — that deque feeds the
+                        // "[API HOOKING SUMMARY]" and match_details() and must only
+                        // carry genuine hook/kernel-API observations, otherwise a
+                        // protected/non-hooked process (e.g. explorer.exe) would
+                        // surface registry/file telemetry as if it were API hooks.
                         if let Some(label) = stats.cloud_static_label {
                             s.cloud_static_label = Some(label);
                         }
@@ -11551,5 +11550,67 @@ mod tests {
             "detected_apis must contain the real hook API name, got {:?}",
             state.detected_apis
         );
+    }
+
+    #[test]
+    fn ingest_openedr_hook_event_uses_owly_hook_source_pid() {
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            9,
+            5150,
+            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
+            "cmd.exe".into(),
+        );
+
+        // The driver serializes hook events with process.pid = TargetPid, which is
+        // 0 for file/registry APIs (no process handle in the args). The real caller
+        // — the process we hooked — is carried in owlyHook.sourcePid. This event
+        // mimics exactly what OnKernelApiEvent emits (Communication.cpp).
+        let event = serde_json::json!({
+            "type": "LLE_DEVICE_IOCTL",
+            "process": { "pid": 0 },
+            "owlyHook": {
+                "eventType": 0x6001,
+                "functionName": "ntdll!NtCreateFile",
+                "sourcePid": 5150,
+                "arg1": 0x10,
+                "arg2": 0,
+                "arg3": 0,
+                "arg4": 0
+            }
+        });
+        engine.ingest_openedr_event(&event);
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1, "hook record must not be dropped when process.pid is 0");
+        let (gid, msg) = &drained[0];
+        assert_eq!(*gid, 9, "record must be attributed to the owlyHook.sourcePid caller");
+        assert_eq!(msg.kernel_event_info.object_name, "ntdll!NtCreateFile");
+        assert_eq!(msg.kernel_event_info.event_type, 0x6001);
+    }
+
+    #[test]
+    fn ingest_openedr_non_hook_event_still_uses_process_pid() {
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            11,
+            6161,
+            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
+            "cmd.exe".into(),
+        );
+
+        // A normal (non-hook) event with a plain process.pid must keep its old
+        // attribution path — the owlyHook override must not leak into other events.
+        let event = serde_json::json!({
+            "type": "LLE_FILE_CREATE",
+            "process": { "pid": 6161 },
+            "file": { "path": r"C:\Temp\evil.exe" }
+        });
+        engine.ingest_openedr_event(&event);
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1, "file create record must still drain");
+        let (gid, _) = &drained[0];
+        assert_eq!(*gid, 11);
     }
 }
