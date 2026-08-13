@@ -15,10 +15,10 @@ namespace cmd {
 namespace win {
 
 //
-// Shows the control bar window (defined in mode_controlbar.cpp).
-// Used by the "controlbar" and "start" app modes.
+// Shows the tray icon (defined in mode_tray.cpp).
+// Used by the "tray" and "start" app modes.
 //
-ErrorCode runControlBar();
+ErrorCode runTray();
 
 inline ObjPtr<ICommandProcessor> startElevatedInstanceWithParams(const std::wstring& params)
 {

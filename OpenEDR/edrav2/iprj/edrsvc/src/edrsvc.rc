@@ -5,7 +5,7 @@
 //
 // Icon
 //
-// Explicit numeric ID so the C++ code (mode_controlbar.cpp) can reference the
+// Explicit numeric ID so the C++ code (mode_tray.cpp) can reference the
 // application icon via MAKEINTRESOURCEW(IDI_MAIN). Without an explicit value the
 // resource compiler assigns one that is invisible to the C++ compiler.
 #define IDI_MAIN 101

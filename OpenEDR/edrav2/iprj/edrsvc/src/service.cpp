@@ -111,7 +111,7 @@ void WINAPI WinService::runService(DWORD dwArgc, PTSTR* pszArgv)
 		if (dwArgc > 0 && pszArgv != nullptr && pszArgv[0] != nullptr)
 		{
 			std::string sMode = string::convertWCharToUtf8(pszArgv[0]);
-			if (sMode == "controlbar")
+			if (sMode == "tray")
 			{
 				pSvcApp->m_sAppMode = sMode;
 				auto itAppMode = pSvcApp->m_appModes.find(sMode);
@@ -257,7 +257,7 @@ void WinService::doSelfcheck()
 //
 ErrorCode WinService::process()
 {
-	if (!getCatalogData("app.config.isService", false) || m_sAppMode == "controlbar")
+	if (!getCatalogData("app.config.isService", false) || m_sAppMode == "tray")
 	{
 		LOGINF("Service is being started as an Application");
 		return runService(true);
@@ -657,7 +657,7 @@ Variant WinService::execute(Variant vCommand, Variant vParams)
 		return execCommand(createObject(CLSID_WinServiceController), "start", Dictionary({ 
 			{ "name", c_sServiceName }, 
 			{ "startMode",  nStartMode},
-			{ "params", "controlbar" }
+			{ "params", "tray" }
 		}));
 	}
 

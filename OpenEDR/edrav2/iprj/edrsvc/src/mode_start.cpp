@@ -49,8 +49,8 @@ public:
 		}
 		stopElevatedInstance(pProcessor, true);
 
-		// After the service is up, show the control bar UI
-		return runControlBar();
+		// After the service is up, show the tray UI
+		return runTray();
 	}
 };
 

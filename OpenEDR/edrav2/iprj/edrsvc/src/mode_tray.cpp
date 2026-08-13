@@ -1,12 +1,12 @@
 //
 // edrav2.edrsvc project
 //
-// HydraDragon Antivirus - Control Bar Mode (system tray)
+// HydraDragon Antivirus - Tray Mode (system tray)
 //
 ///
-/// @file Control bar mode handler for edrsvc.
+/// @file Tray mode handler for edrsvc.
 ///
-/// Invoked as: edrsvc.exe controlbar
+/// Invoked as: edrsvc.exe tray
 ///
 /// Runs as a minimal system tray icon. The context menu exposes:
 ///   (status)  - current service state (disabled item)
@@ -259,10 +259,10 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT uMsg,
 }
 
 // ---------------------------------------------------------------------------
-// runControlBar — installs the tray icon and runs its message loop until Exit.
-// Shared by the "controlbar" and "start" modes.
+// runTray — installs the tray icon and runs its message loop until Exit.
+// Shared by the "tray" and "start" modes.
 // ---------------------------------------------------------------------------
-ErrorCode runControlBar()
+ErrorCode runTray()
 {
     HINSTANCE hInst = ::GetModuleHandleW(nullptr);
 
@@ -314,14 +314,14 @@ ErrorCode runControlBar()
 }
 
 // ---------------------------------------------------------------------------
-// AppMode_controlbar — registered as "controlbar" in edrsvc.cpp
+// AppMode_tray — registered as "tray" in edrsvc.cpp
 // ---------------------------------------------------------------------------
-class AppMode_controlbar : public IApplicationMode
+class AppMode_tray : public IApplicationMode
 {
 public:
     virtual ErrorCode main(Application* /*pApp*/) override
     {
-        return runControlBar();
+        return runTray();
     }
 };
 
@@ -330,9 +330,9 @@ public:
 // ---------------------------------------------------------------------------
 // Factory (called from edrsvc.cpp)
 // ---------------------------------------------------------------------------
-std::shared_ptr<IApplicationMode> createAppMode_controlbar()
+std::shared_ptr<IApplicationMode> createAppMode_tray()
 {
-    return std::make_shared<win::AppMode_controlbar>();
+    return std::make_shared<win::AppMode_tray>();
 }
 
 } // namespace cmd
