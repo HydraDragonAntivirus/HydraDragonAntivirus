@@ -52,6 +52,9 @@ static constexpr UINT    kTrayIconID    = 1;
 #define IDM_STOP   2003
 #define IDM_EXIT   2004
 
+// Application icon resource (must match edrsvc.rc).
+#define IDI_MAIN 101
+
 // ---------------------------------------------------------------------------
 // Helpers — thin SCM wrappers (no throws, returns bool)
 // ---------------------------------------------------------------------------
@@ -118,22 +121,16 @@ static void RefreshTray()
 
     const wchar_t* tooltip = L"Status: UNKNOWN";
     const wchar_t* status  = L"Status: UNKNOWN";
-    bool enableStart = false;
-    bool enableStop  = false;
 
     switch (state)
     {
     case SERVICE_RUNNING:
         tooltip      = L"HydraDragon Antivirus - ACTIVE";
         status       = L"Status: ANTIVIRUS ACTIVE";
-        enableStart  = false;
-        enableStop   = true;
         break;
     case SERVICE_STOPPED:
         tooltip      = L"HydraDragon Antivirus - PROTECTION STOPPED";
         status       = L"Status: PROTECTION STOPPED";
-        enableStart  = true;
-        enableStop   = false;
         break;
     case SERVICE_START_PENDING:
         tooltip      = L"HydraDragon Antivirus - STARTING...";
@@ -157,10 +154,11 @@ static void RefreshTray()
 
     if (g_hMenu)
     {
-        ::EnableMenuItem(g_hMenu, IDM_START,
-            MF_BYCOMMAND | (enableStart ? MF_ENABLED : MF_GRAYED));
-        ::EnableMenuItem(g_hMenu, IDM_STOP,
-            MF_BYCOMMAND | (enableStop ? MF_ENABLED : MF_GRAYED));
+        // Start/Stop are always visible and enabled; graying items out makes
+        // them render so faintly on some themes that users report them as
+        // missing. Issuing the SCM call in the wrong state is a harmless no-op.
+        ::EnableMenuItem(g_hMenu, IDM_START, MF_BYCOMMAND | MF_ENABLED);
+        ::EnableMenuItem(g_hMenu, IDM_STOP, MF_BYCOMMAND | MF_ENABLED);
         ::ModifyMenuW(g_hMenu, IDM_STATUS, MF_BYCOMMAND | MF_STRING | MF_GRAYED,
             IDM_STATUS, status);
     }
@@ -283,7 +281,7 @@ ErrorCode runControlBar()
         nullptr, nullptr, hInst, nullptr);
     if (!g_hWnd) return ErrorCode::RuntimeError;
 
-    g_hIcon = ::LoadIconW(nullptr, IDI_SHIELD);
+    g_hIcon = ::LoadIconW(hInst, MAKEINTRESOURCEW(IDI_MAIN));
 
     NOTIFYICONDATAW nid{};
     nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
