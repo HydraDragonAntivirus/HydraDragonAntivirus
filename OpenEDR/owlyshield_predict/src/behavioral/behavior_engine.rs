@@ -1148,6 +1148,31 @@ fn strip_drive_prefix(path: &str) -> String {
     path.to_string()
 }
 
+/// Strip the drive prefix from a rule *pattern* while preserving path anchoring.
+///
+/// `strip_drive_prefix` is meant for observed paths, where the stripped form is
+/// matched against candidate variants that also carry a leading slash. Reusing it
+/// on rule patterns degrades an absolute path like `C:\BCD` to the bare token `bcd`,
+/// which `matches_pattern_internal` then treats as a plain substring and matches
+/// anywhere inside long hash paths (false positives, e.g. `ec7fabcd7b908f90_1`).
+/// Keep the leading `/` so the pattern stays an anchored path (`/bcd`).
+fn strip_drive_prefix_for_pattern(pattern_norm: &str) -> String {
+    if pattern_norm.len() >= 3
+        && pattern_norm.as_bytes()[1] == b':'
+        && (pattern_norm.as_bytes()[2] == b'\\' || pattern_norm.as_bytes()[2] == b'/')
+    {
+        let rest = pattern_norm[3..].trim_start_matches(['\\', '/']);
+        if rest.is_empty() {
+            return String::from("/");
+        }
+        if rest.starts_with('/') {
+            return rest.to_string();
+        }
+        return format!("/{}", rest);
+    }
+    pattern_norm.to_string()
+}
+
 fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
     let mut variants = HashSet::new();
     if !norm_path.is_empty() {
@@ -5126,7 +5151,7 @@ impl BehaviorEngine {
                 .chain(cond_group.persistence_locations.iter())
                 .any(|pattern| {
                     let pattern_norm = pattern.replace("\\", "/");
-                    let pattern_norm_stripped = strip_drive_prefix(&pattern_norm);
+                    let pattern_norm_stripped = strip_drive_prefix_for_pattern(&pattern_norm);
                     path_variants.iter().any(|variant| {
                         Self::matches_pattern_internal(cache, &pattern_norm, variant)
                             || Self::matches_pattern_internal(
@@ -8008,7 +8033,7 @@ impl BehaviorEngine {
                     let matched_path: Option<String> = path_iter
                         .find(|p| {
                             let p_norm = p.replace("\\", "/");
-                            let p_norm_stripped = strip_drive_prefix(&p_norm);
+                            let p_norm_stripped = strip_drive_prefix_for_pattern(&p_norm);
                             path_variants.iter().any(|v| {
                                 Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
                                     || Self::matches_pattern_internal(
@@ -8082,7 +8107,7 @@ impl BehaviorEngine {
                             .chain(cond_group.persistence_locations.iter())
                             .any(|p| {
                                 let p_norm = p.replace("\\", "/");
-                                let p_norm_stripped = strip_drive_prefix(&p_norm);
+                                let p_norm_stripped = strip_drive_prefix_for_pattern(&p_norm);
                                 path_variants.iter().any(|v| {
                                     Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
                                         || Self::matches_pattern_internal(
@@ -11314,5 +11339,65 @@ impl BehaviorEngine {
         }
 
         detected_processes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pattern_cache() -> Arc<RwLock<HashMap<String, Regex>>> {
+        Arc::new(RwLock::new(HashMap::new()))
+    }
+
+    #[test]
+    fn drive_absolute_pattern_does_not_substring_match_long_hash_paths() {
+        // Regression: rule pattern "C:\BCD" must stay anchored. Before the fix the
+        // stripped pattern "bcd" was a bare substring and matched
+        // "ec7fabcd7b908f90_1" inside an EBWebView cache path (false positive).
+        let cache = pattern_cache();
+        let pattern = "C:\\BCD";
+        let evasive_path =
+            "C:/Users/openedr/AppData/Local/Packages/MicrosoftWindows.Client.CBS_cw5n1h2txyewy/\
+             LocalState/EBWebView/Default/Service Worker/CacheStorage/\
+             3b278e44f1419f0b07a0417a936be8182ad635d4/\
+             bc40b11f-8376-4527-bc53-bc6b1f7cf24d/ec7fabcd7b908f90_1";
+
+        assert!(!BehaviorEngine::matches_pattern_internal(&cache, pattern, evasive_path));
+    }
+
+    #[test]
+    fn drive_absolute_pattern_still_matches_its_own_path() {
+        let cache = pattern_cache();
+        assert!(BehaviorEngine::matches_pattern_internal(
+            &cache,
+            "C:\\BCD",
+            "c:/bcd"
+        ));
+        assert!(BehaviorEngine::matches_pattern_internal(
+            &cache,
+            "C:\\boot.ini",
+            "c:/boot.ini"
+        ));
+        // Path anchoring: a sibling file with a different name must not match.
+        assert!(!BehaviorEngine::matches_pattern_internal(
+            &cache,
+            "C:\\boot.ini",
+            "c:/boot.ini.bak"
+        ));
+        // A path nested under the pattern's directory still matches.
+        assert!(BehaviorEngine::matches_pattern_internal(
+            &cache,
+            "C:\\boot",
+            "c:/boot/efi/BCD"
+        ));
+    }
+
+    #[test]
+    fn strip_drive_prefix_for_pattern_keeps_anchor() {
+        assert_eq!(strip_drive_prefix_for_pattern("c:/bcd"), "/bcd");
+        assert_eq!(strip_drive_prefix_for_pattern("C:\\boot.ini"), "/boot.ini");
+        assert_eq!(strip_drive_prefix_for_pattern("c:/users/openedr/foo"), "/users/openedr/foo");
+        assert_eq!(strip_drive_prefix_for_pattern("/usr/bin/foo"), "/usr/bin/foo");
     }
 }
