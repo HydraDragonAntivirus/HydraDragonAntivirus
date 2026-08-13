@@ -1257,6 +1257,19 @@ pub mod worker_instance {
                 let mut sys = System::new_all();
                 sys.refresh_processes(ProcessesToUpdate::All, true);
 
+                // Deterministic hooking for newly created processes: the OpenEDR
+                // telemetry consumer queues LLE_PROCESS_CREATE PIDs here (the
+                // in-process FFI mode never feeds process_io), so apply the dynamic
+                // API hooks to them directly instead of relying only on the
+                // sysinfo sweep below.
+                for hook_pid in self.behavior_engine.drain_pending_hook_pids() {
+                    Logging::debug(&format!(
+                        "[DYNAMIC HOOK] OpenEDR ProcessCreate queue: applying hooks to PID {}",
+                        hook_pid
+                    ));
+                    self.refresh_dynamic_hooks_for_pid_if_due(hook_pid);
+                }
+
                 // --- FIRST: Prune dead processes from behavior engine ---
                 // IMPROVEMENT: We use direct Kernel Queries (OpenProcess) for 100% accuracy.
                 let mut dead_gids = Vec::new();

@@ -2823,6 +2823,13 @@ pub struct BehaviorEngine {
     /// `Arc<Mutex<_>>` so the cloned `BehaviorEngine` in the pipe thread shares the
     /// same underlying queue with the main-thread `BehaviorEngine`.
     pub pending_irp_records: Arc<Mutex<std::collections::VecDeque<(u32, IrpOperationRecord)>>>,
+    /// PIDs queued by the OpenEDR telemetry consumer on LLE_PROCESS_CREATE so the
+    /// Worker's periodic scan applies dynamic API hooks to newly started
+    /// processes. In the in-process FFI architecture the kernel-IOMessage channel
+    /// that drives `process_io` is never fed, so ProcessCreate events only reach
+    /// the engine through this queue. `Arc<Mutex<_>>` so the telemetry-thread
+    /// `BehaviorEngine` clone shares it with the Worker's main-thread engine.
+    pub pending_hook_pids: Arc<Mutex<std::collections::VecDeque<u32>>>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     
     pub firewall_net_pids: FirewallNetPids,
@@ -2898,6 +2905,7 @@ impl BehaviorEngine {
             openedr_stats: shared_openedr_stats(),
             self_defense_telemetry: shared_self_defense_telemetry(),
             pending_irp_records: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            pending_hook_pids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             
             firewall_net_pids: shared_firewall_net_pids(),
             
@@ -3724,6 +3732,21 @@ impl BehaviorEngine {
             .min(u32::MAX as u64) as u32;
         if pid == 0 || event_type.is_empty() {
             return;
+        }
+
+        // Deterministic dynamic-hook trigger for newly created processes.
+        // In the in-process FFI architecture the kernel-IOMessage channel that
+        // drives `process_io` is never fed (OwlyshieldIngest has no callers), so
+        // LLE_PROCESS_CREATE arrives here instead of via process_io. Queue the
+        // PID so the Worker's periodic scan applies the dynamic API hooks to it;
+        // without this, executables started after startup never get hooked.
+        if event_type == "LLE_PROCESS_CREATE" {
+            if let Ok(mut q) = self.pending_hook_pids.lock() {
+                let q: &mut std::collections::VecDeque<u32> = &mut *q;
+                if q.len() < 512 && !q.contains(&pid) {
+                    q.push_back(pid);
+                }
+            }
         }
 
         let target_pid = u64_at(event, &["target", "pid"])
@@ -6512,6 +6535,13 @@ impl BehaviorEngine {
 
     /// Drain the cross-thread pending IRP record queue.
     ///
+    pub fn drain_pending_hook_pids(&mut self) -> Vec<u32> {
+        match self.pending_hook_pids.lock() {
+            Ok(mut q) => q.drain(..).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
     /// Called from the main Worker thread (which owns `&mut self`) so that the
     /// pipe thread — which only holds a cloned `BehaviorEngine` with `&self` access
     /// — can still feed IRP telemetry without race conditions.
@@ -11429,6 +11459,19 @@ mod tests {
         assert_eq!(strip_drive_prefix_for_pattern("C:\\boot.ini"), "/boot.ini");
         assert_eq!(strip_drive_prefix_for_pattern("c:/users/openedr/foo"), "/users/openedr/foo");
         assert_eq!(strip_drive_prefix_for_pattern("/usr/bin/foo"), "/usr/bin/foo");
+    }
+
+    #[test]
+    fn process_create_event_queues_hook_pid() {
+        let mut engine = BehaviorEngine::new();
+        let event = serde_json::json!({
+            "type": "LLE_PROCESS_CREATE",
+            "pid": 4242,
+        });
+        engine.ingest_openedr_event(&event);
+
+        let drained = engine.drain_pending_hook_pids();
+        assert_eq!(drained, vec![4242]);
     }
 
     #[test]
