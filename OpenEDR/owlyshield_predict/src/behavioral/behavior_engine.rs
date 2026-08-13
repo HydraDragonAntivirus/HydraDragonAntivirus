@@ -6542,14 +6542,28 @@ impl BehaviorEngine {
                 None => continue, // Process not yet tracked — drop the record
             };
 
-            use crate::shared_def::{FileId, KernelEventInfo, RuntimeFeatures, SysmonEvent};
+            use crate::shared_def::{FileId, IrpMajorOp, KernelEventInfo, RuntimeFeatures, SysmonEvent};
             let raw_irp_type = rec.irp_type;
             // Legacy Communication.cpp hypervisor/hook sub-types (12-29) are
             // carried on the DeviceIoControl (0x000E) LBVS carrier with the
             // specific opcode in kernel_event_info.event_type — mirror the
             // driver's encoding so effective_hypervisor_irp_byte resolves it.
+            //
+            // Dynamic user-mode API hooks (e.g. "ntdll!NtCreateFile") carry the
+            // worker-allocated hook event-id (0x6000+, see
+            // Worker::DYNAMIC_HOOK_EVENT_ID_START) as the sub-type. Those ids are
+            // opaque to IrpMajorOp::from_sysmonevent, so encode them on the
+            // usermode-hook wire opcode (0x0010 -> IrpUserModeHookEvent) with the
+            // event-id preserved in kernel_event_info.event_type for raw-event
+            // display and dynamic_hook_event_map name resolution. Without this the
+            // events resolved to IrpNone and were dropped from detected_apis.
             let (irp_op, event_type): (u32, u32) =
-                if (12..=29).contains(&raw_irp_type) || raw_irp_type == 0x000E {
+                if raw_irp_type >= 0x6000 {
+                    (
+                        IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32(),
+                        raw_irp_type,
+                    )
+                } else if (12..=29).contains(&raw_irp_type) || raw_irp_type == 0x000E {
                     (
                         SysmonEvent::DeviceIoControl as u32,
                         if (12..=29).contains(&raw_irp_type) { raw_irp_type } else { 0 },
@@ -9208,10 +9222,11 @@ impl BehaviorEngine {
                 }
                 if let Ok(mut openedr_lock) = self.openedr_stats.write() {
                     if let Some(stats) = openedr_lock.remove(&pid) {
-                        for alias in stats.detected_apis {
-                            s.detected_apis.insert(alias.clone());
-                            s.all_apis_called.insert(alias);
-                        }
+                        // OpenEDR event aliases (e.g. "OpenEDR::File::FileDataReadFull")
+                        // are deliberately NOT merged into detected_apis/all_apis_called:
+                        // those sets must only contain real user-mode hook / kernel-API
+                        // observations (e.g. "ntdll!NtCreateFile"). Normal OpenEDR events
+                        // stay visible below via recent_events instead.
                         for event in stats.recent_events {
                             if s.recent_kernel_api_events.len() >= 128 {
                                 s.recent_kernel_api_events.pop_front();
@@ -11399,5 +11414,71 @@ mod tests {
         assert_eq!(strip_drive_prefix_for_pattern("C:\\boot.ini"), "/boot.ini");
         assert_eq!(strip_drive_prefix_for_pattern("c:/users/openedr/foo"), "/users/openedr/foo");
         assert_eq!(strip_drive_prefix_for_pattern("/usr/bin/foo"), "/usr/bin/foo");
+    }
+
+    #[test]
+    fn drain_pending_irp_records_encodes_usermode_hook_events() {
+        use crate::shared_def::effective_hypervisor_irp_byte;
+        use crate::shared_def::IrpMajorOp;
+
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            7,
+            4242,
+            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
+            "cmd.exe".into(),
+        );
+
+        // A real dynamic user-mode API hook event: event-id 0x6000
+        // (Worker::DYNAMIC_HOOK_EVENT_ID_START) with the API name carried by
+        // owlyHook.functionName from the driver.
+        {
+            let mut q = engine.pending_irp_records.lock().unwrap();
+            q.push_back((
+                4242,
+                IrpOperationRecord {
+                    timestamp: std::time::SystemTime::now(),
+                    irp_type: 0x6000,
+                    file_path: String::new(),
+                    file_change: 0,
+                    extension: String::new(),
+                    entropy: 0.0,
+                    bytes_transferred: 0,
+                    target_pid: 4242,
+                    function_name: "ntdll!NtCreateFile".to_string(),
+                    pipe_name: String::new(),
+                    pipe_payload: Vec::new(),
+                    raw_arguments: [0; 4],
+                },
+            ));
+        }
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1, "hook record must drain to one IOMessage");
+        let (gid, msg) = &drained[0];
+        assert_eq!(*gid, 7);
+
+        // Encoded on the usermode-hook wire opcode with the event-id preserved.
+        assert_eq!(
+            msg.irp_op,
+            IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32(),
+            "usermode hook events must map to IrpUserModeHookEvent (0x0010)"
+        );
+        assert_eq!(msg.kernel_event_info.event_type, 0x6000);
+        assert_eq!(msg.kernel_event_info.object_name, "ntdll!NtCreateFile");
+        assert_eq!(
+            effective_hypervisor_irp_byte(msg),
+            IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32()
+        );
+
+        // Regression: before the fix the record resolved to IrpNone, so the real
+        // hook API name never reached detected_apis.
+        let state = engine.process_states.get_mut(&7).unwrap();
+        state.record_irp_operation(msg, effective_hypervisor_irp_byte(msg));
+        assert!(
+            state.detected_apis.contains("ntdll!NtCreateFile"),
+            "detected_apis must contain the real hook API name, got {:?}",
+            state.detected_apis
+        );
     }
 }
