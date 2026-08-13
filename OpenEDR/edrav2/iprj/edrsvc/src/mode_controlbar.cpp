@@ -1,21 +1,22 @@
 //
 // edrav2.edrsvc project
 //
-// HydraDragon Antivirus - Control Bar Mode
+// HydraDragon Antivirus - Control Bar Mode (system tray)
 //
 ///
 /// @file Control bar mode handler for edrsvc.
 ///
 /// Invoked as: edrsvc.exe controlbar
 ///
-/// Opens a minimal Win32 GUI window with three buttons:
-///   Start  - starts the edrsvc Windows service via SCM
-///   Stop   - stops  the edrsvc Windows service via SCM
-///   Exit   - closes this window
-/// Plus one status label that polls QueryServiceStatus every 2 s.
+/// Runs as a minimal system tray icon. The context menu exposes:
+///   (status)  - current service state (disabled item)
+///   Start     - starts the edrsvc Windows service via SCM
+///   Stop      - stops  the edrsvc Windows service via SCM
+///   Exit      - removes the tray icon and exits
+/// The tray tooltip is refreshed every 2 s from QueryServiceStatus.
 ///
 /// Running as edrsvc.exe means the binary is the one protected by edrdrv.sys,
-/// so the window cannot be trivially killed without driver-level privileges.
+/// so the tray process cannot be trivially killed without driver-level privileges.
 ///
 #include "pch.h"
 
@@ -27,8 +28,12 @@
 #endif
 
 #include <windows.h>
+#include <shellapi.h>
 #include <cstdint>
 #include <string>
+
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "user32.lib")
 
 namespace cmd {
 namespace win {
@@ -39,11 +44,13 @@ namespace win {
 static constexpr wchar_t kServiceName[] = L"edrsvc";
 static constexpr UINT    kTimerID       = 1;
 static constexpr UINT    kPollMs        = 2000; // refresh status every 2 s
+static constexpr UINT    kTrayMsg       = WM_APP + 1;
+static constexpr UINT    kTrayIconID    = 1;
 
-#define ID_BTN_START  1001
-#define ID_BTN_STOP   1002
-#define ID_BTN_EXIT   1003
-#define ID_STATUS_LBL 1004
+#define IDM_STATUS 2001
+#define IDM_START  2002
+#define IDM_STOP   2003
+#define IDM_EXIT   2004
 
 // ---------------------------------------------------------------------------
 // Helpers — thin SCM wrappers (no throws, returns bool)
@@ -96,115 +103,123 @@ static bool ScmStopService()
 }
 
 // ---------------------------------------------------------------------------
-// Globals for the window
+// Globals for the tray icon
 // ---------------------------------------------------------------------------
-static HWND g_hWnd     = nullptr;
-static HWND g_hStatus  = nullptr;
-static HWND g_hBtnStart = nullptr;
-static HWND g_hBtnStop  = nullptr;
-static HWND g_hBtnExit  = nullptr;
+static HWND   g_hWnd   = nullptr;
+static HMENU  g_hMenu  = nullptr;
+static HICON  g_hIcon  = nullptr;
 
 // ---------------------------------------------------------------------------
-// UI refresh — called on timer and after button clicks
+// UI refresh — called on timer and after menu clicks
 // ---------------------------------------------------------------------------
-static void RefreshUI()
+static void RefreshTray()
 {
     DWORD state = QueryServiceState();
 
-    const wchar_t* statusText = L"Status: UNKNOWN";
+    const wchar_t* tooltip = L"Status: UNKNOWN";
+    const wchar_t* status  = L"Status: UNKNOWN";
     bool enableStart = false;
     bool enableStop  = false;
 
     switch (state)
     {
     case SERVICE_RUNNING:
-        statusText   = L"Status: ANTIVIRUS ACTIVE";
+        tooltip      = L"HydraDragon Antivirus - ACTIVE";
+        status       = L"Status: ANTIVIRUS ACTIVE";
         enableStart  = false;
         enableStop   = true;
         break;
     case SERVICE_STOPPED:
-        statusText   = L"Status: PROTECTION STOPPED";
+        tooltip      = L"HydraDragon Antivirus - PROTECTION STOPPED";
+        status       = L"Status: PROTECTION STOPPED";
         enableStart  = true;
         enableStop   = false;
         break;
     case SERVICE_START_PENDING:
-        statusText   = L"Status: STARTING...";
+        tooltip      = L"HydraDragon Antivirus - STARTING...";
+        status       = L"Status: STARTING...";
         break;
     case SERVICE_STOP_PENDING:
-        statusText   = L"Status: STOPPING...";
+        tooltip      = L"HydraDragon Antivirus - STOPPING...";
+        status       = L"Status: STOPPING...";
         break;
     default:
         break;
     }
 
-    if (g_hStatus)   ::SetWindowTextW(g_hStatus, statusText);
-    if (g_hBtnStart) ::EnableWindow(g_hBtnStart, enableStart ? TRUE : FALSE);
-    if (g_hBtnStop)  ::EnableWindow(g_hBtnStop,  enableStop  ? TRUE : FALSE);
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+    nid.hWnd = g_hWnd;
+    nid.uID = kTrayIconID;
+    nid.uFlags = NIF_TIP;
+    ::lstrcpynW(nid.szTip, tooltip, (int)(sizeof(nid.szTip) / sizeof(nid.szTip[0])));
+    ::Shell_NotifyIconW(NIM_MODIFY, &nid);
+
+    if (g_hMenu)
+    {
+        ::EnableMenuItem(g_hMenu, IDM_START,
+            MF_BYCOMMAND | (enableStart ? MF_ENABLED : MF_GRAYED));
+        ::EnableMenuItem(g_hMenu, IDM_STOP,
+            MF_BYCOMMAND | (enableStop ? MF_ENABLED : MF_GRAYED));
+        ::ModifyMenuW(g_hMenu, IDM_STATUS, MF_BYCOMMAND | MF_STRING | MF_GRAYED,
+            IDM_STATUS, status);
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Window Procedure
+// Tray context menu (rebuilt lazily so item labels/enable state stay current)
 // ---------------------------------------------------------------------------
-static LRESULT CALLBACK ControlBarWndProc(HWND hwnd, UINT uMsg,
-                                          WPARAM wParam, LPARAM lParam)
+static void BuildTrayMenu()
+{
+    if (g_hMenu) ::DestroyMenu(g_hMenu);
+
+    g_hMenu = ::CreatePopupMenu();
+    ::AppendMenuW(g_hMenu, MF_STRING | MF_GRAYED, IDM_STATUS, L"Status: ...");
+    ::AppendMenuW(g_hMenu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(g_hMenu, MF_STRING, IDM_START, L"Start service");
+    ::AppendMenuW(g_hMenu, MF_STRING, IDM_STOP, L"Stop service");
+    ::AppendMenuW(g_hMenu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(g_hMenu, MF_STRING, IDM_EXIT, L"Exit");
+}
+
+// ---------------------------------------------------------------------------
+// Window Procedure (hidden owner window for the tray icon)
+// ---------------------------------------------------------------------------
+static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT uMsg,
+                                    WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
     {
     case WM_CREATE:
-    {
-        HINSTANCE hInst = reinterpret_cast<LPCREATESTRUCT>(lParam)->hInstance;
-
-        HFONT hFont = ::CreateFontW(
-            17, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-
-        HFONT hStatusFont = ::CreateFontW(
-            17, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-
-        // Status label (top, full width)
-        g_hStatus = ::CreateWindowExW(
-            0, L"STATIC", L"Status: INITIALIZING...",
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            20, 16, 430, 24,
-            hwnd, (HMENU)(UINT_PTR)ID_STATUS_LBL, hInst, nullptr);
-
-        // Start button
-        g_hBtnStart = ::CreateWindowExW(
-            0, L"BUTTON", L"Start",
-            WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-            20, 56, 120, 38,
-            hwnd, (HMENU)(UINT_PTR)ID_BTN_START, hInst, nullptr);
-
-        // Stop button
-        g_hBtnStop = ::CreateWindowExW(
-            0, L"BUTTON", L"Stop",
-            WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-            160, 56, 120, 38,
-            hwnd, (HMENU)(UINT_PTR)ID_BTN_STOP, hInst, nullptr);
-
-        // Exit button
-        g_hBtnExit = ::CreateWindowExW(
-            0, L"BUTTON", L"Exit",
-            WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-            300, 56, 120, 38,
-            hwnd, (HMENU)(UINT_PTR)ID_BTN_EXIT, hInst, nullptr);
-
-        ::SendMessageW(g_hStatus,   WM_SETFONT, (WPARAM)hStatusFont, TRUE);
-        ::SendMessageW(g_hBtnStart, WM_SETFONT, (WPARAM)hFont, TRUE);
-        ::SendMessageW(g_hBtnStop,  WM_SETFONT, (WPARAM)hFont, TRUE);
-        ::SendMessageW(g_hBtnExit,  WM_SETFONT, (WPARAM)hFont, TRUE);
-
-        // Poll service status every 2 s
         ::SetTimer(hwnd, kTimerID, kPollMs, nullptr);
-        RefreshUI();
+        RefreshTray();
         return 0;
-    }
 
     case WM_TIMER:
-        if (wParam == kTimerID) RefreshUI();
+        if (wParam == kTimerID) RefreshTray();
+        return 0;
+
+    case kTrayMsg:
+        if (lParam == WM_CONTEXTMENU)
+        {
+            BuildTrayMenu();
+            RefreshTray();
+
+            POINT pt{};
+            ::GetCursorPos(&pt);
+            ::SetForegroundWindow(hwnd);
+            ::TrackPopupMenu(g_hMenu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
+                pt.x, pt.y, 0, hwnd, nullptr);
+            // Required so the menu dismisses when clicking elsewhere.
+            ::PostMessageW(hwnd, WM_NULL, 0, 0);
+            return 0;
+        }
+        if (lParam == WM_LBUTTONDBLCLK)
+        {
+            ScmStartService();
+            RefreshTray();
+            return 0;
+        }
         return 0;
 
     case WM_COMMAND:
@@ -212,19 +227,15 @@ static LRESULT CALLBACK ControlBarWndProc(HWND hwnd, UINT uMsg,
         int id = LOWORD(wParam);
         switch (id)
         {
-        case ID_BTN_START:
-            ::EnableWindow(g_hBtnStart, FALSE);
+        case IDM_START:
             ScmStartService();
-            RefreshUI();
+            RefreshTray();
             break;
-
-        case ID_BTN_STOP:
-            ::EnableWindow(g_hBtnStop, FALSE);
+        case IDM_STOP:
             ScmStopService();
-            RefreshUI();
+            RefreshTray();
             break;
-
-        case ID_BTN_EXIT:
+        case IDM_EXIT:
             ::DestroyWindow(hwnd);
             break;
         }
@@ -233,6 +244,15 @@ static LRESULT CALLBACK ControlBarWndProc(HWND hwnd, UINT uMsg,
 
     case WM_DESTROY:
         ::KillTimer(hwnd, kTimerID);
+
+        NOTIFYICONDATAW nid{};
+        nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+        nid.hWnd = hwnd;
+        nid.uID = kTrayIconID;
+        ::Shell_NotifyIconW(NIM_DELETE, &nid);
+
+        if (g_hMenu) { ::DestroyMenu(g_hMenu); g_hMenu = nullptr; }
+        if (g_hIcon) { ::DestroyIcon(g_hIcon); g_hIcon = nullptr; }
         ::PostQuitMessage(0);
         return 0;
     }
@@ -241,39 +261,49 @@ static LRESULT CALLBACK ControlBarWndProc(HWND hwnd, UINT uMsg,
 }
 
 // ---------------------------------------------------------------------------
-// runControlBar — creates the control bar window and runs its message loop
-// until the window is closed. Shared by the "controlbar" and "start" modes.
+// runControlBar — installs the tray icon and runs its message loop until Exit.
+// Shared by the "controlbar" and "start" modes.
 // ---------------------------------------------------------------------------
 ErrorCode runControlBar()
 {
     HINSTANCE hInst = ::GetModuleHandleW(nullptr);
 
-    const wchar_t CLASS_NAME[] = L"EdrsvcControlBarWnd";
+    const wchar_t CLASS_NAME[] = L"EdrsvcTrayWnd";
     WNDCLASSW wc     = {};
-    wc.lpfnWndProc   = ControlBarWndProc;
+    wc.lpfnWndProc   = TrayWndProc;
     wc.hInstance     = hInst;
     wc.lpszClassName = CLASS_NAME;
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.hCursor       = ::LoadCursorW(nullptr, IDC_ARROW);
-    wc.hIcon         = ::LoadIconW(nullptr, IDI_SHIELD);
     ::RegisterClassW(&wc);
 
-    int sw = ::GetSystemMetrics(SM_CXSCREEN);
-    int sh = ::GetSystemMetrics(SM_CYSCREEN);
-    const int W = 470, H = 128;
-
+    // Hidden top-level window that owns the tray icon (message-only windows are
+    // not reliably delivered tray callbacks).
     g_hWnd = ::CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
-        CLASS_NAME,
-        L"HydraDragon Antivirus — Control Bar",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        (sw - W) / 2, (sh - H) / 2, W, H,
+        0, CLASS_NAME, L"HydraDragon Antivirus",
+        WS_OVERLAPPED, 0, 0, 1, 1,
         nullptr, nullptr, hInst, nullptr);
-
     if (!g_hWnd) return ErrorCode::RuntimeError;
 
-    ::ShowWindow(g_hWnd, SW_SHOWNORMAL);
-    ::UpdateWindow(g_hWnd);
+    g_hIcon = ::LoadIconW(nullptr, IDI_SHIELD);
+
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+    nid.hWnd = g_hWnd;
+    nid.uID = kTrayIconID;
+    nid.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
+    nid.uCallbackMessage = kTrayMsg;
+    nid.hIcon = g_hIcon;
+    ::lstrcpynW(nid.szTip, L"HydraDragon Antivirus",
+        (int)(sizeof(nid.szTip) / sizeof(nid.szTip[0])));
+
+    if (!::Shell_NotifyIconW(NIM_ADD, &nid))
+    {
+        ::DestroyWindow(g_hWnd);
+        g_hWnd = nullptr;
+        return ErrorCode::RuntimeError;
+    }
+
+    nid.uVersion = NOTIFYICON_VERSION_4;
+    ::Shell_NotifyIconW(NIM_SETVERSION, &nid);
 
     MSG msg = {};
     while (::GetMessageW(&msg, nullptr, 0, 0))
