@@ -11194,11 +11194,26 @@ impl BehaviorEngine {
 
             // Log Nt API activity summary if any events detected
             if !state.recent_kernel_api_events.is_empty() {
+                let mut api_names: Vec<&str> = state.detected_apis.iter().map(|s| s.as_str()).collect();
+                api_names.sort();
+                let api_list = if api_names.is_empty() {
+                    // Fall back to the raw event summaries so the log still shows
+                    // which APIs were observed even when none qualified as an
+                    // actionable (real_api + success) observation.
+                    state
+                        .recent_kernel_api_events
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                } else {
+                    api_names
+                };
                 Logging::info(&format!(
-                    "[API HOOKING SUMMARY] PID {} ({}) - Total kernel API events: {}",
+                    "[API HOOKING SUMMARY] PID {} ({}) - Total kernel API events: {} - Detected APIs: {}",
                     pid,
                     app_name,
-                    state.recent_kernel_api_events.len()
+                    state.recent_kernel_api_events.len(),
+                    api_list.join(", ")
                 ));
             }
 
