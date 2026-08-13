@@ -30,6 +30,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 #pragma comment(lib, "shell32.lib")
@@ -145,7 +146,7 @@ static void RefreshTray()
     }
 
     NOTIFYICONDATAW nid{};
-    nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
     nid.hWnd = g_hWnd;
     nid.uID = kTrayIconID;
     nid.uFlags = NIF_TIP;
@@ -189,6 +190,10 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT uMsg,
     switch (uMsg)
     {
     case WM_CREATE:
+        // The global must be set before any RefreshTray() NIM_MODIFY, which is
+        // otherwise called during CreateWindowExW (WM_CREATE fires before the
+        // CreateWindowExW call returns and assigns g_hWnd).
+        g_hWnd = hwnd;
         ::SetTimer(hwnd, kTimerID, kPollMs, nullptr);
         RefreshTray();
         return 0;
@@ -198,8 +203,13 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT uMsg,
         return 0;
 
     case kTrayMsg:
-        if (lParam == WM_CONTEXTMENU)
+        // NOTIFYICON_VERSION_4 delivers WM_CONTEXTMENU (0x007B) on right-click;
+        // legacy shell versions deliver WM_RBUTTONUP/WM_RBUTTONDOWN instead.
+        // Handle all so the menu shows regardless of the version that was honored.
+        if (lParam == WM_CONTEXTMENU || lParam == WM_RBUTTONUP || lParam == WM_RBUTTONDOWN)
         {
+            std::fprintf(stderr, "[tray] Right-click received (lParam=0x%08X), showing menu\n",
+                (unsigned int)lParam);
             BuildTrayMenu();
             RefreshTray();
 
@@ -244,7 +254,7 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT uMsg,
         ::KillTimer(hwnd, kTimerID);
 
         NOTIFYICONDATAW nid{};
-        nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+        nid.cbSize = sizeof(NOTIFYICONDATAW);
         nid.hWnd = hwnd;
         nid.uID = kTrayIconID;
         ::Shell_NotifyIconW(NIM_DELETE, &nid);
@@ -282,9 +292,12 @@ ErrorCode runTray()
     if (!g_hWnd) return ErrorCode::RuntimeError;
 
     g_hIcon = ::LoadIconW(hInst, MAKEINTRESOURCEW(IDI_MAIN));
+    if (g_hIcon == nullptr)
+        std::fprintf(stderr, "[tray] LoadIconW(IDI_MAIN) failed (GetLastError=%lu)\n",
+            (unsigned long)::GetLastError());
 
     NOTIFYICONDATAW nid{};
-    nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
     nid.hWnd = g_hWnd;
     nid.uID = kTrayIconID;
     nid.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
@@ -295,14 +308,23 @@ ErrorCode runTray()
 
     if (!::Shell_NotifyIconW(NIM_ADD, &nid))
     {
+        std::fprintf(stderr, "[tray] Shell_NotifyIconW(NIM_ADD) failed (GetLastError=%lu)\n",
+            (unsigned long)::GetLastError());
         ::DestroyWindow(g_hWnd);
         g_hWnd = nullptr;
         return ErrorCode::RuntimeError;
     }
 
     nid.uVersion = NOTIFYICON_VERSION_4;
-    ::Shell_NotifyIconW(NIM_SETVERSION, &nid);
+    if (!::Shell_NotifyIconW(NIM_SETVERSION, &nid))
+    {
+        // Version 4 not honored (e.g. very old shell). We handle the legacy
+        // callback messages (WM_RBUTTONUP) as a fallback, so this is not fatal.
+        std::fprintf(stderr, "[tray] Shell_NotifyIconW(NIM_SETVERSION) failed (GetLastError=%lu)\n",
+            (unsigned long)::GetLastError());
+    }
 
+    std::fprintf(stderr, "[tray] Tray icon installed\n");
     MSG msg = {};
     while (::GetMessageW(&msg, nullptr, 0, 0))
     {
