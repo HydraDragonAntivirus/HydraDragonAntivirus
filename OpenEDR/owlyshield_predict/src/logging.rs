@@ -59,6 +59,19 @@ impl Status {
 
 pub struct Logging;
 
+/// Pop a trailing `owlyshield` segment so the JSONL file lands at the log root
+/// instead of inside a dedicated subdirectory (see `owlyshield_log_dir`).
+fn normalize_owlyshield_log_dir(mut dir: PathBuf) -> PathBuf {
+    if dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map_or(false, |s| s.eq_ignore_ascii_case("owlyshield"))
+    {
+        dir.pop();
+    }
+    dir
+}
+
 impl Logging {
     
     fn open_windows_log_file(dir: &Path) -> std::io::Result<std::fs::File> {
@@ -71,34 +84,36 @@ impl Logging {
     }
 
 
-    
-    fn candidate_log_dirs(dir: &str) -> Vec<PathBuf> {
-        let mut dirs = Vec::new();
-        let configured = PathBuf::from(dir);
-        if !configured.as_os_str().is_empty() {
-            dirs.push(configured);
+    /// Resolve the log directory that holds `owlyshield.jsonl`.
+    ///
+    /// The installer sets `LOG_PATH` to `...\edrsvc\log\owlyshield` (a dedicated
+    /// subdirectory). Popping the `owlyshield` segment keeps the file at the log
+    /// root (`C:\ProgramData\edrsvc\log\owlyshield.jsonl`), next to the firewall's
+    /// `firewall_activity.jsonl`, so only one JSONL file is ever created and
+    /// Filebeat / Logstash can tail both from the same folder.
+    pub fn owlyshield_log_dir() -> PathBuf {
+        let configured = ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield");
+        if !configured.trim().is_empty() {
+            return normalize_owlyshield_log_dir(PathBuf::from(configured.trim()));
         }
-
         if let Some(program_data) = std::env::var_os("ProgramData") {
-            dirs.push(
-                PathBuf::from(program_data)
-                    .join("edrsvc")
-                    .join("log"),
-            );
+            return PathBuf::from(program_data).join("edrsvc").join("log");
         }
-
-        dirs.push(std::env::temp_dir().join("owlyshield"));
-        dirs
+        PathBuf::from("C:\\ProgramData\\edrsvc\\log")
     }
 
+    pub fn owlyshield_jsonl_path() -> PathBuf {
+        Self::owlyshield_log_dir().join("owlyshield.jsonl")
+    }
 
-    
     fn should_write_to_file(status: Status, _message: &str) -> bool {
-        // The structured `owlyshield.jsonl` feed is consumed by Filebeat / Logstash /
-        // Elasticsearch and must contain ONLY detections. All INFO/WARNING/DEBUG
-        // chatter is still sent to the Windows Event Log and console so operators can
-        // debug, but the JSONL stream stays small and high-signal. VERBOSE_LOGGING
-        // no longer bypasses this filter.
+        // With VERBOSE_LOGGING enabled every level (START/STOP/ALERT/WARNING/
+        // ERROR/INFO/DEBUG) is mirrored into `owlyshield.jsonl` for troubleshooting.
+        if is_verbose_logging_enabled() {
+            return true;
+        }
+        // Otherwise the feed contains ONLY detections so the stream consumed by
+        // Filebeat / Logstash / Elasticsearch stays small and high-signal.
         matches!(status, Status::Alert)
     }
 
@@ -187,7 +202,7 @@ impl Logging {
     }
 
 
-    fn log_in_file(status: Status, message: &str, dir: &str) {
+    fn log_in_file(status: Status, message: &str, _dir: &str) {
         let now_millis = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -204,30 +219,22 @@ impl Logging {
             return;
         };
 
-        let mut last_error: Option<(PathBuf, std::io::Error)> = None;
-
-        for log_dir in Self::candidate_log_dirs(dir) {
-            let open_result = Self::open_windows_log_file(&log_dir);
-
-            match open_result {
-                Ok(mut file) => {
-                    if let Err(e) = writeln!(file, "{line}") {
-                        eprintln!("Couldn't write to log file {}: {}", log_dir.display(), e);
-                    }
-                    return;
-                }
-                Err(e) => {
-                    last_error = Some((log_dir, e));
-                }
+        let path = Self::owlyshield_jsonl_path();
+        if let Some(parent) = path.parent() {
+            if std::fs::create_dir_all(parent).is_err() {
+                return;
             }
         }
 
-        if let Some((path, err)) = last_error {
-            eprintln!(
-                "Couldn't open any log file. Last path {} failed: {}",
-                path.display(),
-                err
-            );
+        match Self::open_windows_log_file(path.parent().unwrap_or(&path)) {
+            Ok(mut file) => {
+                if let Err(e) = writeln!(file, "{line}") {
+                    eprintln!("Couldn't write to log file {}: {}", path.display(), e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Couldn't open log file {}: {}", path.display(), e);
+            }
         }
     }
 }

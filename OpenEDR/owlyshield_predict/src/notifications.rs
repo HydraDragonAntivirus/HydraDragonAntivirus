@@ -59,36 +59,10 @@ impl OwlyshieldLogEntry {
     }
 }
 
-/// Resolve the log directory holding `owlyshield.jsonl`. Mirrors the firewall
-/// layout (`C:\ProgramData\edrsvc\log\firewall_activity.jsonl`) so Filebeat /
-/// Logstash can tail both files from one folder.
-fn owlyshield_jsonl_path() -> std::path::PathBuf {
-    let log_path_val =
-        crate::config::ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield");
-    let mut base_log_dir = if !log_path_val.trim().is_empty() {
-        std::path::PathBuf::from(log_path_val)
-    } else if let Some(program_data) = std::env::var_os("ProgramData") {
-        std::path::PathBuf::from(program_data).join("edrsvc").join("log")
-    } else {
-        std::env::temp_dir().join("owlyshield")
-    };
-
-    // Go up one level from the 'owlyshield' subdirectory to get the main 'log' folder.
-    if base_log_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map_or(false, |s| s.eq_ignore_ascii_case("owlyshield"))
-    {
-        base_log_dir.pop();
-    }
-
-    base_log_dir.join("owlyshield.jsonl")
-}
-
 /// Append one JSON line to `owlyshield.jsonl`. Failures are silent on purpose:
 /// a logging hiccup must never break detection handling.
 pub fn log_jsonl(entry: &OwlyshieldLogEntry) {
-    let path = owlyshield_jsonl_path();
+    let path = crate::logging::Logging::owlyshield_jsonl_path();
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

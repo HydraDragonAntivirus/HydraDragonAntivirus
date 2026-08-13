@@ -90,7 +90,7 @@
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield">
 					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]rules" Type="string" KeyPath="yes" />
 					<RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" />
-					<RegistryValue Name="LOG_PATH" Value="[CommonAppDataFolder]edrsvc\log\owlyshield" Type="string" />
+					<RegistryValue Name="LOG_PATH" Value="[CommonAppDataFolder]edrsvc\log" Type="string" />
 					<RegistryValue Name="REPORTS_PATH" Value="[CommonAppDataFolder]edrsvc\log\reports" Type="string" />
 				</RegistryKey>
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
