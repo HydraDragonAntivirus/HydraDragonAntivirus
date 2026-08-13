@@ -145,7 +145,7 @@ static void RefreshTray()
     }
 
     NOTIFYICONDATAW nid{};
-    nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
     nid.hWnd = g_hWnd;
     nid.uID = kTrayIconID;
     nid.uFlags = NIF_TIP;
@@ -189,6 +189,7 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT uMsg,
     switch (uMsg)
     {
     case WM_CREATE:
+        g_hWnd = hwnd;
         ::SetTimer(hwnd, kTimerID, kPollMs, nullptr);
         RefreshTray();
         return 0;
@@ -198,7 +199,7 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT uMsg,
         return 0;
 
     case kTrayMsg:
-        if (lParam == WM_CONTEXTMENU)
+        if (lParam == WM_CONTEXTMENU || lParam == WM_RBUTTONUP || lParam == WM_RBUTTONDOWN)
         {
             BuildTrayMenu();
             RefreshTray();
@@ -244,7 +245,7 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT uMsg,
         ::KillTimer(hwnd, kTimerID);
 
         NOTIFYICONDATAW nid{};
-        nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+        nid.cbSize = sizeof(NOTIFYICONDATAW);
         nid.hWnd = hwnd;
         nid.uID = kTrayIconID;
         ::Shell_NotifyIconW(NIM_DELETE, &nid);
@@ -284,7 +285,7 @@ ErrorCode runTray()
     g_hIcon = ::LoadIconW(hInst, MAKEINTRESOURCEW(IDI_MAIN));
 
     NOTIFYICONDATAW nid{};
-    nid.cbSize = NOTIFYICONDATAW_V2_SIZE;
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
     nid.hWnd = g_hWnd;
     nid.uID = kTrayIconID;
     nid.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
