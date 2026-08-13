@@ -130,7 +130,11 @@ fn ca_params() -> CertificateParams {
 ///
 /// By reusing the same CA across restarts the user only needs to install the
 /// certificate into the trust store **once**.
-pub fn generate_ca() -> CaBundle {
+///
+/// Returns an error (rather than panicking) if the persisted CA is unusable and
+/// a fresh key/certificate cannot be produced, so callers such as the installer
+/// can abort setup instead of crashing across the FFI boundary.
+pub fn generate_ca() -> Result<CaBundle, String> {
     let dir = ca_dir();
     let key_path = dir.join(CA_KEY_FILE);
     let cert_path = dir.join(CA_CERT_FILE);
@@ -141,14 +145,16 @@ pub fn generate_ca() -> CaBundle {
         if let Ok(key) = KeyPair::try_from(key_der_bytes.as_slice()) {
             let params = ca_params();
             let issuer = rcgen::Issuer::new(params, key);
-            return CaBundle { issuer, cert_der };
+            return Ok(CaBundle { issuer, cert_der });
         }
     }
 
     // ── Generate a fresh CA ────────────────────────────────────────────────
     let params = ca_params();
-    let key = KeyPair::generate().unwrap();
-    let cert: Certificate = params.self_signed(&key).unwrap();
+    let key = KeyPair::generate().map_err(|e| format!("failed to generate CA key: {e}"))?;
+    let cert: Certificate = params
+        .self_signed(&key)
+        .map_err(|e| format!("failed to self-sign CA certificate: {e}"))?;
     let cert_der = cert.der().to_vec();
 
     // Serialize the private key to PKCS#8 DER bytes for persistence.
@@ -159,7 +165,7 @@ pub fn generate_ca() -> CaBundle {
     let params = ca_params();
     let issuer = rcgen::Issuer::new(params, key);
 
-    CaBundle { issuer, cert_der }
+    Ok(CaBundle { issuer, cert_der })
 }
 
 // ── Proxy runner ───────────────────────────────────────────────────────────────

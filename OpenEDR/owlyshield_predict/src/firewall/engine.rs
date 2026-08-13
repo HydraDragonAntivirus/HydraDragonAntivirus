@@ -1854,7 +1854,16 @@ impl FirewallEngine {
         let sdk = self.sdk.clone();
         let settings = self.settings.clone();
 
-        let ca_bundle = super::proxy::generate_ca();
+        let Ok(ca_bundle) = super::proxy::generate_ca() else {
+            let now = Self::now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-ca-generation-failed", now),
+                timestamp: now,
+                level: LogLevel::Error,
+                message: "Failed to generate the HydraDragon firewall CA. The TLS proxy will not start.".to_string(),
+            });
+            return;
+        };
         super::headless::spawn(super::proxy::run_proxy(
             addr_v4,
             ca_bundle.issuer,
@@ -2092,7 +2101,7 @@ foreach ($store in $stores) {
 
 
     pub fn install_firewall_certificate(&self) -> Result<String, String> {
-        let ca_bundle = super::proxy::generate_ca();
+        let ca_bundle = super::proxy::generate_ca()?;
         Self::install_ca_der(&ca_bundle.cert_der)?;
         self.windows_root_trust_ready.store(true, Ordering::SeqCst);
 

@@ -267,7 +267,15 @@ pub extern "C" fn owlyshield_dll_stop() {
 pub extern "C" fn owlyshield_dll_install_ca() -> i32 {
     Logging::init();
 
-    let ca_bundle = crate::firewall::proxy::generate_ca();
+    let ca_bundle = match crate::firewall::proxy::generate_ca() {
+        Ok(bundle) => bundle,
+        Err(e) => {
+            Logging::error(&format!(
+                "[Owlyshield FFI] Firewall CA generation failed: {e}"
+            ));
+            return OWLY_CA_INSTALL_ERROR;
+        }
+    };
 
     match crate::firewall::engine::FirewallEngine::install_ca_der(&ca_bundle.cert_der) {
         Ok(()) => {
