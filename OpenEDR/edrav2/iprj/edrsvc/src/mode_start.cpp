@@ -28,9 +28,6 @@ public:
 	{
 		ObjPtr<ICommandProcessor> pProcessor = startElevatedInstance(true);
 
-		// Starting the service must never prevent the tray from showing: even if
-		// the SCM start fails (e.g. driver not loaded), the tray is still useful
-		// for Status/Start/Stop/Exit.
 		try
 		{
 			auto vRes = execCommand(pProcessor, "execute", Dictionary({
@@ -45,17 +42,10 @@ public:
 				std::cout << "Service <" << getCatalogData("app.fullName")
 					<< "> is started." << std::endl;
 		}
-		catch (const std::exception& ex)
-		{
-			stopElevatedInstance(pProcessor, true);
-			std::cerr << "Failed to start service: " << ex.what()
-				<< " - starting tray anyway." << std::endl;
-		}
 		catch (...)
 		{
 			stopElevatedInstance(pProcessor, true);
-			std::cerr << "Unknown error while starting service - starting tray anyway."
-				<< std::endl;
+			throw;
 		}
 		stopElevatedInstance(pProcessor, true);
 

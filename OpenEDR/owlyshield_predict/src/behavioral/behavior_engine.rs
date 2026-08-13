@@ -2830,12 +2830,6 @@ pub struct BehaviorEngine {
     /// the engine through this queue. `Arc<Mutex<_>>` so the telemetry-thread
     /// `BehaviorEngine` clone shares it with the Worker's main-thread engine.
     pub pending_hook_pids: Arc<Mutex<std::collections::VecDeque<u32>>>,
-    /// Lower-cased paths already sealed into a .hqf quarantine container this
-    /// session. Guards against double-quarantining the same file when the same
-    /// malicious verdict is reported by several paths (VERDICT: line, FLS
-    /// nested flsVerdict, static + dynamic cloud verdicts, ...). Shared via
-    /// `Arc<Mutex<_>>` so clones of the engine in worker/telemetry threads agree.
-    pub quarantined_paths: Arc<Mutex<std::collections::HashSet<String>>>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     
     pub firewall_net_pids: FirewallNetPids,
@@ -2912,7 +2906,6 @@ impl BehaviorEngine {
             self_defense_telemetry: shared_self_defense_telemetry(),
             pending_irp_records: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             pending_hook_pids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
-            quarantined_paths: Arc::new(Mutex::new(std::collections::HashSet::new())),
             
             firewall_net_pids: shared_firewall_net_pids(),
             
@@ -3335,7 +3328,7 @@ impl BehaviorEngine {
                         file_path
                     ));
 
-                    self.quarantine_verdict_file(
+                    Self::quarantine_verdict_file(
                         &file_path,
                         &format!("OpenEDR FLS Verdict: {}", verdict_label),
                     );
@@ -3353,11 +3346,7 @@ impl BehaviorEngine {
     }
 
     /// Seal a file into a .hqf quarantine container and remove the original.
-    /// Idempotent: a path is only sealed once per session (the same malicious
-    /// verdict is frequently reported through several channels — VERDICT: line,
-    /// FLS nested flsVerdict, static + dynamic cloud verdicts — which used to
-    /// quarantine the file twice).
-    fn quarantine_verdict_file(&self, file_path: &str, detection: &str) {
+    fn quarantine_verdict_file(file_path: &str, detection: &str) {
         if file_path.is_empty()
             || file_path.to_lowercase() == "unknown"
             || file_path.to_lowercase() == "system"
@@ -3369,21 +3358,6 @@ impl BehaviorEngine {
             return;
         }
 
-        let key = file_path.to_lowercase();
-        {
-            let mut seen = match self.quarantined_paths.lock() {
-                Ok(s) => s,
-                Err(_) => return,
-            };
-            if !seen.insert(key) {
-                Logging::debug(&format!(
-                    "[OpenEDRVerdict] {} already quarantined this session; skipping duplicate",
-                    file_path
-                ));
-                return;
-            }
-        }
-
         match crate::windows::quarantine::quarantine_path(src, detection) {
             Ok(dst) => Logging::warning(&format!(
                 "[OpenEDRVerdict] Quarantined {} into {} ({})",
@@ -3391,17 +3365,10 @@ impl BehaviorEngine {
                 dst.display(),
                 detection
             )),
-            Err(e) => {
-                // Roll back the seen-mark so a later channel can retry a
-                // transient failure (e.g. file locked) once the condition clears.
-                if let Ok(mut seen) = self.quarantined_paths.lock() {
-                    seen.remove(&file_path.to_lowercase());
-                }
-                Logging::error(&format!(
-                    "[OpenEDRVerdict] Failed to quarantine {}: {}",
-                    file_path, e
-                ));
-            }
+            Err(e) => Logging::error(&format!(
+                "[OpenEDRVerdict] Failed to quarantine {}: {}",
+                file_path, e
+            )),
         }
     }
 
@@ -3721,7 +3688,7 @@ impl BehaviorEngine {
                             "[OpenEDRVerdict] Malicious flsVerdict in processes[] for {}",
                             path
                         ));
-                        self.quarantine_verdict_file(
+                        Self::quarantine_verdict_file(
                             path,
                             &format!("OpenEDR nested process verdict (FLS): Malware"),
                         );
@@ -3741,7 +3708,7 @@ impl BehaviorEngine {
                         "[OpenEDRVerdict] Malicious flsVerdict in childProcess for {}",
                         path
                     ));
-                    self.quarantine_verdict_file(
+                    Self::quarantine_verdict_file(
                         path,
                         &format!("OpenEDR childProcess verdict (FLS): Malware"),
                     );
@@ -3823,7 +3790,7 @@ impl BehaviorEngine {
                         file_path
                     };
                     if !target.is_empty() && target != "Unknown" {
-                        self.quarantine_verdict_file(
+                        Self::quarantine_verdict_file(
                             target,
                             &format!("OpenEDR process report verdict (FLS): {label}"),
                         );
@@ -4492,7 +4459,7 @@ impl BehaviorEngine {
                     .as_deref()
                     .unwrap_or("OpenEDR static verdict");
                 self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 2 (Malware)");
-                self.quarantine_verdict_file(
+                Self::quarantine_verdict_file(
                     exe_path,
                     &format!("OpenEDR FLS static verdict: {label}"),
                 );
@@ -4519,7 +4486,7 @@ impl BehaviorEngine {
                     .as_deref()
                     .unwrap_or("OpenEDR dynamic verdict");
                 self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 2 (Malware)");
-                self.quarantine_verdict_file(
+                Self::quarantine_verdict_file(
                     exe_path,
                     &format!("OpenEDR FLS dynamic verdict: {label}"),
                 );
@@ -11508,41 +11475,10 @@ mod tests {
     }
 
     #[test]
-    fn quarantine_verdict_file_is_idempotent() {
-        use std::fs;
-        use std::io::Write;
-
-        let dir = std::env::temp_dir().join(format!(
-            "owly_qtest_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let src = dir.join("sample.exe");
-        {
-            let mut f = fs::File::create(&src).unwrap();
-            f.write_all(b"MZ fake exe bytes").unwrap();
-        }
-        let src_str = src.to_string_lossy().to_string();
-
-        let mut engine = BehaviorEngine::new();
-        engine.quarantine_verdict_file(&src_str, "OpenEDR test verdict");
-        // Second call with the same path must be a no-op (the original is gone
-        // after the first quarantine, so this also asserts the guard skips it).
-        engine.quarantine_verdict_file(&src_str, "OpenEDR test verdict duplicate");
-
-        assert!(!src.exists(), "original must be removed after first quarantine");
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn drain_pending_irp_records_encodes_usermode_hook_events() {
         use crate::shared_def::effective_hypervisor_irp_byte;
         use crate::shared_def::IrpMajorOp;
+
         let mut engine = BehaviorEngine::new();
         engine.register_process(
             7,

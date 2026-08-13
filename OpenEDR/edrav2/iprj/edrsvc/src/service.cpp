@@ -656,7 +656,8 @@ Variant WinService::execute(Variant vCommand, Variant vParams)
 
 		return execCommand(createObject(CLSID_WinServiceController), "start", Dictionary({ 
 			{ "name", c_sServiceName }, 
-			{ "startMode",  nStartMode}
+			{ "startMode",  nStartMode},
+			{ "params", "tray" }
 		}));
 	}
 
