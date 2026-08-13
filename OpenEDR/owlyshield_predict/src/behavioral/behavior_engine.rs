@@ -9593,14 +9593,21 @@ impl BehaviorEngine {
                                     Some(indicator_ratio),
                                 );
                                 let pending_threat = ThreatInfo {
-                                    threat_type_label: "HIPS Pending",
+                                    // Operator-facing label comes from
+                                    // display_threat_type_label(): this reports
+                                    // as "Access Denied", because that is what
+                                    // deny_while_ask actually enforced.
+                                    threat_type_label: "Access Denied",
                                     virus_name: &rule.name,
-                                    prediction: 0.0,
+                                    prediction: indicator_ratio,
                                     match_details: Some(if pending_match_details.is_empty() {
-                                        format!("Awaiting user decision for rule '{}'", rule.name)
+                                        format!(
+                                            "Access denied while awaiting user decision for rule '{}'",
+                                            rule.name
+                                        )
                                     } else {
                                         format!(
-                                            "Awaiting user decision for rule '{}' | {}",
+                                            "Access denied while awaiting user decision for rule '{}' | {}",
                                             rule.name, pending_match_details
                                         )
                                     }),
@@ -9609,8 +9616,9 @@ impl BehaviorEngine {
                                     quarantine: false,
                                     kill_and_remove: false,
                                     suspend: false,
-                                    notify_user: false,
+                                    notify_user: rule.response.notify_user,
                                     revert: false,
+                                    pending_user_decision: true,
                                 };
                                 let dummy = VecvecCappedF32::new(0, 0);
                                 actions.run_actions_with_info(
@@ -9734,6 +9742,7 @@ impl BehaviorEngine {
                     },
                     notify_user: rule.response.notify_user,
                     revert: rule.response.auto_revert,
+                    pending_user_decision: false,
                 };
 
                 // FAIL-FAST SAFETY GUARD: Prevent rule-based termination of critical system processes

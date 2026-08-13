@@ -33,6 +33,14 @@ pub struct ThreatInfo<'a> {
     pub suspend: bool,
     pub notify_user: bool,
     pub revert: bool,
+    /// True while an `ask_user` rule is still waiting for the operator's answer.
+    ///
+    /// The interim enforcement is still reported — `deny_while_ask` really did
+    /// deny access, so operators need to see it — but the response is labelled
+    /// by what was actually enforced ("Access denied") instead of by the
+    /// internal prompt state. Set explicitly rather than sniffed from
+    /// `match_details`, whose wording differs per code path.
+    pub pending_user_decision: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -42,6 +50,10 @@ pub const RESTART_CLEANUP_PREDICTION_THRESHOLD: f32 = 0.999;
 
 impl ThreatInfo<'_> {
     fn is_pending_user_decision(&self) -> bool {
+        if self.pending_user_decision {
+            return true;
+        }
+
         let details = self
             .match_details
             .as_deref()
@@ -52,7 +64,11 @@ impl ThreatInfo<'_> {
     }
 
     fn should_notify(&self) -> bool {
-        if self.is_pending_user_decision() {
+        // A prompt that is still pending has enforced something concrete
+        // (deny/suspend while asking), so it is reported like any other
+        // response. Only firewall detections that are *purely* waiting on the
+        // user — no enforcement at all — stay silent.
+        if self.is_pending_user_decision() && !self.has_enforced_response() {
             return false;
         }
 
@@ -65,6 +81,20 @@ impl ThreatInfo<'_> {
             || self.revert
     }
 
+    /// True when the response actually enforced something against the process,
+    /// as opposed to only recording or notifying.
+    fn has_enforced_response(&self) -> bool {
+        self.deny_access
+            || self.suspend
+            || self.terminate
+            || self.quarantine
+            || self.kill_and_remove
+            || self.revert
+    }
+
+    /// Label describing what was enforced. Never leaks internal prompt state:
+    /// a pending `deny_while_ask` rule reports "Access denied", because that is
+    /// what the process actually experienced.
     fn response_label_for(&self, proc: &ProcessRecord) -> &'static str {
         if restart_cleanup_reason(proc, self).is_some() {
             "Restart to clean"
@@ -85,6 +115,24 @@ impl ThreatInfo<'_> {
         } else {
             "Record only"
         }
+    }
+
+    /// Threat label used in reports and alerts.
+    ///
+    /// While a prompt is pending, the caller-supplied label is an internal
+    /// state name ("HIPS Pending") that means nothing to an operator. Report
+    /// the enforced action instead.
+    fn display_threat_type_label(&self) -> &str {
+        if self.is_pending_user_decision() && self.has_enforced_response() {
+            if self.deny_access {
+                return "Access Denied";
+            }
+            if self.suspend {
+                return "Suspended";
+            }
+        }
+
+        self.threat_type_label
     }
 
     fn response_time_label_for(&self, proc: &ProcessRecord) -> &'static str {
@@ -216,7 +264,7 @@ fn quarantine_detection_label(proc: &ProcessRecord, threat_info: &ThreatInfo<'_>
         segments.push(trimmed.to_string());
     };
 
-    push_unique(threat_info.threat_type_label);
+    push_unique(threat_info.display_threat_type_label());
     push_unique(threat_info.virus_name);
 
     if let Some(rule_name) = proc.triggered_rule_name.as_deref() {
@@ -514,10 +562,10 @@ impl ActionOnKill for WriteReportFile {
         let display_process = best_process_display(proc);
         file.write_all(b"Owlyshield report file\n\n")?;
         file.write_all(
-            // MODIFIED: Use threat_type_label
             format!(
                 "{} detected running from: {}\n\n",
-                threat_info.threat_type_label, display_process
+                threat_info.display_threat_type_label(),
+                display_process
             )
             .as_bytes(),
         )?;
@@ -548,7 +596,7 @@ impl ActionOnKill for WriteReportFile {
 
         let msg = format!(
             "{} detected running from: {} with certainty {} (detection: {}) (response: {})",
-            threat_info.threat_type_label,
+            threat_info.display_threat_type_label(),
             display_process,
             threat_info.prediction,
             threat_info.virus_name,
@@ -609,7 +657,7 @@ impl ActionOnKill for WriteOpenEdrEventLog {
             "eventTime": event_time_iso,
             "status": "ALERT",
             "threat": {
-                "type": threat_info.threat_type_label,
+                "type": threat_info.display_threat_type_label(),
                 "name": threat_info.virus_name,
                 "certainty": threat_info.prediction,
                 "matchDetails": threat_info.match_details,
@@ -680,7 +728,7 @@ impl ActionOnKill for Logging {
         // MODIFIED: Use details from threat_info
         let msg = format!(
             "{} detected running from: {}[{}] with certainty {} (detection: {}) (response: {}) (details: {}) (started at {})",
-            threat_info.threat_type_label,
+            threat_info.display_threat_type_label(),
             display_process,
             proc.gid,
             threat_info.prediction,
@@ -981,6 +1029,27 @@ mod tests {
             suspend: false,
             notify_user: true,
             revert: false,
+            pending_user_decision: false,
+        }
+    }
+
+    fn pending_deny_threat_info() -> ThreatInfo<'static> {
+        ThreatInfo {
+            threat_type_label: "Access Denied",
+            virus_name: "HEUR:Win.Hijacking.BootConfigTampering.gen",
+            prediction: 1.0,
+            match_details: Some(
+                "Access denied while awaiting user decision for rule 'HEUR:Win.Hijacking.BootConfigTampering.gen'"
+                    .to_string(),
+            ),
+            deny_access: true,
+            terminate: false,
+            quarantine: false,
+            kill_and_remove: false,
+            suspend: false,
+            notify_user: true,
+            revert: false,
+            pending_user_decision: true,
         }
     }
 
@@ -1065,5 +1134,36 @@ mod tests {
             .unwrap();
 
         assert!(handler.calls().is_empty());
+    }
+
+    #[test]
+    fn pending_deny_is_reported_as_access_denied() {
+        let threat_info = pending_deny_threat_info();
+        let proc = test_process_record();
+
+        // The interim deny is real enforcement, so it must be reported.
+        assert!(threat_info.should_notify());
+        // Neither the label nor the response leaks the internal prompt state.
+        assert_eq!(threat_info.display_threat_type_label(), "Access Denied");
+        assert_eq!(threat_info.response_label_for(&proc), "Access denied");
+    }
+
+    #[test]
+    fn pending_without_enforcement_stays_silent() {
+        let mut threat_info = pending_deny_threat_info();
+        threat_info.deny_access = false;
+        threat_info.notify_user = false;
+
+        assert!(!threat_info.should_notify());
+    }
+
+    #[test]
+    fn pending_suspend_is_reported_as_suspended() {
+        let mut threat_info = pending_deny_threat_info();
+        threat_info.deny_access = false;
+        threat_info.suspend = true;
+
+        assert!(threat_info.should_notify());
+        assert_eq!(threat_info.display_threat_type_label(), "Suspended");
     }
 }

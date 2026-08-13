@@ -742,6 +742,7 @@ pub mod worker_instance {
                 suspend: det.suspend_requested,
                 notify_user: det.notify_user_requested,
                 revert: det.revert_requested,
+                pending_user_decision: false,
             }
         }
 
@@ -1739,6 +1740,7 @@ pub mod worker_instance {
                                 suspend: false,
                                 notify_user: true,
                                 revert: false,
+                                pending_user_decision: false,
                             };
                             let report_context = crate::actions_on_kill::ActionReportContext::default();
                             crate::actions_on_kill::ActionsOnKill::with_handler(threat_handler.clone_box())
