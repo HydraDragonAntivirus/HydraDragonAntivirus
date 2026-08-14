@@ -918,6 +918,7 @@ impl Default for FirewallSettings {
             tls_proxy: TlsProxyConfig::default(),
             metadata,
             network_whitelist: Vec::new(),
+            allow_unknown_apps: false,
         }
     }
 }
@@ -1146,6 +1147,7 @@ pub struct AppManager {
     pub decisions: RwLock<HashMap<String, AppDecision>>,
     pub pending: RwLock<VecDeque<PendingApp>>,
     pub known_apps: RwLock<HashSet<String>>,
+    pub allow_unknown_apps: RwLock<bool>,
     pub port_map: RwLock<HashMap<u16, u32>>,
     pub info_cache: AppInfoCache,
     pub url_cache: RwLock<HashMap<u32, String>>,
@@ -1164,6 +1166,7 @@ impl AppManager {
             decisions: RwLock::new(initial_decisions),
             pending: RwLock::new(VecDeque::new()),
             known_apps: RwLock::new(HashSet::new()),
+            allow_unknown_apps: RwLock::new(false),
             port_map: RwLock::new(HashMap::new()),
             info_cache: AppInfoCache::new(),
             url_cache: RwLock::new(HashMap::new()),
@@ -1236,6 +1239,9 @@ impl AppManager {
         {
             let known = self.known_apps.read().unwrap();
             if !known.contains(&app_name_lower) {
+                if self.allow_unknown_apps.read().unwrap().clone() {
+                    return (AppDecision::Allow, app_name, app_path);
+                }
                 return (AppDecision::Pending, app_name, app_path);
             }
         }
@@ -1657,6 +1663,7 @@ impl FirewallEngine {
         )));
         let app_decisions = settings_data.app_decisions.clone();
         let app_manager = Arc::new(AppManager::new(app_decisions));
+        *app_manager.allow_unknown_apps.write().unwrap() = settings_data.allow_unknown_apps;
         let rules = Arc::new(RwLock::new(settings_data.rules.clone()));
         let settings = Arc::new(RwLock::new(settings_data));
         let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
@@ -1703,6 +1710,12 @@ impl FirewallEngine {
         {
             let mut decisions = self.app_manager.decisions.write().unwrap();
             *decisions = new_settings.app_decisions.clone();
+        }
+
+        // Sync allow-unknown-apps flag
+        {
+            let mut allow_unknown = self.app_manager.allow_unknown_apps.write().unwrap();
+            *allow_unknown = new_settings.allow_unknown_apps;
         }
 
         // Sync Rules
@@ -2044,6 +2057,7 @@ impl FirewallEngine {
             tls_proxy: current_settings.tls_proxy.clone(),
             network_whitelist: current_settings.network_whitelist.clone(),
             metadata: current_settings.metadata.clone(),
+            allow_unknown_apps: current_settings.allow_unknown_apps,
         };
 
         {

@@ -971,6 +971,10 @@ pub struct FirewallSettings {
     #[serde(default)]
     pub log_full_bodies: bool,
     #[serde(default)]
+    pub network_whitelist: Vec<String>,
+    #[serde(default)]
+    pub allow_unknown_apps: bool,
+    #[serde(default)]
     pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
 }
@@ -1003,6 +1007,8 @@ impl Default for FirewallSettings {
             prune_http_history: default_prune_http_history(),
             max_visible_http_events: default_max_visible_http_history(),
             log_full_bodies: false,
+            network_whitelist: Vec::new(),
+            allow_unknown_apps: false,
             tls_proxy: TlsProxyConfig::default(),
             metadata,
         }
@@ -4467,6 +4473,18 @@ pub fn App() -> impl IntoView {
                                                                 "No-alert mode "
                                                                 <span style="color: var(--accent-orange); font-size: 11px; font-weight: 700">"[not recommended — skips firewall decision prompts for testing]"</span>
                                                             </span>
+                                                        </label>
+                                                    </div>
+                                                    <div class="input-group">
+                                                        <label style="display: flex; align-items: center; gap: 10px">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=move || settings.get().allow_unknown_apps
+                                                                on:change=move |ev| {
+                                                                    set_settings.update(|s| s.allow_unknown_apps = event_target_checked(&ev));
+                                                                }
+                                                            />
+                                                            "Allow unknown apps by default (do not prompt/block new applications)"
                                                         </label>
                                                     </div>
                                                     <p style="margin: 8px 0 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5">
