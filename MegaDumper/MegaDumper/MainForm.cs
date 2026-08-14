@@ -2312,14 +2312,65 @@ namespace Mega_Dumper
                                                             ptr += (ulong)Marshal.SizeOf(typeof(image_section_header));
                                                         }
 
+                                                        // --- ON-DISK SECTION TABLE (authoritative raw layout) ---
+                                                        // Packers (Themida/VMP) scramble PointerToRawData/SizeOfRawData in
+                                                        // memory (anti-dump). Recover the true raw layout from the on-disk
+                                                        // image, then read section *content* from the process at the VAs.
+                                                        image_section_header[] onDiskSections = null;
+                                                        int onDiskNrofSections = 0;
+                                                        int onDiskTotalRawSize = 0;
+                                                        string imagePath = null;
+                                                        try { imagePath = GetProcessImagePath((int)processId); } catch { }
+                                                        if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+                                                        {
+                                                            try
+                                                            {
+                                                                byte[] diskBytes = File.ReadAllBytes(imagePath);
+                                                                int diskLfanew = BitConverter.ToInt32(diskBytes, 0x3C);
+                                                                int diskNs = BitConverter.ToInt16(diskBytes, diskLfanew + 6);
+                                                                int diskOpt = BitConverter.ToInt16(diskBytes, diskLfanew + 20);
+                                                                if (diskNs > 0 && diskNs < 100 &&
+                                                                    (diskLfanew + 24 + diskOpt + diskNs * 40) <= diskBytes.Length)
+                                                                {
+                                                                    onDiskSections = new image_section_header[diskNs];
+                                                                    int dsecOff = diskLfanew + 24 + diskOpt;
+                                                                    for (int di = 0; di < diskNs; di++)
+                                                                    {
+                                                                        fixed (byte* p = &diskBytes[dsecOff + di * 40])
+                                                                        {
+                                                                            onDiskSections[di] = (image_section_header)Marshal.PtrToStructure((IntPtr)p, typeof(image_section_header));
+                                                                        }
+                                                                    }
+                                                                    onDiskNrofSections = diskNs;
+                                                                    int lastRaw = onDiskSections[diskNs - 1].pointer_to_raw_data;
+                                                                    int lastRs = onDiskSections[diskNs - 1].size_of_raw_data;
+                                                                    if (lastRaw > 0 && lastRs > 0)
+                                                                        onDiskTotalRawSize = lastRaw + lastRs;
+                                                                    Console.WriteLine($"[INFO] On-disk section table loaded from {Path.GetFileName(imagePath)} ({diskNs} sections, raw size=0x{onDiskTotalRawSize:X})");
+                                                                }
+                                                            }
+                                                            catch (Exception ex)
+                                                            {
+                                                                Console.WriteLine($"[WARNING] On-disk section parse failed: {ex.Message}");
+                                                            }
+                                                        }
+
+                                                        // Prefer the on-disk section table for raw reconstruction.
+                                                        // Themida/VMP scramble the in-memory raw offsets (anti-dump), which
+                                                        // previously produced corrupt PEs (broken .rsrc -> SxS errors).
+                                                        image_section_header[] rawSections = onDiskSections ?? sections;
+                                                        int rawNrofSections = onDiskSections != null ? onDiskNrofSections : nrofsection;
+
                                                         // get total raw size (of all sections):
                                                         int totalrawsize = 0;
-                                                        if (nrofsection > 0)
+                                                        if (rawNrofSections > 0)
                                                         {
-                                                            int rawsizeoflast = sections[nrofsection - 1].size_of_raw_data;
-                                                            int rawaddressoflast = sections[nrofsection - 1].pointer_to_raw_data;
+                                                            int rawsizeoflast = rawSections[rawNrofSections - 1].size_of_raw_data;
+                                                            int rawaddressoflast = rawSections[rawNrofSections - 1].pointer_to_raw_data;
                                                             if (rawsizeoflast > 0 && rawaddressoflast > 0)
                                                                 totalrawsize = rawsizeoflast + rawaddressoflast;
+                                                            if (onDiskSections != null && onDiskTotalRawSize > 0)
+                                                                totalrawsize = onDiskTotalRawSize;
                                                         }
                                                         string filename = "";
 
@@ -2364,45 +2415,63 @@ namespace Mega_Dumper
                                                         {
                                                             try
                                                             {
-                                                                byte[] rawdump = new byte[totalrawsize];
-                                                                // --- PROPER RAW DUMP RECONSTRUCTION ---
-                                                                // Copy headers first
-                                                                int headersSize = BitConverter.ToInt32(PeHeader, e_lfanew + 0x54);
-                                                                if (headersSize > PeHeader.Length) headersSize = PeHeader.Length;
-                                                                Array.Copy(PeHeader, rawdump, Math.Min(headersSize, rawdump.Length));
+byte[] rawdump = new byte[totalrawsize];
+                                                                 // --- PROPER RAW DUMP RECONSTRUCTION ---
+                                                                 // Copy headers first
+                                                                 int headersSize = BitConverter.ToInt32(PeHeader, e_lfanew + 0x54);
+                                                                 if (headersSize > PeHeader.Length) headersSize = PeHeader.Length;
+                                                                 if (headersSize > rawdump.Length) headersSize = rawdump.Length;
+                                                                 Array.Copy(PeHeader, rawdump, headersSize);
 
-                                                                // Copy each section from its VirtualAddress to its PointerToRawData
-                                                                for (int s = 0; s < nrofsection; s++)
-                                                                {
-                                                                    int vAddress = sections[s].virtual_address;
-                                                                    int rAddress = sections[s].pointer_to_raw_data;
-                                                                    int rSize    = sections[s].size_of_raw_data;
+                                                                 // Fix the section table in the dump using the authoritative raw layout
+                                                                 // (on-disk when available). This prevents corrupt .rsrc/.idata manifests.
+                                                                 int rawSectionTableOff = PEOffset + 24 + sizeofoptionalheader;
+                                                                 for (int s = 0; s < rawNrofSections && s < 96; s++)
+                                                                 {
+                                                                     int so = rawSectionTableOff + (0x28 * s);
+                                                                     if (so + 40 > rawdump.Length) break;
+                                                                     rawdump[so + 16] = (byte)rawSections[s].size_of_raw_data;
+                                                                     rawdump[so + 17] = (byte)(rawSections[s].size_of_raw_data >> 8);
+                                                                     rawdump[so + 18] = (byte)(rawSections[s].size_of_raw_data >> 16);
+                                                                     rawdump[so + 19] = (byte)(rawSections[s].size_of_raw_data >> 24);
+                                                                     rawdump[so + 20] = (byte)rawSections[s].pointer_to_raw_data;
+                                                                     rawdump[so + 21] = (byte)(rawSections[s].pointer_to_raw_data >> 8);
+                                                                     rawdump[so + 22] = (byte)(rawSections[s].pointer_to_raw_data >> 16);
+                                                                     rawdump[so + 23] = (byte)(rawSections[s].pointer_to_raw_data >> 24);
+                                                                 }
 
-                                                                    // Packers (e.g. VMP, Themida) zero SizeOfRawData in-memory while
-                                                                    // keeping VirtualSize intact — fall back so .rsrc and other
-                                                                    // sections are not silently skipped.
-                                                                    if (rSize == 0 && sections[s].virtual_size > 0)
-                                                                    {
-                                                                        rSize = sections[s].virtual_size;
-                                                                        Console.WriteLine($"[INFO] Section {s}: SizeOfRawData=0, using VirtualSize={rSize:X} instead");
-                                                                    }
+                                                                 // Copy each section from its VirtualAddress to its PointerToRawData
+                                                                 for (int s = 0; s < rawNrofSections; s++)
+                                                                 {
+                                                                     int vAddress = rawSections[s].virtual_address;
+                                                                     int rAddress = rawSections[s].pointer_to_raw_data;
+                                                                     int rSize    = rawSections[s].size_of_raw_data;
 
-                                                                    if (rSize == 0 || rAddress == 0) continue;
+                                                                     // Packers (e.g. VMP, Themida) zero SizeOfRawData in-memory while
+                                                                     // keeping VirtualSize intact — fall back so .rsrc and other
+                                                                     // sections are not silently skipped.
+                                                                     if (rSize == 0 && rawSections[s].virtual_size > 0)
+                                                                     {
+                                                                         rSize = rawSections[s].virtual_size;
+                                                                         Console.WriteLine($"[INFO] Section {s}: SizeOfRawData=0, using VirtualSize={rSize:X} instead");
+                                                                     }
 
-                                                                    // Clamp so we never write past the rawdump buffer
-                                                                    if ((long)rAddress + rSize > rawdump.Length)
-                                                                        rSize = rawdump.Length - rAddress;
-                                                                    if (rSize <= 0) continue;
+                                                                     if (rSize == 0 || rAddress == 0) continue;
 
-                                                                    byte[] sectionData = new byte[rSize];
-                                                                    ReadProcessMemoryW(hProcess, j + (ulong)k + (ulong)vAddress, sectionData, (UIntPtr)rSize, out BytesRead);
+                                                                     // Clamp so we never write past the rawdump buffer
+                                                                     if ((long)rAddress + rSize > rawdump.Length)
+                                                                         rSize = rawdump.Length - rAddress;
+                                                                     if (rSize <= 0) continue;
 
-                                                                    try
-                                                                    {
-                                                                        Array.Copy(sectionData, 0, rawdump, rAddress, rSize);
-                                                                    }
-                                                                    catch { }
-                                                                }
+                                                                     byte[] sectionData = new byte[rSize];
+                                                                     ReadProcessMemoryW(hProcess, j + (ulong)k + (ulong)vAddress, sectionData, (UIntPtr)rSize, out BytesRead);
+
+                                                                     try
+                                                                     {
+                                                                         Array.Copy(sectionData, 0, rawdump, rAddress, rSize);
+                                                                     }
+                                                                     catch { }
+                                                                 }
                                                                 isok = true;
                                                                 
                                                                 if (isok)
@@ -2436,9 +2505,9 @@ namespace Mega_Dumper
                                                                             {
                                                                                 // Find where the last section ends on disk
                                                                                 int overlayStart = 0;
-                                                                                for (int s = 0; s < nrofsection; s++)
+                                                                                for (int s = 0; s < rawNrofSections; s++)
                                                                                 {
-                                                                                    int sectionEnd = sections[s].pointer_to_raw_data + sections[s].size_of_raw_data;
+                                                                                    int sectionEnd = rawSections[s].pointer_to_raw_data + rawSections[s].size_of_raw_data;
                                                                                     if (sectionEnd > overlayStart)
                                                                                         overlayStart = sectionEnd;
                                                                                 }
