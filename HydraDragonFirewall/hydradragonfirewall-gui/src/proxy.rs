@@ -1,5 +1,7 @@
 use bytes::Bytes;
+use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
+use http_mitm_proxy::hyper::body::{Body as HttpBody, Frame, SizeHint};
 use http_mitm_proxy::hyper::header::{HeaderMap, HeaderValue};
 use http_mitm_proxy::{
     DefaultClient, MitmProxy,
@@ -18,7 +20,9 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
+use std::task::Poll;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::oneshot;
 
@@ -126,18 +130,75 @@ fn adaptive_body_timeout(base_secs: u64, content_length_header: Option<&str>) ->
     base + bounded
 }
 
+/// Boxed body error used by the proxy response stream.
+type DynErr = Box<dyn std::error::Error + Send + Sync>;
+
+/// Boxes a fully-buffered body into the proxy's response body type.
+fn boxed_full(body: Bytes) -> BoxBody<Bytes, DynErr> {
+    Full::new(body)
+        .map_err(|never| -> DynErr { match never {} })
+        .boxed()
+}
+
+/// Streams a response body: yields the already-buffered head bytes first,
+/// then polls the remaining upstream `Incoming` body. This lets large bodies
+/// (> `max_body`) pass through without ever being fully buffered in memory.
+struct HeadThenStream {
+    head: Bytes,
+    head_pos: usize,
+    rest: Option<http_mitm_proxy::hyper::body::Incoming>,
+}
+
+impl HttpBody for HeadThenStream {
+    type Data = Bytes;
+    type Error = DynErr;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        if self.head_pos < self.head.len() {
+            let end = (self.head_pos + 8192).min(self.head.len());
+            let chunk = self.head.slice(self.head_pos..end);
+            self.head_pos = end;
+            return Poll::Ready(Some(Ok(Frame::data(chunk))));
+        }
+        if let Some(rest) = self.rest.as_mut() {
+            match Pin::new(rest).poll_frame(cx) {
+                Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
+                Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(Box::new(e)))),
+                Poll::Ready(None) => {
+                    self.rest = None;
+                    Poll::Ready(None)
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        } else {
+            Poll::Ready(None)
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.head_pos >= self.head.len() && self.rest.is_none()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::default()
+    }
+}
+
 // ── Generic error response builders ────────────────────────────────────────────
 
 /// Build a 502 Bad Gateway response when upstream fails.
-fn error_response_502() -> http_mitm_proxy::hyper::Response<Full<Bytes>> {
-    let body = Full::new(Bytes::from_static(b"Bad Gateway"));
+fn error_response_502() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
+    let body = boxed_full(Bytes::from_static(b"Bad Gateway"));
     http_mitm_proxy::hyper::Response::builder()
         .status(StatusCode::BAD_GATEWAY)
         .body(body)
         .unwrap_or_else(|_| {
             http_mitm_proxy::hyper::Response::builder()
                 .status(StatusCode::BAD_GATEWAY)
-                .body(Full::new(Bytes::new()))
+                .body(boxed_full(Bytes::new()))
                 .unwrap()
         })
 }
@@ -374,7 +435,7 @@ async fn handle_proxy_request<R: Runtime>(
     sdk: Arc<RwLock<SdkRegistry>>,
     settings: Arc<RwLock<FirewallSettings>>,
     req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
-) -> Result<http_mitm_proxy::hyper::Response<Full<Bytes>>, String> {
+) -> Result<http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>>, String> {
     // ── Validate request ────────────────────────────────────────────────────
     validate_request(&req)?;
 
@@ -748,76 +809,77 @@ async fn handle_proxy_request<R: Runtime>(
     let response_content_type = response_headers.get("content-type").cloned();
     let response_content_length = response_headers.get("content-length").cloned();
 
-    // ── Collect response body with timeout ──────────────────────────────────
-    let (mut res_parts, res_body) = res.into_parts();
+    // ── Collect response head + stream the rest ─────────────────────────────
+    // Large bodies are never fully buffered: we read only the first `max_body`
+    // bytes (head) for SDK inspection/display, then forward head + the remaining
+    // upstream stream. This avoids response-body timeouts on big downloads.
+    let (mut res_parts, mut res_body) = res.into_parts();
     let res_content_length = response_headers.get("content-length").map(|s| s.as_str());
-    let raw_res_body: Bytes = match tokio::time::timeout(
-        adaptive_body_timeout(response_timeout, res_content_length),
-        res_body.collect(),
-    )
-    .await
-    {
-        Ok(Ok(collected)) => collected.to_bytes(),
-        Ok(Err(e)) => {
-            let ts = now_ts();
-            let err = e.to_string();
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-response-error-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status,
-                    request_headers: request_headers.clone(),
-                    response_headers: response_headers.clone(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: response_content_type.clone(),
-                    response_content_length: response_content_length.clone(),
-                    request_body: request_body.clone(),
-                    request_body_truncated: body_truncated,
-                    response_body: Some(format!("Response body read failed: {}", err)),
-                    response_body_truncated: false,
-                },
-            );
-            return Err(format!("Response body read failed: {}", err));
+    let head_timeout = adaptive_body_timeout(response_timeout, res_content_length);
+
+    let mut raw_res_body: Vec<u8> = Vec::with_capacity(max_body.min(64 * 1024));
+    let mut body_eof = false;
+    let mut head_error: Option<String> = None;
+    while raw_res_body.len() < max_body {
+        match tokio::time::timeout(head_timeout, res_body.frame()).await {
+            Ok(Some(Ok(frame))) => {
+                if let Ok(data) = frame.into_data() {
+                    raw_res_body.extend_from_slice(&data);
+                }
+            }
+            Ok(Some(Err(e))) => {
+                head_error = Some(format!("Response body read failed: {}", e));
+                break;
+            }
+            Ok(None) => {
+                body_eof = true;
+                break;
+            }
+            Err(_) => {
+                head_error = Some("Response body timeout".to_string());
+                break;
+            }
         }
-        Err(_) => {
-            let ts = now_ts();
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-response-timeout-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status: 504,
-                    request_headers: request_headers.clone(),
-                    response_headers: response_headers.clone(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: response_content_type.clone(),
-                    response_content_length: response_content_length.clone(),
-                    request_body: request_body.clone(),
-                    request_body_truncated: body_truncated,
-                    response_body: Some("Response body timeout".to_string()),
-                    response_body_truncated: false,
-                },
-            );
-            return Err("Response body timeout".to_string());
-        }
-    };
-    let _raw_response_body_len = raw_res_body.len();
-    let res_body_truncated = raw_res_body.len() > max_body;
+    }
+
+    if let Some(err) = head_error {
+        let ts = now_ts();
+        let is_timeout = err == "Response body timeout";
+        let _ = app.emit(
+            "proxy_http",
+            ProxyHttpEvent {
+                id: format!(
+                    "{}-http-response-{}-{}-{}",
+                    ts,
+                    if is_timeout { "timeout" } else { "error" },
+                    host,
+                    port
+                ),
+                timestamp: ts,
+                method: method.clone(),
+                host: host.clone(),
+                port,
+                path: path.clone(),
+                full_url: full_url.clone(),
+                status: if is_timeout { 504 } else { status },
+                request_headers: request_headers.clone(),
+                response_headers: response_headers.clone(),
+                user_agent: user_agent.clone(),
+                content_type: content_type.clone(),
+                referer: referer.clone(),
+                response_content_type: response_content_type.clone(),
+                response_content_length: response_content_length.clone(),
+                request_body: request_body.clone(),
+                request_body_truncated: body_truncated,
+                response_body: Some(err.clone()),
+                response_body_truncated: false,
+            },
+        );
+        return Err(err);
+    }
+
+    let raw_res_body = Bytes::from(raw_res_body);
+    let res_body_truncated = !body_eof || raw_res_body.len() > max_body;
     let res_body_bytes = if res_body_truncated {
         raw_res_body.slice(..max_body)
     } else {
@@ -892,7 +954,7 @@ async fn handle_proxy_request<R: Runtime>(
     }
 
     // ── Apply response body override + ALWAYS rewrite headers ────────────────
-    let res_body_obj = if let Some(new_body) = resp_body_override {
+    let res_body_obj: BoxBody<Bytes, DynErr> = if let Some(new_body) = resp_body_override {
         let new_bytes = Bytes::from(new_body.into_bytes());
         res_parts
             .headers
@@ -907,7 +969,25 @@ async fn handle_proxy_request<R: Runtime>(
                 .headers
                 .remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
         }
-        Full::new(new_bytes)
+        boxed_full(new_bytes)
+    } else if !body_eof {
+        // Large body: keep the upstream Content-Length (head + remaining stream
+        // still total the original body length); remove Transfer-Encoding so hyper
+        // recomputes framing for the streamed body.
+        res_parts
+            .headers
+            .remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
+        if is_bodiless_status(status) {
+            res_parts
+                .headers
+                .remove(http_mitm_proxy::hyper::header::CONTENT_LENGTH);
+        }
+        HeadThenStream {
+            head: raw_res_body.clone(),
+            head_pos: 0,
+            rest: Some(res_body),
+        }
+        .boxed()
     } else {
         // Use the FULL original body, not the truncated display version
         if !is_bodiless_status(status) {
@@ -920,7 +1000,7 @@ async fn handle_proxy_request<R: Runtime>(
                 .headers
                 .remove(http_mitm_proxy::hyper::header::TRANSFER_ENCODING);
         }
-        Full::new(raw_res_body)
+        boxed_full(raw_res_body)
     };
 
     // ── Emit events ─────────────────────────────────────────────────────────
