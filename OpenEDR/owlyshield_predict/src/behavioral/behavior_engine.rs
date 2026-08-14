@@ -6590,13 +6590,19 @@ impl BehaviorEngine {
             let gid = match gid_opt {
                 Some(g) => g,
                 None => {
+                    // Process not yet tracked — do NOT drop the record. Use the
+                    // same PID-scoped synthetic GID the worker uses
+                    // (Worker::PID_FALLBACK_GID_MASK | pid) so process_event
+                    // creates a placeholder state and the event still logs.
+                    const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
+                    let synthetic_gid = PID_FALLBACK_GID_MASK | (pid as u64);
                     if rec.irp_type >= 0x6000 || rec.irp_type == 0x000E {
                         Logging::debug(&format!(
-                            "[API HOOKING] DRAIN DROP pid={} irp_type=0x{:X} fn=\"{}\" (process not tracked)",
-                            pid, rec.irp_type, rec.function_name
+                            "[API HOOKING] DRAIN DROP AVOIDED pid={} irp_type=0x{:X} fn=\"{}\" -> synthetic GID {}",
+                            pid, rec.irp_type, rec.function_name, synthetic_gid
                         ));
                     }
-                    continue; // Process not yet tracked — drop the record
+                    synthetic_gid
                 }
             };
 
