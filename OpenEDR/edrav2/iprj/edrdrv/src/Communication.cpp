@@ -1073,7 +1073,14 @@ send_done:
 
 #endif // OWLY_HYPERVISOR_SUPPORT
 
-static VOID DrainUserModeHookRingEvents(VOID)
+// NOTE: no longer static. The ring buffer is now also drained by a
+// dedicated kernel worker thread (see HookDrainThreadRoutine in
+// UserModeHookEngine.cpp) that runs independently of MESSAGE_GET_OPS,
+// since MESSAGE_GET_OPS/DriverGetIrps is the legacy IRP-polling channel
+// that the in-process FFI userland worker no longer issues. Keeping this
+// callable from both places means MESSAGE_GET_OPS still opportunistically
+// drains the ring when it does arrive, without depending on it.
+VOID DrainUserModeHookRingEvents(VOID)
 {
     ULONG processIds[MAX_HOOKED_PROCESSES] = {0};
     ULONG processCount;

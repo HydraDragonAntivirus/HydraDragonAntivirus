@@ -173,6 +173,139 @@ PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 // per-process UMH_SHARED_RING.
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
+// ---------------------------------------------------------------------
+// Periodic ring-drain thread.
+//
+// Shellcode writes UMH_RING_EVENT records directly into each hooked
+// process's shared ring (no NtDeviceIoControlFile call - see file header).
+// Those records only ever get converted into HOOK_EVENT_DATA and forwarded
+// to cmd::OnKernelApiEvent when something calls DrainUserModeHookRingEvents()
+// (Communication.cpp).  That function was previously reachable only from
+// the MESSAGE_GET_OPS IOCTL handler, i.e. only when userland actively
+// polls for legacy IRPs via DriverGetIrps.  The current in-process FFI
+// worker never issues MESSAGE_GET_OPS (see Owlyshield's process_io comments),
+// so ring events were never drained and API-hook telemetry silently never
+// reached userland.
+//
+// This dedicated system thread drains the ring on a fixed interval,
+// independent of any userland polling, so hook telemetry keeps flowing
+// even if the userland agent is slow, restarting, or not polling at all.
+// ---------------------------------------------------------------------
+extern VOID DrainUserModeHookRingEvents(VOID); // Communication.cpp
+
+#define HOOK_DRAIN_INTERVAL_MS   75
+#define HOOK_DRAIN_THREAD_TAG    'DhmU'
+
+static KEVENT g_HookDrainStopEvent;
+static PETHREAD g_HookDrainThreadObject = NULL;
+static volatile BOOLEAN g_HookDrainThreadRunning = FALSE;
+
+static VOID HookDrainThreadRoutine(_In_ PVOID StartContext)
+{
+    UNREFERENCED_PARAMETER(StartContext);
+
+    LARGE_INTEGER interval;
+    interval.QuadPart = -((LONGLONG)HOOK_DRAIN_INTERVAL_MS * 10 * 1000); // relative, 100ns units
+
+    for (;;)
+    {
+        NTSTATUS waitStatus = KeWaitForSingleObject(
+            &g_HookDrainStopEvent, Executive, KernelMode, FALSE, &interval);
+
+        if (waitStatus == STATUS_SUCCESS)
+        {
+            // Stop event was signaled - shutting down.
+            break;
+        }
+
+        // STATUS_TIMEOUT: normal case, time to drain.
+        if (g_HookEngineShuttingDown)
+        {
+            break;
+        }
+
+        __try
+        {
+            DrainUserModeHookRingEvents();
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+#if IS_DEBUG_IRP
+            _LOGINFO_RAW("!!! UserModeHook: exception 0x%X draining hook ring\n", GetExceptionCode());
+#endif
+        }
+    }
+
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
+// Starts the periodic ring-drain thread. Best-effort: if thread creation
+// fails, hook events fall back to being drained only via MESSAGE_GET_OPS
+// (which may never arrive under the in-process FFI userland worker).
+static VOID StartHookDrainThread(VOID)
+{
+    if (g_HookDrainThreadRunning)
+    {
+        return;
+    }
+
+    KeInitializeEvent(&g_HookDrainStopEvent, NotificationEvent, FALSE);
+
+    HANDLE hThread = NULL;
+    NTSTATUS status = PsCreateSystemThread(
+        &hThread, THREAD_ALL_ACCESS, NULL, NULL, NULL, HookDrainThreadRoutine, NULL);
+
+    if (!NT_SUCCESS(status))
+    {
+#if IS_DEBUG_IRP
+        _LOGINFO_RAW("!!! UserModeHook: failed to start hook-drain thread: 0x%X\n", status);
+#endif
+        return;
+    }
+
+    status = ObReferenceObjectByHandle(
+        hThread, THREAD_ALL_ACCESS, NULL, KernelMode, (PVOID *)&g_HookDrainThreadObject, NULL);
+    ZwClose(hThread);
+
+    if (!NT_SUCCESS(status))
+    {
+#if IS_DEBUG_IRP
+        _LOGINFO_RAW("!!! UserModeHook: failed to reference hook-drain thread object: 0x%X\n", status);
+#endif
+        g_HookDrainThreadObject = NULL;
+        return;
+    }
+
+    g_HookDrainThreadRunning = TRUE;
+}
+
+// Signals and waits (bounded) for the drain thread to exit. Must be called
+// before g_UserHookEngine is torn down, since the thread calls into ring
+// drain logic that touches engine state.
+static VOID StopHookDrainThread(VOID)
+{
+    if (!g_HookDrainThreadRunning)
+    {
+        return;
+    }
+
+    KeSetEvent(&g_HookDrainStopEvent, IO_NO_INCREMENT, FALSE);
+
+    if (g_HookDrainThreadObject != NULL)
+    {
+        LARGE_INTEGER timeout;
+        timeout.QuadPart = -(2LL * 1000 * 1000 * 10); // 2 seconds, relative
+
+        (VOID)KeWaitForSingleObject(
+            g_HookDrainThreadObject, Executive, KernelMode, FALSE, &timeout);
+
+        ObDereferenceObject(g_HookDrainThreadObject);
+        g_HookDrainThreadObject = NULL;
+    }
+
+    g_HookDrainThreadRunning = FALSE;
+}
+
 // Dynamic Configuration
 HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 ULONG g_CustomHookCount = 0;
@@ -1677,6 +1810,10 @@ _LOGINFO_RAW("!!! UserModeHook: PsGetProcessWow64Process unavailable - WoW64 hoo
 
     (VOID)InitializeHookExcludeRules();
 
+    // Start the periodic ring-drain thread so hook telemetry keeps flowing
+    // regardless of whether userland ever issues MESSAGE_GET_OPS.
+    StartHookDrainThread();
+
     return STATUS_SUCCESS;
 }
 
@@ -1693,6 +1830,10 @@ VOID UserModeHookEngineCleanup(VOID)
         return;
 
     g_HookEngineShuttingDown = TRUE;
+
+    // Stop the ring-drain thread before tearing down engine state - it
+    // reads g_UserHookEngine->Processes[] via DrainUserModeHookRingEvents.
+    StopHookDrainThread();
 
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
