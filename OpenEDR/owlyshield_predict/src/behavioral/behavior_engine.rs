@@ -4374,6 +4374,13 @@ impl BehaviorEngine {
                 let hook_fn = hv_str(event, "owlyHook", "functionName").to_string();
                 let hook_src_pid = hv_u32(event, "owlyHook", "sourcePid");
 
+                if hook_event_type != 0 || event_type == "LLE_DEVICE_IOCTL" {
+                    Logging::debug(&format!(
+                        "[API HOOKING] INGEST event_type=\"{}\" type_irp=0x{:X} hook_event_type=0x{:X} hook_fn=\"{}\" hook_src_pid={} pid={}",
+                        event_type, irp_type, hook_event_type, hook_fn, hook_src_pid, pid
+                    ));
+                }
+
                 let effective_target_pid = if hook_src_pid != 0 && hook_src_pid != pid {
                     hook_src_pid
                 } else {
@@ -6582,7 +6589,15 @@ impl BehaviorEngine {
             let gid_opt = self.find_gid_by_pid(pid);
             let gid = match gid_opt {
                 Some(g) => g,
-                None => continue, // Process not yet tracked — drop the record
+                None => {
+                    if rec.irp_type >= 0x6000 || rec.irp_type == 0x000E {
+                        Logging::debug(&format!(
+                            "[API HOOKING] DRAIN DROP pid={} irp_type=0x{:X} fn=\"{}\" (process not tracked)",
+                            pid, rec.irp_type, rec.function_name
+                        ));
+                    }
+                    continue; // Process not yet tracked — drop the record
+                }
             };
 
             use crate::shared_def::{FileId, IrpMajorOp, KernelEventInfo, RuntimeFeatures, SysmonEvent};
