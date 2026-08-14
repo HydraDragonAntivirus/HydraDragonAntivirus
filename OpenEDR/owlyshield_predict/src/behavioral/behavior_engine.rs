@@ -964,9 +964,7 @@ impl IrpStatistics {
             | IrpMajorOp::IrpKernelQueueApc
             | IrpMajorOp::IrpKernelCreateSection
             | IrpMajorOp::IrpKernelMapSection => {
-                if is_real_api_observation(&rec.function_name) {
-                    self.all_apis_called.insert(rec.function_name.clone());
-                }
+                self.all_apis_called.insert(rec.function_name.clone());
             }
 
             _ => {}
@@ -1515,95 +1513,6 @@ fn pattern_looks_like_path(pattern: &str) -> bool {
         || normalized.starts_with('/')
         || normalized.starts_with('%')
         || normalized.contains('/')
-}
-
-fn canonical_hypervisor_event_label(
-    irp_op: &IrpMajorOp,
-    raw_event_type: u32,
-    event_name: &str,
-) -> Option<String> {
-    let normalized_event_name = normalize_hypervisor_label(event_name);
-    if !normalized_event_name.is_empty() && !is_generic_hypervisor_label(&normalized_event_name) {
-        return Some(normalized_event_name);
-    }
-
-    // raw_event_type 12–29 are the legacy Communication.cpp hypervisor sub-types.
-    // For those we map back through from_sysmonevent for semantic resolution.
-    let resolved = match raw_event_type {
-        12..=29 => IrpMajorOp::from_sysmonevent(raw_event_type),
-        _ => irp_op.clone(),
-    };
-    match resolved {
-        IrpMajorOp::IrpUserModeHookEvent
-        | IrpMajorOp::IrpKernelRemoteThread
-        | IrpMajorOp::IrpKernelWriteMemory
-        | IrpMajorOp::IrpKernelProtectMemory
-        | IrpMajorOp::IrpKernelCreateThread
-        | IrpMajorOp::IrpKernelQueueApc
-        | IrpMajorOp::IrpKernelCreateSection
-        | IrpMajorOp::IrpKernelMapSection
-        | IrpMajorOp::IrpRootkitSsdtHook
-        | IrpMajorOp::IrpRootkitHiddenProcess
-        | IrpMajorOp::IrpRootkitHiddenDriver
-        | IrpMajorOp::IrpRootkitKernelHook
-        | IrpMajorOp::IrpRootkitTerminateProcess
-        | IrpMajorOp::IrpRootkitFileMove
-        | IrpMajorOp::IrpRootkitGeneric
-        | IrpMajorOp::IrpNamedPipeCreate
-        | IrpMajorOp::IrpNamedPipeWrite => Some(format!("{:?}", resolved)),
-        _ => None,
-    }
-}
-
-fn is_generic_hypervisor_label(raw: &str) -> bool {
-    matches!(
-        raw.trim(),
-        "IrpUserModeHookEvent"
-            | "IrpKernelRemoteThread"
-            | "IrpKernelWriteMemory"
-            | "IrpKernelProtectMemory"
-            | "IrpKernelCreateThread"
-            | "IrpKernelQueueApc"
-            | "IrpKernelCreateSection"
-            | "IrpKernelMapSection"
-            | "IRP_USER_MODE_HOOK_EVENT"
-            | "IRP_KERNEL_REMOTE_THREAD"
-            | "IRP_KERNEL_WRITE_MEMORY"
-            | "IRP_KERNEL_PROTECT_MEMORY"
-            | "IRP_KERNEL_CREATE_THREAD"
-            | "IRP_KERNEL_QUEUE_APC"
-            | "IRP_KERNEL_CREATE_SECTION"
-            | "IRP_KERNEL_MAP_SECTION"
-    )
-}
-
-fn is_real_api_observation(raw: &str) -> bool {
-    let normalized = normalize_hypervisor_label(raw);
-    if normalized.is_empty() || is_generic_hypervisor_label(&normalized) {
-        return false;
-    }
-
-    let simple_name = normalized
-        .rsplit('!')
-        .next()
-        .unwrap_or(normalized.as_str())
-        .trim();
-    if simple_name.is_empty() {
-        return false;
-    }
-
-    if simple_name.starts_with("Nt") || simple_name.starts_with("Zw") {
-        return simple_name
-            .chars()
-            .nth(2)
-            .is_some_and(|ch| ch.is_ascii_uppercase());
-    }
-
-    let has_lowercase = simple_name.chars().any(|ch| ch.is_ascii_lowercase());
-    let has_underscore = simple_name.contains('_');
-    let has_path_qualifier = normalized.contains('!');
-
-    (has_path_qualifier || has_lowercase) && !has_underscore
 }
 
 const STATUS_SUCCESS_U32: u32 = 0x00000000;
@@ -2370,7 +2279,12 @@ impl ProcessBehaviorState {
             .map(|event| event.irp_op.clone())
             .unwrap_or_else(|| IrpMajorOp::from_sysmonevent(irp_op));
         let is_api_event = is_kernel_api_irp(&irp_kind);
-        let real_api = is_real_api_observation(&event_name);
+        if is_api_event {
+            Logging::debug(&format!(
+                "[API HOOKING] RECORD_IRP irp_op=0x{:X} irp_kind={:?} event_name=\"{}\" raw_event_type=0x{:X} gid={} pid={}",
+                irp_op, irp_kind, event_name, raw_event_type, msg.gid, msg.pid
+            ));
+        }
         let operation_status = hyper_event
             .as_ref()
             .map(|event| event.operation_status)
@@ -2509,68 +2423,34 @@ impl ProcessBehaviorState {
             }
             self.recent_kernel_api_events.push_back(event_summary);
 
-            if real_api {
-                if actionable_kernel_event {
-                    self.detected_apis.insert(event_name.clone());
-                    self.all_apis_called.insert(event_name.clone());
-                    if let Some(alias) = api_function_alias(&event_name) {
-                        self.detected_apis.insert(alias.clone());
-                        self.all_apis_called.insert(alias.clone());
-                    }
+            if actionable_kernel_event {
+                self.detected_apis.insert(event_name.clone());
+                self.all_apis_called.insert(event_name.clone());
+                if let Some(alias) = api_function_alias(&event_name) {
+                    self.detected_apis.insert(alias.clone());
+                    self.all_apis_called.insert(alias.clone());
                 }
-                Logging::info(&format!(
-                    "[API HOOKING EVENT{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\"",
-                    if actionable_kernel_event {
-                        ""
-                    } else {
-                        " IGNORED"
-                    },
-                    irp_op,
-                    raw_event_type,
-                    core_id,
-                    thread_id,
-                    context,
-                    source_process,
-                    target_process,
-                    raw_argument1,
-                    raw_argument2,
-                    raw_argument3,
-                    raw_argument4,
-                    event_name,
-                ));
-            } else {
-                let event_label =
-                    canonical_hypervisor_event_label(&irp_kind, raw_event_type, &event_name)
-                        .unwrap_or_else(|| event_name.clone());
-                let event_family = if is_kernel_process_protection_irp(&irp_kind) {
-                    "KERNEL API EVENT"
-                } else if matches!(irp_kind, IrpMajorOp::IrpUserModeHookEvent) {
-                    "USERMODE HOOK EVENT"
-                } else {
-                    "KERNEL EVENT"
-                };
-                Logging::info(&format!(
-                    "[{}{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} event=\"{}\"",
-                    event_family,
-                    if actionable_kernel_event {
-                        ""
-                    } else {
-                        " IGNORED"
-                    },
-                    irp_op,
-                    raw_event_type,
-                    core_id,
-                    thread_id,
-                    context,
-                    source_process,
-                    target_process,
-                    raw_argument1,
-                    raw_argument2,
-                    raw_argument3,
-                    raw_argument4,
-                    event_label,
-                ));
             }
+            Logging::info(&format!(
+                "[API HOOKING EVENT{}] opcode={} raw_event_type={} core_id={} thread_id={} context=0x{:X} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\"",
+                if actionable_kernel_event {
+                    ""
+                } else {
+                    " IGNORED"
+                },
+                irp_op,
+                raw_event_type,
+                core_id,
+                thread_id,
+                context,
+                source_process,
+                target_process,
+                raw_argument1,
+                raw_argument2,
+                raw_argument3,
+                raw_argument4,
+                event_name,
+            ));
         }
 
         // NEW: Rootkit Event Tracking
@@ -7566,7 +7446,6 @@ impl BehaviorEngine {
         let mut current_event_apis = HashSet::new();
         if is_kernel_api_irp(&current_irp_kind)
             && current_actionable_kernel_event
-            && is_real_api_observation(&current_event_name)
         {
             current_event_apis.insert(current_event_name.clone());
             if let Some(alias) = api_function_alias(&current_event_name) {
