@@ -16,7 +16,7 @@ pub const DEFAULT_TLS_LISTEN_HOST: &str = "127.0.0.1";
 pub const DEFAULT_TLS_LISTEN_PORT: u16 = 8877;
 
 /// Default QUIC blocking setting
-pub const DEFAULT_BLOCK_QUIC_UDP_443: bool = true;
+pub const DEFAULT_BLOCK_QUIC_UDP_443: bool = false;
 
 /// Default auto-start setting for TLS proxy
 pub const DEFAULT_TLS_AUTO_START: bool = true;
