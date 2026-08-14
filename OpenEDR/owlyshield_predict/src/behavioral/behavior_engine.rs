@@ -6227,6 +6227,8 @@ impl BehaviorEngine {
         let mut all_apis = HashSet::new();
 
         for rule in &self.rules {
+            let before_count = all_apis.len();
+
             // 1. Rule-level monitored_apis
             for api in &rule.monitored_apis {
                 all_apis.insert(api.clone());
@@ -6254,7 +6256,24 @@ impl BehaviorEngine {
                     collect_condition_apis(cond, &mut all_apis);
                 }
             }
+
+            let contributed = all_apis.len() - before_count;
+            Logging::debug(&format!(
+                "[BehaviorEngine] Rule '{}' contributed {} monitored API(s) (monitored_apis={}, named_conditions={}, stages={})",
+                rule.name,
+                contributed,
+                rule.monitored_apis.len(),
+                rule.named_conditions.len(),
+                rule.stages.len()
+            ));
         }
+
+        Logging::debug(&format!(
+            "[BehaviorEngine] get_all_monitored_apis total across {} rule(s): {} unique API(s): {:?}",
+            self.rules.len(),
+            all_apis.len(),
+            all_apis
+        ));
 
         all_apis
     }

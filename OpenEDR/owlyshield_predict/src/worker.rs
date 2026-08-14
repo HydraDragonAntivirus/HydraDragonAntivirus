@@ -2702,7 +2702,17 @@ pub mod worker_instance {
             };
 
             let monitored_apis = self.collect_dynamic_hook_api_targets(pid);
+            Logging::debug(&format!(
+                "[DYNAMIC HOOK] PID {} resolved {} monitored API(s): {:?}",
+                pid,
+                monitored_apis.len(),
+                monitored_apis
+            ));
             if monitored_apis.is_empty() {
+                Logging::warning(&format!(
+                    "[DYNAMIC HOOK] PID {} skipped: no monitored APIs resolved from loaded rules",
+                    pid
+                ));
                 return;
             }
 
