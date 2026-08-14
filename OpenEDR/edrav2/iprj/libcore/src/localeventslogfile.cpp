@@ -84,7 +84,7 @@ void LocalEventsLogFile::updateFullPath()
 		m_sLogFullPath = (pathToFile / filename).string();
 
 		m_pWriteStream = queryInterface<io::IWritableStream>(io::createFileStream(m_sLogFullPath,
-			io::FileMode::Write | io::FileMode::ShareRead | io::FileMode::CreatePath | io::FileMode::Truncate));
+			io::FileMode::Write | io::FileMode::ShareRead | io::FileMode::ShareWrite | io::FileMode::CreatePath | io::FileMode::Truncate));
 	}
 }
 
