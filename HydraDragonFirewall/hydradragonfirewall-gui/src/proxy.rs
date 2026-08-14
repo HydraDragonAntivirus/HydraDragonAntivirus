@@ -460,7 +460,21 @@ async fn handle_proxy_request<R: Runtime>(
                     response_body_truncated: false,
                 },
             );
-            return Err(format!("Request body read failed: {}", err));
+            emit_log_event(
+                &app,
+                LogEntry {
+                    id: format!("{}-proxy-request-body-err", ts),
+                    timestamp: ts,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "Request body read failed (continuing with empty body): {}",
+                        err
+                    ),
+                },
+            );
+            // Non-fatal: continue with an empty body so the request can still be
+            // forwarded and response rules (e.g. body changers) still apply.
+            Bytes::new()
         }
         Err(_) => {
             let ts = now_ts();
@@ -488,7 +502,18 @@ async fn handle_proxy_request<R: Runtime>(
                     response_body_truncated: false,
                 },
             );
-            return Err("Request body timeout".to_string());
+            emit_log_event(
+                &app,
+                LogEntry {
+                    id: format!("{}-proxy-request-body-timeout", ts),
+                    timestamp: ts,
+                    level: LogLevel::Warning,
+                    message: "Request body read timed out (continuing with empty body)"
+                        .to_string(),
+                },
+            );
+            // Non-fatal: continue with an empty body.
+            Bytes::new()
         }
     };
     let raw_request_body_len = raw_body.len();
