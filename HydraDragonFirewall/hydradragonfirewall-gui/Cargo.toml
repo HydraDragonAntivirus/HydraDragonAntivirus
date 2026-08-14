@@ -29,7 +29,6 @@ http-body-util = "0.1"
 bytes = "1"
 rcgen = "0.14.8"
 moka = { version = "0.12", features = ["sync"] }
-fastbloom = { version = "0.17", features = ["serde"] }
 bincode-next = { version = "2.1.0", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 url = "2.5.8"
