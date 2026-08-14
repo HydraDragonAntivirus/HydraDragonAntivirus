@@ -109,6 +109,23 @@ fn is_bodiless_status(status: u16) -> bool {
     (status >= 100 && status < 200) || status == 204 || status == 304
 }
 
+/// Computes a body-collection timeout that scales with the declared Content-Length.
+/// Fixed 30s caps fail large downloads (>64 KB) on slower links, so larger bodies
+/// are given proportionally more time while still bounding runaway transfers.
+fn adaptive_body_timeout(base_secs: u64, content_length_header: Option<&str>) -> std::time::Duration {
+    let base = std::time::Duration::from_secs(base_secs.max(1));
+    let Some(len) = content_length_header
+        .and_then(|v| v.trim().parse::<u64>().ok())
+    else {
+        return base;
+    };
+    // Allow roughly 1 second of extra time per 64 KB of declared payload.
+    let extra_secs = len.saturating_div(64 * 1024);
+    // Bound the extra time so a bogus/huge Content-Length cannot hang forever.
+    let bounded = std::time::Duration::from_secs(extra_secs.min(300));
+    base + bounded
+}
+
 // ── Generic error response builders ────────────────────────────────────────────
 
 /// Build a 502 Bad Gateway response when upstream fails.
@@ -426,8 +443,9 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Collect request body with timeout ───────────────────────────────────
     let (parts, body) = req.into_parts();
+    let req_content_length = request_headers.get("content-length").map(|s| s.as_str());
     let raw_body: Bytes = match tokio::time::timeout(
-        std::time::Duration::from_secs(request_timeout),
+        adaptive_body_timeout(request_timeout, req_content_length),
         body.collect(),
     )
     .await
@@ -732,8 +750,9 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Collect response body with timeout ──────────────────────────────────
     let (mut res_parts, res_body) = res.into_parts();
+    let res_content_length = response_headers.get("content-length").map(|s| s.as_str());
     let raw_res_body: Bytes = match tokio::time::timeout(
-        std::time::Duration::from_secs(response_timeout),
+        adaptive_body_timeout(response_timeout, res_content_length),
         res_body.collect(),
     )
     .await

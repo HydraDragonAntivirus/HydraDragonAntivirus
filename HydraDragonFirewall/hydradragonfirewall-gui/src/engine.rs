@@ -883,6 +883,8 @@ pub struct FirewallSettings {
     pub metadata: HashMap<String, String>,
     #[serde(default)]
     pub network_whitelist: Vec<String>,
+    #[serde(default)]
+    pub allow_unknown_apps: bool,
 }
 
 impl Default for FirewallSettings {
