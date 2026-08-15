@@ -3731,11 +3731,13 @@ impl BehaviorEngine {
             .unwrap_or(0)
             .min(u32::MAX as u64) as u32;
 
-        // Usermode API hook events: the driver writes process.pid as the
-        // resolved TargetPid, which is 0 for file/registry APIs (no process
-        // handle in the arguments). The process that actually made the call —
-        // the one we hooked — is in owlyHook.sourcePid. Attribute the event to
-        // that process, otherwise pid==0 drops the record before it ever logs.
+        // Usermode API hook events: the driver now writes process.pid as
+        // SourcePid (the actor that made the hooked call), matching every
+        // other LBVS event's "ProcessPid = actor" convention. This lookup
+        // is kept as a defensive fallback for older drivers / in-flight
+        // events still using the previous ProcessPid=TargetPid encoding,
+        // where pid==0 for file/registry APIs (no process handle in the
+        // arguments) would otherwise drop the record before it ever logs.
         let hook_caller_pid = u64_at(event, &["owlyHook", "sourcePid"]).unwrap_or(0);
         let pid = if hook_caller_pid != 0 {
             hook_caller_pid.min(u32::MAX as u64) as u32
@@ -3764,6 +3766,7 @@ impl BehaviorEngine {
 
         let target_pid = u64_at(event, &["target", "pid"])
             .or_else(|| u64_at(event, &["target.pid"]))
+            .or_else(|| u64_at(event, &["owlyHook", "targetPid"]))
             .unwrap_or(0)
             .min(u32::MAX as u64) as u32;
         let remote_ip = str_at(event, &["connection", "remote", "ip"])
@@ -6227,8 +6230,6 @@ impl BehaviorEngine {
         let mut all_apis = HashSet::new();
 
         for rule in &self.rules {
-            let before_count = all_apis.len();
-
             // 1. Rule-level monitored_apis
             for api in &rule.monitored_apis {
                 all_apis.insert(api.clone());
@@ -6256,24 +6257,7 @@ impl BehaviorEngine {
                     collect_condition_apis(cond, &mut all_apis);
                 }
             }
-
-            let contributed = all_apis.len() - before_count;
-            Logging::debug(&format!(
-                "[BehaviorEngine] Rule '{}' contributed {} monitored API(s) (monitored_apis={}, named_conditions={}, stages={})",
-                rule.name,
-                contributed,
-                rule.monitored_apis.len(),
-                rule.named_conditions.len(),
-                rule.stages.len()
-            ));
         }
-
-        Logging::debug(&format!(
-            "[BehaviorEngine] get_all_monitored_apis total across {} rule(s): {} unique API(s): {:?}",
-            self.rules.len(),
-            all_apis.len(),
-            all_apis
-        ));
 
         all_apis
     }
@@ -11602,10 +11586,14 @@ mod tests {
             "cmd.exe".into(),
         );
 
-        // The driver serializes hook events with process.pid = TargetPid, which is
-        // 0 for file/registry APIs (no process handle in the args). The real caller
-        // — the process we hooked — is carried in owlyHook.sourcePid. This event
-        // mimics exactly what OnKernelApiEvent emits (Communication.cpp).
+        // Defensive fallback coverage: older/in-flight drivers (or the
+        // legacy direct-IOCTL path, if it's ever revived) may still encode
+        // process.pid = TargetPid, which is 0 for file/registry APIs (no
+        // process handle in the args). The current driver now writes
+        // process.pid = SourcePid directly (ProcessProtection.cpp), so this
+        // fallback should rarely trigger in practice, but must keep working
+        // for any event that still arrives with pid == 0 and a populated
+        // owlyHook.sourcePid.
         let event = serde_json::json!({
             "type": "LLE_DEVICE_IOCTL",
             "process": { "pid": 0 },
@@ -11613,6 +11601,7 @@ mod tests {
                 "eventType": 0x6001,
                 "functionName": "ntdll!NtCreateFile",
                 "sourcePid": 5150,
+                "targetPid": 0,
                 "arg1": 0x10,
                 "arg2": 0,
                 "arg3": 0,
@@ -11627,6 +11616,44 @@ mod tests {
         assert_eq!(*gid, 9, "record must be attributed to the owlyHook.sourcePid caller");
         assert_eq!(msg.kernel_event_info.object_name, "ntdll!NtCreateFile");
         assert_eq!(msg.kernel_event_info.event_type, 0x6001);
+    }
+
+    #[test]
+    fn ingest_openedr_hook_event_uses_process_pid_when_driver_sets_source_pid() {
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            9,
+            5150,
+            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
+            "cmd.exe".into(),
+        );
+
+        // Current driver behavior: process.pid is written as SourcePid
+        // directly (ProcessProtection.cpp::OnKernelApiEvent), and
+        // owlyHook.targetPid carries the resolved victim PID separately
+        // for injection-style events (e.g. CreateRemoteThread).
+        let event = serde_json::json!({
+            "type": "LLE_DEVICE_IOCTL",
+            "process": { "pid": 5150 },
+            "owlyHook": {
+                "eventType": 0x6002,
+                "functionName": "kernel32!CreateRemoteThread",
+                "sourcePid": 5150,
+                "targetPid": 9999,
+                "arg1": 0,
+                "arg2": 0,
+                "arg3": 0,
+                "arg4": 0
+            }
+        });
+        engine.ingest_openedr_event(&event);
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1, "hook record must be attributed via process.pid");
+        let (gid, msg) = &drained[0];
+        assert_eq!(*gid, 9);
+        assert_eq!(msg.kernel_event_info.object_name, "kernel32!CreateRemoteThread");
+        assert_eq!(msg.kernel_event_info.event_type, 0x6002);
     }
 
     #[test]

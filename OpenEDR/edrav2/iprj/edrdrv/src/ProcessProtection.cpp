@@ -1137,6 +1137,11 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
                           _In_opt_ PCWSTR FunctionName, _In_opt_ ULONG_PTR EventArg1, _In_opt_ ULONG_PTR EventArg2,
                           _In_opt_ ULONG_PTR EventArg3, _In_opt_ ULONG_PTR EventArg4)
 {
+    // NOTE - requires edrdrv::EventField::OwlyHookTargetPid to be added to the
+    // LBVS field enum (alongside the existing OwlyHookSourcePid/EventType/Arg1-4/
+    // FunctionName entries), and a matching entry in the wire schema used by
+    // controller.cpp's deserializer. Mirrors the existing OwlyHvTargetPid field
+    // used by the hypervisor event carrier (Communication.cpp).
     if (::ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
         return STATUS_SUCCESS;
 
@@ -1158,11 +1163,13 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
     if (!serializer.write(edrdrv::EventField::TickTime,
             (uint64_t)getTickCount64()))                               return STATUS_NO_MEMORY;
     if (!serializer.write(edrdrv::EventField::ProcessPid,
-            (uint32_t)TargetPid))                                      return STATUS_NO_MEMORY;
+            (uint32_t)SourcePid))                                      return STATUS_NO_MEMORY;
     if (!serializer.write(edrdrv::EventField::OwlyHookEventType,
             (uint32_t)EventType))                                      return STATUS_NO_MEMORY;
     if (!serializer.write(edrdrv::EventField::OwlyHookSourcePid,
             (uint32_t)SourcePid))                                      return STATUS_NO_MEMORY;
+    if (!serializer.write(edrdrv::EventField::OwlyHookTargetPid,
+            (uint32_t)TargetPid))                                      return STATUS_NO_MEMORY;
     if (!serializer.write(edrdrv::EventField::OwlyHookArg1,
             (uint64_t)EventArg1))                                      return STATUS_NO_MEMORY;
     if (!serializer.write(edrdrv::EventField::OwlyHookArg2,

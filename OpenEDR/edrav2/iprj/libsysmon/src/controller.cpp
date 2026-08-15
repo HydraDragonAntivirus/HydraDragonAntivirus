@@ -517,6 +517,7 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 				vHook.put("arg3",         vEvent.get("owlyHookArg3", uint64_t(0)));
 				vHook.put("arg4",         vEvent.get("owlyHookArg4", uint64_t(0)));
 				vHook.put("sourcePid",    vEvent.get("owlyHookSourcePid", uint32_t(0)));
+				vHook.put("targetPid",    vEvent.get("owlyHookTargetPid", uint32_t(0)));
 				vEvent.put("owlyHook", vHook);
 				// Kernel hook events share the IOCTL baseType so EventEnricher
 				// (which overwrites "type" from baseType) emits LLE_DEVICE_IOCTL
