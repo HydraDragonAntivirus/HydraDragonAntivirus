@@ -136,6 +136,10 @@ namespace win {
 				ULONG_PTR key = {};
 				LPOVERLAPPED pOvlp = nullptr;
 
+				// Remember the connection generation so a reconnect performed while
+				// this message is being processed can be detected (it re-pumps all
+				// contexts, so we must not re-pump the same context twice).
+				const size_t nGenAtWait = m_nConnGeneration.load();
 
 				if (!::GetQueuedCompletionStatus(m_pCompletionPort, &nOutSize, &key, &pOvlp, INFINITE))
 				{
@@ -146,7 +150,15 @@ namespace win {
 					if (HRESULT_FROM_WIN32(ec) == E_HANDLE || // Completion port becomes unavailable
 						ec == ERROR_ABANDONED_WAIT_0 ||	// Completion port was closed
 						ec == ERROR_OPERATION_ABORTED) // Rised when CancelIoEx() called
-						break;
+					{
+						//  The connection to the driver port is lost (e.g. driver was
+						//  reloaded). Re-establish it instead of terminating the thread.
+						LOGWRN("Fltport connection is lost, reconnecting...");
+						const size_t nGenOnDeath = m_nConnGeneration.load();
+						while (!m_fTerminate && !reconnect(nGenOnDeath))
+							::Sleep(500);
+						continue;
+					}
 
 					if (ec != ERROR_INSUFFICIENT_BUFFER)
 						error::win::WinApiError(SL, ec, "Can't receive driver message").throwException();
@@ -201,7 +213,24 @@ namespace win {
 					break;
 
 				// After we process the message, pump an overlapped structure into completion port again.
-				pumpMessage((OverlappedContext*)pOvlp);
+				// Skip re-pumping if the connection was re-established while this message was being
+				// processed (the reconnecting thread already re-pumped every context).
+				if (m_nConnGeneration.load() == nGenAtWait)
+				{
+					CMD_TRY
+					{
+						pumpMessage((OverlappedContext*)pOvlp);
+					}
+					CMD_PREPARE_CATCH
+					catch (error::Exception& e)
+					{
+						// The connection may have died while processing; re-establish it.
+						e.log(SL, threadName + " fail to re-pump message, reconnecting");
+						const size_t nGen = m_nConnGeneration.load();
+						while (!m_fTerminate && !reconnect(nGen))
+							::Sleep(500);
+					}
+				}
 #ifdef ENABLE_EVENT_TIMINGS
 				auto t3 = steady_clock::now();
 				milliseconds totalTime(duration_cast<milliseconds>(t3 - t0));
@@ -229,8 +258,22 @@ namespace win {
 			m_fTerminate = false;
 
 			// Prepare the communication port.
-			HRESULT hr = ::FilterConnectCommunicationPort(portName.data(), 0, nullptr, 0,
-				nullptr, &m_pConnectionPort);
+			// The driver port may not be ready yet (driver service is still starting
+			// or was just reloaded), so retry the connect with a short backoff.
+			HRESULT hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+			for (Size attempt = 0; attempt < c_nConnectAttempts; ++attempt)
+			{
+				hr = ::FilterConnectCommunicationPort(portName.data(), 0, nullptr, 0,
+					nullptr, &m_pConnectionPort);
+				if (SUCCEEDED(hr))
+					break;
+				if (attempt + 1 < c_nConnectAttempts)
+				{
+					LOGLVL(Detailed, "Can't connect to driver port, retrying <" <<
+						(attempt + 1) << "> of <" << c_nConnectAttempts << ">");
+					::Sleep(c_nConnectBackoffMs);
+				}
+			}
 			if (FAILED(hr))
 			{	// TODO: write new Error handler for HRESULT
 				// https://blogs.msdn.microsoft.com/oldnewthing/20061103-07/?p=29133
@@ -264,6 +307,77 @@ namespace win {
 
 			for (Size i = 0; i < threadsCount; ++i)
 				m_pThreadPool.push_back(std::thread([this]() { this->parseEventsThread(); }));
+		}
+
+		//
+		//FltPortReceiver::reconnect
+		//
+
+		bool FltPortReceiver::reconnect(size_t nExpectedGen)
+		{
+			std::scoped_lock _lock(m_mtxReconnect);
+			if (m_fTerminate)
+				return true;
+
+			// If another thread already restored the connection, there is nothing
+			// to do here — the caller just resumes using the new port.
+			if (m_nConnGeneration.load() != nExpectedGen)
+				return true;
+
+			for (Size attempt = 0; attempt < c_nReconnectAttempts && !m_fTerminate; ++attempt)
+			{
+				HANDLE hConnectionPort = nullptr;
+				HRESULT hr = ::FilterConnectCommunicationPort(portName.data(), 0, nullptr, 0,
+					nullptr, &hConnectionPort);
+				if (SUCCEEDED(hr))
+				{
+					HANDLE hCompletionPort = ::CreateIoCompletionPort(hConnectionPort, nullptr, 0,
+						DWORD(threadsCount));
+					if (hCompletionPort == nullptr)
+					{
+						error::win::WinApiError(SL, "Can't open driver completion port on reconnect").log();
+						::CloseHandle(hConnectionPort);
+						break;
+					}
+
+					ScopedHandle vNewConnectionPort(hConnectionPort);
+					ScopedHandle vNewCompletionPort(hCompletionPort);
+
+					// Swap new handles in. Closing the old connection/completion port
+					// cancels the outstanding operations and wakes the other receiving
+					// threads (they observe the new connection generation and resume).
+					m_pConnectionPort.reset(vNewConnectionPort.release());
+					m_pCompletionPort.reset(vNewCompletionPort.release());
+
+					// Give pending operations on the old connection a moment to cancel
+					// before re-issuing FilterGetMessage on the new one.
+					::Sleep(50);
+
+					// Re-pump every message context on the new connection.
+					for (auto& pCtx : m_pOvlpCtxes)
+					{
+						CMD_TRY
+						{
+							pumpMessage(&pCtx);
+						}
+						CMD_PREPARE_CATCH
+						catch (error::Exception& e)
+						{
+							e.log(SL, "Fail to pump message after reconnect");
+						}
+					}
+
+					++m_nConnGeneration;
+					LOGWRN("Fltport connection is restored");
+					return true;
+				}
+
+				::Sleep(c_nReconnectBackoffMs);
+			}
+
+			// The driver port is not reachable yet (e.g. driver is reloading).
+			// If another thread restored the connection meanwhile, report success.
+			return m_nConnGeneration.load() != nExpectedGen;
 		}
 
 		//

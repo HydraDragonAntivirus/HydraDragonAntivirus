@@ -46,6 +46,13 @@ namespace win {
 
 		std::atomic_bool m_fTerminate = false;
 
+		// Reconnect support: if the connection to the driver port is lost
+		// (driver reload, service restart, ...) the receiving threads re-establish
+		// it instead of dying. m_mtxReconnect serializes reconnect attempts and
+		// m_nConnGeneration lets threads detect that the port was recreated.
+		std::mutex m_mtxReconnect;
+		std::atomic<size_t> m_nConnGeneration = 0;
+
 		ScopedHandle m_pConnectionPort;
 		std::vector<std::thread> m_pThreadPool;
 
@@ -76,6 +83,7 @@ namespace win {
 		void pumpMessage(OverlappedContext* pOvlpCtx);
 		void replyMessage(PFILTER_MESSAGE_HEADER pMessage, NTSTATUS nStatus);
 		void replyDataMessage(PFILTER_MESSAGE_HEADER pMessage, ReplyBuffer& outMessage, NTSTATUS nStatus);
+		bool reconnect(size_t nExpectedGen);
 		
 		void parseEventsThread();
 		void parseEventsThreadInt();
@@ -83,6 +91,13 @@ namespace win {
 		FltPortReceiver(const std::wstring& portName, size_t threadsCount, bool fReplyMode, const std::string& _threadName);
 		void Start(Handler& handler);
 		void Stop();
+
+		// Number of attempts and delay to connect to the driver port.
+		static const size_t c_nConnectAttempts = 10;
+		static const DWORD c_nConnectBackoffMs = 1000;
+		// Number of attempts and delay to re-establish a lost connection.
+		static const size_t c_nReconnectAttempts = 5;
+		static const DWORD c_nReconnectBackoffMs = 1000;
 	};
 }
 }

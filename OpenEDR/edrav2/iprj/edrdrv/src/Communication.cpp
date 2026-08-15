@@ -1020,7 +1020,7 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     {
         UNICODE_STRING usName;
         RtlInitUnicodeString(&usName, eventName);
-        if (!serializer.write(cmd::edrdrv::EventField::OwlyHookFunctionName, &usName))
+        if (!cmd::write(serializer, cmd::edrdrv::EventField::OwlyHookFunctionName, &usName))
             goto send_done;
     }
     // Hypervisor-specific fields
@@ -1053,7 +1053,7 @@ QueueHypervisorEvent(_In_ const OWLY_HV_EVENT_DETAILS * EventDetails)
     {
         UNICODE_STRING usDll;
         RtlInitUnicodeString(&usDll, EventDetails->LoadedDllPath);
-        if (!serializer.write(cmd::edrdrv::EventField::OwlyHvLoadedDllPath, &usDll))
+        if (!cmd::write(serializer, cmd::edrdrv::EventField::OwlyHvLoadedDllPath, &usDll))
             goto send_done;
     }
     if (!serializer.write(cmd::edrdrv::EventField::OwlyHvIsAcgEnabled,

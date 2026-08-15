@@ -370,7 +370,16 @@ NTSTATUS sendRawEvent(const void* pRawEvent, size_t nRawEventSize)
 	RawEvent rawEvent;
 	rawEvent.pDataBuffer = (PVOID) pRawEvent;
 	rawEvent.nDataSize = (ULONG) nRawEventSize;
-	
+
+	// Visibility: if no usermode client is connected the event is only queued
+	// and will never be delivered. The caller still gets STATUS_SUCCESS, so log
+	// the absence of a client to make the delivery gap visible (e.g. DebugView).
+	if (g_PortData.pClientPort == nullptr)
+	{
+		DbgPrint("!!! fltport::sendRawEvent: NO CLIENT CONNECTED, event (%lu bytes) only queued\r\n",
+			(ULONG)nRawEventSize);
+	}
+
 #ifdef USE_SYNC_SEND
 	return sendRawEventInternal(rawEvent);
 #else

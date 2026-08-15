@@ -89,7 +89,7 @@ NTSTATUS AmsiReportEvent(
     if (FunctionName != NULL) {
         UNICODE_STRING fnUs;
         RtlInitUnicodeString(&fnUs, FunctionName);
-        if (!serializer.write(EvFld::OwlyHookFunctionName, &fnUs))
+        if (!cmd::write(serializer, EvFld::OwlyHookFunctionName, &fnUs))
             return STATUS_NO_MEMORY;
     }
 

@@ -544,7 +544,7 @@ RkEmitFinding(_In_ ULONG IrpOpCode, _In_ ULONG SourcePid,
     if (ObjectName != NULL) {
         UNICODE_STRING objUs;
         RtlInitUnicodeString(&objUs, ObjectName);
-        if (!serializer.write(EvFld::OwlyHookFunctionName, &objUs))
+        if (!cmd::write(serializer, EvFld::OwlyHookFunctionName, &objUs))
             return;
     }
 

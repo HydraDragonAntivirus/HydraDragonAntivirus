@@ -1224,10 +1224,10 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
     {
         UNICODE_STRING usName;
         RtlInitUnicodeString(&usName, effectiveName);
-        if (!serializer.write(edrdrv::EventField::OwlyHookFunctionName,
+        if (!cmd::write(serializer, edrdrv::EventField::OwlyHookFunctionName,
                 &usName))
         {
-            DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookFunctionName) FAILED\n");
+            DbgPrint("!!! OnKernelApiEvent: cmd::write(OwlyHookFunctionName) FAILED\n");
             return STATUS_NO_MEMORY;
         }
     }
