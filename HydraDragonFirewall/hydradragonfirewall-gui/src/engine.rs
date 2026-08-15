@@ -1,7 +1,6 @@
 use crate::file_magic::FileMagicChecker;
 use crate::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
 use crate::web_filter::WebFilter;
-use bincode_next::serde::{decode_from_slice, encode_to_vec};
 use hydradragon_shared::{QUARANTINE_PATH, TlsInspectionMode, TlsProxyConfig};
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -1699,10 +1698,9 @@ impl FirewallEngine {
     }
 
     pub fn load_settings() -> Option<FirewallSettings> {
-        let path = PathBuf::from("json/settings.bin");
-        fs::read(&path).ok()
-            .and_then(|bytes| decode_from_slice::<FirewallSettings, _>(&bytes, bincode_next::config::standard()).ok())
-            .map(|(settings, _)| settings)
+        let path = PathBuf::from("json/settings.json");
+        fs::read_to_string(&path).ok()
+            .and_then(|content| serde_json::from_str::<FirewallSettings>(&content).ok())
     }
 
     pub fn apply_settings(&self, new_settings: FirewallSettings) {
@@ -2067,9 +2065,9 @@ impl FirewallEngine {
             live_settings.app_decisions = settings.app_decisions.clone();
         }
 
-        if let Ok(content) = encode_to_vec(&settings, bincode_next::config::standard()) {
+        if let Ok(content) = serde_json::to_string_pretty(&settings) {
             let _ = fs::create_dir_all("json");
-            let _ = fs::write("json/settings.bin", content);
+            let _ = fs::write("json/settings.json", content);
         }
     }
 
@@ -3008,7 +3006,15 @@ foreach ($store in $stores) {
             None
         };
 
-        load_saved_logs(limit)
+        let mut logs = load_saved_logs(limit);
+
+        if settings.show_blocked_logs_only {
+            logs.retain(|entry| {
+                entry.message.contains("blocked") || entry.message.contains("Blocked")
+            });
+        }
+
+        logs
     }
 
     #[cfg(target_os = "windows")]
