@@ -1,11 +1,15 @@
 #![allow(dead_code)]
 
+use crate::logging::Logging;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{self, Read, Write};
+use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use windows::Win32::Storage::FileSystem::{MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW};
+use windows::core::PCWSTR;
 
 const QUARANTINE_MAGIC: &[u8; 7] = b"HYDRA\x00\x01";
 const XOR_KEY: u8 = 0xA5;
@@ -144,15 +148,91 @@ pub fn quarantine_path(src: &Path, detection: &str) -> Result<PathBuf, Quarantin
 
     quarantine_file(src, &dst, detection, &sha256)?;
 
-    if let Ok(metadata) = std::fs::metadata(src) {
+    if !delete_with_reboot_fallback(src) {
+        Logging::warning(&format!(
+            "[Quarantine] Container created, but cleanup of the original file failed: {}",
+            src.display()
+        ));
+    }
+    Ok(dst)
+}
+
+fn try_delete_file_now(path: &Path) -> std::io::Result<()> {
+    if let Ok(metadata) = std::fs::metadata(path) {
         let mut permissions = metadata.permissions();
         if permissions.readonly() {
             permissions.set_readonly(false);
-            let _ = std::fs::set_permissions(src, permissions);
+            let _ = std::fs::set_permissions(path, permissions);
         }
     }
-    std::fs::remove_file(src)?;
-    Ok(dst)
+
+    std::fs::remove_file(path)
+}
+
+fn schedule_delete_on_reboot(path: &Path) -> std::io::Result<()> {
+    let wide_path: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        if MoveFileExW(
+            PCWSTR(wide_path.as_ptr()),
+            PCWSTR::null(),
+            MOVEFILE_DELAY_UNTIL_REBOOT,
+        )
+        .as_bool()
+        {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+}
+
+fn delete_with_reboot_fallback(path: &Path) -> bool {
+    match try_delete_file_now(path) {
+        Ok(_) => {
+            Logging::alert(&format!(
+                "[Quarantine] Removed malicious artifact: {}",
+                path.display()
+            ));
+            true
+        }
+        Err(delete_error) if delete_error.kind() == std::io::ErrorKind::NotFound => {
+            Logging::info(&format!(
+                "[Quarantine] Artifact already absent: {}",
+                path.display()
+            ));
+            true
+        }
+        Err(delete_error) => {
+            Logging::warning(&format!(
+                "[Quarantine] Immediate delete failed for {}: {}",
+                path.display(),
+                delete_error
+            ));
+
+            match schedule_delete_on_reboot(path) {
+                Ok(_) => {
+                    Logging::alert(&format!(
+                        "[Quarantine] Removal scheduled for reboot: {}",
+                        path.display()
+                    ));
+                    true
+                }
+                Err(schedule_error) => {
+                    Logging::error(&format!(
+                        "[Quarantine] Failed to schedule reboot removal for {}: {}",
+                        path.display(),
+                        schedule_error
+                    ));
+                    false
+                }
+            }
+        }
+    }
 }
 
 /// Restore a .hqf quarantine file back to its original bytes.
