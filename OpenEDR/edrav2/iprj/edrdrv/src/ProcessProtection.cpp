@@ -1137,11 +1137,6 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
                           _In_opt_ PCWSTR FunctionName, _In_opt_ ULONG_PTR EventArg1, _In_opt_ ULONG_PTR EventArg2,
                           _In_opt_ ULONG_PTR EventArg3, _In_opt_ ULONG_PTR EventArg4)
 {
-    // NOTE - requires edrdrv::EventField::OwlyHookTargetPid to be added to the
-    // LBVS field enum (alongside the existing OwlyHookSourcePid/EventType/Arg1-4/
-    // FunctionName entries), and a matching entry in the wire schema used by
-    // controller.cpp's deserializer. Mirrors the existing OwlyHvTargetPid field
-    // used by the hypervisor event carrier (Communication.cpp).
     if (::ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
         return STATUS_SUCCESS;
 
@@ -1157,36 +1152,90 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
 
     // Serialize via OpenEDR LBVS fltport — this is what Rust usermode reads.
     // SysmonEvent::DeviceIoControl (0x000E) is the carrier event for kernel API hook events.
+    //
+    // Every write() below is unconditionally logged on failure - this used to
+    // fail completely silently (bare `return STATUS_NO_MEMORY`), which made it
+    // impossible to tell "event never built" apart from "event built but never
+    // sent" apart from "event sent but never received". Definitive diagnostic
+    // for the last mile of the pipeline: kernel drain confirmed working, but
+    // no owlyHook message ever reaches userland.
     NonPagedLbvsSerializer<edrdrv::EventField> serializer;
     if (!serializer.write(edrdrv::EventField::RawEventId,
-            uint16_t(edrdrv::SysmonEvent::DeviceIoControl)))           return STATUS_NO_MEMORY;
+            uint16_t(edrdrv::SysmonEvent::DeviceIoControl)))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(RawEventId) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::TickTime,
-            (uint64_t)getTickCount64()))                               return STATUS_NO_MEMORY;
+            (uint64_t)getTickCount64()))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(TickTime) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::ProcessPid,
-            (uint32_t)SourcePid))                                      return STATUS_NO_MEMORY;
+            (uint32_t)SourcePid))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(ProcessPid) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::OwlyHookEventType,
-            (uint32_t)EventType))                                      return STATUS_NO_MEMORY;
+            (uint32_t)EventType))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookEventType) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::OwlyHookSourcePid,
-            (uint32_t)SourcePid))                                      return STATUS_NO_MEMORY;
+            (uint32_t)SourcePid))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookSourcePid) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::OwlyHookTargetPid,
-            (uint32_t)TargetPid))                                      return STATUS_NO_MEMORY;
+            (uint32_t)TargetPid))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookTargetPid) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::OwlyHookArg1,
-            (uint64_t)EventArg1))                                      return STATUS_NO_MEMORY;
+            (uint64_t)EventArg1))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookArg1) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::OwlyHookArg2,
-            (uint64_t)EventArg2))                                      return STATUS_NO_MEMORY;
+            (uint64_t)EventArg2))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookArg2) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::OwlyHookArg3,
-            (uint64_t)EventArg3))                                      return STATUS_NO_MEMORY;
+            (uint64_t)EventArg3))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookArg3) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (!serializer.write(edrdrv::EventField::OwlyHookArg4,
-            (uint64_t)EventArg4))                                      return STATUS_NO_MEMORY;
+            (uint64_t)EventArg4))
+    {
+        DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookArg4) FAILED\n");
+        return STATUS_NO_MEMORY;
+    }
     if (effectiveName != NULL && effectiveName[0] != L'\0')
     {
         UNICODE_STRING usName;
         RtlInitUnicodeString(&usName, effectiveName);
         if (!serializer.write(edrdrv::EventField::OwlyHookFunctionName,
-                &usName))                                              return STATUS_NO_MEMORY;
+                &usName))
+        {
+            DbgPrint("!!! OnKernelApiEvent: serializer.write(OwlyHookFunctionName) FAILED\n");
+            return STATUS_NO_MEMORY;
+        }
     }
 
-    return fltport::sendRawEvent(serializer);
+    NTSTATUS sendStatus = fltport::sendRawEvent(serializer);
+    DbgPrint("!!! OnKernelApiEvent: fltport::sendRawEvent returned 0x%X (SourcePid=%lu TargetPid=%lu EventType=%lu)\n",
+             sendStatus, SourcePid, TargetPid, EventType);
+    return sendStatus;
 }
 
 } // namespace cmd
