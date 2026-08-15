@@ -152,6 +152,7 @@ enum class EventField : variant::lbvs::FieldId
 	OwlyHvIsAcgEnabled = 122,       ///< uint32 - non-zero if ACG (Arbitrary Code Guard) active
 	OwlyHvTimestamp = 123,          ///< uint64 - kernel FILETIME timestamp
 	OwlyHvTargetPid = 124,          ///< uint32 - target process PID
+	OwlyHookTargetPid = 125,        ///< uint32 - resolved victim PID for hook events (e.g. CreateRemoteThread)
 };
 
 ///
@@ -284,7 +285,8 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "owlyHv.loadedDllPath" },
 	{ "name": "owlyHv.isAcgEnabled" },
 	{ "name": "owlyHv.timestamp" },
-	{ "name": "owlyHv.targetPid" }
+	{ "name": "owlyHv.targetPid" },
+	{ "name": "owlyHookTargetPid" }
 ]})json";
 
 //////////////////////////////////////////////////////////////////////////
