@@ -102,7 +102,20 @@ public partial class App : Application
     /// <param name="args">Details about the launch request and process.</param>
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _window = new MainWindow();
+        // EDR servisi bu exe'yi komut satırı argümanlarıyla çağırır:
+        //   --threat-alert    --name="..."    --path="..."    --severity="..."
+        //   --restart-required --path="..."
+        // Argüman yoksa uygulama tray'e küçülür (dashboard gösterilmez);
+        // tehdit algılandığında EDR uyarı penceresini ayrıca açar.
+        var cmdArgs = Environment.GetCommandLineArgs();
+        if (cmdArgs.Length > 1)
+        {
+            _window = CreateWindowFromCommandLine(cmdArgs);
+        }
+        else
+        {
+            _window = new MainWindow();
+        }
 
         // K5: MainWindow kapandığında DI ServiceProvider'ı dispose et; aksi
         // halde singleton service'lerin IDisposable'ları çağrılmaz ve
@@ -117,6 +130,54 @@ public partial class App : Application
         };
 
         _window.Activate();
+
+        // Argümansız başlatma: pencereyi açmadan tray ikonuna küçül.
+        if (cmdArgs.Length <= 1)
+        {
+            _window.AppWindow.Hide();
+        }
+    }
+
+    /// <summary>
+    /// Komut satırı argümanlarını çözümleyip uygun pencereyi üretir.
+    /// </summary>
+    private static Window CreateWindowFromCommandLine(string[] cmdArgs)
+    {
+        var dict = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; i < cmdArgs.Length; i++)
+        {
+            var arg = cmdArgs[i];
+            if (!arg.StartsWith("--", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var eq = arg.IndexOf('=');
+            if (eq > 0)
+            {
+                dict[arg[..eq]] = arg[(eq + 1)..].Trim('"', '\'');
+            }
+            else
+            {
+                dict[arg] = string.Empty;
+            }
+        }
+
+        if (dict.ContainsKey("--threat-alert"))
+        {
+            return new Views.ThreatAlertWindow(
+                dict.TryGetValue("--name", out var name) ? name : "Bilinmeyen tehdit",
+                dict.TryGetValue("--path", out var path) ? path : string.Empty,
+                dict.TryGetValue("--severity", out var severity) ? severity : "Critical");
+        }
+
+        if (dict.ContainsKey("--restart-required"))
+        {
+            return new Views.RestartRequiredWindow(
+                dict.TryGetValue("--path", out var path) ? path : string.Empty);
+        }
+
+        return new MainWindow();
     }
 
     private static IServiceProvider ConfigureServices()

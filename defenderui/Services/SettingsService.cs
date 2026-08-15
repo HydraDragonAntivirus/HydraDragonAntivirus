@@ -15,7 +15,7 @@ public class SettingsService : ISettingsService
 
     public SettingsService()
     {
-        var appDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DefenderUI");
+        var appDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HydraDragonAntivirus");
         if (!Directory.Exists(appDataFolder))
         {
             Directory.CreateDirectory(appDataFolder);

@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="DefenderUI.Views.ThreatAlertWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="HydraDragonAntivirus - Threat Detected"
+    mc:Ignorable="d">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Border
+        x:Name="AlertFrame"
+        BorderThickness="3"
+        BorderBrush="{ThemeResource StatusRiskBrush}"
+        CornerRadius="12"
+        Background="{ThemeResource SurfaceCardBrush}">
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- ═══════════════════════════════════════════════════════ -->
+            <!-- Üst marka barı                                          -->
+            <!-- ═══════════════════════════════════════════════════════ -->
+            <Grid Grid.Row="0" Padding="16,12" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Image
+                    Grid.Column="0"
+                    Source="ms-appx:///Assets/AppLogo-32.png"
+                    Width="16"
+                    Height="16"
+                    VerticalAlignment="Center" />
+
+                <TextBlock
+                    Grid.Column="1"
+                    Text="HydraDragonAntivirus"
+                    Style="{StaticResource TitleMediumTextStyle}"
+                    VerticalAlignment="Center" />
+
+                <Border
+                    x:Name="HeaderStatusBadge"
+                    Grid.Column="2"
+                    CornerRadius="8"
+                    Padding="8,3"
+                    Background="{ThemeResource StatusRiskSoftBrush}">
+                    <TextBlock
+                        x:Name="HeaderStatusText"
+                        Text="THREAT DETECTED"
+                        Style="{StaticResource OverlineTextStyle}"
+                        Foreground="{ThemeResource StatusRiskBrush}" />
+                </Border>
+            </Grid>
+
+            <!-- ═══════════════════════════════════════════════════════ -->
+            <!-- Orta bölüm: tehdit bilgisi                              -->
+            <!-- ═══════════════════════════════════════════════════════ -->
+            <StackPanel Grid.Row="1" Padding="16,8,16,10" Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Border
+                        Width="40"
+                        Height="40"
+                        CornerRadius="10"
+                        VerticalAlignment="Top"
+                        Background="{ThemeResource StatusRiskSoftBrush}">
+                        <FontIcon
+                            Glyph="&#xE72E;"
+                            FontSize="20"
+                            FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                            Foreground="{ThemeResource StatusRiskBrush}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock
+                        x:Name="ThreatNameText"
+                        Text="{x:Bind ThreatName}"
+                        Style="{StaticResource BodyLargeTextStyle}"
+                        TextWrapping="Wrap"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource StatusRiskBrush}" />
+                </StackPanel>
+
+                <TextBlock
+                    x:Name="FilePathText"
+                    Text="{x:Bind FilePath}"
+                    Style="{StaticResource BodyMediumTextStyle}"
+                    TextWrapping="Wrap"
+                    Foreground="{ThemeResource TextSecondaryBrush}"
+                    IsTextSelectionEnabled="True" />
+            </StackPanel>
+
+            <!-- ═══════════════════════════════════════════════════════ -->
+            <!-- Alt bölüm: aksiyon butonları                            -->
+            <!-- ═══════════════════════════════════════════════════════ -->
+            <StackPanel
+                Grid.Row="2"
+                Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="6"
+                Padding="16,0,16,14">
+                <Button
+                    x:Name="DeleteNowButton"
+                    Content="Delete"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Click="DeleteNowButton_Click" />
+                <Button
+                    x:Name="RestartButton"
+                    Content="Restart"
+                    Style="{StaticResource DangerButtonStyle}"
+                    Click="RestartButton_Click" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>
