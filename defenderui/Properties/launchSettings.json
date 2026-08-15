@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "DefenderUI (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "DefenderUI (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

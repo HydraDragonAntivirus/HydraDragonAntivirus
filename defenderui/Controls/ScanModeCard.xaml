@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="DefenderUI.Controls.ScanModeCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!--
+        ScanModeCard — Faz 4 tarama modu seçim kartı.
+        DP:
+          • Glyph              : Segoe glyph
+          • Title              : Başlık
+          • Description        : 1-2 satır açıklama
+          • EstimatedDuration  : Süre metni (ör. "~1-2 dk")
+          • Mode               : ScanMode
+          • IsSelected         : Seçili durumdaysa accent border
+          • Command            : Tıklamada çalışır (parametre: Mode)
+    -->
+
+    <Button
+        x:Name="RootButton"
+        HorizontalAlignment="Stretch"
+        HorizontalContentAlignment="Stretch"
+        VerticalContentAlignment="Stretch"
+        Background="Transparent"
+        BorderThickness="0"
+        Padding="0"
+        CornerRadius="{StaticResource CornerRadiusCard}"
+        Click="RootButton_Click">
+        <Border
+            x:Name="CardRoot"
+            Style="{StaticResource FeatureTileCardStyle}"
+            HorizontalAlignment="Stretch">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- İkon -->
+                <Grid
+                    Grid.Row="0"
+                    Width="48"
+                    Height="48"
+                    HorizontalAlignment="Left">
+                    <Ellipse
+                        Fill="{ThemeResource AccentSoftBrush}"
+                        Width="48"
+                        Height="48" />
+                    <FontIcon
+                        x:Name="IconGlyph"
+                        Glyph="&#xE773;"
+                        FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                        FontSize="24"
+                        Foreground="{ThemeResource AccentPrimaryBrush}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center" />
+                </Grid>
+
+                <!-- Başlık + açıklama -->
+                <StackPanel
+                    Grid.Row="1"
+                    Margin="0,16,0,0"
+                    Spacing="6"
+                    VerticalAlignment="Top">
+                    <TextBlock
+                        x:Name="TitleLabel"
+                        Text="Hızlı Tarama"
+                        Style="{StaticResource TitleMediumTextStyle}"
+                        TextWrapping="Wrap"
+                        TextTrimming="None" />
+                    <TextBlock
+                        x:Name="DescriptionLabel"
+                        Text="Açıklama"
+                        Style="{StaticResource CaptionTextStyle}"
+                        MaxLines="2"
+                        TextWrapping="Wrap"
+                        TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <!-- Süre -->
+                <TextBlock
+                    x:Name="DurationLabel"
+                    Grid.Row="2"
+                    Margin="0,12,0,0"
+                    Text="~1-2 dk"
+                    Style="{StaticResource CaptionTextStyle}"
+                    FontStyle="Italic"
+                    Foreground="{ThemeResource TextSecondaryBrush}" />
+            </Grid>
+        </Border>
+    </Button>
+</UserControl>

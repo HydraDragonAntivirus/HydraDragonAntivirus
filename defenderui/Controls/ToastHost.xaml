@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="DefenderUI.Controls.ToastHost"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    mc:Ignorable="d"
+    IsHitTestVisible="True"
+    HorizontalAlignment="Right"
+    VerticalAlignment="Bottom">
+
+    <!--
+        ToastHost — uygulama içi InfoBar tabanlı toast bildirim overlay'i (Faz 7).
+        • IToastService.ToastRequested event'ini dinler; yeni bir ToastMessage
+          geldiğinde InfoBar oluşturur ve ToastContainer'a ekler.
+        • Her toast belirtilen Duration sonunda (default 4s) kendiliğinden
+          kapanır. Fade+slide giriş / fade çıkış Composition API ile uygulanır.
+    -->
+
+    <StackPanel
+        x:Name="ToastContainer"
+        Orientation="Vertical"
+        Spacing="8"
+        MinWidth="320"
+        MaxWidth="420"
+        Padding="16" />
+</UserControl>

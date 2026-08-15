@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/caymazyusuf72/defenderui/discussions
+    about: Ask a question, share an idea, or chat with the community.
+  - name: 🛡️ Security Vulnerability
+    url: https://github.com/caymazyusuf72/defenderui/security/advisories/new
+    about: Report a security vulnerability privately (do NOT open a public issue).
+  - name: 📚 Documentation
+    url: https://github.com/caymazyusuf72/defenderui#readme
+    about: Read the README, ARCHITECTURE, and CONTRIBUTING guides before opening an issue.

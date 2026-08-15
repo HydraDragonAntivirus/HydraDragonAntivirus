@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="DefenderUI.Controls.StatusPill"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!--
+        StatusPill — Top bar durum rozet bileşeni (Faz 2).
+        DP:
+          • Severity : Protected / Warning / Risk / Info  (default Protected)
+          • Text     : görünen yazı                        (default "Protected")
+    -->
+
+    <!--
+        Faz C #19: Default Background/Foreground değerleri nötr (Transparent /
+        TextPrimaryBrush) bırakıldı. Severity'ye özgü brush'lar Loaded event'inde
+        ve ActualThemeChanged sinyalinde ApplySeverity() tarafından uygulanır.
+        Bu, Severity="Risk" ile başlatılan pill'in ilk frame'de yeşil görünme
+        flicker'ını önler.
+    -->
+    <Border
+        x:Name="PillRoot"
+        CornerRadius="{StaticResource CornerRadiusPill}"
+        Padding="{StaticResource PaddingButtonPill}"
+        Background="Transparent"
+        VerticalAlignment="Center">
+        <StackPanel
+            Orientation="Horizontal"
+            Spacing="6"
+            VerticalAlignment="Center">
+            <FontIcon
+                x:Name="IconGlyph"
+                Glyph="&#xE73E;"
+                FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                FontSize="12"
+                Foreground="{ThemeResource TextPrimaryBrush}"
+                VerticalAlignment="Center" />
+            <TextBlock
+                x:Name="TextLabel"
+                Text="Protected"
+                Style="{StaticResource CaptionTextStyle}"
+                Foreground="{ThemeResource TextPrimaryBrush}"
+                FontWeight="SemiBold"
+                VerticalAlignment="Center" />
+        </StackPanel>
+    </Border>
+</UserControl>

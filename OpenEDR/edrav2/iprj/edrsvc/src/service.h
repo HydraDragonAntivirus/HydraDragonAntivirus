@@ -14,12 +14,6 @@
 namespace cmd {
 namespace win {
 
-//
-// Shows the tray icon (defined in mode_start.cpp).
-// Used by the "start" app mode.
-//
-ErrorCode runTray();
-
 inline ObjPtr<ICommandProcessor> startElevatedInstanceWithParams(const std::wstring& params)
 {
 	const std::wstring wPath = getCatalogData("app.imageFile");

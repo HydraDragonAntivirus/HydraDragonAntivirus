@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="DefenderUI.Controls.ActivityListItem"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!--
+        ActivityListItem — "Son Aktiviteler" listesinde bir satır (Faz 3).
+        DP:
+          • Glyph     : Segoe glyph
+          • Severity  : Info / Success / Warning / Error (ActivitySeverity)
+          • Title     : başlık (bold)
+          • Timestamp : formatlı zaman metni
+    -->
+
+    <Border
+        x:Name="RowRoot"
+        Background="Transparent"
+        BorderBrush="{ThemeResource DividerBrush}"
+        BorderThickness="0,0,0,1"
+        Padding="12"
+        PointerEntered="RowRoot_PointerEntered"
+        PointerExited="RowRoot_PointerExited">
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Sol: 40x40 circle icon -->
+            <Grid
+                Grid.Column="0"
+                Width="40"
+                Height="40"
+                VerticalAlignment="Center">
+                <Ellipse
+                    x:Name="IconBackground"
+                    Fill="{ThemeResource AccentSoftBrush}"
+                    Width="40"
+                    Height="40" />
+                <FontIcon
+                    x:Name="IconGlyph"
+                    Glyph="&#xE946;"
+                    FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                    FontSize="16"
+                    Foreground="{ThemeResource AccentPrimaryBrush}"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- Orta: Title + Timestamp -->
+            <StackPanel
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                Spacing="2">
+                <TextBlock
+                    x:Name="TitleLabel"
+                    Text="Aktivite başlığı"
+                    Style="{StaticResource BodyLargeTextStyle}"
+                    FontWeight="SemiBold"
+                    TextTrimming="CharacterEllipsis" />
+                <TextBlock
+                    x:Name="TimestampLabel"
+                    Text=""
+                    Style="{StaticResource CaptionTextStyle}" />
+            </StackPanel>
+
+            <!-- Sağ: chevron -->
+            <FontIcon
+                Grid.Column="2"
+                Glyph="&#xE76C;"
+                FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                FontSize="12"
+                Foreground="{ThemeResource TextTertiaryBrush}"
+                VerticalAlignment="Center" />
+        </Grid>
+    </Border>
+</UserControl>
