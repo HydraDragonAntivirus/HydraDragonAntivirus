@@ -6656,6 +6656,12 @@ impl BehaviorEngine {
                     kernel_event_info: KernelEventInfo {
                         object_name: rec.function_name.clone(),
                         event_type,
+                        source_process_id: pid,
+                        target_process_id: rec.target_pid,
+                        raw_argument1: rec.raw_arguments[0],
+                        raw_argument2: rec.raw_arguments[1],
+                        raw_argument3: rec.raw_arguments[2],
+                        raw_argument4: rec.raw_arguments[3],
                         ..Default::default()
                     },
                     runtime_features: RuntimeFeatures::default(),
@@ -11654,6 +11660,49 @@ mod tests {
         assert_eq!(*gid, 9);
         assert_eq!(msg.kernel_event_info.object_name, "kernel32!CreateRemoteThread");
         assert_eq!(msg.kernel_event_info.event_type, 0x6002);
+        // Regression: drain_pending_irp_records previously discarded
+        // source_process_id/target_process_id/raw_argument1-4 via
+        // `..Default::default()`, which meant resolved_hypervisor_event()
+        // always collapsed source and target to the same value (self.pid),
+        // silently losing the injection victim PID for every consumer.
+        assert_eq!(msg.kernel_event_info.source_process_id, 5150);
+        assert_eq!(msg.kernel_event_info.target_process_id, 9999);
+    }
+
+    #[test]
+    fn drain_pending_irp_records_preserves_raw_arguments() {
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            13,
+            7777,
+            PathBuf::from(r"C:\Windows\System32\svchost.exe"),
+            "svchost.exe".into(),
+        );
+
+        let event = serde_json::json!({
+            "type": "LLE_DEVICE_IOCTL",
+            "process": { "pid": 7777 },
+            "owlyHook": {
+                "eventType": 0x6003,
+                "functionName": "kernel32!VirtualAllocEx",
+                "sourcePid": 7777,
+                "targetPid": 4242,
+                "arg1": 0x1000,
+                "arg2": 0x2000,
+                "arg3": 0x3000,
+                "arg4": 0x4000
+            }
+        });
+        engine.ingest_openedr_event(&event);
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1);
+        let (_, msg) = &drained[0];
+        assert_eq!(msg.kernel_event_info.target_process_id, 4242);
+        assert_eq!(msg.kernel_event_info.raw_argument1, 0x1000);
+        assert_eq!(msg.kernel_event_info.raw_argument2, 0x2000);
+        assert_eq!(msg.kernel_event_info.raw_argument3, 0x3000);
+        assert_eq!(msg.kernel_event_info.raw_argument4, 0x4000);
     }
 
     #[test]
