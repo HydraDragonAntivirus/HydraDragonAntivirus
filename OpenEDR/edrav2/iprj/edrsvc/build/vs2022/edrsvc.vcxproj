@@ -20,7 +20,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\edrsvc.cpp" />
-    <ClCompile Include="..\..\src\mode_tray.cpp" />
     <ClCompile Include="..\..\src\mode_enroll.cpp" />
     <ClCompile Include="..\..\src\mode_start.cpp" />
     <ClCompile Include="..\..\src\mode_default.cpp" />

@@ -13,7 +13,6 @@
     <ClCompile Include="..\..\src\pch.cpp" />
     <ClCompile Include="..\..\src\service.cpp" />
     <ClCompile Include="..\..\src\mode_enroll.cpp" />
-    <ClCompile Include="..\..\src\mode_tray.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\pch.h" />

@@ -15,8 +15,8 @@ namespace cmd {
 namespace win {
 
 //
-// Shows the tray icon (defined in mode_tray.cpp).
-// Used by the "tray" and "start" app modes.
+// Shows the tray icon (defined in mode_start.cpp).
+// Used by the "start" app mode.
 //
 ErrorCode runTray();
 

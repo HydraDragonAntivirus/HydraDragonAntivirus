@@ -100,6 +100,9 @@ void WinService::allowUnload(bool fAllow)
 //
 void WINAPI WinService::runService(DWORD dwArgc, PTSTR* pszArgv)
 {
+	UNREFERENCED_PARAMETER(dwArgc);
+	UNREFERENCED_PARAMETER(pszArgv);
+
 	auto vApp = getCatalogData("objects.application", nullptr);
 	auto pSvcApp = queryInterface<WinService>(vApp);
 	if (!pSvcApp)
@@ -108,18 +111,6 @@ void WINAPI WinService::runService(DWORD dwArgc, PTSTR* pszArgv)
 
 	try
 	{
-		if (dwArgc > 0 && pszArgv != nullptr && pszArgv[0] != nullptr)
-		{
-			std::string sMode = string::convertWCharToUtf8(pszArgv[0]);
-			if (sMode == "tray")
-			{
-				pSvcApp->m_sAppMode = sMode;
-				auto itAppMode = pSvcApp->m_appModes.find(sMode);
-				if (itAppMode != pSvcApp->m_appModes.end())
-					pSvcApp->m_pAppMode = itAppMode->second;
-			}
-		}
-
 		pSvcApp->runService(false);
 	}
 	catch (error::Exception& ex)
@@ -257,7 +248,7 @@ void WinService::doSelfcheck()
 //
 ErrorCode WinService::process()
 {
-	if (!getCatalogData("app.config.isService", false) || m_sAppMode == "tray")
+	if (!getCatalogData("app.config.isService", false))
 	{
 		LOGINF("Service is being started as an Application");
 		return runService(true);
@@ -656,8 +647,7 @@ Variant WinService::execute(Variant vCommand, Variant vParams)
 
 		return execCommand(createObject(CLSID_WinServiceController), "start", Dictionary({ 
 			{ "name", c_sServiceName }, 
-			{ "startMode",  nStartMode},
-			{ "params", "tray" }
+			{ "startMode",  nStartMode}
 		}));
 	}
 
