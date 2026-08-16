@@ -88,7 +88,14 @@ pub fn ensure_mbrfilter_driver() {
     let changed = register_and_start_driver_service(&driver_dest) || changed;
     if changed {
         Logging::info("[MBR] MBRFilter registered for the first time; restart required to activate");
-        launch_defenderui_restart_required();
+        let message = "MBR protection driver (MBRFilter) was installed.";
+        let submessage =
+            "A restart activates system-disk MBR protection. USB/external disks are already protected.";
+        launch_defenderui_restart_required(
+            &std::path::Path::new(&driver_dest),
+            message,
+            submessage,
+        );
     }
 }
 
@@ -207,7 +214,11 @@ fn register_and_start_driver_service(driver_path: &str) -> bool {
 
 /// Launch the DefenderUI tray app with `--restart-required` so the user can
 /// reboot from the notification card. Best effort — never fatal.
-fn launch_defenderui_restart_required() {
+pub fn launch_defenderui_restart_required(
+    remediation_path: &std::path::Path,
+    message: &str,
+    submessage: &str,
+) {
     let Ok(exe_path) = std::env::current_exe() else {
         return;
     };
@@ -218,25 +229,25 @@ fn launch_defenderui_restart_required() {
     let ui_path = exe_dir.join("defenderui").join("DefenderUI.exe");
     if !ui_path.is_file() {
         Logging::warning(&format!(
-            "[MBR] DefenderUI.exe not found at {}; restart card not shown",
+            "[EDR] DefenderUI.exe not found at {}; restart card not shown",
             ui_path.display()
         ));
         return;
     }
 
-    let path_arg = format!("--path={}", exe_dir.join("MBRFilter.sys").display());
-    let message_arg = "--message=MBR protection driver (MBRFilter) was installed.";
-    let submessage_arg = "--submessage=A restart activates system-disk MBR protection. USB/external disks are already protected.";
+    let path_arg = format!("--path={}", remediation_path.display());
+    let message_arg = format!("--message={}", message);
+    let submessage_arg = format!("--submessage={}", submessage);
     match std::process::Command::new(&ui_path)
         .arg("--restart-required")
         .arg(&path_arg)
-        .arg(message_arg)
-        .arg(submessage_arg)
+        .arg(&message_arg)
+        .arg(&submessage_arg)
         .spawn()
     {
-        Ok(_) => Logging::info("[MBR] Asked DefenderUI to show the restart card"),
+        Ok(_) => Logging::info("[EDR] Asked DefenderUI to show the restart card"),
         Err(err) => Logging::warning(&format!(
-            "[MBR] Failed to launch DefenderUI for restart card: {}",
+            "[EDR] Failed to launch DefenderUI for restart card: {}",
             err
         )),
     }
