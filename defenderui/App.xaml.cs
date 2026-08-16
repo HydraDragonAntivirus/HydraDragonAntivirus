@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using DefenderUI.Services;
 using DefenderUI.ViewModels;
@@ -13,6 +14,7 @@ namespace DefenderUI;
 public partial class App : Application
 {
     private Window? _window;
+    private HipsPipeListener? _hipsListener;
 
     /// <summary>
     /// Gets the current <see cref="App"/> instance.
@@ -122,6 +124,9 @@ public partial class App : Application
         // process sonlanana kadar event abonelikleri / timer'lar sızabilir.
         _window.Closed += (_, _) =>
         {
+            _hipsListener?.Dispose();
+            _hipsListener = null;
+
             if (Services is IDisposable disposable)
             {
                 try { disposable.Dispose(); }
@@ -135,6 +140,23 @@ public partial class App : Application
         if (cmdArgs.Length <= 1)
         {
             _window.AppWindow.Hide();
+
+            // HIPS ask pipe'ını dinlemeye başla. SDK bilinmeyen bir program
+            // başlatmaya çalışınca HipsAlertWindow'u açar.
+            StartHipsListener();
+        }
+    }
+
+    private void StartHipsListener()
+    {
+        try
+        {
+            _hipsListener = new HipsPipeListener(DispatcherQueue.GetForCurrentThread());
+            _hipsListener.Start();
+        }
+        catch (Exception ex)
+        {
+            LogCrash("HipsPipeListener.Start", ex);
         }
     }
 
