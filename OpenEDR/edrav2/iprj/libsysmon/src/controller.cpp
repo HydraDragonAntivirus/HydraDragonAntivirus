@@ -610,7 +610,7 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 		}
 		catch (error::LimitExceeded& e)
 		{
-			LOGWRN(FMT("System monitor receiver queue limit exceeded: " << e.getMessage()));
+			LOGWRN(FMT("System monitor receiver queue limit exceeded: " << e.what()));
 		}
 #ifdef ENABLE_EVENT_TIMINGS
 		auto t2 = steady_clock::now();
