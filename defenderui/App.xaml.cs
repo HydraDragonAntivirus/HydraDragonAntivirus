@@ -64,7 +64,13 @@ public partial class App : Application
     {
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "crash.log");
+            // Program Files altına yazmak antivirüs/EDR tarafından engellenir;
+            // loglar ProgramData altında tutulur (hips.log ile aynı dizin).
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                @"edrsvc\log");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "defenderui_crash.log");
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"[{DateTime.Now:O}] {source}");
             if (ex is not null)
