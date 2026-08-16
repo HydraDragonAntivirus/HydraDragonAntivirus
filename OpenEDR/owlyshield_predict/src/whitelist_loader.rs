@@ -73,7 +73,7 @@ impl ExtensionWhitelist {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::WhitelistLoader;
 
     #[test]
     fn test_is_whitelisted() {
