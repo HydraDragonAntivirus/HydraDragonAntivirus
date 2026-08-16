@@ -1968,6 +1968,12 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub is_attached_signed: Option<bool>,
     #[serde(default)]
+    pub cloud_verdict: Option<u8>,
+    #[serde(default)]
+    pub cloud_available: Option<bool>,
+    #[serde(default)]
+    pub cloud_unknown: Option<bool>,
+    #[serde(default)]
     pub signature_status: Option<String>,
     #[serde(default)]
     pub signature_statuses: Vec<String>,

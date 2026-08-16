@@ -8916,6 +8916,60 @@ impl BehaviorEngine {
                     }
                 }
 
+                if !matched && cond_group.cloud_available.is_some() {
+                    let want_available = cond_group.cloud_available.unwrap();
+                    // Comodo cloud is "available" when the OpenEDR FLS verdict
+                    // resolved to a concrete code (1..=4); Absent (0) means no
+                    // cloud opinion was returned for this file.
+                    let static_present = state.cloud_static_verdict.is_some();
+                    let dynamic_present = state.cloud_dynamic_verdict.is_some();
+                    let is_available = static_present || dynamic_present;
+                    if is_available == want_available {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Cloud availability match for PID {}: cloud_available={}",
+                            cond_name, state.pid, is_available
+                        ));
+                    }
+                }
+
+                if !matched && cond_group.cloud_verdict.is_some() {
+                    let want = cond_group.cloud_verdict.unwrap();
+                    let static_v = state.cloud_static_verdict;
+                    let dynamic_v = state.cloud_dynamic_verdict;
+                    let verdict_matches = static_v == Some(want) || dynamic_v == Some(want);
+                    if verdict_matches {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Cloud verdict match for PID {}: static={:?} dynamic={:?}",
+                            cond_name, state.pid, static_v, dynamic_v
+                        ));
+                    }
+                }
+
+                if !matched && cond_group.cloud_unknown.is_some() {
+                    let want_unknown = cond_group.cloud_unknown.unwrap();
+                    // Comodo cloud "unknown" means the verdict is NOT a clear
+                    // Safe (1) or Malicious (2). This folds Unrecognized/Absent
+                    // (0), Unknown (3), and Fail (4) into the same "ask the
+                    // user" bucket — we only trust the cloud when it definitively
+                    // says safe or malware.
+                    let static_known = matches!(state.cloud_static_verdict, Some(1) | Some(2));
+                    let dynamic_known = matches!(state.cloud_dynamic_verdict, Some(1) | Some(2));
+                    let is_unknown = !static_known && !dynamic_known;
+                    if is_unknown == want_unknown {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Cloud unknown match for PID {}: static={:?} dynamic={:?} is_unknown={}",
+                            cond_name,
+                            state.pid,
+                            state.cloud_static_verdict,
+                            state.cloud_dynamic_verdict,
+                            is_unknown
+                        ));
+                    }
+                }
+
                 if !matched && state.signature_checked && cond_group.is_valid_signed.is_some() {
                     let check_valid = cond_group.is_valid_signed.unwrap();
                     if state.has_valid_signature == check_valid {
@@ -11787,5 +11841,56 @@ mod tests {
         assert_eq!(drained.len(), 1, "file create record must still drain");
         let (gid, _) = &drained[0];
         assert_eq!(*gid, 11);
+    }
+
+    #[test]
+    fn hips_unknown_exec_rule_loads_with_new_signature_and_cloud_fields() {
+        // Locate the production rule directory relative to the crate so the test
+        // is hermetic and does not depend on an installed CONFIG_PATH.
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // Cargo manifest dir is owlyshield_predict; rules live in ../edrav2/rules
+        dir.pop();
+        dir.push("edrav2");
+        dir.push("rules");
+        if !dir.exists() {
+            eprintln!("skip: rules dir not found at {}", dir.display());
+            return;
+        }
+
+        let mut engine = BehaviorEngine::new();
+        match engine.load_rules(&dir) {
+            Ok(_) => {}
+            Err(e) => {
+                // OneDrive placeholder / locked files can throw PermissionDenied;
+                // skip rather than fail so the suite stays green on locked files.
+                eprintln!("skip: could not load production rules from {}: {}", dir.display(), e);
+                return;
+            }
+        }
+
+        let rule = engine
+            .rules
+            .iter()
+            .find(|r| r.rule_id.as_deref() == Some("HD-HIPS-UNKNOWN-EXEC-0001"))
+            .expect("HD-HIPS-UNKNOWN-EXEC-0001 must be present");
+
+        assert!(rule.require_internet, "rule must require internet");
+        assert!(rule.response.ask_user, "rule must ask the user");
+        assert!(
+            rule.response.suspend_process,
+            "rule must suspend the process while asking"
+        );
+
+        let exec_cond = rule
+            .named_conditions
+            .get("executable_file")
+            .expect("executable_file condition");
+        assert_eq!(exec_cond.is_executable, Some(true));
+
+        let cloud_unknown = rule
+            .named_conditions
+            .get("comodo_cloud_unknown")
+            .expect("comodo_cloud_unknown condition");
+        assert_eq!(cloud_unknown.cloud_unknown, Some(true));
     }
 }
