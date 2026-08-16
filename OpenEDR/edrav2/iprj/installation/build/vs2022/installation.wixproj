@@ -1,7 +1,7 @@
 ﻿<Project Sdk="WixToolset.Sdk/6.0.2">
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <Platforms>x86;x64</Platforms>
     <ProjectGuid>6c957042-f2be-441c-9cd7-589f51f0d842</ProjectGuid>
     <OutputName>installation</OutputName>
@@ -22,7 +22,7 @@
   <PropertyGroup>
     <OutputPath>$(CmdRootDir)\out\install\$(CmdOutDirName)\</OutputPath>
     <IntermediateOutputPath>$(CmdRootDir)\out\temp\$(CmdOutDirName)\$(OutputName)\</IntermediateOutputPath>
-    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\;DefenderUiBinDir=$(ProjectDir)..\..\..\..\..\defenderui\bin\x64\Debug\net9.0-windows10.0.26100.0\win-x64\</DefineConstants>
+    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\;DefenderUiBinDir=$(ProjectDir)..\..\..\..\..\defenderui\bin\x64\Release\net9.0-windows10.0.26100.0\win-x64\</DefineConstants>
     <IncludeSearchPaths>..\..\src</IncludeSearchPaths>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">

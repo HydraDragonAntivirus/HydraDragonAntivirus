@@ -41,6 +41,12 @@ public sealed partial class HipsAlertWindow : Window
         }
     }
 
+    private void AskButton_Click(object sender, RoutedEventArgs e)
+    {
+        _onAction?.Invoke("ask");
+        Close();
+    }
+
     private void BlockButton_Click(object sender, RoutedEventArgs e)
     {
         _onAction?.Invoke("block");

@@ -1,7 +1,7 @@
 <Project Sdk="WixToolset.Sdk/6.0.2">
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <Platforms>x86;x64</Platforms>
     <ProjectGuid>{b7302b2d-5ee2-4660-a1c8-a8d560d9c581}</ProjectGuid>
     <OutputName>upgrade</OutputName>

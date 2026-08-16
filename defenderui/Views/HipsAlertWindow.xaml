@@ -83,7 +83,7 @@
                             Style="{StaticResource BodyLargeTextStyle}"
                             TextWrapping="Wrap" />
                         <TextBlock
-                            Text="Choose how to handle it:"
+                            Text="It was automatically suspended until you decide:"
                             Style="{StaticResource BodyMediumTextStyle}"
                             TextWrapping="Wrap"
                             Opacity="0.9" />
@@ -124,6 +124,11 @@
                 HorizontalAlignment="Right"
                 Spacing="8"
                 Padding="18,0,18,16">
+                <Button
+                    x:Name="AskButton"
+                    Content="Ask"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Click="AskButton_Click" />
                 <Button
                     x:Name="BlockButton"
                     Content="Block"
