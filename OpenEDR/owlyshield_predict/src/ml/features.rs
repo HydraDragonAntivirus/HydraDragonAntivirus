@@ -1,4 +1,6 @@
 /// Feature vector for PE file classification.
+use std::collections::HashMap;
+
 #[derive(Debug, Clone)]
 pub struct PeFeatureVector {
     pub size_of_optional_header: f32,
@@ -85,6 +87,54 @@ impl PeFeatureVector {
             self.cert_size,
             self.has_rich_header,
         ]
+    }
+
+    /// Converts the feature vector to a name -> value map so downstream code
+    /// (behavior engine state, reports) can expose the ML features by name.
+    pub fn to_map(&self) -> HashMap<String, f32> {
+        [
+            ("size_of_optional_header", self.size_of_optional_header),
+            ("major_linker_version", self.major_linker_version),
+            ("minor_linker_version", self.minor_linker_version),
+            ("size_of_code", self.size_of_code),
+            ("size_of_initialized_data", self.size_of_initialized_data),
+            ("size_of_uninitialized_data", self.size_of_uninitialized_data),
+            ("address_of_entry_point", self.address_of_entry_point),
+            ("image_base", self.image_base),
+            ("subsystem", self.subsystem),
+            ("dll_characteristics", self.dll_characteristics),
+            ("size_of_stack_reserve", self.size_of_stack_reserve),
+            ("size_of_heap_reserve", self.size_of_heap_reserve),
+            ("checksum", self.checksum),
+            ("number_of_rva_and_sizes", self.number_of_rva_and_sizes),
+            ("size_of_image", self.size_of_image),
+            ("imports_count", self.imports_count),
+            ("exports_count", self.exports_count),
+            ("resources_count", self.resources_count),
+            ("sections_count", self.sections_count),
+            ("overlay_exists", self.overlay_exists),
+            ("overlay_size", self.overlay_size),
+            ("sec_entropy_mean", self.sec_entropy_mean),
+            ("sec_entropy_min", self.sec_entropy_min),
+            ("sec_entropy_max", self.sec_entropy_max),
+            ("total_instructions", self.total_instructions),
+            ("total_add_instructions", self.total_add_instructions),
+            ("total_mov_instructions", self.total_mov_instructions),
+            ("is_likely_packed", self.is_likely_packed),
+            ("add_mov_ratio", self.add_mov_ratio),
+            ("instructions_per_kb", self.instructions_per_kb),
+            ("num_tls_callbacks", self.num_tls_callbacks),
+            ("num_delay_imports", self.num_delay_imports),
+            ("num_reloc_entries", self.num_reloc_entries),
+            ("num_reloc_blocks", self.num_reloc_blocks),
+            ("num_bound_imports", self.num_bound_imports),
+            ("num_debug_entries", self.num_debug_entries),
+            ("cert_size", self.cert_size),
+            ("has_rich_header", self.has_rich_header),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect()
     }
 }
 
@@ -200,5 +250,66 @@ impl JsFeatureVector {
             self.suspicious_naming,
             self.random_like_identifiers,
         ]
+    }
+
+    /// Converts the feature vector to a name -> value map so downstream code
+    /// (behavior engine state, reports) can expose the ML features by name.
+    pub fn to_map(&self) -> HashMap<String, f32> {
+        [
+            ("file_size", self.file_size),
+            ("entropy", self.entropy),
+            ("parse_success", self.parse_success),
+            ("function_count", self.function_count),
+            ("variable_declarations", self.variable_declarations),
+            ("call_expressions", self.call_expressions),
+            ("member_expressions", self.member_expressions),
+            ("binary_expressions", self.binary_expressions),
+            ("conditional_statements", self.conditional_statements),
+            ("loop_statements", self.loop_statements),
+            ("try_catch_blocks", self.try_catch_blocks),
+            ("array_literals", self.array_literals),
+            ("object_literals", self.object_literals),
+            ("max_nesting_depth", self.max_nesting_depth),
+            ("eval_usage", self.eval_usage),
+            ("suspicious_call_count", self.suspicious_call_count),
+            ("hex_encoded_strings", self.hex_encoded_strings),
+            ("unicode_encoded_strings", self.unicode_encoded_strings),
+            ("char_code_usage", self.char_code_usage),
+            ("base64_usage", self.base64_usage),
+            ("escape_usage", self.escape_usage),
+            ("bracket_notation_calls", self.bracket_notation_calls),
+            ("obfuscation_score", self.obfuscation_score),
+            ("is_obfuscated", self.is_obfuscated),
+            ("crypto_references", self.crypto_references),
+            ("network_operations", self.network_operations),
+            ("file_system_operations", self.file_system_operations),
+            ("registry_operations", self.registry_operations),
+            ("process_operations", self.process_operations),
+            ("suspicious_api_calls", self.suspicious_api_calls),
+            ("suspicious_score", self.suspicious_score),
+            ("total_strings", self.total_strings),
+            ("avg_string_length", self.avg_string_length),
+            ("max_string_length", self.max_string_length),
+            ("long_strings_count", self.long_strings_count),
+            ("base64_like_strings", self.base64_like_strings),
+            ("url_strings", self.url_strings),
+            ("hex_strings", self.hex_strings),
+            ("total_lines", self.total_lines),
+            ("code_lines", self.code_lines),
+            ("comment_lines", self.comment_lines),
+            ("blank_lines", self.blank_lines),
+            ("avg_line_length", self.avg_line_length),
+            ("max_line_length", self.max_line_length),
+            ("cyclomatic_complexity", self.cyclomatic_complexity),
+            ("total_identifiers", self.total_identifiers),
+            ("short_identifiers", self.short_identifiers),
+            ("long_identifiers", self.long_identifiers),
+            ("avg_identifier_length", self.avg_identifier_length),
+            ("suspicious_naming", self.suspicious_naming),
+            ("random_like_identifiers", self.random_like_identifiers),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect()
     }
 }

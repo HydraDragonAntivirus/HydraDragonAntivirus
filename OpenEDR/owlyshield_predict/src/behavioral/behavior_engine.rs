@@ -2023,6 +2023,10 @@ pub struct ProcessBehaviorState {
     // "MaliciousJsScript", "MaliciousPeExecutable". Behavior rules can
     // reference these via the `ml_detection` / `ml_detected` conditions.
     pub ml_detections: Vec<String>,
+    // ML feature vector (feature name -> value) from the fast static ML engine,
+    // e.g. is_obfuscated, entropy, suspicious_score. Rules reference these via
+    // the `ml_features` condition.
+    pub ml_features: HashMap<String, f32>,
 
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
@@ -2196,6 +2200,7 @@ impl ProcessBehaviorState {
         state.signer_name = None;
         state.is_executable = false;
         state.ml_detections = Vec::new();
+        state.ml_features = HashMap::new();
         state.is_catalog_signed = false;
         state.is_attached_signed = false;
         state.parent_name = "unknown".to_string();
@@ -7487,6 +7492,22 @@ impl BehaviorEngine {
             }
         }
 
+        // Record the actual ML feature values (is_obfuscated, entropy,
+        // suspicious_score, ...) into the state so rules can reference them via
+        // the `ml_features` condition. Feature values are merged per-name; the
+        // latest recorded values win for each feature.
+        if let Some(features) = &precord.fast_detection_features {
+            for (name, value) in features {
+                state.ml_features.insert(name.clone(), *value);
+            }
+            Logging::info(&format!(
+                "[BehaviorEngine] Recorded {} ML feature(s) for PID {} (GID {})",
+                features.len(),
+                pid,
+                gid
+            ));
+        }
+
         // Run AMSI analysis if this is an AMSI event
         if msg.kernel_event_info.is_amsi_event
             && !msg.kernel_event_info.amsi_content_sample.is_empty()
@@ -9181,6 +9202,43 @@ impl BehaviorEngine {
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - ML detected match for PID {}: ml_detected={}",
                             cond_name, state.pid, is_detected
+                        ));
+                    }
+                }
+
+                if !matched && !cond_group.ml_features.is_empty() {
+                    let features_match = cond_group.ml_features.iter().all(|(name, cond)| {
+                        match state.ml_features.get(name) {
+                            Some(value) => {
+                                let value = *value as f64;
+                                if let Some(want_true) = cond.is_true {
+                                    let is_true = *value >= 0.5;
+                                    if is_true != want_true {
+                                        return false;
+                                    }
+                                }
+                                if let Some(min) = cond.min {
+                                    if value < min {
+                                        return false;
+                                    }
+                                }
+                                if let Some(max) = cond.max {
+                                    if value > max {
+                                        return false;
+                                    }
+                                }
+                                true
+                            }
+                            None => false,
+                        }
+                    });
+                    if features_match {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - ML feature match for PID {}: {:?}",
+                            cond_name,
+                            state.pid,
+                            cond_group.ml_features.keys().collect::<Vec<_>>()
                         ));
                     }
                 }

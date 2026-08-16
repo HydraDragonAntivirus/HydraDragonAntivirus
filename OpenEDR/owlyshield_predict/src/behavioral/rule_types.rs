@@ -1831,6 +1831,22 @@ pub enum RuleMapping {
     Stage { stage: String },
 }
 
+/// Condition on a single ML feature value recorded when the fast static ML
+/// engine (fast_detect_file) fired. All bounds are inclusive.
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct MlFeatureCondition {
+    /// For boolean features (is_obfuscated, parse_success, is_likely_packed):
+    /// expected value (feature == 1.0 for true, == 0.0 for false).
+    #[serde(default)]
+    pub is_true: Option<bool>,
+    /// Minimum value (inclusive) for numeric features.
+    #[serde(default)]
+    pub min: Option<f64>,
+    /// Maximum value (inclusive) for numeric features.
+    #[serde(default)]
+    pub max: Option<f64>,
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct NamedConditionGroup {
     #[serde(default)]
@@ -1976,11 +1992,15 @@ pub struct NamedConditionGroup {
     // Fast static ML engine conditions (fast_detect_file). `ml_detection`
     // matches a specific detection name ("MaliciousJsScript",
     // "MaliciousPeExecutable"); `ml_detected` matches on whether any ML
-    // detection was recorded for the process.
+    // detection was recorded for the process; `ml_features` matches the actual
+    // ML feature vector (feature name -> value, e.g. is_obfuscated, entropy,
+    // suspicious_score) recorded when an ML detection fired.
     #[serde(default)]
     pub ml_detection: Option<String>,
     #[serde(default)]
     pub ml_detected: Option<bool>,
+    #[serde(default)]
+    pub ml_features: HashMap<String, MlFeatureCondition>,
     #[serde(default)]
     pub signature_status: Option<String>,
     #[serde(default)]

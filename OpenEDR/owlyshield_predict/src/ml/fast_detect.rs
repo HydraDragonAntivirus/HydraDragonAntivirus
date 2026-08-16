@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use burn::backend::NdArray;
@@ -71,6 +72,10 @@ fn load_ml_model(
 pub struct FastDetectionResult {
     pub detection_name: String,
     pub reason: String,
+    /// The ML feature vector (feature name -> value) that produced the
+    /// detection. Populated so the behavior engine can expose these values
+    /// (e.g. is_obfuscated, entropy, suspicious_score) as rule conditions.
+    pub features: HashMap<String, f32>,
 }
 
 pub const PE_ML_DETECTION_NAME: &str = "MaliciousPeExecutable";
@@ -105,12 +110,16 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
                 let device = NdArrayDevice::default();
                 if let Some(prob) = super::inference::predict_pe(&bytes, model, &device) {
                     if prob > 0.875 {
+                        let features = super::pe_features::extract_pe_features(&bytes)
+                            .map(|f| f.to_map())
+                            .unwrap_or_default();
                         return Some(FastDetectionResult {
                             detection_name: PE_ML_DETECTION_NAME.to_string(),
                             reason: format!(
                                 "PE ML engine detected malicious executable with {:.1}% probability",
                                 prob * 100.0
                             ),
+                            features,
                         });
                     }
                 }
@@ -122,12 +131,16 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
                     let device = NdArrayDevice::default();
                     if let Some(prob) = super::inference::predict_js(content, model, &device) {
                         if prob > 0.875 {
+                            let features = super::js_features::extract_js_features(content)
+                                .map(|f| f.to_map())
+                                .unwrap_or_default();
                             return Some(FastDetectionResult {
                                 detection_name: JS_ML_DETECTION_NAME.to_string(),
                                 reason: format!(
                                     "JS ML engine detected malicious script with {:.1}% probability",
                                     prob * 100.0
                                 ),
+                                features,
                             });
                         }
                     }

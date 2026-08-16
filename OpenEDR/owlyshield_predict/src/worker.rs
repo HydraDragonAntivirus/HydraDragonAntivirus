@@ -1733,6 +1733,7 @@ pub mod worker_instance {
                         precord.quarantine_requested = true;
                         precord.triggered_rule_name = Some(det.detection_name.clone());
                         precord.triggered_rule_details = Some(det.reason.clone());
+                        precord.fast_detection_features = Some(det.features.clone());
 
                         Logging::warning(&format!(
                             "[FastDetection] Process {} (PID: {}) triggered static detection '{}': {}",

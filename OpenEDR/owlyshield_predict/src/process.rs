@@ -206,6 +206,11 @@ pub struct ProcessRecord {
     pub triggered_rule_name: Option<String>,
     /// Rich detail string describing why the rule matched.
     pub triggered_rule_details: Option<String>,
+    /// ML feature vector (feature name -> value) from the fast static ML engine
+    /// (fast_detect_file), e.g. is_obfuscated, entropy, suspicious_score. Set
+    /// when an ML detection fires so the behavior engine can record and expose
+    /// the actual ML features, not just a fabricated detection label.
+    pub fast_detection_features: Option<HashMap<String, f32>>,
     /// File artifact selected for direct remediation when it differs from the process image.
     pub remediation_target_path: Option<PathBuf>,
     /// Time of the main process start
@@ -351,6 +356,7 @@ impl ProcessRecord {
             restart_cleanup_requested: false,
             triggered_rule_name: None,
             triggered_rule_details: None,
+            fast_detection_features: None,
             remediation_target_path: None,
             time_started: SystemTime::now(),
             time_killed: None,
@@ -450,6 +456,7 @@ impl ProcessRecord {
             restart_cleanup_requested: false,
             triggered_rule_name: None,
             triggered_rule_details: None,
+            fast_detection_features: None,
             remediation_target_path: None,
             time_started: SystemTime::now(),
             time_killed: None,
