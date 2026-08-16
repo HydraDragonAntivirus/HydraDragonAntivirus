@@ -103,8 +103,10 @@ public sealed class HipsPipeListener : IDisposable
     {
         try
         {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"edrsvc\log");
+            Directory.CreateDirectory(dir);
             File.AppendAllText(
-                Path.Combine(AppContext.BaseDirectory, "hips.log"),
+                Path.Combine(dir, "hips.log"),
                 $"[{DateTime.Now:O}] {message}{Environment.NewLine}");
         }
         catch
