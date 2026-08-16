@@ -110,6 +110,14 @@ pub struct SignatureInfo {
     pub no_signature: bool,
     pub signature_status_issues: bool,
     pub invalid_signature: bool,
+
+    // Fine-grained signature classification so rules can distinguish an
+    // attached (embedded Authenticode PKCS#7) signature from a catalog
+    // (CatRoot .cat membership) signature, and can tell whether the target
+    // is an executable image at all.
+    pub is_executable: bool,
+    pub is_catalog_signed: bool,
+    pub is_attached_signed: bool,
 }
 
 impl Default for SignatureInfo {
@@ -125,6 +133,9 @@ impl Default for SignatureInfo {
             no_signature: true,
             signature_status_issues: false,
             invalid_signature: false,
+            is_executable: false,
+            is_catalog_signed: false,
+            is_attached_signed: false,
         }
     }
 }
@@ -204,6 +215,9 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
     let mut raw_hresult: u32;
     let mut status: SignatureStatus;
     let mut signer_name = None;
+    let mut is_catalog_signed = false;
+    let mut is_attached_signed = false;
+    let is_executable = is_authenticode_binary_path(path);
 
     unsafe {
         let path_wide: Vec<u16> = path
@@ -254,6 +268,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         // so Microsoft-signed OS binaries are not misclassified as unsigned.
         if status == SignatureStatus::Unsigned && is_authenticode_binary_path(path) {
             if let Some(catalog_signer) = verify_catalog_signature(&path_wide) {
+                is_catalog_signed = true;
                 status = SignatureStatus::Trusted;
                 signer_name = Some(catalog_signer);
                 raw_hresult = ERROR_SUCCESS.0 as u32;
@@ -271,6 +286,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         // as proof of "unsigned", because catalog-signed system files may not have
         // embedded PKCS#7 signer data.
         if let Ok(name) = get_signer_name_from_file(&path_wide) {
+            is_attached_signed = true;
             signer_name = Some(name);
             if matches!(
                 status,
@@ -308,6 +324,9 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         no_signature,
         signature_status_issues,
         invalid_signature,
+        is_executable,
+        is_catalog_signed,
+        is_attached_signed,
     }
 }
 

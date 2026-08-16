@@ -131,10 +131,13 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
     let toastapp_dir = Path::new(&config[Param::UtilsPath]);
     let toastapp_path = toastapp_dir.join("RustWindowsToast.exe");
     let app_id = &config[Param::AppId];
-    let logo_path = Path::new(&config[Param::ConfigPath])
+    // ConfigPath may be a bare file name with no parent directory; never unwrap
+    // the parent (a panic here would abort every alert notification).
+    let config_dir = Path::new(&config[Param::ConfigPath])
         .parent()
-        .unwrap()
-        .join("logo.ico");
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let logo_path = config_dir.join("logo.ico");
 
     let toastapp_args = format!(
         " \"Owlyshield\" \"{}\" \"{}\" \"{}\" \"{}\"",
@@ -245,10 +248,13 @@ pub fn notify(config: &Config, message: &str, report_path: &str) -> Result<(), S
     let toastapp_dir = Path::new(&config[Param::UtilsPath]);
     let toastapp_path = toastapp_dir.join("RustWindowsToast.exe");
     let app_id = &config[Param::AppId];
-    let logo_path = Path::new(&config[Param::ConfigPath])
+    // ConfigPath may be a bare file name with no parent directory; never unwrap
+    // the parent (a panic here would abort every alert notification).
+    let config_dir = Path::new(&config[Param::ConfigPath])
         .parent()
-        .unwrap()
-        .join("logo.ico");
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let logo_path = config_dir.join("logo.ico");
 
     let toastapp_args = [
         "Owlyshield",

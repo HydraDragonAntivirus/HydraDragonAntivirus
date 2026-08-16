@@ -633,6 +633,19 @@
     - hollowing
   mitre_attack:
     - T1055.012
+  # Require at least 2 of the 3 stages. Legitimate Windows processes (e.g.
+  # svchost.exe loading DLLs) routinely map sections via NtMapViewOfSection,
+  # which alone triggered false positives at certainty 0.33.
+  min_stages_satisfied: 2
+  allowlisted_apps:
+    - pattern: "C:/Windows/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
+    - pattern: "%SystemRoot%/System32/svchost.exe"
+      must_be_signed: true
+      is_absolute: true
+      signers: ["*Microsoft*"]
   stages:
     - name: Process Create Suspended
       conditions:

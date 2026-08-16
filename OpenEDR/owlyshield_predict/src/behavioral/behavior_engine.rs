@@ -30,7 +30,7 @@ use std::collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -2013,6 +2013,11 @@ pub struct ProcessBehaviorState {
     pub signature_status_issues: bool,
     pub signature_invalid: bool,
     pub signer_name: Option<String>,
+    // Fine-grained signature classification surfaced from SignatureInfo so
+    // rules can distinguish attached vs catalog signatures and executable files.
+    pub is_executable: bool,
+    pub is_catalog_signed: bool,
+    pub is_attached_signed: bool,
 
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
@@ -2184,6 +2189,9 @@ impl ProcessBehaviorState {
         state.signature_status_issues = false;
         state.signature_invalid = false;
         state.signer_name = None;
+        state.is_executable = false;
+        state.is_catalog_signed = false;
+        state.is_attached_signed = false;
         state.parent_name = "unknown".to_string();
         state.parent_path = PathBuf::new();
         state.command_line = String::new();
@@ -4449,10 +4457,22 @@ impl BehaviorEngine {
                 };
 
                 if let Ok(mut q) = self.pending_irp_records.lock() {
-                    // Cap queue at 4096 entries to bound memory under high event rates.
+                    // Cap queue at 16384 entries to bound memory under high event rates.
                     let q: &mut std::collections::VecDeque<(u32, IrpOperationRecord)> = &mut *q;
-                    if q.len() < 4096 {
+                    if q.len() < 16384 {
                         q.push_back((pid, rec));
+                    } else {
+                        // Log the drop (throttled) instead of silently discarding, so a
+                        // full queue is visible and not mistaken for "no events to process".
+                        static DROPPED_IRP_RECORDS: AtomicU64 = AtomicU64::new(0);
+                        let dropped =
+                            DROPPED_IRP_RECORDS.fetch_add(1, Ordering::Relaxed) + 1;
+                        if dropped == 1 || dropped % 1000 == 0 {
+                            Logging::warning(&format!(
+                                "[OpenEDRTelemetry] pending_irp_records queue full (cap 16384); dropped IRP record for pid={} - total dropped so far: {}",
+                                pid, dropped
+                            ));
+                        }
                     }
                 }
             }
@@ -7360,6 +7380,9 @@ impl BehaviorEngine {
                     state.signature_status_issues = info.signature_status_issues;
                     state.signature_invalid = info.invalid_signature;
                     state.signer_name = info.signer_name.clone();
+                    state.is_executable = info.is_executable;
+                    state.is_catalog_signed = info.is_catalog_signed;
+                    state.is_attached_signed = info.is_attached_signed;
                     state.signature_checked = true;
                     state.signature_checked_path = signature_path;
                 } else {
@@ -7378,6 +7401,9 @@ impl BehaviorEngine {
                     state.signature_status_issues = false;
                     state.signature_invalid = false;
                     state.signer_name = None;
+                    state.is_executable = false;
+                    state.is_catalog_signed = false;
+                    state.is_attached_signed = false;
                 }
             }
         }
@@ -8853,6 +8879,39 @@ impl BehaviorEngine {
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - Signature state match for PID {}: is_signed={}",
                             cond_name, state.pid, state.is_signed
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.is_executable.is_some() {
+                    let check_executable = cond_group.is_executable.unwrap();
+                    if state.is_executable == check_executable {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Executable state match for PID {}: is_executable={}",
+                            cond_name, state.pid, state.is_executable
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.is_catalog_signed.is_some() {
+                    let check_catalog = cond_group.is_catalog_signed.unwrap();
+                    if state.is_catalog_signed == check_catalog {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Catalog signature match for PID {}: is_catalog_signed={}",
+                            cond_name, state.pid, state.is_catalog_signed
+                        ));
+                    }
+                }
+
+                if !matched && state.signature_checked && cond_group.is_attached_signed.is_some() {
+                    let check_attached = cond_group.is_attached_signed.unwrap();
+                    if state.is_attached_signed == check_attached {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Attached signature match for PID {}: is_attached_signed={}",
+                            cond_name, state.pid, state.is_attached_signed
                         ));
                     }
                 }

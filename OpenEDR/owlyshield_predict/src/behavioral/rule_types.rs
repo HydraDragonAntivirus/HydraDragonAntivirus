@@ -1962,6 +1962,12 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub is_valid_signed: Option<bool>,
     #[serde(default)]
+    pub is_executable: Option<bool>,
+    #[serde(default)]
+    pub is_catalog_signed: Option<bool>,
+    #[serde(default)]
+    pub is_attached_signed: Option<bool>,
+    #[serde(default)]
     pub signature_status: Option<String>,
     #[serde(default)]
     pub signature_statuses: Vec<String>,
