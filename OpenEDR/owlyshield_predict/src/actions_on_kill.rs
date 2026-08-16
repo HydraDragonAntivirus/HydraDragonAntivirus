@@ -820,7 +820,7 @@ impl ActionOnKill for KillAction {
                 self.handler.schedule_cleanup_on_reboot(remediation_path);
 
                 crate::windows::mbrfilter::launch_defenderui_restart_required(
-                    &remediation_path,
+                    remediation_path,
                     "A threat could not be removed while in use.",
                     "The file will be cleaned up after a restart.",
                 );
