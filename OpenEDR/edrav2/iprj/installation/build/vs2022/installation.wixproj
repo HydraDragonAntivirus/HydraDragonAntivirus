@@ -22,7 +22,8 @@
   <PropertyGroup>
     <OutputPath>$(CmdRootDir)\out\install\$(CmdOutDirName)\</OutputPath>
     <IntermediateOutputPath>$(CmdRootDir)\out\temp\$(CmdOutDirName)\$(OutputName)\</IntermediateOutputPath>
-    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\;DefenderUiBinDir=$(ProjectDir)..\..\..\..\..\defenderui\bin\x64\Release\net9.0-windows10.0.26100.0\win-x64\</DefineConstants>
+    <DefenderUiBinDir>$(ProjectDir)..\..\..\..\..\..\defenderui\bin\x64\Release\net9.0-windows10.0.26100.0\win-x64\</DefenderUiBinDir>
+    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\;DefenderUiBinDir=$(DefenderUiBinDir)</DefineConstants>
     <IncludeSearchPaths>..\..\src</IncludeSearchPaths>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
