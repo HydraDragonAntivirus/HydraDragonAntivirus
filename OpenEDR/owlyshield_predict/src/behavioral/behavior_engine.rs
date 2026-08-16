@@ -2195,6 +2195,7 @@ impl ProcessBehaviorState {
         state.signature_invalid = false;
         state.signer_name = None;
         state.is_executable = false;
+        state.ml_detections = Vec::new();
         state.is_catalog_signed = false;
         state.is_attached_signed = false;
         state.parent_name = "unknown".to_string();
@@ -7586,7 +7587,6 @@ impl BehaviorEngine {
                     state.signature_invalid = false;
                     state.signer_name = None;
                     state.is_executable = false;
-                    state.ml_detections = Vec::new();
                     state.is_catalog_signed = false;
                     state.is_attached_signed = false;
                 }
@@ -9161,12 +9161,14 @@ impl BehaviorEngine {
                 }
 
                 if !matched && cond_group.ml_detection.is_some() {
-                    let expected = cond_group.ml_detection.as_deref().unwrap().trim();
-                    if state.ml_detections.iter().any(|name| name.eq_ignore_ascii_case(expected)) {
+                    let expected = cond_group.ml_detection.as_deref().unwrap();
+                    if state.ml_detections.iter().any(|name| {
+                        Self::matches_pattern_internal(&self.regex_cache, expected, name)
+                    }) {
                         matched = true;
                         Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - ML detection match for PID {}: {}",
-                            cond_name, state.pid, expected
+                            "[BehaviorEngine] Condition '{}' - ML detection match for PID {}: {} (recorded: {:?})",
+                            cond_name, state.pid, expected, state.ml_detections
                         ));
                     }
                 }
