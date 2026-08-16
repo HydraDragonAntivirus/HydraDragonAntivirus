@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <Window
-    x:Class="DefenderUI.Views.ThreatAlertWindow"
+    x:Class="DefenderUI.Views.HipsAlertWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    Title="HydraDragonAntivirus - Threat Quarantined"
+    Title="HydraDragonAntivirus - HIPS Alert"
     mc:Ignorable="d">
 
     <Window.SystemBackdrop>
@@ -15,7 +15,7 @@
     <Border
         x:Name="AlertFrame"
         BorderThickness="3"
-        BorderBrush="{ThemeResource StatusRiskBrush}"
+        BorderBrush="{ThemeResource StatusWarningBrush}"
         CornerRadius="12"
         Background="{ThemeResource SurfaceCardBrush}">
 
@@ -52,16 +52,15 @@
                     Grid.Column="2"
                     CornerRadius="8"
                     Padding="10,4"
-                    Background="{ThemeResource StatusRiskSoftBrush}">
+                    Background="{ThemeResource StatusWarningSoftBrush}">
                     <TextBlock
-                        x:Name="HeaderStatusText"
-                        Text="QUARANTINED"
+                        Text="UNKNOWN PROGRAM"
                         Style="{StaticResource CaptionTextStyle}"
-                        Foreground="{ThemeResource StatusRiskBrush}" />
+                        Foreground="{ThemeResource StatusWarningBrush}" />
                 </Border>
             </Grid>
 
-            <!-- Orta bölüm: karantina bilgisi -->
+            <!-- Orta bölüm: HIPS bilgisi -->
             <StackPanel Grid.Row="1" Padding="18,10,18,12" Spacing="10">
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Border
@@ -69,39 +68,56 @@
                         Height="48"
                         CornerRadius="12"
                         VerticalAlignment="Top"
-                        Background="{ThemeResource StatusProtectedSoftBrush}">
+                        Background="{ThemeResource StatusWarningSoftBrush}">
                         <FontIcon
-                            Glyph="&#xE73E;"
+                            Glyph="&#xE7BA;"
                             FontSize="24"
                             FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                            Foreground="{ThemeResource StatusProtectedBrush}"
+                            Foreground="{ThemeResource StatusWarningBrush}"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center" />
                     </Border>
                     <StackPanel Spacing="2" VerticalAlignment="Center">
                         <TextBlock
-                            Text="Threat Found and Quarantined"
+                            Text="An unknown program is starting"
                             Style="{StaticResource BodyLargeTextStyle}"
-                            TextWrapping="Wrap"
-                            Foreground="{ThemeResource StatusRiskBrush}" />
-                        <TextBlock
-                            x:Name="ThreatNameText"
-                            Text="{x:Bind ThreatName}"
-                            Style="{StaticResource BodyMediumTextStyle}"
                             TextWrapping="Wrap" />
+                        <TextBlock
+                            Text="Choose how to handle it:"
+                            Style="{StaticResource BodyMediumTextStyle}"
+                            TextWrapping="Wrap"
+                            Opacity="0.9" />
                     </StackPanel>
                 </StackPanel>
 
-                <TextBlock
-                    x:Name="FilePathText"
-                    Text="{x:Bind FilePath}"
-                    Style="{StaticResource BodyMediumTextStyle}"
-                    TextWrapping="Wrap"
-                    Foreground="{ThemeResource TextSecondaryBrush}"
-                    IsTextSelectionEnabled="True" />
+                <Border
+                    Padding="16,14"
+                    CornerRadius="8"
+                    BorderThickness="1"
+                    BorderBrush="{ThemeResource BorderSubtleBrush}"
+                    Background="{ThemeResource SurfaceCardBrush}">
+                    <StackPanel Spacing="6">
+                        <TextBlock
+                            Text="Program"
+                            Style="{StaticResource CaptionTextStyle}"
+                            Foreground="{ThemeResource TextSecondaryBrush}" />
+                        <TextBlock
+                            x:Name="ProgramNameText"
+                            Text="{x:Bind ProgramName}"
+                            Style="{StaticResource BodyLargeTextStyle}"
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            x:Name="ProgramPathText"
+                            Text="{x:Bind ProgramPath}"
+                            Style="{StaticResource BodyMediumTextStyle}"
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource TextTertiaryBrush}"
+                            IsTextSelectionEnabled="True" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
 
-            <!-- Alt bölüm: OK butonu -->
+            <!-- Alt bölüm: HIPS aksiyonları -->
             <StackPanel
                 Grid.Row="2"
                 Orientation="Horizontal"
@@ -109,10 +125,20 @@
                 Spacing="8"
                 Padding="18,0,18,16">
                 <Button
-                    x:Name="OkButton"
-                    Content="OK"
+                    x:Name="BlockButton"
+                    Content="Block"
+                    Style="{StaticResource DangerButtonStyle}"
+                    Click="BlockButton_Click" />
+                <Button
+                    x:Name="QuarantineButton"
+                    Content="Quarantine"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Click="QuarantineButton_Click" />
+                <Button
+                    x:Name="AllowButton"
+                    Content="Allow Forever"
                     Style="{StaticResource PrimaryButtonStyle}"
-                    Click="OkButton_Click" />
+                    Click="AllowButton_Click" />
             </StackPanel>
         </Grid>
     </Border>

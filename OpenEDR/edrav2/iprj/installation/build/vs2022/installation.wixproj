@@ -22,7 +22,7 @@
   <PropertyGroup>
     <OutputPath>$(CmdRootDir)\out\install\$(CmdOutDirName)\</OutputPath>
     <IntermediateOutputPath>$(CmdRootDir)\out\temp\$(CmdOutDirName)\$(OutputName)\</IntermediateOutputPath>
-    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\</DefineConstants>
+    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\;DefenderUiBinDir=$(ProjectDir)..\..\..\..\..\defenderui\bin\x64\Debug\net9.0-windows10.0.26100.0\win-x64\</DefineConstants>
     <IncludeSearchPaths>..\..\src</IncludeSearchPaths>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
@@ -79,5 +79,6 @@
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\rules\&quot;" />
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\firewall-rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\&quot;" />
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\models&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\models\&quot;" />
+    <Exec Command="if exist &quot;$(DefenderUiBinDir)&quot; xcopy /Y /D /E /I &quot;$(DefenderUiBinDir)&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\defenderui\&quot;" />
   </Target>
 </Project>

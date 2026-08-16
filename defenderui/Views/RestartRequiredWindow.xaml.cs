@@ -20,8 +20,8 @@ public sealed partial class RestartRequiredWindow : Window
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ExitWindowsEx(uint uFlags, uint dwReason);
 
-    private const int CardWidth = 420;
-    private const int CardHeight = 230;
+    private const int CardWidth = 480;
+    private const int CardHeight = 260;
 
     public string FilePath { get; }
 

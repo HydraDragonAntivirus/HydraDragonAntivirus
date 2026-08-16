@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+	<?include Define.wxi ?>
+	<?include BuildInfo.wxi ?>
+
+	<Bundle Name="HydraDragonAntivirus"
+	        Version="$(var.strversion)"
+	        Manufacturer="HydraDragonAntivirus"
+	        UpgradeCode="19B8FF2D-16B0-4E76-9395-C05FE4BEA8D7">
+
+		<BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.HyperlinkLicense" />
+
+		<!-- .NET 9 Desktop Runtime (x64) kurulu mu? -->
+		<util:RegistrySearch
+			Id="Net9DesktopRuntimeSearch"
+			Root="HKLM"
+			Key="SOFTWARE\Microsoft\NET Core Setup\Desktop\v9"
+			Value="Version"
+			Type="version"
+			Variable="NET9DESKTOPRUNTIME" />
+
+		<Chain>
+			<!-- Kurulu değilse Microsoft'tan indir ve sessizce kur -->
+			<ExePackage
+				Id="Net9DesktopRuntime"
+				Name="Microsoft .NET 9 Desktop Runtime (x64)"
+				Cache="yes"
+				PerMachine="yes"
+				Vital="yes"
+				Permanent="yes"
+				DetectCondition="NET9DESKTOPRUNTIME >= v9.0.0"
+				InstallCommand="/install /quiet /norestart"
+				RepairCommand="/repair /quiet /norestart"
+				UninstallCommand="/uninstall /quiet /norestart"
+				DownloadUrl="https://aka.ms/dotnet/9.0/windowsdesktop-runtime-win-x64.exe">
+				<RemotePayload
+					Description="Microsoft Windows Desktop Runtime - 9.0.19 (x64)"
+					ProductName="Microsoft Windows Desktop Runtime - 9.0.19 (x64)"
+					Size="60405064"
+					Version="9.0.19.36321"
+					Hash="47D82EC79834D1CC032292411960BCC42A3955947E999C2AFD02A93FFA9C2928FF62FFBB4E7DC4572E3FBCE5BBFD6AE9EC5C3EBF99979F8BD07FD375B71A6A53" />
+			</ExePackage>
+
+			<!-- Ana OpenEDR MSI -->
+			<MsiPackage Id="EdrAgentMsi" SourceFile="$(var.MsiPath)" Vital="yes" />
+		</Chain>
+	</Bundle>
+</Wix>

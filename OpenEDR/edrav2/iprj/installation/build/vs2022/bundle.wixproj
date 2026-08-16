@@ -1,0 +1,52 @@
+<Project Sdk="WixToolset.Sdk/6.0.2">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <Platforms>x64</Platforms>
+    <ProjectGuid>04241DE7-D844-4618-A152-E0C183BC9E9E</ProjectGuid>
+    <OutputName>bundle</OutputName>
+    <OutputType>Bundle</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <VerboseOutput>true</VerboseOutput>
+    <AcceptEula>wix6</AcceptEula>
+  </PropertyGroup>
+  <PropertyGroup>
+    <PlatformName Condition=" '$(Platform)' == 'x64' ">x64</PlatformName>
+  </PropertyGroup>
+  <Import Project="..\..\..\build\vs2022\consts.props" />
+  <PropertyGroup>
+    <OutputPath>$(CmdRootDir)\out\install\$(CmdOutDirName)\</OutputPath>
+    <IntermediateOutputPath>$(CmdRootDir)\out\temp\$(CmdOutDirName)\$(OutputName)\</IntermediateOutputPath>
+    <DefineConstants>MsiPath=$(CmdRootDir)\out\install\$(CmdOutDirName)\installation.msi</DefineConstants>
+    <IncludeSearchPaths>..\..\src</IncludeSearchPaths>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DefineConstants>$(DefineConstants);Debug</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\Bundle.wxs">
+      <Link>Bundle.wxs</Link>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\src\Define.wxi">
+      <Link>Define.wxi</Link>
+    </Content>
+    <Content Include="..\..\src\BuildInfo.wxi">
+      <Link>BuildInfo.wxi</Link>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <BindPath Include="..\..\src" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Bal.wixext" Version="6.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="installation.wixproj" />
+  </ItemGroup>
+</Project>

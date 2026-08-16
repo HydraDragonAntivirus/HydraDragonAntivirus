@@ -166,14 +166,20 @@ public partial class App : Application
         if (dict.ContainsKey("--threat-alert"))
         {
             return new Views.ThreatAlertWindow(
-                dict.TryGetValue("--name", out var name) ? name : "Bilinmeyen tehdit",
-                dict.TryGetValue("--path", out var path) ? path : string.Empty,
-                dict.TryGetValue("--severity", out var severity) ? severity : "Critical");
+                dict.TryGetValue("--name", out var name) ? name : "Unknown threat",
+                dict.TryGetValue("--path", out var path) ? path : string.Empty);
         }
 
         if (dict.ContainsKey("--restart-required"))
         {
             return new Views.RestartRequiredWindow(
+                dict.TryGetValue("--path", out var path) ? path : string.Empty);
+        }
+
+        if (dict.ContainsKey("--hips-alert"))
+        {
+            return new Views.HipsAlertWindow(
+                dict.TryGetValue("--name", out var name) ? name : "Unknown program",
                 dict.TryGetValue("--path", out var path) ? path : string.Empty);
         }
 

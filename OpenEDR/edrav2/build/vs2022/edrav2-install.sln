@@ -9,6 +9,8 @@ Project("{930C7802-8A8C-48F9-8165-6886365D8D39}") = "installation", "..\..\iprj\
 EndProject
 Project("{930C7802-8A8C-48F9-8165-6886365D8D39}") = "upgrade", "..\..\iprj\upgrade\build\vs2022\upgrade.wixproj", "{B7302B2D-5EE2-4660-A1C8-A8D560D9C581}"
 EndProject
+Project("{930C7802-8A8C-48F9-8165-6886365D8D39}") = "bundle", "..\..\iprj\installation\build\vs2022\bundle.wixproj", "{04241DE7-D844-4618-A152-E0C183BC9E9E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -23,6 +25,10 @@ Global
 		{B7302B2D-5EE2-4660-A1C8-A8D560D9C581}.Debug|x64.Build.0 = Debug|x64
 		{B7302B2D-5EE2-4660-A1C8-A8D560D9C581}.Release|x64.ActiveCfg = Release|x64
 		{B7302B2D-5EE2-4660-A1C8-A8D560D9C581}.Release|x64.Build.0 = Release|x64
+		{04241DE7-D844-4618-A152-E0C183BC9E9E}.Debug|x64.ActiveCfg = Debug|x64
+		{04241DE7-D844-4618-A152-E0C183BC9E9E}.Debug|x64.Build.0 = Debug|x64
+		{04241DE7-D844-4618-A152-E0C183BC9E9E}.Release|x64.ActiveCfg = Release|x64
+		{04241DE7-D844-4618-A152-E0C183BC9E9E}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

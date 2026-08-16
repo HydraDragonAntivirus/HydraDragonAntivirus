@@ -34,6 +34,8 @@
             <tb:TaskbarIcon.ContextFlyout>
                 <MenuFlyout>
                     <MenuFlyoutItem Text="Göster" Click="MenuShow_Click"/>
+                    <MenuFlyoutItem Text="EDR'yi Başlat" Click="MenuEdrStart_Click"/>
+                    <MenuFlyoutItem Text="EDR'yi Durdur" Click="MenuEdrStop_Click"/>
                     <MenuFlyoutSeparator/>
                     <MenuFlyoutItem Text="Çıkış" Click="MenuExit_Click"/>
                 </MenuFlyout>

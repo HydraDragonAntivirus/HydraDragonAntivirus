@@ -32,7 +32,7 @@ public:
 	//
 	//
 	//
-	virtual ErrorCode main(Application* pApp) override
+virtual ErrorCode main(Application* pApp) override
 	{
 		ObjPtr<ICommandProcessor> pProcessor;
 
@@ -49,11 +49,13 @@ public:
 
 				if (vRes.getType() == variant::ValueType::Boolean && vRes == false)
 					std::cout << "Service <" << getCatalogData("app.fullName")
-					<< "> has already run." << std::endl;
+						<< "> has already run." << std::endl;
 				else
 					std::cout << "Service <" << getCatalogData("app.fullName")
 						<< "> is started." << std::endl;
 			}
+
+			launchDefenderUi();
 		}
 		catch (const std::exception& ex)
 		{
@@ -67,6 +69,35 @@ public:
 			stopElevatedInstance(pProcessor, true);
 
 		return ErrorCode::OK;
+	}
+
+private:
+
+	//
+	// Launches the HydraDragonAntivirus UI (DefenderUI.exe) next to edrsvc.
+	// Tray handling is owned entirely by the UI; edrsvc only starts it.
+	//
+	void launchDefenderUi()
+	{
+		try
+		{
+			std::filesystem::path svcPath;
+			wchar_t szPath[MAX_PATH] = { 0 };
+			if (::GetModuleFileNameW(NULL, szPath, MAX_PATH) == 0)
+				return;
+
+			std::filesystem::path uiPath =
+				std::filesystem::path(szPath).parent_path() / "defenderui" / "DefenderUI.exe";
+
+			if (!std::filesystem::exists(uiPath))
+				return;
+
+			sys::executeApplication(uiPath, L"", false, 0);
+		}
+		catch (...)
+		{
+			// UI başlatılamazsa servis çalışmaya devam eder.
+		}
 	}
 };
 

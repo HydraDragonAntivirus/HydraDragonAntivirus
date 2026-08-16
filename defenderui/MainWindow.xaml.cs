@@ -241,6 +241,16 @@ public sealed partial class MainWindow : Window
         this.AppWindow.Show();
     }
 
+    private void MenuEdrStart_Click(object sender, RoutedEventArgs e)
+    {
+        EdrServiceController.Start();
+    }
+
+    private void MenuEdrStop_Click(object sender, RoutedEventArgs e)
+    {
+        EdrServiceController.Stop();
+    }
+
     private void MenuExit_Click(object sender, RoutedEventArgs e)
     {
         Application.Current.Exit();
