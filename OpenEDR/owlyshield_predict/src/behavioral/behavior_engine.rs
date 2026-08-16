@@ -2815,6 +2815,12 @@ pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: Arc<std::sync::RwLock<HashMap<String, Regex>>>,
+    /// Aho-Corasick (daachorse) index over the literal API-name fragments
+    /// referenced by loaded rules. Built in `load_rules`; used to quickly
+    /// decide whether an incoming hook/IOCTL record's `function_name` is
+    /// relevant to any rule before regex evaluation. `Arc<RwLock<_>>` so the
+    /// telemetry-thread `BehaviorEngine` clone shares the main thread's index.
+    api_pattern_index: Arc<std::sync::RwLock<Option<daachorse::DoubleArrayAhoCorasick<u32>>>>,
     pub process_terminated: HashSet<String>,
     default_extension_whitelist: HashSet<String>,
     /// PIDs for which OpenEDR observed network activity from its local telemetry logs.
@@ -2906,6 +2912,7 @@ impl BehaviorEngine {
             rules: Vec::new(),
             process_states: HashMap::new(),
             regex_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
+            api_pattern_index: Arc::new(std::sync::RwLock::new(None)),
             process_terminated: HashSet::new(),
             default_extension_whitelist: build_default_extension_whitelist(extension_source_mode),
             openedr_net_pids: shared_openedr_net_pids(),
@@ -4482,9 +4489,16 @@ impl BehaviorEngine {
                     // Under pressure the low-priority DeviceIoControl/hook flood is shed
                     // first so file/process/registry events (the ones the ransomware and
                     // HIPS rules depend on) are never dropped while the queue is full.
+                    //
+                    // A hook record is additionally high-priority when its function_name
+                    // matches a rule-relevant API literal in the daachorse index: even
+                    // during a flood those records must survive so rule evaluation sees
+                    // them. API names absent from every rule stay low-priority noise.
                     const SOFT_CAP: usize = 16384;
                     const HARD_CAP: usize = 32768;
-                    let high_priority = is_high_priority_irp_event(event_type);
+                    let high_priority = is_high_priority_irp_event(event_type)
+                        || (!rec.function_name.is_empty()
+                            && self.api_index_contains(&rec.function_name));
                     let q: &mut std::collections::VecDeque<(u32, IrpOperationRecord)> = &mut *q;
                     let len = q.len();
                     if len < SOFT_CAP || (high_priority && len < HARD_CAP) {
@@ -6126,11 +6140,93 @@ impl BehaviorEngine {
         }
 
         self.rules = rules;
+        self.rebuild_api_pattern_index();
         Logging::info(&format!(
             "[Owlyshield] Successfully loaded {} behavior rules from {:?}",
             count, path
         ));
         Ok(())
+    }
+
+    /// Rebuild the daachorse Aho-Corasick index over every literal API-name
+    /// fragment referenced by the loaded rules' named conditions. Patterns that
+    /// contain glob (`*`/`?`) or look like explicit regex are excluded — those
+    /// still go through the regex cache. The index is used to fast-path incoming
+    /// hook/IOCTL records: if `function_name` matches no indexed fragment, no
+    /// rule can match it on the API field, so the record can be shed under
+    /// pressure without touching regex.
+    fn rebuild_api_pattern_index(&self) {
+        let mut literals: Vec<(String, u32)> = Vec::new();
+        for rule in &self.rules {
+            for group in rule.named_conditions.values() {
+                let mut push_group = |patterns: &[String]| {
+                    for pat in patterns {
+                        let trimmed = pat.trim();
+                        if trimmed.is_empty()
+                            || trimmed.contains('*')
+                            || trimmed.contains('?')
+                            || trimmed.starts_with("(?")
+                            || trimmed.starts_with('^')
+                            || trimmed.ends_with('$')
+                        {
+                            continue;
+                        }
+                        let (norm, _) = Self::normalize_api_signature(trimmed);
+                        let norm = norm.to_ascii_lowercase();
+                        if norm.is_empty() {
+                            continue;
+                        }
+                        let idx = literals.len() as u32;
+                        literals.push((norm, idx));
+                    }
+                };
+                push_group(&group.hook_error_api_patterns);
+                push_group(&group.apis);
+                push_group(&group.scheduled_task_apis);
+                push_group(&group.anti_debug_apis);
+                push_group(&group.anti_vm_apis);
+            }
+        }
+
+        literals.sort_unstable();
+        literals.dedup_by(|a, b| a.0 == b.0);
+
+        let index = if literals.is_empty() {
+            None
+        } else {
+            match daachorse::DoubleArrayAhoCorasick::with_values(literals) {
+                Ok(index) => Some(index),
+                Err(e) => {
+                    Logging::warning(&format!(
+                        "[BehaviorEngine] Failed to build daachorse API pattern index: {}",
+                        e
+                    ));
+                    None
+                }
+            }
+        };
+
+        *self.api_pattern_index.write().unwrap() = index;
+    }
+
+    /// Fast check whether `text` contains any API-name fragment indexed by the
+    /// daachorse automaton. Returns false when the index is empty (meaning no
+    /// literal API conditions exist — caller must fall back to regex).
+    fn api_index_contains(&self, text: &str) -> bool {
+        let guard = match self.api_pattern_index.read() {
+            Ok(g) => g,
+            Err(_) => return false,
+        };
+        match guard.as_ref() {
+            None => false,
+            Some(index) => {
+                let haystack = text.to_ascii_lowercase();
+                index
+                    .find_overlapping_iter(haystack.as_bytes())
+                    .next()
+                    .is_some()
+            }
+        }
     }
 
     fn log_rule_load_error_once(path: &Path, key_suffix: &str, message: String) {
@@ -6510,11 +6606,38 @@ impl BehaviorEngine {
 
     fn hook_error_api_matches(
         cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        api_index: &Arc<RwLock<Option<daachorse::DoubleArrayAhoCorasick<u32>>>>,
         patterns: &[String],
         api_name: &str,
     ) -> bool {
         if patterns.is_empty() {
             return true;
+        }
+
+        // Fast path: if every required pattern is a plain literal API signature
+        // (no glob/regex) and none of them occurs in the daachorse index against
+        // this api_name, no rule pattern can match — skip the regex machinery.
+        if patterns.iter().all(|pat| {
+            let trimmed = pat.trim();
+            !trimmed.is_empty()
+                && !trimmed.contains('*')
+                && !trimmed.contains('?')
+                && !trimmed.starts_with("(?")
+                && !trimmed.starts_with('^')
+                && !trimmed.ends_with('$')
+        }) {
+            if let Ok(guard) = api_index.read() {
+                if let Some(index) = guard.as_ref() {
+                    let haystack = api_name.to_ascii_lowercase();
+                    if index
+                        .find_overlapping_iter(haystack.as_bytes())
+                        .next()
+                        .is_none()
+                    {
+                        return false;
+                    }
+                }
+            }
         }
 
         let mut names_to_check = vec![api_name.to_string()];
@@ -6538,6 +6661,7 @@ impl BehaviorEngine {
 
     fn hook_error_record_matches(
         cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        api_index: &Arc<RwLock<Option<daachorse::DoubleArrayAhoCorasick<u32>>>>,
         cond_group: &NamedConditionGroup,
         record: &HookErrorRecord,
         is_acg_enabled: bool,
@@ -6554,6 +6678,7 @@ impl BehaviorEngine {
 
         let api_or_status_matches = Self::hook_error_api_matches(
             cache,
+            api_index,
             &cond_group.hook_error_api_patterns,
             &record.api_name,
         ) || (!cond_group.hook_error_api_patterns.is_empty()
@@ -6577,6 +6702,7 @@ impl BehaviorEngine {
 
     fn matching_hook_error_summary(
         cache: &Arc<RwLock<HashMap<String, Regex>>>,
+        api_index: &Arc<RwLock<Option<daachorse::DoubleArrayAhoCorasick<u32>>>>,
         cond_group: &NamedConditionGroup,
         state: &ProcessBehaviorState,
     ) -> Option<String> {
@@ -6589,7 +6715,13 @@ impl BehaviorEngine {
             .recent_hook_errors
             .iter()
             .filter(|record| {
-                Self::hook_error_record_matches(cache, cond_group, record, state.is_acg_enabled)
+                Self::hook_error_record_matches(
+                cache,
+                api_index,
+                cond_group,
+                record,
+                state.is_acg_enabled,
+            )
             })
             .collect();
 
@@ -7841,7 +7973,12 @@ impl BehaviorEngine {
 
                 if !matched
                     && let Some(hook_error_summary) =
-                        Self::matching_hook_error_summary(&self.regex_cache, cond_group, state)
+                        Self::matching_hook_error_summary(
+                        &self.regex_cache,
+                        &self.api_pattern_index,
+                        cond_group,
+                        state,
+                    )
                 {
                     matched = true;
                     matched_artifact_path = Some(hook_error_summary.clone());
@@ -11929,6 +12066,8 @@ mod tests {
 
     #[test]
     fn priority_queue_sheds_low_priority_flood_before_high_priority() {
+        use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
+
         let mut engine = BehaviorEngine::new();
 
         // Pre-fill the queue to the soft cap so the next low-priority push
@@ -11981,7 +12120,9 @@ mod tests {
         );
 
         // And a high-priority event must keep being admitted up to the hard cap.
-        for _ in 0..16384 {
+        // Leave one slot free (HARD_CAP-1) so the rule-relevant hook below can
+        // demonstrate daachorse-driven admission at the boundary.
+        for _ in 0..16382 {
             let h = serde_json::json!({
                 "type": "LLE_FILE_DATA_WRITE_FULL",
                 "pid": 5150,
@@ -11991,8 +12132,91 @@ mod tests {
         }
         assert_eq!(
             engine.pending_irp_records.lock().unwrap().len(),
-            32768,
-            "high-priority events must be admitted up to the hard cap (32768)"
+            32767,
+            "high-priority events must be admitted up to one slot below the hard cap"
         );
+
+        // A DeviceIoControl hook event whose function_name matches a literal API
+        // in the rule index must also be admitted past the soft cap, even though
+        // DeviceIoControl is normally low-priority flood.
+        let mut group = NamedConditionGroup::default();
+        group.apis = vec!["ntdll!NtWriteVirtualMemory".to_string()];
+        let mut rule = BehaviorRule::default();
+        rule.named_conditions.insert("api_cond".to_string(), group);
+        engine.rules.push(rule);
+        engine.rebuild_api_pattern_index();
+
+        let hook = serde_json::json!({
+            "type": "LLE_DEVICE_IOCTL",
+            "process": { "pid": 5150 },
+            "owlyHook": {
+                "eventType": 0x6001,
+                "functionName": "ntdll!NtWriteVirtualMemory",
+                "sourcePid": 5150
+            }
+        });
+        engine.ingest_openedr_event(&hook);
+        assert_eq!(
+            engine.pending_irp_records.lock().unwrap().len(),
+            32768,
+            "rule-relevant hook API must be admitted past the soft cap via daachorse"
+        );
+    }
+
+    #[test]
+    fn api_pattern_index_fast_paths_literal_apis_only() {
+        use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
+
+        let mut engine = BehaviorEngine::new();
+
+        // A rule whose condition references one literal API and one regex/glob
+        // pattern. Only the literal fragment may land in the daachorse index.
+        let mut group = NamedConditionGroup::default();
+        group.apis = vec!["ntdll!NtWriteVirtualMemory".to_string()];
+        group.hook_error_api_patterns =
+            vec!["(?i)(^|!)(Nt|Zw)(Close)$".to_string(), "kernel32!WriteFile".to_string()];
+
+        let mut rule = BehaviorRule::default();
+        rule.named_conditions.insert("api_cond".to_string(), group);
+        engine.rules.push(rule);
+        engine.rebuild_api_pattern_index();
+
+        let guard = engine.api_pattern_index.read().unwrap();
+        let index = guard.as_ref().expect("index must be built");
+
+        // Literal API fragments match case-insensitively.
+        assert!(
+            index
+                .find_overlapping_iter(b"ntdll!ntwritevirtualmemory")
+                .next()
+                .is_some(),
+            "literal api must be indexed"
+        );
+        assert!(
+            index
+                .find_overlapping_iter(b"kernel32!writefile")
+                .next()
+                .is_some(),
+            "literal hook-error api must be indexed"
+        );
+        // The regex pattern must NOT be indexed (it contains (?i) and $).
+        assert!(
+            index
+                .find_overlapping_iter(b"(?i)(^|!)(nt|zw)(close)$")
+                .next()
+                .is_none(),
+            "regex patterns must not be indexed"
+        );
+
+        // api_index_contains() routes through the shared automaton.
+        drop(guard);
+        assert!(engine.api_index_contains("ntdll!NtWriteVirtualMemory"));
+        assert!(engine.api_index_contains("KERNEL32!WRITEFILE"));
+        assert!(!engine.api_index_contains("ntdll!NtCreateFile"));
+
+        // An empty rule set yields no index.
+        let mut empty = BehaviorEngine::new();
+        empty.rebuild_api_pattern_index();
+        assert!(empty.api_index_contains("anything").eq(&false));
     }
 }
