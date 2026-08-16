@@ -1,6 +1,9 @@
 use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
-use crate::quarantine::{compute_sha256, quarantine_file};
+use crate::quarantine::{
+    build_quarantine_destination, compute_sha256, delete_with_reboot_fallback,
+    normalize_usermode_path, quarantine_file, schedule_delete_on_reboot,
+};
 use crate::shadow_copy;
 use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use crate::utils::{
@@ -10,17 +13,14 @@ use crate::utils::{
 use crate::windows::edrsvc_client::Driver;
 use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError};
-use windows::Win32::Storage::FileSystem::{MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW};
 use windows::Win32::System::Diagnostics::Debug::{
     DebugActiveProcess, DebugActiveProcessStop, DebugSetProcessKillOnExit,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
-use windows::core::PCWSTR;
 
 use std::io::Write;
-use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct QuarantineLogEntry {
@@ -206,46 +206,6 @@ impl WindowsThreatHandler {
         }
     }
 
-    fn normalize_usermode_path(path: &Path) -> PathBuf {
-        let normalized = path.to_string_lossy().replace('/', "\\");
-        let lowered = normalized.to_ascii_lowercase();
-
-        if lowered.starts_with(r"\\?\") || lowered.starts_with(r"\??\") {
-            PathBuf::from(normalized)
-        } else if lowered.starts_with(r"\device\") {
-            PathBuf::from(format!(r"\\?\GLOBALROOT{}", normalized))
-        } else {
-            PathBuf::from(normalized)
-        }
-    }
-
-    fn build_quarantine_destination(source_path: &Path, quarantine_dir: &Path) -> PathBuf {
-        let filename = source_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .filter(|name| !name.is_empty())
-            .unwrap_or("quarantined_file");
-
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
-        let prefix = format!("{}_{}", timestamp.as_secs(), timestamp.subsec_nanos());
-
-        let mut counter = 0_u32;
-        loop {
-            let suffix = if counter == 0 {
-                String::new()
-            } else {
-                format!("_{counter}")
-            };
-            let candidate = quarantine_dir.join(format!("{prefix}_{filename}{suffix}.hqf"));
-            if !candidate.exists() {
-                return candidate;
-            }
-            counter = counter.saturating_add(1);
-        }
-    }
-
     fn add_kernel_block_path(&self, path: &Path) {
         let driver_path = Self::normalize_driver_path(path);
         if let Some(path_str) = driver_path.to_str() {
@@ -274,7 +234,7 @@ impl WindowsThreatHandler {
             return;
         }
 
-        let source_path = Self::normalize_usermode_path(path);
+        let source_path = normalize_usermode_path(path);
         if source_path.as_os_str().is_empty() {
             Logging::warning("[ThreatHandler] Cannot quarantine an empty remediation path");
             self.add_kernel_block_path(path);
@@ -287,7 +247,7 @@ impl WindowsThreatHandler {
         } else {
             detection
         };
-        let dest_path = Self::build_quarantine_destination(&source_path, quarantine_dir);
+        let dest_path = build_quarantine_destination(&source_path, quarantine_dir);
         let sha256 = compute_sha256(&source_path).unwrap_or_else(|_| "unknown".to_string());
 
         match quarantine_file(&source_path, &dest_path, detection, &sha256) {
@@ -296,7 +256,7 @@ impl WindowsThreatHandler {
                     "[ThreatHandler] Quarantined malicious file into container: {}",
                     dest_path.display()
                 ));
-                if !self.delete_with_reboot_fallback(&source_path) {
+                if !delete_with_reboot_fallback(&source_path) {
                     Logging::warning(&format!(
                         "[ThreatHandler] Quarantine container created, but cleanup of the original file failed: {}",
                         source_path.display()
@@ -342,86 +302,6 @@ impl WindowsThreatHandler {
         }
 
         self.add_kernel_block_path(path);
-    }
-
-    fn try_delete_file_now(path: &Path) -> std::io::Result<()> {
-        if let Ok(metadata) = std::fs::metadata(path) {
-            let mut permissions = metadata.permissions();
-            if permissions.readonly() {
-                permissions.set_readonly(false);
-                let _ = std::fs::set_permissions(path, permissions);
-            }
-        }
-
-        std::fs::remove_file(path)
-    }
-
-    fn schedule_delete_on_reboot(path: &Path) -> std::io::Result<()> {
-        let wide_path: Vec<u16> = path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-
-        unsafe {
-            if MoveFileExW(
-                PCWSTR(wide_path.as_ptr()),
-                PCWSTR::null(),
-                MOVEFILE_DELAY_UNTIL_REBOOT,
-            )
-            .as_bool()
-            {
-                Ok(())
-            } else {
-                Err(std::io::Error::last_os_error())
-            }
-        }
-    }
-
-    fn delete_with_reboot_fallback(&self, path: &Path) -> bool {
-        let usermode_path = Self::normalize_usermode_path(path);
-
-        match Self::try_delete_file_now(&usermode_path) {
-            Ok(_) => {
-                Logging::alert(&format!(
-                    "[ThreatHandler] Removed malicious artifact: {}",
-                    usermode_path.display()
-                ));
-                true
-            }
-            Err(delete_error) if delete_error.kind() == std::io::ErrorKind::NotFound => {
-                Logging::info(&format!(
-                    "[ThreatHandler] Artifact already absent after kill: {}",
-                    usermode_path.display()
-                ));
-                true
-            }
-            Err(delete_error) => {
-                Logging::warning(&format!(
-                    "[ThreatHandler] Immediate delete failed for {}: {}",
-                    usermode_path.display(),
-                    delete_error
-                ));
-
-                match Self::schedule_delete_on_reboot(&usermode_path) {
-                    Ok(_) => {
-                        Logging::alert(&format!(
-                            "[ThreatHandler] Removal scheduled for reboot: {}",
-                            usermode_path.display()
-                        ));
-                        true
-                    }
-                    Err(schedule_error) => {
-                        Logging::error(&format!(
-                            "[ThreatHandler] Failed to schedule reboot removal for {}: {}",
-                            usermode_path.display(),
-                            schedule_error
-                        ));
-                        false
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -556,7 +436,7 @@ impl ThreatHandler for WindowsThreatHandler {
         }
 
         std::thread::sleep(std::time::Duration::from_millis(200));
-        let _ = self.delete_with_reboot_fallback(path);
+        let _ = delete_with_reboot_fallback(path);
         self.add_kernel_block_path(path);
     }
 
@@ -629,13 +509,13 @@ impl ThreatHandler for WindowsThreatHandler {
     }
 
     fn schedule_cleanup_on_reboot(&self, path: &Path) {
-        let usermode_path = Self::normalize_usermode_path(path);
+        let usermode_path = normalize_usermode_path(path);
         if usermode_path.as_os_str().is_empty() {
             Logging::warning("[ThreatHandler] Cannot schedule reboot cleanup for an empty path");
             return;
         }
 
-        match Self::schedule_delete_on_reboot(&usermode_path) {
+        match schedule_delete_on_reboot(&usermode_path) {
             Ok(_) => {
                 Logging::alert(&format!(
                     "[ThreatHandler] Cleanup scheduled for next restart: {}",
