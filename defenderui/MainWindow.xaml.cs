@@ -30,6 +30,24 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // ── Tray icon ────────────────────────────────────────────────
+        // Unpackaged (WindowsPackageType=None) kurulumda ms-appx:/// URI'leri
+        // çözümlenmez; ikon bu yüzden görünmez. Dosya yolundan yükleyerek hem
+        // tray ikonunu göster hem de tehdit/hips bildirimlerinin kaybolmamasını sağla.
+        try
+        {
+            var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (System.IO.File.Exists(iconPath))
+            {
+                TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+                    new Uri(iconPath, UriKind.Absolute));
+            }
+        }
+        catch
+        {
+            // İkon yüklenemezse kritik değil; uygulama çalışmaya devam etsin.
+        }
+
         // ── DI resolve ────────────────────────────────────────────────
         _navigationService = App.Current.Services.GetRequiredService<INavigationService>();
         _themeService = App.Current.Services.GetRequiredService<IThemeService>();
