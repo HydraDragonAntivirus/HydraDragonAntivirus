@@ -3134,4 +3134,49 @@ detection_logic:
         assert_eq!(comparison, Comparison::Gte);
         assert_eq!(threshold, 2);
     }
+
+    #[test]
+    fn ml_feature_conditions_deserialize() {
+        let yaml = r#"
+name: ML Obfuscated JS
+named_conditions:
+  obfuscated_js:
+    ml_detection: "MaliciousJsScript"
+    ml_features:
+      is_obfuscated:
+        is_true: true
+      entropy:
+        min: 6.0
+      obfuscation_score:
+        min: 1.5
+        max: 8.0
+  any_ml:
+    ml_detected: true
+"#;
+
+        let rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+
+        let obf = rule
+            .named_conditions
+            .get("obfuscated_js")
+            .expect("obfuscated_js condition");
+        assert_eq!(obf.ml_detection.as_deref(), Some("MaliciousJsScript"));
+        let is_obfuscated = obf
+            .ml_features
+            .get("is_obfuscated")
+            .expect("is_obfuscated feature condition");
+        assert_eq!(is_obfuscated.is_true, Some(true));
+        let entropy = obf.ml_features.get("entropy").expect("entropy feature condition");
+        assert_eq!(entropy.min, Some(6.0));
+        let score = obf
+            .ml_features
+            .get("obfuscation_score")
+            .expect("obfuscation_score feature condition");
+        assert_eq!(score.min, Some(1.5));
+        assert_eq!(score.max, Some(8.0));
+
+        let any = rule.named_conditions.get("any_ml").expect("any_ml condition");
+        assert_eq!(any.ml_detected, Some(true));
+        assert!(any.ml_features.is_empty());
+    }
 }

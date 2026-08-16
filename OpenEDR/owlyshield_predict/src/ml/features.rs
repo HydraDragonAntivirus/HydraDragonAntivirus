@@ -313,3 +313,119 @@ impl JsFeatureVector {
         .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pe_to_map_covers_all_features() {
+        let f = PeFeatureVector {
+            size_of_optional_header: 1.0,
+            major_linker_version: 2.0,
+            minor_linker_version: 3.0,
+            size_of_code: 4.0,
+            size_of_initialized_data: 5.0,
+            size_of_uninitialized_data: 6.0,
+            address_of_entry_point: 7.0,
+            image_base: 8.0,
+            subsystem: 9.0,
+            dll_characteristics: 10.0,
+            size_of_stack_reserve: 11.0,
+            size_of_heap_reserve: 12.0,
+            checksum: 13.0,
+            number_of_rva_and_sizes: 14.0,
+            size_of_image: 15.0,
+            imports_count: 16.0,
+            exports_count: 17.0,
+            resources_count: 18.0,
+            sections_count: 19.0,
+            overlay_exists: 20.0,
+            overlay_size: 21.0,
+            sec_entropy_mean: 22.0,
+            sec_entropy_min: 23.0,
+            sec_entropy_max: 24.0,
+            total_instructions: 25.0,
+            total_add_instructions: 26.0,
+            total_mov_instructions: 27.0,
+            is_likely_packed: 28.0,
+            add_mov_ratio: 29.0,
+            instructions_per_kb: 30.0,
+            num_tls_callbacks: 31.0,
+            num_delay_imports: 32.0,
+            num_reloc_entries: 33.0,
+            num_reloc_blocks: 34.0,
+            num_bound_imports: 35.0,
+            num_debug_entries: 36.0,
+            cert_size: 37.0,
+            has_rich_header: 38.0,
+        };
+        let map = f.to_map();
+        assert_eq!(map.len(), PeFeatureVector::LEN);
+        assert_eq!(map["sec_entropy_mean"], 22.0);
+        assert_eq!(map["is_likely_packed"], 28.0);
+        assert_eq!(map["has_rich_header"], 38.0);
+    }
+
+    #[test]
+    fn js_to_map_covers_all_features() {
+        let f = JsFeatureVector {
+            file_size: 1.0,
+            entropy: 7.5,
+            parse_success: 1.0,
+            function_count: 2.0,
+            variable_declarations: 3.0,
+            call_expressions: 4.0,
+            member_expressions: 5.0,
+            binary_expressions: 6.0,
+            conditional_statements: 7.0,
+            loop_statements: 8.0,
+            try_catch_blocks: 9.0,
+            array_literals: 10.0,
+            object_literals: 11.0,
+            max_nesting_depth: 12.0,
+            eval_usage: 13.0,
+            suspicious_call_count: 14.0,
+            hex_encoded_strings: 15.0,
+            unicode_encoded_strings: 16.0,
+            char_code_usage: 17.0,
+            base64_usage: 18.0,
+            escape_usage: 19.0,
+            bracket_notation_calls: 20.0,
+            obfuscation_score: 21.0,
+            is_obfuscated: 0.0,
+            crypto_references: 22.0,
+            network_operations: 23.0,
+            file_system_operations: 24.0,
+            registry_operations: 25.0,
+            process_operations: 26.0,
+            suspicious_api_calls: 27.0,
+            suspicious_score: 28.0,
+            total_strings: 29.0,
+            avg_string_length: 30.0,
+            max_string_length: 31.0,
+            long_strings_count: 32.0,
+            base64_like_strings: 33.0,
+            url_strings: 34.0,
+            hex_strings: 35.0,
+            total_lines: 36.0,
+            code_lines: 37.0,
+            comment_lines: 38.0,
+            blank_lines: 39.0,
+            avg_line_length: 40.0,
+            max_line_length: 41.0,
+            cyclomatic_complexity: 42.0,
+            total_identifiers: 43.0,
+            short_identifiers: 44.0,
+            long_identifiers: 45.0,
+            avg_identifier_length: 46.0,
+            suspicious_naming: 47.0,
+            random_like_identifiers: 48.0,
+        };
+        let map = f.to_map();
+        assert_eq!(map.len(), JsFeatureVector::LEN);
+        assert_eq!(map["entropy"], 7.5);
+        assert_eq!(map["is_obfuscated"], 0.0);
+        assert_eq!(map["suspicious_score"], 28.0);
+    }
+}

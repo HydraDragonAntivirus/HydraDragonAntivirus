@@ -9212,7 +9212,7 @@ impl BehaviorEngine {
                             Some(value) => {
                                 let value = *value as f64;
                                 if let Some(want_true) = cond.is_true {
-                                    let is_true = *value >= 0.5;
+                                    let is_true = value >= 0.5;
                                     if is_true != want_true {
                                         return false;
                                     }
