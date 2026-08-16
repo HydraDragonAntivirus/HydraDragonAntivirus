@@ -39,6 +39,7 @@ const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventTyp
 	}
 }
 
+
 } // namespace
 
 //
@@ -580,6 +581,29 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 		// Send message to receiver
 		if (!m_pReceiver)
 			error::InvalidArgument(SL, "Receiver interface is undefined").throwException();
+
+		// Only forward SelfDefense events that carry hostile access bits.
+		// Benign read/query probes from background Windows services are dropped entirely —
+		// they are the primary source of queue saturation and have no detection value.
+		if (nRawEventId == edrdrv::SysmonEvent::SelfDefense)
+		{
+			// Access rights that indicate a real attack attempt.
+			// Mirrors eDetectedAccessMask in objmon.cpp postProcessObjectAccess.
+			static constexpr uint32_t c_nHostileAccessMask =
+				0x0001 | // PROCESS_TERMINATE
+				0x0002 | // PROCESS_CREATE_THREAD
+				0x0008 | // PROCESS_VM_OPERATION
+				0x0020 | // PROCESS_VM_WRITE
+				0x0080 | // PROCESS_CREATE_PROCESS
+				0x0100 | // PROCESS_SET_QUOTA
+				0x0200 | // PROCESS_SET_INFORMATION
+				0x0800;  // PROCESS_SUSPEND_RESUME
+
+			uint32_t nAccessMask = getByPath(vEvent, "accessMask", uint32_t(0));
+			if ((nAccessMask & c_nHostileAccessMask) == 0)
+				return true; // drop — harmless query/read probe, not an attack
+		}
+
 		try
 		{
 			m_pReceiver->put(vEvent);
