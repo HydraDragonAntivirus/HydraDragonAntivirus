@@ -1973,6 +1973,14 @@ pub struct NamedConditionGroup {
     pub cloud_available: Option<bool>,
     #[serde(default)]
     pub cloud_unknown: Option<bool>,
+    // Fast static ML engine conditions (fast_detect_file). `ml_detection`
+    // matches a specific detection name ("MaliciousJsScript",
+    // "MaliciousPeExecutable"); `ml_detected` matches on whether any ML
+    // detection was recorded for the process.
+    #[serde(default)]
+    pub ml_detection: Option<String>,
+    #[serde(default)]
+    pub ml_detected: Option<bool>,
     #[serde(default)]
     pub signature_status: Option<String>,
     #[serde(default)]

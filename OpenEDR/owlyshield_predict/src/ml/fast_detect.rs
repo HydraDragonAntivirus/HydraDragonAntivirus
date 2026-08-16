@@ -73,6 +73,15 @@ pub struct FastDetectionResult {
     pub reason: String,
 }
 
+pub const PE_ML_DETECTION_NAME: &str = "MaliciousPeExecutable";
+pub const JS_ML_DETECTION_NAME: &str = "MaliciousJsScript";
+
+/// Returns true if the given detection name was produced by the fast static ML
+/// engine (fast_detect_file), as opposed to a behavioral rule detection.
+pub fn is_ml_detection_name(name: &str) -> bool {
+    name == PE_ML_DETECTION_NAME || name == JS_ML_DETECTION_NAME
+}
+
 /// Detects MZ executables and JavaScript files, applying the respective ML model if matched.
 /// Uses 0.875 threshold and no custom whitelisting/signature rules as explicitly requested.
 pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetectionResult> {
@@ -97,7 +106,7 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
                 if let Some(prob) = super::inference::predict_pe(&bytes, model, &device) {
                     if prob > 0.875 {
                         return Some(FastDetectionResult {
-                            detection_name: "MaliciousPeExecutable".to_string(),
+                            detection_name: PE_ML_DETECTION_NAME.to_string(),
                             reason: format!(
                                 "PE ML engine detected malicious executable with {:.1}% probability",
                                 prob * 100.0
@@ -114,7 +123,7 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
                     if let Some(prob) = super::inference::predict_js(content, model, &device) {
                         if prob > 0.875 {
                             return Some(FastDetectionResult {
-                                detection_name: "MaliciousJsScript".to_string(),
+                                detection_name: JS_ML_DETECTION_NAME.to_string(),
                                 reason: format!(
                                     "JS ML engine detected malicious script with {:.1}% probability",
                                     prob * 100.0

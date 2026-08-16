@@ -2019,6 +2019,11 @@ pub struct ProcessBehaviorState {
     pub is_catalog_signed: bool,
     pub is_attached_signed: bool,
 
+    // Fast static ML detections (fast_detect_file) recorded for this process:
+    // "MaliciousJsScript", "MaliciousPeExecutable". Behavior rules can
+    // reference these via the `ml_detection` / `ml_detected` conditions.
+    pub ml_detections: Vec<String>,
+
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
     pub condition_match_values: HashMap<String, HashSet<String>>,
@@ -7466,6 +7471,21 @@ impl BehaviorEngine {
         }
         let pid = state.pid;
 
+        // Record fast static ML detections (fast_detect_file) into the process
+        // state so behavior rules can reference them via the `ml_detection` /
+        // `ml_detected` conditions.
+        if let Some(ml_name) = precord.triggered_rule_name.as_deref() {
+            if crate::ml::fast_detect::is_ml_detection_name(ml_name)
+                && !state.ml_detections.iter().any(|existing| existing == ml_name)
+            {
+                state.ml_detections.push(ml_name.to_string());
+                Logging::info(&format!(
+                    "[BehaviorEngine] Recorded ML detection '{}' for PID {} (GID {})",
+                    ml_name, pid, gid
+                ));
+            }
+        }
+
         // Run AMSI analysis if this is an AMSI event
         if msg.kernel_event_info.is_amsi_event
             && !msg.kernel_event_info.amsi_content_sample.is_empty()
@@ -7566,6 +7586,7 @@ impl BehaviorEngine {
                     state.signature_invalid = false;
                     state.signer_name = None;
                     state.is_executable = false;
+                    state.ml_detections = Vec::new();
                     state.is_catalog_signed = false;
                     state.is_attached_signed = false;
                 }
@@ -9135,6 +9156,29 @@ impl BehaviorEngine {
                             state.cloud_static_verdict,
                             state.cloud_dynamic_verdict,
                             is_unknown
+                        ));
+                    }
+                }
+
+                if !matched && cond_group.ml_detection.is_some() {
+                    let expected = cond_group.ml_detection.as_deref().unwrap().trim();
+                    if state.ml_detections.iter().any(|name| name.eq_ignore_ascii_case(expected)) {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - ML detection match for PID {}: {}",
+                            cond_name, state.pid, expected
+                        ));
+                    }
+                }
+
+                if !matched && cond_group.ml_detected.is_some() {
+                    let want_detected = cond_group.ml_detected.unwrap();
+                    let is_detected = !state.ml_detections.is_empty();
+                    if is_detected == want_detected {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - ML detected match for PID {}: ml_detected={}",
+                            cond_name, state.pid, is_detected
                         ));
                     }
                 }
