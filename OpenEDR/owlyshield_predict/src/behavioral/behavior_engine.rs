@@ -11861,8 +11861,9 @@ mod tests {
         match engine.load_rules(&dir) {
             Ok(_) => {}
             Err(e) => {
-                // OneDrive placeholder / locked files can throw PermissionDenied;
-                // skip rather than fail so the suite stays green on locked files.
+                // The loader propagates read failures from any rule file (e.g. a
+                // file locked by another process, or an unreadable sub-path).
+                // Skip rather than fail so the suite stays green in those cases.
                 eprintln!("skip: could not load production rules from {}: {}", dir.display(), e);
                 return;
             }
