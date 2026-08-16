@@ -117,14 +117,15 @@ fn set_disk_class_upper_filter() {
 fn register_and_start_driver_service(driver_path: &str) {
     use windows::Win32::System::Services::{
         CloseServiceHandle, CreateServiceW, OpenSCManagerW, OpenServiceW, StartServiceW,
-        SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
-        SERVICE_SYSTEM_START,
+        SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_BOOT_START, SERVICE_ERROR_NORMAL,
+        SERVICE_KERNEL_DRIVER,
     };
     use windows::core::PCWSTR;
 
     let wname = wide(DRIVER_SERVICE_NAME);
     let wdisplay = wide("MBRFilter Driver");
     let wbinary = wide(driver_path);
+    let wload_order_group = wide("PnP Filter");
 
     unsafe {
         let scm = match OpenSCManagerW(
@@ -148,10 +149,10 @@ fn register_and_start_driver_service(driver_path: &str) {
                     PCWSTR(wdisplay.as_ptr()),
                     SERVICE_ALL_ACCESS,
                     SERVICE_KERNEL_DRIVER,
-                    SERVICE_SYSTEM_START,
+                    SERVICE_BOOT_START,
                     SERVICE_ERROR_NORMAL,
                     PCWSTR(wbinary.as_ptr()),
-                    None,
+                    Some(&PCWSTR(wload_order_group.as_ptr())),
                     None,
                     None,
                     None,
