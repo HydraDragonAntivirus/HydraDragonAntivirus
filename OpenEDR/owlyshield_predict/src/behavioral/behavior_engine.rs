@@ -3585,6 +3585,27 @@ impl BehaviorEngine {
             )
         }
 
+        // Classifies an OpenEDR event as high-priority for queue admission under
+        // pressure. File/process/registry/pipe events carry the signal the
+        // ransomware & HIPS rules need; DeviceIoControl hook telemetry (IRP_* /
+        // LLE_DEVICE_IOCTL) is treated as low-priority flood and is the first to
+        // be shed when the queue is full.
+        fn is_high_priority_irp_event(event_type: &str) -> bool {
+            if event_type.starts_with("LLE_FILE_")
+                || event_type.starts_with("LLE_REGISTRY_")
+                || event_type.starts_with("LLE_NAMED_PIPE_")
+                || event_type.starts_with("LLE_PROCESS_")
+                || event_type.starts_with("IRP_KERNEL_")
+                || event_type.starts_with("IRP_ROOTKIT_")
+            {
+                return true;
+            }
+            matches!(
+                event_type,
+                "IRP_NAMED_PIPE_WRITE" | "LLE_INJECTION_ACTIVITY" | "LLE_PROCESS_MEMORY_WRITE"
+            )
+        }
+
         fn openedr_event_family(event_type: &str) -> &'static str {
             if event_type.starts_with("LLE_FILE_") {
                 "File"
@@ -4457,9 +4478,16 @@ impl BehaviorEngine {
                 };
 
                 if let Ok(mut q) = self.pending_irp_records.lock() {
-                    // Cap queue at 16384 entries to bound memory under high event rates.
+                    // Bound memory under high event rates: soft cap 16384, hard cap 32768.
+                    // Under pressure the low-priority DeviceIoControl/hook flood is shed
+                    // first so file/process/registry events (the ones the ransomware and
+                    // HIPS rules depend on) are never dropped while the queue is full.
+                    const SOFT_CAP: usize = 16384;
+                    const HARD_CAP: usize = 32768;
+                    let high_priority = is_high_priority_irp_event(event_type);
                     let q: &mut std::collections::VecDeque<(u32, IrpOperationRecord)> = &mut *q;
-                    if q.len() < 16384 {
+                    let len = q.len();
+                    if len < SOFT_CAP || (high_priority && len < HARD_CAP) {
                         q.push_back((pid, rec));
                     } else {
                         // Log the drop (throttled) instead of silently discarding, so a
@@ -4469,8 +4497,12 @@ impl BehaviorEngine {
                             DROPPED_IRP_RECORDS.fetch_add(1, Ordering::Relaxed) + 1;
                         if dropped == 1 || dropped % 1000 == 0 {
                             Logging::warning(&format!(
-                                "[OpenEDRTelemetry] pending_irp_records queue full (cap 16384); dropped IRP record for pid={} - total dropped so far: {}",
-                                pid, dropped
+                                "[OpenEDRTelemetry] pending_irp_records queue full (cap {}{}); dropped {}-priority IRP record for pid={} - total dropped so far: {}",
+                                SOFT_CAP,
+                                if high_priority { " / hard ".to_string() } else { String::new() },
+                                if high_priority { "high" } else { "low" },
+                                pid,
+                                dropped
                             ));
                         }
                     }
@@ -11893,5 +11925,74 @@ mod tests {
             .get("comodo_cloud_unknown")
             .expect("comodo_cloud_unknown condition");
         assert_eq!(cloud_unknown.cloud_unknown, Some(true));
+    }
+
+    #[test]
+    fn priority_queue_sheds_low_priority_flood_before_high_priority() {
+        let mut engine = BehaviorEngine::new();
+
+        // Pre-fill the queue to the soft cap so the next low-priority push
+        // would exceed it.
+        {
+            let mut q = engine.pending_irp_records.lock().unwrap();
+            while q.len() < 16384 {
+                q.push_back((
+                    1,
+                    IrpOperationRecord {
+                        timestamp: std::time::SystemTime::now(),
+                        irp_type: 0x0F,
+                        file_path: String::new(),
+                        file_change: 0,
+                        extension: String::new(),
+                        entropy: 0.0,
+                        bytes_transferred: 0,
+                        target_pid: 1,
+                        function_name: String::new(),
+                        pipe_name: String::new(),
+                        pipe_payload: Vec::new(),
+                        raw_arguments: [0; 4],
+                    },
+                ));
+            }
+            assert_eq!(q.len(), 16384);
+        }
+
+        // A low-priority DeviceIoControl flood event must be dropped once the
+        // queue is at the soft cap...
+        let low = serde_json::json!({ "type": "LLE_DEVICE_IOCTL", "pid": 5150 });
+        engine.ingest_openedr_event(&low);
+        assert_eq!(
+            engine.pending_irp_records.lock().unwrap().len(),
+            16384,
+            "low-priority DeviceIoControl must be shed at the soft cap"
+        );
+
+        // ...while a high-priority file write event must still be admitted.
+        let high = serde_json::json!({
+            "type": "LLE_FILE_DATA_WRITE_FULL",
+            "pid": 5150,
+            "file": { "path": r"C:\temp\pwned.docx" }
+        });
+        engine.ingest_openedr_event(&high);
+        assert_eq!(
+            engine.pending_irp_records.lock().unwrap().len(),
+            16385,
+            "high-priority file event must be admitted past the soft cap"
+        );
+
+        // And a high-priority event must keep being admitted up to the hard cap.
+        for _ in 0..16384 {
+            let h = serde_json::json!({
+                "type": "LLE_FILE_DATA_WRITE_FULL",
+                "pid": 5150,
+                "file": { "path": r"C:\temp\x.docx" }
+            });
+            engine.ingest_openedr_event(&h);
+        }
+        assert_eq!(
+            engine.pending_irp_records.lock().unwrap().len(),
+            32768,
+            "high-priority events must be admitted up to the hard cap (32768)"
+        );
     }
 }
