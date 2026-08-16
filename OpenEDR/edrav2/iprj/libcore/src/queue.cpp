@@ -322,12 +322,8 @@ void Queue::putIntoData(const Variant& vData, bool fCheckMode)
 		pCurrNotifier = m_pNotifyAcceptor;
 	}
 
-	// Overflow message is temporary disabled
-	//if (fSendOverflowMessage)
-	//	sendMessage("QueueOverflow", Dictionary({ {"tag", m_vTag} }));
-
 	if (fThrowLimitExceeded)
-		error::LimitExceeded(SL, FMT("Queue limit is exceeded <" << m_vTag << ">, some data is possibly lost")).throwException();
+		LOGWRN(FMT("Queue limit is exceeded <" << m_vTag << ">, some data is possibly lost"));
 
 	if (fLimitExceeded)
 		return;

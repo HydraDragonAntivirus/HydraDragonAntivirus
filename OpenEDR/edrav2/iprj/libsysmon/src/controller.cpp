@@ -580,7 +580,14 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 		// Send message to receiver
 		if (!m_pReceiver)
 			error::InvalidArgument(SL, "Receiver interface is undefined").throwException();
-		m_pReceiver->put(vEvent);
+		try
+		{
+			m_pReceiver->put(vEvent);
+		}
+		catch (error::LimitExceeded& e)
+		{
+			LOGWRN(FMT("System monitor receiver queue limit exceeded: " << e.getMessage()));
+		}
 #ifdef ENABLE_EVENT_TIMINGS
 		auto t2 = steady_clock::now();
 		milliseconds lbvsTime(duration_cast<milliseconds>(t1 - t0));
