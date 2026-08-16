@@ -264,7 +264,7 @@ pub fn try_delete_file_now(path: &Path) -> std::io::Result<()> {
         .collect();
 
     unsafe {
-        let _ = SetFileAttributesW(PCWSTR(wide_path.as_ptr()), FILE_ATTRIBUTE_NORMAL.0);
+        let _ = SetFileAttributesW(PCWSTR(wide_path.as_ptr()), FILE_ATTRIBUTE_NORMAL);
     }
 
     // Step 2: Try immediate removal
