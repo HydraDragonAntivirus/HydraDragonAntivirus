@@ -225,9 +225,13 @@ fn launch_defenderui_restart_required() {
     }
 
     let path_arg = format!("--path={}", exe_dir.join("MBRFilter.sys").display());
+    let message_arg = "--message=MBR protection driver (MBRFilter) was installed.";
+    let submessage_arg = "--submessage=A restart activates system-disk MBR protection. USB/external disks are already protected.";
     match std::process::Command::new(&ui_path)
         .arg("--restart-required")
         .arg(&path_arg)
+        .arg(message_arg)
+        .arg(submessage_arg)
         .spawn()
     {
         Ok(_) => Logging::info("[MBR] Asked DefenderUI to show the restart card"),

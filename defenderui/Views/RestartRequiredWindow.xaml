@@ -62,11 +62,11 @@
             <!-- Orta bölüm: açıklama -->
             <StackPanel Grid.Row="1" Padding="14,4,14,8" Spacing="6">
                 <TextBlock
-                    Text="A system restart is required to finish applying security changes."
+                    Text="{x:Bind Message}"
                     Style="{StaticResource BodyMediumTextStyle}"
                     TextWrapping="Wrap" />
                 <TextBlock
-                    Text="HydraDragonAntivirus protection will be fully active after the restart."
+                    Text="{x:Bind SubMessage}"
                     Style="{StaticResource BodySmallTextStyle}"
                     TextWrapping="Wrap"
                     Foreground="{ThemeResource TextSecondaryBrush}" />

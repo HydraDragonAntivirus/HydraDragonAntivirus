@@ -201,7 +201,9 @@ public partial class App : Application
         if (dict.ContainsKey("--restart-required"))
         {
             return new Views.RestartRequiredWindow(
-                dict.TryGetValue("--path", out var path) ? path : string.Empty);
+                dict.TryGetValue("--path", out var path) ? path : string.Empty,
+                dict.TryGetValue("--message", out var message) ? message : null,
+                dict.TryGetValue("--submessage", out var subMessage) ? subMessage : null);
         }
 
         if (dict.ContainsKey("--hips-alert"))

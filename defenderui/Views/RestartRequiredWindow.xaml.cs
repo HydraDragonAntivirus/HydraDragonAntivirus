@@ -6,8 +6,10 @@ using Microsoft.UI.Xaml;
 namespace DefenderUI.Views;
 
 /// <summary>
-/// Quarantine sırasında dosya kullanımda olduğu için silinemeyince gösterilen,
-/// ekranın sağ alt köşesinde çerçevesiz açılan küçük bildirim kartı.
+/// Restart gerektiren durumlar için gösterilen, ekranın sağ alt köşesinde
+/// çerçevesiz açılan küçük bildirim kartı. İki kullanımı vardır:
+///  * karantina temizliği (dosya kullanımda — varsayılan metin),
+///  * MBRFilter sürücü kurulumu (`--message` / `--submessage` ile özelleştirilir).
 /// EDR tarafı `--restart-required` komut satırı argümanı ile açılır.
 /// </summary>
 public sealed partial class RestartRequiredWindow : Window
@@ -24,10 +26,18 @@ public sealed partial class RestartRequiredWindow : Window
     private const int CardHeight = 260;
 
     public string FilePath { get; }
+    public string Message { get; }
+    public string SubMessage { get; }
 
-    public RestartRequiredWindow(string filePath)
+    public RestartRequiredWindow(string filePath, string? message = null, string? subMessage = null)
     {
         FilePath = filePath;
+        Message = string.IsNullOrEmpty(message)
+            ? "A threat could not be removed while in use."
+            : message;
+        SubMessage = string.IsNullOrEmpty(subMessage)
+            ? "The file will be cleaned up after a restart."
+            : subMessage;
         InitializeComponent();
         Title = "HydraDragonAntivirus - Restart Required";
 
