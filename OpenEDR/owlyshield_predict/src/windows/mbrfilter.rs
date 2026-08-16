@@ -82,39 +82,55 @@ pub fn ensure_mbrfilter_driver() {
         return;
     }
 
-    set_disk_class_upper_filter();
-    register_and_start_driver_service(&driver_dest);
+    // If anything is registered for the first time, the filter only attaches at
+    // the next boot — ask DefenderUI to offer a restart.
+    let changed = set_disk_class_upper_filter();
+    let changed = register_and_start_driver_service(&driver_dest) || changed;
+    if changed {
+        Logging::info("[MBR] MBRFilter registered for the first time; restart required to activate");
+        launch_defenderui_restart_required();
+    }
 }
 
 /// Append `MBRFilter` to the disk-class `UpperFilters` multi-string so the PnP
 /// manager attaches the driver to all disk devices at next device start.
-fn set_disk_class_upper_filter() {
+/// Returns true if the registry value was modified (i.e. a restart is needed).
+fn set_disk_class_upper_filter() -> bool {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
     use winreg::RegKey;
 
-    let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+    let result = (|| -> Result<bool, Box<dyn std::error::Error>> {
         let class_key = RegKey::predef(HKEY_LOCAL_MACHINE)
             .open_subkey_with_flags(DISK_CLASS_FILTERS_KEY, KEY_READ | KEY_WRITE)?;
         let mut filters: Vec<String> = class_key.get_value("UpperFilters").unwrap_or_default();
         if filters.iter().any(|f| f.eq_ignore_ascii_case(DRIVER_SERVICE_NAME)) {
-            return Ok(());
+            return Ok(false);
         }
         filters.push(DRIVER_SERVICE_NAME.to_string());
         class_key.set_value("UpperFilters", &filters)?;
-        Ok(())
+        Ok(true)
     })();
 
     match result {
-        Ok(()) => Logging::info("[MBR] Added MBRFilter to disk class UpperFilters"),
-        Err(err) => Logging::warning(&format!(
-            "[MBR] Could not update disk class UpperFilters ({}); INF-based install may be required",
-            err
-        )),
+        Ok(changed) => {
+            if changed {
+                Logging::info("[MBR] Added MBRFilter to disk class UpperFilters");
+            }
+            changed
+        }
+        Err(err) => {
+            Logging::warning(&format!(
+                "[MBR] Could not update disk class UpperFilters ({}); INF-based install may be required",
+                err
+            ));
+            false
+        }
     }
 }
 
 /// Create (if missing) and start the `MBRFilter` kernel driver service.
-fn register_and_start_driver_service(driver_path: &str) {
+/// Returns true if the service was created (i.e. a restart is needed).
+fn register_and_start_driver_service(driver_path: &str) -> bool {
     use windows::Win32::System::Services::{
         CloseServiceHandle, CreateServiceW, OpenSCManagerW, OpenServiceW, StartServiceW,
         SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_BOOT_START, SERVICE_ERROR_NORMAL,
@@ -136,12 +152,12 @@ fn register_and_start_driver_service(driver_path: &str) {
             Ok(handle) => handle,
             Err(err) => {
                 Logging::error(&format!("[MBR] OpenSCManagerW failed: {:?}", err));
-                return;
+                return false;
             }
         };
 
-        let svc = match OpenServiceW(scm, PCWSTR(wname.as_ptr()), SERVICE_ALL_ACCESS) {
-            Ok(handle) => handle,
+        let (svc, created) = match OpenServiceW(scm, PCWSTR(wname.as_ptr()), SERVICE_ALL_ACCESS) {
+            Ok(handle) => (handle, false),
             Err(_) => {
                 match CreateServiceW(
                     scm,
@@ -158,11 +174,11 @@ fn register_and_start_driver_service(driver_path: &str) {
                     None,
                     None,
                 ) {
-                    Ok(handle) => handle,
+                    Ok(handle) => (handle, true),
                     Err(err) => {
                         Logging::error(&format!("[MBR] CreateServiceW failed: {:?}", err));
                         let _ = CloseServiceHandle(scm);
-                        return;
+                        return false;
                     }
                 }
             }
@@ -185,6 +201,40 @@ fn register_and_start_driver_service(driver_path: &str) {
 
         let _ = CloseServiceHandle(svc);
         let _ = CloseServiceHandle(scm);
+        created
+    }
+}
+
+/// Launch the DefenderUI tray app with `--restart-required` so the user can
+/// reboot from the notification card. Best effort — never fatal.
+fn launch_defenderui_restart_required() {
+    let Ok(exe_path) = std::env::current_exe() else {
+        return;
+    };
+    let Some(exe_dir) = exe_path.parent() else {
+        return;
+    };
+
+    let ui_path = exe_dir.join("defenderui").join("DefenderUI.exe");
+    if !ui_path.is_file() {
+        Logging::warning(&format!(
+            "[MBR] DefenderUI.exe not found at {}; restart card not shown",
+            ui_path.display()
+        ));
+        return;
+    }
+
+    let path_arg = format!("--path={}", exe_dir.join("MBRFilter.sys").display());
+    match std::process::Command::new(&ui_path)
+        .arg("--restart-required")
+        .arg(&path_arg)
+        .spawn()
+    {
+        Ok(_) => Logging::info("[MBR] Asked DefenderUI to show the restart card"),
+        Err(err) => Logging::warning(&format!(
+            "[MBR] Failed to launch DefenderUI for restart card: {}",
+            err
+        )),
     }
 }
 
