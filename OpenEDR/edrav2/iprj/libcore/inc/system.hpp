@@ -136,6 +136,17 @@ inline Variant ReadRegistryValue(HKEY rootKey, const std::wstring& sKey, const s
 uint32_t executeApplication(const std::filesystem::path& pathProgram, std::wstring_view sParams, 
 	bool fElevatePrivileges = false, Size nTimeout = INFINITE);
 
+///
+/// Launches a GUI application in the active interactive (console) user session.
+/// Must be called from a SYSTEM-level service. Uses WTSQueryUserToken +
+/// CreateProcessAsUser so the process appears on the user's desktop/tray.
+///
+/// @param pathProgram - full path to the executable
+/// @param sParams     - command-line parameters (may be empty)
+///
+void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
+	std::wstring_view sParams = {});
+
 
 ///
 /// Get unique hardware key

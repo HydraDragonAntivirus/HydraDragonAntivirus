@@ -74,14 +74,15 @@ virtual ErrorCode main(Application* pApp) override
 private:
 
 	//
-	// Launches the HydraDragonAntivirus UI (DefenderUI.exe) next to edrsvc.
-	// Tray handling is owned entirely by the UI; edrsvc only starts it.
+	// Launches the HydraDragonAntivirus UI (DefenderUI.exe) in the active interactive
+	// user session so the tray icon appears on the correct desktop.
+	// edrsvc runs as SYSTEM in session 0 — ShellExecuteEx / executeApplication would
+	// spawn DefenderUI into session 0 too, where there is no visible desktop or tray.
 	//
 	void launchDefenderUi()
 	{
 		try
 		{
-			std::filesystem::path svcPath;
 			wchar_t szPath[MAX_PATH] = { 0 };
 			if (::GetModuleFileNameW(NULL, szPath, MAX_PATH) == 0)
 				return;
@@ -92,7 +93,7 @@ private:
 			if (!std::filesystem::exists(uiPath))
 				return;
 
-			sys::executeApplication(uiPath, L"", false, 0);
+			sys::launchAsInteractiveUser(uiPath, L"");
 		}
 		catch (...)
 		{

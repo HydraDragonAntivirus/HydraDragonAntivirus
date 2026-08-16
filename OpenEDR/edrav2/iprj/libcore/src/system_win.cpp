@@ -11,6 +11,10 @@
 #include "pch_win.h"
 #include "system.hpp"
 #include "crypt.hpp"
+#include <wtsapi32.h>
+#include <userenv.h>
+#pragma comment(lib, "wtsapi32.lib")
+#pragma comment(lib, "userenv.lib")
 
 #ifndef PLATFORM_WIN
 #error "Please exclude this file from your project"
@@ -254,6 +258,65 @@ uint32_t executeApplication(const std::filesystem::path& pathProgram,
 	if (!GetExitCodeProcess(sinfo.hProcess, &dwExitCode))
 		error::win::WinApiError(SL, "Can't get process exit code").throwException();
 	return dwExitCode;
+}
+
+//
+// Launches a GUI application in the active interactive user session.
+// Called from SYSTEM-context services that need to show a tray icon / window.
+// Uses WTSQueryUserToken(active console session) + CreateProcessAsUser so the
+// process runs on the user's desktop rather than the invisible session 0.
+//
+void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
+	std::wstring_view sParams)
+{
+	// Find the active console (interactive) session.
+	DWORD nSessionId = ::WTSGetActiveConsoleSessionId();
+	if (nSessionId == 0xFFFFFFFF)
+		error::RuntimeError(SL, "No active console session").throwException();
+
+	// Obtain a primary token for the logged-on user in that session.
+	HANDLE hUserToken = NULL;
+	if (!::WTSQueryUserToken(nSessionId, &hUserToken))
+		error::win::WinApiError(SL, "WTSQueryUserToken failed").throwException();
+	win::ScopedHandle hToken(hUserToken);
+
+	// Build the user's environment block (PATH, APPDATA, TEMP, etc.).
+	LPVOID pEnv = nullptr;
+	if (!::CreateEnvironmentBlock(&pEnv, hToken, FALSE))
+		error::win::WinApiError(SL, "CreateEnvironmentBlock failed").throwException();
+	struct EnvGuard { LPVOID p; ~EnvGuard() { if (p) ::DestroyEnvironmentBlock(p); } } envGuard{pEnv};
+
+	// Build the full command line: "<path>" [params]
+	std::wstring cmdLine = L'"' + pathProgram.wstring() + L'"';
+	if (!sParams.empty())
+	{
+		cmdLine += L' ';
+		cmdLine += sParams;
+	}
+
+	STARTUPINFOW si{};
+	si.cb = sizeof(si);
+	si.lpDesktop = const_cast<LPWSTR>(L"winsta0\\default"); // interactive desktop
+	si.dwFlags   = STARTF_USESHOWWINDOW;
+	si.wShowWindow = SW_SHOWNOACTIVATE;
+
+	PROCESS_INFORMATION pi{};
+	BOOL bOk = ::CreateProcessAsUserW(
+		hToken,
+		nullptr,
+		cmdLine.data(),
+		nullptr, nullptr,
+		FALSE,
+		CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE,
+		pEnv,
+		nullptr,
+		&si, &pi);
+
+	if (!bOk)
+		error::win::WinApiError(SL, "CreateProcessAsUser failed for DefenderUI").throwException();
+
+	::CloseHandle(pi.hThread);
+	::CloseHandle(pi.hProcess);
 }
 
 //
