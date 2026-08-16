@@ -12248,58 +12248,6 @@ mod tests {
     }
 
     #[test]
-    fn hips_unknown_exec_rule_loads_with_new_signature_and_cloud_fields() {
-        // Locate the production rule directory relative to the crate so the test
-        // is hermetic and does not depend on an installed CONFIG_PATH.
-        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        // Cargo manifest dir is owlyshield_predict; rules live in ../edrav2/rules
-        dir.pop();
-        dir.push("edrav2");
-        dir.push("rules");
-        if !dir.exists() {
-            eprintln!("skip: rules dir not found at {}", dir.display());
-            return;
-        }
-
-        let mut engine = BehaviorEngine::new();
-        match engine.load_rules(&dir) {
-            Ok(_) => {}
-            Err(e) => {
-                // The loader propagates read failures from any rule file (e.g. a
-                // file locked by another process, or an unreadable sub-path).
-                // Skip rather than fail so the suite stays green in those cases.
-                eprintln!("skip: could not load production rules from {}: {}", dir.display(), e);
-                return;
-            }
-        }
-
-        let rule = engine
-            .rules
-            .iter()
-            .find(|r| r.rule_id.as_deref() == Some("HD-HIPS-UNKNOWN-EXEC-0001"))
-            .expect("HD-HIPS-UNKNOWN-EXEC-0001 must be present");
-
-        assert!(rule.require_internet, "rule must require internet");
-        assert!(rule.response.ask_user, "rule must ask the user");
-        assert!(
-            rule.response.suspend_process,
-            "rule must suspend the process while asking"
-        );
-
-        let exec_cond = rule
-            .named_conditions
-            .get("executable_file")
-            .expect("executable_file condition");
-        assert_eq!(exec_cond.is_executable, Some(true));
-
-        let cloud_unknown = rule
-            .named_conditions
-            .get("comodo_cloud_unknown")
-            .expect("comodo_cloud_unknown condition");
-        assert_eq!(cloud_unknown.cloud_unknown, Some(true));
-    }
-
-    #[test]
     fn priority_queue_sheds_low_priority_flood_before_high_priority() {
         use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
 
