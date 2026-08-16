@@ -479,6 +479,137 @@ pub fn record_self_defense_telemetry(event: serde_json::Value) {
     ));
 }
 
+/// Report a blocked MBR write produced by the MBRFilter kernel driver.
+///
+/// Raised from the MBR alert pipe listener thread (see
+/// `crate::windows::mbrfilter`). Logs the alert and forwards a HIPS prompt to
+/// the firewall GUI via the `HydraHipEvent` pipe so removable/external MBR
+/// writes surface to the user.
+pub fn report_mbr_alert(disk_number: i32, process_path: &str) {
+    use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
+    use windows::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+        FlushFileBuffers, OPEN_EXISTING, WriteFile,
+    };
+    use windows::Win32::System::Pipes::WaitNamedPipeW;
+    use windows::core::PCWSTR;
+
+    const HIPS_PIPE: &str = r"\\.\pipe\HydraHipEvent";
+    const CONNECT_TIMEOUT_MS: u32 = 750;
+    const CONNECT_ATTEMPTS: usize = 2;
+
+    let target = format!("PhysicalDrive{}", disk_number);
+    let reason = format!(
+        "Blocked MBR write to removable/external disk {} by process: {}. This may indicate USB MBR malware.",
+        disk_number, process_path
+    );
+    let request_id = format!(
+        "mbr_usb_{}_{}",
+        disk_number,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+
+    let message = format!(
+        "HIPS_ASK:{}|{}|{}|{}|{}|{}|{}\n",
+        BehaviorEngine::sanitize_firewall_hips_field(&request_id),
+        0,
+        BehaviorEngine::sanitize_firewall_hips_field("MBRFilter"),
+        BehaviorEngine::sanitize_firewall_hips_field(process_path),
+        BehaviorEngine::sanitize_firewall_hips_field("MBR_USB_WRITE"),
+        BehaviorEngine::sanitize_firewall_hips_field(&target),
+        BehaviorEngine::sanitize_firewall_hips_field(&reason),
+    );
+    let message_bytes = message.as_bytes();
+
+    let mut pipe_name_wide: Vec<u16> = HIPS_PIPE.encode_utf16().collect();
+    pipe_name_wide.push(0);
+    let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
+
+    let mut last_error = String::new();
+    for attempt in 0..CONNECT_ATTEMPTS {
+        let wait_ok: BOOL = unsafe { WaitNamedPipeW(pcwstr, CONNECT_TIMEOUT_MS) };
+        if !wait_ok.as_bool() {
+            last_error = format!("WaitNamedPipeW(GetLastError={:?})", unsafe {
+                GetLastError()
+            });
+        } else {
+            let pipe_handle = match unsafe {
+                CreateFileW(
+                    pcwstr,
+                    FILE_GENERIC_WRITE.0,
+                    FILE_SHARE_NONE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    HANDLE::default(),
+                )
+            } {
+                Ok(handle) if !handle.is_invalid() => handle,
+                Ok(_) => {
+                    last_error =
+                        "CreateFileW returned an invalid HydraHipEvent handle".to_string();
+                    if attempt + 1 < CONNECT_ATTEMPTS {
+                        std::thread::sleep(std::time::Duration::from_millis(80));
+                    }
+                    continue;
+                }
+                Err(err) => {
+                    last_error = format!("CreateFileW failed: {:?}", err);
+                    if attempt + 1 < CONNECT_ATTEMPTS {
+                        std::thread::sleep(std::time::Duration::from_millis(80));
+                    }
+                    continue;
+                }
+            };
+
+            let mut bytes_written: u32 = 0;
+            let ok: BOOL = unsafe {
+                WriteFile(
+                    pipe_handle,
+                    Some(message_bytes),
+                    Some(&mut bytes_written as *mut u32),
+                    None,
+                )
+            };
+
+            unsafe {
+                let _ = FlushFileBuffers(pipe_handle);
+                let _ = CloseHandle(pipe_handle);
+            }
+
+            if ok.as_bool() && bytes_written as usize == message_bytes.len() {
+                Logging::info(&format!(
+                    "[MBR HIPS] Sent USB MBR alert to firewall GUI for disk {} ({} bytes)",
+                    disk_number, bytes_written
+                ));
+                return;
+            }
+
+            last_error = if ok.as_bool() {
+                format!(
+                    "WriteFile wrote {} of {} bytes",
+                    bytes_written,
+                    message_bytes.len()
+                )
+            } else {
+                format!("WriteFile(GetLastError={:?})", unsafe { GetLastError() })
+            };
+        }
+
+        if attempt + 1 < CONNECT_ATTEMPTS {
+            std::thread::sleep(std::time::Duration::from_millis(80));
+        }
+    }
+
+    Logging::warning(&format!(
+        "[MBR HIPS] Firewall GUI prompt not delivered for disk {} after {} attempts: {}",
+        disk_number, CONNECT_ATTEMPTS, last_error
+    ));
+}
+
 fn event_time(event: &SelfDefenseTelemetryEvent) -> SystemTime {
     UNIX_EPOCH + std::time::Duration::from_millis(event.timestamp_ms)
 }

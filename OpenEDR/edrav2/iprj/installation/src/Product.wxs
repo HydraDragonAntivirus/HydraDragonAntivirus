@@ -88,6 +88,7 @@
 				<fire:FirewallException Id="SvcFirewallRules" Program="[INSTALLDIR]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
 				<ServiceControl Id="StopEdrSvc" Name="edrsvc" Stop="uninstall" />
 				<RemoveFile Id="RemovingDriver" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
+				<RemoveFile Id="RemovingMbrFilterDriver" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield">
 					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]rules" Type="string" KeyPath="yes" />
 					<RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" />
