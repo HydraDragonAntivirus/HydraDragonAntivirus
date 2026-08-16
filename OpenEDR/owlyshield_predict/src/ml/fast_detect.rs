@@ -129,3 +129,43 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Diagnostics: loads the repo model files and runs a short inference.
+    /// Fails if a model file is missing OR the architecture/burn version no
+    /// longer matches — distinguishes the "JS/PE ML not scanning" root cause.
+    #[test]
+    fn repo_models_load_and_infer() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let pe_path = manifest_dir.join("models").join("pe_model.mpk");
+        let js_path = manifest_dir.join("models").join("js_model.mpk");
+
+        let device = NdArrayDevice::default();
+
+        let pe_model = load_ml_model(&pe_path, super::super::model::MalwareNetConfig::default());
+        assert!(
+            pe_model.is_some(),
+            "PE model could not be loaded: {} (file exists? architecture matches?)",
+            pe_path.display()
+        );
+
+        let js_model = load_ml_model(&js_path, super::super::model::MalwareNetConfig::default_js());
+        assert!(
+            js_model.is_some(),
+            "JS model could not be loaded: {} (file exists? architecture matches?)",
+            js_path.display()
+        );
+
+        // Once the models load, verify end-to-end inference too.
+        if let Some(model) = &js_model {
+            let js = "var x = 1; function go(){ eval('a'+'b'); } go();";
+            let prob = super::super::inference::predict_js(js, model, &device)
+                .expect("predict_js must not return None for valid JS");
+            println!("JS model inference prob (benign sample): {}", prob);
+            assert!((0.0..=1.0).contains(&prob), "invalid prob: {}", prob);
+        }
+    }
+}
