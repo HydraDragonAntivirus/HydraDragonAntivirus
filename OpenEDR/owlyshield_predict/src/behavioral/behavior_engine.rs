@@ -12319,7 +12319,7 @@ mod tests {
         assert!(!engine.api_index_contains("ntdll!NtCreateFile"));
 
         // An empty rule set yields no index.
-        let mut empty = BehaviorEngine::new();
+        let empty = BehaviorEngine::new();
         empty.rebuild_api_pattern_index();
         assert!(empty.api_index_contains("anything").eq(&false));
     }
