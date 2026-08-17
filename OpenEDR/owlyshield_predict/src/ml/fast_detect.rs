@@ -16,42 +16,28 @@ static JS_MODEL: OnceLock<Option<super::model::MalwareNet<InferBackend>>> = Once
 
 fn get_pe_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
     PE_MODEL.get_or_init(|| {
-        let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-        let paths = [
-            exe_dir.join("models").join("pe_model.mpk"),
-            exe_dir.join("pe_model.mpk"),
-            PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\models\pe_model.mpk"),
-        ];
-        for path in &paths {
-            if path.exists() {
-                if let Some(model) = load_ml_model(path, super::model::MalwareNetConfig::default()) {
-                    Logging::info(&format!("[FastDetect] Loaded PE ML model from {}", path.display()));
-                    return Some(model);
-                }
+        let path = Path::new("models/pe_model.mpk");
+        if path.exists() {
+            if let Some(model) = load_ml_model(path, super::model::MalwareNetConfig::default()) {
+                Logging::info(&format!("[FastDetect] Loaded PE ML model from {}", path.display()));
+                return Some(model);
             }
         }
-        Logging::error("[FastDetect] PE ML model could not be found or loaded");
+        Logging::error("[FastDetect] PE ML model could not be found or loaded from models/pe_model.mpk");
         None
     })
 }
 
 fn get_js_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
     JS_MODEL.get_or_init(|| {
-        let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-        let paths = [
-            exe_dir.join("models").join("js_model.mpk"),
-            exe_dir.join("js_model.mpk"),
-            PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\models\js_model.mpk"),
-        ];
-        for path in &paths {
-            if path.exists() {
-                if let Some(model) = load_ml_model(path, super::model::MalwareNetConfig::default_js()) {
-                    Logging::info(&format!("[FastDetect] Loaded JS ML model from {}", path.display()));
-                    return Some(model);
-                }
+        let path = Path::new("models/js_model.mpk");
+        if path.exists() {
+            if let Some(model) = load_ml_model(path, super::model::MalwareNetConfig::default_js()) {
+                Logging::info(&format!("[FastDetect] Loaded JS ML model from {}", path.display()));
+                return Some(model);
             }
         }
-        Logging::error("[FastDetect] JS ML model could not be found or loaded");
+        Logging::error("[FastDetect] JS ML model could not be found or loaded from models/js_model.mpk");
         None
     })
 }
