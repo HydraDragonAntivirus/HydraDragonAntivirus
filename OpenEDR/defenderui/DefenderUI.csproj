@@ -122,16 +122,15 @@
   -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishSingleFile>false</PublishSingleFile>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishSelfContained>true</PublishSelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <!-- SingleFile kapandığı için extract ayarları gereksiz -->
     <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
     <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
     <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
-    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <WindowsPackageType>None</WindowsPackageType>
     <DebugType>embedded</DebugType>
-    <!-- Single-file ile trim birlikte WinUI'de riskli; acik bicimde kapatiyoruz. -->
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 </Project>
