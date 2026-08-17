@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        ═══════════════════════════════════════════════════════════════════
+        DefenderUI — Semantic Color Tokens (Faz 1)
+        ═══════════════════════════════════════════════════════════════════
+        • Primary accent: Microsoft Defender blue (#0078D4)
+        • Status trio:   #107C10 (protected)  /  #F7B500 (warning)  /  #D13438 (risk)
+        • Light / Dark / HighContrast ThemeDictionaries
+        • Eski brush isimleri (AppBackgroundBrush, CardBackgroundBrush, AccentBrush,
+          SuccessBrush, WarningBrush, DangerBrush, vb.) geriye dönük uyumluluk
+          için ALIAS olarak korunur — bu sayede mevcut View'ler kırılmaz.
+        ═══════════════════════════════════════════════════════════════════
+    -->
+
+    <ResourceDictionary.ThemeDictionaries>
+
+        <!-- ══════════════════════════════════════════════════════════ -->
+        <!-- LIGHT THEME                                                -->
+        <!-- ══════════════════════════════════════════════════════════ -->
+        <ResourceDictionary x:Key="Light">
+
+            <!-- ═══ Accent (Defender Blue) ═══ -->
+            <SolidColorBrush x:Key="AccentPrimaryBrush" Color="#0078D4" />
+            <SolidColorBrush x:Key="AccentSecondaryBrush" Color="#2B88D8" />
+            <SolidColorBrush x:Key="AccentTertiaryBrush" Color="#005A9E" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#E5F1FB" />
+
+            <!-- ═══ Status ═══ -->
+            <SolidColorBrush x:Key="StatusProtectedBrush" Color="#107C10" />
+            <SolidColorBrush x:Key="StatusWarningBrush" Color="#F7B500" />
+            <SolidColorBrush x:Key="StatusRiskBrush" Color="#D13438" />
+            <SolidColorBrush x:Key="StatusInfoBrush" Color="#0078D4" />
+
+            <!-- ═══ Surface / Background ═══ -->
+            <SolidColorBrush x:Key="SurfaceBackgroundBrush" Color="#F3F3F3" />
+            <SolidColorBrush x:Key="SurfaceCardBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SurfaceCardHoverBrush" Color="#FAFAFA" />
+            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#FFFFFF" />
+
+            <!-- ═══ Text ═══ -->
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#5C5C5C" />
+            <SolidColorBrush x:Key="TextTertiaryBrush" Color="#8A8A8A" />
+            <SolidColorBrush x:Key="TextOnAccentBrush" Color="#FFFFFF" />
+
+            <!-- ═══ Border / Divider ═══ -->
+            <SolidColorBrush x:Key="BorderSubtleBrush" Color="#E5E5E5" />
+            <SolidColorBrush x:Key="BorderStrongBrush" Color="#CCCCCC" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#E5E5E5" />
+
+            <!-- ═══ Status Soft / Background variants (for alert cards) ═══ -->
+            <SolidColorBrush x:Key="StatusProtectedSoftBrush" Color="#DFF6DD" />
+            <SolidColorBrush x:Key="StatusWarningSoftBrush" Color="#FFF4CE" />
+            <SolidColorBrush x:Key="StatusRiskSoftBrush" Color="#FDE7E9" />
+
+            <!-- ═══ Faz B #9: Ripple overlay (tema-aware) ═══ -->
+            <SolidColorBrush x:Key="RippleOverlayBrush" Color="#40000000" />
+
+            <!-- ═══ Faz D #23: AccentSoftBrush üstünde WCAG-uyumlu accent ═══ -->
+            <SolidColorBrush x:Key="AccentOnSoftBrush" Color="#0078D4" />
+
+            <!-- ══════════════════════════════════════════════════════ -->
+            <!-- BACK-COMPAT ALIASES (eski isimlendirme)                -->
+            <!-- Faz D #21: Tekilleştirme — legacy brush'lar semantic   -->
+            <!-- token'lara StaticResource ile bağlı. Semantic renk     -->
+            <!-- güncellendiğinde alias otomatik takip eder.            -->
+            <!-- ══════════════════════════════════════════════════════ -->
+            <StaticResource x:Key="AppBackgroundBrush" ResourceKey="SurfaceBackgroundBrush" />
+            <StaticResource x:Key="CardBackgroundBrush" ResourceKey="SurfaceCardBrush" />
+            <StaticResource x:Key="CardBackgroundHoverBrush" ResourceKey="SurfaceCardHoverBrush" />
+            <StaticResource x:Key="SurfaceBrush" ResourceKey="SurfaceBackgroundBrush" />
+            <StaticResource x:Key="BorderBrush" ResourceKey="BorderStrongBrush" />
+            <StaticResource x:Key="AccentBrush" ResourceKey="AccentPrimaryBrush" />
+            <StaticResource x:Key="AccentLightBrush" ResourceKey="AccentSecondaryBrush" />
+            <StaticResource x:Key="AccentDarkBrush" ResourceKey="AccentTertiaryBrush" />
+            <StaticResource x:Key="SuccessBrush" ResourceKey="StatusProtectedBrush" />
+            <StaticResource x:Key="SuccessBackgroundBrush" ResourceKey="StatusProtectedSoftBrush" />
+            <StaticResource x:Key="WarningBrush" ResourceKey="StatusWarningBrush" />
+            <StaticResource x:Key="WarningBackgroundBrush" ResourceKey="StatusWarningSoftBrush" />
+            <StaticResource x:Key="DangerBrush" ResourceKey="StatusRiskBrush" />
+            <StaticResource x:Key="DangerBackgroundBrush" ResourceKey="StatusRiskSoftBrush" />
+            <StaticResource x:Key="InfoBrush" ResourceKey="StatusInfoBrush" />
+            <SolidColorBrush x:Key="NavigationBackgroundBrush" Color="#FAFAFA" />
+            <SolidColorBrush x:Key="NavigationItemHoverBrush" Color="#EDEBE9" />
+            <StaticResource x:Key="NavigationItemSelectedBrush" ResourceKey="AccentSoftBrush" />
+
+            <!-- Color key aliases (some legacy code-behind or SolidColorBrush chains
+                 may still reference Color x:Key="..."; we keep them available) -->
+            <Color x:Key="AccentColor">#0078D4</Color>
+            <Color x:Key="AccentLightColor">#2B88D8</Color>
+            <Color x:Key="AccentDarkColor">#005A9E</Color>
+            <Color x:Key="SuccessColor">#107C10</Color>
+            <Color x:Key="WarningColor">#F7B500</Color>
+            <Color x:Key="DangerColor">#D13438</Color>
+            <Color x:Key="InfoColor">#0078D4</Color>
+            <Color x:Key="TextPrimaryColor">#1C1C1C</Color>
+            <Color x:Key="TextSecondaryColor">#5C5C5C</Color>
+            <Color x:Key="TextTertiaryColor">#8A8A8A</Color>
+            <Color x:Key="AppBackgroundColor">#F3F3F3</Color>
+            <Color x:Key="CardBackgroundColor">#FFFFFF</Color>
+            <Color x:Key="CardBackgroundHoverColor">#FAFAFA</Color>
+            <Color x:Key="SurfaceColor">#F3F3F3</Color>
+            <Color x:Key="BorderColor">#CCCCCC</Color>
+            <Color x:Key="BorderSubtleColor">#E5E5E5</Color>
+
+        </ResourceDictionary>
+
+        <!-- ══════════════════════════════════════════════════════════ -->
+        <!-- DARK THEME                                                 -->
+        <!-- ══════════════════════════════════════════════════════════ -->
+        <ResourceDictionary x:Key="Dark">
+
+            <!-- ═══ Accent (Defender Blue) ═══ -->
+            <SolidColorBrush x:Key="AccentPrimaryBrush" Color="#0078D4" />
+            <SolidColorBrush x:Key="AccentSecondaryBrush" Color="#2B88D8" />
+            <SolidColorBrush x:Key="AccentTertiaryBrush" Color="#005A9E" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#1A2B3C" />
+
+            <!-- ═══ Status ═══ -->
+            <SolidColorBrush x:Key="StatusProtectedBrush" Color="#4CAF50" />
+            <SolidColorBrush x:Key="StatusWarningBrush" Color="#F7B500" />
+            <SolidColorBrush x:Key="StatusRiskBrush" Color="#D13438" />
+            <SolidColorBrush x:Key="StatusInfoBrush" Color="#0078D4" />
+
+            <!-- ═══ Surface / Background ═══ -->
+            <SolidColorBrush x:Key="SurfaceBackgroundBrush" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="SurfaceCardBrush" Color="#2B2B2B" />
+            <SolidColorBrush x:Key="SurfaceCardHoverBrush" Color="#333333" />
+            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#323232" />
+
+            <!-- ═══ Text ═══ -->
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#C8C8C8" />
+            <SolidColorBrush x:Key="TextTertiaryBrush" Color="#A0A0A0" />
+            <SolidColorBrush x:Key="TextOnAccentBrush" Color="#FFFFFF" />
+
+            <!-- ═══ Border / Divider ═══ -->
+            <SolidColorBrush x:Key="BorderSubtleBrush" Color="#3A3A3A" />
+            <SolidColorBrush x:Key="BorderStrongBrush" Color="#555555" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#3A3A3A" />
+
+            <!-- ═══ Status Soft variants ═══ -->
+            <SolidColorBrush x:Key="StatusProtectedSoftBrush" Color="#1B3A26" />
+            <SolidColorBrush x:Key="StatusWarningSoftBrush" Color="#332A12" />
+            <SolidColorBrush x:Key="StatusRiskSoftBrush" Color="#3D1618" />
+
+            <!-- ═══ Faz B #9: Ripple overlay (tema-aware) ═══ -->
+            <SolidColorBrush x:Key="RippleOverlayBrush" Color="#40FFFFFF" />
+
+            <!-- ═══ Faz D #23: Dark'ta AccentSoftBrush (#1A2B3C) üstünde mavi
+                                 ikon zemin ile benzer tonda kalıyor; daha parlak
+                                 AccentSecondaryBrush tonunu kullan. ═══ -->
+            <SolidColorBrush x:Key="AccentOnSoftBrush" Color="#2B88D8" />
+
+            <!-- ══════════════════════════════════════════════════════ -->
+            <!-- BACK-COMPAT ALIASES (Faz D #21: StaticResource alias'lar) -->
+            <!-- ══════════════════════════════════════════════════════ -->
+            <StaticResource x:Key="AppBackgroundBrush" ResourceKey="SurfaceBackgroundBrush" />
+            <StaticResource x:Key="CardBackgroundBrush" ResourceKey="SurfaceCardBrush" />
+            <StaticResource x:Key="CardBackgroundHoverBrush" ResourceKey="SurfaceCardHoverBrush" />
+            <StaticResource x:Key="SurfaceBrush" ResourceKey="SurfaceElevatedBrush" />
+            <StaticResource x:Key="BorderBrush" ResourceKey="BorderStrongBrush" />
+            <StaticResource x:Key="AccentBrush" ResourceKey="AccentPrimaryBrush" />
+            <StaticResource x:Key="AccentLightBrush" ResourceKey="AccentSecondaryBrush" />
+            <StaticResource x:Key="AccentDarkBrush" ResourceKey="AccentTertiaryBrush" />
+            <StaticResource x:Key="SuccessBrush" ResourceKey="StatusProtectedBrush" />
+            <StaticResource x:Key="SuccessBackgroundBrush" ResourceKey="StatusProtectedSoftBrush" />
+            <StaticResource x:Key="WarningBrush" ResourceKey="StatusWarningBrush" />
+            <StaticResource x:Key="WarningBackgroundBrush" ResourceKey="StatusWarningSoftBrush" />
+            <StaticResource x:Key="DangerBrush" ResourceKey="StatusRiskBrush" />
+            <StaticResource x:Key="DangerBackgroundBrush" ResourceKey="StatusRiskSoftBrush" />
+            <StaticResource x:Key="InfoBrush" ResourceKey="StatusInfoBrush" />
+            <SolidColorBrush x:Key="NavigationBackgroundBrush" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="NavigationItemHoverBrush" Color="#2B2B2B" />
+            <StaticResource x:Key="NavigationItemSelectedBrush" ResourceKey="AccentSoftBrush" />
+
+            <Color x:Key="AccentColor">#0078D4</Color>
+            <Color x:Key="AccentLightColor">#2B88D8</Color>
+            <Color x:Key="AccentDarkColor">#005A9E</Color>
+            <Color x:Key="SuccessColor">#4CAF50</Color>
+            <Color x:Key="WarningColor">#F7B500</Color>
+            <Color x:Key="DangerColor">#D13438</Color>
+            <Color x:Key="InfoColor">#0078D4</Color>
+            <Color x:Key="TextPrimaryColor">#FFFFFF</Color>
+            <Color x:Key="TextSecondaryColor">#C8C8C8</Color>
+            <Color x:Key="TextTertiaryColor">#A0A0A0</Color>
+            <Color x:Key="AppBackgroundColor">#1C1C1C</Color>
+            <Color x:Key="CardBackgroundColor">#2B2B2B</Color>
+            <Color x:Key="CardBackgroundHoverColor">#333333</Color>
+            <Color x:Key="SurfaceColor">#323232</Color>
+            <Color x:Key="BorderColor">#555555</Color>
+            <Color x:Key="BorderSubtleColor">#3A3A3A</Color>
+
+        </ResourceDictionary>
+
+        <!-- ══════════════════════════════════════════════════════════ -->
+        <!-- HIGH CONTRAST THEME                                        -->
+        <!-- NOT: WinUI 3 ThemeDictionaries içinde SolidColorBrush.Color -->
+        <!-- property'si {ThemeResource SystemColor...Color} binding'i   -->
+        <!-- her zaman desteklemez (compiler hatası üretebilir). Bu      -->
+        <!-- nedenle HighContrast için black/white safe varsayılanlar    -->
+        <!-- kullanıyoruz; WinUI kendi default controls'larında zaten     -->
+        <!-- SystemColor* override'larını otomatik uygular. Burada       -->
+        <!-- sadece semantic brush isimlerinin high contrast'ta da çöz-  -->
+        <!-- ünmesini garanti ediyoruz.                                  -->
+        <!-- ══════════════════════════════════════════════════════════ -->
+        <ResourceDictionary x:Key="HighContrast">
+
+            <!-- ═══ Accent ═══ -->
+            <SolidColorBrush x:Key="AccentPrimaryBrush" Color="#FFFF00" />
+            <SolidColorBrush x:Key="AccentSecondaryBrush" Color="#FFFF00" />
+            <SolidColorBrush x:Key="AccentTertiaryBrush" Color="#FFFF00" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#000000" />
+
+            <!-- ═══ Status ═══ -->
+            <SolidColorBrush x:Key="StatusProtectedBrush" Color="#00FF00" />
+            <SolidColorBrush x:Key="StatusWarningBrush" Color="#FFFF00" />
+            <SolidColorBrush x:Key="StatusRiskBrush" Color="#FF0000" />
+            <SolidColorBrush x:Key="StatusInfoBrush" Color="#FFFF00" />
+
+            <!-- ═══ Surface / Background ═══ -->
+            <SolidColorBrush x:Key="SurfaceBackgroundBrush" Color="#000000" />
+            <SolidColorBrush x:Key="SurfaceCardBrush" Color="#000000" />
+            <SolidColorBrush x:Key="SurfaceCardHoverBrush" Color="#FFFF00" />
+            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#000000" />
+
+            <!-- ═══ Text ═══ -->
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="TextTertiaryBrush" Color="#A6A6A6" />
+            <SolidColorBrush x:Key="TextOnAccentBrush" Color="#000000" />
+
+            <!-- ═══ Border / Divider ═══ -->
+            <SolidColorBrush x:Key="BorderSubtleBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="BorderStrongBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#FFFFFF" />
+
+            <!-- ═══ Status Soft variants ═══ -->
+            <SolidColorBrush x:Key="StatusProtectedSoftBrush" Color="#000000" />
+            <SolidColorBrush x:Key="StatusWarningSoftBrush" Color="#000000" />
+            <SolidColorBrush x:Key="StatusRiskSoftBrush" Color="#000000" />
+
+            <!-- ═══ Faz B #9: Ripple overlay (HC: sarı highlight) ═══ -->
+            <SolidColorBrush x:Key="RippleOverlayBrush" Color="#80FFFF00" />
+
+            <!-- ═══ Faz D #23: HighContrast accent ═══ -->
+            <SolidColorBrush x:Key="AccentOnSoftBrush" Color="#FFFF00" />
+
+            <!-- ══════════════════════════════════════════════════════ -->
+            <!-- BACK-COMPAT ALIASES (Faz D #21: StaticResource alias'lar) -->
+            <!-- ══════════════════════════════════════════════════════ -->
+            <StaticResource x:Key="AppBackgroundBrush" ResourceKey="SurfaceBackgroundBrush" />
+            <StaticResource x:Key="CardBackgroundBrush" ResourceKey="SurfaceCardBrush" />
+            <StaticResource x:Key="CardBackgroundHoverBrush" ResourceKey="SurfaceCardHoverBrush" />
+            <StaticResource x:Key="SurfaceBrush" ResourceKey="SurfaceElevatedBrush" />
+            <StaticResource x:Key="BorderBrush" ResourceKey="BorderStrongBrush" />
+            <StaticResource x:Key="AccentBrush" ResourceKey="AccentPrimaryBrush" />
+            <StaticResource x:Key="AccentLightBrush" ResourceKey="AccentSecondaryBrush" />
+            <StaticResource x:Key="AccentDarkBrush" ResourceKey="AccentTertiaryBrush" />
+            <StaticResource x:Key="SuccessBrush" ResourceKey="StatusProtectedBrush" />
+            <StaticResource x:Key="SuccessBackgroundBrush" ResourceKey="StatusProtectedSoftBrush" />
+            <StaticResource x:Key="WarningBrush" ResourceKey="StatusWarningBrush" />
+            <StaticResource x:Key="WarningBackgroundBrush" ResourceKey="StatusWarningSoftBrush" />
+            <StaticResource x:Key="DangerBrush" ResourceKey="StatusRiskBrush" />
+            <StaticResource x:Key="DangerBackgroundBrush" ResourceKey="StatusRiskSoftBrush" />
+            <StaticResource x:Key="InfoBrush" ResourceKey="StatusInfoBrush" />
+            <SolidColorBrush x:Key="NavigationBackgroundBrush" Color="#000000" />
+            <SolidColorBrush x:Key="NavigationItemHoverBrush" Color="#FFFF00" />
+            <StaticResource x:Key="NavigationItemSelectedBrush" ResourceKey="AccentSoftBrush" />
+
+            <!-- K11: Color x:Key tanımları — Light/Dark ile aynı isimlerde,
+                 HighContrast uyumlu sistem renkleriyle. Bazı code-behind
+                 helper'ları (AnimationHelper, FlashAccentColor vb.) direkt
+                 Color resource'u üzerinden çalışabildiği için bu tanımlar
+                 HighContrast'ta da mevcut olmalı. -->
+            <Color x:Key="AccentColor">#FFFF00</Color>
+            <Color x:Key="AccentLightColor">#FFFF00</Color>
+            <Color x:Key="AccentDarkColor">#FFFF00</Color>
+            <Color x:Key="SuccessColor">#00FF00</Color>
+            <Color x:Key="WarningColor">#FFFF00</Color>
+            <Color x:Key="DangerColor">#FF0000</Color>
+            <Color x:Key="InfoColor">#FFFF00</Color>
+            <Color x:Key="TextPrimaryColor">#FFFFFF</Color>
+            <Color x:Key="TextSecondaryColor">#FFFFFF</Color>
+            <Color x:Key="TextTertiaryColor">#A6A6A6</Color>
+            <Color x:Key="AppBackgroundColor">#000000</Color>
+            <Color x:Key="CardBackgroundColor">#000000</Color>
+            <Color x:Key="CardBackgroundHoverColor">#FFFF00</Color>
+            <Color x:Key="SurfaceColor">#000000</Color>
+            <Color x:Key="BorderColor">#FFFFFF</Color>
+            <Color x:Key="BorderSubtleColor">#FFFFFF</Color>
+
+        </ResourceDictionary>
+
+    </ResourceDictionary.ThemeDictionaries>
+
+</ResourceDictionary>

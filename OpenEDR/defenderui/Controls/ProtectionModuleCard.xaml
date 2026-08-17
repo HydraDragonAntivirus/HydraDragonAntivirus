@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="DefenderUI.Controls.ProtectionModuleCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!--
+        ProtectionModuleCard — Tek bir koruma modülünü temsil eder (Faz 5).
+        DP:
+          • Glyph             : Segoe glyph (string)
+          • Title             : modül adı
+          • Description       : kısa açıklama
+          • IsEnabled         : Toggle two-way (bool)
+          • Status            : ProtectionModuleStatus (On/Off/Warning)
+          • ConfigureCommand  : "Yapılandır" linkine bağlı ICommand
+    -->
+
+    <Border
+        x:Name="CardRoot"
+        Style="{StaticResource InteractiveCardStyle}"
+        Padding="20"
+        MinHeight="180">
+        <Grid RowSpacing="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Üst satır: ikon + başlık/status + toggle -->
+            <Grid Grid.Row="0" ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- İkon dairesi -->
+                <Grid
+                    Grid.Column="0"
+                    Width="40"
+                    Height="40"
+                    VerticalAlignment="Top">
+                    <Ellipse
+                        x:Name="IconBackground"
+                        Fill="{ThemeResource AccentSoftBrush}"
+                        Width="40"
+                        Height="40" />
+                    <FontIcon
+                        x:Name="IconGlyph"
+                        Glyph="&#xE72E;"
+                        FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                        FontSize="18"
+                        Foreground="{ThemeResource AccentPrimaryBrush}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center" />
+                </Grid>
+
+                <!-- Başlık + status pill -->
+                <StackPanel
+                    Grid.Column="1"
+                    Spacing="4"
+                    VerticalAlignment="Center">
+                    <TextBlock
+                        x:Name="TitleLabel"
+                        Text="Modül Adı"
+                        Style="{StaticResource BodyLargeTextStyle}"
+                        FontWeight="SemiBold"
+                        TextTrimming="CharacterEllipsis" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Ellipse
+                            x:Name="StatusDot"
+                            Width="8"
+                            Height="8"
+                            Fill="{ThemeResource StatusProtectedBrush}"
+                            VerticalAlignment="Center" />
+                        <TextBlock
+                            x:Name="StatusLabel"
+                            Text="Aktif"
+                            Style="{StaticResource CaptionTextStyle}"
+                            Foreground="{ThemeResource StatusProtectedBrush}"
+                            FontWeight="SemiBold"
+                            VerticalAlignment="Center" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Toggle -->
+                <ToggleSwitch
+                    x:Name="ModuleToggle"
+                    Grid.Column="2"
+                    MinWidth="0"
+                    OnContent=""
+                    OffContent=""
+                    VerticalAlignment="Center"
+                    Toggled="ModuleToggle_Toggled" />
+            </Grid>
+
+            <!-- Açıklama -->
+            <TextBlock
+                x:Name="DescriptionLabel"
+                Grid.Row="1"
+                Text="Modül açıklaması"
+                Style="{StaticResource CaptionTextStyle}"
+                TextWrapping="Wrap"
+                MaxLines="3"
+                TextTrimming="CharacterEllipsis" />
+
+            <!-- Alt satır: Yapılandır linki -->
+            <HyperlinkButton
+                x:Name="ConfigureLink"
+                Grid.Row="2"
+                Content="Yapılandır"
+                Padding="0"
+                HorizontalAlignment="Left"
+                Click="ConfigureLink_Click" />
+        </Grid>
+    </Border>
+</UserControl>

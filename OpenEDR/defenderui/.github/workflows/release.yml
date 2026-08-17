@@ -1,0 +1,51 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Calculate Version
+        id: versioning
+        run: |
+          $ver = "1.0.${{ github.run_number }}"
+          echo "APP_VERSION=$ver" >> $env:GITHUB_ENV
+          echo "Version is $ver"
+
+      - name: Build and Publish (Folder)
+        run: |
+          dotnet publish DefenderUI.csproj -c Release -r win-x64 --no-self-contained -p:Platform=x64 -o ./publish /p:Version=${{ env.APP_VERSION }}
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Create Setup.exe with NSIS
+        run: |
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+          Rename-Item -Path "DefenderUI_Setup.exe" -NewName "DefenderUI_Setup_v${{ env.APP_VERSION }}.exe"
+
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION }}
+          name: DefenderUI v${{ env.APP_VERSION }}
+          body: "Automated setup release of DefenderUI version ${{ env.APP_VERSION }}."
+          files: |
+            DefenderUI_Setup_v${{ env.APP_VERSION }}.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

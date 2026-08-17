@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DefenderUI.Views.SettingsPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:DefenderUI.Controls"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:helpers="using:DefenderUI.Helpers"
+    xmlns:vm="using:DefenderUI.ViewModels"
+    xmlns:local="using:DefenderUI.Views"
+    mc:Ignorable="d"
+    Loaded="Page_Loaded"
+    Background="Transparent">
+
+    <Page.Resources>
+        <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+    </Page.Resources>
+
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel x:Name="HeaderPanel" Grid.Row="0" Spacing="4" Margin="0,0,0,24">
+            <TextBlock
+                Text="Ayarlar"
+                Style="{StaticResource DisplayMediumTextStyle}"
+                AutomationProperties.HeadingLevel="Level1" />
+            <TextBlock
+                Text="Uygulama davranışını ve görünümünü kişiselleştirin"
+                Style="{StaticResource BodyLargeTextStyle}"
+                Foreground="{ThemeResource TextSecondaryBrush}" />
+        </StackPanel>
+
+        <!-- 2-column: Sidebar + Content -->
+        <Grid Grid.Row="1" ColumnSpacing="24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="240" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Sidebar -->
+            <Border Grid.Column="0" Style="{StaticResource SurfaceCardStyle}" Padding="8" VerticalAlignment="Top">
+                <ListView
+                    x:Name="CategoryList"
+                    ItemsSource="{x:Bind ViewModel.Categories, Mode=OneWay}"
+                    SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
+                    Background="Transparent"
+                    SelectionMode="Single">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Margin" Value="0,2" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SettingsCategory">
+                            <Grid Padding="12,10" ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon
+                                    Grid.Column="0"
+                                    Glyph="{x:Bind Glyph}"
+                                    FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                    FontSize="16"
+                                    Foreground="{ThemeResource AccentPrimaryBrush}"
+                                    VerticalAlignment="Center" />
+                                <TextBlock
+                                    Grid.Column="1"
+                                    Text="{x:Bind Title}"
+                                    Style="{StaticResource BodyMediumTextStyle}"
+                                    VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+
+            <!-- Content panel -->
+            <ScrollViewer
+                Grid.Column="1"
+                VerticalScrollBarVisibility="Auto"
+                HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="16">
+
+                    <!-- Genel -->
+                    <StackPanel
+                        Spacing="12"
+                        Visibility="{x:Bind local:SettingsPage.IsCategory(ViewModel.SelectedCategory, 'general'), Mode=OneWay}">
+                        <TextBlock
+                            Text="Genel"
+                            Style="{StaticResource TitleLargeTextStyle}" />
+
+                        <Border Style="{StaticResource SurfaceCardStyle}">
+                            <controls:SettingsRow
+                                Title="Dil"
+                                Description="Arayüz dili. Değişiklik için yeniden başlatma gerekir.">
+                                <ComboBox
+                                    MinWidth="160"
+                                    ItemsSource="{x:Bind ViewModel.Languages}"
+                                    SelectedItem="{x:Bind ViewModel.SelectedLanguage, Mode=TwoWay}" />
+                            </controls:SettingsRow>
+                        </Border>
+
+                        <Border Style="{StaticResource SurfaceCardStyle}">
+                            <StackPanel Spacing="12">
+                                <StackPanel Spacing="2">
+                                    <TextBlock
+                                        Text="Tema"
+                                        Style="{StaticResource BodyLargeTextStyle}"
+                                        FontWeight="SemiBold" />
+                                    <TextBlock
+                                        Text="Uygulama görünümünü açık, koyu veya sistem temasıyla eşleşecek şekilde ayarlayın."
+                                        Style="{StaticResource CaptionTextStyle}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <RadioButton
+                                        Content="Sistem"
+                                        GroupName="ThemeGroup"
+                                        IsChecked="{x:Bind ViewModel.IsSystemThemeSelected, Mode=OneWay}"
+                                        Command="{x:Bind ViewModel.SetThemeCommand}"
+                                        CommandParameter="System" />
+                                    <RadioButton
+                                        Content="Açık"
+                                        GroupName="ThemeGroup"
+                                        IsChecked="{x:Bind ViewModel.IsLightThemeSelected, Mode=OneWay}"
+                                        Command="{x:Bind ViewModel.SetThemeCommand}"
+                                        CommandParameter="Light" />
+                                    <RadioButton
+                                        Content="Koyu"
+                                        GroupName="ThemeGroup"
+                                        IsChecked="{x:Bind ViewModel.IsDarkThemeSelected, Mode=OneWay}"
+                                        Command="{x:Bind ViewModel.SetThemeCommand}"
+                                        CommandParameter="Dark" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource SurfaceCardStyle}">
+                            <controls:SettingsRow
+                                Title="Windows ile Başlat"
+                                Description="Oturum açtığınızda uygulamayı otomatik başlat.">
+                                <ToggleSwitch
+                                    IsOn="{x:Bind ViewModel.StartWithWindows, Mode=TwoWay}"
+                                    MinWidth="0"
+                                    OnContent=""
+                                    OffContent="" />
+                            </controls:SettingsRow>
+                        </Border>
+
+                        <Border Style="{StaticResource SurfaceCardStyle}">
+                            <controls:SettingsRow
+                                Title="Sistem Tepsisine Küçült"
+                                Description="Kapatma butonuna basınca tepsiye küçült, tamamen kapatma.">
+                                <ToggleSwitch
+                                    IsOn="{x:Bind ViewModel.MinimizeToTray, Mode=TwoWay}"
+                                    MinWidth="0"
+                                    OnContent=""
+                                    OffContent="" />
+                            </controls:SettingsRow>
+                        </Border>
+
+                        <Border Style="{StaticResource SurfaceCardStyle}">
+                            <controls:SettingsRow
+                                Title="Telemetri"
+                                Description="Ürünü geliştirmek için anonim kullanım verisi gönder.">
+                                <ToggleSwitch
+                                    IsOn="{x:Bind ViewModel.TelemetryEnabled, Mode=TwoWay}"
+                                    MinWidth="0"
+                                    OnContent=""
+                                    OffContent="" />
+                            </controls:SettingsRow>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Görünüm -->
+                    <StackPanel
+                        Spacing="12"
+                        Visibility="{x:Bind local:SettingsPage.IsCategory(ViewModel.SelectedCategory, 'appearance'), Mode=OneWay}">
+                        <TextBlock Text="Görünüm" Style="{StaticResource TitleLargeTextStyle}" />
+
+                        <Border Style="{StaticResource SurfaceCardStyle}">
+                            <controls:SettingsRow
+                                Title="Aksan Rengi"
+                                Description="Şu anda sabit: Defender Mavisi. Özelleştirme yakında gelecek.">
+                                <Border
+                                    Width="32"
+                                    Height="32"
+                                    CornerRadius="8"
+                                    Background="{ThemeResource AccentPrimaryBrush}" />
+                            </controls:SettingsRow>
+                        </Border>
+
+                        <Border Style="{StaticResource SurfaceCardStyle}">
+                            <controls:SettingsRow
+                                Title="Compact Mode"
+                                Description="Daha sık bilgi yoğunluğu için kart boşluklarını azalt. (Yakında)">
+                                <ToggleSwitch
+                                    IsOn="{x:Bind ViewModel.CompactMode, Mode=TwoWay}"
+                                    IsEnabled="False"
+                                    MinWidth="0"
+                                    OnContent=""
+                                    OffContent="" />
+                            </controls:SettingsRow>
+                        </Border>
+
+                        <Border Style="{StaticResource SurfaceCardStyle}">
+                            <controls:SettingsRow
+                                Title="Animasyonları Azalt"
+                                Description="Hover, fade ve pulse gibi dekoratif animasyonları kapatır. Erişilebilirlik / düşük performanslı cihazlar için önerilir.">
+                                <ToggleSwitch
+                                    IsOn="{x:Bind ViewModel.ReduceMotion, Mode=TwoWay}"
+                                    MinWidth="0"
+                                    OnContent=""
+                                    OffContent="" />
+                            </controls:SettingsRow>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Placeholder kategoriler -->
+                    <Border
+                        Style="{StaticResource SurfaceCardStyle}"
+                        Visibility="{x:Bind local:SettingsPage.IsPlaceholder(ViewModel.SelectedCategory), Mode=OneWay}">
+                        <StackPanel Spacing="12" HorizontalAlignment="Center" Padding="32">
+                            <FontIcon
+                                Glyph="&#xE895;"
+                                FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                FontSize="48"
+                                Foreground="{ThemeResource TextTertiaryBrush}"
+                                HorizontalAlignment="Center" />
+                            <TextBlock
+                                Text="Bu bölüm yakında..."
+                                Style="{StaticResource TitleMediumTextStyle}"
+                                HorizontalAlignment="Center" />
+                            <TextBlock
+                                Text="{x:Bind local:SettingsPage.GetCategoryTitle(ViewModel.SelectedCategory), Mode=OneWay}"
+                                Style="{StaticResource CaptionTextStyle}"
+                                HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Page>

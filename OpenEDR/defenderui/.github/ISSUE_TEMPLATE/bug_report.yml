@@ -1,0 +1,125 @@
+name: 🐛 Bug Report
+description: Report a reproducible bug or defect in DefenderUI
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! 🛡️
+
+        Please make sure you've searched [existing issues](../issues?q=is%3Aissue) before opening a new one.
+
+        > **Reminder:** DefenderUI is a **frontend-only UI/UX concept**. Bugs like "EICAR test file is not detected" are **out of scope** — there is no real antivirus engine.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight Checklist
+      options:
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: I can reproduce this bug against the latest `main` branch.
+          required: true
+        - label: This is a bug in the UI/UX, not a request for real antivirus functionality.
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: A clear and concise description of what the bug is.
+      placeholder: "On the Scan page, the progress ring freezes when I click Pause..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps so we can reproduce this locally.
+      placeholder: |
+        1. Launch the app
+        2. Navigate to the Scan page
+        3. Click "Quick Scan"
+        4. Wait 5 seconds, then click Pause
+        5. Observe the progress ring freezes at the current value
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened? Include screenshots or a short GIF if helpful.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11 (24H2 / 2024 update)
+        - Windows 11 (23H2)
+        - Windows 11 (22H2)
+        - Windows 10 (22H2)
+        - Windows 10 (earlier build)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - x64
+        - ARM64
+        - x86
+    validations:
+      required: true
+
+  - type: input
+    id: dotnet-version
+    attributes:
+      label: .NET SDK version
+      description: Output of `dotnet --version`
+      placeholder: "9.0.100"
+    validations:
+      required: true
+
+  - type: input
+    id: winappsdk-version
+    attributes:
+      label: Windows App SDK version (if known)
+      description: From `packages.lock.json` or `dotnet list package`
+      placeholder: "1.6.x"
+
+  - type: input
+    id: commit
+    attributes:
+      label: Git commit / release version
+      description: Output of `git rev-parse --short HEAD`, or the release tag.
+      placeholder: "abc1234 or v1.0.0"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / exception details
+      description: Paste any relevant exception text, stack traces, or build output.
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else we should know? Screenshots, links, related issues, etc.

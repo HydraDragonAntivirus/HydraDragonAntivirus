@@ -1,0 +1,94 @@
+name: 💡 Feature Request
+description: Suggest a new feature, UI polish, or animation idea for DefenderUI
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your idea! ✨
+
+        DefenderUI thrives on great UI/UX proposals — new animations, visual polish, new pages, and architectural improvements are all welcome.
+
+        > **Reminder:** DefenderUI is a **frontend-only UI/UX concept**. Requests to add a real antivirus engine, threat signatures, or on-access scanning are **out of scope** by design.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight Checklist
+      options:
+        - label: I have searched existing issues and discussions for similar ideas.
+          required: true
+        - label: This request is about the UI/UX, not a real antivirus capability.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the motivation. What feels missing, clunky, or could be better?
+      placeholder: "The Dashboard hero card feels static — there's no sense of 'the system is alive'."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or change you'd like to see.
+      placeholder: "Add a continuous soft glow-pulse animation to the shield icon in the hero card..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area of the app
+      multiple: true
+      options:
+        - Dashboard
+        - Scan
+        - Protection
+        - Quarantine
+        - Reports
+        - Update
+        - Settings
+        - Navigation / Shell
+        - Animations / Motion
+        - Theme / Colors / Typography
+        - Accessibility
+        - Architecture / MVVM / DI
+        - Build / Packaging / CI
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups, sketches, or references
+      description: Screenshots from other apps (Kaspersky, Bitdefender, Norton, etc.), Figma links, or rough sketches help a lot.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Did you think about other ways to solve this? Why is your proposal the best?
+
+  - type: dropdown
+    id: willing-to-pr
+    attributes:
+      label: Would you be willing to contribute a PR?
+      options:
+        - Yes — I'd like to implement this myself
+        - Maybe — with guidance from maintainers
+        - "No — I'm just suggesting the idea"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else? Related issues, links, inspiration sources, etc.
