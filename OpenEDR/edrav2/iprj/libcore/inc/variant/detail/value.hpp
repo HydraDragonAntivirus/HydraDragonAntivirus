@@ -191,8 +191,18 @@ public:
 	{
 		const T* OptValue = getSafe<T>();
 		if (OptValue == nullptr)
+		{
+			if constexpr (std::is_same_v<T, std::shared_ptr<StringValue>>)
+			{
+				if (getType() == RawValueType::Null)
+				{
+					static const auto s_empty = StringValue::create("");
+					return s_empty;
+				}
+			}
 			error::TypeError(SL, FMT("Can't get " << GetValueType<T>::value <<
 				" value from Variant with " << getType())).throwException();
+		}
 		return *OptValue;
 	}
 };
