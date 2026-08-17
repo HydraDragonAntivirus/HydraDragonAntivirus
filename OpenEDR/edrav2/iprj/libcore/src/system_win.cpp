@@ -337,13 +337,32 @@ void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
 		cmdLine.data(),
 		nullptr, nullptr,
 		FALSE,
-		CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE,
+		CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE | NORMAL_PRIORITY_CLASS,
 		pEnv,
 		workDir.empty() ? nullptr : workDir.c_str(),
 		&si, &pi);
 
 	if (!bOk)
 		error::win::WinApiError(SL, "CreateProcessAsUser failed for DefenderUI").throwException();
+
+#ifndef PROCESS_POWER_THROTTLING_CURRENT_VERSION
+	typedef struct _PROCESS_POWER_THROTTLING_STATE {
+		ULONG Version;
+		ULONG ControlMask;
+		ULONG StateMask;
+	} PROCESS_POWER_THROTTLING_STATE, *PPROCESS_POWER_THROTTLING_STATE;
+#define PROCESS_POWER_THROTTLING_CURRENT_VERSION 1
+#define PROCESS_POWER_THROTTLING_EXECUTION_SPEED 0x1
+#endif
+#ifndef ProcessPowerThrottling
+#define ProcessPowerThrottling (PROCESS_INFORMATION_CLASS)4
+#endif
+
+	PROCESS_POWER_THROTTLING_STATE powerThrottling{};
+	powerThrottling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+	powerThrottling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+	powerThrottling.StateMask = 0;
+	::SetProcessInformation(pi.hProcess, ProcessPowerThrottling, &powerThrottling, sizeof(powerThrottling));
 
 	::CloseHandle(pi.hThread);
 	::CloseHandle(pi.hProcess);
