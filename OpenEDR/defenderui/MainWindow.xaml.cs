@@ -42,6 +42,8 @@ public sealed partial class MainWindow : Window
                 TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
                     new Uri(icoPath, UriKind.Absolute));
             }
+            TrayIcon.LeftClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
+            TrayIcon.DoubleClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
             TrayIcon.ForceCreate();
         }
         catch (Exception ex)
@@ -255,9 +257,15 @@ public sealed partial class MainWindow : Window
         this.AppWindow.Hide(); // Sadece gizle
     }
 
-    private void MenuShow_Click(object sender, RoutedEventArgs e)
+    private void ShowWindow()
     {
         this.AppWindow.Show();
+        this.Activate();
+    }
+
+    private void MenuShow_Click(object sender, RoutedEventArgs e)
+    {
+        ShowWindow();
     }
 
     private void MenuEdrStart_Click(object sender, RoutedEventArgs e)
