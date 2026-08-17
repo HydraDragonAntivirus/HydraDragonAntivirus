@@ -33,17 +33,14 @@ public sealed partial class MainWindow : Window
         // ── Tray icon ────────────────────────────────────────────────
         // Unpackaged (WindowsPackageType=None) kurulumda ms-appx:/// URI'leri
         // çözümlenmez; ikon bu yüzden görünmez. PNG formatlı AppLogo-64.png BitmapImage
-        // ile yüklenir (WinUI 3 BitmapImage .ico decode edemez) veya CustomIcon kullanılır.
         try
         {
-            var pngPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppLogo-64.png");
-            if (System.IO.File.Exists(pngPath))
+            var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (System.IO.File.Exists(icoPath))
             {
                 TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-                    new Uri(pngPath, UriKind.Absolute));
+                    new Uri(icoPath, UriKind.Absolute));
             }
-            TrayIcon.LeftClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
-            TrayIcon.DoubleClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
 
             if (RootGrid is not null)
             {
@@ -272,21 +269,7 @@ public sealed partial class MainWindow : Window
         this.AppWindow.Hide(); // Sadece gizle
     }
 
-    private void ShowWindow()
-    {
-        if (ContentFrame is not null && ContentFrame.Content is null)
-        {
-            _navigationService.Frame = ContentFrame;
-            _navigationService.NavigateTo("dashboard");
-        }
-        this.AppWindow.Show();
-        this.Activate();
-    }
 
-    private void MenuShow_Click(object sender, RoutedEventArgs e)
-    {
-        ShowWindow();
-    }
 
     private void MenuEdrStart_Click(object sender, RoutedEventArgs e)
     {

@@ -32,7 +32,6 @@
             Grid.Row="0">
             <tb:TaskbarIcon.ContextFlyout>
                 <MenuFlyout>
-                    <MenuFlyoutItem Text="Show" Click="MenuShow_Click"/>
                     <MenuFlyoutItem Text="Start EDR" Click="MenuEdrStart_Click"/>
                     <MenuFlyoutItem Text="Stop EDR" Click="MenuEdrStop_Click"/>
                     <MenuFlyoutSeparator/>
