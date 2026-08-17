@@ -97,12 +97,10 @@
       min_matches: 1
 
     ransomware_create_activity:
-      # orderless: create events are counted as a set regardless of sequence.
-      # Requires the created file to have an unknown (non-whitelisted) or no extension so
-      # that ordinary file creation (e.g. temp files, documents) does not satisfy
-      # this condition; encrypted output may be .winball/.encrypted or extensionless.
+      # orderless: create and write events are counted as a set regardless of sequence.
+      # Requires the target file to have an unknown (non-whitelisted) or no extension.
       orderless: true
-      file_operations: ["create"]
+      file_operations: ["create", "write"]
       detect_non_whitelisted_extensions: true
       min_matches: 1
 
@@ -160,6 +158,13 @@
       - and:
           - condition: "ransomware_read_activity"
           - condition: "ransomware_delete_activity"
+          - condition: "mass_disk_writes"
+
+      # Branch G: Pure Behavioral Read + Write/Create (unknown ext) + Delete (stem replace) + Mass Disk Modifications
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_create_activity"
+          - condition: "ransomware_delete_stem_activity"
           - condition: "mass_disk_writes"
 
   response:
