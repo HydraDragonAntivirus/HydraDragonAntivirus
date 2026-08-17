@@ -28,7 +28,6 @@
 
         <tb:TaskbarIcon
             x:Name="TrayIcon"
-            IconSource="ms-appx:///Assets/AppIcon.ico"
             ToolTipText="HydraDragonAntivirus - Koruma Aktif"
             Grid.Row="0">
             <tb:TaskbarIcon.ContextFlyout>

@@ -45,7 +45,8 @@ public sealed partial class MainWindow : Window
             }
             else if (System.IO.File.Exists(icoPath))
             {
-                TrayIcon.CustomIcon = new System.Drawing.Icon(icoPath);
+                TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+                    new Uri(icoPath, UriKind.Absolute));
             }
             TrayIcon.ForceCreate();
         }
