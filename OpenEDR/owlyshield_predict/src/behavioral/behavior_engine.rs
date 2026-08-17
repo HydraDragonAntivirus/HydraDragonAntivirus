@@ -6782,6 +6782,22 @@ impl BehaviorEngine {
         (value, has_path)
     }
 
+    /// Like `normalize_api_signature` but honours the `no_lowercase` flag.
+    /// When `no_lowercase` is true, case is preserved exactly as supplied.
+    fn normalize_api_signature_opt(raw: &str, no_lowercase: bool) -> (String, bool) {
+        if no_lowercase {
+            let value = normalize_hypervisor_label(raw);
+            let has_path = if let Some(idx) = value.rfind('!') {
+                let module_part = &value[..idx];
+                module_part.contains('\\') || module_part.contains('/')
+            } else {
+                false
+            };
+            return (value, has_path);
+        }
+        Self::normalize_api_signature(raw)
+    }
+
     fn matches_u32_list(filter: &[u32], value: u32) -> bool {
         filter.is_empty() || filter.contains(&value)
     }
@@ -8146,7 +8162,7 @@ impl BehaviorEngine {
 
                     let current_matches_any = current_event_apis.iter().any(|available| {
                         let (available_norm, available_has_path) =
-                            Self::normalize_api_signature(available);
+                            Self::normalize_api_signature_opt(available, cond_group.no_lowercase);
                         cond_group
                             .apis
                             .iter()
@@ -8155,7 +8171,7 @@ impl BehaviorEngine {
                             .chain(cond_group.anti_vm_apis.iter())
                             .any(|required_api| {
                                 let (required_norm, required_has_path) =
-                                    Self::normalize_api_signature(required_api);
+                                    Self::normalize_api_signature_opt(required_api, cond_group.no_lowercase);
                                 if required_has_path {
                                     available_has_path
                                         && Self::matches_pattern_internal(
@@ -8176,10 +8192,10 @@ impl BehaviorEngine {
                     let matched_apis: Vec<&String> = api_iter
                         .filter(|required_api| {
                             let (required_norm, required_has_path) =
-                                Self::normalize_api_signature(required_api);
+                                Self::normalize_api_signature_opt(required_api, cond_group.no_lowercase);
                             available_apis.iter().any(|available| {
                                 let (available_norm, available_has_path) =
-                                    Self::normalize_api_signature(available);
+                                    Self::normalize_api_signature_opt(available, cond_group.no_lowercase);
                                 if required_has_path {
                                     available_has_path
                                         && Self::matches_pattern_internal(

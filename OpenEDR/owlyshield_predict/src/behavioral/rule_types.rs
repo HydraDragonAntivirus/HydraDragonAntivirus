@@ -1853,6 +1853,10 @@ pub struct NamedConditionGroup {
     pub apis: Vec<String>,
     #[serde(default = "default_zero")]
     pub api_threshold: usize,
+    /// When true, API names are NOT lowercased before matching.
+    /// Default false = always lowercase (case-insensitive matching).
+    #[serde(default)]
+    pub no_lowercase: bool,
     #[serde(default)]
     pub file_paths: Vec<String>,
     #[serde(default)]
