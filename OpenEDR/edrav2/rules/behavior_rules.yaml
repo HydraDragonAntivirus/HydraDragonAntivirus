@@ -27,3 +27,4 @@
 !include amsi_detection_rules.yaml
 !include zero_trust_behavior_rules.yaml
 !include advanced_threat_rules.yaml
+!include pum_dynamic_registry_rules.yaml

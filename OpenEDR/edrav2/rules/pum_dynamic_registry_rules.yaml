@@ -1,0 +1,2018 @@
+- name: "PUM_0001 - DisableTaskMgr - Task Manager disabled via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    Task Manager disabled via registry policy. Common malware technique to prevent
+    the user from terminating malicious processes.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, anti_analysis, disable_task_mgr]
+  named_conditions:
+    pum_0001:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisableTaskMgr"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\System\\DisableTaskMgr"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0001"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0002 - DisableCMD - Command Prompt disabled via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 80
+  description: |
+    Access to cmd.exe disabled via policy. Malware prevents users from running repair tools.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, anti_analysis, disable_cmd]
+  named_conditions:
+    pum_0002:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisableCMD"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\System\\DisableCMD"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0002"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0003 - NoFolderOptions - Folder Options hidden via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 70
+  description: |
+    Folder Options removed from File Explorer, preventing users from viewing hidden/system files.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, hide_files]
+  named_conditions:
+    pum_0003:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoFolderOptions"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0003"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0004 - NoControlPanel - Control Panel disabled via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 70
+  description: |
+    Control Panel access disabled via policy, preventing system settings changes.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, lockdown]
+  named_conditions:
+    pum_0004:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoControlPanel"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\NoControlPanel"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0004"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0005 - DisableRegistryTools - Registry Editor disabled via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    Registry Editor (regedit.exe) disabled via policy, preventing registry inspection/repair.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, anti_analysis, lockout]
+  named_conditions:
+    pum_0005:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisableRegistryTools"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0005"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0006 - NoDriveTypeAutoRun - AutoRun disabled for all drives"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 40
+  description: |
+    AutoRun disabled for all drive types via policy.
+    Expected reverted value: 0x91 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry, autorun]
+  named_conditions:
+    pum_0006:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoDriveTypeAutoRun"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0006"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0007 - NoViewOnDrive - Drive hiding policy active"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 60
+  description: |
+    Specific drives hidden from File Explorer via policy, possibly to conceal malicious content.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry, hide_files]
+  named_conditions:
+    pum_0007:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoViewOnDrive"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoDrives"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0007"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0008 - DisableSystemRestore - System Restore disabled via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    System Restore disabled via policy. Ransomware disables this before encryption to prevent recovery.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1490
+  tags: [pum, registry, sabotage, impact]
+  named_conditions:
+    pum_0008:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Policies\\Microsoft\\Windows NT\\SystemRestore\\DisableSR"
+        - "*\\Software\\Policies\\Microsoft\\Windows NT\\SystemRestore\\DisableSystemRestore"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\SystemRestore\\DisableSR"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0008"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0009 - HideSCAHealth - Security Center notifications hidden"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 70
+  description: |
+    Windows Security Center health notifications disabled, allowing malware to operate without alerts.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, stealth]
+  named_conditions:
+    pum_0009:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\HideSCAHealth"
+        - "*\\Software\\Microsoft\\Security Center\\Monitoring\\DisableMonitoring"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0009"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0010 - EnableLUA - UAC disabled via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: critical
+  severity: 95
+  description: |
+    User Account Control (UAC) disabled. Dramatically reduces security, common malware technique.
+    Expected reverted value: 1 (DWORD).
+  mitre_attack:
+    - T1548.002
+  tags: [pum, registry, uac, privilege_escalation]
+  named_conditions:
+    pum_0010:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\EnableLUA"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0010"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+  allowlisted_apps:
+    - pattern: "consent.exe"
+      must_be_signed: true
+      signers: ["microsoft"]
+
+- name: "PUM_0011 - ConsentPromptBehaviorAdmin - Silent UAC elevation"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 88
+  description: |
+    UAC configured to auto-approve elevation (value 0), bypassing all admin consent checks.
+    Expected reverted value: 5 (DWORD).
+  mitre_attack:
+    - T1548.002
+  tags: [pum, registry, uac, privilege_escalation]
+  named_conditions:
+    pum_0011:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ConsentPromptBehaviorAdmin"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\PromptOnSecureDesktop"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0011"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0012 - EnableFirewall - Windows Firewall disabled via registry"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 88
+  description: |
+    Windows Firewall disabled via policy, leaving system exposed to network-based attacks.
+    Expected reverted value: 1 (DWORD).
+  mitre_attack:
+    - T1562.004
+  tags: [pum, registry, firewall, network]
+  named_conditions:
+    pum_0012:
+      orderless: true
+      registry_keys:
+        - "*\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile\\EnableFirewall"
+        - "*\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile\\EnableFirewall"
+        - "*\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\PublicProfile\\EnableFirewall"
+        - "*\\Software\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\EnableFirewall"
+        - "*\\Software\\Policies\\Microsoft\\WindowsFirewall\\StandardProfile\\EnableFirewall"
+        - "*\\Software\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\EnableFirewall"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0012"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0013 - DisableAntiSpyware - Windows Defender disabled via registry"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: critical
+  severity: 95
+  description: |
+    Windows Defender (Microsoft Defender Antivirus) disabled via registry, removing real-time protection.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, defender, antivirus_disable]
+  named_conditions:
+    pum_0013:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware"
+        - "*\\Software\\Microsoft\\Windows Defender\\DisableAntiSpyware"
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\DisableAntiVirus"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0013"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+  allowlisted_apps:
+    - pattern: "MsMpEng.exe"
+      must_be_signed: true
+      signers: ["microsoft"]
+    - pattern: "MpSigStub.exe"
+      must_be_signed: true
+      signers: ["microsoft"]
+
+- name: "PUM_0014 - TamperProtectionDisabled - Defender Tamper Protection off"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: critical
+  severity: 95
+  description: |
+    Microsoft Defender Tamper Protection disabled. Allows malware to modify Defender settings.
+    Expected reverted value: 5 (DWORD - enabled).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, defender, tamper_protection]
+  named_conditions:
+    pum_0014:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows Defender\\Features\\TamperProtection"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0014"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0015 - NoPublishingWizard - Remote Assistance publishing locked"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 35
+  description: |
+    Windows Remote Assistance and publishing features disabled via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0015:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoPublishingWizard"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\Network Connections\\NoPublishingWizard"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0015"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0016 - AutoAdminLogon - Automatic admin logon enabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    System configured to auto logon as administrator, storing password in registry.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1552
+  tags: [pum, registry, credentials]
+  named_conditions:
+    pum_0016:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\AutoAdminLogon"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\DefaultPassword"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0016"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0017 - NoDriveTypeAutoRun - AutoRun disabled for specific drives"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 35
+  description: |
+    AutoRun disabled on specific drive types via Policies\\Explorer.
+    Expected reverted value: 0x91 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry, autorun]
+  named_conditions:
+    pum_0017:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoDriveAutoRun"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoAutorun"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0017"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0018 - DisableLockWorkstation - Workstation lock disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 65
+  description: |
+    Ability to lock the workstation disabled via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0018:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisableLockWorkstation"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0018"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0019 - NoClose - Shut down disabled via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 70
+  description: |
+    Ability to shut down the system disabled via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry, lockout]
+  named_conditions:
+    pum_0019:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoClose"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0019"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0020 - RestrictAnonymous - Anonymous network access restricted"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 30
+  description: |
+    Anonymous access to the system restricted via policy. Can prevent security tools from querying.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0020:
+      orderless: true
+      registry_keys:
+        - "*\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\RestrictAnonymous"
+        - "*\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\RestrictAnonymousSAM"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0020"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0021 - DisableChangePassword - Password change disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 65
+  description: |
+    Users prevented from changing Windows password via Ctrl+Alt+Del.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0021:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisableChangePassword"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0021"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0022 - SCAEnable - Security Center disabled entirely"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 80
+  description: |
+    Windows Security Center disabled entirely, preventing monitoring of firewall/AV/updates.
+    Expected reverted value: 1 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, stealth]
+  named_conditions:
+    pum_0022:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\SCAEnable"
+        - "*\\Software\\Microsoft\\Security Center\\SCAEnable"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\System\\SCAEnable"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0022"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0023 - HideSCAHealth - Action Center notification area hidden"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 65
+  description: |
+    Windows Security Center alert icon hidden from notification area (system tray).
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, stealth]
+  named_conditions:
+    pum_0023:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\HideSCAHealth"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0023"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0024 - ServiceDLL - Security Center service DLL altered"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Security Center Service DLL path altered. Used to disable security monitoring via code injection.
+    Expected reverted value: "%windir%\\System32\\wscsvc.dll".
+  mitre_attack:
+    - T1574
+  tags: [pum, registry, hijack]
+  named_conditions:
+    pum_0024:
+      orderless: true
+      registry_keys:
+        - "*\\SYSTEM\\CurrentControlSet\\Services\\wscsvc\\Parameters\\ServiceDll"
+        - "*\\SYSTEM\\CurrentControlSet\\Services\\SecurityCenter\\Parameters\\ServiceDll"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0024"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0025 - NotificationIcon - System notification icons suppressed"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 35
+  description: |
+    System notification icons (network, volume, battery) suppressed via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0025:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\HideClock"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\HideSCANetwork"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\HideSCAVolume"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\HideScaPower"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0025"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0026 - NoRun - Run command removed from Start Menu"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 60
+  description: |
+    Run command removed from Start Menu, preventing users from running diagnostic tools.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry, lockdown]
+  named_conditions:
+    pum_0026:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoRun"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0026"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0027 - NoFind - Search/Find feature disabled via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 60
+  description: |
+    Search and Find features disabled via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry, lockdown]
+  named_conditions:
+    pum_0027:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoFind"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\Explorer\\NoSearchInternetLink"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0027"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0028 - NoDesktop - Desktop icons hidden via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 40
+  description: |
+    All desktop icons hidden via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0028:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoDesktop"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\HideDesktopIcons"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0028"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0029 - NoTrayContextMenu - Taskbar context menu disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 60
+  description: |
+    Taskbar and system tray context menus disabled via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry, lockdown]
+  named_conditions:
+    pum_0029:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoTrayContextMenu"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0029"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0030 - NoSetTaskbar - Taskbar settings disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 40
+  description: |
+    Taskbar properties and settings access disabled via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0030:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoSetTaskbar"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0030"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0031 - ActiveDesktop - Active Desktop forcibly enabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 35
+  description: |
+    Active Desktop forced on. Malware can use this for persistent wallpaper warnings or user tracking.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0031:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\ActiveDesktop\\NoActiveDesktopChanges"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\ForceActiveDesktopOn"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0031"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0032 - Wallpaper - Desktop wallpaper forced via policy"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 40
+  description: |
+    Desktop wallpaper forced via Group Policy. Ransomware uses this to display ransom notes.
+    Expected reverted value: empty string or policy removal.
+  mitre_attack:
+    - T1491.001
+  tags: [pum, registry]
+  named_conditions:
+    pum_0032:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Wallpaper"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\WallpaperStyle"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0032"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0033 - NoDispBackgroundPage - Display background settings hidden"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 30
+  description: |
+    Desktop Background settings page removed from Personalization Control Panel.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0033:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\NoDispBackgroundPage"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0033"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0034 - NoDispAppearancePage - Appearance settings hidden"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 30
+  description: |
+    Appearance settings page removed from Personalization Control Panel.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0034:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\NoDispAppearancePage"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0034"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0035 - NoDispCPL - Display Control Panel hidden"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 35
+  description: |
+    Entire Display Control Panel disabled via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0035:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\NoDispCPL"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0035"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0036 - NoDispScrSavPage - Screen Saver settings hidden"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 30
+  description: |
+    Screen Saver settings page removed from Personalization Control Panel.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0036:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\NoDispScrSavPage"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0036"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0037 - ScreenSaveActive - Screen saver forced active"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 55
+  description: |
+    Screen saver forced to a specific (possibly malicious) executable via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1546.002
+  tags: [pum, registry, hijack]
+  named_conditions:
+    pum_0037:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Policies\\Microsoft\\Windows\\Control Panel\\Desktop\\ScreenSaveActive"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ScreenSaveActive"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0037"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0038 - SCRNSAVE.EXE - Screen saver executable hijacked"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 80
+  description: |
+    Screen saver executable changed to a different file. Classic malware persistence technique.
+    Expected reverted value: "%windir%\\System32\\ssbezier.scr" or empty.
+  mitre_attack:
+    - T1546.002
+  tags: [pum, registry, persistence, hijack]
+  named_conditions:
+    pum_0038:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Policies\\Microsoft\\Windows\\Control Panel\\Desktop\\SCRNSAVE.EXE"
+        - "*\\Control Panel\\Desktop\\SCRNSAVE.EXE"
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\SCRNSAVE.EXE"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0038"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0039 - NoLogonUI - Logon UI disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: critical
+  severity: 92
+  description: |
+    Interactive logon UI disabled, preventing normal user logon.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562
+  tags: [pum, registry, lockout]
+  named_conditions:
+    pum_0039:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\NoLogonUI"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\NoLogonUI"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0039"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0040 - LegalNoticeCaption - Logon legal notice caption set"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 30
+  description: |
+    Logon legal notice caption configured. Ransomware uses this for ransom note display.
+    Expected reverted value: empty string.
+  mitre_attack:
+    - T1491.001
+  tags: [pum, registry]
+  named_conditions:
+    pum_0040:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\LegalNoticeCaption"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\LegalNoticeCaption"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0040"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0041 - LegalNoticeText - Logon legal notice text set"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 30
+  description: |
+    Logon legal notice text configured. Ransomware uses this for ransom note display.
+    Expected reverted value: empty string.
+  mitre_attack:
+    - T1491.001
+  tags: [pum, registry]
+  named_conditions:
+    pum_0041:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\LegalNoticeText"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\LegalNoticeText"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0041"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0042 - CachedLogonsCount - Cached logon count limited"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 35
+  description: |
+    Cached interactive logon count set to a very low value, potentially preventing offline logon.
+    Expected reverted value: 10 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0042:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\CachedLogonsCount"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0042"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0043 - DisableCAD - Ctrl+Alt+Del security sequence disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 65
+  description: |
+    Secure Attention Sequence (Ctrl+Alt+Del) disabled, bypassing a key Windows security mechanism.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0043:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisableCAD"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\DisableCAD"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0043"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0044 - ShutdownWithoutLogon - Shutdown from logon screen disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 30
+  description: |
+    Ability to shut down system from the logon screen removed via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0044:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ShutdownWithoutLogon"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\ShutdownWithoutLogon"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0044"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0045 - FilterAdministratorToken - Admin filter token enabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 25
+  description: |
+    Administrator filter token enabled via policy, restricting built-in admin privileges.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0045:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\FilterAdministratorToken"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0045"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0046 - EnableInstallerDetection - Installer UAC detection disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: medium
+  severity: 65
+  description: |
+    Windows Installer detection disabled, allowing malicious installations to bypass UAC.
+    Expected reverted value: 1 (DWORD).
+  mitre_attack:
+    - T1548.002
+  tags: [pum, registry, uac]
+  named_conditions:
+    pum_0046:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\EnableInstallerDetection"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0046"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0047 - RunAsPPLBoot - LSA protection disabled at boot"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    LSA Protected Process Light (PPL) disabled at boot, allowing LSASS credential dumping.
+    Expected reverted value: 1 (DWORD).
+  mitre_attack:
+    - T1003.001
+    - T1555
+  tags: [pum, registry, credential_access, lsass]
+  named_conditions:
+    pum_0047:
+      orderless: true
+      registry_keys:
+        - "*\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\RunAsPPL"
+        - "*\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\RunAsPPLBoot"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0047"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0048 - LimitBlankPasswordUse - Blank password policy modified"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: low
+  severity: 30
+  description: |
+    Policy restricting use of blank passwords modified.
+    Expected reverted value: 1 (DWORD).
+  mitre_attack:
+    - T1112
+  tags: [pum, registry]
+  named_conditions:
+    pum_0048:
+      orderless: true
+      registry_keys:
+        - "*\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\LimitBlankPasswordUse"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0048"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0049 - DisableRealtimeMonitoring - Defender Real-time Protection off"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Microsoft Defender real-time monitoring disabled.
+    Expected reverted value: 0 (DWORD - monitoring enabled).
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, defender]
+  named_conditions:
+    pum_0049:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection\\DisableRealtimeMonitoring"
+        - "*\\Software\\Microsoft\\Windows Defender\\Real-Time Protection\\DisableRealtimeMonitoring"
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection\\DisableBehaviorMonitoring"
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection\\DisableIOAVProtection"
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection\\DisableOnAccessProtection"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0049"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+  allowlisted_apps:
+    - pattern: "MsMpEng.exe"
+      must_be_signed: true
+      signers: ["microsoft"]
+
+- name: "PUM_0050 - EnableComponents - Windows Defender components disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Microsoft Defender core components disabled via registry.
+    Expected reverted value: 0 (DWORD) per component.
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, defender]
+  named_conditions:
+    pum_0050:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware"
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\DisableAntiVirus"
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\DisableRoutinelyTakingAction"
+        - "*\\Software\\Policies\\Microsoft\\Windows Defender\\SpyNet\\DisableBlockAtFirstSeen"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0050"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0051 - Patching - Windows Update patching disabled"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 80
+  description: |
+    Windows Update configured to never check or apply updates, leaving system vulnerable.
+    Expected reverted value: 3 (DWORD - Auto check and download).
+  mitre_attack:
+    - T1562
+  tags: [pum, registry, update]
+  named_conditions:
+    pum_0051:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU\\NoAutoUpdate"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU\\AUOptions"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\WindowsUpdate\\DisableWindowsUpdateAccess"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0051"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0052 - NoWindowsUpdate - Windows Update access blocked"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 80
+  description: |
+    Access to Windows Update completely blocked via policy.
+    Expected reverted value: 0 (DWORD).
+  mitre_attack:
+    - T1562
+  tags: [pum, registry, update]
+  named_conditions:
+    pum_0052:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Policies\\Microsoft\\Windows\\WindowsUpdate\\NoWindowsUpdate"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\WindowsUpdate\\WUServer"
+        - "*\\Software\\Policies\\Microsoft\\Windows\\WindowsUpdate\\WUStatusServer"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0052"
+  response:
+    notify_user: true
+    ask_user: false
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0053 - HKCUDefault - Default user profile Run key hijacked"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 85
+  description: |
+    HKCU Default user profile modified with Run key persistence. Applies malicious settings
+    to all new user accounts on the system.
+    Expected reverted value: remove the entry.
+  mitre_attack:
+    - T1547.001
+  tags: [pum, registry, persistence]
+  named_conditions:
+    pum_0053:
+      orderless: true
+      registry_keys:
+        - "*\\.DEFAULT\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\*"
+        - "*\\.DEFAULT\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\*"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0053"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0054 - IFEODebugger - Image File Execution Options debugger hijack"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: critical
+  severity: 95
+  description: |
+    IFEO Debugger registry key set for a system executable. Classic persistence and process hijacking.
+    Expected reverted value: remove the Debugger value.
+  mitre_attack:
+    - T1546.012
+  tags: [pum, registry, persistence, ifeo]
+  named_conditions:
+    pum_0054:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\*\\Debugger"
+        - "*\\Software\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\*\\Debugger"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\*\\GlobalFlag"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0054"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0055 - SilentProcessExit - Silent process exit monitoring hijacked"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 88
+  description: |
+    SilentProcessExit monitoring configured with a custom reporting DLL or command.
+    Used for process injection and persistence.
+    Expected reverted value: remove the key.
+  mitre_attack:
+    - T1546
+  tags: [pum, registry, persistence]
+  named_conditions:
+    pum_0055:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\SilentProcessExit\\*\\MonitorProcess"
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\SilentProcessExit\\*\\ReportingMode"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0055"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+
+- name: "PUM_0056 - Shell - Alternate Windows Shell configured via Winlogon"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: critical
+  severity: 97
+  description: |
+    An alternate Windows shell configured (non-explorer.exe). Classic malware persistence and desktop lockout.
+    Expected reverted value: explorer.exe.
+  mitre_attack:
+    - T1547.004
+  tags: [pum, registry, persistence, shell_replace]
+  named_conditions:
+    pum_0056:
+      orderless: true
+      registry_keys:
+        - "*\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Shell"
+        - "*\\Software\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Shell"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0056"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
+  allowlisted_apps:
+    - pattern: "winlogon.exe"
+      must_be_signed: true
+      signers: ["microsoft"]
+    - pattern: "userinit.exe"
+      must_be_signed: true
+      signers: ["microsoft"]
+
+- name: "PUM_0057 - HostsFile - DataBasePath modified for hosts file hijack"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-17"
+  status: production
+  level: high
+  severity: 90
+  description: |
+    Hosts file database path changed from default location. Malware redirects this to a malicious copy.
+    Expected reverted value: "%SystemRoot%\\System32\\drivers\\etc".
+  mitre_attack:
+    - T1562.001
+  tags: [pum, registry, hosts, network]
+  named_conditions:
+    pum_0057:
+      orderless: true
+      registry_keys:
+        - "*\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\DataBasePath"
+        - "*\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters\\DataBasePath"
+      registry_operations:
+        - reg_set_value
+        - reg_create_key
+        - reg_delete_value
+        - reg_delete_key
+        - reg_rename_key
+      min_matches: 1
+  detection_logic:
+    condition: "pum_0057"
+  response:
+    notify_user: true
+    ask_user: true
+    terminate_process: false
+    auto_revert: true
+    record: true
