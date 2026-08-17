@@ -14,16 +14,17 @@
 			<bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" />
 		</BootstrapperApplication>
 
-		<!-- .NET 9 Desktop Runtime (x64) kurulu mu? -->
+		<!-- Check if .NET 9 Desktop Runtime (x64) is installed -->
 		<util:RegistrySearch
 			Id="Net9DesktopRuntimeSearch"
 			Root="HKLM"
-			Key="SOFTWARE\Microsoft\NET Core Setup\Desktop\v9"
-			Value="Version"
+			Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+			Value="9.0.19"
+			Result="exists"
 			Variable="NET9DESKTOPRUNTIME" />
 
 		<Chain>
-			<!-- Kurulu değilse Microsoft'tan indir ve sessizce kur -->
+			<!-- If not installed, download and silently install -->
 			<ExePackage
 				Id="Net9DesktopRuntime"
 				DisplayName="Microsoft .NET 9 Desktop Runtime (x64)"
@@ -31,7 +32,7 @@
 				PerMachine="yes"
 				Vital="yes"
 				Permanent="yes"
-				DetectCondition="NET9DESKTOPRUNTIME >= v9.0.0"
+				DetectCondition="NET9DESKTOPRUNTIME"
 				InstallArguments="/install /quiet /norestart"
 				RepairArguments="/repair /quiet /norestart"
 				UninstallArguments="/uninstall /quiet /norestart">
@@ -42,10 +43,10 @@
 					Size="60405064"
 					Version="9.0.19.36321"
 					Hash="47D82EC79834D1CC032292411960BCC42A3955947E999C2AFD02A93FFA9C2928FF62FFBB4E7DC4572E3FBCE5BBFD6AE9EC5C3EBF99979F8BD07FD375B71A6A53"
-					DownloadUrl="https://aka.ms/dotnet/9.0/windowsdesktop-runtime-win-x64.exe" />
+					DownloadUrl="https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.19/windowsdesktop-runtime-9.0.19-win-x64.exe" />
 			</ExePackage>
 
-			<!-- Ana OpenEDR MSI -->
+			<!-- Main OpenEDR MSI package -->
 			<MsiPackage Id="EdrAgentMsi" SourceFile="$(var.MsiPath)" Vital="yes" />
 		</Chain>
 	</Bundle>
