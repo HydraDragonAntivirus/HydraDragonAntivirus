@@ -20,6 +20,7 @@
 			Root="HKLM"
 			Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
 			Value="9.0.19"
+			Bitness="always64"
 			Result="exists"
 			Variable="NET9DESKTOPRUNTIME" />
 
@@ -28,11 +29,13 @@
 			<ExePackage
 				Id="Net9DesktopRuntime"
 				DisplayName="Microsoft .NET 9 Desktop Runtime (x64)"
+				Description="Microsoft .NET 9 Desktop Runtime (x64)"
 				Cache="keep"
+				Compressed="no"
 				PerMachine="yes"
 				Vital="yes"
 				Permanent="yes"
-				DetectCondition="NET9DESKTOPRUNTIME"
+				DetectCondition="NET9DESKTOPRUNTIME = 1"
 				InstallArguments="/install /quiet /norestart"
 				RepairArguments="/repair /quiet /norestart"
 				UninstallArguments="/uninstall /quiet /norestart">
@@ -43,7 +46,7 @@
 					Size="60405064"
 					Version="9.0.19.36321"
 					Hash="47D82EC79834D1CC032292411960BCC42A3955947E999C2AFD02A93FFA9C2928FF62FFBB4E7DC4572E3FBCE5BBFD6AE9EC5C3EBF99979F8BD07FD375B71A6A53"
-					DownloadUrl="https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.19/windowsdesktop-runtime-9.0.19-win-x64.exe" />
+					DownloadUrl="https://dotnetcli.blob.core.windows.net/dotnet/WindowsDesktop/9.0.19/windowsdesktop-runtime-9.0.19-win-x64.exe" />
 			</ExePackage>
 
 			<!-- Main OpenEDR MSI package -->
