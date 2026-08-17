@@ -34,7 +34,6 @@ pub enum Param {
     MinimalScanTimeoutMs,
     DeepScanTimeoutMs,
     LateChildScanGraceMs,
-    MonitorAllApis,
     Unknown,
 }
 
@@ -72,7 +71,6 @@ impl Param {
             Param::MinimalScanTimeoutMs => "MINIMAL_SCAN_TIMEOUT_MS",
             Param::DeepScanTimeoutMs => "DEEP_SCAN_TIMEOUT_MS",
             Param::LateChildScanGraceMs => "LATE_CHILD_SCAN_GRACE_MS",
-            Param::MonitorAllApis => "MONITOR_ALL_APIS",
             _ => "UNKNOWN",
         }
     }
@@ -101,7 +99,6 @@ impl Param {
             Param::MinimalScanTimeoutMs => "minimal_scan_timeout_ms",
             Param::DeepScanTimeoutMs => "deep_scan_timeout_ms",
             Param::LateChildScanGraceMs => "late_child_scan_grace_ms",
-            Param::MonitorAllApis => "monitor_all_apis",
             _ => "unknown",
         }
     }
@@ -132,7 +129,6 @@ impl Param {
         params.push(Param::StaticRulesPath);
         params.push(Param::StaticRulesMode);
         params.push(Param::ReportDir);
-        params.push(Param::MonitorAllApis);
 
         let mut ret = Vec::new();
         for param in params {
@@ -166,7 +162,6 @@ impl Param {
             "MINIMAL_SCAN_TIMEOUT_MS" => Param::MinimalScanTimeoutMs,
             "DEEP_SCAN_TIMEOUT_MS" => Param::DeepScanTimeoutMs,
             "LATE_CHILD_SCAN_GRACE_MS" => Param::LateChildScanGraceMs,
-            "MONITOR_ALL_APIS" | "MONITOR_ALL_API" => Param::MonitorAllApis,
             _ => Param::Unknown,
         }
     }
@@ -195,7 +190,6 @@ impl Param {
             "minimal_scan_timeout_ms" => Param::MinimalScanTimeoutMs,
             "deep_scan_timeout_ms" => Param::DeepScanTimeoutMs,
             "late_child_scan_grace_ms" => Param::LateChildScanGraceMs,
-            "monitor_all_apis" | "monitor_all_api" => Param::MonitorAllApis,
             _ => Param::Unknown,
         }
     }
