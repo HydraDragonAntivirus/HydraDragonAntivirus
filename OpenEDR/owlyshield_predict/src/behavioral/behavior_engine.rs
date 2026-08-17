@@ -3884,7 +3884,7 @@ impl BehaviorEngine {
                             let proc_pid = u64_at(proc, &["pid"]).or_else(|| u64_at(proc, &["processId"])).unwrap_or(0) as u32;
                             let proc_gid = u64_at(proc, &["gid"]).unwrap_or(proc_pid as u64);
                             if proc_gid != 0 {
-                                if let Ok(client) = crate::windows::edrsvc_client::EdrsvcClient::open() {
+                                if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
                                     let _ = client.revert_registry_changes(proc_gid);
                                 }
                             }
@@ -3917,7 +3917,7 @@ impl BehaviorEngine {
                         let child_pid = u64_at(child, &["pid"]).or_else(|| u64_at(child, &["processId"])).unwrap_or(0) as u32;
                         let child_gid = u64_at(child, &["gid"]).unwrap_or(child_pid as u64);
                         if child_gid != 0 {
-                            if let Ok(client) = crate::windows::edrsvc_client::EdrsvcClient::open() {
+                            if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
                                 let _ = client.revert_registry_changes(child_gid);
                             }
                         }
@@ -4733,7 +4733,7 @@ impl BehaviorEngine {
                 );
                 if auto_revert {
                     let gid = u64_at(event, &["gid"]).unwrap_or(pid as u64);
-                    if let Ok(client) = crate::windows::edrsvc_client::EdrsvcClient::open() {
+                    if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
                         let _ = client.revert_registry_changes(gid);
                     }
                 }
@@ -4766,7 +4766,7 @@ impl BehaviorEngine {
                 );
                 if auto_revert {
                     let gid = u64_at(event, &["gid"]).unwrap_or(pid as u64);
-                    if let Ok(client) = crate::windows::edrsvc_client::EdrsvcClient::open() {
+                    if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
                         let _ = client.revert_registry_changes(gid);
                     }
                 }

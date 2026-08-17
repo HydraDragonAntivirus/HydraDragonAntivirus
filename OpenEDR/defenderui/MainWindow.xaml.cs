@@ -42,6 +42,10 @@ public sealed partial class MainWindow : Window
                     new Uri(icoPath, UriKind.Absolute));
             }
 
+            // Open window on left-click or double-click — no context menu item needed
+            TrayIcon.LeftClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
+            TrayIcon.DoubleClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
+
             if (RootGrid is not null)
             {
                 RootGrid.Loaded += (_, _) =>
@@ -270,6 +274,17 @@ public sealed partial class MainWindow : Window
     }
 
 
+
+    private void ShowWindow()
+    {
+        if (ContentFrame is not null && ContentFrame.Content is null)
+        {
+            _navigationService.Frame = ContentFrame;
+            _navigationService.NavigateTo("dashboard");
+        }
+        this.AppWindow.Show();
+        this.Activate();
+    }
 
     private void MenuEdrStart_Click(object sender, RoutedEventArgs e)
     {
