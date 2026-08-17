@@ -1,0 +1,126 @@
+## ============================================================================
+## DefenderUI — .gitignore
+## WinUI 3 / Windows App SDK / .NET 9
+## ============================================================================
+
+## .NET build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.vcxproj.user
+*.csproj.user
+*.DotSettings.user
+
+## Rider / JetBrains
+.idea/
+*.sln.iml
+
+## VS Code
+.vscode/
+*.code-workspace
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+## Compiled binaries
+*.dll
+*.exe
+*.pdb
+*.cache
+*.ilk
+*.lib
+*.obj
+*.iobj
+*.ipdb
+*.opendb
+*.VC.db
+*.VC.VC.opendb
+
+## WinUI / MSIX packaging
+AppPackages/
+BundleArtifacts/
+Generated Files/
+*.appx
+*.appxbundle
+*.appxupload
+*.msix
+*.msixbundle
+*.msixupload
+*.pri
+
+## Signing / secrets — NEVER commit these
+*.pfx
+*.p12
+*.snk
+*.cer
+*.key
+
+## NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.VisualState.xml
+TestResult.xml
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.coveragexml
+
+## ReSharper / StyleCop cache
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+## Publish output
+publish/
+PublishProfiles/*.user
+
+## OS / editor junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+## Environment / local configuration
+.env
+.env.local
+*.log
+
+## Dotnet install helper (local)
+dotnet-install.ps1
+
+## Backups / swap
+*.bak
+*.swp
+*.tmp
+*~
+
+## Jupyter / misc
+.ipynb_checkpoints/

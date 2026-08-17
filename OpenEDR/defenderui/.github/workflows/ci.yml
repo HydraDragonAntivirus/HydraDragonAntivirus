@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }} / ${{ matrix.configuration }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, x86, ARM64]
+        configuration: [Debug, Release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Restore dependencies
+        run: dotnet restore -p:Platform=${{ matrix.platform }}
+
+      - name: Build
+        run: dotnet build --no-restore -c ${{ matrix.configuration }} -p:Platform=${{ matrix.platform }}
+
+      - name: Compute RID
+        id: rid
+        shell: pwsh
+        run: |
+          $rid = "${{ matrix.platform }}".ToLower()
+          "rid=$rid" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload build artifacts
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DefenderUI-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: bin/${{ matrix.platform }}/${{ matrix.configuration }}/net9.0-windows10.0.26100.0/win-${{ steps.rid.outputs.rid }}/
+          retention-days: 7
+          if-no-files-found: warn
