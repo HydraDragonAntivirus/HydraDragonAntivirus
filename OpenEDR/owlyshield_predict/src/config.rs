@@ -34,7 +34,7 @@ pub enum Param {
     MinimalScanTimeoutMs,
     DeepScanTimeoutMs,
     LateChildScanGraceMs,
-    BloomFilterPath,
+    MonitorAllApis,
     Unknown,
 }
 
@@ -72,7 +72,7 @@ impl Param {
             Param::MinimalScanTimeoutMs => "MINIMAL_SCAN_TIMEOUT_MS",
             Param::DeepScanTimeoutMs => "DEEP_SCAN_TIMEOUT_MS",
             Param::LateChildScanGraceMs => "LATE_CHILD_SCAN_GRACE_MS",
-            Param::BloomFilterPath => "BLOOM_FILTER_PATH", // dir holding whitelist.bloom / blacklist.bloom
+            Param::MonitorAllApis => "MONITOR_ALL_APIS",
             _ => "UNKNOWN",
         }
     }
@@ -101,7 +101,7 @@ impl Param {
             Param::MinimalScanTimeoutMs => "minimal_scan_timeout_ms",
             Param::DeepScanTimeoutMs => "deep_scan_timeout_ms",
             Param::LateChildScanGraceMs => "late_child_scan_grace_ms",
-            Param::BloomFilterPath => "bloom_filter_path",
+            Param::MonitorAllApis => "monitor_all_apis",
             _ => "unknown",
         }
     }
@@ -132,7 +132,7 @@ impl Param {
         params.push(Param::StaticRulesPath);
         params.push(Param::StaticRulesMode);
         params.push(Param::ReportDir);
-        params.push(Param::BloomFilterPath);
+        params.push(Param::MonitorAllApis);
 
         let mut ret = Vec::new();
         for param in params {
@@ -166,7 +166,7 @@ impl Param {
             "MINIMAL_SCAN_TIMEOUT_MS" => Param::MinimalScanTimeoutMs,
             "DEEP_SCAN_TIMEOUT_MS" => Param::DeepScanTimeoutMs,
             "LATE_CHILD_SCAN_GRACE_MS" => Param::LateChildScanGraceMs,
-            "BLOOM_FILTER_PATH" => Param::BloomFilterPath,
+            "MONITOR_ALL_APIS" | "MONITOR_ALL_API" => Param::MonitorAllApis,
             _ => Param::Unknown,
         }
     }
@@ -195,7 +195,7 @@ impl Param {
             "minimal_scan_timeout_ms" => Param::MinimalScanTimeoutMs,
             "deep_scan_timeout_ms" => Param::DeepScanTimeoutMs,
             "late_child_scan_grace_ms" => Param::LateChildScanGraceMs,
-            "bloom_filter_path" => Param::BloomFilterPath,
+            "monitor_all_apis" | "monitor_all_api" => Param::MonitorAllApis,
             _ => Param::Unknown,
         }
     }
@@ -309,6 +309,15 @@ impl Config {
             "late_child_scan_grace_ms",
             default_value,
         )
+    }
+
+    pub fn monitor_all_apis(&self) -> bool {
+        self.get_non_empty_param(Param::MonitorAllApis)
+            .map(|val| {
+                let clean = val.trim().to_ascii_lowercase();
+                clean == "1" || clean == "true" || clean == "yes" || clean == "enable" || clean == "enabled"
+            })
+            .unwrap_or(false)
     }
 
     pub fn get_kill_policy(&self) -> KillPolicy {

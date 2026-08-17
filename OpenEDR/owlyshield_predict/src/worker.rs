@@ -2658,10 +2658,30 @@ pub mod worker_instance {
         }
 
         
+        /// Check if MONITOR_ALL_APIS is enabled in HKLM\SOFTWARE\Owlyshield registry.
+        /// Defaults to false (0) — only APIs in active behavioral rules are monitored.
+        fn is_monitor_all_apis_enabled() -> bool {
+            #[cfg(target_os = "windows")]
+            {
+                use registry::{Hive, Security};
+                if let Ok(regkey) = Hive::LocalMachine.open(r"SOFTWARE\Owlyshield", Security::Read) {
+                    if let Ok(val) = regkey.value("MONITOR_ALL_APIS") {
+                        let val_str = val.to_string();
+                        let clean = val_str.trim_matches('\0').trim().to_ascii_lowercase();
+                        return clean == "1" || clean == "true" || clean == "yes" || clean == "enable" || clean == "enabled";
+                    }
+                }
+            }
+            false
+        }
+
+        /// Collect APIs to monitor for a process:
+        /// ONLY APIs required by active behavioral rules are monitored.
         fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
             let mut seen_lower = HashSet::new();
             let mut merged = Vec::new();
 
+            // Collect APIs defined in loaded behavioral rules
             let mut rule_apis: Vec<String> = self
                 .behavior_engine
                 .get_all_monitored_apis()
