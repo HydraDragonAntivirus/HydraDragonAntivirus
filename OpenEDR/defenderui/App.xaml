@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="DefenderUI.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:DefenderUI">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <!--
+                    Design System dictionaries (Faz 1)
+                    NOT: Sıralama önemlidir — Colors ve CornerRadius, Elevation/Card/Button
+                    stillerinden önce merge edilmelidir (ThemeResource / StaticResource
+                    bağımlılığı). Typography ve Spacing de butonlar tarafından kullanılır.
+                -->
+                <ResourceDictionary Source="Styles/Colors.xaml" />
+                <ResourceDictionary Source="Styles/Typography.xaml" />
+                <ResourceDictionary Source="Styles/Spacing.xaml" />
+                <ResourceDictionary Source="Styles/CornerRadius.xaml" />
+                <ResourceDictionary Source="Styles/Elevation.xaml" />
+                <ResourceDictionary Source="Styles/ButtonStyles.xaml" />
+                <ResourceDictionary Source="Styles/CardStyles.xaml" />
+                <ResourceDictionary Source="Styles/Animations.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

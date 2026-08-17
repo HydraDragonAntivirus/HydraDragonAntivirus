@@ -1,0 +1,399 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DefenderUI.Views.ReportsPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:DefenderUI.Controls"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:helpers="using:DefenderUI.Helpers"
+    xmlns:models="using:DefenderUI.Models"
+    xmlns:local="using:DefenderUI.Views"
+    mc:Ignorable="d"
+    Loaded="Page_Loaded"
+    Background="Transparent">
+
+    <ScrollViewer
+        VerticalScrollBarVisibility="Auto"
+        HorizontalScrollBarVisibility="Disabled">
+
+        <StackPanel
+            Padding="24"
+            Spacing="32">
+
+            <!-- Header -->
+            <Grid x:Name="HeaderGrid">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <TextBlock
+                        Text="Raporlar"
+                        Style="{StaticResource DisplayMediumTextStyle}"
+                        AutomationProperties.HeadingLevel="Level1" />
+                    <TextBlock
+                        Text="Tarama, tehdit ve güncelleme geçmişine genel bakış"
+                        Style="{StaticResource BodyLargeTextStyle}"
+                        Foreground="{ThemeResource TextSecondaryBrush}" />
+                </StackPanel>
+
+                <StackPanel
+                    Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    VerticalAlignment="Center">
+                    <ComboBox
+                        MinWidth="160"
+                        SelectedIndex="0"
+                        VerticalAlignment="Center">
+                        <ComboBoxItem Content="Son 7 Gün" />
+                        <ComboBoxItem Content="Son 30 Gün" />
+                        <ComboBoxItem Content="Son 90 Gün" />
+                    </ComboBox>
+                    <Button
+                        Style="{StaticResource SecondaryActionButtonStyle}"
+                        Command="{x:Bind ViewModel.ExportCsvCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon
+                                Glyph="&#xEDE1;"
+                                FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                FontSize="14" />
+                            <TextBlock Text="Dışa Aktar" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- Stats row -->
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <controls:StatCard
+                    x:Name="KpiScans"
+                    Grid.Column="0"
+                    Glyph="&#xE773;"
+                    Label="TOPLAM TARAMA"
+                    Value="{x:Bind ViewModel.TotalScans, Mode=OneWay}" />
+
+                <controls:StatCard
+                    x:Name="KpiThreats"
+                    Grid.Column="1"
+                    Glyph="&#xE783;"
+                    Label="BULUNAN TEHDİT"
+                    Value="{x:Bind ViewModel.TotalThreatsDetected, Mode=OneWay}" />
+
+                <controls:StatCard
+                    x:Name="KpiBlocked"
+                    Grid.Column="2"
+                    Glyph="&#xE72E;"
+                    Label="ENGELLENEN"
+                    Value="{x:Bind ViewModel.TotalThreatsBlocked, Mode=OneWay}" />
+
+                <controls:StatCard
+                    x:Name="KpiFiles"
+                    Grid.Column="3"
+                    Glyph="&#xE73E;"
+                    Label="TEMİZ GÜN"
+                    Value="{x:Bind ViewModel.DaysProtected, Mode=OneWay}" />
+            </Grid>
+
+            <!-- Weekly chart -->
+            <StackPanel Spacing="16">
+                <TextBlock
+                    Text="Son 7 Gün Tehdit Aktivitesi"
+                    Style="{StaticResource TitleLargeTextStyle}"
+                    AutomationProperties.HeadingLevel="Level2" />
+
+                <Border x:Name="TrendsCard" Style="{StaticResource SurfaceCardStyle}">
+                    <StackPanel Spacing="20">
+                        <muxc:ItemsRepeater ItemsSource="{x:Bind ViewModel.WeeklyThreats, Mode=OneWay}">
+                            <muxc:ItemsRepeater.Layout>
+                                <muxc:StackLayout Orientation="Horizontal" Spacing="20" />
+                            </muxc:ItemsRepeater.Layout>
+                            <muxc:ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="models:DailyThreatData">
+                                    <Grid
+                                        Width="60"
+                                        Height="200">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <Grid
+                                            Grid.Row="0"
+                                            VerticalAlignment="Bottom"
+                                            HorizontalAlignment="Stretch">
+                                            <Rectangle
+                                                VerticalAlignment="Bottom"
+                                                HorizontalAlignment="Stretch"
+                                                Fill="{ThemeResource AccentPrimaryBrush}"
+                                                RadiusX="6"
+                                                RadiusY="6"
+                                                Height="{x:Bind local:ReportsPage.BarHeight(Threats, 8), Mode=OneWay}" />
+                                        </Grid>
+
+                                        <TextBlock
+                                            Grid.Row="1"
+                                            Text="{x:Bind Threats}"
+                                            Style="{StaticResource CaptionTextStyle}"
+                                            FontWeight="SemiBold"
+                                            HorizontalAlignment="Center"
+                                            Margin="0,6,0,0" />
+
+                                        <TextBlock
+                                            Grid.Row="2"
+                                            Text="{x:Bind Day}"
+                                            Style="{StaticResource OverlineTextStyle}"
+                                            HorizontalAlignment="Center" />
+                                    </Grid>
+                                </DataTemplate>
+                            </muxc:ItemsRepeater.ItemTemplate>
+                        </muxc:ItemsRepeater>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Scan history -->
+            <StackPanel Spacing="16">
+                <TextBlock
+                    Text="Tarama Geçmişi"
+                    Style="{StaticResource TitleLargeTextStyle}"
+                    AutomationProperties.HeadingLevel="Level2" />
+
+                <Border x:Name="RecentScansCard" Style="{StaticResource SurfaceCardStyle}" Padding="0">
+                    <StackPanel>
+                        <Grid
+                            Padding="16,12"
+                            ColumnSpacing="12"
+                            BorderBrush="{ThemeResource DividerBrush}"
+                            BorderThickness="0,0,0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="TİP" Style="{StaticResource OverlineTextStyle}" />
+                            <TextBlock Grid.Column="1" Text="TARİH" Style="{StaticResource OverlineTextStyle}" />
+                            <TextBlock Grid.Column="2" Text="SÜRE" Style="{StaticResource OverlineTextStyle}" />
+                            <TextBlock Grid.Column="3" Text="TEHDİT" Style="{StaticResource OverlineTextStyle}" />
+                        </Grid>
+
+                        <ListView
+                            ItemsSource="{x:Bind ViewModel.RecentScans, Mode=OneWay}"
+                            SelectionMode="None"
+                            Background="Transparent">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="MinHeight" Value="0" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:ScanResult">
+                                    <Grid
+                                        Padding="16,12"
+                                        ColumnSpacing="12"
+                                        BorderBrush="{ThemeResource DividerBrush}"
+                                        BorderThickness="0,0,0,1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border
+                                            Grid.Column="0"
+                                            Background="{ThemeResource AccentSoftBrush}"
+                                            CornerRadius="{StaticResource CornerRadiusPill}"
+                                            Padding="10,3"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Left">
+                                            <TextBlock
+                                                Text="{x:Bind local:ReportsPage.GetScanTypeText(Type)}"
+                                                Style="{StaticResource CaptionTextStyle}"
+                                                Foreground="{ThemeResource AccentPrimaryBrush}"
+                                                FontWeight="SemiBold" />
+                                        </Border>
+
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            Text="{x:Bind local:ReportsPage.FormatDate(StartTime)}"
+                                            Style="{StaticResource BodyMediumTextStyle}"
+                                            VerticalAlignment="Center" />
+
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            Text="{x:Bind local:ReportsPage.FormatDuration(Duration)}"
+                                            Style="{StaticResource BodyMediumTextStyle}"
+                                            VerticalAlignment="Center" />
+
+                                        <TextBlock
+                                            Grid.Column="3"
+                                            Text="{x:Bind ThreatsFound}"
+                                            Style="{StaticResource BodyMediumTextStyle}"
+                                            FontWeight="SemiBold"
+                                            VerticalAlignment="Center" />
+
+                                        <HyperlinkButton
+                                            Grid.Column="4"
+                                            Content="Detay"
+                                            VerticalAlignment="Center" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Threat breakdown -->
+            <StackPanel Spacing="16">
+                <TextBlock
+                    Text="Tehdit Türü Dağılımı"
+                    Style="{StaticResource TitleLargeTextStyle}"
+                    AutomationProperties.HeadingLevel="Level2" />
+
+                <Border x:Name="DistributionCard" Style="{StaticResource SurfaceCardStyle}">
+                    <StackPanel Spacing="14">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="60" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Trojan" Style="{StaticResource BodyMediumTextStyle}" VerticalAlignment="Center" />
+                            <ProgressBar
+                                Grid.Column="1"
+                                Value="{x:Bind ViewModel.TrojanCount, Mode=OneWay}"
+                                Maximum="20"
+                                Height="8"
+                                CornerRadius="4"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource StatusRiskBrush}" />
+                            <TextBlock
+                                Grid.Column="2"
+                                Text="{x:Bind ViewModel.TrojanCount, Mode=OneWay}"
+                                Style="{StaticResource BodyMediumTextStyle}"
+                                FontWeight="SemiBold"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center" />
+                        </Grid>
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="60" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Adware" Style="{StaticResource BodyMediumTextStyle}" VerticalAlignment="Center" />
+                            <ProgressBar
+                                Grid.Column="1"
+                                Value="{x:Bind ViewModel.AdwareCount, Mode=OneWay}"
+                                Maximum="20"
+                                Height="8"
+                                CornerRadius="4"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource StatusWarningBrush}" />
+                            <TextBlock
+                                Grid.Column="2"
+                                Text="{x:Bind ViewModel.AdwareCount, Mode=OneWay}"
+                                Style="{StaticResource BodyMediumTextStyle}"
+                                FontWeight="SemiBold"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center" />
+                        </Grid>
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="60" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Spyware" Style="{StaticResource BodyMediumTextStyle}" VerticalAlignment="Center" />
+                            <ProgressBar
+                                Grid.Column="1"
+                                Value="{x:Bind ViewModel.SpywareCount, Mode=OneWay}"
+                                Maximum="20"
+                                Height="8"
+                                CornerRadius="4"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource AccentPrimaryBrush}" />
+                            <TextBlock
+                                Grid.Column="2"
+                                Text="{x:Bind ViewModel.SpywareCount, Mode=OneWay}"
+                                Style="{StaticResource BodyMediumTextStyle}"
+                                FontWeight="SemiBold"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center" />
+                        </Grid>
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="60" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="PUP" Style="{StaticResource BodyMediumTextStyle}" VerticalAlignment="Center" />
+                            <ProgressBar
+                                Grid.Column="1"
+                                Value="{x:Bind ViewModel.PupCount, Mode=OneWay}"
+                                Maximum="20"
+                                Height="8"
+                                CornerRadius="4"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource StatusWarningBrush}" />
+                            <TextBlock
+                                Grid.Column="2"
+                                Text="{x:Bind ViewModel.PupCount, Mode=OneWay}"
+                                Style="{StaticResource BodyMediumTextStyle}"
+                                FontWeight="SemiBold"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center" />
+                        </Grid>
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="60" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Ransomware" Style="{StaticResource BodyMediumTextStyle}" VerticalAlignment="Center" />
+                            <ProgressBar
+                                Grid.Column="1"
+                                Value="{x:Bind ViewModel.RansomwareCount, Mode=OneWay}"
+                                Maximum="20"
+                                Height="8"
+                                CornerRadius="4"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource StatusRiskBrush}" />
+                            <TextBlock
+                                Grid.Column="2"
+                                Text="{x:Bind ViewModel.RansomwareCount, Mode=OneWay}"
+                                Style="{StaticResource BodyMediumTextStyle}"
+                                FontWeight="SemiBold"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

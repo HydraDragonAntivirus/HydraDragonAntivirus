@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="DefenderUI.Controls.ProgressRingCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    mc:Ignorable="d">
+
+    <!--
+        ProgressRingCard — Faz 4 tarama ilerleme ringi.
+        DP:
+          • Percent         : 0-100 (double)
+          • Title           : Büyük yüzde altı başlık (default kullanılmıyor, Title boşsa %...)
+          • SubTitle        : Ring altındaki küçük metin (ör. current path kısaltılmış)
+          • IsIndeterminate : belirsiz mod
+    -->
+
+    <Grid
+        Width="240"
+        Height="240"
+        HorizontalAlignment="Center"
+        VerticalAlignment="Center">
+
+        <muxc:ProgressRing
+            x:Name="Ring"
+            Width="240"
+            Height="240"
+            IsActive="True"
+            IsIndeterminate="False"
+            Value="0"
+            Minimum="0"
+            Maximum="100"
+            Foreground="{ThemeResource AccentPrimaryBrush}"
+            Background="{ThemeResource BorderSubtleBrush}" />
+
+        <!-- Merkez metin -->
+        <StackPanel
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Spacing="2">
+            <TextBlock
+                x:Name="PercentText"
+                Text="0%"
+                Style="{StaticResource DisplayLargeTextStyle}"
+                Foreground="{ThemeResource AccentPrimaryBrush}"
+                HorizontalAlignment="Center" />
+            <TextBlock
+                x:Name="TitleText"
+                Text=""
+                Style="{StaticResource CaptionTextStyle}"
+                Foreground="{ThemeResource TextSecondaryBrush}"
+                HorizontalAlignment="Center"
+                Visibility="Collapsed" />
+            <TextBlock
+                x:Name="SubTitleText"
+                Text=""
+                Style="{StaticResource BodyMediumTextStyle}"
+                Foreground="{ThemeResource TextSecondaryBrush}"
+                HorizontalAlignment="Center"
+                TextTrimming="CharacterEllipsis"
+                MaxWidth="200"
+                TextAlignment="Center"
+                Visibility="Collapsed" />
+        </StackPanel>
+    </Grid>
+</UserControl>

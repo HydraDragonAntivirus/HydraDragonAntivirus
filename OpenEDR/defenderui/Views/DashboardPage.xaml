@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DefenderUI.Views.DashboardPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:DefenderUI.Controls"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:models="using:DefenderUI.Models"
+    xmlns:local="using:DefenderUI.Views"
+    mc:Ignorable="d"
+    Loaded="Page_Loaded"
+    Background="Transparent">
+
+    <ScrollViewer
+        VerticalScrollBarVisibility="Auto"
+        HorizontalScrollBarVisibility="Disabled">
+
+        <StackPanel
+            x:Name="RootStack"
+            Padding="{StaticResource PaddingPage}"
+            Spacing="{StaticResource Space2xl}">
+
+            <!-- ════════════════════════════════════════════════════════ -->
+            <!-- Section 1 — Hero                                         -->
+            <!-- ════════════════════════════════════════════════════════ -->
+            <controls:StatusHeroCard
+                Severity="{x:Bind ViewModel.OverallStatus, Mode=OneWay}"
+                Title="{x:Bind ViewModel.HeroTitle, Mode=OneWay}"
+                SubTitle="{x:Bind ViewModel.HeroSubTitle, Mode=OneWay}"
+                PrimaryActionText="Hızlı Tarama"
+                SecondaryActionText="Tüm Sistemi Tara"
+                PrimaryActionCommand="{x:Bind ViewModel.QuickScanCommand}"
+                SecondaryActionCommand="{x:Bind ViewModel.FullScanCommand}" />
+
+            <!-- ════════════════════════════════════════════════════════ -->
+            <!-- Section 2 — Quick Stats                                  -->
+            <!-- ════════════════════════════════════════════════════════ -->
+            <Grid ColumnSpacing="{StaticResource SpaceLg}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <controls:StatCard
+                    Grid.Column="0"
+                    Glyph="&#xE8F1;"
+                    Label="TARANAN DOSYA"
+                    Value="{x:Bind ViewModel.FilesScanned, Mode=OneWay}" />
+
+                <controls:StatCard
+                    Grid.Column="1"
+                    Glyph="&#xE72E;"
+                    Label="ENGELLENEN TEHDİT"
+                    Value="{x:Bind ViewModel.ThreatsBlocked, Mode=OneWay}"
+                    Trend="+3"
+                    TrendPositive="True" />
+
+                <controls:StatCard
+                    Grid.Column="2"
+                    Glyph="&#xE7B8;"
+                    Label="KARANTİNADA"
+                    Value="{x:Bind ViewModel.QuarantinedCount, Mode=OneWay}" />
+
+                <controls:StatCard
+                    Grid.Column="3"
+                    Glyph="&#xE916;"
+                    Label="SON TARAMA"
+                    Value="{x:Bind ViewModel.LastScanRelative, Mode=OneWay}" />
+            </Grid>
+
+            <!-- ════════════════════════════════════════════════════════ -->
+            <!-- Section 3 — Hızlı Eylemler (Feature Tile Grid)           -->
+            <!-- ════════════════════════════════════════════════════════ -->
+            <StackPanel Spacing="{StaticResource SpaceLg}">
+                <TextBlock
+                    Text="Hızlı Eylemler"
+                    Style="{StaticResource TitleLargeTextStyle}"
+                    AutomationProperties.HeadingLevel="Level2" />
+
+                <muxc:ItemsRepeater ItemsSource="{x:Bind ViewModel.FeatureTiles, Mode=OneWay}">
+                    <muxc:ItemsRepeater.Layout>
+                        <muxc:UniformGridLayout
+                            MinItemWidth="260"
+                            MinItemHeight="160"
+                            MinColumnSpacing="16"
+                            MinRowSpacing="16"
+                            ItemsStretch="Fill" />
+                    </muxc:ItemsRepeater.Layout>
+                    <muxc:ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="models:FeatureTileData">
+                            <controls:FeatureTileCard
+                                Glyph="{x:Bind Glyph}"
+                                Title="{x:Bind Title}"
+                                Description="{x:Bind Description}"
+                                BadgeText="{x:Bind BadgeText}"
+                                ActionText="Aç"
+                                Command="{Binding ElementName=RootPage, Path=ViewModel.FeatureTileCommand}"
+                                CommandParameter="{x:Bind NavigateKey}" />
+                        </DataTemplate>
+                    </muxc:ItemsRepeater.ItemTemplate>
+                </muxc:ItemsRepeater>
+            </StackPanel>
+
+            <!-- ════════════════════════════════════════════════════════ -->
+            <!-- Section 4 — Son Aktiviteler                              -->
+            <!-- ════════════════════════════════════════════════════════ -->
+            <StackPanel Spacing="{StaticResource SpaceLg}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        Grid.Column="0"
+                        Text="Son Aktiviteler"
+                        Style="{StaticResource TitleLargeTextStyle}"
+                        VerticalAlignment="Center"
+                        AutomationProperties.HeadingLevel="Level2" />
+                    <Button
+                        Grid.Column="1"
+                        Style="{StaticResource SubtleButtonStyle}"
+                        Command="{x:Bind ViewModel.ViewAllActivitiesCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Tümünü Gör" />
+                            <FontIcon
+                                Glyph="&#xE76C;"
+                                FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                FontSize="12" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <Border Style="{StaticResource SurfaceCardStyle}" Padding="0">
+                    <muxc:ItemsRepeater ItemsSource="{x:Bind ViewModel.RecentActivities, Mode=OneWay}">
+                        <muxc:ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="models:ActivityLogItem">
+                                <controls:ActivityListItem
+                                    Glyph="{x:Bind local:DashboardPage.GetActivityGlyph(Type)}"
+                                    Severity="{x:Bind local:DashboardPage.GetActivitySeverity(Type)}"
+                                    Title="{x:Bind Title}"
+                                    Timestamp="{x:Bind local:DashboardPage.FormatRelativeTime(Timestamp)}" />
+                            </DataTemplate>
+                        </muxc:ItemsRepeater.ItemTemplate>
+                    </muxc:ItemsRepeater>
+                </Border>
+            </StackPanel>
+
+            <!-- ════════════════════════════════════════════════════════ -->
+            <!-- Section 5 — Koruma Modülleri Özeti                       -->
+            <!-- ════════════════════════════════════════════════════════ -->
+            <StackPanel Spacing="{StaticResource SpaceLg}">
+                <TextBlock
+                    Text="Koruma Modülleri"
+                    Style="{StaticResource TitleLargeTextStyle}"
+                    AutomationProperties.HeadingLevel="Level2" />
+
+                <Border Style="{StaticResource SurfaceCardStyle}">
+                    <muxc:ItemsRepeater ItemsSource="{x:Bind ViewModel.ProtectionModules, Mode=OneWay}">
+                        <muxc:ItemsRepeater.Layout>
+                            <muxc:StackLayout Spacing="0" />
+                        </muxc:ItemsRepeater.Layout>
+                        <muxc:ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="models:ProtectionModule">
+                                <Grid
+                                    Padding="8,12"
+                                    ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon
+                                        Grid.Column="0"
+                                        Glyph="{x:Bind Icon}"
+                                        FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                        FontSize="18"
+                                        Foreground="{ThemeResource AccentPrimaryBrush}"
+                                        VerticalAlignment="Center" />
+                                    <StackPanel
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        Spacing="2">
+                                        <TextBlock
+                                            Text="{x:Bind Name}"
+                                            Style="{StaticResource BodyLargeTextStyle}"
+                                            FontWeight="SemiBold" />
+                                        <TextBlock
+                                            Text="{x:Bind Description}"
+                                            Style="{StaticResource CaptionTextStyle}" />
+                                    </StackPanel>
+                                    <ToggleSwitch
+                                        Grid.Column="2"
+                                        IsOn="{x:Bind IsEnabled, Mode=TwoWay}"
+                                        MinWidth="0"
+                                        OnContent=""
+                                        OffContent=""
+                                        VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </muxc:ItemsRepeater.ItemTemplate>
+                    </muxc:ItemsRepeater>
+                </Border>
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>
