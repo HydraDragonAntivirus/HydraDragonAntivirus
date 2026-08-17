@@ -11131,11 +11131,13 @@ impl BehaviorEngine {
 
         let min_stages = if rule.min_stages_satisfied > 0 {
             rule.min_stages_satisfied
+        } else if !rule.stages.is_empty() {
+            rule.stages.len()
         } else {
             1
         };
 
-        let detected = satisfied_stages >= min_stages;
+        let detected = satisfied_stages >= min_stages && satisfied_stages > 0;
         (detected, stage_confidence)
     }
 

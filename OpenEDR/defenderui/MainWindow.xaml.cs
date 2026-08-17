@@ -36,14 +36,8 @@ public sealed partial class MainWindow : Window
         // ile yüklenir (WinUI 3 BitmapImage .ico decode edemez) veya CustomIcon kullanılır.
         try
         {
-            var pngPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppLogo-64.png");
             var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
-            if (System.IO.File.Exists(pngPath))
-            {
-                TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-                    new Uri(pngPath, UriKind.Absolute));
-            }
-            else if (System.IO.File.Exists(icoPath))
+            if (System.IO.File.Exists(icoPath))
             {
                 TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
                     new Uri(icoPath, UriKind.Absolute));

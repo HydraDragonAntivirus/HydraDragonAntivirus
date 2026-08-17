@@ -37,22 +37,22 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\SplashScreen.scale-200.png" />
-    <Content Include="Assets\SplashScreen.png" />
-    <Content Include="Assets\LockScreenLogo.scale-200.png" />
-    <Content Include="Assets\Square150x150Logo.scale-200.png" />
-    <Content Include="Assets\Square150x150Logo.png" />
-    <Content Include="Assets\Square44x44Logo.scale-200.png" />
-    <Content Include="Assets\Square44x44Logo.png" />
-    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
-    <Content Include="Assets\StoreLogo.png" />
-    <Content Include="Assets\AppIcon.ico" />
-    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
-    <Content Include="Assets\Wide310x150Logo.png" />
-    <Content Include="Assets\AppLogo-32.png" />
-    <Content Include="Assets\AppLogo-64.png" />
-    <Content Include="Assets\AppLogo-128.png" />
-    <Content Include="Assets\AppLogo-256.png" />
+    <Content Include="Assets\SplashScreen.scale-200.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\SplashScreen.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\LockScreenLogo.scale-200.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square150x150Logo.scale-200.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square150x150Logo.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square44x44Logo.scale-200.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square44x44Logo.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\StoreLogo.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\AppIcon.ico"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Wide310x150Logo.scale-200.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Wide310x150Logo.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\AppLogo-32.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\AppLogo-64.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\AppLogo-128.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
+    <Content Include="Assets\AppLogo-256.png"><CopyToOutputDirectory>Always</CopyToOutputDirectory></Content>
   </ItemGroup>
 
   <ItemGroup>
