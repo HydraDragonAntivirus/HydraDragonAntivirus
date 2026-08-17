@@ -311,15 +311,6 @@ impl Config {
         )
     }
 
-    pub fn monitor_all_apis(&self) -> bool {
-        self.get_non_empty_param(Param::MonitorAllApis)
-            .map(|val| {
-                let clean = val.trim().to_ascii_lowercase();
-                clean == "1" || clean == "true" || clean == "yes" || clean == "enable" || clean == "enabled"
-            })
-            .unwrap_or(false)
-    }
-
     pub fn get_kill_policy(&self) -> KillPolicy {
         match self[Param::KillPolicy].as_str() {
             "KILL" => KillPolicy::Kill,
