@@ -14,42 +14,8 @@
 			<bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" />
 		</BootstrapperApplication>
 
-		<!-- Check if .NET 9 Desktop Runtime (x64) is installed.
-			 Value "9.0.19" is DWORD 1 when installed; empty when not.
-			 Bitness="always64" prevents WOW6432Node redirection in the 32-bit Burn engine. -->
-		<util:RegistrySearch
-			Id="Net9DesktopRuntimeSearch"
-			Root="HKLM"
-			Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
-			Value="9.0.19"
-			Bitness="always64"
-			Variable="NET9DESKTOPRUNTIME" />
-
 		<Chain>
-			<!-- If not installed, download and silently install -->
-			<ExePackage
-				Id="Net9DesktopRuntime"
-				DisplayName="Microsoft .NET 9 Desktop Runtime (x64)"
-				Description="Microsoft .NET 9 Desktop Runtime (x64)"
-				Cache="keep"
-				PerMachine="yes"
-				Vital="yes"
-				Permanent="yes"
-				DetectCondition="NET9DESKTOPRUNTIME"
-				InstallArguments="/install /quiet /norestart"
-				RepairArguments="/repair /quiet /norestart"
-				UninstallArguments="/uninstall /quiet /norestart">
-				<ExePackagePayload
-					Name="windowsdesktop-runtime-9.0.19-win-x64.exe"
-					Description="Microsoft Windows Desktop Runtime - 9.0.19 (x64)"
-					ProductName="Microsoft Windows Desktop Runtime - 9.0.19 (x64)"
-					Size="60405064"
-					Version="9.0.19.36321"
-					Hash="47D82EC79834D1CC032292411960BCC42A3955947E999C2AFD02A93FFA9C2928FF62FFBB4E7DC4572E3FBCE5BBFD6AE9EC5C3EBF99979F8BD07FD375B71A6A53"
-					DownloadUrl="https://dotnetcli.blob.core.windows.net/dotnet/WindowsDesktop/9.0.19/windowsdesktop-runtime-9.0.19-win-x64.exe" />
-			</ExePackage>
-
-			<!-- Main OpenEDR MSI package -->
+			<!-- Main OpenEDR MSI package (DefenderUI is fully self-contained with .NET 9 & WinAppSDK) -->
 			<MsiPackage Id="EdrAgentMsi" SourceFile="$(var.MsiPath)" Vital="yes" />
 		</Chain>
 	</Bundle>
