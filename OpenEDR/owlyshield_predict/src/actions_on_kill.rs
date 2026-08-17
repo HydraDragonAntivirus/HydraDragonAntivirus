@@ -738,8 +738,56 @@ impl ActionOnKill for Logging {
             stime_started.format(LONG_TIME_FORMAT)
         );
         Logging::alert(msg.as_str());
+
+        // Send real-time threat alert popup notification to DefenderUI
+        notify_firewall_threat_alert(threat_info.virus_name, &display_process);
+
         warn!("ALERT: {}", msg);
         Ok(())
+    }
+}
+
+pub fn notify_firewall_threat_alert(threat_name: &str, file_path: &str) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::{BOOL, CloseHandle, HANDLE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+            FlushFileBuffers, OPEN_EXISTING, WriteFile,
+        };
+        use windows::Win32::System::Pipes::WaitNamedPipeW;
+        use windows::core::PCWSTR;
+
+        const PIPE: &str = r"\\.\pipe\HydraHipEvent";
+        let mut pipe_name_wide: Vec<u16> = PIPE.encode_utf16().collect();
+        pipe_name_wide.push(0);
+        let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
+        let message = format!("THREAT_ALERT:{}|{}\n", threat_name, file_path);
+        let message_bytes = message.as_bytes();
+
+        let wait_ok: BOOL = unsafe { WaitNamedPipeW(pcwstr, 150) };
+        if wait_ok.as_bool() {
+            if let Ok(handle) = unsafe {
+                CreateFileW(
+                    pcwstr,
+                    FILE_GENERIC_WRITE.0,
+                    FILE_SHARE_NONE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    HANDLE::default(),
+                )
+            } {
+                if !handle.is_invalid() {
+                    let mut written: u32 = 0;
+                    unsafe {
+                        let _ = WriteFile(handle, Some(message_bytes), Some(&mut written as *mut u32), None);
+                        let _ = FlushFileBuffers(handle);
+                        let _ = CloseHandle(handle);
+                    }
+                }
+            }
+        }
     }
 }
 

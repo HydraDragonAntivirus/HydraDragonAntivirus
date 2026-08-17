@@ -116,35 +116,64 @@ public sealed class HipsPipeListener : IDisposable
 
     private void DispatchAsk(string line)
     {
-        const string prefix = "HIPS_ASK:";
-        if (!line.StartsWith(prefix, StringComparison.Ordinal))
+        if (line.StartsWith("HIPS_ASK:", StringComparison.Ordinal))
         {
-            return;
+            var fields = line.Substring("HIPS_ASK:".Length).Split('|');
+            if (fields.Length < 7)
+            {
+                return;
+            }
+
+            var requestId = fields[0];
+            var appName = fields[2];
+            var exePath = fields[3];
+
+            if (string.IsNullOrEmpty(requestId))
+            {
+                return;
+            }
+
+            _dispatcher.TryEnqueue(() =>
+            {
+                var window = new HipsAlertWindow(
+                    string.IsNullOrEmpty(appName) ? "Unknown program" : appName,
+                    exePath ?? string.Empty,
+                    decision => SendDecisionAsync(requestId, decision));
+                window.Activate();
+            });
         }
-
-        var fields = line.Substring(prefix.Length).Split('|');
-        if (fields.Length < 7)
+        else if (line.StartsWith("THREAT_ALERT:", StringComparison.Ordinal))
         {
-            return;
+            var fields = line.Substring("THREAT_ALERT:".Length).Split('|');
+            var threatName = fields.Length > 0 && !string.IsNullOrEmpty(fields[0]) ? fields[0] : "Malicious Activity Blocked";
+            var filePath = fields.Length > 1 ? fields[1] : string.Empty;
+
+            _dispatcher.TryEnqueue(() =>
+            {
+                var window = new ThreatAlertWindow(threatName, filePath);
+                window.Activate();
+            });
         }
-
-        var requestId = fields[0];
-        var appName = fields[2];
-        var exePath = fields[3];
-
-        if (string.IsNullOrEmpty(requestId))
+        else if (line.StartsWith("HIPS_VERDICT:", StringComparison.Ordinal))
         {
-            return;
+            var fields = line.Substring("HIPS_VERDICT:".Length).Split('|');
+            if (fields.Length >= 4)
+            {
+                var exePath = fields[1];
+                var verdictCode = fields[2];
+                var analysisType = fields[3];
+
+                // 2 = Malware (FLS Code 2)
+                if (verdictCode == "2")
+                {
+                    _dispatcher.TryEnqueue(() =>
+                    {
+                        var window = new ThreatAlertWindow($"Cloud Malware ({analysisType})", exePath);
+                        window.Activate();
+                    });
+                }
+            }
         }
-
-        _dispatcher.TryEnqueue(() =>
-        {
-            var window = new HipsAlertWindow(
-                string.IsNullOrEmpty(appName) ? "Unknown program" : appName,
-                exePath ?? string.Empty,
-                decision => SendDecisionAsync(requestId, decision));
-            window.Activate();
-        });
     }
 
     /// <summary>
