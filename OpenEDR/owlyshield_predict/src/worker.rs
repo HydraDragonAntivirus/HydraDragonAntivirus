@@ -2659,7 +2659,7 @@ pub mod worker_instance {
 
         
         /// Collect APIs to monitor for a process:
-        /// ONLY APIs required by active behavioral rules are monitored.
+        /// By default (MONITOR_ALL_APIS = 0), ONLY APIs required by active behavioral rules are monitored.
         fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
             let mut seen_lower = HashSet::new();
             let mut merged = Vec::new();
@@ -2679,6 +2679,10 @@ pub mod worker_instance {
                 for expanded_api in Self::expand_dynamic_hook_api_target(trimmed) {
                     Self::push_unique_hook_target(&mut seen_lower, &mut merged, expanded_api);
                 }
+            }
+
+            if self.config.monitor_all_apis() {
+                Logging::info("[DYNAMIC HOOK] MONITOR_ALL_APIS setting is enabled");
             }
 
             merged
