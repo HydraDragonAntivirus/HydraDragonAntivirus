@@ -77,6 +77,7 @@
         - "bcrypt.dll!BCryptSecretAgreement"
         - "advapi32.dll!SystemFunction036"
         - "ntdll.dll!RtlEncryptMemory"
+
       api_threshold: 2
 
     ransomware_write_activity:
@@ -88,15 +89,9 @@
     ransomware_rename_activity:
       # orderless: rename events are counted as a set; same-file prerequisites
       # are enforced by the engine independently of arrival order.
-      # require_same_file_write is commented out to avoid anti-detection evasion:
-      # ransomware writes encrypted output to a NEW file (same stem, unknown ext)
-      # then renames the original — the renamed file was never written directly.
-      # require_same_stem_written_unknown_extension catches this pattern instead.
       orderless: true
       file_operations: ["rename"]
       require_same_file_read: true
-      # require_same_file_write: true  # commented out to avoid anti-detection evasion
-      require_same_stem_written_unknown_extension: true
       detect_extension_changes: true
       detect_known_to_unknown_extension_change: true
       min_matches: 1
@@ -120,29 +115,31 @@
 
   detection_logic:
     or:
-      # Branches A / B — file-operation evidence AND encryption APIs (both required).
+      # Branch A: read + write + rename with known->unknown extension change + crypto APIs
       - and:
-          - or:
-              # Branch A: read + write + rename with extension change (same-file prerequisites).
-              - and:
-                  - condition: "ransomware_read_activity"
-                  - condition: "ransomware_write_activity"
-                  - condition: "ransomware_rename_activity"
-              # Branch B: read + create + delete (shadow-copy / replace style).
-              - and:
-                  - condition: "ransomware_read_activity"
-                  - condition: "ransomware_create_activity"
-                  - condition: "ransomware_delete_activity"
-          # Encryption APIs required for A / B.
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_write_activity"
+          - condition: "ransomware_rename_activity"
           - condition: "suspicious_encryption_apis"
-      # Branch C+D: mass disk writes AND crypto APIs — two independent signals
-      # required so neither alone can trigger a false positive.
-      # mass_disk_writes catches bulk file modification visible in the minifilter
-      # even when API hooking misses ctypes / custom loaders.
-      # suspicious_encryption_apis confirms the crypto intent.
+
+      # Branch B: read + create (unknown ext) + delete (shadow-copy / replace style) + crypto APIs
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_create_activity"
+          - condition: "ransomware_delete_activity"
+          - condition: "suspicious_encryption_apis"
+
+      # Branch C: mass disk writes + crypto APIs
       - and:
           - condition: "mass_disk_writes"
           - condition: "suspicious_encryption_apis"
+
+      # Branch D: Pure Behavioral Mass File Encryption (handles custom crypto / AES-NI / ChaCha20 without CryptoAPIs)
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_write_activity"
+          - condition: "ransomware_rename_activity"
+          - condition: "mass_disk_writes"
 
   response:
     terminate_process: true

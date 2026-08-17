@@ -8101,11 +8101,40 @@ impl BehaviorEngine {
                         .chain(cond_group.anti_debug_apis.iter())
                         .chain(cond_group.anti_vm_apis.iter());
 
+                    let current_matches_any = current_event_apis.iter().any(|available| {
+                        let (available_norm, available_has_path) =
+                            Self::normalize_api_signature(available);
+                        cond_group
+                            .apis
+                            .iter()
+                            .chain(cond_group.scheduled_task_apis.iter())
+                            .chain(cond_group.anti_debug_apis.iter())
+                            .chain(cond_group.anti_vm_apis.iter())
+                            .any(|required_api| {
+                                let (required_norm, required_has_path) =
+                                    Self::normalize_api_signature(required_api);
+                                if required_has_path {
+                                    available_has_path
+                                        && Self::matches_pattern_internal(
+                                            &self.regex_cache,
+                                            required_api,
+                                            available,
+                                        )
+                                } else {
+                                    Self::matches_pattern_internal(
+                                        &self.regex_cache,
+                                        &required_norm,
+                                        &available_norm,
+                                    )
+                                }
+                            })
+                    });
+
                     let matched_apis: Vec<&String> = api_iter
                         .filter(|required_api| {
                             let (required_norm, required_has_path) =
                                 Self::normalize_api_signature(required_api);
-                            current_event_apis.iter().any(|available| {
+                            available_apis.iter().any(|available| {
                                 let (available_norm, available_has_path) =
                                     Self::normalize_api_signature(available);
                                 if required_has_path {
@@ -8126,7 +8155,7 @@ impl BehaviorEngine {
                         })
                         .collect();
 
-                    if matched_apis.len() >= std::cmp::max(1, cond_group.api_threshold) {
+                    if current_matches_any && matched_apis.len() >= std::cmp::max(1, cond_group.api_threshold) {
                         let api_names = matched_apis
                             .iter()
                             .map(|s| s.as_str())
