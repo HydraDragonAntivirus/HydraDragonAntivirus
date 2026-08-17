@@ -68,7 +68,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _sendUsageData;
     [ObservableProperty] private bool _sendCrashReports = true;
     [ObservableProperty] private bool _participateInBeta;
-    [ObservableProperty] private string _appVersionInfo = "HydraDragonAntivirus v1.2.0";
+    [ObservableProperty] private string _appVersionInfo = "DefenderUI v1.2.0";
     [ObservableProperty] private string _buildNumber = "Build 2026.04.17.001";
     [ObservableProperty] private string _licenseType = "Premium License";
     [ObservableProperty] private string _licenseExpiry = "Dec 31, 2027";

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using DefenderUI.Services;
 using DefenderUI.ViewModels;
@@ -14,7 +13,6 @@ namespace DefenderUI;
 public partial class App : Application
 {
     private Window? _window;
-    private HipsPipeListener? _hipsListener;
 
     /// <summary>
     /// Gets the current <see cref="App"/> instance.
@@ -60,17 +58,11 @@ public partial class App : Application
         };
     }
 
-    internal static void LogCrash(string source, Exception? ex)
+    private static void LogCrash(string source, Exception? ex)
     {
         try
         {
-            // Program Files altına yazmak antivirüs/EDR tarafından engellenir;
-            // loglar ProgramData altında tutulur (hips.log ile aynı dizin).
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                @"edrsvc\log");
-            Directory.CreateDirectory(dir);
-            var path = Path.Combine(dir, "defenderui_crash.log");
+            var path = Path.Combine(AppContext.BaseDirectory, "crash.log");
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"[{DateTime.Now:O}] {source}");
             if (ex is not null)
@@ -110,29 +102,13 @@ public partial class App : Application
     /// <param name="args">Details about the launch request and process.</param>
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        // EDR servisi bu exe'yi komut satırı argümanlarıyla çağırır:
-        //   --threat-alert    --name="..."    --path="..."    --severity="..."
-        //   --restart-required --path="..."
-        // Argüman yoksa uygulama tray'e küçülür (dashboard gösterilmez);
-        // tehdit algılandığında EDR uyarı penceresini ayrıca açar.
-        var cmdArgs = Environment.GetCommandLineArgs();
-        if (cmdArgs.Length > 1)
-        {
-            _window = CreateWindowFromCommandLine(cmdArgs);
-        }
-        else
-        {
-            _window = new MainWindow();
-        }
+        _window = new MainWindow();
 
         // K5: MainWindow kapandığında DI ServiceProvider'ı dispose et; aksi
         // halde singleton service'lerin IDisposable'ları çağrılmaz ve
         // process sonlanana kadar event abonelikleri / timer'lar sızabilir.
         _window.Closed += (_, _) =>
         {
-            _hipsListener?.Dispose();
-            _hipsListener = null;
-
             if (Services is IDisposable disposable)
             {
                 try { disposable.Dispose(); }
@@ -141,79 +117,6 @@ public partial class App : Application
         };
 
         _window.Activate();
-
-        // Argümansız başlatma: pencereyi açmadan tray ikonuna küçül.
-        if (cmdArgs.Length <= 1)
-        {
-            _window.AppWindow.Hide();
-
-            // HIPS ask pipe'ını dinlemeye başla. SDK bilinmeyen bir program
-            // başlatmaya çalışınca HipsAlertWindow'u açar.
-            StartHipsListener();
-        }
-    }
-
-    private void StartHipsListener()
-    {
-        try
-        {
-            _hipsListener = new HipsPipeListener(DispatcherQueue.GetForCurrentThread());
-            _hipsListener.Start();
-        }
-        catch (Exception ex)
-        {
-            LogCrash("HipsPipeListener.Start", ex);
-        }
-    }
-
-    /// <summary>
-    /// Komut satırı argümanlarını çözümleyip uygun pencereyi üretir.
-    /// </summary>
-    private static Window CreateWindowFromCommandLine(string[] cmdArgs)
-    {
-        var dict = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
-        for (int i = 1; i < cmdArgs.Length; i++)
-        {
-            var arg = cmdArgs[i];
-            if (!arg.StartsWith("--", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var eq = arg.IndexOf('=');
-            if (eq > 0)
-            {
-                dict[arg[..eq]] = arg[(eq + 1)..].Trim('"', '\'');
-            }
-            else
-            {
-                dict[arg] = string.Empty;
-            }
-        }
-
-        if (dict.ContainsKey("--threat-alert"))
-        {
-            return new Views.ThreatAlertWindow(
-                dict.TryGetValue("--name", out var name) ? name : "Unknown threat",
-                dict.TryGetValue("--path", out var path) ? path : string.Empty);
-        }
-
-        if (dict.ContainsKey("--restart-required"))
-        {
-            return new Views.RestartRequiredWindow(
-                dict.TryGetValue("--path", out var path) ? path : string.Empty,
-                dict.TryGetValue("--message", out var message) ? message : null,
-                dict.TryGetValue("--submessage", out var subMessage) ? subMessage : null);
-        }
-
-        if (dict.ContainsKey("--hips-alert"))
-        {
-            return new Views.HipsAlertWindow(
-                dict.TryGetValue("--name", out var name) ? name : "Unknown program",
-                dict.TryGetValue("--path", out var path) ? path : string.Empty);
-        }
-
-        return new MainWindow();
     }
 
     private static IServiceProvider ConfigureServices()
