@@ -358,11 +358,20 @@ void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
 #define ProcessPowerThrottling (PROCESS_INFORMATION_CLASS)4
 #endif
 
-	PROCESS_POWER_THROTTLING_STATE powerThrottling{};
-	powerThrottling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
-	powerThrottling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
-	powerThrottling.StateMask = 0;
-	::SetProcessInformation(pi.hProcess, ProcessPowerThrottling, &powerThrottling, sizeof(powerThrottling));
+	typedef BOOL(WINAPI* PFN_SetProcessInformation)(HANDLE, PROCESS_INFORMATION_CLASS, LPVOID, DWORD);
+	if (HMODULE hKernel32 = ::GetModuleHandleW(L"kernel32.dll"))
+	{
+		auto pfnSetProcessInfo = reinterpret_cast<PFN_SetProcessInformation>(
+			::GetProcAddress(hKernel32, "SetProcessInformation"));
+		if (pfnSetProcessInfo)
+		{
+			PROCESS_POWER_THROTTLING_STATE powerThrottling{};
+			powerThrottling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+			powerThrottling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+			powerThrottling.StateMask = 0;
+			pfnSetProcessInfo(pi.hProcess, ProcessPowerThrottling, &powerThrottling, sizeof(powerThrottling));
+		}
+	}
 
 	::CloseHandle(pi.hThread);
 	::CloseHandle(pi.hProcess);
