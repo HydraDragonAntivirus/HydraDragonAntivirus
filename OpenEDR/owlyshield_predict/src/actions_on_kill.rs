@@ -920,8 +920,7 @@ impl ActionOnKill for RevertAction {
         _report_context: &ActionReportContext,
         _now: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let should_revert = threat_info.revert
-            || (config.always_auto_revert() && (threat_info.terminate || threat_info.quarantine));
+        let should_revert = threat_info.revert || config.always_auto_revert();
         if should_revert {
             if let Some(reason) = crate::utils::protected_process_record_reason(proc) {
                 Logging::warning(&format!(

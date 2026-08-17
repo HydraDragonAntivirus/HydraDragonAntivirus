@@ -336,6 +336,18 @@ impl Config {
                         })
                     })
             })
+            .or_else(|| {
+                // Fallback: live registry read from HKLM\Software\Owlyshield
+                let reg_val = crate::config::ConfigReader::read_param_from_registry(
+                    "ALWAYS_AUTO_REVERT",
+                    r"SOFTWARE\Owlyshield",
+                );
+                if reg_val.is_empty() {
+                    None
+                } else {
+                    Some(reg_val.trim() == "1" || reg_val.trim().eq_ignore_ascii_case("true"))
+                }
+            })
             .unwrap_or(false)
     }
 

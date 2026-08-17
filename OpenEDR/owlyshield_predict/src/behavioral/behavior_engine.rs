@@ -10448,8 +10448,7 @@ impl BehaviorEngine {
                         rule.response.suspend_process
                     },
                     notify_user: rule.response.notify_user,
-                    revert: rule.response.auto_revert
-                        || (config.always_auto_revert() && (rule.response.terminate_process || rule.response.quarantine)),
+                    revert: rule.response.auto_revert || config.always_auto_revert(),
                     pending_user_decision: false,
                 };
 
@@ -12017,8 +12016,7 @@ impl BehaviorEngine {
                         rule.response.suspend_process
                     };
                     p.notify_user_requested = rule.response.notify_user;
-                    p.revert_requested = rule.response.auto_revert
-                        || (config.always_auto_revert() && (rule.response.terminate_process || rule.response.quarantine));
+                    p.revert_requested = rule.response.auto_revert || config.always_auto_revert();
                     p.triggered_rule_name = Some(rule.name.clone());
                     p.triggered_rule_details = Some(Self::build_rule_match_details(
                         rule,
