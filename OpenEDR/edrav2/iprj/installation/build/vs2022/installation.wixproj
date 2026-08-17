@@ -13,6 +13,7 @@
     <HarvestDirectorySuppressRegistry>true</HarvestDirectorySuppressRegistry>
     <HarvestDirectorySuppressRootDirectory>true</HarvestDirectorySuppressRootDirectory>
     <AcceptEula>wix6</AcceptEula>
+    <SuppressIces>ICE61;ICE03;ICE80</SuppressIces>
   </PropertyGroup>
   <PropertyGroup>
     <PlatformName Condition=" '$(Platform)' == 'x86' ">Win32</PlatformName>
