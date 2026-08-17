@@ -119,10 +119,15 @@ public partial class App : Application
         if (cmdArgs.Length > 1)
         {
             _window = CreateWindowFromCommandLine(cmdArgs);
+            _window.Activate();
         }
         else
         {
+            // Headless mode: Only initialize MainWindow for the tray icon & HIPS pipe listener.
+            // Do NOT activate so the fake dashboard UI is never displayed on screen.
             _window = new MainWindow();
+            _window.AppWindow.Hide();
+            StartHipsListener();
         }
 
         // K5: MainWindow kapandığında DI ServiceProvider'ı dispose et; aksi
@@ -139,18 +144,6 @@ public partial class App : Application
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
             }
         };
-
-        _window.Activate();
-
-        // Argümansız başlatma: pencereyi açmadan tray ikonuna küçül.
-        if (cmdArgs.Length <= 1)
-        {
-            _window.AppWindow.Hide();
-
-            // HIPS ask pipe'ını dinlemeye başla. SDK bilinmeyen bir program
-            // başlatmaya çalışınca HipsAlertWindow'u açar.
-            StartHipsListener();
-        }
     }
 
     private void StartHipsListener()
