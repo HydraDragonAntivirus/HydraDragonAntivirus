@@ -913,14 +913,14 @@ pub struct RevertAction {
 impl ActionOnKill for RevertAction {
     fn run(
         &self,
-        _config: &Config,
+        config: &Config,
         proc: &mut ProcessRecord,
         _pred_mtrx: &VecvecCappedF32,
         threat_info: &ThreatInfo,
         _report_context: &ActionReportContext,
         _now: &str,
     ) -> Result<(), Box<dyn Error>> {
-        if threat_info.revert {
+        if threat_info.revert || config.always_auto_revert() {
             Logging::info(&format!(
                 "[ActionOnKill] Reverting registry changes for: {}",
                 proc.appname

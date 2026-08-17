@@ -95,6 +95,7 @@
 					<RegistryValue Name="LOG_PATH" Value="[CommonAppDataFolder]edrsvc\log" Type="string" />
 					<RegistryValue Name="REPORTS_PATH" Value="[CommonAppDataFolder]edrsvc\log\reports" Type="string" />
 					<RegistryValue Name="MONITOR_ALL_APIS" Value="0" Type="string" />
+					<RegistryValue Name="ALWAYS_AUTO_REVERT" Value="1" Type="string" />
 				</RegistryKey>
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
 					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]firewall-rules" Type="string" />

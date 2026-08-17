@@ -10370,7 +10370,7 @@ impl BehaviorEngine {
                         rule.response.suspend_process
                     },
                     notify_user: rule.response.notify_user,
-                    revert: rule.response.auto_revert,
+                    revert: rule.response.auto_revert || config.always_auto_revert(),
                     pending_user_decision: false,
                 };
 
@@ -11686,7 +11686,7 @@ impl BehaviorEngine {
     #[allow(dead_code)]
     pub fn scan_all_processes(
         &mut self,
-        _config: &Config,
+        config: &Config,
         _threat_handler: &dyn ThreatHandler,
     ) -> Vec<ProcessRecord> {
         self.drain_self_defense_telemetry_for_known_states();
@@ -11937,7 +11937,7 @@ impl BehaviorEngine {
                         rule.response.suspend_process
                     };
                     p.notify_user_requested = rule.response.notify_user;
-                    p.revert_requested = rule.response.auto_revert;
+                    p.revert_requested = rule.response.auto_revert || config.always_auto_revert();
                     p.triggered_rule_name = Some(rule.name.clone());
                     p.triggered_rule_details = Some(Self::build_rule_match_details(
                         rule,
