@@ -60,7 +60,7 @@ public partial class App : Application
         };
     }
 
-    private static void LogCrash(string source, Exception? ex)
+    internal static void LogCrash(string source, Exception? ex)
     {
         try
         {

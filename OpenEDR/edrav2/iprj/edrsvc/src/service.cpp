@@ -26,7 +26,7 @@ namespace win {
 WinService::WinService()
 {
 	m_svcStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
-	m_svcStatus.dwControlsAccepted = SERVICE_ACCEPT_SHUTDOWN;
+	m_svcStatus.dwControlsAccepted = SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_SESSIONCHANGE;
 	setAllowUnload(c_fDefaultAllowUnload);
 }
 
@@ -35,6 +35,40 @@ WinService::WinService()
 //
 WinService::~WinService()
 {
+}
+
+//
+//
+//
+void WinService::launchDefenderUi()
+{
+	try
+	{
+		wchar_t szPath[MAX_PATH] = { 0 };
+		if (::GetModuleFileNameW(NULL, szPath, MAX_PATH) == 0)
+			return;
+
+		std::filesystem::path uiPath =
+			std::filesystem::path(szPath).parent_path() / "defenderui" / "DefenderUI.exe";
+
+		if (!std::filesystem::exists(uiPath))
+		{
+			LOGWRN("DefenderUI not found at path: " << uiPath.string());
+			return;
+		}
+
+		LOGINF("Attempting to launch DefenderUI in active user session: " << uiPath.string());
+		sys::launchAsInteractiveUser(uiPath, L"");
+		LOGINF("DefenderUI launched successfully");
+	}
+	catch (const std::exception& ex)
+	{
+		LOGWRN("Failed to launch DefenderUI: " << ex.what());
+	}
+	catch (...)
+	{
+		LOGWRN("Unknown error while launching DefenderUI");
+	}
 }
 
 //
@@ -154,6 +188,15 @@ ULONG WINAPI WinService::controlService(ULONG dwControl, ULONG dwEventType,
 		case SERVICE_CONTROL_INTERROGATE:
 		{
 			pThis->reportStatus();
+			return NO_ERROR;
+		}
+		case SERVICE_CONTROL_SESSIONCHANGE:
+		{
+			if (dwEventType == WTS_SESSION_LOGON || dwEventType == WTS_CONSOLE_CONNECT)
+			{
+				LOGINF("Interactive session change detected (" << std::hex << dwEventType << "), launching DefenderUI");
+				pThis->launchDefenderUi();
+			}
 			return NO_ERROR;
 		}
 	}
@@ -306,6 +349,7 @@ ErrorCode WinService::runService(bool fAppMode)
 		if (!needShutdown())
 		{
 			reportStatus(SERVICE_RUNNING);
+			launchDefenderUi();
 			ec = runMode();
 		}
 	}

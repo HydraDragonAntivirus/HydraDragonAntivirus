@@ -32,20 +32,26 @@ public sealed partial class MainWindow : Window
 
         // ── Tray icon ────────────────────────────────────────────────
         // Unpackaged (WindowsPackageType=None) kurulumda ms-appx:/// URI'leri
-        // çözümlenmez; ikon bu yüzden görünmez. Dosya yolundan yükleyerek hem
-        // tray ikonunu göster hem de tehdit/hips bildirimlerinin kaybolmamasını sağla.
+        // çözümlenmez; ikon bu yüzden görünmez. PNG formatlı AppLogo-64.png BitmapImage
+        // ile yüklenir (WinUI 3 BitmapImage .ico decode edemez) veya CustomIcon kullanılır.
         try
         {
-            var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
-            if (System.IO.File.Exists(iconPath))
+            var pngPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppLogo-64.png");
+            var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (System.IO.File.Exists(pngPath))
             {
                 TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-                    new Uri(iconPath, UriKind.Absolute));
+                    new Uri(pngPath, UriKind.Absolute));
             }
+            else if (System.IO.File.Exists(icoPath))
+            {
+                TrayIcon.CustomIcon = new System.Drawing.Icon(icoPath);
+            }
+            TrayIcon.ForceCreate();
         }
-        catch
+        catch (Exception ex)
         {
-            // İkon yüklenemezse kritik değil; uygulama çalışmaya devam etsin.
+            App.LogCrash("TrayIcon.Init", ex);
         }
 
         // ── DI resolve ────────────────────────────────────────────────

@@ -269,20 +269,48 @@ uint32_t executeApplication(const std::filesystem::path& pathProgram,
 void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
 	std::wstring_view sParams)
 {
-	// Find the active console (interactive) session.
+	// Find active interactive session (console or RDP).
 	DWORD nSessionId = ::WTSGetActiveConsoleSessionId();
 	if (nSessionId == 0xFFFFFFFF)
-		error::RuntimeError(SL, "No active console session").throwException();
+	{
+		PWTS_SESSION_INFOW pSessionInfo = nullptr;
+		DWORD dwCount = 0;
+		if (::WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount))
+		{
+			for (DWORD i = 0; i < dwCount; ++i)
+			{
+				if (pSessionInfo[i].State == WTSActive && pSessionInfo[i].SessionId != 0)
+				{
+					nSessionId = pSessionInfo[i].SessionId;
+					break;
+				}
+			}
+			::WTSFreeMemory(pSessionInfo);
+		}
+	}
 
-	// Obtain a primary token for the logged-on user in that session.
+	if (nSessionId == 0xFFFFFFFF)
+		error::RuntimeError(SL, "No active interactive user session found").throwException();
+
+	// Obtain user token for the active session.
 	HANDLE hUserToken = NULL;
 	if (!::WTSQueryUserToken(nSessionId, &hUserToken))
-		error::win::WinApiError(SL, "WTSQueryUserToken failed").throwException();
-	win::ScopedHandle hToken(hUserToken);
+		error::win::WinApiError(SL, "WTSQueryUserToken failed for session").throwException();
+	win::ScopedHandle hScopedToken(hUserToken);
 
-	// Build the user's environment block (PATH, APPDATA, TEMP, etc.).
+	// Duplicate to primary token with maximum allowed rights
+	HANDLE hPrimaryToken = NULL;
+	if (!::DuplicateTokenEx(hScopedToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &hPrimaryToken))
+	{
+		// Fallback to original token if duplication fails
+		hPrimaryToken = hScopedToken;
+	}
+	win::ScopedHandle hScopedPrimary(hPrimaryToken != hScopedToken ? hPrimaryToken : NULL);
+	HANDLE hTargetToken = hPrimaryToken ? hPrimaryToken : (HANDLE)hScopedToken;
+
+	// Build the user's environment block (PATH, APPDATA, USERPROFILE, etc.).
 	LPVOID pEnv = nullptr;
-	if (!::CreateEnvironmentBlock(&pEnv, hToken, FALSE))
+	if (!::CreateEnvironmentBlock(&pEnv, hTargetToken, FALSE))
 		error::win::WinApiError(SL, "CreateEnvironmentBlock failed").throwException();
 	struct EnvGuard { LPVOID p; ~EnvGuard() { if (p) ::DestroyEnvironmentBlock(p); } } envGuard{pEnv};
 
@@ -294,6 +322,8 @@ void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
 		cmdLine += sParams;
 	}
 
+	std::wstring workDir = pathProgram.parent_path().wstring();
+
 	STARTUPINFOW si{};
 	si.cb = sizeof(si);
 	si.lpDesktop = const_cast<LPWSTR>(L"winsta0\\default"); // interactive desktop
@@ -302,14 +332,14 @@ void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
 
 	PROCESS_INFORMATION pi{};
 	BOOL bOk = ::CreateProcessAsUserW(
-		hToken,
+		hTargetToken,
 		nullptr,
 		cmdLine.data(),
 		nullptr, nullptr,
 		FALSE,
 		CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE,
 		pEnv,
-		nullptr,
+		workDir.empty() ? nullptr : workDir.c_str(),
 		&si, &pi);
 
 	if (!bOk)
