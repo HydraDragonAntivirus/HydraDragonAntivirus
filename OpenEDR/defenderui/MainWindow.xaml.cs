@@ -36,15 +36,29 @@ public sealed partial class MainWindow : Window
         // ile yüklenir (WinUI 3 BitmapImage .ico decode edemez) veya CustomIcon kullanılır.
         try
         {
-            var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
-            if (System.IO.File.Exists(icoPath))
+            var pngPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppLogo-64.png");
+            if (System.IO.File.Exists(pngPath))
             {
                 TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-                    new Uri(icoPath, UriKind.Absolute));
+                    new Uri(pngPath, UriKind.Absolute));
             }
             TrayIcon.LeftClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
             TrayIcon.DoubleClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
-            TrayIcon.ForceCreate();
+
+            if (RootGrid is not null)
+            {
+                RootGrid.Loaded += (_, _) =>
+                {
+                    try
+                    {
+                        TrayIcon.ForceCreate(enablesEfficiencyMode: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        App.LogCrash("TrayIcon.ForceCreate", ex);
+                    }
+                };
+            }
         }
         catch (Exception ex)
         {
@@ -67,26 +81,27 @@ public sealed partial class MainWindow : Window
             // Unpackaged çalışmada fail olabilir; kritik değil.
         }
 
-        // ── Navigation ────────────────────────────────────────────────
-        _navigationService.Frame = ContentFrame;
-        _navigationService.NavigateTo("dashboard");
-
-        // ── Theme ─────────────────────────────────────────────────────
-        if (RootGrid is not null)
+        // ── Ensure window is completely hidden on creation in headless mode ──
+        try
         {
-            _themeService.ApplyTheme(RootGrid);
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (hwnd != IntPtr.Zero)
+            {
+                HideNativeWindow(hwnd, 0); // SW_HIDE
+            }
+            AppWindow.Hide();
         }
-        UpdateThemeToggleIcon();
-        // Faz A #5 + #14: Title bar caption butonları tema-aware olmalı.
-        UpdateTitleBarColors();
-        if (RootGrid is not null)
+        catch
         {
-            RootGrid.ActualThemeChanged += (_, _) => UpdateTitleBarColors();
+            // Ignore if handle retrieval fails
         }
 
         // H.NotifyIcon: X tuşuna basıldığında pencereyi gizle
         this.Closed += MainWindow_Closed;
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "ShowWindow")]
+    private static extern bool HideNativeWindow(IntPtr hWnd, int nCmdShow);
 
     /// <summary>
     /// AppWindow.TitleBar caption (min/max/close) butonlarının rengini
@@ -259,6 +274,11 @@ public sealed partial class MainWindow : Window
 
     private void ShowWindow()
     {
+        if (ContentFrame is not null && ContentFrame.Content is null)
+        {
+            _navigationService.Frame = ContentFrame;
+            _navigationService.NavigateTo("dashboard");
+        }
         this.AppWindow.Show();
         this.Activate();
     }

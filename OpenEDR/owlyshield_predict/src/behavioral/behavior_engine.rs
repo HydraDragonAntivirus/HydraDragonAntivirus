@@ -3668,6 +3668,11 @@ impl BehaviorEngine {
             None
         };
 
+        let auto_revert = crate::config::ConfigReader::read_param_from_registry(
+            "ALWAYS_AUTO_REVERT",
+            r"SOFTWARE\Owlyshield",
+        ) == "1";
+
         let rule = BehaviorRule {
             name: format!("Cloud:{}:{}", analysis_type, label),
             description: format!(
@@ -3679,6 +3684,7 @@ impl BehaviorEngine {
                 terminate_process: true,
                 quarantine: true,
                 notify_user: true,
+                auto_revert,
                 ..Default::default()
             },
             ..Default::default()
