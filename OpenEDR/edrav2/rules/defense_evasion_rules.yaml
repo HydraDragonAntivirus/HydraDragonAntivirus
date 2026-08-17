@@ -506,6 +506,40 @@
     terminate_process: false
     record: true
 
+  allowlisted_apps:
+    - pattern: "svchost.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "csrss.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "lsass.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "services.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "smss.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "wininit.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "explorer.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "taskhostw.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
   tags:
     - defense-evasion
     - process-injection

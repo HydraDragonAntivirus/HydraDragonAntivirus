@@ -3876,6 +3876,19 @@ impl BehaviorEngine {
                             path,
                             &format!("OpenEDR nested process verdict (FLS): Malware"),
                         );
+                        let auto_revert = crate::config::ConfigReader::read_param_from_registry(
+                            "ALWAYS_AUTO_REVERT",
+                            r"SOFTWARE\Owlyshield",
+                        ) == "1";
+                        if auto_revert {
+                            let proc_pid = u64_at(proc, &["pid"]).or_else(|| u64_at(proc, &["processId"])).unwrap_or(0) as u32;
+                            let proc_gid = u64_at(proc, &["gid"]).unwrap_or(proc_pid as u64);
+                            if proc_gid != 0 {
+                                if let Ok(client) = crate::windows::edrsvc_client::EdrsvcClient::open() {
+                                    let _ = client.revert_registry_changes(proc_gid);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3896,6 +3909,19 @@ impl BehaviorEngine {
                         path,
                         &format!("OpenEDR childProcess verdict (FLS): Malware"),
                     );
+                    let auto_revert = crate::config::ConfigReader::read_param_from_registry(
+                        "ALWAYS_AUTO_REVERT",
+                        r"SOFTWARE\Owlyshield",
+                    ) == "1";
+                    if auto_revert {
+                        let child_pid = u64_at(child, &["pid"]).or_else(|| u64_at(child, &["processId"])).unwrap_or(0) as u32;
+                        let child_gid = u64_at(child, &["gid"]).unwrap_or(child_pid as u64);
+                        if child_gid != 0 {
+                            if let Ok(client) = crate::windows::edrsvc_client::EdrsvcClient::open() {
+                                let _ = client.revert_registry_changes(child_gid);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -4690,6 +4716,11 @@ impl BehaviorEngine {
                 self.notify_firewall_openedr_verdict(pid, exe_path, verdict, "Static");
             }
 
+            let auto_revert = crate::config::ConfigReader::read_param_from_registry(
+                "ALWAYS_AUTO_REVERT",
+                r"SOFTWARE\Owlyshield",
+            ) == "1";
+
             if static_verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
                 let label = stats
                     .cloud_static_label
@@ -4700,6 +4731,12 @@ impl BehaviorEngine {
                     exe_path,
                     &format!("OpenEDR FLS static verdict: {label}"),
                 );
+                if auto_revert {
+                    let gid = u64_at(event, &["gid"]).unwrap_or(pid as u64);
+                    if let Ok(client) = crate::windows::edrsvc_client::EdrsvcClient::open() {
+                        let _ = client.revert_registry_changes(gid);
+                    }
+                }
             }
 
             if let Some(dynamic_label) = cloud.get("dynamic_label").and_then(|v| v.as_str()) {
@@ -4727,6 +4764,12 @@ impl BehaviorEngine {
                     exe_path,
                     &format!("OpenEDR FLS dynamic verdict: {label}"),
                 );
+                if auto_revert {
+                    let gid = u64_at(event, &["gid"]).unwrap_or(pid as u64);
+                    if let Ok(client) = crate::windows::edrsvc_client::EdrsvcClient::open() {
+                        let _ = client.revert_registry_changes(gid);
+                    }
+                }
             }
         }
     }
@@ -10405,21 +10448,23 @@ impl BehaviorEngine {
                         rule.response.suspend_process
                     },
                     notify_user: rule.response.notify_user,
-                    revert: rule.response.auto_revert || config.always_auto_revert(),
+                    revert: rule.response.auto_revert
+                        || (config.always_auto_revert() && (rule.response.terminate_process || rule.response.quarantine)),
                     pending_user_decision: false,
                 };
 
-                // FAIL-FAST SAFETY GUARD: Prevent rule-based termination of critical system processes
-                if (threat_info.terminate || threat_info.quarantine || threat_info.kill_and_remove)
-                    && let Some(reason) = crate::utils::protected_process_record_reason(precord)
-                {
-                    Logging::warning(&format!(
-                        "[BehaviorEngine] Rule '{}' triggered termination for protected process {} (GID: {}), but it was BLOCKED: {}",
-                        rule.name, precord.appname, precord.gid, reason
-                    ));
-                    threat_info.terminate = false;
-                    threat_info.quarantine = false;
-                    threat_info.kill_and_remove = false;
+                // FAIL-FAST SAFETY GUARD: Prevent rule-based termination or revert of critical system processes
+                if let Some(reason) = crate::utils::protected_process_record_reason(precord) {
+                    if threat_info.terminate || threat_info.quarantine || threat_info.kill_and_remove || threat_info.revert {
+                        Logging::warning(&format!(
+                            "[BehaviorEngine] Rule '{}' triggered remediation for protected process {} (GID: {}), but it was BLOCKED: {}",
+                            rule.name, precord.appname, precord.gid, reason
+                        ));
+                        threat_info.terminate = false;
+                        threat_info.quarantine = false;
+                        threat_info.kill_and_remove = false;
+                        threat_info.revert = false;
+                    }
                 }
 
                 let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
@@ -11972,7 +12017,8 @@ impl BehaviorEngine {
                         rule.response.suspend_process
                     };
                     p.notify_user_requested = rule.response.notify_user;
-                    p.revert_requested = rule.response.auto_revert || config.always_auto_revert();
+                    p.revert_requested = rule.response.auto_revert
+                        || (config.always_auto_revert() && (rule.response.terminate_process || rule.response.quarantine));
                     p.triggered_rule_name = Some(rule.name.clone());
                     p.triggered_rule_details = Some(Self::build_rule_match_details(
                         rule,

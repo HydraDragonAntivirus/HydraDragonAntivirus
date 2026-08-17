@@ -920,12 +920,21 @@ impl ActionOnKill for RevertAction {
         _report_context: &ActionReportContext,
         _now: &str,
     ) -> Result<(), Box<dyn Error>> {
-        if threat_info.revert || config.always_auto_revert() {
-            Logging::info(&format!(
-                "[ActionOnKill] Reverting registry changes for: {}",
-                proc.appname
-            ));
-            self.handler.revert_registry(proc.gid);
+        let should_revert = threat_info.revert
+            || (config.always_auto_revert() && (threat_info.terminate || threat_info.quarantine));
+        if should_revert {
+            if let Some(reason) = crate::utils::protected_process_record_reason(proc) {
+                Logging::warning(&format!(
+                    "[ActionOnKill] Registry revert blocked for protected process: {} ({})",
+                    proc.appname, reason
+                ));
+            } else {
+                Logging::info(&format!(
+                    "[ActionOnKill] Reverting registry changes for: {}",
+                    proc.appname
+                ));
+                self.handler.revert_registry(proc.gid);
+            }
         }
 
         if should_attempt_shadow_copy_restore(proc, threat_info) {
