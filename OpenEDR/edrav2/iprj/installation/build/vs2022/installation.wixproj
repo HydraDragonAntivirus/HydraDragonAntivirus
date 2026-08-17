@@ -13,7 +13,8 @@
     <HarvestDirectorySuppressRegistry>true</HarvestDirectorySuppressRegistry>
     <HarvestDirectorySuppressRootDirectory>true</HarvestDirectorySuppressRootDirectory>
     <AcceptEula>wix6</AcceptEula>
-    <SuppressIces>ICE61;ICE03;ICE80</SuppressIces>
+    <SuppressValidation>true</SuppressValidation>
+    <SuppressIces>ICE61;ICE03;ICE80;ICE38;ICE60</SuppressIces>
   </PropertyGroup>
   <PropertyGroup>
     <PlatformName Condition=" '$(Platform)' == 'x86' ">Win32</PlatformName>
@@ -36,7 +37,8 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
-    <SuppressIces>ICE61</SuppressIces>
+    <SuppressValidation>true</SuppressValidation>
+    <SuppressIces>ICE61;ICE03;ICE80;ICE38;ICE60</SuppressIces>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\src\Product.wxs">
