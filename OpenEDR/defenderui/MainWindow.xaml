@@ -8,7 +8,7 @@
     xmlns:controls="using:DefenderUI.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tb="using:H.NotifyIcon"
-    Title="DefenderUI"
+    Title="HydraDragonAntivirus"
     mc:Ignorable="d">
 
     <Window.SystemBackdrop>
@@ -28,12 +28,13 @@
 
         <tb:TaskbarIcon
             x:Name="TrayIcon"
-            IconSource="ms-appx:///Assets/AppIcon.ico"
-            ToolTipText="DefenderUI - Koruma Aktif"
+            ToolTipText="HydraDragonAntivirus - Koruma Aktif"
             Grid.Row="0">
             <tb:TaskbarIcon.ContextFlyout>
                 <MenuFlyout>
                     <MenuFlyoutItem Text="Göster" Click="MenuShow_Click"/>
+                    <MenuFlyoutItem Text="EDR'yi Başlat" Click="MenuEdrStart_Click"/>
+                    <MenuFlyoutItem Text="EDR'yi Durdur" Click="MenuEdrStop_Click"/>
                     <MenuFlyoutSeparator/>
                     <MenuFlyoutItem Text="Çıkış" Click="MenuExit_Click"/>
                 </MenuFlyout>
@@ -42,7 +43,7 @@
 
         <!-- ═══════════════════════════════════════════════════════════ -->
         <!-- Custom Title Bar                                             -->
-        <!-- Logo + DefenderUI + StatusPill  |  spacer  |  Theme/Notif   -->
+        <!-- Logo + HydraDragonAntivirus + StatusPill  |  spacer  | Theme -->
         <!-- ═══════════════════════════════════════════════════════════ -->
         <Grid
             x:Name="AppTitleBarGrid"
@@ -72,7 +73,7 @@
                     Height="20"
                     VerticalAlignment="Center" />
                 <TextBlock
-                    Text="DefenderUI"
+                    Text="HydraDragonAntivirus"
                     Style="{StaticResource TitleMediumTextStyle}"
                     VerticalAlignment="Center" />
             </StackPanel>

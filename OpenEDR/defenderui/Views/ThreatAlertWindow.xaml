@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="DefenderUI.Views.ThreatAlertWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="HydraDragonAntivirus - Threat Quarantined"
+    mc:Ignorable="d">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Border
+        x:Name="AlertFrame"
+        BorderThickness="3"
+        BorderBrush="{ThemeResource StatusRiskBrush}"
+        CornerRadius="12"
+        Background="{ThemeResource SurfaceCardBrush}">
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Üst marka barı -->
+            <Grid Grid.Row="0" Padding="18,14" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Image
+                    Grid.Column="0"
+                    Source="ms-appx:///Assets/AppLogo-32.png"
+                    Width="20"
+                    Height="20"
+                    VerticalAlignment="Center" />
+
+                <TextBlock
+                    Grid.Column="1"
+                    Text="HydraDragonAntivirus"
+                    Style="{StaticResource TitleMediumTextStyle}"
+                    VerticalAlignment="Center" />
+
+                <Border
+                    x:Name="HeaderStatusBadge"
+                    Grid.Column="2"
+                    CornerRadius="8"
+                    Padding="10,4"
+                    Background="{ThemeResource StatusRiskSoftBrush}">
+                    <TextBlock
+                        x:Name="HeaderStatusText"
+                        Text="QUARANTINED"
+                        Style="{StaticResource CaptionTextStyle}"
+                        Foreground="{ThemeResource StatusRiskBrush}" />
+                </Border>
+            </Grid>
+
+            <!-- Orta bölüm: karantina bilgisi -->
+            <StackPanel Grid.Row="1" Padding="18,10,18,12" Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Border
+                        Width="48"
+                        Height="48"
+                        CornerRadius="12"
+                        VerticalAlignment="Top"
+                        Background="{ThemeResource StatusProtectedSoftBrush}">
+                        <FontIcon
+                            Glyph="&#xE73E;"
+                            FontSize="24"
+                            FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                            Foreground="{ThemeResource StatusProtectedBrush}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock
+                            Text="Threat Found and Quarantined"
+                            Style="{StaticResource BodyLargeTextStyle}"
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource StatusRiskBrush}" />
+                        <TextBlock
+                            x:Name="ThreatNameText"
+                            Text="{x:Bind ThreatName}"
+                            Style="{StaticResource BodyMediumTextStyle}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock
+                    x:Name="FilePathText"
+                    Text="{x:Bind FilePath}"
+                    Style="{StaticResource BodyMediumTextStyle}"
+                    TextWrapping="Wrap"
+                    Foreground="{ThemeResource TextSecondaryBrush}"
+                    IsTextSelectionEnabled="True" />
+            </StackPanel>
+
+            <!-- Alt bölüm: OK butonu -->
+            <StackPanel
+                Grid.Row="2"
+                Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="8"
+                Padding="18,0,18,16">
+                <Button
+                    x:Name="OkButton"
+                    Content="OK"
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    Click="OkButton_Click" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

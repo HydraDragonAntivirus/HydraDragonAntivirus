@@ -30,6 +30,31 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // ── Tray icon ────────────────────────────────────────────────
+        // Unpackaged (WindowsPackageType=None) kurulumda ms-appx:/// URI'leri
+        // çözümlenmez; ikon bu yüzden görünmez. PNG formatlı AppLogo-64.png BitmapImage
+        // ile yüklenir (WinUI 3 BitmapImage .ico decode edemez) veya CustomIcon kullanılır.
+        try
+        {
+            var pngPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppLogo-64.png");
+            var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (System.IO.File.Exists(pngPath))
+            {
+                TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+                    new Uri(pngPath, UriKind.Absolute));
+            }
+            else if (System.IO.File.Exists(icoPath))
+            {
+                TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+                    new Uri(icoPath, UriKind.Absolute));
+            }
+            TrayIcon.ForceCreate();
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("TrayIcon.Init", ex);
+        }
+
         // ── DI resolve ────────────────────────────────────────────────
         _navigationService = App.Current.Services.GetRequiredService<INavigationService>();
         _themeService = App.Current.Services.GetRequiredService<IThemeService>();
@@ -239,6 +264,16 @@ public sealed partial class MainWindow : Window
     private void MenuShow_Click(object sender, RoutedEventArgs e)
     {
         this.AppWindow.Show();
+    }
+
+    private void MenuEdrStart_Click(object sender, RoutedEventArgs e)
+    {
+        EdrServiceController.Start();
+    }
+
+    private void MenuEdrStop_Click(object sender, RoutedEventArgs e)
+    {
+        EdrServiceController.Stop();
     }
 
     private void MenuExit_Click(object sender, RoutedEventArgs e)
