@@ -6,6 +6,49 @@ pub static LONG_TIME_FORMAT: &str = "%d/%m/%Y %H:%M:%S";
 pub static FILE_TIME_FORMAT: &str = "%Y%m%d_%H%M%S";
 pub static LOG_TIME_FORMAT: &str = "%b %d %H:%M:%S";
 
+/// Returns the image path of a given PID using QueryFullProcessImageNameW.
+pub fn process_image_path(pid: u32) -> Option<PathBuf> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::core::PWSTR;
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        if handle.is_invalid() || handle.0 == 0 {
+            return None;
+        }
+        let mut buf = vec![0u16; 1024];
+        let mut size = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut size);
+        let _ = CloseHandle(handle);
+        if ok.as_bool() && size > 0 {
+            Some(PathBuf::from(String::from_utf16_lossy(&buf[..size as usize])))
+        } else {
+            None
+        }
+    }
+}
+
+/// Returns true if the process at `pid` is a trusted companion component of the
+/// EDR install: i.e. its image lives in the same directory tree as this service.
+fn is_own_companion_process(pid: u32) -> bool {
+    // Get our own install root (directory containing this service exe).
+    let own_dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        Some(d) => d,
+        None => return false,
+    };
+
+    match process_image_path(pid) {
+        Some(img) => {
+            // Accept any process whose image is anywhere inside our install root.
+            img.starts_with(&own_dir)
+        }
+        None => false,
+    }
+}
 
 pub fn protected_process_reason(pid: u32, _fallback_path: Option<&Path>) -> Option<String> {
     if pid == 0 {
@@ -18,6 +61,10 @@ pub fn protected_process_reason(pid: u32, _fallback_path: Option<&Path>) -> Opti
 
     if is_process_marked_critical(pid) {
         return Some("Windows marks this process as critical".to_string());
+    }
+
+    if is_own_companion_process(pid) {
+        return Some("Process is a trusted EDR companion (same install directory)".to_string());
     }
 
     None

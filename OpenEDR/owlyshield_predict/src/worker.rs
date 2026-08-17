@@ -548,7 +548,12 @@ pub mod worker_instance {
 
         
         fn is_internal_service_pid(pid: u32) -> bool {
-            pid == std::process::id()
+            if pid == std::process::id() {
+                return true;
+            }
+            crate::utils::protected_process_reason(pid, None)
+                .map(|r| r.contains("trusted EDR companion"))
+                .unwrap_or(false)
         }
 
 
