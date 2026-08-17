@@ -39,7 +39,6 @@ const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventTyp
 	}
 }
 
-
 } // namespace
 
 //

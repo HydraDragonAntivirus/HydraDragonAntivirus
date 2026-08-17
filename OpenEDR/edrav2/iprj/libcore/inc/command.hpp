@@ -329,8 +329,12 @@ public:
 			case Type::Value:
 				return m_vValue;
 			case Type::ContextPath:
-				return (m_voptDefault.has_value()) ? getByPath(vContext, m_vValue, *m_voptDefault) :
-					getByPath(vContext, m_vValue);
+				if (m_voptDefault.has_value())
+					return getByPath(vContext, m_vValue, *m_voptDefault);
+				// No $default: use safe lookup so missing intermediate keys
+				// (e.g. event.process.parent when parent is absent) return null
+				// instead of throwing OutOfRange and crashing the scenario thread.
+				return getByPathSafe(vContext, m_vValue).value_or(Variant());
 			case Type::GlobalPath:
 				return (m_voptDefault.has_value()) ? getCatalogData(m_vValue, *m_voptDefault) :
 					getCatalogData(m_vValue);
