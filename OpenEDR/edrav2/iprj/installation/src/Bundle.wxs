@@ -31,7 +31,6 @@
 				DisplayName="Microsoft .NET 9 Desktop Runtime (x64)"
 				Description="Microsoft .NET 9 Desktop Runtime (x64)"
 				Cache="keep"
-				Compressed="no"
 				PerMachine="yes"
 				Vital="yes"
 				Permanent="yes"
