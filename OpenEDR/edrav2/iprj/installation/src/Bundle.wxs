@@ -14,14 +14,15 @@
 			<bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" />
 		</BootstrapperApplication>
 
-		<!-- Check if .NET 9 Desktop Runtime (x64) is installed -->
+		<!-- Check if .NET 9 Desktop Runtime (x64) is installed.
+			 Value "9.0.19" is DWORD 1 when installed; empty when not.
+			 Bitness="always64" prevents WOW6432Node redirection in the 32-bit Burn engine. -->
 		<util:RegistrySearch
 			Id="Net9DesktopRuntimeSearch"
 			Root="HKLM"
 			Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
 			Value="9.0.19"
 			Bitness="always64"
-			Result="exists"
 			Variable="NET9DESKTOPRUNTIME" />
 
 		<Chain>
@@ -34,7 +35,7 @@
 				PerMachine="yes"
 				Vital="yes"
 				Permanent="yes"
-				DetectCondition="NET9DESKTOPRUNTIME = 1"
+				DetectCondition="NET9DESKTOPRUNTIME"
 				InstallArguments="/install /quiet /norestart"
 				RepairArguments="/repair /quiet /norestart"
 				UninstallArguments="/uninstall /quiet /norestart">

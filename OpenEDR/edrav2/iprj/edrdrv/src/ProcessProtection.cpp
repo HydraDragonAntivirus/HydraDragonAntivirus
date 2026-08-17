@@ -1233,8 +1233,11 @@ NTSTATUS OnKernelApiEvent(_In_ ULONG IrpOp, _In_ ULONG EventType, _In_ ULONG Sou
     }
 
     NTSTATUS sendStatus = fltport::sendRawEvent(serializer);
-    DbgPrint("!!! OnKernelApiEvent: fltport::sendRawEvent returned 0x%X (SourcePid=%lu TargetPid=%lu EventType=%lu)\n",
-             sendStatus, SourcePid, TargetPid, EventType);
+    if (!NT_SUCCESS(sendStatus))
+    {
+        DbgPrint("!!! OnKernelApiEvent: fltport::sendRawEvent FAILED 0x%X (SourcePid=%lu TargetPid=%lu EventType=%lu)\n",
+                 sendStatus, SourcePid, TargetPid, EventType);
+    }
     return sendStatus;
 }
 
