@@ -108,6 +108,15 @@
 
     ransomware_delete_activity:
       # orderless: delete events are counted as a set regardless of sequence.
+      # Requires the deleted file to have been previously read by the process.
+      orderless: true
+      file_operations: ["delete"]
+      require_same_file_read: true
+      min_matches: 1
+
+    ransomware_delete_stem_activity:
+      # orderless: delete events are counted as a set regardless of sequence.
+      # Correlates with previously created unknown-extension files sharing the same stem.
       orderless: true
       file_operations: ["delete"]
       require_same_stem_created_unknown_extension: true
@@ -122,11 +131,11 @@
           - condition: "ransomware_rename_activity"
           - condition: "suspicious_encryption_apis"
 
-      # Branch B: read + create (unknown ext) + delete (shadow-copy / replace style) + crypto APIs
+      # Branch B: read + create (unknown ext) + delete (shadow-copy / stem replace style) + crypto APIs
       - and:
           - condition: "ransomware_read_activity"
           - condition: "ransomware_create_activity"
-          - condition: "ransomware_delete_activity"
+          - condition: "ransomware_delete_stem_activity"
           - condition: "suspicious_encryption_apis"
 
       # Branch C: mass disk writes + crypto APIs
@@ -139,6 +148,18 @@
           - condition: "ransomware_read_activity"
           - condition: "ransomware_write_activity"
           - condition: "ransomware_rename_activity"
+          - condition: "mass_disk_writes"
+
+      # Branch E: Read + Delete (same file) + Crypto APIs
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_delete_activity"
+          - condition: "suspicious_encryption_apis"
+
+      # Branch F: Pure Behavioral Read + Delete (same file) + Mass Disk Modifications
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_delete_activity"
           - condition: "mass_disk_writes"
 
   response:

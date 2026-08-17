@@ -8502,6 +8502,17 @@ impl BehaviorEngine {
                 let skip_direct_file_path_matching =
                     cond_group.detect_recently_written_payload_launch;
 
+                let stem_str: Option<String> = if let Some(dot_pos) = filepath.rfind('.') {
+                    let last_sep = filepath.rfind('/').unwrap_or(0);
+                    if dot_pos > last_sep {
+                        Some(filepath[..dot_pos].to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 let same_file_requirements_ok = (!cond_group.require_same_file_read
                     || precord.has_read_file_id(&msg.file_id_id))
                     && (!cond_group.require_same_file_write
@@ -8509,9 +8520,11 @@ impl BehaviorEngine {
                     && (!cond_group.require_same_file_rename
                         || precord.has_renamed_file_id(&msg.file_id_id))
                     && (!cond_group.require_same_stem_created_unknown_extension
-                        || state.created_unknown_ext_stems.contains(filepath))
+                        || state.created_unknown_ext_stems.contains(filepath)
+                        || stem_str.as_ref().is_some_and(|s| state.created_unknown_ext_stems.contains(s)))
                     && (!cond_group.require_same_stem_written_unknown_extension
-                        || state.written_unknown_ext_stems.contains(filepath));
+                        || state.written_unknown_ext_stems.contains(filepath)
+                        || stem_str.as_ref().is_some_and(|s| state.written_unknown_ext_stems.contains(s)));
 
                 let parent_image_touched = !state.parent_path.as_os_str().is_empty()
                     && target_matches_process_image(&state.parent_path, filepath, &msg.filepathstr);
