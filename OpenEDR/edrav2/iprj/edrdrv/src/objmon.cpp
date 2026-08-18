@@ -474,20 +474,16 @@ VOID postFileObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFO
 	if (!NT_SUCCESS(ns) || pusFileName->Length == 0)
 		return;
 
-	// Classify the mapping intent into a file operation.
-	// SECTION_MAP_WRITE / SECTION_EXTEND_SIZE => write-intent mapping,
-	// SECTION_MAP_READ only => read-intent mapping.
-	static constexpr ACCESS_MASK c_nWriteMapAccessMask = SECTION_MAP_WRITE | SECTION_EXTEND_SIZE;
-	SysmonEvent eEvent = FlagOn(pCallContext->eDesiredAccess, c_nWriteMapAccessMask) ?
-		SysmonEvent::FileDataWriteFull : SysmonEvent::FileDataReadFull;
+	// Emit a dedicated ObRegisterCallbacks file-handle-open event so the engine
+	// exposes it as a distinct SDK rule type ("handle_open"), separate from the
+	// minifilter IRP-level read/write and section-map (mmap) events. The desired
+	// access is carried in the AccessMask field for finer rule filtering.
+	SysmonEvent eEvent = SysmonEvent::FileHandleOpen;
 
 	LOGINFO2("sendEvent: %u (fileObjectEvent), pid: %Iu, access: 0x%08X, file:<%wZ>.\r\n",
 		(ULONG)eEvent, (ULONG_PTR)pCallContext->nInitiatorPid,
 		(ULONG)pCallContext->eDesiredAccess, pusFileName);
 
-	// Reuse the read/write-full event ids so the engine classifies the handle
-	// open as an ordinary IRP-level file op ("read"/"write"), enabling the
-	// united (api + minifilter) three-way classification.
 	// Use the stored initiator PID (pre-op time) so cross-process handle
 	// duplication is attributed to the original opener.
 	IFERR_LOG(detail::sendObjectEvent(eEvent, (ULONG_PTR)pCallContext->nInitiatorPid,

@@ -1922,11 +1922,12 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preAcquireForSectionSync(
 		pusTarget = &pFltObjects->FileObject->FileName;
 	}
 
-	// Reuse the read/write-full event ids so the engine classifies the mapped
-	// access as an ordinary IRP-level file op ("read"/"write"), enabling the
-	// united (api + minifilter) three-way classification.
+	// Reuse dedicated section-map (mmap) event ids so the engine classifies the
+	// mapped access as a distinct mmap rule type ("mmap_read"/"mmap_write"),
+	// separate from ordinary IRP-level read/write. The original FileDataReadFull
+	// / FileDataWriteFull events remain the united (api + minifilter) rule type.
 	sendPathEvent(
-		fWriteIntent ? SysmonEvent::FileDataWriteFull : SysmonEvent::FileDataReadFull,
+		fWriteIntent ? SysmonEvent::FileMapWrite : SysmonEvent::FileMapRead,
 		pusTarget,
 		(ULONG_PTR)FltGetRequestorProcessId(pData),
 		nPageProtection);

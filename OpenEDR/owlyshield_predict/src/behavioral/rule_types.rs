@@ -1867,6 +1867,13 @@ pub struct NamedConditionGroup {
     /// - `api_read`        => API-hook-only reads (mapped-section / NtReadFile)
     /// - `united_read`     => matches either source (IRP or API hook)
     /// The same scheme applies to `write`, `create`, `delete`, `rename`.
+    ///
+    /// Dedicated rule types for the driver's extension telemetry (kept separate
+    /// from ordinary IRP-level read/write):
+    /// - `mmap_read`       => memory-mapped section read (minifilter
+    ///                         IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION)
+    /// - `mmap_write`      => memory-mapped section write (same IRP)
+    /// - `handle_open`     => ObRegisterCallbacks file handle open
     #[serde(default)]
     pub file_operations: Vec<String>,
     #[serde(default)]

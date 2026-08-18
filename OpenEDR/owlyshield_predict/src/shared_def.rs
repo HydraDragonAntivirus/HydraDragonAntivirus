@@ -98,6 +98,9 @@ pub enum SysmonEvent {
     DeviceIoControl = 0x000E,
     NamedPipeCreate = 0x000F,
     SelfDefense = 0x0010,
+    FileMapRead = 0x0011,
+    FileMapWrite = 0x0012,
+    FileHandleOpen = 0x0013,
     Unknown = 0xFFFF_FFFF,
 }
 
@@ -121,6 +124,9 @@ impl SysmonEvent {
             0x000E => SysmonEvent::DeviceIoControl,
             0x000F => SysmonEvent::NamedPipeCreate,
             0x0010 => SysmonEvent::SelfDefense,
+            0x0011 => SysmonEvent::FileMapRead,
+            0x0012 => SysmonEvent::FileMapWrite,
+            0x0013 => SysmonEvent::FileHandleOpen,
             _ => SysmonEvent::Unknown,
         }
     }
@@ -144,12 +150,15 @@ impl SysmonEvent {
             0x000E => "DeviceIoControl",
             0x000F => "NamedPipeCreate",
             0x0010 => "SelfDefense",
+            0x0011 => "FileMapRead",
+            0x0012 => "FileMapWrite",
+            0x0013 => "FileHandleOpen",
             _ => "Unknown",
         }
     }
 
     pub fn is_file_event(v: u32) -> bool {
-        matches!(v, 0x0007..=0x000C)
+        matches!(v, 0x0007..=0x0013)
     }
 
     pub fn is_registry_event(v: u32) -> bool {
@@ -217,7 +226,13 @@ impl IrpMajorOp {
             0x000B => IrpMajorOp::IrpRead,
              0x000D => IrpMajorOp::IrpProcessHandleOpen,
              0x000F => IrpMajorOp::IrpNamedPipeCreate,
-            0x0010 => IrpMajorOp::IrpUserModeHookEvent,
+             0x0010 => IrpMajorOp::IrpUserModeHookEvent,
+             // Owlyshield extension events: collapse to coarse file ops so the
+             // aggregate counters work; the fine-grained mmap / handle-open
+             // distinction is surfaced at rule-token level (current_file_op).
+             0x0011 => IrpMajorOp::IrpRead,
+             0x0012 => IrpMajorOp::IrpWrite,
+             0x0013 => IrpMajorOp::IrpSetInfo,
             // Sub-event type IDs used by to_sysmonevent_u32 for round-trip (not on LBVS wire)
             0x1009 => IrpMajorOp::IrpProcessTerminateAttempt,
             0x100A => IrpMajorOp::IrpProcessExit,

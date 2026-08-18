@@ -59,6 +59,11 @@ enum class SysmonEvent : uint16_t
 	NamedPipeCreate = 0x000F,
 	SelfDefense = 0x0010,
 
+	// Owlyshield extension events
+	FileMapRead = 0x0011,   ///< Memory-mapped section read (mmap)
+	FileMapWrite = 0x0012,  ///< Memory-mapped section write (mmap)
+	FileHandleOpen = 0x0013, ///< ObRegisterCallbacks file handle open
+
 	_Max //< "last" event. for internal usage
 };
 

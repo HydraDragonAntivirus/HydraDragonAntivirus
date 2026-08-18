@@ -1641,6 +1641,23 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         | "filedatawritefull" => {
             return irp_type == SE::FileDataWriteFull as u32;
         }
+        // Dedicated mmap (section-map) events
+        "mmap_read"
+        | "file_map_read"
+        | "map_read" => {
+            return irp_type == SE::FileMapRead as u32;
+        }
+        "mmap_write"
+        | "file_map_write"
+        | "map_write" => {
+            return irp_type == SE::FileMapWrite as u32;
+        }
+        // Dedicated ObRegisterCallbacks file-handle-open event
+        "handle_open"
+        | "file_handle_open"
+        | "ob_register_callbacks" => {
+            return irp_type == SE::FileHandleOpen as u32;
+        }
         // Data change / setinfo
         "setinfo"
         | "set_info"
@@ -4052,6 +4069,9 @@ impl BehaviorEngine {
                         14 | 47 => "LLE_DEVICE_IOCTL".to_string(),
                         15 => "LLE_NAMED_PIPE_CREATE".to_string(),
                         16 => "LLE_SELF_DEFENSE".to_string(),
+                        17 => "LLE_FILE_MAP_READ".to_string(),
+                        18 => "LLE_FILE_MAP_WRITE".to_string(),
+                        19 => "LLE_FILE_HANDLE_OPEN".to_string(),
                         _ => format!("BASE_EVENT_{code}"),
                     })
                     .unwrap_or_default();
@@ -4337,6 +4357,18 @@ impl BehaviorEngine {
             "LLE_FILE_DATA_WRITE_FULL" => {
                 aliases.push("OpenEDR::FileWrite".to_string());
                 aliases.push("OpenEDR::FileModify".to_string());
+            }
+            "LLE_FILE_MAP_READ" => {
+                aliases.push("OpenEDR::FileMapRead".to_string());
+                aliases.push("OpenEDR::FileAccess".to_string());
+            }
+            "LLE_FILE_MAP_WRITE" => {
+                aliases.push("OpenEDR::FileMapWrite".to_string());
+                aliases.push("OpenEDR::FileModify".to_string());
+            }
+            "LLE_FILE_HANDLE_OPEN" => {
+                aliases.push("OpenEDR::FileHandleOpen".to_string());
+                aliases.push("OpenEDR::FileAccess".to_string());
             }
             "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
                 aliases.push("OpenEDR::RegistryKeyModify".to_string());
@@ -4784,6 +4816,9 @@ impl BehaviorEngine {
                 "LLE_FILE_DATA_CHANGE" => Some(SE::FileDataChange as u32),
                 "LLE_FILE_DATA_READ_FULL" => Some(SE::FileDataReadFull as u32),
                 "LLE_FILE_DATA_WRITE_FULL" => Some(SE::FileDataWriteFull as u32),
+                "LLE_FILE_MAP_READ" => Some(SE::FileMapRead as u32),
+                "LLE_FILE_MAP_WRITE" => Some(SE::FileMapWrite as u32),
+                "LLE_FILE_HANDLE_OPEN" => Some(SE::FileHandleOpen as u32),
                 "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
                     Some(SE::RegistryKeyCreate as u32)
                 }
@@ -9000,7 +9035,14 @@ impl BehaviorEngine {
                 let file_change = event_file_change;
                 let file_event_irp = is_file_data_irp(irp_op);
 
-                let current_file_op = match *irp_op {
+                // Dedicated mmap / file-handle-open rule types. These use their
+                // own raw opcodes so they stay separate from ordinary IRP-level
+                // read/write (which remain the united rule type).
+                let current_file_op = match current_irp_opcode {
+                    0x0011 => Some("mmap_read"),
+                    0x0012 => Some("mmap_write"),
+                    0x0013 => Some("handle_open"),
+                    _ => match *irp_op {
                     IrpMajorOp::IrpRead => Some("read"),
                     IrpMajorOp::IrpWrite => Some("write"),
                     IrpMajorOp::IrpCreate => {
@@ -9042,6 +9084,7 @@ impl BehaviorEngine {
                         })
                     }
                     _ => None,
+                    }
                 };
 
                 let file_op_allowed = if cond_group.file_operations.is_empty() {
