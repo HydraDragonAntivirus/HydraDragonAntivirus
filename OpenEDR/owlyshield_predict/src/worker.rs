@@ -768,7 +768,7 @@ pub mod worker_instance {
             }
 
             let now = std::time::Instant::now();
-            let refresh_interval = std::time::Duration::from_secs(2);
+            let refresh_interval = std::time::Duration::from_millis(750);
 
             if let Some(last) = self.dynamic_hook_last_refresh.get(&pid)
                 && now.duration_since(*last) < refresh_interval
@@ -1275,10 +1275,11 @@ pub mod worker_instance {
                     // Newly created processes must be hooked immediately. Bypass
                     // the per-PID refresh throttle for this drain so the next
                     // housekeeping tick applies their dynamic API hooks right
-                    // away instead of after the 2s wait. Re-stamp the throttle so
-                    // subsequent sweeps stay 2s-cooldowned: failing PIDs are not
-                    // re-attempted every 750ms. `register_dynamic_hooks_for_process`
-                    // keeps the protected/internal-process skip.
+                    // away instead of after the 750ms wait. Re-stamp the throttle
+                    // so subsequent sweeps stay cooldowned: failing PIDs are not
+                    // re-attempted every housekeeping tick.
+                    // `register_dynamic_hooks_for_process` keeps the
+                    // protected/internal-process skip.
                     self.dynamic_hook_last_refresh.insert(hook_pid, std::time::Instant::now());
                     self.register_dynamic_hooks_for_process(hook_pid);
                 }
