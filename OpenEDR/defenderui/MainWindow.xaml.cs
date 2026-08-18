@@ -42,9 +42,9 @@ public sealed partial class MainWindow : Window
                     new Uri(icoPath, UriKind.Absolute));
             }
 
-            // Open window on left-click or double-click — no context menu item needed
-            TrayIcon.LeftClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
-            TrayIcon.DoubleClickCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(ShowWindow);
+            // Headless EDR: Do not open dashboard on left-click or double-click
+            TrayIcon.LeftClickCommand = null;
+            TrayIcon.DoubleClickCommand = null;
 
             if (RootGrid is not null)
             {
@@ -277,13 +277,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWindow()
     {
-        if (ContentFrame is not null && ContentFrame.Content is null)
-        {
-            _navigationService.Frame = ContentFrame;
-            _navigationService.NavigateTo("dashboard");
-        }
-        this.AppWindow.Show();
-        this.Activate();
+        // Headless EDR: Dashboard window display is disabled
     }
 
     private void MenuEdrStart_Click(object sender, RoutedEventArgs e)
