@@ -1272,7 +1272,15 @@ pub mod worker_instance {
                         "[DYNAMIC HOOK] OpenEDR ProcessCreate queue: applying hooks to PID {}",
                         hook_pid
                     ));
-                    self.refresh_dynamic_hooks_for_pid_if_due(hook_pid);
+                    // Newly created processes must be hooked immediately. Bypass
+                    // the per-PID refresh throttle for this drain so the next
+                    // housekeeping tick applies their dynamic API hooks right
+                    // away instead of after the 2s wait. Re-stamp the throttle so
+                    // subsequent sweeps stay 2s-cooldowned: failing PIDs are not
+                    // re-attempted every 750ms. `register_dynamic_hooks_for_process`
+                    // keeps the protected/internal-process skip.
+                    self.dynamic_hook_last_refresh.insert(hook_pid, std::time::Instant::now());
+                    self.register_dynamic_hooks_for_process(hook_pid);
                 }
 
                 // --- FIRST: Prune dead processes from behavior engine ---
