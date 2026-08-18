@@ -4109,7 +4109,10 @@ impl BehaviorEngine {
             if let Ok(mut q) = self.pending_hook_pids.lock() {
                 let q: &mut std::collections::VecDeque<u32> = &mut *q;
                 if q.len() < 512 && !q.contains(&pid) {
-                    q.push_back(pid);
+                    // New-process-first: freshly created processes jump the hook
+                    // queue so their dynamic API hooks are applied before any
+                    // backlogged PIDs are drained.
+                    q.push_front(pid);
                 }
             }
         }
@@ -4819,7 +4822,14 @@ impl BehaviorEngine {
                     let q: &mut std::collections::VecDeque<(u32, IrpOperationRecord)> = &mut *q;
                     let len = q.len();
                     if len < SOFT_CAP || (high_priority && len < HARD_CAP) {
-                        q.push_back((pid, rec));
+                        if event_type == "LLE_PROCESS_CREATE" {
+                            // New-process-first: the process-create record jumps
+                            // to the front so the fresh process state is seeded
+                            // and analyzed before backlogged events are drained.
+                            q.push_front((pid, rec));
+                        } else {
+                            q.push_back((pid, rec));
+                        }
                     } else {
                         // Log the drop (throttled) instead of silently discarding, so a
                         // full queue is visible and not mistaken for "no events to process".
@@ -12620,6 +12630,72 @@ mod tests {
 
         let drained = engine.drain_pending_hook_pids();
         assert_eq!(drained, vec![4242]);
+    }
+
+    #[test]
+    fn process_create_event_queues_hook_pid_first() {
+        let mut engine = BehaviorEngine::new();
+
+        // Pre-fill the hook queue with a backlogged PID so ordering is observable.
+        {
+            let mut q = engine.pending_hook_pids.lock().unwrap();
+            q.push_back(1000);
+        }
+        let event = serde_json::json!({
+            "type": "LLE_PROCESS_CREATE",
+            "pid": 4242,
+        });
+        engine.ingest_openedr_event(&event);
+
+        let drained = engine.drain_pending_hook_pids();
+        assert_eq!(
+            drained,
+            vec![4242, 1000],
+            "newly created processes must be hooked before backlogged PIDs"
+        );
+    }
+
+    #[test]
+    fn process_create_record_jumps_irp_queue() {
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            7,
+            4242,
+            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
+            "cmd.exe".into(),
+        );
+
+        // Backlogged file record queued before the process-create event arrives.
+        let file_event = serde_json::json!({
+            "type": "LLE_FILE_CREATE",
+            "pid": 4242,
+            "file": { "path": r"C:\Temp\backlog.txt" }
+        });
+        engine.ingest_openedr_event(&file_event);
+        assert_eq!(engine.pending_irp_records.lock().unwrap().len(), 1);
+
+        let create_event = serde_json::json!({
+            "type": "LLE_PROCESS_CREATE",
+            "pid": 4242,
+        });
+        engine.ingest_openedr_event(&create_event);
+        assert_eq!(engine.pending_irp_records.lock().unwrap().len(), 2);
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 2);
+        // Verify order: the LLE_PROCESS_CREATE IOMessage (irp_op ProcessCreate)
+        // must precede the backlogged file-create record.
+        use crate::shared_def::SysmonEvent as SE;
+        assert_eq!(
+            drained[0].1.irp_op,
+            SE::ProcessCreate as u32,
+            "process-create record must be drained first (new-process-first)"
+        );
+        assert_eq!(
+            drained[1].1.irp_op,
+            SE::FileCreate as u32,
+            "backlogged file-create record must drain after process-create"
+        );
     }
 
     #[test]
