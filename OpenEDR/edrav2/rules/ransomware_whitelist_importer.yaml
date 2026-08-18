@@ -21,13 +21,13 @@
       # pipeline. Order is meaningful — a file must be read before it can be
       # encrypted and then renamed or deleted.
       orderless: false
-      file_operations: ["read", "lle_file_data_read_full"]
+      file_operations: ["read"]
       min_matches: 1
 
     mass_disk_writes:
       # orderless: any combination of write/create/change/rename counts.
       orderless: true
-      file_operations: ["write", "create", "setinfo", "rename", "lle_file_data_write_full", "lle_file_create", "lle_file_data_change"]
+      file_operations: ["write", "create", "setinfo", "rename"]
       min_matches: 2
 
     suspicious_encryption_apis:
@@ -82,7 +82,7 @@
     ransomware_write_activity:
       # orderless: single file_operation type; order is irrelevant.
       orderless: true
-      file_operations: ["write", "lle_file_data_write_full"]
+      file_operations: ["write"]
       min_matches: 1
 
     ransomware_rename_activity:
@@ -99,7 +99,7 @@
       # orderless: create and write events are counted as a set regardless of sequence.
       # Requires the target file to have an unknown (non-whitelisted) extension.
       orderless: true
-      file_operations: ["create", "write", "lle_file_create", "lle_file_data_write_full"]
+      file_operations: ["create", "write"]
       detect_non_whitelisted_extensions: true
       min_matches: 1
 
@@ -107,7 +107,7 @@
       # orderless: delete events are counted as a set regardless of sequence.
       # Requires the deleted file to have been previously read by the process.
       orderless: true
-      file_operations: ["delete", "lle_file_delete"]
+      file_operations: ["delete"]
       require_same_file_read: true
       min_matches: 1
 
@@ -115,7 +115,7 @@
       # orderless: delete events are counted as a set regardless of sequence.
       # Correlates with previously created/written unknown-extension files sharing the same stem.
       orderless: true
-      file_operations: ["delete", "lle_file_delete"]
+      file_operations: ["delete"]
       require_same_stem_created_unknown_extension: true
       min_matches: 1
 
@@ -268,12 +268,12 @@
 
     single_file_read:
       orderless: false
-      file_operations: ["read", "lle_file_data_read_full"]
+      file_operations: ["read"]
       min_matches: 1
 
     unknown_extension_create:
       orderless: true
-      file_operations: ["create", "write", "lle_file_create", "lle_file_data_write_full"]
+      file_operations: ["create", "write"]
       detect_non_whitelisted_extensions: true
       detect_known_to_unknown_extension_change: true
       min_matches: 1

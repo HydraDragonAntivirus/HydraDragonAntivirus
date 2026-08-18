@@ -1439,50 +1439,44 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u32> {
         | "file_read"
         | "file_data_read"
         | "file_data_read_full"
-        | "lle_file_data_read_full"
         | "filedatareadfull" => Some(SE::FileDataReadFull as u32),
         // File write (full payload)
         "write"
         | "file_write"
         | "file_data_write"
         | "file_data_write_full"
-        | "lle_file_data_write_full"
         | "filedatawritefull" => Some(SE::FileDataWriteFull as u32),
         // File data change (metadata/size update)
         "setinfo" | "set_info"
         | "file_data_change"
-        | "lle_file_data_change"
         | "filedatachange" => Some(SE::FileDataChange as u32),
         // File create / open
         "create" | "open"
         | "file_create"
-        | "lle_file_create"
         | "filecreate" => Some(SE::FileCreate as u32),
         // File delete
         "delete"
         | "file_delete"
-        | "lle_file_delete"
         | "filedelete" => Some(SE::FileDelete as u32),
         // File close
         "cleanup" | "clean_up" | "close"
         | "file_close"
-        | "lle_file_close"
         | "fileclose" => Some(SE::FileClose as u32),
         // Registry
         "registry" => Some(SE::RegistryKeyCreate as u32),
         // Process
-        "process_create" | "processcreate" | "proc_create" | "proccreate"
-        | "lle_process_create" => Some(SE::ProcessCreate as u32),
+        "process_create" | "processcreate" | "proc_create" | "proccreate" => {
+            Some(SE::ProcessCreate as u32)
+        }
         "process_terminate" | "processterminate" | "proc_terminate" | "proc_term" | "procterm" => {
             Some(8)
         }
         "process_terminate_attempt" | "proc_terminate_attempt" | "proc_term_attempt" => Some(9),
         "process_exit" | "processexit" | "proc_exit" | "procexit" => Some(10),
-        "process_handle_open"
+"process_handle_open"
         | "processhandleopen"
         | "proc_handle_open"
         | "prochandleopen"
-        | "lle_process_open"
         | "processopen" => Some(SE::ProcessOpen as u32),
         "cross_process_handle"
         | "crossprocesshandle"
@@ -1491,9 +1485,7 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u32> {
         | "cross_process_handle_open"
         | "crossprocesshandleopen" => Some(SE::ProcessOpen as u32),
         // Kernel / rootkit events (mapped through DeviceIoControl opcode space)
-        "process_memory_write"
-        | "processmemorywrite"
-        | "lle_process_memory_write" => Some(14),
+        "process_memory_write" | "processmemorywrite" => Some(14),
         "kernel_remote_thread"
         | "kernelremotethread"
         | "kern_remote_thread"
@@ -1532,8 +1524,7 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u32> {
         }
         "rootkit_file_move" | "rootkitfilemove" | "rk_file_move" | "rkfilemove" => Some(26),
         "rootkit_generic" | "rootkitgeneric" | "rk_generic" | "rkgeneric" => Some(27),
-        "named_pipe_create" | "namedpipecreate" | "pipe_create" | "pipecreate"
-        | "lle_named_pipe_create" => Some(28),
+        "named_pipe_create" | "namedpipecreate" | "pipe_create" | "pipecreate" => Some(28),
         "named_pipe_write" | "namedpipewrite" | "pipe_write" | "pipewrite" => Some(29),
         _ => None,
     }
@@ -1548,7 +1539,6 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         // Delete: IrpSetInfo + delete file_change  OR  direct LLE_FILE_DELETE opcode
         "delete"
         | "file_delete"
-        | "lle_file_delete"
         | "filedelete" => {
             // Direct opcode match (LLE_FILE_DELETE = SysmonEvent::FileDelete)
             if irp_type == SE::FileDelete as u32 {
@@ -1575,7 +1565,6 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         | "file_read"
         | "file_data_read"
         | "file_data_read_full"
-        | "lle_file_data_read_full"
         | "filedatareadfull" => {
             return irp_type == SE::FileDataReadFull as u32;
         }
@@ -1584,7 +1573,6 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         | "file_write"
         | "file_data_write"
         | "file_data_write_full"
-        | "lle_file_data_write_full"
         | "filedatawritefull" => {
             return irp_type == SE::FileDataWriteFull as u32;
         }
@@ -1592,7 +1580,6 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         "setinfo"
         | "set_info"
         | "file_data_change"
-        | "lle_file_data_change"
         | "filedatachange" => {
             return irp_type == SE::FileDataChange as u32 || irp_op == IrpMajorOp::IrpSetInfo;
         }
@@ -1600,7 +1587,6 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         "create"
         | "open"
         | "file_create"
-        | "lle_file_create"
         | "filecreate" => {
             return irp_type == SE::FileCreate as u32 || irp_op == IrpMajorOp::IrpCreate;
         }
@@ -1609,7 +1595,6 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         | "cleanup"
         | "clean_up"
         | "file_close"
-        | "lle_file_close"
         | "fileclose" => {
             return irp_type == SE::FileClose as u32 || irp_op == IrpMajorOp::_IrpCleanUp;
         }
@@ -1641,9 +1626,7 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
             return irp_op == IrpMajorOp::IrpRegistry
                 && file_change == FileChangeInfo::RegCreateKey as u8;
         }
-        "process_memory_write"
-        | "processmemorywrite"
-        | "lle_process_memory_write" => {
+"process_memory_write" | "processmemorywrite" => {
             return irp_type == 14 || irp_op == IrpMajorOp::IrpKernelWriteMemory;
         }
         "cross_process_handle"
