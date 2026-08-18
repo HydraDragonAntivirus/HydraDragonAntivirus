@@ -1465,12 +1465,20 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u32> {
         }
         "process_terminate_attempt" | "proc_terminate_attempt" | "proc_term_attempt" => Some(9),
         "process_exit" | "processexit" | "proc_exit" | "procexit" => Some(10),
-        "process_handle_open" | "processhandleopen" | "proc_handle_open" | "prochandleopen"
-        | "process_open" | "lle_process_open" | "processopen" => Some(SE::ProcessOpen as u32),
+        "process_handle_open"
+        | "processhandleopen"
+        | "proc_handle_open"
+        | "prochandleopen"
+        | "lle_process_open"
+        | "processopen" => Some(SE::ProcessOpen as u32),
+        "cross_process_handle"
+        | "crossprocesshandle"
+        | "cross_process_open"
+        | "crossprocessopen"
+        | "cross_process_handle_open"
+        | "crossprocesshandleopen" => Some(SE::ProcessOpen as u32),
         // Kernel / rootkit events (mapped through DeviceIoControl opcode space)
-        "process_write"
-        | "processwrite"
-        | "process_memory_write"
+        "process_memory_write"
         | "processmemorywrite"
         | "lle_process_memory_write" => Some(14),
         "kernel_remote_thread"
@@ -1620,12 +1628,19 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
             return irp_op == IrpMajorOp::IrpRegistry
                 && file_change == FileChangeInfo::RegCreateKey as u8;
         }
-        "process_write"
-        | "processwrite"
-        | "process_memory_write"
+        "process_memory_write"
         | "processmemorywrite"
         | "lle_process_memory_write" => {
             return irp_type == 14 || irp_op == IrpMajorOp::IrpKernelWriteMemory;
+        }
+        "cross_process_handle"
+        | "crossprocesshandle"
+        | "cross_process_open"
+        | "crossprocessopen"
+        | "cross_process_handle_open"
+        | "crossprocesshandleopen" => {
+            return irp_type == SE::ProcessOpen as u32
+                || irp_op == IrpMajorOp::IrpProcessHandleOpen;
         }
         _ => {}
     }
@@ -4688,6 +4703,7 @@ impl BehaviorEngine {
                 "LLE_PROCESS_CREATE" => Some(SE::ProcessCreate as u32),
                 "LLE_PROCESS_DELETE" => Some(SE::ProcessDelete as u32),
                 "LLE_PROCESS_OPEN" => Some(SE::ProcessOpen as u32),
+                "LLE_PROCESS_MEMORY_WRITE" => Some(14),
                 "LLE_NAMED_PIPE_CREATE" => Some(SE::NamedPipeCreate as u32),
                 // IRP_ hook/rootkit events carried as DeviceIoControl
                 "IRP_USERMODE_HOOK_EVENT" | "LLE_DEVICE_IOCTL" => Some(SE::DeviceIoControl as u32),
@@ -8515,7 +8531,32 @@ impl BehaviorEngine {
                         irp_operation_matches_token(current_irp_opcode, msg.file_change, required)
                     });
 
-                    if opcode_match || operation_match {
+                    let self_target_ok = !cond_group.require_self_target
+                        || msg.kernel_event_info.target_process_id == 0
+                        || msg.kernel_event_info.target_process_id == state.pid;
+                    let cross_target_ok = !cond_group.require_cross_target
+                        || (msg.kernel_event_info.target_process_id != 0
+                            && msg.kernel_event_info.target_process_id != state.pid);
+                    let token_requires_cross_target = cond_group.irp_operations.iter().any(|required| {
+                        matches!(
+                            normalize_irp_operation_token(required).as_str(),
+                            "cross_process_handle"
+                                | "crossprocesshandle"
+                                | "cross_process_open"
+                                | "crossprocessopen"
+                                | "cross_process_handle_open"
+                                | "crossprocesshandleopen"
+                        )
+                    });
+                    let token_cross_target_ok = !token_requires_cross_target
+                        || (msg.kernel_event_info.target_process_id != 0
+                            && msg.kernel_event_info.target_process_id != state.pid);
+
+                    if (opcode_match || operation_match)
+                        && self_target_ok
+                        && cross_target_ok
+                        && token_cross_target_ok
+                    {
                         matched = true;
                         if is_verbose_logging_enabled() {
                             let operation_name = Self::operation_label(msg);

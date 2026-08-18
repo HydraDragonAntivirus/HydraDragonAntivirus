@@ -1890,6 +1890,10 @@ pub struct NamedConditionGroup {
     #[serde(default, alias = "opcodes", alias = "irp_ops")]
     pub irp_opcodes: Vec<u32>,
     #[serde(default)]
+    pub require_self_target: bool,
+    #[serde(default)]
+    pub require_cross_target: bool,
+    #[serde(default)]
     pub pipe_payloads: Vec<ContentMatchData>,
     #[serde(default)]
     pub network_indicators: Vec<String>,

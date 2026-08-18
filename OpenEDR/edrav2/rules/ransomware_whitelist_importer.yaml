@@ -261,14 +261,15 @@
   within_ms: 180000
 
   named_conditions:
-    process_handle_open:
+    process_start:
       orderless: true
-      irp_operations: ["process_open"]
+      irp_operations: ["process_create"]
       min_matches: 1
 
-    process_memory_write:
+    self_process_memory_write:
       orderless: true
-      irp_operations: ["process_write"]
+      irp_operations: ["process_memory_write"]
+      require_self_target: true
       min_matches: 1
 
     single_file_read:
@@ -285,8 +286,8 @@
 
   detection_logic:
     and:
-      - condition: "process_handle_open"
-      - condition: "process_memory_write"
+      - condition: "process_start"
+      - condition: "self_process_memory_write"
       - condition: "single_file_read"
       - condition: "unknown_extension_create"
 
