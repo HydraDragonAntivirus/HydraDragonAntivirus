@@ -2,7 +2,7 @@ pub use super::rule_types::*;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::config::Config;
 use crate::extensions::ExtensionList;
-use crate::logging::Logging;
+use crate::logging::{is_verbose_logging_enabled, Logging};
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::ProcessRecord;
 
@@ -6907,6 +6907,23 @@ impl BehaviorEngine {
         Self::normalize_api_signature(raw)
     }
 
+    fn api_signature_matches_required(
+        cache: &Arc<std::sync::RwLock<HashMap<String, Regex>>>,
+        required_api: &str,
+        available: &str,
+        no_lowercase: bool,
+    ) -> bool {
+        let (required_norm, required_has_path) =
+            Self::normalize_api_signature_opt(required_api, no_lowercase);
+        let (available_norm, available_has_path) =
+            Self::normalize_api_signature_opt(available, no_lowercase);
+        if required_has_path {
+            available_has_path && Self::matches_pattern_internal(cache, required_api, available)
+        } else {
+            Self::matches_pattern_internal(cache, &required_norm, &available_norm)
+        }
+    }
+
     fn matches_u32_list(filter: &[u32], value: u32) -> bool {
         filter.is_empty() || filter.contains(&value)
     }
@@ -8129,7 +8146,7 @@ impl BehaviorEngine {
             available_apis.insert(api.clone());
         }
 
-        if !available_apis.is_empty() {
+        if is_verbose_logging_enabled() && !available_apis.is_empty() {
             let mut api_names: Vec<&str> = available_apis.iter().map(|s| s.as_str()).collect();
             api_names.sort_unstable_by_key(|name| name.to_ascii_lowercase());
             Logging::info(&format!(
@@ -8173,6 +8190,8 @@ impl BehaviorEngine {
         }
 
         let network_activity_observed = self.pid_has_network_activity(msg.pid);
+
+        let any_debug_rule = self.rules.iter().any(|r| r.debug);
 
         for rule in &self.rules {
             if rule.named_conditions.is_empty() {
@@ -8254,15 +8273,17 @@ impl BehaviorEngine {
 
                     if opcode_match || operation_match {
                         matched = true;
-                        let operation_name = Self::operation_label(msg);
-                        Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - IRP op match for PID {}: opcode={} ({}) operation={}",
-                            cond_name,
-                            state.pid,
-                            current_irp_opcode,
-                            irp_major_op_label(current_irp_opcode),
-                            operation_name
-                        ));
+                        if is_verbose_logging_enabled() {
+                            let operation_name = Self::operation_label(msg);
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - IRP op match for PID {}: opcode={} ({}) operation={}",
+                                cond_name,
+                                state.pid,
+                                current_irp_opcode,
+                                irp_major_op_label(current_irp_opcode),
+                                operation_name
+                            ));
+                        }
                     }
                 }
 
@@ -8275,75 +8296,77 @@ impl BehaviorEngine {
                         .chain(cond_group.anti_vm_apis.iter());
 
                     let current_matches_any = current_event_apis.iter().any(|available| {
-                        let (available_norm, available_has_path) =
-                            Self::normalize_api_signature_opt(available, cond_group.no_lowercase);
-                        cond_group
-                            .apis
-                            .iter()
-                            .chain(cond_group.scheduled_task_apis.iter())
-                            .chain(cond_group.anti_debug_apis.iter())
-                            .chain(cond_group.anti_vm_apis.iter())
-                            .any(|required_api| {
-                                let (required_norm, required_has_path) =
-                                    Self::normalize_api_signature_opt(required_api, cond_group.no_lowercase);
-                                if required_has_path {
-                                    available_has_path
-                                        && Self::matches_pattern_internal(
-                                            &self.regex_cache,
-                                            required_api,
-                                            available,
-                                        )
-                                } else {
-                                    Self::matches_pattern_internal(
-                                        &self.regex_cache,
-                                        &required_norm,
-                                        &available_norm,
-                                    )
-                                }
-                            })
+                        api_iter.clone().any(|required_api| {
+                            Self::api_signature_matches_required(
+                                &self.regex_cache,
+                                required_api,
+                                available,
+                                cond_group.no_lowercase,
+                            )
+                        })
                     });
 
-                    let matched_apis: Vec<&String> = api_iter
-                        .filter(|required_api| {
-                            let (required_norm, required_has_path) =
-                                Self::normalize_api_signature_opt(required_api, cond_group.no_lowercase);
-                            available_apis.iter().any(|available| {
-                                let (available_norm, available_has_path) =
-                                    Self::normalize_api_signature_opt(available, cond_group.no_lowercase);
-                                if required_has_path {
-                                    available_has_path
-                                        && Self::matches_pattern_internal(
+                    // `matched_apis` only gates the api_threshold check, so when the
+                    // current event did not match any required API the whole scan is
+                    // wasted work and can be skipped. For api_threshold <= 1 the
+                    // current event (already present in all_apis_called) is enough to
+                    // satisfy the threshold, so we avoid scanning the full accumulated
+                    // API set on every single hook event.
+                    let matched_apis: Vec<&String> = if current_matches_any {
+                        if cond_group.api_threshold.max(1) <= 1 {
+                            api_iter
+                                .filter(|required_api| {
+                                    current_event_apis.iter().any(|available| {
+                                        Self::api_signature_matches_required(
                                             &self.regex_cache,
                                             required_api,
                                             available,
+                                            cond_group.no_lowercase,
                                         )
-                                } else {
-                                    Self::matches_pattern_internal(
-                                        &self.regex_cache,
-                                        &required_norm,
-                                        &available_norm,
-                                    )
-                                }
-                            })
-                        })
-                        .collect();
+                                    })
+                                })
+                                .collect()
+                        } else {
+                            api_iter
+                                .filter(|required_api| {
+                                    available_apis.iter().any(|available| {
+                                        Self::api_signature_matches_required(
+                                            &self.regex_cache,
+                                            required_api,
+                                            available,
+                                            cond_group.no_lowercase,
+                                        )
+                                    })
+                                })
+                                .collect()
+                        }
+                    } else {
+                        Vec::new()
+                    };
 
                     if current_matches_any && matched_apis.len() >= std::cmp::max(1, cond_group.api_threshold) {
-                        let api_names = matched_apis
-                            .iter()
-                            .map(|s| s.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ");
                         if api_only_condition {
                             matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Current API match for PID {}: {} APIs detected: {}",
-                                cond_name,
-                                state.pid,
-                                matched_apis.len(),
-                                api_names
-                            ));
-                        } else if rule.debug || self.rules.iter().any(|r| r.debug) {
+                            if is_verbose_logging_enabled() {
+                                let api_names = matched_apis
+                                    .iter()
+                                    .map(|s| s.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - Current API match for PID {}: {} APIs detected: {}",
+                                    cond_name,
+                                    state.pid,
+                                    matched_apis.len(),
+                                    api_names
+                                ));
+                            }
+                        } else if any_debug_rule {
+                            let api_names = matched_apis
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
                             Logging::debug(&format!(
                                 "[BehaviorEngine] Condition '{}' observed API activity for PID {} but requires file/registry context too: {}",
                                 cond_name, state.pid, api_names
@@ -8383,7 +8406,15 @@ impl BehaviorEngine {
 
                 // ── Firewall-content conditions ──────────────────────────────────
                 
-                if !matched {
+                let has_firewall_conditions = cond_group.firewall_blocked.is_some()
+                    || !cond_group.firewall_dst_ips.is_empty()
+                    || !cond_group.firewall_dst_ports.is_empty()
+                    || !cond_group.firewall_hostnames.is_empty()
+                    || !cond_group.firewall_block_reasons.is_empty()
+                    || !cond_group.network_rules.is_empty()
+                    || !cond_group.dns_query_patterns.is_empty();
+
+                if !matched && has_firewall_conditions {
                     let exe_path_lc = state.exe_path.to_string_lossy().to_lowercase();
                     let fw_blocked_map = self.firewall_blocked_exes.read().unwrap();
                     let fw_net_details = self.firewall_net_details.read().unwrap();
@@ -9866,13 +9897,13 @@ impl BehaviorEngine {
                     };
                     if *count >= required {
                         state.satisfied_named_conditions.insert(scoped_name);
-                        if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        if any_debug_rule {
                             Logging::debug(&format!(
                                 "[BehaviorEngine] Named condition '{}' satisfied for PID {} (count: {}/{}, matches: {})",
                                 cond_name, state.pid, *count, required, match_key
                             ));
                         }
-                    } else if is_new && (rule.debug || self.rules.iter().any(|r| r.debug)) {
+                    } else if is_new && any_debug_rule {
                         Logging::debug(&format!(
                             "[BehaviorEngine] Condition '{}' match #{}/{} for PID {} ({})",
                             cond_name, *count, required, state.pid, match_key
