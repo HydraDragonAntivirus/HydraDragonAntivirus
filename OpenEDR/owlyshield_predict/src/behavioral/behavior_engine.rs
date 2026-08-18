@@ -12631,4 +12631,74 @@ mod tests {
         empty.rebuild_api_pattern_index();
         assert!(empty.api_index_contains("anything").eq(&false));
     }
+
+    #[test]
+    fn shipped_process_hollowing_rule_uses_supported_cross_process_logic() {
+        // Load the real shipped rules through the same include chain the worker
+        // uses. This guards against the previous FP fix regressing: the old rule
+        // relied on `hypervisor_raw_event_types` (a field the engine silently
+        // ignores, making the telemetry leg dead) plus a weak `remote_process_access`
+        // leg that matched benign self-process (src == tgt) hook events.
+        let rules_path = Path::new("../edrav2/rules/behavior_rules.yaml");
+        if !rules_path.exists() {
+            // Keep the test hermetic when run from a different working directory.
+            return;
+        }
+        let mut engine = BehaviorEngine::new();
+        engine
+            .load_rules(rules_path)
+            .expect("shipped rules must deserialize without errors");
+
+        let hollow = engine
+            .rules
+            .iter()
+            .find(|r| r.name == "Process Hollowing")
+            .expect("Process Hollowing rule must be present in shipped rules");
+
+        assert!(
+            hollow.detection_logic.is_some(),
+            "Process Hollowing must define detection_logic"
+        );
+
+        let telemetry = hollow
+            .named_conditions
+            .get("kernel_hollowing_telemetry")
+            .expect("kernel_hollowing_telemetry must be defined");
+        // Only the collision-safe kernel sub-types may be referenced. Opcodes
+        // 13/14/15/16 collide with SysmonEvent ProcessOpen/DeviceIoControl/
+        // NamedPipeCreate/SelfDefense (user-mode hook) and would let benign
+        // self-process events satisfy the leg.
+        assert_eq!(
+            telemetry.irp_operations,
+            vec![
+                "kernel_queue_apc",
+                "kernel_create_section",
+                "kernel_map_section"
+            ],
+            "telemetry must reference only collision-safe kernel sub-types (17/18/19)"
+        );
+
+        for leg in ["image_unmap", "context_takeover"] {
+            assert!(
+                hollow.named_conditions.contains_key(leg),
+                "{leg} leg must be defined"
+            );
+        }
+        assert!(
+            !hollow
+                .named_conditions
+                .contains_key("remote_process_access"),
+            "weak remote_process_access leg must be removed"
+        );
+        for leg in [
+            "hollowing_bootstrap",
+            "remote_memory_replacement",
+            "thread_takeover_and_resume",
+        ] {
+            assert!(
+                hollow.named_conditions.contains_key(leg),
+                "{leg} leg must be preserved"
+            );
+        }
+    }
 }
