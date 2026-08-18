@@ -266,12 +266,6 @@
       irp_operations: ["process_create"]
       min_matches: 1
 
-    self_process_memory_write:
-      orderless: true
-      irp_operations: ["process_memory_write"]
-      require_self_target: true
-      min_matches: 1
-
     single_file_read:
       orderless: false
       file_operations: ["read", "lle_file_data_read_full"]
@@ -287,7 +281,6 @@
   detection_logic:
     and:
       - condition: "process_start"
-      - condition: "self_process_memory_write"
       - condition: "single_file_read"
       - condition: "unknown_extension_create"
 

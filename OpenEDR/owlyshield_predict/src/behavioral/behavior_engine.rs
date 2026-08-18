@@ -209,6 +209,19 @@ type SelfDefenseTelemetryMap =
 
 const SELF_DEFENSE_DUPLICATE_SUPPRESS_MS: u64 = 2_000;
 
+/// Access rights that indicate a real cross-process handle attack attempt.
+/// Mirrors `c_nHostileAccessMask` in libsysmon/src/controller.cpp (the
+/// SelfDefense gate) so benign read/query probes — including the EDR's own
+/// monitoring — are never reported as process attacks.
+const HOSTILE_PROCESS_ACCESS_MASK: u64 = 0x0001 // PROCESS_TERMINATE
+    | 0x0002 // PROCESS_CREATE_THREAD
+    | 0x0008 // PROCESS_VM_OPERATION
+    | 0x0020 // PROCESS_VM_WRITE
+    | 0x0080 // PROCESS_CREATE_PROCESS
+    | 0x0100 // PROCESS_SET_QUOTA
+    | 0x0200 // PROCESS_SET_INFORMATION
+    | 0x0800; // PROCESS_SUSPEND_RESUME
+
 fn shared_openedr_stats() -> OpenEdrTelemetryStatsMap {
     static OPENEDR_STATS: OnceLock<OpenEdrTelemetryStatsMap> = OnceLock::new();
     OPENEDR_STATS
@@ -4510,8 +4523,10 @@ impl BehaviorEngine {
                 || pipe_lc.contains("hydranet")
                 || pipe_lc.contains("hydra"));
         let is_disk_wiper_ioctl = event_type == "LLE_DEVICE_IOCTL";
-        let is_cross_process_open =
-            event_type == "LLE_PROCESS_OPEN" && target_pid != 0 && target_pid != pid;
+        let is_cross_process_open = event_type == "LLE_PROCESS_OPEN"
+            && target_pid != 0
+            && target_pid != pid
+            && (access_or_ioctl & HOSTILE_PROCESS_ACCESS_MASK) != 0;
         let is_process_memory_tamper = matches!(
             event_type,
             "LLE_PROCESS_MEMORY_WRITE" | "LLE_INJECTION_ACTIVITY"
