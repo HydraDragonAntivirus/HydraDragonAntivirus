@@ -4252,14 +4252,59 @@ impl BehaviorEngine {
             .unwrap_or("");
 
         // OpenEDR process-report events (RP1.1.*) carry the FLS verdict at the
-        // top level (flsVerdict / verdict) together with imagePath. Treat a
-        // Malicious verdict exactly like the VERDICT pipe path: quarantine now.
+        // top level (flsVerdict / verdict) together with imagePath, or nested
+        // inside the process image file (process.imageFile.fls.verdict /
+        // process.imageFile.verdict). Treat a Malicious verdict exactly like
+        // the VERDICT pipe path: quarantine now AND surface it in the UI.
         {
-            let top_verdict = event
+            // Extract a cloud verdict from an imageFile dict (fls.verdict or
+            // verdict), plus the top-level flsVerdict/verdict fields.
+            fn verdict_from_image(image: &serde_json::Value) -> Option<OpenEdrFlsVerdict> {
+                image
+                    .get("fls")
+                    .and_then(|fls| fls.get("verdict"))
+                    .and_then(OpenEdrFlsVerdict::from_json_value)
+                    .or_else(|| {
+                        image
+                            .get("verdict")
+                            .and_then(OpenEdrFlsVerdict::from_json_value)
+                    })
+            }
+            fn verdict_from_process(proc: &serde_json::Value) -> Option<OpenEdrFlsVerdict> {
+                proc.get("imageFile")
+                    .and_then(verdict_from_image)
+                    .or_else(|| {
+                        proc.get("flsVerdict")
+                            .or_else(|| proc.get("verdict"))
+                            .and_then(OpenEdrFlsVerdict::from_json_value)
+                    })
+            }
+
+            let cloud_verdict = event
                 .get("flsVerdict")
                 .or_else(|| event.get("verdict"))
-                .and_then(OpenEdrFlsVerdict::from_json_value);
-            if let Some(verdict) = top_verdict {
+                .and_then(OpenEdrFlsVerdict::from_json_value)
+                .or_else(|| {
+                    event
+                        .get("process")
+                        .and_then(verdict_from_process)
+                })
+                .or_else(|| {
+                    event
+                        .get("processes")
+                        .and_then(|a| a.as_array())
+                        .and_then(|arr| {
+                            arr.iter()
+                                .find_map(verdict_from_process)
+                        })
+                })
+                .or_else(|| {
+                    event
+                        .get("childProcess")
+                        .and_then(verdict_from_process)
+                });
+
+            if let Some(verdict) = cloud_verdict {
                 if verdict.is_malicious() {
                     let label = verdict.display_label();
                     let target = if exe_path != "Unknown" {
@@ -4272,6 +4317,7 @@ impl BehaviorEngine {
                             target,
                             &format!("OpenEDR process report verdict (FLS): {label}"),
                         );
+                        self.notify_openedr_threat(pid, target, label, "Static");
                     }
                 }
             }
