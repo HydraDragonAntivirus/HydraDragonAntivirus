@@ -20,18 +20,14 @@
       # NOT orderless: read must precede write/rename/delete in the encryption
       # pipeline. Order is meaningful — a file must be read before it can be
       # encrypted and then renamed or deleted.
-      # lle_file_data_read_full = exact full-file read event from the driver.
       orderless: false
-      file_operations: ["lle_file_data_read_full"]
+      file_operations: ["read", "lle_file_data_read_full"]
       min_matches: 1
 
     mass_disk_writes:
       # orderless: any combination of write/create/change/rename counts.
-      # lle_file_data_write_full = driver-level full payload write.
-      # lle_file_data_change    = metadata / in-place modification.
-      # lle_file_create         = new file creation.
       orderless: true
-      file_operations: ["lle_file_data_write_full", "lle_file_create", "lle_file_data_change", "rename"]
+      file_operations: ["write", "create", "setinfo", "rename", "lle_file_data_write_full", "lle_file_create", "lle_file_data_change"]
       min_matches: 2
 
     suspicious_encryption_apis:
@@ -85,9 +81,8 @@
 
     ransomware_write_activity:
       # orderless: single file_operation type; order is irrelevant.
-      # lle_file_data_write_full = exact full-payload write from the driver.
       orderless: true
-      file_operations: ["lle_file_data_write_full"]
+      file_operations: ["write", "lle_file_data_write_full"]
       min_matches: 1
 
     ransomware_rename_activity:
@@ -103,28 +98,24 @@
     ransomware_create_activity:
       # orderless: create and write events are counted as a set regardless of sequence.
       # Requires the target file to have an unknown (non-whitelisted) extension.
-      # lle_file_create         = new file open/create from the driver.
-      # lle_file_data_write_full = full payload write (winball-style).
       orderless: true
-      file_operations: ["lle_file_create", "lle_file_data_write_full"]
+      file_operations: ["create", "write", "lle_file_create", "lle_file_data_write_full"]
       detect_non_whitelisted_extensions: true
       min_matches: 1
 
     ransomware_delete_activity:
       # orderless: delete events are counted as a set regardless of sequence.
       # Requires the deleted file to have been previously read by the process.
-      # lle_file_delete = exact delete event from the driver.
       orderless: true
-      file_operations: ["lle_file_delete"]
+      file_operations: ["delete", "lle_file_delete"]
       require_same_file_read: true
       min_matches: 1
 
     ransomware_delete_stem_activity:
       # orderless: delete events are counted as a set regardless of sequence.
       # Correlates with previously created/written unknown-extension files sharing the same stem.
-      # lle_file_delete = exact delete event from the driver.
       orderless: true
-      file_operations: ["lle_file_delete"]
+      file_operations: ["delete", "lle_file_delete"]
       require_same_stem_created_unknown_extension: true
       min_matches: 1
 

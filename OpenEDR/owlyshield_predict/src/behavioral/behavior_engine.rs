@@ -7109,10 +7109,15 @@ impl BehaviorEngine {
                         IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32(),
                         raw_irp_type,
                     )
-                } else if (12..=29).contains(&raw_irp_type) || raw_irp_type == 0x000E {
+                } else if (17..=29).contains(&raw_irp_type) {
                     (
                         SysmonEvent::DeviceIoControl as u32,
-                        if (12..=29).contains(&raw_irp_type) { raw_irp_type } else { 0 },
+                        raw_irp_type,
+                    )
+                } else if raw_irp_type == 0x000E {
+                    (
+                        SysmonEvent::DeviceIoControl as u32,
+                        0,
                     )
                 } else {
                     (raw_irp_type, 0)
@@ -8587,10 +8592,15 @@ impl BehaviorEngine {
 
                 let file_op_allowed = if cond_group.file_operations.is_empty() {
                     true
-                } else if let Some(op) = current_file_op {
-                    cond_group.file_operations.iter().any(|v| v == op)
                 } else {
-                    false
+                    cond_group.file_operations.iter().any(|req| {
+                        if let Some(op) = current_file_op {
+                            if req == op || req.to_ascii_lowercase() == op {
+                                return true;
+                            }
+                        }
+                        irp_operation_matches_token(current_irp_opcode, msg.file_change, req)
+                    })
                 };
 
                 let has_path_filters = !cond_group.file_paths.is_empty()
