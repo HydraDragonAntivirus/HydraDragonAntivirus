@@ -3926,8 +3926,10 @@ impl BehaviorEngine {
             }
         }
 
-        // Resolve event_type — some events use numeric `baseEventType` instead
-        // of a string `type` field, so we convert the number to a synthetic tag.
+        // Resolve event_type — OpenEDR events can carry a string (`type`, `event_type`)
+        // or a numeric `baseType` / `baseEventType` code. Map numeric baseType
+        // directly to canonical LLE_* event names so all downstream routing,
+        // dynamic API hooking (LLE_PROCESS_CREATE), and IRP evaluation fire accurately.
         let event_type_owned: String;
         let event_type = match str_at(event, &["type"])
             .or_else(|| str_at(event, &["event_type"]))
@@ -3935,8 +3937,27 @@ impl BehaviorEngine {
         {
             Some(t) => t.trim(),
             None => {
-                event_type_owned = u64_at(event, &["baseEventType"])
-                    .map(|code| format!("BASE_EVENT_{code}"))
+                event_type_owned = u64_at(event, &["baseType"])
+                    .or_else(|| u64_at(event, &["baseEventType"]))
+                    .map(|code| match code {
+                        1 => "LLE_PROCESS_CREATE".to_string(),
+                        2 => "LLE_PROCESS_DELETE".to_string(),
+                        3 => "LLE_REGISTRY_KEY_NAME_CHANGE".to_string(),
+                        4 => "LLE_REGISTRY_KEY_CREATE".to_string(),
+                        5 => "LLE_REGISTRY_KEY_DELETE".to_string(),
+                        6 => "LLE_REGISTRY_VALUE_SET".to_string(),
+                        7 => "LLE_FILE_CREATE".to_string(),
+                        8 => "LLE_FILE_DELETE".to_string(),
+                        9 => "LLE_FILE_CLOSE".to_string(),
+                        10 => "LLE_FILE_DATA_CHANGE".to_string(),
+                        11 => "LLE_FILE_DATA_READ_FULL".to_string(),
+                        12 => "LLE_FILE_DATA_WRITE_FULL".to_string(),
+                        13 => "LLE_PROCESS_OPEN".to_string(),
+                        14 | 47 => "LLE_DEVICE_IOCTL".to_string(),
+                        15 => "LLE_NAMED_PIPE_CREATE".to_string(),
+                        16 => "LLE_SELF_DEFENSE".to_string(),
+                        _ => format!("BASE_EVENT_{code}"),
+                    })
                     .unwrap_or_default();
                 event_type_owned.as_str()
             }
