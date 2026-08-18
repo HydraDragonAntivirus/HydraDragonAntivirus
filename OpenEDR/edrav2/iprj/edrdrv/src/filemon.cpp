@@ -1861,6 +1861,79 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preDeviceControl(
 	return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
+//
+// IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION (Windows 10 1809+)
+//
+// A file-backed section is created against a file (NtCreateSection +
+// NtMapViewOfSection) WITHOUT issuing IRP_MJ_READ/IRP_MJ_WRITE. This is the
+// only minifilter-visible IRP for mapped-section access. PageProtection reveals
+// the mapping intent: PAGE_READONLY => read-only section (read intent),
+// writable protections => writable section (write intent). Emit a path event so
+// the engine can attribute the mapped access to the file.
+//
+FLT_PREOP_CALLBACK_STATUS FLTAPI preAcquireForSectionSync(
+	_Inout_ PFLT_CALLBACK_DATA pData,
+	_In_ PCFLT_RELATED_OBJECTS pFltObjects,
+	_Flt_CompletionContext_Outptr_ PVOID* /*pCompletionContext*/)
+{
+	if (!g_pCommonData->fEnableMonitoring)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	if (KeGetCurrentIrql() > APC_LEVEL)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	if (pData == nullptr || pData->Iopb == nullptr || pFltObjects == nullptr)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	if (pData->RequestorMode == KernelMode)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	auto& sectionParams = pData->Iopb->Parameters.AcquireForSectionSynchronization;
+
+	// Only the initial section creation carries allocation attributes.
+	if (sectionParams.SyncType != SyncTypeCreateSection)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	ULONG nPageProtection = sectionParams.PageProtection;
+
+	// Skip executable image sections: those are the loader mapping code images,
+	// not data-file reads/writes. SEC_IMAGE is set for image-backed sections.
+	constexpr ULONG c_nSecImage = 0x01000000; // SEC_IMAGE
+	if (sectionParams.AllocationAttributes & c_nSecImage)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	// Classify mapping intent from page protection.
+	static constexpr ULONG c_nWritableProtections =
+		PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+	bool fWriteIntent = (nPageProtection & c_nWritableProtections) != 0;
+
+	// Only emit for section mappings with an actual page protection requested
+	// and skip "other" sync operations (map/unmap of an already-created section).
+	if (nPageProtection == 0)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	UNICODE_STRING usFallback;
+	RtlInitUnicodeString(&usFallback, L"UNKNOWN");
+	PCUNICODE_STRING pusTarget = &usFallback;
+	if (pFltObjects->FileObject != nullptr &&
+		pFltObjects->FileObject->FileName.Buffer != nullptr &&
+		pFltObjects->FileObject->FileName.Length != 0)
+	{
+		pusTarget = &pFltObjects->FileObject->FileName;
+	}
+
+	// Reuse the read/write-full event ids so the engine classifies the mapped
+	// access as an ordinary IRP-level file op ("read"/"write"), enabling the
+	// united (api + minifilter) three-way classification.
+	sendPathEvent(
+		fWriteIntent ? SysmonEvent::FileDataWriteFull : SysmonEvent::FileDataReadFull,
+		pusTarget,
+		(ULONG_PTR)FltGetRequestorProcessId(pData),
+		nPageProtection);
+
+	return FLT_PREOP_SUCCESS_NO_CALLBACK;
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 //
@@ -1881,6 +1954,7 @@ CONST FLT_OPERATION_REGISTRATION c_Callbacks[] =
 	{ IRP_MJ_WRITE, 0, preWrite, postWrite },
 	{ IRP_MJ_READ, 0, preRead, postRead },
 	{ IRP_MJ_DEVICE_CONTROL, 0, preDeviceControl, nullptr },
+	{ IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION, 0, preAcquireForSectionSync, nullptr },
 
 	{ IRP_MJ_OPERATION_END }
 };

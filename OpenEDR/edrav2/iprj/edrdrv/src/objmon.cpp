@@ -80,6 +80,31 @@ ACCESS_MASK expandProcessDesiredAccess(ACCESS_MASK src)
 	return src;
 }
 
+//
+// File (FILE_OBJECT) section-mapping access bits.
+// A file handle is opened with SECTION_MAP_READ / SECTION_MAP_WRITE before
+// NtCreateSection/NtMapViewOfSection maps it. IRP_MJ_READ/IRP_MJ_WRITE never
+// fire for such mapped-section access, so the handle-open desired access is the
+// only IRP-side signal that reveals the mapping intent. Mimic the generic
+// mapping used by the I/O manager for file objects.
+//
+GENERIC_MAPPING c_fileGenericMapping =
+{
+	FILE_GENERIC_READ,    // GenericRead
+	FILE_GENERIC_WRITE,   // GenericWrite
+	FILE_GENERIC_EXECUTE, // GenericExecute
+	FILE_ALL_ACCESS       // GenericAll
+};
+
+//
+// Expand Generic in desiredAccess for file objects
+//
+ACCESS_MASK expandFileDesiredAccess(ACCESS_MASK src)
+{
+	RtlMapGenericMask(&src, &c_fileGenericMapping);
+	return src;
+}
+
 #define PROCESS_TERMINATE                  (0x0001)  
 #define PROCESS_CREATE_THREAD              (0x0002)  
 #define PROCESS_SET_SESSIONID              (0x0004)  
@@ -338,6 +363,145 @@ VOID postProcessObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_I
 	);
 }
 
+//
+//
+//
+struct FileCallContext
+{
+	HANDLE nInitiatorPid = nullptr;
+	ACCESS_MASK eDesiredAccess = 0;
+	PFILE_OBJECT pFileObject = nullptr;
+
+	FileCallContext(HANDLE nPidInitiator_, ACCESS_MASK eDesiredAccess_, PFILE_OBJECT pFileObject_) :
+		nInitiatorPid(nPidInitiator_), eDesiredAccess(eDesiredAccess_), pFileObject(pFileObject_)
+	{
+		if (pFileObject != nullptr)
+			ObReferenceObject(pFileObject);
+	}
+
+	~FileCallContext()
+	{
+		if (pFileObject != nullptr)
+			ObDereferenceObject(pFileObject);
+	}
+};
+
+//
+// File objects hook
+//
+OB_PREOP_CALLBACK_STATUS preFileObjectAccess(PVOID /*RegistrationContext*/, 
+	POB_PRE_OPERATION_INFORMATION preOpInfo)
+{
+	if (!g_pCommonData->fObjMonStarted)
+		return OB_PREOP_SUCCESS;
+
+	// Skip if access is from kernel
+	if (preOpInfo->KernelHandle)
+		return OB_PREOP_SUCCESS;
+
+	// Check parameters
+	if ((PFILE_OBJECT)preOpInfo->Object == nullptr)
+		return OB_PREOP_SUCCESS;
+
+	// Extract desired access
+	ACCESS_MASK eDesiredAccess = 0;
+	if (preOpInfo->Operation == OB_OPERATION_HANDLE_CREATE)
+		eDesiredAccess = preOpInfo->Parameters->CreateHandleInformation.DesiredAccess;
+	else if (preOpInfo->Operation == OB_OPERATION_HANDLE_DUPLICATE)
+		eDesiredAccess = preOpInfo->Parameters->DuplicateHandleInformation.DesiredAccess;
+	else
+		return OB_PREOP_SUCCESS;
+
+	// Expand generics (e.g. GENERIC_READ on a file means FILE_GENERIC_READ)
+	ACCESS_MASK eExpandedAccess = expandFileDesiredAccess(eDesiredAccess);
+
+	// Only mapping-capable opens are interesting. Readable/writable mapping is
+	// the only way to access a file's content through a section without an
+	// IRP_MJ_READ/IRP_MJ_WRITE, so a handle carrying SECTION_MAP_* access is
+	// exactly the "united api+minifilter" kernel-side leg we want to observe.
+	static constexpr ACCESS_MASK c_nMapAccessMask = SECTION_MAP_READ | SECTION_MAP_WRITE | SECTION_EXTEND_SIZE;
+	if ((eExpandedAccess & c_nMapAccessMask) == 0)
+		return OB_PREOP_SUCCESS;
+
+	// Filtering for event sending
+	bool fSendEvent = false;
+	do
+	{
+		if (!g_pCommonData->fEnableMonitoring)
+			break;
+
+		auto nInitiatorPid = (ULONG_PTR)PsGetCurrentProcessId();
+
+		procmon::ContextPtr pInitiatorCtx;
+		IFERR_LOG(procmon::fillContext((HANDLE)nInitiatorPid, nullptr, pInitiatorCtx));
+		if (!pInitiatorCtx)
+			break;
+		if (procmon::isProcessInWhiteList(pInitiatorCtx))
+			break;
+
+		fSendEvent = true;
+	} while (false);
+
+	// All checks are completed - init postOperation call context
+	if (fSendEvent)
+		preOpInfo->CallContext = new (NonPagedPool) FileCallContext(
+			PsGetCurrentProcessId(), eExpandedAccess, (PFILE_OBJECT)preOpInfo->Object);
+
+	return OB_PREOP_SUCCESS;
+}
+
+//
+//
+//
+VOID postFileObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFORMATION postOpInfo)
+{
+	// Skip action skipped by preAction
+	if (postOpInfo->CallContext == nullptr)
+		return;
+
+	UniquePtr<FileCallContext> pCallContext((FileCallContext*)postOpInfo->CallContext);
+
+	// Skip unsuccessful
+	if (!NT_SUCCESS(postOpInfo->ReturnStatus))
+		return;
+
+	// Resolve the file name from the FILE_OBJECT.
+	// The FILE_OBJECT->FileName field only holds the base name; use the
+	// object-manager name (full NT path) instead.
+	DynUnicodeString usFileName;
+	NTSTATUS ns = ObQueryNameString(pCallContext->pFileObject, usFileName);
+	PCUNICODE_STRING pusFileName = (PCUNICODE_STRING)usFileName;
+	if (!NT_SUCCESS(ns) || pusFileName->Length == 0)
+		return;
+
+	// Classify the mapping intent into a file operation.
+	// SECTION_MAP_WRITE / SECTION_EXTEND_SIZE => write-intent mapping,
+	// SECTION_MAP_READ only => read-intent mapping.
+	static constexpr ACCESS_MASK c_nWriteMapAccessMask = SECTION_MAP_WRITE | SECTION_EXTEND_SIZE;
+	SysmonEvent eEvent = FlagOn(pCallContext->eDesiredAccess, c_nWriteMapAccessMask) ?
+		SysmonEvent::FileDataWriteFull : SysmonEvent::FileDataReadFull;
+
+	LOGINFO2("sendEvent: %u (fileObjectEvent), pid: %Iu, access: 0x%08X, file:<%wZ>.\r\n",
+		(ULONG)eEvent, (ULONG_PTR)pCallContext->nInitiatorPid,
+		(ULONG)pCallContext->eDesiredAccess, pusFileName);
+
+	// Reuse the read/write-full event ids so the engine classifies the handle
+	// open as an ordinary IRP-level file op ("read"/"write"), enabling the
+	// united (api + minifilter) three-way classification.
+	// Use the stored initiator PID (pre-op time) so cross-process handle
+	// duplication is attributed to the original opener.
+	IFERR_LOG(detail::sendObjectEvent(eEvent, (ULONG_PTR)pCallContext->nInitiatorPid,
+		[pusFileName, &pCallContext](auto pSerializer) {
+			if (!write(*pSerializer, EvFld::FilePath, pusFileName))
+				return STATUS_NO_MEMORY;
+			if (!pSerializer->write(EvFld::AccessMask, uint32_t(pCallContext->eDesiredAccess)))
+				return STATUS_NO_MEMORY;
+			return STATUS_SUCCESS;
+		}
+	), "Can't send file object event %u pid: %Iu.\r\n",
+		(ULONG)eEvent, (ULONG_PTR)pCallContext->nInitiatorPid);
+}
+
 //////////////////////////////////////////////////////////////////////////
 //
 // Create/Terminate process callback
@@ -381,7 +545,7 @@ NTSTATUS initialize()
 
 	// Set hooks
 	{
-		OB_OPERATION_REGISTRATION stObOpReg[2] = {};
+		OB_OPERATION_REGISTRATION stObOpReg[3] = {};
 		OB_CALLBACK_REGISTRATION stObCbReg = {};
 
 		USHORT OperationRegistrationCount = 0;
@@ -391,6 +555,13 @@ NTSTATUS initialize()
 		stObOpReg[OperationRegistrationCount].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
 		stObOpReg[OperationRegistrationCount].PreOperation = preProcessObjectAccess;
 		stObOpReg[OperationRegistrationCount].PostOperation = postProcessObjectAccess;
+		OperationRegistrationCount += 1;
+
+		// File objects callbacks
+		stObOpReg[OperationRegistrationCount].ObjectType = IoFileObjectType;
+		stObOpReg[OperationRegistrationCount].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+		stObOpReg[OperationRegistrationCount].PreOperation = preFileObjectAccess;
+		stObOpReg[OperationRegistrationCount].PostOperation = postFileObjectAccess;
 		OperationRegistrationCount += 1;
 
 		stObCbReg.Version = OB_FLT_REGISTRATION_VERSION;
