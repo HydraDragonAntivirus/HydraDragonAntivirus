@@ -1468,6 +1468,11 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u32> {
         "process_handle_open" | "processhandleopen" | "proc_handle_open" | "prochandleopen"
         | "process_open" | "lle_process_open" | "processopen" => Some(SE::ProcessOpen as u32),
         // Kernel / rootkit events (mapped through DeviceIoControl opcode space)
+        "process_write"
+        | "processwrite"
+        | "process_memory_write"
+        | "processmemorywrite"
+        | "lle_process_memory_write" => Some(14),
         "kernel_remote_thread"
         | "kernelremotethread"
         | "kern_remote_thread"
@@ -1614,6 +1619,13 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         "registry_create" => {
             return irp_op == IrpMajorOp::IrpRegistry
                 && file_change == FileChangeInfo::RegCreateKey as u8;
+        }
+        "process_write"
+        | "processwrite"
+        | "process_memory_write"
+        | "processmemorywrite"
+        | "lle_process_memory_write" => {
+            return irp_type == 14 || irp_op == IrpMajorOp::IrpKernelWriteMemory;
         }
         _ => {}
     }
@@ -5051,6 +5063,204 @@ impl BehaviorEngine {
     ) -> bool {
         let scoped = Self::scoped_condition_name(rule, cond_name);
         state.satisfied_named_conditions.contains(scoped.as_str())
+    }
+
+    fn rule_condition_last_seen(
+        state: &ProcessBehaviorState,
+        rule: &BehaviorRule,
+        cond_name: &str,
+    ) -> Option<SystemTime> {
+        let scoped = Self::scoped_condition_name(rule, cond_name);
+        state.condition_last_seen.get(&scoped).copied()
+    }
+
+    fn collect_detection_condition_timestamps(
+        &self,
+        condition: &DetectionCondition,
+        state: &ProcessBehaviorState,
+        rule: &BehaviorRule,
+    ) -> Option<Vec<SystemTime>> {
+        match condition {
+            DetectionCondition::Named {
+                condition: cond_name,
+            } => {
+                if Self::rule_condition_satisfied(state, rule, cond_name) {
+                    Self::rule_condition_last_seen(state, rule, cond_name).map(|ts| vec![ts])
+                } else {
+                    None
+                }
+            }
+            DetectionCondition::And { and } => {
+                let mut timestamps = Vec::new();
+                for child in and {
+                    timestamps.extend(
+                        self.collect_detection_condition_timestamps(child, state, rule)?,
+                    );
+                }
+                Some(timestamps)
+            }
+            DetectionCondition::Or { or } => or.iter().find_map(|child| {
+                self.collect_detection_condition_timestamps(child, state, rule)
+            }),
+            DetectionCondition::Not { .. } => Some(Vec::new()),
+            DetectionCondition::AllOf { all_of } => {
+                let mut timestamps = Vec::new();
+                for cond_name in all_of {
+                    if !Self::rule_condition_satisfied(state, rule, cond_name) {
+                        return None;
+                    }
+                    timestamps.push(Self::rule_condition_last_seen(state, rule, cond_name)?);
+                }
+                Some(timestamps)
+            }
+            DetectionCondition::AnyOf { any_of } => any_of.iter().find_map(|cond_name| {
+                if Self::rule_condition_satisfied(state, rule, cond_name) {
+                    Self::rule_condition_last_seen(state, rule, cond_name).map(|ts| vec![ts])
+                } else {
+                    None
+                }
+            }),
+            DetectionCondition::NOf { n_of, conditions } => {
+                let timestamps: Vec<SystemTime> = conditions
+                    .iter()
+                    .filter_map(|cond_name| {
+                        if Self::rule_condition_satisfied(state, rule, cond_name) {
+                            Self::rule_condition_last_seen(state, rule, cond_name)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                (timestamps.len() == *n_of).then_some(timestamps)
+            }
+            DetectionCondition::AtLeast {
+                at_least,
+                conditions,
+            } => {
+                let timestamps: Vec<SystemTime> = conditions
+                    .iter()
+                    .filter_map(|cond_name| {
+                        if Self::rule_condition_satisfied(state, rule, cond_name) {
+                            Self::rule_condition_last_seen(state, rule, cond_name)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                (timestamps.len() >= *at_least).then_some(timestamps)
+            }
+            DetectionCondition::AllOfPattern { all_of_pattern } => {
+                let timestamps: Vec<SystemTime> = rule
+                    .named_conditions
+                    .keys()
+                    .filter(|cond_name| {
+                        Self::rule_condition_satisfied(state, rule, cond_name)
+                            && Self::matches_pattern_internal(
+                                &self.regex_cache,
+                                all_of_pattern,
+                                cond_name,
+                            )
+                    })
+                    .filter_map(|cond_name| Self::rule_condition_last_seen(state, rule, cond_name))
+                    .collect();
+                (!timestamps.is_empty()).then_some(timestamps)
+            }
+            DetectionCondition::AnyOfPattern { any_of_pattern } => rule
+                .named_conditions
+                .keys()
+                .find_map(|cond_name| {
+                    if Self::rule_condition_satisfied(state, rule, cond_name)
+                        && Self::matches_pattern_internal(
+                            &self.regex_cache,
+                            any_of_pattern,
+                            cond_name,
+                        )
+                    {
+                        Self::rule_condition_last_seen(state, rule, cond_name).map(|ts| vec![ts])
+                    } else {
+                        None
+                    }
+                }),
+            DetectionCondition::Count {
+                count,
+                comparison,
+                threshold,
+            } => {
+                let timestamps: Vec<SystemTime> = count
+                    .iter()
+                    .filter_map(|cond_name| {
+                        if Self::rule_condition_satisfied(state, rule, cond_name) {
+                            Self::rule_condition_last_seen(state, rule, cond_name)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let satisfied_count = timestamps.len();
+                let matched = match comparison {
+                    Comparison::Gt => satisfied_count > *threshold,
+                    Comparison::Gte => satisfied_count >= *threshold,
+                    Comparison::Lt => satisfied_count < *threshold,
+                    Comparison::Lte => satisfied_count <= *threshold,
+                    Comparison::Eq => satisfied_count == *threshold,
+                    Comparison::Ne => satisfied_count != *threshold,
+                };
+                matched.then_some(timestamps)
+            }
+            DetectionCondition::Percentage {
+                percentage,
+                comparison,
+                threshold,
+            } => {
+                if percentage.is_empty() {
+                    return None;
+                }
+                let timestamps: Vec<SystemTime> = percentage
+                    .iter()
+                    .filter_map(|cond_name| {
+                        if Self::rule_condition_satisfied(state, rule, cond_name) {
+                            Self::rule_condition_last_seen(state, rule, cond_name)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let ratio = timestamps.len() as f32 / percentage.len() as f32;
+                let matched = match comparison {
+                    Comparison::Gt => ratio > *threshold,
+                    Comparison::Gte => ratio >= *threshold,
+                    Comparison::Lt => ratio < *threshold,
+                    Comparison::Lte => ratio <= *threshold,
+                    Comparison::Eq => (ratio - threshold).abs() < 0.001,
+                    Comparison::Ne => (ratio - threshold).abs() >= 0.001,
+                };
+                matched.then_some(timestamps)
+            }
+        }
+    }
+
+    fn detection_condition_within_window(
+        &self,
+        condition: &DetectionCondition,
+        state: &ProcessBehaviorState,
+        rule: &BehaviorRule,
+        window_ms: u64,
+    ) -> bool {
+        let Some(timestamps) =
+            self.collect_detection_condition_timestamps(condition, state, rule)
+        else {
+            return false;
+        };
+        if timestamps.len() <= 1 {
+            return true;
+        }
+
+        let min_ts = timestamps.iter().min().copied().unwrap();
+        let max_ts = timestamps.iter().max().copied().unwrap();
+        max_ts
+            .duration_since(min_ts)
+            .map(|duration| duration.as_millis() <= u128::from(window_ms))
+            .unwrap_or(false)
     }
 
     fn rule_condition_values<'a>(
@@ -10459,6 +10669,23 @@ impl BehaviorEngine {
             let mut rich_triggered = false;
             if let Some(logic) = &rule.detection_logic {
                 rich_triggered = self.evaluate_detection_condition(logic, &state_ref, rule);
+                if rich_triggered
+                    && let Some(window_ms) = rule.within_ms
+                    && !self.detection_condition_within_window(
+                        logic,
+                        &state_ref,
+                        rule,
+                        window_ms,
+                    )
+                {
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Skipping rich-logic trigger for '{}' on PID {}: named condition timestamps exceeded {} ms",
+                            rule.name, state_ref.pid, window_ms
+                        ));
+                    }
+                    rich_triggered = false;
+                }
                 if rich_triggered
                     && !Self::rule_has_current_named_condition_match(&state_ref, rule, msg.time)
                 {

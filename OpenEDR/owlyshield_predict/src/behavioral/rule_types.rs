@@ -2131,6 +2131,8 @@ pub struct BehaviorRule {
     pub named_conditions: HashMap<String, NamedConditionGroup>,
     #[serde(default)]
     pub detection_logic: Option<DetectionCondition>,
+    #[serde(default)]
+    pub within_ms: Option<u64>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
