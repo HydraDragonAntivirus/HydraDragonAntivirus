@@ -98,6 +98,7 @@
                         <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
                         <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
                         <RegistryValue Name="MONITOR_ALL_APIS" Value="0" Type="string" />
+                        <RegistryValue Name="TRUST_COMODO_CLOUD" Value="1" Type="string" />
                     </RegistryKey>
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
@@ -125,6 +126,7 @@
                         <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
                         <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
                         <RegistryValue Name="MONITOR_ALL_APIS" Value="0" Type="string" />
+                        <RegistryValue Name="TRUST_COMODO_CLOUD" Value="1" Type="string" />
                     </RegistryKey>
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />

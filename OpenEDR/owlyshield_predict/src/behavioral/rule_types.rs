@@ -2135,6 +2135,12 @@ pub struct BehaviorRule {
     pub enabled: bool,
     #[serde(default)]
     pub should_trust_comodo_cloud: bool,
+    /// When true, the Comodo-cloud trust policy (TRUST_COMODO_CLOUD=1) must
+    /// NEVER skip this rule's evaluation: the rule is always analyzed even for
+    /// cloud-trusted processes. High-signal rules such as process hollowing use
+    /// this so trust cannot blind the detector.
+    #[serde(default)]
+    pub never_trust_comodo_cloud: bool,
     #[serde(default)]
     pub stages: Vec<AttackStage>,
     #[serde(default)]

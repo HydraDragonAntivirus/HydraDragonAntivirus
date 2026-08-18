@@ -129,6 +129,7 @@ impl Logging {
                 VERBOSE_LOGGING.store(is_verbose, Ordering::Relaxed);
             }
         }
+        crate::config::init_trust_comodo_cloud();
 
         let log_source = "Owlyshield Ransom Rust";
         winlog::register(log_source);

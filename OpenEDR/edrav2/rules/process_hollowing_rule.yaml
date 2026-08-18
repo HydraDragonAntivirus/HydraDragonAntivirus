@@ -1,5 +1,6 @@
 - name: "Process Hollowing"
   should_trust_comodo_cloud: false
+  never_trust_comodo_cloud: true
   description: "Detects a classic process hollowing chain: suspended process creation, remote image unmap or memory replacement, thread context manipulation, and thread resumption. Requires a genuinely remote (cross-process) primitive — kernel IRP telemetry (section create/map, APC queue) or an unmap/context-takeover API — so normal self-process loader and thread-pool activity is not flagged."
   author: "Emirhan Ucan"
   status: experimental

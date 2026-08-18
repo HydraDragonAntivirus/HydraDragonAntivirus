@@ -4,12 +4,33 @@ use registry::{Hive, Security};
 use std::collections::HashMap;
 use std::ops::Index;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use strum_macros::EnumIter;
 
 use crate::extensions::ExtensionList;
 
 const SANCTUM_SETTINGS_PATH: &str =
     r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\config.cfg";
+
+/// Registry gate (HKLM\SOFTWARE\Owlyshield\TRUST_COMODO_CLOUD = 1) for the
+/// Comodo-cloud trust policy: processes the cloud marked Safe are not fully
+/// monitored (their API-hook flood and other events skip named-condition rule
+/// evaluation) and are never quarantined — only kill is allowed.
+static TRUST_COMODO_CLOUD: AtomicBool = AtomicBool::new(false);
+
+/// Read TRUST_COMODO_CLOUD from the Owlyshield registry at startup. Mirrors
+/// how VERBOSE_LOGGING is cached in logging.rs so the hot paths never touch
+/// the registry.
+pub fn init_trust_comodo_cloud() {
+    let val = ConfigReader::read_param_from_registry("TRUST_COMODO_CLOUD", r"SOFTWARE\Owlyshield");
+    let clean = val.trim_matches('\0').trim().to_lowercase();
+    TRUST_COMODO_CLOUD.store(clean == "1" || clean == "true", Ordering::Relaxed);
+}
+
+/// Whether the Comodo-cloud trust policy is enabled (default: off).
+pub fn is_trust_comodo_cloud_enabled() -> bool {
+    TRUST_COMODO_CLOUD.load(Ordering::Relaxed)
+}
 
 #[derive(Debug, EnumIter, PartialEq, Eq, Hash, Clone)]
 pub enum Param {

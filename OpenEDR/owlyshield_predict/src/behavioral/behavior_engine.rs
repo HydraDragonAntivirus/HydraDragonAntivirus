@@ -2488,6 +2488,14 @@ impl ProcessBehaviorState {
         state
     }
 
+    /// True when the Comodo cloud has marked this process Safe (FLS code 1).
+    /// Once remembered on the state this is what "clean file" means for the
+    /// trust policy: reduced monitoring and kill-only remediation.
+    pub fn is_comodo_cloud_trusted(&self) -> bool {
+        is_openedr_fls_safe_code(self.cloud_static_verdict)
+            || is_openedr_fls_safe_code(self.cloud_dynamic_verdict)
+    }
+
     fn record_hook_error(&mut self, record: HookErrorRecord) {
         self.hook_error_count = self.hook_error_count.saturating_add(1);
         *self
@@ -8193,7 +8201,33 @@ impl BehaviorEngine {
 
         let any_debug_rule = self.rules.iter().any(|r| r.debug);
 
+        // Comodo-cloud trust policy: a process the cloud marked Safe is not
+        // fully monitored. Skip named-condition rule evaluation entirely so its
+        // API-hook flood and other events are not behaviorally analyzed; per
+        // event bookkeeping above/below (IRP records, written-payload and
+        // extension tracking) still runs so the process stays tracked. This is
+        // gated by the TRUST_COMODO_CLOUD registry switch and never touches the
+        // rule content itself.
+        let cloud_trusted = crate::config::is_trust_comodo_cloud_enabled()
+            && self
+                .process_states
+                .get(&gid)
+                .map(|s| s.is_comodo_cloud_trusted())
+                .unwrap_or(false);
+        if cloud_trusted && is_verbose_logging_enabled() {
+            Logging::info(&format!(
+                "[BehaviorEngine] PID {} cloud-trusted (Comodo Safe); skipping named-condition rule evaluation",
+                msg.pid
+            ));
+        }
+
         for rule in &self.rules {
+            // Comodo-cloud trust: skip every rule except those that explicitly
+            // opt out with `never_trust_comodo_cloud` (e.g. process hollowing),
+            // which must always be evaluated even for cloud-trusted processes.
+            if cloud_trusted && !rule.never_trust_comodo_cloud {
+                continue;
+            }
             if rule.named_conditions.is_empty() {
                 continue;
             }
@@ -10645,6 +10679,23 @@ impl BehaviorEngine {
                     }
                 }
 
+                // CLOUD-TRUST GUARD: A file the Comodo cloud marked Safe must
+                // never be quarantined (the artifact is trusted, moving or
+                // removing it would destroy a clean file). If it still trips a
+                // rule, only terminate/kill is allowed. Gated by the
+                // TRUST_COMODO_CLOUD registry switch.
+                if crate::config::is_trust_comodo_cloud_enabled()
+                    && state_ref.is_comodo_cloud_trusted()
+                    && (threat_info.quarantine || threat_info.kill_and_remove)
+                {
+                    Logging::warning(&format!(
+                        "[BehaviorEngine] Rule '{}' triggered quarantine for cloud-trusted process {} (GID: {}); quarantine suppressed (kill-only policy)",
+                        rule.name, precord.appname, precord.gid
+                    ));
+                    threat_info.quarantine = false;
+                    threat_info.kill_and_remove = false;
+                }
+
                 let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                 actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
                 self.process_terminated
@@ -12189,6 +12240,18 @@ impl BehaviorEngine {
                     } else {
                         rule.response.kill_and_remove
                     };
+                    // CLOUD-TRUST GUARD: never quarantine a Comodo-cloud Safe
+                    // process — only kill is allowed.
+                    if crate::config::is_trust_comodo_cloud_enabled()
+                        && state.is_comodo_cloud_trusted()
+                    {
+                        p.quarantine_requested = false;
+                        p.kill_and_remove_requested = false;
+                        Logging::warning(&format!(
+                            "[BehaviorEngine] Rule '{}' triggered quarantine for cloud-trusted process {} (GID: {}); quarantine suppressed (kill-only policy)",
+                            rule.name, app_name, gid
+                        ));
+                    }
                     p.suspend_requested = if rule.response.ask_user {
                         false
                     } else {
