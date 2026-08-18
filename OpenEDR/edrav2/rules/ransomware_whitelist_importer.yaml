@@ -20,8 +20,13 @@
       # NOT orderless: read must precede write/rename/delete in the encryption
       # pipeline. Order is meaningful — a file must be read before it can be
       # encrypted and then renamed or deleted.
+      # united_read matches BOTH telemetry sources: IRP-level reads from the
+      # minifilter AND API-hook reads (NtReadFile / mapped-section reads via
+      # NtCreateSection+NtMapViewOfSection). Samples that encrypt through
+      # memory-mapped sections never emit IRP_MJ_READ, so without the API leg
+      # their read activity is invisible to the minifilter.
       orderless: false
-      file_operations: ["read"]
+      file_operations: ["united_read"]
       min_matches: 1
 
     mass_disk_writes:
@@ -81,8 +86,10 @@
 
     ransomware_write_activity:
       # orderless: single file_operation type; order is irrelevant.
+      # united_write matches both minifilter IRP writes and API-hook writes
+      # (NtWriteFile / FlushViewOfFile after mapped-section writes).
       orderless: true
-      file_operations: ["write"]
+      file_operations: ["united_write"]
       min_matches: 1
 
     ransomware_rename_activity:

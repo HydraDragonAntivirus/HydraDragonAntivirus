@@ -1859,6 +1859,14 @@ pub struct NamedConditionGroup {
     pub no_lowercase: bool,
     #[serde(default)]
     pub file_paths: Vec<String>,
+    /// File operations to match, e.g. "read", "write", "create", "delete",
+    /// "rename", "setinfo".
+    ///
+    /// Three-way source separation is supported via token prefixes:
+    /// - `read`            => minifilter-only (IRP-level) reads
+    /// - `api_read`        => API-hook-only reads (mapped-section / NtReadFile)
+    /// - `united_read`     => matches either source (IRP or API hook)
+    /// The same scheme applies to `write`, `create`, `delete`, `rename`.
     #[serde(default)]
     pub file_operations: Vec<String>,
     #[serde(default)]

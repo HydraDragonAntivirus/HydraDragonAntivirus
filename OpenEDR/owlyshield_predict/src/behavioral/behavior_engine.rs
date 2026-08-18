@@ -1398,7 +1398,72 @@ fn is_file_data_irp(irp_op: &IrpMajorOp) -> bool {
     matches!(
         irp_op,
         IrpMajorOp::IrpRead | IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo
+    ) || matches!(
+        irp_op,
+        IrpMajorOp::IrpUserModeHookEvent
+            | IrpMajorOp::IrpKernelCreateSection
+            | IrpMajorOp::IrpKernelMapSection
     )
+}
+
+/// Classify a user-mode API-hook function name into a coarse file operation.
+///
+/// Ransomware frequently reads target files through memory-mapped sections
+/// (`NtCreateSection` + `NtMapViewOfSection`) or bulk copy buffers, so the
+/// reads never appear as IRP_MJ_READ (`IrpRead`) events. Without mapping the
+/// hooked API name to a file op, `file_operations: ["read"]` conditions such as
+/// `ransomware_read_activity` never match for such samples. This maps the
+/// common file-I/O and section-mapping APIs to their logical operation; returns
+/// `None` for non-file APIs so unrelated hook noise never counts as file ops.
+/// Strip the "api_" prefix from an API-level file op ("api_read" -> "read")
+/// so plain-token comparisons treat both levels uniformly.
+fn file_op_base(op: &str) -> &str {
+    op.strip_prefix("api_").unwrap_or(op)
+}
+
+fn api_hook_file_operation(function_name: &str) -> Option<&'static str> {
+    let normalized = normalize_hypervisor_label(function_name);
+    if normalized.is_empty() {
+        return None;
+    }
+    let simple_name = normalized
+        .rsplit('!')
+        .next()
+        .unwrap_or(&normalized)
+        .trim()
+        .trim_end_matches('A')
+        .trim_end_matches('W')
+        .trim_end_matches("Ex")
+        .trim_end_matches("ExW")
+        .trim_end_matches("ExA");
+    if simple_name.is_empty() {
+        return None;
+    }
+    match simple_name {
+        // Read: explicit reads plus memory-mapped file reads. A file-backed
+        // section created then mapped is, for rule purposes, a read of that
+        // file (ransomware maps victim files to encrypt them in place).
+        "NtReadFile" | "ZwReadFile" | "ReadFile" | "ReadFileScatter" | "_read" | "fread" => {
+            Some("read")
+        }
+        "NtCreateSection" | "ZwCreateSection" | "NtMapViewOfSection" | "ZwMapViewOfSection"
+        | "MapViewOfFile" | "MapViewOfFileEx" => Some("read"),
+        // Write: explicit writes plus section mapping with write intent. We
+        // cannot see the protection flags in the hook args here, so only the
+        // unambiguous file-write APIs count as writes.
+        "NtWriteFile" | "ZwWriteFile" | "WriteFile" | "WriteFileGather" | "_write" | "fwrite" => {
+            Some("write")
+        }
+        "NtFlushBuffersFile" | "ZwFlushBuffersFile" | "FlushFileBuffers" => Some("write"),
+        // Create / open
+        "NtCreateFile" | "ZwCreateFile" | "CreateFile" | "CreateFile2" | "_open" | "fopen" => {
+            Some("create")
+        }
+        "NtDeleteFile" | "ZwDeleteFile" | "DeleteFile" | "RemoveDirectory" => Some("delete"),
+        "NtSetInformationFile" | "ZwSetInformationFile" | "MoveFile" | "MoveFileEx"
+        | "MoveFileWithProgress" => Some("rename"),
+        _ => None,
+    }
 }
 
 fn normalize_irp_operation_token(token: &str) -> String {
@@ -8956,6 +9021,26 @@ impl BehaviorEngine {
                         Some(FileChangeInfo::ChangeNewFile) => Some("create"),
                         _ => Some("setinfo"),
                     },
+                    // User-mode API hooks carry the hooked function in
+                    // kernel_event_info.object_name. Reads/writes through
+                    // memory-mapped sections and bulk copy buffers never emit
+                    // IrpRead/IrpWrite IRPs, so classify them here from the
+                    // API name instead of dropping the event entirely. The op
+                    // is written with an "api_" prefix so the output keeps
+                    // IRP-level and API-level file operations distinguishable
+                    // while still matching plain file_operations tokens.
+                    IrpMajorOp::IrpUserModeHookEvent
+                    | IrpMajorOp::IrpKernelCreateSection
+                    | IrpMajorOp::IrpKernelMapSection => {
+                        api_hook_file_operation(&current_event_name).map(|op| match op {
+                            "read" => "api_read",
+                            "write" => "api_write",
+                            "create" => "api_create",
+                            "delete" => "api_delete",
+                            "rename" => "api_rename",
+                            other => other,
+                        })
+                    }
                     _ => None,
                 };
 
@@ -8963,12 +9048,34 @@ impl BehaviorEngine {
                     true
                 } else {
                     cond_group.file_operations.iter().any(|req| {
+                        let req_lc = req.to_ascii_lowercase();
                         if let Some(op) = current_file_op {
-                            if req == op || req.to_ascii_lowercase() == op {
+                            let op_lc = op.to_ascii_lowercase();
+                            // Three-way source separation:
+                            // - plain token ("read") matches minifilter-only ops
+                            // - "api_read" matches API-hook-only ops
+                            // - "united_read" matches either source
+                            let op_is_api = op_lc.starts_with("api_");
+                            if req_lc == op_lc {
                                 return true;
                             }
+                            if req_lc.starts_with("united_") {
+                                let base = &req_lc["united_".len()..];
+                                if file_op_base(&op_lc) == base {
+                                    return true;
+                                }
+                            } else if !op_is_api {
+                                // Plain token against an IRP-level op: exact match
+                                // already handled above; nothing more to add.
+                            }
                         }
-                        irp_operation_matches_token(current_irp_opcode, msg.file_change, req)
+                        // Fallback for raw IRP opcode tokens; strip "united_"
+                        // so "united_read" also matches the raw FileDataReadFull
+                        // opcode path for IRP-level events.
+                        let req_effective = req_lc
+                            .strip_prefix("united_")
+                            .unwrap_or(req_lc.as_str());
+                        irp_operation_matches_token(current_irp_opcode, msg.file_change, req_effective)
                     })
                 };
 
@@ -9189,7 +9296,10 @@ impl BehaviorEngine {
                                     // or `require_same_stem_written_unknown_extension`.
                                     // e.g., "c:/users/foo/document.docx.winball" → stem "c:/users/foo/document.docx"
                                     if !filepath.is_empty()
-                                        && matches!(current_file_op, Some("create") | Some("write"))
+                                        && matches!(
+                                            current_file_op.map(file_op_base),
+                                            Some("create") | Some("write")
+                                        )
                                     {
                                         let last_sep = filepath.rfind('/').unwrap_or(0);
                                         let stem = if let Some(dot_pos) = filepath.rfind('.') {
@@ -9202,7 +9312,7 @@ impl BehaviorEngine {
                                             filepath.to_string()
                                         };
                                         if stem != *filepath {
-                                            if current_file_op == Some("create") {
+                                            if current_file_op.map(file_op_base) == Some("create") {
                                                 Logging::debug(&format!(
                                                     "[BehaviorEngine] Stored create stem for delete correlation (PID {}): {}",
                                                     state.pid, stem
@@ -9231,9 +9341,12 @@ impl BehaviorEngine {
                         {
                             matched = true;
                             if !filepath.is_empty()
-                                && matches!(current_file_op, Some("create") | Some("write"))
+                                && matches!(
+                                    current_file_op.map(file_op_base),
+                                    Some("create") | Some("write")
+                                )
                             {
-                                if current_file_op == Some("create") {
+                                if current_file_op.map(file_op_base) == Some("create") {
                                     state.created_unknown_ext_stems.insert(filepath.to_string());
                                 } else {
                                     state.written_unknown_ext_stems.insert(filepath.to_string());
