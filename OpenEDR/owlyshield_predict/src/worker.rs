@@ -318,10 +318,6 @@ pub mod worker_instance {
         
         dynamic_hook_last_refresh: std::collections::HashMap<u32, std::time::Instant>,
         
-        dynamic_hook_target_generation: u64,
-        
-        dynamic_hook_applied_generation: std::collections::HashMap<u32, u64>,
-        
         dynamic_hook_apply_failures: std::collections::HashMap<u32, u32>,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         
@@ -882,10 +878,6 @@ pub mod worker_instance {
                 
                 dynamic_hook_last_refresh: std::collections::HashMap::new(),
                 
-                dynamic_hook_target_generation: 0,
-                
-                dynamic_hook_applied_generation: std::collections::HashMap::new(),
-                
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 
                 driver: None,
@@ -1219,7 +1211,6 @@ pub mod worker_instance {
                     }
                     for pid in &precord.pids {
                         self.dynamic_hook_last_refresh.remove(pid);
-                        self.dynamic_hook_applied_generation.remove(pid);
                         self.dynamic_hook_apply_failures.remove(pid);
                     }
                 }
@@ -1579,10 +1570,6 @@ pub mod worker_instance {
                 dynamic_hook_registration_blocked: false,
                 
                 dynamic_hook_last_refresh: std::collections::HashMap::new(),
-                
-                dynamic_hook_target_generation: 0,
-                
-                dynamic_hook_applied_generation: std::collections::HashMap::new(),
                 
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 threat_handler: None,
@@ -2816,19 +2803,12 @@ pub mod worker_instance {
                 }
             }
 
-            if registered_count > 0 {
-                self.dynamic_hook_target_generation =
-                    self.dynamic_hook_target_generation.saturating_add(1);
-            }
-
-            let target_generation = self.dynamic_hook_target_generation;
-            let applied_generation = self
-                .dynamic_hook_applied_generation
-                .get(&pid)
-                .copied()
-                .unwrap_or(0);
             let has_any_targets = registered_count > 0 || already_registered_count > 0;
-            let needs_apply = has_any_targets && applied_generation < target_generation;
+            // Always apply when targets exist. The old generation timeline
+            // (applied_generation < target_generation) skipped the apply for
+            // processes created after startup, so those processes were never
+            // hooked until a new API was registered globally.
+            let needs_apply = has_any_targets;
             let mut apply_attempted = false;
             let mut apply_succeeded = false;
 
@@ -2893,24 +2873,20 @@ pub mod worker_instance {
                     }
                 } else {
                     self.dynamic_hook_apply_failures.remove(&pid);
-                    self.dynamic_hook_applied_generation
-                        .insert(pid, target_generation);
                     apply_succeeded = true;
                 }
             }
 
             self.dynamic_hooks_registered = true;
             let message = format!(
-                "[DYNAMIC HOOK] PID {} => registered={} already={} failed={} wildcard={} apply_attempted={} apply_succeeded={} generation={}/{}",
+                "[DYNAMIC HOOK] PID {} => registered={} already={} failed={} wildcard={} apply_attempted={} apply_succeeded={}",
                 pid,
                 registered_count,
                 already_registered_count,
                 failed_count,
                 wildcard_count,
                 apply_attempted,
-                apply_succeeded,
-                applied_generation,
-                target_generation
+                apply_succeeded
             );
             if registered_count > 0 || failed_count > 0 || apply_attempted {
                 Logging::info(&message);

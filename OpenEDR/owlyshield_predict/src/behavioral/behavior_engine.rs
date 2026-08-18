@@ -4115,6 +4115,30 @@ impl BehaviorEngine {
                     q.push_front(pid);
                 }
             }
+            // Direct best-effort apply: the driver-side API targets are already
+            // registered globally, so a newly created process only needs its
+            // hooks applied. Do it inline so a process is hooked on its own
+            // create event even if the Worker's periodic scan is not running.
+            if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
+                match client.hook_process(pid) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        let hr = e.code().0 as u32;
+                        if hr != 0x80070005
+                            && hr != 0x80070677
+                            && hr != 0x800703E6
+                            && hr != 0xC0000005
+                            && (hr & 0xFFFF) != 0x03E6
+                            && hr != 0x80070016
+                        {
+                            Logging::debug(&format!(
+                                "[DYNAMIC HOOK] Inline hook_process(PID {}) failed (hr=0x{:08X}); queued for periodic retry",
+                                pid, hr
+                            ));
+                        }
+                    }
+                }
+            }
         }
 
         let target_pid = u64_at(event, &["target", "pid"])
