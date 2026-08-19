@@ -240,7 +240,9 @@ struct CommonGlobalData
 	// objmon
 	//
 	AtomicBool fObjMonStarted = FALSE; ///< objmon is initialized
-	HANDLE hProcFltCallbackRegistration = nullptr; ///< objmon internal callback
+	HANDLE hProcFltCallbackRegistration = nullptr; ///< objmon process object callback
+	HANDLE hFileFltCallbackRegistration = nullptr; ///< objmon file object callback
+	HANDLE hThreadFltCallbackRegistration = nullptr; ///< objmon thread object callback
 	FastMutex mtxOpenProcessFilter; ///< mutex for procmon::Context::pOpenProcessFilter
 	/// Timeout before send same openProcess
 	AtomicInt<uint64_t> nOpenProcessRepeatTimeout = c_nOpenProcessRepeatTimeout;

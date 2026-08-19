@@ -4076,6 +4076,7 @@ impl BehaviorEngine {
                         18 => "LLE_FILE_MAP_WRITE".to_string(),
                         19 => "LLE_FILE_HANDLE_OPEN".to_string(),
                         20 => "LLE_FILE_RENAME".to_string(),
+                        21 => "LLE_THREAD_OPEN".to_string(),
                         _ => format!("BASE_EVENT_{code}"),
                     })
                     .unwrap_or_default();
@@ -4331,10 +4332,29 @@ impl BehaviorEngine {
             .or_else(|| str_at(event, &["registry.rawPath"]))
             .unwrap_or("");
         let is_registry_event = is_openedr_registry_event(event_type);
-        let protected_path = if is_registry_event && !registry_path.is_empty() {
-            registry_path
+        // The driver emits the pre-rename path in file.rawPath and the target
+        // name in file.renameTarget. Rebuild the effective path from the target
+        // so the extension-change detection compares the NEW extension against
+        // the previously-recorded one (otherwise previous_extension always
+        // equals the current extension for renames and the check can never fire).
+        let rename_target = str_at(event, &["file", "renameTarget"])
+            .or_else(|| str_at(event, &["file.renameTarget"]))
+            .unwrap_or("")
+            .to_string();
+        let protected_path: String = if is_registry_event && !registry_path.is_empty() {
+            registry_path.to_string()
+        } else if event_type == "LLE_FILE_RENAME" && !rename_target.is_empty() {
+            if rename_target.contains(':') || rename_target.starts_with('\\') {
+                rename_target
+            } else {
+                let parent = file_path
+                    .rfind(['/', '\\'])
+                    .map(|pos| &file_path[..=pos])
+                    .unwrap_or("");
+                format!("{parent}{rename_target}")
+            }
         } else {
-            file_path
+            file_path.to_string()
         };
         let access_or_ioctl = u64_at(event, &["accessMask"])
             .or_else(|| u64_at(event, &["access_mask"]))
@@ -4423,6 +4443,10 @@ impl BehaviorEngine {
             "LLE_FILE_RENAME" => {
                 aliases.push("OpenEDR::FileRename".to_string());
                 aliases.push("OpenEDR::FileModify".to_string());
+            }
+            "LLE_THREAD_OPEN" => {
+                aliases.push("OpenEDR::ThreadOpen".to_string());
+                aliases.push("OpenEDR::ProcessAccess".to_string());
             }
             "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
                 aliases.push("OpenEDR::RegistryKeyModify".to_string());
@@ -4716,7 +4740,7 @@ impl BehaviorEngine {
                     if protected_path.is_empty() {
                         "BOOT_DISK_OR_DRIVE_LAYOUT"
                     } else {
-                        protected_path
+                        protected_path.as_str()
                     }
                     .to_string(),
                 )
@@ -4760,7 +4784,7 @@ impl BehaviorEngine {
                     if protected_path.is_empty() {
                         "BOOT_DISK_OR_DRIVE_LAYOUT"
                     } else {
-                        protected_path
+                        protected_path.as_str()
                     }
                     .to_string(),
                 )
@@ -4874,6 +4898,7 @@ impl BehaviorEngine {
                 "LLE_FILE_MAP_WRITE" => Some(SE::FileMapWrite as u32),
                 "LLE_FILE_HANDLE_OPEN" => Some(SE::FileHandleOpen as u32),
                 "LLE_FILE_RENAME" => Some(SE::FileRename as u32),
+                "LLE_THREAD_OPEN" => Some(SE::ThreadOpen as u32),
                 "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
                     Some(SE::RegistryKeyCreate as u32)
                 }

@@ -64,6 +64,7 @@ enum class SysmonEvent : uint16_t
 	FileMapWrite = 0x0012,  ///< Memory-mapped section write (mmap)
 	FileHandleOpen = 0x0013, ///< ObRegisterCallbacks file handle open
 	FileRename = 0x0014,    ///< IRP_MJ_SET_INFORMATION FileRenameInformation(Ex)
+	ThreadOpen = 0x0015,    ///< ObRegisterCallbacks thread handle open
 
 	_Max //< "last" event. for internal usage
 };
@@ -160,6 +161,7 @@ enum class EventField : variant::lbvs::FieldId
 	OwlyHvTargetPid = 124,          ///< uint32 - target process PID
 	OwlyHookTargetPid = 125,        ///< uint32 - resolved victim PID for hook events (e.g. CreateRemoteThread)
 	FileRenameTarget = 126,         ///< str - new file name (target) of a rename operation
+	ThreadId = 127,                ///< uint32 - target thread ID (thread handle open)
 };
 
 ///
@@ -294,7 +296,8 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "owlyHv.timestamp" },
 	{ "name": "owlyHv.targetPid" },
 	{ "name": "owlyHookTargetPid" },
-	{ "name": "file.renameTarget" }
+	{ "name": "file.renameTarget" },
+	{ "name": "thread.id" }
 ]})json";
 
 //////////////////////////////////////////////////////////////////////////

@@ -102,6 +102,7 @@ pub enum SysmonEvent {
     FileMapWrite = 0x0012,
     FileHandleOpen = 0x0013,
     FileRename = 0x0014,
+    ThreadOpen = 0x0015,
     Unknown = 0xFFFF_FFFF,
 }
 
@@ -129,6 +130,7 @@ impl SysmonEvent {
             0x0012 => SysmonEvent::FileMapWrite,
             0x0013 => SysmonEvent::FileHandleOpen,
             0x0014 => SysmonEvent::FileRename,
+            0x0015 => SysmonEvent::ThreadOpen,
             _ => SysmonEvent::Unknown,
         }
     }
@@ -156,6 +158,7 @@ impl SysmonEvent {
             0x0012 => "FileMapWrite",
             0x0013 => "FileHandleOpen",
             0x0014 => "FileRename",
+            0x0015 => "ThreadOpen",
             _ => "Unknown",
         }
     }
@@ -169,7 +172,7 @@ impl SysmonEvent {
     }
 
     pub fn is_process_event(v: u32) -> bool {
-        matches!(v, 0x0000 | 0x0001 | 0x000D)
+        matches!(v, 0x0000 | 0x0001 | 0x000D | 0x0015)
     }
 
     pub fn is_pipe_event(v: u32) -> bool {
@@ -237,6 +240,7 @@ impl IrpMajorOp {
              0x0012 => IrpMajorOp::IrpWrite,
              0x0013 => IrpMajorOp::IrpSetInfo,
              0x0014 => IrpMajorOp::IrpSetInfo,
+             0x0015 => IrpMajorOp::IrpProcessHandleOpen,
             // Sub-event type IDs used by to_sysmonevent_u32 for round-trip (not on LBVS wire)
             0x1009 => IrpMajorOp::IrpProcessTerminateAttempt,
             0x100A => IrpMajorOp::IrpProcessExit,

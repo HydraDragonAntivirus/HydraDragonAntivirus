@@ -354,9 +354,10 @@ Variant startService(Variant vParam)
 				error::win::WinApiError(SL, ::GetLastError(), "Can't change service startup mode").throwException();
 			if (!::StartService(hService, nArgc, pArgv))
 			{
-				if (eError == ERROR_SERVICE_ALREADY_RUNNING)
+				DWORD eError2 = ::GetLastError();
+				if (eError2 == ERROR_SERVICE_ALREADY_RUNNING)
 					return false;
-				error::win::WinApiError(SL, eError, FMT("Can't start service <" << vServiceName << ">")).throwException();
+				error::win::WinApiError(SL, eError2, FMT("Can't start service <" << vServiceName << ">")).throwException();
 			}
 		}
 		else

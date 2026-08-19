@@ -62,6 +62,10 @@ constexpr char c_sLleNetworkRequestData[] = "LLE_NETWORK_REQUEST_DATA";
 constexpr char c_sLleDeviceIoctl[] = "LLE_DEVICE_IOCTL";
 constexpr char c_sLleSelfDefense[] = "LLE_SELF_DEFENSE";
 constexpr char c_sLleNamedPipeCreate[] = "LLE_NAMED_PIPE_CREATE";
+constexpr char c_sLleThreadOpen[] = "LLE_THREAD_OPEN";
+constexpr char c_sLleFileMapRead[] = "LLE_FILE_MAP_READ";
+constexpr char c_sLleFileMapWrite[] = "LLE_FILE_MAP_WRITE";
+constexpr char c_sLleFileHandleOpen[] = "LLE_FILE_HANDLE_OPEN";
 
 } // namespace eventtype
 
@@ -123,6 +127,10 @@ const char* getEventTypeString(Event eventType)
 		case Event::LLE_DEVICE_IOCTL: return eventtype::c_sLleDeviceIoctl;
 		case Event::LLE_SELF_DEFENSE: return eventtype::c_sLleSelfDefense;
 		case Event::LLE_NAMED_PIPE_CREATE: return eventtype::c_sLleNamedPipeCreate;
+		case Event::LLE_THREAD_OPEN: return eventtype::c_sLleThreadOpen;
+		case Event::LLE_FILE_MAP_READ: return eventtype::c_sLleFileMapRead;
+		case Event::LLE_FILE_MAP_WRITE: return eventtype::c_sLleFileMapWrite;
+		case Event::LLE_FILE_HANDLE_OPEN: return eventtype::c_sLleFileHandleOpen;
 	}
 	error::InvalidArgument(SL, FMT("Event type <" << (uint64_t)eventType <<
 		"> has no text string")).throwException();

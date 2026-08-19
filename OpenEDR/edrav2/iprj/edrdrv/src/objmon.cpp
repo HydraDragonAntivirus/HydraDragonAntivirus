@@ -120,6 +120,26 @@ ACCESS_MASK expandFileDesiredAccess(ACCESS_MASK src)
 #define PROCESS_QUERY_LIMITED_INFORMATION  (0x1000)  
 #define PROCESS_SET_LIMITED_INFORMATION    (0x2000)  
 
+//
+// THREAD_* access rights (same values as winnt.h)
+//
+#define THREAD_TERMINATE                   (0x0001)
+#define THREAD_SUSPEND_RESUME              (0x0002)
+#define THREAD_ALERT                       (0x0004)
+#define THREAD_GET_CONTEXT                 (0x0008)
+#define THREAD_SET_CONTEXT                 (0x0010)
+#define THREAD_SET_INFORMATION             (0x0020)
+#define THREAD_QUERY_INFORMATION           (0x0040)
+#define THREAD_SET_THREAD_TOKEN            (0x0080)
+#define THREAD_IMPERSONATE                 (0x0100)
+#define THREAD_DIRECT_IMPERSONATION        (0x0200)
+#define THREAD_SET_LIMITED_INFORMATION     (0x0400)
+#define THREAD_QUERY_LIMITED_INFORMATION   (0x0800)
+#define THREAD_RESUME                      (0x1000)
+#define THREAD_READ_CONTROL                (0x00020000)
+#define THREAD_WRITE_DAC                   (0x00040000)
+#define THREAD_WRITE_OWNER                 (0x00080000)  
+
 
 //
 //
@@ -474,10 +494,12 @@ VOID postFileObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFO
 	if (!NT_SUCCESS(ns) || pusFileName->Length == 0)
 		return;
 
-	// Emit a dedicated ObRegisterCallbacks file-handle-open event so the engine
-	// exposes it as a distinct SDK rule type ("handle_open"), separate from the
-	// minifilter IRP-level read/write and section-map (mmap) events. The desired
-	// access is carried in the AccessMask field for finer rule filtering.
+///
+/// Emit a dedicated ObRegisterCallbacks file-handle-open event so the engine
+/// exposes it as a distinct SDK rule type ("handle_open"), separate from the
+/// minifilter IRP-level read/write and section-map (mmap) events. The desired
+/// access is carried in the AccessMask field for finer rule filtering.
+///
 	SysmonEvent eEvent = SysmonEvent::FileHandleOpen;
 
 	LOGINFO2("sendEvent: %u (fileObjectEvent), pid: %Iu, access: 0x%08X, file:<%wZ>.\r\n",
@@ -495,6 +517,129 @@ VOID postFileObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFO
 			return STATUS_SUCCESS;
 		}
 	), "Can't send file object event %u pid: %Iu.\r\n",
+		(ULONG)eEvent, (ULONG_PTR)pCallContext->nInitiatorPid);
+}
+
+//
+//
+//
+struct ThreadCallContext
+{
+	HANDLE nInitiatorPid = nullptr;
+	ACCESS_MASK eDesiredAccess = 0;
+	PETHREAD pThreadObject = nullptr;
+
+	ThreadCallContext(HANDLE nPidInitiator_, ACCESS_MASK eDesiredAccess_, PETHREAD pThreadObject_) :
+		nInitiatorPid(nPidInitiator_), eDesiredAccess(eDesiredAccess_), pThreadObject(pThreadObject_)
+	{
+		if (pThreadObject != nullptr)
+			ObReferenceObject(pThreadObject);
+	}
+
+	~ThreadCallContext()
+	{
+		if (pThreadObject != nullptr)
+			ObDereferenceObject(pThreadObject);
+	}
+};
+
+//
+// Thread objects hook
+//
+OB_PREOP_CALLBACK_STATUS preThreadObjectAccess(PVOID /*RegistrationContext*/,
+	POB_PRE_OPERATION_INFORMATION preOpInfo)
+{
+	if (!g_pCommonData->fObjMonStarted)
+		return OB_PREOP_SUCCESS;
+
+	// Skip if access is from kernel
+	if (preOpInfo->KernelHandle)
+		return OB_PREOP_SUCCESS;
+
+	// Check parameters
+	if ((PETHREAD)preOpInfo->Object == nullptr)
+		return OB_PREOP_SUCCESS;
+
+	// Extract desired access
+	ACCESS_MASK eDesiredAccess = 0;
+	if (preOpInfo->Operation == OB_OPERATION_HANDLE_CREATE)
+		eDesiredAccess = preOpInfo->Parameters->CreateHandleInformation.DesiredAccess;
+	else if (preOpInfo->Operation == OB_OPERATION_HANDLE_DUPLICATE)
+		eDesiredAccess = preOpInfo->Parameters->DuplicateHandleInformation.DesiredAccess;
+	else
+		return OB_PREOP_SUCCESS;
+
+	// Filtering for event sending
+	bool fSendEvent = false;
+	do
+	{
+		if (!g_pCommonData->fEnableMonitoring)
+			break;
+
+		auto nInitiatorPid = (ULONG_PTR)PsGetCurrentProcessId();
+
+		procmon::ContextPtr pInitiatorCtx;
+		IFERR_LOG(procmon::fillContext((HANDLE)nInitiatorPid, nullptr, pInitiatorCtx));
+		if (!pInitiatorCtx)
+			break;
+		if (procmon::isProcessInWhiteList(pInitiatorCtx))
+			break;
+
+		fSendEvent = true;
+	} while (false);
+
+	// All checks are completed - init postOperation call context
+	if (fSendEvent)
+		preOpInfo->CallContext = new (NonPagedPool) ThreadCallContext(
+			PsGetCurrentProcessId(), eDesiredAccess, (PETHREAD)preOpInfo->Object);
+
+	return OB_PREOP_SUCCESS;
+}
+
+//
+//
+//
+VOID postThreadObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFORMATION postOpInfo)
+{
+	// Skip action skipped by preAction
+	if (postOpInfo->CallContext == nullptr)
+		return;
+
+	UniquePtr<ThreadCallContext> pCallContext((ThreadCallContext*)postOpInfo->CallContext);
+
+	// Skip unsuccessful
+	if (!NT_SUCCESS(postOpInfo->ReturnStatus))
+		return;
+
+	// Check GrantedAccess
+	ACCESS_MASK eGrantedAccess = (postOpInfo->Operation == OB_OPERATION_HANDLE_CREATE) ?
+		postOpInfo->Parameters->CreateHandleInformation.GrantedAccess :
+		postOpInfo->Parameters->DuplicateHandleInformation.GrantedAccess;
+
+	// All but querying information
+	static constexpr ACCESS_MASK eDetectedAccessMask = THREAD_TERMINATE | THREAD_SUSPEND_RESUME |
+		THREAD_SET_CONTEXT | THREAD_SET_THREAD_TOKEN | THREAD_IMPERSONATE | THREAD_DIRECT_IMPERSONATION |
+		THREAD_SET_INFORMATION | THREAD_READ_CONTROL | THREAD_WRITE_DAC | THREAD_WRITE_OWNER;
+
+	if (!FlagOn(eGrantedAccess, eDetectedAccessMask))
+		return;
+
+	SysmonEvent eEvent = SysmonEvent::ThreadOpen;
+
+	LOGINFO2("sendEvent: %u (threadObjectEvent), pid: %Iu, targetTid: %Iu, access: 0x%08X, oper:%u, status: 0x%08X.\r\n",
+		(ULONG)eEvent, (ULONG_PTR)pCallContext->nInitiatorPid,
+		(ULONG_PTR)PsGetThreadId(pCallContext->pThreadObject), (ULONG)eGrantedAccess,
+		(ULONG)postOpInfo->Operation, (ULONG)postOpInfo->ReturnStatus);
+
+	IFERR_LOG(detail::sendObjectEvent(eEvent, (ULONG_PTR)pCallContext->nInitiatorPid,
+		[&pCallContext](auto pSerializer) {
+			if (!pSerializer->write(EvFld::ThreadId, (uint32_t)(ULONG_PTR)PsGetThreadId(pCallContext->pThreadObject)))
+				return STATUS_NO_MEMORY;
+			if (!pSerializer->write(EvFld::AccessMask, uint32_t(pCallContext->eDesiredAccess)))
+				return STATUS_NO_MEMORY;
+			return STATUS_SUCCESS;
+		}
+	), "Can't send thread object event %u pid: %Iu.\r\n",
 		(ULONG)eEvent, (ULONG_PTR)pCallContext->nInitiatorPid);
 }
 
@@ -538,34 +683,64 @@ NTSTATUS initialize()
 		return STATUS_SUCCESS;
 
 	g_pCommonData->hProcFltCallbackRegistration = nullptr;
+	g_pCommonData->hFileFltCallbackRegistration = nullptr;
+	g_pCommonData->hThreadFltCallbackRegistration = nullptr;
 
 	// Set hooks
 	{
-		OB_OPERATION_REGISTRATION stObOpReg[3] = {};
+		// Processes callbacks. ObRegisterCallbacks allows only one object type
+		// per registration call, so process and file objects are registered
+		// separately.
+		OB_OPERATION_REGISTRATION stObOpReg[2] = {};
 		OB_CALLBACK_REGISTRATION stObCbReg = {};
 
-		USHORT OperationRegistrationCount = 0;
-
-		// Processes callbacks
-		stObOpReg[OperationRegistrationCount].ObjectType = PsProcessType;
-		stObOpReg[OperationRegistrationCount].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-		stObOpReg[OperationRegistrationCount].PreOperation = preProcessObjectAccess;
-		stObOpReg[OperationRegistrationCount].PostOperation = postProcessObjectAccess;
-		OperationRegistrationCount += 1;
-
-		// File objects callbacks
-		stObOpReg[OperationRegistrationCount].ObjectType = IoFileObjectType;
-		stObOpReg[OperationRegistrationCount].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-		stObOpReg[OperationRegistrationCount].PreOperation = preFileObjectAccess;
-		stObOpReg[OperationRegistrationCount].PostOperation = postFileObjectAccess;
-		OperationRegistrationCount += 1;
+		stObOpReg[0].ObjectType = PsProcessType;
+		stObOpReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+		stObOpReg[0].PreOperation = preProcessObjectAccess;
+		stObOpReg[0].PostOperation = postProcessObjectAccess;
 
 		stObCbReg.Version = OB_FLT_REGISTRATION_VERSION;
-		stObCbReg.OperationRegistrationCount = OperationRegistrationCount;
+		stObCbReg.OperationRegistrationCount = 1;
 		stObCbReg.OperationRegistration = stObOpReg;
 		RtlInitUnicodeString(&stObCbReg.Altitude, edrdrv::c_sAltitudeValue);
 
 		IFERR_RET(ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hProcFltCallbackRegistration));
+	}
+
+	// Set file object callbacks
+	{
+		OB_OPERATION_REGISTRATION stObOpReg[2] = {};
+		OB_CALLBACK_REGISTRATION stObCbReg = {};
+
+		stObOpReg[0].ObjectType = IoFileObjectType;
+		stObOpReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+		stObOpReg[0].PreOperation = preFileObjectAccess;
+		stObOpReg[0].PostOperation = postFileObjectAccess;
+
+		stObCbReg.Version = OB_FLT_REGISTRATION_VERSION;
+		stObCbReg.OperationRegistrationCount = 1;
+		stObCbReg.OperationRegistration = stObOpReg;
+		RtlInitUnicodeString(&stObCbReg.Altitude, edrdrv::c_sAltitudeValue);
+
+		IFERR_RET(ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hFileFltCallbackRegistration));
+	}
+
+	// Set thread object callbacks
+	{
+		OB_OPERATION_REGISTRATION stObOpReg[2] = {};
+		OB_CALLBACK_REGISTRATION stObCbReg = {};
+
+		stObOpReg[0].ObjectType = PsThreadType;
+		stObOpReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+		stObOpReg[0].PreOperation = preThreadObjectAccess;
+		stObOpReg[0].PostOperation = postThreadObjectAccess;
+
+		stObCbReg.Version = OB_FLT_REGISTRATION_VERSION;
+		stObCbReg.OperationRegistrationCount = 1;
+		stObCbReg.OperationRegistration = stObOpReg;
+		RtlInitUnicodeString(&stObCbReg.Altitude, edrdrv::c_sAltitudeValue);
+
+		IFERR_RET(ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hThreadFltCallbackRegistration));
 	}
 
 	g_pCommonData->fObjMonStarted = TRUE;
@@ -585,6 +760,18 @@ void finalize()
 	{
 		ObUnRegisterCallbacks(g_pCommonData->hProcFltCallbackRegistration);
 		g_pCommonData->hProcFltCallbackRegistration = nullptr;
+	}
+
+	if (g_pCommonData->hFileFltCallbackRegistration != nullptr)
+	{
+		ObUnRegisterCallbacks(g_pCommonData->hFileFltCallbackRegistration);
+		g_pCommonData->hFileFltCallbackRegistration = nullptr;
+	}
+
+	if (g_pCommonData->hThreadFltCallbackRegistration != nullptr)
+	{
+		ObUnRegisterCallbacks(g_pCommonData->hThreadFltCallbackRegistration);
+		g_pCommonData->hThreadFltCallbackRegistration = nullptr;
 	}
 
 	g_pCommonData->fObjMonStarted = FALSE;
