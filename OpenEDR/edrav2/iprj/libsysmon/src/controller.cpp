@@ -288,7 +288,7 @@ bool SystemMonitorController::startInt()
 			{"params", Dictionary({
 				{"name", c_sDrvSrvName},
 				{"state", SERVICE_RUNNING},
-				{"timeout", 2000},
+				{"timeout", 30000},
 			})},
 		}));
 
