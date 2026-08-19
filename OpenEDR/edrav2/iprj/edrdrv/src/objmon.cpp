@@ -690,7 +690,8 @@ NTSTATUS initialize()
 	{
 		// Processes callbacks. ObRegisterCallbacks allows only one object type
 		// per registration call, so process and file objects are registered
-		// separately.
+		// separately. On failure all previously registered callbacks are
+		// unregistered to avoid dangling callback entries after driver unload.
 		OB_OPERATION_REGISTRATION stObOpReg[2] = {};
 		OB_CALLBACK_REGISTRATION stObCbReg = {};
 
@@ -704,7 +705,12 @@ NTSTATUS initialize()
 		stObCbReg.OperationRegistration = stObOpReg;
 		RtlInitUnicodeString(&stObCbReg.Altitude, edrdrv::c_sAltitudeValue);
 
-		IFERR_RET(ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hProcFltCallbackRegistration));
+		NTSTATUS status = ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hProcFltCallbackRegistration);
+		if (!NT_SUCCESS(status))
+		{
+			finalize();
+			return status;
+		}
 	}
 
 	// Set file object callbacks
@@ -712,8 +718,11 @@ NTSTATUS initialize()
 		OB_OPERATION_REGISTRATION stObOpReg[2] = {};
 		OB_CALLBACK_REGISTRATION stObCbReg = {};
 
+		// ObRegisterCallbacks supports only OB_OPERATION_HANDLE_CREATE for
+		// file objects; requesting HANDLE_DUPLICATE fails with
+		// STATUS_INVALID_PARAMETER.
 		stObOpReg[0].ObjectType = IoFileObjectType;
-		stObOpReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+		stObOpReg[0].Operations = OB_OPERATION_HANDLE_CREATE;
 		stObOpReg[0].PreOperation = preFileObjectAccess;
 		stObOpReg[0].PostOperation = postFileObjectAccess;
 
@@ -722,7 +731,12 @@ NTSTATUS initialize()
 		stObCbReg.OperationRegistration = stObOpReg;
 		RtlInitUnicodeString(&stObCbReg.Altitude, edrdrv::c_sAltitudeValue);
 
-		IFERR_RET(ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hFileFltCallbackRegistration));
+		NTSTATUS status = ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hFileFltCallbackRegistration);
+		if (!NT_SUCCESS(status))
+		{
+			finalize();
+			return status;
+		}
 	}
 
 	// Set thread object callbacks
@@ -740,7 +754,12 @@ NTSTATUS initialize()
 		stObCbReg.OperationRegistration = stObOpReg;
 		RtlInitUnicodeString(&stObCbReg.Altitude, edrdrv::c_sAltitudeValue);
 
-		IFERR_RET(ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hThreadFltCallbackRegistration));
+		NTSTATUS status = ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hThreadFltCallbackRegistration);
+		if (!NT_SUCCESS(status))
+		{
+			finalize();
+			return status;
+		}
 	}
 
 	g_pCommonData->fObjMonStarted = TRUE;
@@ -753,9 +772,9 @@ NTSTATUS initialize()
 //
 void finalize()
 {
-	if (!g_pCommonData->fObjMonStarted) return;
-
-	// Reset hooks
+	// Reset hooks. No fObjMonStarted guard here: initialize() calls this on a
+	// partial failure and driver unload calls it on success, so every
+	// registration handle must be released in both paths.
 	if (g_pCommonData->hProcFltCallbackRegistration != nullptr)
 	{
 		ObUnRegisterCallbacks(g_pCommonData->hProcFltCallbackRegistration);
