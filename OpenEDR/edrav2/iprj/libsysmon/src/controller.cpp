@@ -474,9 +474,9 @@ std::map<edrdrv::SysmonEvent, Event> mEventMap = {
 	{edrdrv::SysmonEvent::SelfDefense, Event::LLE_PROCESS_OPEN},
 	{edrdrv::SysmonEvent::FileMapRead, Event::LLE_FILE_MAP_READ},
 	{edrdrv::SysmonEvent::FileMapWrite, Event::LLE_FILE_MAP_WRITE},
-	{edrdrv::SysmonEvent::FileHandleOpen, Event::LLE_FILE_HANDLE_OPEN},
 	{edrdrv::SysmonEvent::FileRename, Event::LLE_FILE_RENAME},
 	{edrdrv::SysmonEvent::ThreadOpen, Event::LLE_THREAD_OPEN},
+	{edrdrv::SysmonEvent::DesktopOpen, Event::LLE_DESKTOP_OPEN},
 };
 
 //

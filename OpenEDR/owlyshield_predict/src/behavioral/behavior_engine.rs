@@ -1655,11 +1655,11 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         | "map_write" => {
             return irp_type == SE::FileMapWrite as u32;
         }
-        // Dedicated ObRegisterCallbacks file-handle-open event
+        // Dedicated ObRegisterCallbacks desktop-handle-open event
         "handle_open"
-        | "file_handle_open"
+        | "desktop_handle_open"
         | "ob_register_callbacks" => {
-            return irp_type == SE::FileHandleOpen as u32;
+            return irp_type == SE::DesktopOpen as u32;
         }
         // Data change / setinfo
         "setinfo"
@@ -4074,9 +4074,9 @@ impl BehaviorEngine {
                         16 => "LLE_SELF_DEFENSE".to_string(),
                         17 => "LLE_FILE_MAP_READ".to_string(),
                         18 => "LLE_FILE_MAP_WRITE".to_string(),
-                        19 => "LLE_FILE_HANDLE_OPEN".to_string(),
                         20 => "LLE_FILE_RENAME".to_string(),
                         21 => "LLE_THREAD_OPEN".to_string(),
+                        22 => "LLE_DESKTOP_OPEN".to_string(),
                         _ => format!("BASE_EVENT_{code}"),
                     })
                     .unwrap_or_default();
@@ -4436,9 +4436,9 @@ impl BehaviorEngine {
                 aliases.push("OpenEDR::FileMapWrite".to_string());
                 aliases.push("OpenEDR::FileModify".to_string());
             }
-            "LLE_FILE_HANDLE_OPEN" => {
-                aliases.push("OpenEDR::FileHandleOpen".to_string());
-                aliases.push("OpenEDR::FileAccess".to_string());
+            "LLE_DESKTOP_OPEN" => {
+                aliases.push("OpenEDR::DesktopOpen".to_string());
+                aliases.push("OpenEDR::ProcessAccess".to_string());
             }
             "LLE_FILE_RENAME" => {
                 aliases.push("OpenEDR::FileRename".to_string());
@@ -4896,7 +4896,7 @@ impl BehaviorEngine {
                 "LLE_FILE_DATA_WRITE_FULL" => Some(SE::FileDataWriteFull as u32),
                 "LLE_FILE_MAP_READ" => Some(SE::FileMapRead as u32),
                 "LLE_FILE_MAP_WRITE" => Some(SE::FileMapWrite as u32),
-                "LLE_FILE_HANDLE_OPEN" => Some(SE::FileHandleOpen as u32),
+                "LLE_DESKTOP_OPEN" => Some(SE::DesktopOpen as u32),
                 "LLE_FILE_RENAME" => Some(SE::FileRename as u32),
                 "LLE_THREAD_OPEN" => Some(SE::ThreadOpen as u32),
                 "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {

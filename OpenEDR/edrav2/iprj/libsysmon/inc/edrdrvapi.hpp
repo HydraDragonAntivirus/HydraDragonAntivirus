@@ -62,9 +62,9 @@ enum class SysmonEvent : uint16_t
 	// Owlyshield extension events
 	FileMapRead = 0x0011,   ///< Memory-mapped section read (mmap)
 	FileMapWrite = 0x0012,  ///< Memory-mapped section write (mmap)
-	FileHandleOpen = 0x0013, ///< ObRegisterCallbacks file handle open
 	FileRename = 0x0014,    ///< IRP_MJ_SET_INFORMATION FileRenameInformation(Ex)
 	ThreadOpen = 0x0015,    ///< ObRegisterCallbacks thread handle open
+	DesktopOpen = 0x0016,   ///< ObRegisterCallbacks desktop handle open
 
 	_Max //< "last" event. for internal usage
 };
@@ -132,6 +132,7 @@ enum class EventField : variant::lbvs::FieldId
 	ProcessCreatorPid = 23, ///< int. It is sent if creator is not the same as parent (e.g. elevated processes)
 	TargetProcessPid = 24, ///< int
 	AccessMask = 25, ///< int
+	DesktopPath = 26, ///< str - desktop object path
 	OwlyEntropy = 100, ///< float
 	OwlyIsEntropyCalc = 101, ///< int
 	// Owlyshield kernel API hook event fields (ProcessProtection.cpp → LBVS path)
@@ -196,7 +197,7 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "process.creatorPid" },
 	{ "name": "target.pid" },
 	{ "name": "accessMask" },
-	{ "name": "reserved26" },
+	{ "name": "desktop.rawPath" },
 	{ "name": "reserved27" },
 	{ "name": "reserved28" },
 	{ "name": "reserved29" },

@@ -100,9 +100,9 @@ pub enum SysmonEvent {
     SelfDefense = 0x0010,
     FileMapRead = 0x0011,
     FileMapWrite = 0x0012,
-    FileHandleOpen = 0x0013,
     FileRename = 0x0014,
     ThreadOpen = 0x0015,
+    DesktopOpen = 0x0016,
     Unknown = 0xFFFF_FFFF,
 }
 
@@ -128,9 +128,9 @@ impl SysmonEvent {
             0x0010 => SysmonEvent::SelfDefense,
             0x0011 => SysmonEvent::FileMapRead,
             0x0012 => SysmonEvent::FileMapWrite,
-            0x0013 => SysmonEvent::FileHandleOpen,
             0x0014 => SysmonEvent::FileRename,
             0x0015 => SysmonEvent::ThreadOpen,
+            0x0016 => SysmonEvent::DesktopOpen,
             _ => SysmonEvent::Unknown,
         }
     }
@@ -156,9 +156,9 @@ impl SysmonEvent {
             0x0010 => "SelfDefense",
             0x0011 => "FileMapRead",
             0x0012 => "FileMapWrite",
-            0x0013 => "FileHandleOpen",
             0x0014 => "FileRename",
             0x0015 => "ThreadOpen",
+            0x0016 => "DesktopOpen",
             _ => "Unknown",
         }
     }

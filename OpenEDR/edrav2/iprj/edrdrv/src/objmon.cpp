@@ -80,31 +80,6 @@ ACCESS_MASK expandProcessDesiredAccess(ACCESS_MASK src)
 	return src;
 }
 
-//
-// File (FILE_OBJECT) section-mapping access bits.
-// A file handle is opened with SECTION_MAP_READ / SECTION_MAP_WRITE before
-// NtCreateSection/NtMapViewOfSection maps it. IRP_MJ_READ/IRP_MJ_WRITE never
-// fire for such mapped-section access, so the handle-open desired access is the
-// only IRP-side signal that reveals the mapping intent. Mimic the generic
-// mapping used by the I/O manager for file objects.
-//
-GENERIC_MAPPING c_fileGenericMapping =
-{
-	FILE_GENERIC_READ,    // GenericRead
-	FILE_GENERIC_WRITE,   // GenericWrite
-	FILE_GENERIC_EXECUTE, // GenericExecute
-	FILE_ALL_ACCESS       // GenericAll
-};
-
-//
-// Expand Generic in desiredAccess for file objects
-//
-ACCESS_MASK expandFileDesiredAccess(ACCESS_MASK src)
-{
-	RtlMapGenericMask(&src, &c_fileGenericMapping);
-	return src;
-}
-
 #define PROCESS_TERMINATE                  (0x0001)  
 #define PROCESS_CREATE_THREAD              (0x0002)  
 #define PROCESS_SET_SESSIONID              (0x0004)  
@@ -386,30 +361,21 @@ VOID postProcessObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_I
 //
 //
 //
-struct FileCallContext
+struct DesktopCallContext
 {
 	HANDLE nInitiatorPid = nullptr;
 	ACCESS_MASK eDesiredAccess = 0;
-	PFILE_OBJECT pFileObject = nullptr;
 
-	FileCallContext(HANDLE nPidInitiator_, ACCESS_MASK eDesiredAccess_, PFILE_OBJECT pFileObject_) :
-		nInitiatorPid(nPidInitiator_), eDesiredAccess(eDesiredAccess_), pFileObject(pFileObject_)
+	DesktopCallContext(HANDLE nPidInitiator_, ACCESS_MASK eDesiredAccess_) :
+		nInitiatorPid(nPidInitiator_), eDesiredAccess(eDesiredAccess_)
 	{
-		if (pFileObject != nullptr)
-			ObReferenceObject(pFileObject);
-	}
-
-	~FileCallContext()
-	{
-		if (pFileObject != nullptr)
-			ObDereferenceObject(pFileObject);
 	}
 };
 
 //
-// File objects hook
+// Desktop objects hook
 //
-OB_PREOP_CALLBACK_STATUS preFileObjectAccess(PVOID /*RegistrationContext*/, 
+OB_PREOP_CALLBACK_STATUS preDesktopObjectAccess(PVOID /*RegistrationContext*/, 
 	POB_PRE_OPERATION_INFORMATION preOpInfo)
 {
 	if (!g_pCommonData->fObjMonStarted)
@@ -420,7 +386,7 @@ OB_PREOP_CALLBACK_STATUS preFileObjectAccess(PVOID /*RegistrationContext*/,
 		return OB_PREOP_SUCCESS;
 
 	// Check parameters
-	if ((PFILE_OBJECT)preOpInfo->Object == nullptr)
+	if (preOpInfo->Object == nullptr)
 		return OB_PREOP_SUCCESS;
 
 	// Extract desired access
@@ -430,17 +396,6 @@ OB_PREOP_CALLBACK_STATUS preFileObjectAccess(PVOID /*RegistrationContext*/,
 	else if (preOpInfo->Operation == OB_OPERATION_HANDLE_DUPLICATE)
 		eDesiredAccess = preOpInfo->Parameters->DuplicateHandleInformation.DesiredAccess;
 	else
-		return OB_PREOP_SUCCESS;
-
-	// Expand generics (e.g. GENERIC_READ on a file means FILE_GENERIC_READ)
-	ACCESS_MASK eExpandedAccess = expandFileDesiredAccess(eDesiredAccess);
-
-	// Only mapping-capable opens are interesting. Readable/writable mapping is
-	// the only way to access a file's content through a section without an
-	// IRP_MJ_READ/IRP_MJ_WRITE, so a handle carrying SECTION_MAP_* access is
-	// exactly the "united api+minifilter" kernel-side leg we want to observe.
-	static constexpr ACCESS_MASK c_nMapAccessMask = SECTION_MAP_READ | SECTION_MAP_WRITE | SECTION_EXTEND_SIZE;
-	if ((eExpandedAccess & c_nMapAccessMask) == 0)
 		return OB_PREOP_SUCCESS;
 
 	// Filtering for event sending
@@ -464,8 +419,8 @@ OB_PREOP_CALLBACK_STATUS preFileObjectAccess(PVOID /*RegistrationContext*/,
 
 	// All checks are completed - init postOperation call context
 	if (fSendEvent)
-		preOpInfo->CallContext = new (NonPagedPool) FileCallContext(
-			PsGetCurrentProcessId(), eExpandedAccess, (PFILE_OBJECT)preOpInfo->Object);
+		preOpInfo->CallContext = new (NonPagedPool) DesktopCallContext(
+			PsGetCurrentProcessId(), eDesiredAccess);
 
 	return OB_PREOP_SUCCESS;
 }
@@ -473,50 +428,43 @@ OB_PREOP_CALLBACK_STATUS preFileObjectAccess(PVOID /*RegistrationContext*/,
 //
 //
 //
-VOID postFileObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFORMATION postOpInfo)
+VOID postDesktopObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFORMATION postOpInfo)
 {
 	// Skip action skipped by preAction
 	if (postOpInfo->CallContext == nullptr)
 		return;
 
-	UniquePtr<FileCallContext> pCallContext((FileCallContext*)postOpInfo->CallContext);
+	UniquePtr<DesktopCallContext> pCallContext((DesktopCallContext*)postOpInfo->CallContext);
 
 	// Skip unsuccessful
 	if (!NT_SUCCESS(postOpInfo->ReturnStatus))
 		return;
 
-	// Resolve the file name from the FILE_OBJECT.
-	// The FILE_OBJECT->FileName field only holds the base name; use the
-	// object-manager name (full NT path) instead.
-	DynUnicodeString usFileName;
-	NTSTATUS ns = ObQueryNameString(pCallContext->pFileObject, usFileName);
-	PCUNICODE_STRING pusFileName = (PCUNICODE_STRING)usFileName;
-	if (!NT_SUCCESS(ns) || pusFileName->Length == 0)
+	// Resolve the desktop object name from the object manager.
+	// Desktop objects are named like \Windows\WindowStations\WinSta0\Default.
+	DynUnicodeString usDesktopName;
+	NTSTATUS ns = ObQueryNameString(postOpInfo->Object, usDesktopName);
+	PCUNICODE_STRING pusDesktopName = (PCUNICODE_STRING)usDesktopName;
+	if (!NT_SUCCESS(ns) || pusDesktopName->Length == 0)
 		return;
 
-///
-/// Emit a dedicated ObRegisterCallbacks file-handle-open event so the engine
-/// exposes it as a distinct SDK rule type ("handle_open"), separate from the
-/// minifilter IRP-level read/write and section-map (mmap) events. The desired
-/// access is carried in the AccessMask field for finer rule filtering.
-///
-	SysmonEvent eEvent = SysmonEvent::FileHandleOpen;
+	SysmonEvent eEvent = SysmonEvent::DesktopOpen;
 
-	LOGINFO2("sendEvent: %u (fileObjectEvent), pid: %Iu, access: 0x%08X, file:<%wZ>.\r\n",
+	LOGINFO2("sendEvent: %u (desktopObjectEvent), pid: %Iu, access: 0x%08X, desktop:<%wZ>.\r\n",
 		(ULONG)eEvent, (ULONG_PTR)pCallContext->nInitiatorPid,
-		(ULONG)pCallContext->eDesiredAccess, pusFileName);
+		(ULONG)pCallContext->eDesiredAccess, pusDesktopName);
 
 	// Use the stored initiator PID (pre-op time) so cross-process handle
 	// duplication is attributed to the original opener.
 	IFERR_LOG(detail::sendObjectEvent(eEvent, (ULONG_PTR)pCallContext->nInitiatorPid,
-		[pusFileName, &pCallContext](auto pSerializer) {
-			if (!write(*pSerializer, EvFld::FilePath, pusFileName))
+		[pusDesktopName, &pCallContext](auto pSerializer) {
+			if (!write(*pSerializer, EvFld::DesktopPath, pusDesktopName))
 				return STATUS_NO_MEMORY;
 			if (!pSerializer->write(EvFld::AccessMask, uint32_t(pCallContext->eDesiredAccess)))
 				return STATUS_NO_MEMORY;
 			return STATUS_SUCCESS;
 		}
-	), "Can't send file object event %u pid: %Iu.\r\n",
+	), "Can't send desktop object event %u pid: %Iu.\r\n",
 		(ULONG)eEvent, (ULONG_PTR)pCallContext->nInitiatorPid);
 }
 
@@ -683,15 +631,15 @@ NTSTATUS initialize()
 		return STATUS_SUCCESS;
 
 	g_pCommonData->hProcFltCallbackRegistration = nullptr;
-	g_pCommonData->hFileFltCallbackRegistration = nullptr;
+	g_pCommonData->hDesktopFltCallbackRegistration = nullptr;
 	g_pCommonData->hThreadFltCallbackRegistration = nullptr;
 
 	// Set hooks
 	{
 		// Processes callbacks. ObRegisterCallbacks allows only one object type
-		// per registration call, so process and file objects are registered
-		// separately. On failure all previously registered callbacks are
-		// unregistered to avoid dangling callback entries after driver unload.
+		// per registration call, so process, desktop and thread objects are
+		// registered separately. On failure all previously registered callbacks
+		// are unregistered to avoid dangling callback entries after driver unload.
 		OB_OPERATION_REGISTRATION stObOpReg[2] = {};
 		OB_CALLBACK_REGISTRATION stObCbReg = {};
 
@@ -713,29 +661,36 @@ NTSTATUS initialize()
 		}
 	}
 
-	// Set file object callbacks
+	// Set desktop object callbacks
 	{
 		OB_OPERATION_REGISTRATION stObOpReg[2] = {};
 		OB_CALLBACK_REGISTRATION stObCbReg = {};
 
-		// ObRegisterCallbacks supports only OB_OPERATION_HANDLE_CREATE for
-		// file objects; requesting HANDLE_DUPLICATE fails with
-		// STATUS_INVALID_PARAMETER.
-		stObOpReg[0].ObjectType = IoFileObjectType;
-		stObOpReg[0].Operations = OB_OPERATION_HANDLE_CREATE;
-		stObOpReg[0].PreOperation = preFileObjectAccess;
-		stObOpReg[0].PostOperation = postFileObjectAccess;
-
-		stObCbReg.Version = OB_FLT_REGISTRATION_VERSION;
-		stObCbReg.OperationRegistrationCount = 1;
-		stObCbReg.OperationRegistration = stObOpReg;
-		RtlInitUnicodeString(&stObCbReg.Altitude, edrdrv::c_sAltitudeValue);
-
-		NTSTATUS status = ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hFileFltCallbackRegistration);
-		if (!NT_SUCCESS(status))
+		// ExDesktopObjectType is created by win32k.sys, so it is available only
+		// after win32k is loaded. If it is not ready yet (e.g. driver loaded at
+		// boot as a file system driver), registration is skipped. It is not an
+		// error: the supported object types are only process, thread and desktop.
+		if (ExDesktopObjectType == nullptr)
 		{
-			finalize();
-			return status;
+			LOGERROR(STATUS_SUCCESS, "Desktop object callbacks skipped: ExDesktopObjectType is NULL (win32k not loaded)\r\n");
+		}
+		else
+		{
+			stObOpReg[0].ObjectType = ExDesktopObjectType;
+			stObOpReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+			stObOpReg[0].PreOperation = preDesktopObjectAccess;
+			stObOpReg[0].PostOperation = postDesktopObjectAccess;
+
+			stObCbReg.Version = OB_FLT_REGISTRATION_VERSION;
+			stObCbReg.OperationRegistrationCount = 1;
+			stObCbReg.OperationRegistration = stObOpReg;
+			RtlInitUnicodeString(&stObCbReg.Altitude, edrdrv::c_sAltitudeValue);
+
+			NTSTATUS status = ObRegisterCallbacks(&stObCbReg, &g_pCommonData->hDesktopFltCallbackRegistration);
+			if (!NT_SUCCESS(status))
+			{
+				LOGERROR(status, "Desktop object callbacks failed (continuing without them)\r\n");
+			}
 		}
 	}
 
@@ -781,10 +736,10 @@ void finalize()
 		g_pCommonData->hProcFltCallbackRegistration = nullptr;
 	}
 
-	if (g_pCommonData->hFileFltCallbackRegistration != nullptr)
+	if (g_pCommonData->hDesktopFltCallbackRegistration != nullptr)
 	{
-		ObUnRegisterCallbacks(g_pCommonData->hFileFltCallbackRegistration);
-		g_pCommonData->hFileFltCallbackRegistration = nullptr;
+		ObUnRegisterCallbacks(g_pCommonData->hDesktopFltCallbackRegistration);
+		g_pCommonData->hDesktopFltCallbackRegistration = nullptr;
 	}
 
 	if (g_pCommonData->hThreadFltCallbackRegistration != nullptr)
