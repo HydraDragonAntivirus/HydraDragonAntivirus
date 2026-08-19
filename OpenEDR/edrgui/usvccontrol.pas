@@ -13,10 +13,13 @@ unit USvcControl;
                               etc. IN THE BACKGROUND (without blocking the
                               GUI) and reports the result to the main thread.
 
-  NOTE: Starting/stopping the service requires administrator rights. For
-  this project the project1.lpi file has a "requireAdministrator" manifest
-  level added; the GUI therefore already runs elevated, so there is no need
-  to launch edrsvc.exe separately with "runas".
+  NOTE: Starting/stopping the service requires administrator rights. The
+  GUI itself runs asInvoker (edrgui.lpi manifest) so that the edrsvc service
+  can launch it into the interactive session via CreateProcessAsUser (a
+  requireAdministrator manifest would fail with ERROR_ELEVATION_REQUIRED).
+  Each privileged command (start/stop/install/uninstall) is executed by
+  spawning "edrsvc.exe <cmd>", which elevates itself via UAC (see
+  startElevatedInstance in mode_*.cpp).
   --------------------------------------------------------------------------- }
 
 {$mode objfpc}{$H+}

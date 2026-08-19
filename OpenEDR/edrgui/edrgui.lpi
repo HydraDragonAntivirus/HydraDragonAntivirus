@@ -11,7 +11,7 @@
       <UseXPManifest Value="True"/>
       <XPManifest>
         <DpiAware Value="True"/>
-        <ExecutionLevel Value="requireAdministrator"/>
+        <ExecutionLevel Value="asInvoker"/>
       </XPManifest>
       <Icon Value="0"/>
     </General>

@@ -95,6 +95,9 @@ std::vector<std::filesystem::path> getFirewallBridgeCandidates(const std::wstrin
 {
 	std::vector<std::filesystem::path> result;
 
+	if (!sExplicitPath.empty())
+		result.emplace_back(sExplicitPath);
+
 	result.emplace_back(LR"(C:\Program Files\HydraDragonAntivirus\OpenEDR\owlyshield_ransom.dll)");
 
 	return result;
