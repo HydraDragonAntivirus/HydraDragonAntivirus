@@ -403,7 +403,7 @@ void NetFilterWrapper::processLine(const std::string& sLine)
 	if (boost::algorithm::starts_with(sLine, "BLOCK_EXE:"))
 		return;
 
-	// HIPS user decision from the GUI (defenderui). Forward the full line to
+	// HIPS user decision from the GUI (edrgui). Forward the full line to
 	// Owlyshield via the in-process FFI channel so the behavior engine can
 	// resolve the pending HIPS prompt.
 	if (boost::algorithm::starts_with(sLine, "HIPS_DECISION:"))

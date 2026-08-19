@@ -13,8 +13,6 @@
     <HarvestDirectorySuppressRegistry>true</HarvestDirectorySuppressRegistry>
     <HarvestDirectorySuppressRootDirectory>true</HarvestDirectorySuppressRootDirectory>
     <AcceptEula>wix6</AcceptEula>
-    <SuppressValidation>true</SuppressValidation>
-    <SuppressIces>ICE61;ICE03;ICE80;ICE38;ICE60</SuppressIces>
   </PropertyGroup>
   <PropertyGroup>
     <PlatformName Condition=" '$(Platform)' == 'x86' ">Win32</PlatformName>
@@ -24,8 +22,7 @@
   <PropertyGroup>
     <OutputPath>$(CmdRootDir)\out\install\$(CmdOutDirName)\</OutputPath>
     <IntermediateOutputPath>$(CmdRootDir)\out\temp\$(CmdOutDirName)\$(OutputName)\</IntermediateOutputPath>
-    <DefenderUiBinDir>$(ProjectDir)..\..\..\..\..\defenderui\bin\x64\Release\net9.0-windows10.0.26100.0\win-x64\</DefenderUiBinDir>
-    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\;DefenderUiBinDir=$(DefenderUiBinDir)</DefineConstants>
+    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir=$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\</DefineConstants>
     <IncludeSearchPaths>..\..\src</IncludeSearchPaths>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
@@ -37,8 +34,6 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
-    <SuppressValidation>true</SuppressValidation>
-    <SuppressIces>ICE61;ICE03;ICE80;ICE38;ICE60</SuppressIces>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\src\Product.wxs">
@@ -83,6 +78,6 @@
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\firewall-rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\&quot;" />
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\models&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\models\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\MBRFilter\x64\Win8Release')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\..\MBRFilter\x64\Win8Release\MBRFilter.*&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
-    <Exec Command="if exist &quot;$(DefenderUiBinDir)&quot; xcopy /Y /D /E /I &quot;$(DefenderUiBinDir)&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\defenderui\&quot;" />
+    <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\edrgui\edrgui.exe&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
   </Target>
 </Project>

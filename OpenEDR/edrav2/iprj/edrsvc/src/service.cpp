@@ -40,7 +40,7 @@ WinService::~WinService()
 //
 //
 //
-void WinService::launchDefenderUi()
+void WinService::launchEdrGui()
 {
 	try
 	{
@@ -49,25 +49,25 @@ void WinService::launchDefenderUi()
 			return;
 
 		std::filesystem::path uiPath =
-			std::filesystem::path(szPath).parent_path() / "defenderui" / "DefenderUI.exe";
+			std::filesystem::path(szPath).parent_path() / "edrgui.exe";
 
 		if (!std::filesystem::exists(uiPath))
 		{
-			LOGWRN("DefenderUI not found at path: " << uiPath.string());
+			LOGWRN("edrgui not found at path: " << uiPath.string());
 			return;
 		}
 
-		LOGINF("Attempting to launch DefenderUI in active user session: " << uiPath.string());
+		LOGINF("Attempting to launch edrgui in active user session: " << uiPath.string());
 		sys::launchAsInteractiveUser(uiPath, L"");
-		LOGINF("DefenderUI launched successfully");
+		LOGINF("edrgui launched successfully");
 	}
 	catch (const std::exception& ex)
 	{
-		LOGWRN("Failed to launch DefenderUI: " << ex.what());
+		LOGWRN("Failed to launch edrgui: " << ex.what());
 	}
 	catch (...)
 	{
-		LOGWRN("Unknown error while launching DefenderUI");
+		LOGWRN("Unknown error while launching edrgui");
 	}
 }
 
@@ -194,8 +194,8 @@ ULONG WINAPI WinService::controlService(ULONG dwControl, ULONG dwEventType,
 		{
 			if (dwEventType == WTS_SESSION_LOGON || dwEventType == WTS_CONSOLE_CONNECT)
 			{
-				LOGINF("Interactive session change detected (" << std::hex << dwEventType << "), launching DefenderUI");
-				pThis->launchDefenderUi();
+				LOGINF("Interactive session change detected (" << std::hex << dwEventType << "), launching edrgui");
+				pThis->launchEdrGui();
 			}
 			return NO_ERROR;
 		}
@@ -349,7 +349,7 @@ ErrorCode WinService::runService(bool fAppMode)
 		if (!needShutdown())
 		{
 			reportStatus(SERVICE_RUNNING);
-			launchDefenderUi();
+			launchEdrGui();
 			ec = runMode();
 		}
 	}

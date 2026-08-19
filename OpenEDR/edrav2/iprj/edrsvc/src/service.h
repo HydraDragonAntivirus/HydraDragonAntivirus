@@ -97,7 +97,7 @@ private:
 	void allowUnload(bool fAllow);
 
 	ErrorCode runService(bool fAppMode);
-	void launchDefenderUi();
+	void launchEdrGui();
 	void reportStatus(DWORD dwState = c_nServicePreviousState,
 		DWORD dwWaitHint = -1, ErrorCode errCode = ErrorCode::OK);
 	Variant update(Variant vParams);

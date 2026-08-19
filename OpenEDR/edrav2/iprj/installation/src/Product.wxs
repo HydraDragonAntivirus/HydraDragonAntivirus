@@ -52,7 +52,6 @@
 				<Directory Id="INSTALLDIR" Name="OpenEDR">
 					<!--<Directory Id="QSC_DIR" Name="qsc"></Directory>-->
 					<Directory Id="MODELSDIR" Name="models" />
-					<Directory Id="DEFENDERUIDIR" Name="defenderui" />
 				</Directory>
 			</Directory>
 		</StandardDirectory>

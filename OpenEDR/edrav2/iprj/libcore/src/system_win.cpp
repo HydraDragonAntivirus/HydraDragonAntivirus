@@ -343,7 +343,7 @@ void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
 		&si, &pi);
 
 	if (!bOk)
-		error::win::WinApiError(SL, "CreateProcessAsUser failed for DefenderUI").throwException();
+		error::win::WinApiError(SL, "CreateProcessAsUser failed for edrgui").throwException();
 
 #ifndef PROCESS_POWER_THROTTLING_CURRENT_VERSION
 	typedef struct _PROCESS_POWER_THROTTLING_STATE {

@@ -17,9 +17,7 @@ uses
 begin
   RequireDerivedFormResource := True;
   Application.Scaled := True;
-  {$PUSH}{$WARN 5044 OFF}
   Application.MainFormOnTaskbar := True;
-  {$POP}
   Application.Title := 'HydraDragon EDR Agent';
   Application.Initialize;
   // The main form is only a tray controller; it is never visible.

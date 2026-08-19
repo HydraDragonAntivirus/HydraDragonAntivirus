@@ -30,7 +30,6 @@
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
-    <SuppressIces>ICE61</SuppressIces>
   </PropertyGroup>
 
   <ItemGroup>

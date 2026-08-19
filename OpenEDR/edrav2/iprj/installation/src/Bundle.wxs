@@ -15,7 +15,7 @@
 		</BootstrapperApplication>
 
 		<Chain>
-			<!-- Main OpenEDR MSI package (DefenderUI is fully self-contained with .NET 9 & WinAppSDK) -->
+			<!-- Main OpenEDR MSI package -->
 			<MsiPackage Id="EdrAgentMsi" SourceFile="$(var.MsiPath)" Vital="yes" />
 		</Chain>
 	</Bundle>

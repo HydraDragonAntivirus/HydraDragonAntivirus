@@ -55,7 +55,7 @@ virtual ErrorCode main(Application* pApp) override
 						<< "> is started." << std::endl;
 			}
 
-			launchDefenderUi();
+			launchEdrGui();
 		}
 		catch (const std::exception& ex)
 		{
@@ -74,12 +74,12 @@ virtual ErrorCode main(Application* pApp) override
 private:
 
 	//
-	// Launches the HydraDragonAntivirus UI (DefenderUI.exe) in the active interactive
+	// Launches the HydraDragonAntivirus UI (edrgui.exe) in the active interactive
 	// user session so the tray icon appears on the correct desktop.
 	// edrsvc runs as SYSTEM in session 0 — ShellExecuteEx / executeApplication would
-	// spawn DefenderUI into session 0 too, where there is no visible desktop or tray.
+	// spawn edrgui into session 0 too, where there is no visible desktop or tray.
 	//
-	void launchDefenderUi()
+	void launchEdrGui()
 	{
 		try
 		{
@@ -88,7 +88,7 @@ private:
 				return;
 
 			std::filesystem::path uiPath =
-				std::filesystem::path(szPath).parent_path() / "defenderui" / "DefenderUI.exe";
+				std::filesystem::path(szPath).parent_path() / "edrgui.exe";
 
 			if (!std::filesystem::exists(uiPath))
 				return;
@@ -97,7 +97,7 @@ private:
 		}
 		catch (...)
 		{
-			// UI başlatılamazsa servis çalışmaya devam eder.
+			// If the UI cannot be launched, the service keeps running.
 		}
 	}
 };

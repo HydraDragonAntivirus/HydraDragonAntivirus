@@ -80,7 +80,7 @@ static SpecialProcFlags g_specialProcFlags[] =
 	{ U_STAT(L"\\Device\\HarddiskVolume3\\windows\\system32\\csrss.exe"), (UINT32)ProcessInfoFlags::CsrssProcess },
 	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\OpenEDR\\edrsvc.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
 	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\OpenEDR\\edrcon.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\OpenEDR\\defenderui\\DefenderUI.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
+	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\OpenEDR\\edrgui.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
 };
 
 NTSTATUS getProcessFlagsByName(PUNICODE_STRING pusImageName, UINT32* pnFlags)
