@@ -120,20 +120,15 @@ end;
 const
   SHELL32_DLL = 'shell32.dll';
 
-type
-  // HICON is not declared in FPC's Windows unit; LCLType (which provides it
-  // in Delphi) is not pulled in here, so declare it as THandle explicitly.
-  HICON = THandle;
-
 function ExtractIconW(hInst: HINST; lpszExeFileName: PWideChar;
-  nIconIndex: UINT): HICON; stdcall; external SHELL32_DLL name 'ExtractIconW';
+  nIconIndex: UINT): QWord; stdcall; external SHELL32_DLL name 'ExtractIconW';
 
 // Loads the icon embedded in edrsvc.exe as the base tray/application icon.
 // Called once at startup; LoadStateIcon() may later override it with a
 // custom icons\*.ico file.
 procedure TForm1.LoadAgentIcon;
 var
-  hIcon: HICON;
+  hIcon: QWord;
   TmpIcon: TIcon;
 begin
   if not FileExists(FAgentExePath) then

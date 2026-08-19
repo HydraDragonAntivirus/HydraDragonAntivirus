@@ -4,7 +4,7 @@ object Form1: TForm1
   Top = 32
   Width = 60
   BorderStyle = bsNone
-  Caption = 'HydraDragon EDR Ajani'
+  Caption = 'HydraDragon EDR Agent'
   ClientHeight = 60
   ClientWidth = 60
   OnCreate = FormCreate
@@ -23,44 +23,44 @@ object Form1: TForm1
     left = 40
     top = 72
     object MenuStatus: TMenuItem
-      Caption = 'Durum: Bilinmiyor'
+      Caption = 'Status: Unknown'
       Enabled = False
     end
     object N1: TMenuItem
       Caption = '-'
     end
     object MenuStart: TMenuItem
-      Caption = 'Servisi Baslat'
+      Caption = 'Start Service'
       OnClick = MenuStartClick
     end
     object MenuStop: TMenuItem
-      Caption = 'Servisi Durdur'
+      Caption = 'Stop Service'
       OnClick = MenuStopClick
     end
     object MenuRestart: TMenuItem
-      Caption = 'Servisi Yeniden Baslat'
+      Caption = 'Restart Service'
       OnClick = MenuRestartClick
     end
     object N2: TMenuItem
       Caption = '-'
     end
     object MenuInstall: TMenuItem
-      Caption = 'Servisi Kur'
+      Caption = 'Install Service'
       OnClick = MenuInstallClick
     end
     object MenuUninstall: TMenuItem
-      Caption = 'Servisi Kaldir'
+      Caption = 'Uninstall Service'
       OnClick = MenuUninstallClick
     end
     object N3: TMenuItem
       Caption = '-'
     end
     object MenuAllowUnload: TMenuItem
-      Caption = 'Kendini Koru (Self-Protection)'
+      Caption = 'Self-Protection (Allow Unload)'
       Enabled = False
     end
     object MenuExit: TMenuItem
-      Caption = 'Cikis'
+      Caption = 'Exit'
       OnClick = MenuExitClick
     end
   end
