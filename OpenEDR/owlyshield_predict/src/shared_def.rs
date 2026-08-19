@@ -101,6 +101,7 @@ pub enum SysmonEvent {
     FileMapRead = 0x0011,
     FileMapWrite = 0x0012,
     FileHandleOpen = 0x0013,
+    FileRename = 0x0014,
     Unknown = 0xFFFF_FFFF,
 }
 
@@ -127,6 +128,7 @@ impl SysmonEvent {
             0x0011 => SysmonEvent::FileMapRead,
             0x0012 => SysmonEvent::FileMapWrite,
             0x0013 => SysmonEvent::FileHandleOpen,
+            0x0014 => SysmonEvent::FileRename,
             _ => SysmonEvent::Unknown,
         }
     }

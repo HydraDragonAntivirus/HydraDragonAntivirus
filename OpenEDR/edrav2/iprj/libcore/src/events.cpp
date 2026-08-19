@@ -20,6 +20,7 @@ constexpr char c_sLleFileClose[] = "LLE_FILE_CLOSE";
 constexpr char c_sLleFileDataChange[] = "LLE_FILE_DATA_CHANGE";
 constexpr char c_sLleFileDataReadFull[] = "LLE_FILE_DATA_READ_FULL";
 constexpr char c_sLleFileDataWriteFull[] = "LLE_FILE_DATA_WRITE_FULL";
+constexpr char c_sLleFileRename[] = "LLE_FILE_RENAME";
 constexpr char c_sLleRegistryKeyCreate[] = "LLE_REGISTRY_KEY_CREATE";
 constexpr char c_sLleRegistryKeyNameChange[] = "LLE_REGISTRY_KEY_NAME_CHANGE";
 constexpr char c_sLleRegistryKeyDelete[] = "LLE_REGISTRY_KEY_DELETE";
@@ -80,6 +81,7 @@ const char* getEventTypeString(Event eventType)
 		case Event::LLE_FILE_DATA_CHANGE: return eventtype::c_sLleFileDataChange;
 		case Event::LLE_FILE_DATA_READ_FULL: return eventtype::c_sLleFileDataReadFull;
 		case Event::LLE_FILE_DATA_WRITE_FULL: return eventtype::c_sLleFileDataWriteFull;
+		case Event::LLE_FILE_RENAME: return eventtype::c_sLleFileRename;
 		case Event::LLE_REGISTRY_KEY_CREATE: return eventtype::c_sLleRegistryKeyCreate;
 		case Event::LLE_REGISTRY_KEY_NAME_CHANGE: return eventtype::c_sLleRegistryKeyNameChange;
 		case Event::LLE_REGISTRY_KEY_DELETE: return eventtype::c_sLleRegistryKeyDelete;

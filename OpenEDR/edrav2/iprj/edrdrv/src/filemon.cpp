@@ -1470,6 +1470,19 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preSetFileInfo(_Inout_ PFLT_CALLBACK_DATA pData
 }
 
 //
+// FILE_RENAME_INFORMATION_EX is not defined in this WDK/SDK revision.
+// The layout mirrors the documented structure: Flags, RootDirectory,
+// FileNameLength, FileName. Only FileNameLength/FileName are used here.
+//
+typedef struct _OWLY_FILE_RENAME_INFORMATION_EX
+{
+	ULONG Flags;
+	HANDLE RootDirectory;
+	ULONG FileNameLength;
+	WCHAR FileName[1];
+} OWLY_FILE_RENAME_INFORMATION_EX, *POWLY_FILE_RENAME_INFORMATION_EX;
+
+//
 //
 //
 FLT_POSTOP_CALLBACK_STATUS FLTAPI postSetFileInfo(
@@ -1536,7 +1549,7 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postSetFileInfo(
 			}
 			else
 			{
-				auto pRename = (PFILE_RENAME_INFORMATION_EX)pData->Iopb->Parameters.SetFileInformation.InfoBuffer;
+				auto pRename = (POWLY_FILE_RENAME_INFORMATION_EX)pData->Iopb->Parameters.SetFileInformation.InfoBuffer;
 				usTarget.Length = (USHORT)pRename->FileNameLength;
 				usTarget.MaximumLength = usTarget.Length;
 				usTarget.Buffer = pRename->FileName;

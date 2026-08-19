@@ -472,6 +472,7 @@ std::map<edrdrv::SysmonEvent, Event> mEventMap = {
 	{edrdrv::SysmonEvent::DeviceIoControl, Event::LLE_DEVICE_RAW_WRITE_ACCESS},
 	{edrdrv::SysmonEvent::NamedPipeCreate, Event::LLE_DEVICE_LINK_CREATE},
 	{edrdrv::SysmonEvent::SelfDefense, Event::LLE_PROCESS_OPEN},
+	{edrdrv::SysmonEvent::FileRename, Event::LLE_FILE_RENAME},
 };
 
 //

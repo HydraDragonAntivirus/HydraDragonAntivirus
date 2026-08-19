@@ -293,7 +293,8 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "owlyHv.isAcgEnabled" },
 	{ "name": "owlyHv.timestamp" },
 	{ "name": "owlyHv.targetPid" },
-	{ "name": "owlyHookTargetPid" }
+	{ "name": "owlyHookTargetPid" },
+	{ "name": "file.renameTarget" }
 ]})json";
 
 //////////////////////////////////////////////////////////////////////////
