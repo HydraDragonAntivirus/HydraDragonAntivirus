@@ -10,15 +10,27 @@ uses
   athreads,
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
-  Forms, Unit1, UAlert, USvcControl;
+  Forms, Windows, Unit1, UAlert, USvcControl;
 
 {$R *.res}
+
+const
+  cSingleInstanceMutex = 'Global\HydraDragonOpenEDR_EDRGUI_SingleInstance';
+
+var
+  hMutex: THandle;
 
 begin
   RequireDerivedFormResource := True;
   Application.Scaled := True;
   Application.MainFormOnTaskbar := True;
   Application.Title := 'HydraDragon EDR Agent';
+
+  // Single-instance guard: silently exit if another edrgui.exe is running.
+  hMutex := CreateMutex(nil, False, cSingleInstanceMutex);
+  if (hMutex <> 0) and (GetLastError = ERROR_ALREADY_EXISTS) then
+    Halt(0);
+
   Application.Initialize;
   // The main form is only a tray controller; it is never visible.
   Application.ShowMainForm := False;
