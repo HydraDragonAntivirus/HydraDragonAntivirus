@@ -1495,8 +1495,14 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postSetFileInfo(
 		auto eInfoClass = pData->Iopb->Parameters.SetFileInformation.FileInformationClass;
 		if (eInfoClass == FileDispositionInformation)
 		{
-			pStreamHandleContext->fDispositionDelete = 
-				((PFILE_DISPOSITION_INFORMATION)pData->Iopb->Parameters.SetFileInformation.InfoBuffer)->DeleteFile;
+			BOOLEAN fDelete = ((PFILE_DISPOSITION_INFORMATION)pData->Iopb->Parameters.SetFileInformation.InfoBuffer)->DeleteFile;
+			pStreamHandleContext->fDispositionDelete = fDelete;
+			// Emit the delete event immediately on a successful delete disposition.
+			// The rule layer filters by path/extension; the driver must not drop
+			// delete attempts silently (postCleanup only emits FileDelete for
+			// delete-on-close, missing plain FileDispositionInformation deletes).
+			if (fDelete)
+				sendFileEvent(SysmonEvent::FileDelete, pStreamHandleContext);
 		}
 		else if (eInfoClass == FileDispositionInformationEx)
 		{
@@ -1505,7 +1511,12 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postSetFileInfo(
 			if (FlagOn(flags, FILE_DISPOSITION_ON_CLOSE)) 
 				pStreamHandleContext->fDeleteOnClose = BooleanFlagOn(flags, FILE_DISPOSITION_DELETE);
 			else 
-				pStreamHandleContext->fDispositionDelete = BooleanFlagOn(flags, FILE_DISPOSITION_DELETE);
+			{
+				BOOLEAN fDelete = BooleanFlagOn(flags, FILE_DISPOSITION_DELETE);
+				pStreamHandleContext->fDispositionDelete = fDelete;
+				if (fDelete)
+					sendFileEvent(SysmonEvent::FileDelete, pStreamHandleContext);
+			}
 		}
 	}
 	__finally
@@ -1574,8 +1585,13 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preWrite(_Inout_ PFLT_CALLBACK_DATA pData,
 
 	auto& writeParams = pData->Iopb->Parameters.Write;
 
-	// postWrite is necessary (checking of operation success) 
-	bool fPostIsNecessary = false;
+	// postWrite is necessary to check operation success and emit the write event.
+	// Every write IRP must reach the engine unfiltered — the rule layer decides
+	// whether the file extension/path is interesting. The old logic only enabled
+	// postWrite for full sequential writes or first-change detection.
+	// Sequence hashing requires a synchronous post-op (buffer stays valid);
+	// plain event emission only needs a callback on completion.
+	bool fSyncNeeded = false;
 
 	// process sequenced write
 	do
@@ -1610,22 +1626,18 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preWrite(_Inout_ PFLT_CALLBACK_DATA pData,
 			break;
 		}
 
-		fPostIsNecessary = true;
+		fSyncNeeded = true;
 	} while (false);
-
-
-	if (!pStreamHandleContext->fWasChanged)
-		fPostIsNecessary = true;
 
 	LOGINFO4("filemon: preWrite: id: %05Iu:%p:%p, pos: %I64u, size: %u, post: %u.\r\n",
 		(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, pStreamHandleContext, pFltObjects->FileObject,
 		pFltObjects->FileObject->CurrentByteOffset.QuadPart, (ULONG)writeParams.Length, 
-		(ULONG)fPostIsNecessary ? 1 : 0);
+		(ULONG)fSyncNeeded ? 1 : 0);
 
 	FltReleaseContext(pStreamHandleContext);
 
-	if (!fPostIsNecessary)
-		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	if (!fSyncNeeded)
+		return FLT_PREOP_SUCCESS_WITH_CALLBACK;
 
 	return FLT_PREOP_SYNCHRONIZE;
 }
@@ -1650,6 +1662,13 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postWrite(__inout PFLT_CALLBACK_DATA pData, __
 		LOGINFO4("filemon: postWrite: id: %05Iu:%p:%p, status: 0x%08X, info: %u.\r\n", 
 			(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, pStreamHandleContext, pFltObjects->FileObject,
 			(ULONG)pData->IoStatus.Status, (ULONG)pData->IoStatus.Information);
+
+		// Emit the write event for every successful write. The rule layer filters
+		// by path/extension; the driver must not drop writes silently.
+		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
+		{
+			sendFileEvent(SysmonEvent::FileDataWriteFull, pStreamHandleContext);
+		}
 
 		// if any bytes was written
 		if (NT_SUCCESS(pData->IoStatus.Status))
@@ -1721,10 +1740,16 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preRead(_Inout_ PFLT_CALLBACK_DATA pData,
 
 	auto& readParams = pData->Iopb->Parameters.Read;
 
-	// postRead is necessary (checking of operation success) 
-	bool fPostIsNecessary = false;
+	// postRead is necessary to check operation success and emit the read event.
+	// Every read IRP must reach the engine unfiltered — the rule layer decides
+	// whether the file extension/path is interesting. Random-access and partial
+	// reads (ransomware scans) previously produced no event at all because the
+	// old logic only enabled postRead for full sequential reads.
+	// Sequence hashing requires a synchronous post-op (buffer stays valid);
+	// plain event emission only needs a callback on completion.
+	bool fSyncNeeded = false;
 
-	// Processing sequence read
+	// Processing sequence read (full-file sequential read tracking)
 	do 
 	{
 		auto& info = pStreamHandleContext->sequenceReadInfo;
@@ -1749,16 +1774,16 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preRead(_Inout_ PFLT_CALLBACK_DATA pData,
 			break;
 		}
 
-		fPostIsNecessary = true;
+		fSyncNeeded = true;
 	} while (false);
 
 	LOGINFO4("filemon: preRead: id: %05Iu:%p:%p, pos: %I64u, size: %u, post: %u.\r\n",
 		(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, pStreamHandleContext, pFltObjects->FileObject,
 		pFltObjects->FileObject->CurrentByteOffset.QuadPart, (ULONG)readParams.Length,
-		(ULONG)fPostIsNecessary ? 1 : 0);
+		(ULONG)fSyncNeeded ? 1 : 0);
 
 	FltReleaseContext(pStreamHandleContext);
-	return fPostIsNecessary ? FLT_PREOP_SYNCHRONIZE : FLT_PREOP_SUCCESS_NO_CALLBACK;
+	return fSyncNeeded ? FLT_PREOP_SYNCHRONIZE : FLT_PREOP_SUCCESS_WITH_CALLBACK;
 }
 
 
@@ -1783,6 +1808,15 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postRead(__inout PFLT_CALLBACK_DATA pData,
 		LOGINFO4("filemon: postRead: id: %05Iu:%p:%p, status: 0x%08X, info: %u.\r\n",
 			(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, pStreamHandleContext, pFltObjects->FileObject,
 			(ULONG)pData->IoStatus.Status, (ULONG)pData->IoStatus.Information);
+
+		// Emit the read event for every successful read. The rule layer filters
+		// by path/extension; the driver must not drop reads silently. Skip zero-
+		// byte reads (length 0 are filtered in preRead already; Information 0
+		// guards against failed/empty completions).
+		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
+		{
+			sendFileEvent(SysmonEvent::FileDataReadFull, pStreamHandleContext);
+		}
 
 		// Sequence action detection
 		do
