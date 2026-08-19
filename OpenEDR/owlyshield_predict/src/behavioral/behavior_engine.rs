@@ -1618,6 +1618,9 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
         }
         // Rename
         "rename" => {
+            if irp_type == SE::FileRename as u32 {
+                return true;
+            }
             return irp_op == IrpMajorOp::IrpSetInfo
                 && matches!(
                     file_change,
@@ -4072,6 +4075,7 @@ impl BehaviorEngine {
                         17 => "LLE_FILE_MAP_READ".to_string(),
                         18 => "LLE_FILE_MAP_WRITE".to_string(),
                         19 => "LLE_FILE_HANDLE_OPEN".to_string(),
+                        20 => "LLE_FILE_RENAME".to_string(),
                         _ => format!("BASE_EVENT_{code}"),
                     })
                     .unwrap_or_default();
@@ -4415,6 +4419,10 @@ impl BehaviorEngine {
             "LLE_FILE_HANDLE_OPEN" => {
                 aliases.push("OpenEDR::FileHandleOpen".to_string());
                 aliases.push("OpenEDR::FileAccess".to_string());
+            }
+            "LLE_FILE_RENAME" => {
+                aliases.push("OpenEDR::FileRename".to_string());
+                aliases.push("OpenEDR::FileModify".to_string());
             }
             "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
                 aliases.push("OpenEDR::RegistryKeyModify".to_string());
@@ -4865,6 +4873,7 @@ impl BehaviorEngine {
                 "LLE_FILE_MAP_READ" => Some(SE::FileMapRead as u32),
                 "LLE_FILE_MAP_WRITE" => Some(SE::FileMapWrite as u32),
                 "LLE_FILE_HANDLE_OPEN" => Some(SE::FileHandleOpen as u32),
+                "LLE_FILE_RENAME" => Some(SE::FileRename as u32),
                 "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
                     Some(SE::RegistryKeyCreate as u32)
                 }
@@ -4943,6 +4952,7 @@ impl BehaviorEngine {
                     file_change: match event_type {
                         "LLE_FILE_CREATE" => FileChangeInfo::ChangeNewFile as u8,
                         "LLE_FILE_DELETE" => FileChangeInfo::ChangeDeleteFile as u8,
+                        "LLE_FILE_RENAME" => FileChangeInfo::ChangeRenameFile as u8,
                         "LLE_FILE_DATA_CHANGE" | "LLE_FILE_DATA_WRITE_FULL" => {
                             FileChangeInfo::ChangeWrite as u8
                         }
@@ -9088,6 +9098,7 @@ impl BehaviorEngine {
                     0x0011 => Some("mmap_read"),
                     0x0012 => Some("mmap_write"),
                     0x0013 => Some("handle_open"),
+                    0x0014 => Some("rename"),
                     _ => match *irp_op {
                     IrpMajorOp::IrpRead => Some("read"),
                     IrpMajorOp::IrpWrite => Some("write"),

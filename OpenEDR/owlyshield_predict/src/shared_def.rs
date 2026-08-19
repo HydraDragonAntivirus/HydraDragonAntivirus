@@ -153,12 +153,13 @@ impl SysmonEvent {
             0x0011 => "FileMapRead",
             0x0012 => "FileMapWrite",
             0x0013 => "FileHandleOpen",
+            0x0014 => "FileRename",
             _ => "Unknown",
         }
     }
 
     pub fn is_file_event(v: u32) -> bool {
-        matches!(v, 0x0007..=0x0013)
+        matches!(v, 0x0007..=0x0014)
     }
 
     pub fn is_registry_event(v: u32) -> bool {
@@ -233,6 +234,7 @@ impl IrpMajorOp {
              0x0011 => IrpMajorOp::IrpRead,
              0x0012 => IrpMajorOp::IrpWrite,
              0x0013 => IrpMajorOp::IrpSetInfo,
+             0x0014 => IrpMajorOp::IrpSetInfo,
             // Sub-event type IDs used by to_sysmonevent_u32 for round-trip (not on LBVS wire)
             0x1009 => IrpMajorOp::IrpProcessTerminateAttempt,
             0x100A => IrpMajorOp::IrpProcessExit,

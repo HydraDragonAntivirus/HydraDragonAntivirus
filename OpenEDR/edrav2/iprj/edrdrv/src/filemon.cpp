@@ -1518,6 +1518,44 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postSetFileInfo(
 					sendFileEvent(SysmonEvent::FileDelete, pStreamHandleContext);
 			}
 		}
+		else if (eInfoClass == FileRenameInformation || eInfoClass == FileRenameInformationEx)
+		{
+			// Emit a rename event on a successful rename request. The target name
+			// is carried in the FileName field (relative to RootDirectory, which is
+			// typically NULL for same-directory renames). The rule layer compares
+			// the previous extension (tracked per file id) against the new target
+			// extension to detect extension changes.
+			UNICODE_STRING usTarget;
+			RtlInitEmptyUnicodeString(&usTarget, nullptr, 0);
+			if (eInfoClass == FileRenameInformation)
+			{
+				auto pRename = (PFILE_RENAME_INFORMATION)pData->Iopb->Parameters.SetFileInformation.InfoBuffer;
+				usTarget.Length = (USHORT)pRename->FileNameLength;
+				usTarget.MaximumLength = usTarget.Length;
+				usTarget.Buffer = pRename->FileName;
+			}
+			else
+			{
+				auto pRename = (PFILE_RENAME_INFORMATION_EX)pData->Iopb->Parameters.SetFileInformation.InfoBuffer;
+				usTarget.Length = (USHORT)pRename->FileNameLength;
+				usTarget.MaximumLength = usTarget.Length;
+				usTarget.Buffer = pRename->FileName;
+			}
+
+			if (usTarget.Buffer != nullptr && usTarget.Length != 0)
+			{
+				detail::sendFileEvent(SysmonEvent::FileRename,
+					(ULONG_PTR)pStreamHandleContext->nOpeningProcessId,
+					pStreamHandleContext,
+					[&usTarget](auto pSerializer) {
+						return write(*(pSerializer), EvFld::FileRenameTarget, &usTarget);
+					});
+			}
+			else
+			{
+				sendFileEvent(SysmonEvent::FileRename, pStreamHandleContext);
+			}
+		}
 	}
 	__finally
 	{
