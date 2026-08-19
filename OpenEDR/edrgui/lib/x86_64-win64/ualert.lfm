@@ -1,0 +1,99 @@
+object AlertForm: TAlertForm
+  Left = 300
+  Height = 96
+  Top = 300
+  Width = 360
+  BorderStyle = bsNone
+  Caption = 'Alert'
+  ClientHeight = 96
+  ClientWidth = 360
+  Color = 3155224
+  Font.Color = clWhite
+  FormStyle = fsStayOnTop
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  OnMouseEnter = FormMouseEnter
+  OnMouseLeave = FormMouseLeave
+  Position = poDesigned
+  ShowInTaskBar = stNever
+  LCLVersion = '4.8.0.0'
+  object PanelAccent: TPanel
+    Left = 0
+    Height = 96
+    Top = 0
+    Width = 6
+    Align = alLeft
+    BevelOuter = bvNone
+    Caption = ''
+    Color = 6299477
+    ParentColor = False
+    TabOrder = 0
+  end
+  object LblIcon: TLabel
+    Left = 18
+    Height = 32
+    Top = 14
+    Width = 32
+    Alignment = taCenter
+    AutoSize = False
+    Caption = 'i'
+    Font.Color = 6299477
+    Font.Height = -22
+    Font.Style = [fsBold]
+    Layout = tlCenter
+    ParentColor = False
+    ParentFont = False
+  end
+  object LblTitle: TLabel
+    Left = 62
+    Height = 20
+    Top = 14
+    Width = 260
+    Caption = 'Title'
+    Font.Color = clWhite
+    Font.Height = -15
+    Font.Style = [fsBold]
+    ParentColor = False
+    ParentFont = False
+  end
+  object LblMessage: TLabel
+    Left = 62
+    Height = 44
+    Top = 38
+    Width = 270
+    AutoSize = False
+    Caption = 'Message text goes here.'
+    Font.Color = 12500670
+    Font.Height = -12
+    ParentColor = False
+    ParentFont = False
+    WordWrap = True
+  end
+  object BtnClose: TLabel
+    Left = 336
+    Height = 18
+    Top = 10
+    Width = 14
+    Caption = 'X'
+    Cursor = crHandPoint
+    Font.Color = 12500670
+    Font.Height = -13
+    ParentColor = False
+    ParentFont = False
+    OnClick = BtnCloseClick
+  end
+  object TimerAutoClose: TTimer
+    Enabled = False
+    Interval = 6000
+    OnTimer = TimerAutoCloseTimer
+    left = 200
+    top = 60
+  end
+  object TimerFade: TTimer
+    Enabled = False
+    Interval = 15
+    OnTimer = TimerFadeTimer
+    left = 250
+    top = 60
+  end
+end

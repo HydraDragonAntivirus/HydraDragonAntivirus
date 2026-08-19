@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<CONFIG>
-  <Compiler Value="C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpc.exe" Date="1556502373"/>
-  <Params Value="-MObjFPC -Scghi -O1 -gw3 -gl -WG -l -vewnhibq -FiC:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrav2gui\lib\x86_64-win64 -FuC:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrav2gui\ -FuC:\lazarus\lcl\units\x86_64-win64\win32 -FuC:\lazarus\lcl\units\x86_64-win64 -FuC:\lazarus\components\freetype\lib\x86_64-win64 -FuC:\lazarus\components\lazutils\lib\x86_64-win64 -FuC:\lazarus\packager\units\x86_64-win64 -FUC:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrav2gui\lib\x86_64-win64\ -FEC:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrav2gui\ -oC:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrav2gui\project1.exe -dLCL -dLCLwin32 project1.lpr"/>
-  <Complete Value="False"/>
-</CONFIG>
