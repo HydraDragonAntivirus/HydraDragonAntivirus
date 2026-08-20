@@ -3777,21 +3777,27 @@ impl BehaviorEngine {
         {
             return;
         }
-        let src = Path::new(file_path);
-        if !src.exists() {
+        let clean_path = file_path
+            .trim_start_matches(r"\??\")
+            .trim_start_matches(r"\\?\");
+        let src_buf = if Path::new(clean_path).exists() {
+            PathBuf::from(clean_path)
+        } else if Path::new(file_path).exists() {
+            PathBuf::from(file_path)
+        } else {
             return;
-        }
+        };
 
-        match crate::windows::quarantine::quarantine_path(src, detection) {
+        match crate::windows::quarantine::quarantine_path(&src_buf, detection) {
             Ok(dst) => Logging::warning(&format!(
                 "[OpenEDRVerdict] Quarantined {} into {} ({})",
-                file_path,
+                src_buf.display(),
                 dst.display(),
                 detection
             )),
             Err(e) => Logging::error(&format!(
                 "[OpenEDRVerdict] Failed to quarantine {}: {}",
-                file_path, e
+                src_buf.display(), e
             )),
         }
     }
@@ -4013,6 +4019,9 @@ impl BehaviorEngine {
         // LLE_DEVICE_IOCTL) is treated as low-priority flood and is the first to
         // be shed when the queue is full.
         fn is_high_priority_irp_event(event_type: &str) -> bool {
+            if event_type == "LLE_DEVICE_IOCTL" {
+                return false;
+            }
             if event_type.starts_with("LLE_FILE_")
                 || event_type.starts_with("LLE_REGISTRY_")
                 || event_type.starts_with("LLE_NAMED_PIPE_")
@@ -4318,7 +4327,9 @@ impl BehaviorEngine {
             .unwrap_or(0)
             .min(u16::MAX as u64) as u16;
         let exe_path = str_at(event, &["process", "path"])
+            .or_else(|| str_at(event, &["process", "imageFile", "path"]))
             .or_else(|| str_at(event, &["process", "imageFile", "rawPath"]))
+            .or_else(|| str_at(event, &["process.imageFile.path"]))
             .or_else(|| str_at(event, &["process.imageFile.rawPath"]))
             .or_else(|| str_at(event, &["process_path"]))
             .or_else(|| str_at(event, &["imagePath"]))
@@ -4397,6 +4408,11 @@ impl BehaviorEngine {
                             &format!("OpenEDR process report verdict (FLS): {label}"),
                         );
                         self.notify_openedr_threat(pid, target, label, "Static");
+                        if pid != 0 {
+                            if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
+                                let _ = client.kill_only_driver(pid as u64);
+                            }
+                        }
                     }
                 }
             }
@@ -13938,15 +13954,36 @@ mod tests {
         engine.ingest_openedr_event(&self_event);
         let drained = engine.drain_pending_irp_records();
         assert_eq!(drained.len(), 1);
+        struct NoopThreatHandler;
+        impl ThreatHandler for NoopThreatHandler {
+            fn suspend(&self, _proc: &mut ProcessRecord) {}
+            fn kill(&self, _gid: u64) {}
+            fn deny_path_access(&self, _path: &std::path::Path) {}
+            fn kill_and_quarantine(&self, _gid: u64, _path: &std::path::Path, _metadata: &crate::threat_handler::QuarantineMetadata) {}
+            fn quarantine_only(&self, _path: &std::path::Path, _metadata: &crate::threat_handler::QuarantineMetadata) {}
+            fn kill_and_remove(&self, _gid: u64, _path: &std::path::Path) {}
+            fn schedule_cleanup_on_reboot(&self, _path: &std::path::Path) {}
+            fn awake(&self, _proc: &mut ProcessRecord, _kill_proc_on_exit: bool) {}
+            fn revert_registry(&self, _gid: u64) {}
+            fn restore_files_from_shadow_copy(&self, _paths: &[std::path::PathBuf]) {}
+            fn clone_box(&self) -> Box<dyn ThreatHandler> { Box::new(NoopThreatHandler) }
+        }
+
+        let mut precord = ProcessRecord::new(1, "test.exe".into(), PathBuf::from(r"C:\app\test.exe"));
+        precord.pids.insert(5000);
+        let config = crate::config::Config::new();
+        let dummy_handler = NoopThreatHandler;
+
         let (gid, msg) = &drained[0];
-        let state = engine.process_states.get_mut(gid).unwrap();
-        let matched = engine.evaluate_rule_conditions_for_state(state, msg);
+        engine.process_event(&mut precord, msg, &config, &dummy_handler);
+        let state = engine.process_states.get(gid).unwrap();
         assert!(
-            !matched.contains_key("CrossProcessApiTest"),
-            "require_cross_target must NOT match self-process allocation"
+            !state.satisfied_named_conditions.iter().any(|c| c.ends_with("cross_api")),
+            "require_cross_target must NOT satisfy condition for self-process allocation (got {:?})",
+            state.satisfied_named_conditions
         );
 
-        // 2. Cross-process allocation (target_pid == 6000 != 5000): MUST match
+        // 2. Cross-process allocation (target_pid == 6000 != 5000): MUST be counted
         let cross_event = serde_json::json!({
             "type": "LLE_DEVICE_IOCTL",
             "process": { "pid": 5000 },
@@ -13965,11 +14002,12 @@ mod tests {
         let drained = engine.drain_pending_irp_records();
         assert_eq!(drained.len(), 1);
         let (gid, msg) = &drained[0];
-        let state = engine.process_states.get_mut(gid).unwrap();
-        let matched = engine.evaluate_rule_conditions_for_state(state, msg);
+        engine.process_event(&mut precord, msg, &config, &dummy_handler);
+        let state = engine.process_states.get(gid).unwrap();
         assert!(
-            matched.contains_key("CrossProcessApiTest"),
-            "require_cross_target MUST match cross-process allocation"
+            state.satisfied_named_conditions.iter().any(|c| c.ends_with("cross_api")),
+            "require_cross_target MUST satisfy condition for cross-process allocation (got {:?})",
+            state.satisfied_named_conditions
         );
     }
 }
