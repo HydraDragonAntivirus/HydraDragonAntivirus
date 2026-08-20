@@ -1714,13 +1714,6 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postWrite(__inout PFLT_CALLBACK_DATA pData, __
 			(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, pStreamHandleContext, pFltObjects->FileObject,
 			(ULONG)pData->IoStatus.Status, (ULONG)pData->IoStatus.Information);
 
-		// Emit the write event for every successful write. The rule layer filters
-		// by path/extension; the driver must not drop writes silently.
-		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
-		{
-			sendFileEvent(SysmonEvent::FileDataWriteFull, pStreamHandleContext);
-		}
-
 		// if any bytes was written
 		if (NT_SUCCESS(pData->IoStatus.Status))
 		{
@@ -1756,6 +1749,24 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postWrite(__inout PFLT_CALLBACK_DATA pData, __
 				(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, info.nNextPos,
 				pData->IoStatus.Information);
 		} while (false);
+
+		// Emit the write event for every successful write. The rule layer filters
+		// by path/extension; the driver must not drop writes silently. The event is
+		// sent after sequence hashing so hash-based rules (e.g. FILE_COPY detection)
+		// can correlate read/write pairs via "file.rawHash". When sequence hashing
+		// is not active the event carries no hash; the service-side hash key
+		// calculation skips the missing field instead of failing.
+		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
+		{
+			auto& info = pStreamHandleContext->sequenceWriteInfo;
+			sendFileEvent(SysmonEvent::FileDataWriteFull, pStreamHandleContext,
+				[&info](auto pSerializer) {
+					if (info.fEnabled)
+						return writeFileHash(pSerializer, info);
+					return STATUS_SUCCESS;
+				}
+			);
+		}
 	}
 	__finally
 	{
@@ -1860,15 +1871,6 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postRead(__inout PFLT_CALLBACK_DATA pData,
 			(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, pStreamHandleContext, pFltObjects->FileObject,
 			(ULONG)pData->IoStatus.Status, (ULONG)pData->IoStatus.Information);
 
-		// Emit the read event for every successful read. The rule layer filters
-		// by path/extension; the driver must not drop reads silently. Skip zero-
-		// byte reads (length 0 are filtered in preRead already; Information 0
-		// guards against failed/empty completions).
-		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
-		{
-			sendFileEvent(SysmonEvent::FileDataReadFull, pStreamHandleContext);
-		}
-
 		// Sequence action detection
 		do
 		{
@@ -1896,6 +1898,24 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postRead(__inout PFLT_CALLBACK_DATA pData,
 				(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, pStreamHandleContext->sequenceReadInfo.nNextPos,
 				pData->IoStatus.Information);
 		} while (false);
+
+		// Emit the read event for every successful read. The rule layer filters
+		// by path/extension; the driver must not drop reads silently. The event is
+		// sent after sequence hashing so hash-based rules (e.g. FILE_COPY detection)
+		// can correlate read/write pairs via "file.rawHash". When sequence hashing
+		// is not active the event carries no hash; the service-side hash key
+		// calculation skips the missing field instead of failing.
+		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
+		{
+			auto& info = pStreamHandleContext->sequenceReadInfo;
+			sendFileEvent(SysmonEvent::FileDataReadFull, pStreamHandleContext,
+				[&info](auto pSerializer) {
+					if (info.fEnabled)
+						return writeFileHash(pSerializer, info);
+					return STATUS_SUCCESS;
+				}
+			);
+		}
 	}
 	__finally
 	{

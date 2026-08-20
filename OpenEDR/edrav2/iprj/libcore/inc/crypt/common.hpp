@@ -137,6 +137,12 @@ void updateVariantHashViaJson(Hasher& hasher, const Variant& vVal)
 template<typename Hasher>
 void updateVariantHashAsEvent(Hasher& hasher, const Variant& vVal)
 {
+	// Null/absent fields (e.g. "file.rawHash" on events that do not carry a
+	// hash) must not fail the whole key calculation. They simply contribute
+	// nothing to the hash.
+	if (vVal.isNull())
+		return;
+
 	switch (vVal.getType())
 	{
 	case variant::ValueType::Boolean:
