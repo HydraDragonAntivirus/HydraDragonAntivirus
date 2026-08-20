@@ -859,6 +859,12 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(_In_ PVOID RegistrationContext
     if (pOperationInformation->KernelHandle)
         return OB_PREOP_SUCCESS;
 
+    // OB pre/post operation callbacks can be invoked at IRQL up to
+    // DISPATCH_LEVEL. The event pipeline (paged pool allocation, fast mutex)
+    // is not safe there, so skip everything above PASSIVE_LEVEL.
+    if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+        return OB_PREOP_SUCCESS;
+
     // Safety check - ensure communication is ready
     if (commHandle == NULL || commHandle->CommClosed)
         return OB_PREOP_SUCCESS;

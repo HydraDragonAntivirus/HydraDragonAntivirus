@@ -136,6 +136,12 @@ struct ProcessCallContext
 OB_PREOP_CALLBACK_STATUS preProcessObjectAccess(PVOID /*RegistrationContext*/, 
 	POB_PRE_OPERATION_INFORMATION preOpInfo)
 {
+	// OB pre/post operation callbacks can be invoked at IRQL up to DISPATCH_LEVEL
+	// (kernel-initiated handle operations). The event pipeline is not safe at
+	// DISPATCH_LEVEL, so skip everything above PASSIVE_LEVEL.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return OB_PREOP_SUCCESS;
+
 	// We should collect data on preAction
 	// because we don't have correct all information on postAction
 
@@ -271,6 +277,11 @@ OB_PREOP_CALLBACK_STATUS preProcessObjectAccess(PVOID /*RegistrationContext*/,
 //
 VOID postProcessObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFORMATION postOpInfo)
 {
+	// OB pre/post operation callbacks can be invoked at IRQL up to DISPATCH_LEVEL.
+	// The event pipeline (paged pool, fast mutex) is not safe there.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return;
+
 	// Skip action skipped by preAction
 	if (postOpInfo->CallContext == nullptr)
 		return;
@@ -378,6 +389,10 @@ struct DesktopCallContext
 OB_PREOP_CALLBACK_STATUS preDesktopObjectAccess(PVOID /*RegistrationContext*/, 
 	POB_PRE_OPERATION_INFORMATION preOpInfo)
 {
+	// OB pre/post operation callbacks can be invoked at IRQL up to DISPATCH_LEVEL.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return OB_PREOP_SUCCESS;
+
 	if (!g_pCommonData->fObjMonStarted)
 		return OB_PREOP_SUCCESS;
 
@@ -430,6 +445,16 @@ OB_PREOP_CALLBACK_STATUS preDesktopObjectAccess(PVOID /*RegistrationContext*/,
 //
 VOID postDesktopObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFORMATION postOpInfo)
 {
+	// ObQueryNameString and the event pipeline must be used at PASSIVE_LEVEL,
+	// but OB pre/post operation callbacks can be invoked at IRQL up to
+	// DISPATCH_LEVEL (e.g. kernel-initiated handle operations). Calling them at
+	// a higher IRQL causes an IRQL_NOT_LESS_OR_EQUAL bugcheck. User-mode desktop
+	// opens (OpenDesktop/OpenInputDesktop) always occur at PASSIVE_LEVEL, so
+	// this guard only filters out the kernel-initiated cases. If a pre-op at
+	// DISPATCH_LEVEL was already skipped, CallContext is NULL and nothing leaks.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return;
+
 	// Skip action skipped by preAction
 	if (postOpInfo->CallContext == nullptr)
 		return;
@@ -438,15 +463,6 @@ VOID postDesktopObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_I
 
 	// Skip unsuccessful
 	if (!NT_SUCCESS(postOpInfo->ReturnStatus))
-		return;
-
-	// ObQueryNameString must be called at PASSIVE_LEVEL, but OB pre/post
-	// operation callbacks can be invoked at IRQL up to DISPATCH_LEVEL
-	// (e.g. kernel-initiated handle operations). Calling it at a higher IRQL
-	// causes an IRQL_NOT_LESS_OR_EQUAL bugcheck. User-mode desktop opens
-	// (OpenDesktop/OpenInputDesktop) always occur at PASSIVE_LEVEL, so this
-	// guard only filters out the kernel-initiated cases.
-	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
 		return;
 
 	// Resolve the desktop object name from the object manager.
@@ -506,6 +522,10 @@ struct ThreadCallContext
 OB_PREOP_CALLBACK_STATUS preThreadObjectAccess(PVOID /*RegistrationContext*/,
 	POB_PRE_OPERATION_INFORMATION preOpInfo)
 {
+	// OB pre/post operation callbacks can be invoked at IRQL up to DISPATCH_LEVEL.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return OB_PREOP_SUCCESS;
+
 	if (!g_pCommonData->fObjMonStarted)
 		return OB_PREOP_SUCCESS;
 
@@ -558,6 +578,10 @@ OB_PREOP_CALLBACK_STATUS preThreadObjectAccess(PVOID /*RegistrationContext*/,
 //
 VOID postThreadObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_INFORMATION postOpInfo)
 {
+	// OB pre/post operation callbacks can be invoked at IRQL up to DISPATCH_LEVEL.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return;
+
 	// Skip action skipped by preAction
 	if (postOpInfo->CallContext == nullptr)
 		return;

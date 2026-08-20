@@ -333,6 +333,13 @@ bool isClientConnected()
 //
 NTSTATUS sendRawEventInternal(const RawEvent& rawEvent)
 {
+	// The event pipeline (FltSendMessage, paged pool allocation and the fast
+	// mutex) must run at PASSIVE_LEVEL. Callers like OB callbacks or minifilter
+	// post-operations can be invoked at IRQL up to DISPATCH_LEVEL; dropping the
+	// event there is far safer than bugchecking at DISPATCH_LEVEL.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return STATUS_INVALID_DEVICE_STATE;
+
 	LARGE_INTEGER liTimeout = {};
 	liTimeout.QuadPart = (LONGLONG)g_pCommonData->nFltPortSendMessageTimeout * 
 		(LONGLONG)1000 /*micro*/ * (LONGLONG)10 /*100 nano*/ * (LONGLONG)-1/*relative*/;
@@ -358,6 +365,13 @@ NTSTATUS sendRawEventInternal(const RawEvent& rawEvent)
 //
 NTSTATUS sendRawEvent(const void* pRawEvent, size_t nRawEventSize)
 {
+	// The event pipeline (PagedPool allocation, fast-mutex acquisition and the
+	// worker thread wakeup) must run at PASSIVE_LEVEL. OB callbacks and
+	// minifilter post-operations can be invoked at IRQL up to DISPATCH_LEVEL;
+	// dropping the event there is far safer than bugchecking at DISPATCH_LEVEL.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return STATUS_INVALID_DEVICE_STATE;
+
 	if (!g_pCommonData->fFltPortIsInitialized)
 		return LOGERROR(STATUS_UNSUCCESSFUL);
 
