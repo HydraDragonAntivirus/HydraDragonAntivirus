@@ -440,6 +440,15 @@ VOID postDesktopObjectAccess(PVOID /*RegistrationContext*/, POB_POST_OPERATION_I
 	if (!NT_SUCCESS(postOpInfo->ReturnStatus))
 		return;
 
+	// ObQueryNameString must be called at PASSIVE_LEVEL, but OB pre/post
+	// operation callbacks can be invoked at IRQL up to DISPATCH_LEVEL
+	// (e.g. kernel-initiated handle operations). Calling it at a higher IRQL
+	// causes an IRQL_NOT_LESS_OR_EQUAL bugcheck. User-mode desktop opens
+	// (OpenDesktop/OpenInputDesktop) always occur at PASSIVE_LEVEL, so this
+	// guard only filters out the kernel-initiated cases.
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return;
+
 	// Resolve the desktop object name from the object manager.
 	// Desktop objects are named like \Windows\WindowStations\WinSta0\Default.
 	DynUnicodeString usDesktopName;
