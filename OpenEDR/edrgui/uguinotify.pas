@@ -6,7 +6,7 @@ unit UGuiNotify;
   Receives malicious-file detections from the local edrsvc daemon and raises
   a toast via TAlertForm.
 
-  The daemon exposes a JSON-RPC server on 127.0.0.1:5889 (plain channel,
+  The daemon exposes a JSON-RPC server on 127.0.0.1:5890 (plain channel,
   see edrsvc.cfg "guiRpcServer"). This unit polls the "getDetections"
   command from a background thread and pushes new events to the caller on
   the main thread through Synchronize().
