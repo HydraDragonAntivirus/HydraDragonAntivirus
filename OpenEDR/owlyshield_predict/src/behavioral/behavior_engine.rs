@@ -4918,6 +4918,12 @@ impl BehaviorEngine {
                 "LLE_PROCESS_CREATE" => Some(SE::ProcessCreate as u32),
                 "LLE_PROCESS_DELETE" => Some(SE::ProcessDelete as u32),
                 "LLE_PROCESS_OPEN" => Some(SE::ProcessOpen as u32),
+                // OpenEDR emits process-memory reads as LLE_PROCESS_MEMORY_READ,
+                // but there is no dedicated SysmonEvent opcode for them here.
+                // Carry the event through the DeviceIoControl envelope and
+                // preserve the concrete event name in function_name so the
+                // semantic rule matcher can consume it.
+                "LLE_PROCESS_MEMORY_READ" => Some(SE::DeviceIoControl as u32),
                 "LLE_PROCESS_MEMORY_WRITE" => Some(14),
                 "LLE_NAMED_PIPE_CREATE" => Some(SE::NamedPipeCreate as u32),
                 // IRP_ hook/rootkit events carried as DeviceIoControl
@@ -8783,6 +8789,18 @@ impl BehaviorEngine {
                     let operation_match = cond_group.irp_operations.iter().any(|required| {
                         irp_operation_matches_token(current_irp_opcode, msg.file_change, required)
                     });
+                    // Process-memory reads use the DeviceIoControl carrier, so
+                    // their semantic operation must be matched from the preserved
+                    // OpenEDR event name rather than from an IRP opcode.
+                    let openedr_operation_match = cond_group.irp_operations.iter().any(|required| {
+                        let normalized = normalize_irp_operation_token(required);
+                        normalized == "process_memory_read"
+                            && (current_event_name.eq_ignore_ascii_case("LLE_PROCESS_MEMORY_READ")
+                                || current_event_name.eq_ignore_ascii_case("ProcessMemoryRead")
+                                || msg.kernel_event_info
+                                    .object_name
+                                    .eq_ignore_ascii_case("LLE_PROCESS_MEMORY_READ"))
+                    });
 
                     let self_target_ok = !cond_group.require_self_target
                         || msg.kernel_event_info.target_process_id == 0
@@ -8805,7 +8823,7 @@ impl BehaviorEngine {
                         || (msg.kernel_event_info.target_process_id != 0
                             && msg.kernel_event_info.target_process_id != state.pid);
 
-                    if (opcode_match || operation_match)
+                    if (opcode_match || operation_match || openedr_operation_match)
                         && self_target_ok
                         && cross_target_ok
                         && token_cross_target_ok
@@ -13251,6 +13269,98 @@ mod tests {
         assert_eq!(drained.len(), 1, "file create record must still drain");
         let (gid, _) = &drained[0];
         assert_eq!(*gid, 11);
+    }
+
+    #[test]
+    fn process_memory_read_event_reaches_named_condition_pipeline() {
+        use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
+
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            12,
+            4242,
+            PathBuf::from(r"C:\Windows\System32\reader.exe"),
+            "reader.exe".into(),
+        );
+
+        let mut group = NamedConditionGroup::default();
+        group.irp_operations = vec!["process_memory_read".to_string()];
+        group.min_matches = 1;
+
+        let mut rule = BehaviorRule::default();
+        rule.name = "process_memory_read_test".to_string();
+        rule.named_conditions.insert("memory_read".to_string(), group);
+        engine.rules.push(rule);
+
+        let event = serde_json::json!({
+            "type": "LLE_PROCESS_MEMORY_READ",
+            "process": { "pid": 4242 },
+            "targetPid": 1337,
+            "accessMask": 0x0010,
+            "file": { "path": "" }
+        });
+
+        engine.ingest_openedr_event(&event);
+        assert_eq!(
+            engine.pending_irp_records.lock().unwrap().len(),
+            1,
+            "process-memory read telemetry must enter the behavioral queue"
+        );
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1);
+        let (_, msg) = &drained[0];
+        assert_eq!(msg.kernel_event_info.object_name, "LLE_PROCESS_MEMORY_READ");
+        assert_eq!(msg.kernel_event_info.target_process_id, 1337);
+
+        let gid = drained[0].0;
+        let mut precord = ProcessRecord::default();
+        precord.gid = gid;
+        precord.pid = 4242;
+        engine.update_named_conditions_state(
+            &mut precord,
+            gid,
+            msg,
+            &IrpMajorOp::IrpNone,
+            "",
+        );
+
+        let state = engine.process_states.get(&gid).unwrap();
+        assert!(
+            state.satisfied_named_conditions.contains("process_memory_read_test::memory_read"),
+            "process-memory read must satisfy irp_operations=process_memory_read"
+        );
+    }
+
+    #[test]
+    fn process_memory_read_event_enters_behavioral_queue() {
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            12,
+            4242,
+            PathBuf::from(r"C:\Windows\System32\reader.exe"),
+            "reader.exe".into(),
+        );
+
+        let event = serde_json::json!({
+            "type": "LLE_PROCESS_MEMORY_READ",
+            "process": { "pid": 4242 },
+            "targetPid": 1337,
+            "accessMask": 0x0010
+        });
+
+        engine.ingest_openedr_event(&event);
+        assert_eq!(
+            engine.pending_irp_records.lock().unwrap().len(),
+            1,
+            "process-memory read telemetry must enter the behavioral queue"
+        );
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1);
+        let (_, msg) = &drained[0];
+        assert_eq!(msg.kernel_event_info.object_name, "LLE_PROCESS_MEMORY_READ");
+        assert_eq!(msg.kernel_event_info.target_process_id, 1337);
     }
 
     #[test]

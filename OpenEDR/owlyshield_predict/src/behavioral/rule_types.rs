@@ -1868,6 +1868,10 @@ pub struct NamedConditionGroup {
     /// - `api_read`        => API-hook-only reads (mapped-section / NtReadFile)
     /// The same scheme applies to `write`, `create`, `delete`, `rename`.
     ///
+    /// OpenEDR process-memory telemetry can be matched through `irp_operations:
+    /// ["process_memory_read"]`. This is distinct from file `read` and means a
+    /// source process attempted to read another process's virtual memory.
+    ///
     /// Dedicated rule types for the driver's extension telemetry (kept separate
     /// from ordinary IRP-level read/write):
     /// - `mmap_read`       => memory-mapped section read (minifilter
