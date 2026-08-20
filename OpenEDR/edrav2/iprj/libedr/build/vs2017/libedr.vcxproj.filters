@@ -25,6 +25,7 @@
       <Filter>policy</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\eventfilter.h" />
+    <ClInclude Include="..\..\src\detectionnotifier.h" />
     <ClInclude Include="..\..\src\policy_v2.h">
       <Filter>policy</Filter>
     </ClInclude>
@@ -50,6 +51,7 @@
       <Filter>policy</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\eventfilter.cpp" />
+    <ClCompile Include="..\..\src\detectionnotifier.cpp" />
     <ClCompile Include="..\..\src\policy_v2.cpp">
       <Filter>policy</Filter>
     </ClCompile>

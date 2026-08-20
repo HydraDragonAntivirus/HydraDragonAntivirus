@@ -98,6 +98,24 @@
 				}
 			},
 
+			// Put event to the GUI notification receiver
+			{
+				"$if": {
+					"$gpath": "app.config.script.output.enableGuiReceiver",
+					"$default": false
+				},
+				"clsid": "0x59D2EF6E", // CLSID_CallCtxCmd
+				"command": {
+					"$$proxy": "cachedObj",
+					"clsid": "0xACE892B6", // CLSID_Command
+					"processor": "app.config.script.output.guiNotification",
+					"command": "put"
+				},
+				"ctxParams": {
+					"data": { "$path": "event" }
+				}
+			},
+
 			// Put event to the batch queue
 			{
 				"$goto": "putToBatchQueue",

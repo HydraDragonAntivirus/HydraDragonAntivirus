@@ -11,6 +11,7 @@
 #include "eventfilter.h"
 #include "lane.h"
 #include "outputfilter.h"
+#include "detectionnotifier.h"
 
 //
 // Classes registration
@@ -22,4 +23,5 @@ CMD_DEFINE_LIBRARY_CLASS(ContextService)
 CMD_DEFINE_LIBRARY_CLASS(PerProcessEventFilter)
 CMD_DEFINE_LIBRARY_CLASS(edr::LaneOperation)
 CMD_DEFINE_LIBRARY_CLASS(OutputFilter)
+CMD_DEFINE_LIBRARY_CLASS(DetectionNotifier)
 CMD_END_LIBRARY_DEFINITION(libedr)

@@ -8,6 +8,7 @@ object Form1: TForm1
   ClientHeight = 60
   ClientWidth = 60
   OnCreate = FormCreate
+  OnDestroy = FormDestroy
   ShowInTaskBar = stNever
   Visible = False
   DesignTimePPI = 120

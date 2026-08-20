@@ -55,6 +55,11 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="USvcControl"/>
       </Unit>
+      <Unit>
+        <Filename Value="uguinotify.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="UGuiNotify"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

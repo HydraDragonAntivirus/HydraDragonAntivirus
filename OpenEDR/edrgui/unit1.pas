@@ -16,7 +16,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, Menus,
-  Windows, USvcControl, UAlert;
+  Windows, USvcControl, UAlert, UGuiNotify;
 
 type
 
@@ -38,6 +38,7 @@ type
     Timer1: TTimer;
     TrayIcon1: TTrayIcon;
     procedure FormCreate(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
     procedure MenuExitClick(Sender: TObject);
     procedure MenuInstallClick(Sender: TObject);
     procedure MenuRestartClick(Sender: TObject);
@@ -51,9 +52,12 @@ type
     FLastState: TSvcState;
     FBusy: Boolean;
     FRestartPending: Boolean;
+    FNotifier: TGuiNotifierThread;
     procedure RunCommand(ACmd: TSvcCommand);
     procedure OnCommandDone(Sender: TObject; Cmd: TSvcCommand;
       Success: Boolean; ExitCode: DWORD; const Output: string);
+    procedure OnNotifierDetections(Sender: TObject;
+      const Detections: TDetInfoArray);
     procedure RefreshStatus(AShowChangeAlert: Boolean);
     procedure UpdateMenuEnabled(AState: TSvcState);
     procedure LoadStateIcon(const AFileNameNoExt: string);
@@ -95,6 +99,17 @@ begin
   RefreshStatus(False);
   Timer1.Interval := 4000;
   Timer1.Enabled := True;
+
+  FNotifier := TGuiNotifierThread.Create(@OnNotifierDetections);
+end;
+
+procedure TForm1.FormDestroy(Sender: TObject);
+begin
+  if FNotifier <> nil then
+  begin
+    FNotifier.Terminate;
+    FNotifier := nil;
+  end;
 end;
 
 // Loads one of icons\ok.ico / warn.ico / error.ico / busy.ico / off.ico
@@ -232,6 +247,30 @@ procedure TForm1.TrayIcon1DblClick(Sender: TObject);
 begin
   TAlertForm.ShowAlert('HydraDragon EDR Agent',
     'Current status: ' + SvcStateToStr(FLastState), asInfo, 4000);
+end;
+
+// Runs on the main thread (via Synchronize) whenever the notifier thread
+// pulls new detection events from the edrsvc RPC server.
+procedure TForm1.OnNotifierDetections(Sender: TObject;
+  const Detections: TDetInfoArray);
+var
+  sMsg: string;
+  i: Integer;
+begin
+  if Length(Detections) = 0 then
+    Exit;
+
+  sMsg := '';
+  for i := 0 to High(Detections) do
+  begin
+    if sMsg <> '' then
+      sMsg := sMsg + LineEnding;
+    sMsg := sMsg + Detections[i].EventType;
+    if Detections[i].ImagePath <> '' then
+      sMsg := sMsg + ': ' + Detections[i].ImagePath;
+  end;
+
+  TAlertForm.ShowAlert('EDR Detection', sMsg, asCritical, 0);
 end;
 
 procedure TForm1.RunCommand(ACmd: TSvcCommand);

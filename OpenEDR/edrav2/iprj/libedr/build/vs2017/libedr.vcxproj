@@ -25,6 +25,7 @@
     <ClInclude Include="..\..\inc\policy.hpp" />
     <ClInclude Include="..\..\src\eventenricher.h" />
     <ClInclude Include="..\..\src\eventfilter.h" />
+    <ClInclude Include="..\..\src\detectionnotifier.h" />
     <ClInclude Include="..\..\src\pch.h" />
     <ClInclude Include="..\..\src\policy.h" />
     <ClInclude Include="..\..\src\policycompiler.h" />
@@ -36,6 +37,7 @@
   <ItemGroup>
     <ClCompile Include="..\..\src\eventenricher.cpp" />
     <ClCompile Include="..\..\src\eventfilter.cpp" />
+    <ClCompile Include="..\..\src\detectionnotifier.cpp" />
     <ClCompile Include="..\..\src\libedr.cpp" />
     <ClCompile Include="..\..\src\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
