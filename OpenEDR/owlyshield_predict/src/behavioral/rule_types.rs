@@ -1857,6 +1857,12 @@ pub struct NamedConditionGroup {
     /// Default false = always lowercase (case-insensitive matching).
     #[serde(default)]
     pub no_lowercase: bool,
+    /// Ordering semantics for this named condition.
+    /// Existing rules historically behaved as unordered, so the default is true.
+    /// Set to false when this condition must occur before sibling conditions in
+    /// the detection branch (for example ransomware read-before-write).
+    #[serde(default = "default_true")]
+    pub orderless: bool,
     #[serde(default)]
     pub file_paths: Vec<String>,
     /// File operations to match, e.g. "read", "write", "create", "delete",
@@ -1867,10 +1873,6 @@ pub struct NamedConditionGroup {
     /// - `irp_read`        => IRP-level-only reads (minifilter)
     /// - `api_read`        => API-hook-only reads (mapped-section / NtReadFile)
     /// The same scheme applies to `write`, `create`, `delete`, `rename`.
-    ///
-    /// OpenEDR process-memory telemetry can be matched through `irp_operations:
-    /// ["process_memory_read"]`. This is distinct from file `read` and means a
-    /// source process attempted to read another process's virtual memory.
     ///
     /// Dedicated rule types for the driver's extension telemetry (kept separate
     /// from ordinary IRP-level read/write):

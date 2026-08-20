@@ -1421,6 +1421,56 @@ fn file_op_base(op: &str) -> &str {
     op.strip_prefix("api_").unwrap_or(op)
 }
 
+fn normalize_file_correlation_path(path: &str) -> String {
+    path.trim_matches(char::from(0))
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn file_correlation_stem(path: &str) -> String {
+    let normalized = normalize_file_correlation_path(path);
+    let last_sep = normalized.rfind('/').unwrap_or(0);
+    match normalized.rfind('.') {
+        Some(dot) if dot > last_sep => normalized[..dot].to_string(),
+        _ => normalized,
+    }
+}
+
+fn irp_record_file_operation(record: &IrpOperationRecord) -> Option<&'static str> {
+    match record.irp_type {
+        // Communication.cpp / OpenEDR hypervisor sub-types.
+        0x0010 => api_hook_file_operation(&record.function_name).map(file_op_base),
+        0x0011 => Some("read"),
+        0x0012 => Some("write"),
+        0x0014 => Some("rename"),
+        0x000F => Some("create"),
+        _ => match IrpMajorOp::from_sysmonevent(record.irp_type) {
+            IrpMajorOp::IrpRead => Some("read"),
+            IrpMajorOp::IrpWrite => Some("write"),
+            IrpMajorOp::IrpCreate => Some("create"),
+            IrpMajorOp::IrpSetInfo => match record.file_change {
+                x if x == FileChangeInfo::ChangeRenameFile as u8
+                    || x == FileChangeInfo::ChangeExtensionChanged as u8 => Some("rename"),
+                x if x == FileChangeInfo::ChangeDeleteFile as u8
+                    || x == FileChangeInfo::ChangeDeleteNewFile as u8 => Some("delete"),
+                x if x == FileChangeInfo::ChangeWrite as u8
+                    || x == FileChangeInfo::ChangeOverwriteFile as u8 => Some("write"),
+                x if x == FileChangeInfo::ChangeNewFile as u8 => Some("create"),
+                _ => Some("setinfo"),
+            },
+            IrpMajorOp::IrpUserModeHookEvent
+            | IrpMajorOp::IrpKernelCreateSection
+            | IrpMajorOp::IrpKernelMapSection => {
+                api_hook_file_operation(&record.function_name)
+                    .map(file_op_base)
+            }
+            _ => None,
+        },
+    }
+}
+
 fn api_hook_file_operation(function_name: &str) -> Option<&'static str> {
     let normalized = normalize_hypervisor_label(function_name);
     if normalized.is_empty() {
@@ -4918,12 +4968,6 @@ impl BehaviorEngine {
                 "LLE_PROCESS_CREATE" => Some(SE::ProcessCreate as u32),
                 "LLE_PROCESS_DELETE" => Some(SE::ProcessDelete as u32),
                 "LLE_PROCESS_OPEN" => Some(SE::ProcessOpen as u32),
-                // OpenEDR emits process-memory reads as LLE_PROCESS_MEMORY_READ,
-                // but there is no dedicated SysmonEvent opcode for them here.
-                // Carry the event through the DeviceIoControl envelope and
-                // preserve the concrete event name in function_name so the
-                // semantic rule matcher can consume it.
-                "LLE_PROCESS_MEMORY_READ" => Some(SE::DeviceIoControl as u32),
                 "LLE_PROCESS_MEMORY_WRITE" => Some(14),
                 "LLE_NAMED_PIPE_CREATE" => Some(SE::NamedPipeCreate as u32),
                 // IRP_ hook/rootkit events carried as DeviceIoControl
@@ -8789,18 +8833,6 @@ impl BehaviorEngine {
                     let operation_match = cond_group.irp_operations.iter().any(|required| {
                         irp_operation_matches_token(current_irp_opcode, msg.file_change, required)
                     });
-                    // Process-memory reads use the DeviceIoControl carrier, so
-                    // their semantic operation must be matched from the preserved
-                    // OpenEDR event name rather than from an IRP opcode.
-                    let openedr_operation_match = cond_group.irp_operations.iter().any(|required| {
-                        let normalized = normalize_irp_operation_token(required);
-                        normalized == "process_memory_read"
-                            && (current_event_name.eq_ignore_ascii_case("LLE_PROCESS_MEMORY_READ")
-                                || current_event_name.eq_ignore_ascii_case("ProcessMemoryRead")
-                                || msg.kernel_event_info
-                                    .object_name
-                                    .eq_ignore_ascii_case("LLE_PROCESS_MEMORY_READ"))
-                    });
 
                     let self_target_ok = !cond_group.require_self_target
                         || msg.kernel_event_info.target_process_id == 0
@@ -8823,7 +8855,7 @@ impl BehaviorEngine {
                         || (msg.kernel_event_info.target_process_id != 0
                             && msg.kernel_event_info.target_process_id != state.pid);
 
-                    if (opcode_match || operation_match || openedr_operation_match)
+                    if (opcode_match || operation_match)
                         && self_target_ok
                         && cross_target_ok
                         && token_cross_target_ok
@@ -9294,12 +9326,60 @@ impl BehaviorEngine {
                     None
                 };
 
+                let same_file_read_by_path = if cond_group.require_same_file_read {
+                    let target = normalize_file_correlation_path(filepath);
+                    let target_stem = file_correlation_stem(filepath);
+                    state.irp_operations.iter().any(|rec| {
+                        irp_record_file_operation(rec) == Some("read")
+                            && {
+                                let candidate = normalize_file_correlation_path(&rec.file_path);
+                                !candidate.is_empty()
+                                    && (candidate == target
+                                        || file_correlation_stem(&candidate) == target_stem)
+                            }
+                    })
+                } else {
+                    false
+                };
+                let same_file_write_by_path = if cond_group.require_same_file_write {
+                    let target = normalize_file_correlation_path(filepath);
+                    let target_stem = file_correlation_stem(filepath);
+                    state.irp_operations.iter().any(|rec| {
+                        irp_record_file_operation(rec) == Some("write")
+                            && {
+                                let candidate = normalize_file_correlation_path(&rec.file_path);
+                                !candidate.is_empty()
+                                    && (candidate == target
+                                        || file_correlation_stem(&candidate) == target_stem)
+                            }
+                    })
+                } else {
+                    false
+                };
+                let same_file_rename_by_path = if cond_group.require_same_file_rename {
+                    let target = normalize_file_correlation_path(filepath);
+                    let target_stem = file_correlation_stem(filepath);
+                    state.irp_operations.iter().any(|rec| {
+                        irp_record_file_operation(rec) == Some("rename")
+                            && {
+                                let candidate = normalize_file_correlation_path(&rec.file_path);
+                                !candidate.is_empty()
+                                    && (candidate == target
+                                        || file_correlation_stem(&candidate) == target_stem)
+                            }
+                    })
+                } else {
+                    false
+                };
                 let same_file_requirements_ok = (!cond_group.require_same_file_read
-                    || precord.has_read_file_id(&msg.file_id_id))
+                    || (msg.file_id_id.0 != 0 && precord.has_read_file_id(&msg.file_id_id))
+                    || same_file_read_by_path)
                     && (!cond_group.require_same_file_write
-                        || precord.has_written_file_id(&msg.file_id_id))
+                        || (msg.file_id_id.0 != 0 && precord.has_written_file_id(&msg.file_id_id))
+                        || same_file_write_by_path)
                     && (!cond_group.require_same_file_rename
-                        || precord.has_renamed_file_id(&msg.file_id_id))
+                        || (msg.file_id_id.0 != 0 && precord.has_renamed_file_id(&msg.file_id_id))
+                        || same_file_rename_by_path)
                     && (!cond_group.require_same_stem_created_unknown_extension
                         || state.created_unknown_ext_stems.contains(filepath)
                         || stem_str.as_ref().is_some_and(|s| state.created_unknown_ext_stems.contains(s)))
@@ -10568,6 +10648,93 @@ impl BehaviorEngine {
         precord.remember_extension_observation(msg, &event_extension);
     }
 
+    fn collect_named_conditions(
+        condition: &DetectionCondition,
+        out: &mut Vec<String>,
+    ) {
+        match condition {
+            DetectionCondition::And { and } => {
+                for child in and {
+                    Self::collect_named_conditions(child, out);
+                }
+            }
+            DetectionCondition::Or { or } => {
+                for child in or {
+                    Self::collect_named_conditions(child, out);
+                }
+            }
+            DetectionCondition::Not { not } => Self::collect_named_conditions(not, out),
+            DetectionCondition::Named { condition } => out.push(condition.clone()),
+            DetectionCondition::AllOf { all_of }
+            | DetectionCondition::AnyOf { any_of: all_of }
+            | DetectionCondition::NOf { conditions: all_of, .. }
+            | DetectionCondition::AtLeast { conditions: all_of, .. }
+            | DetectionCondition::Count { count: all_of, .. }
+            | DetectionCondition::Percentage { percentage: all_of, .. } => {
+                out.extend(all_of.iter().cloned());
+            }
+            DetectionCondition::AllOfPattern { .. }
+            | DetectionCondition::AnyOfPattern { .. } => {}
+        }
+    }
+
+    fn detection_condition_order_valid(
+        &self,
+        condition: &DetectionCondition,
+        state: &ProcessBehaviorState,
+        rule: &BehaviorRule,
+    ) -> bool {
+        match condition {
+            DetectionCondition::Or { or } => or.iter().any(|branch| {
+                self.evaluate_detection_condition(branch, state, rule)
+                    && self.detection_condition_order_valid(branch, state, rule)
+            }),
+            DetectionCondition::And { and } => {
+                if !and
+                    .iter()
+                    .all(|child| self.evaluate_detection_condition(child, state, rule))
+                {
+                    return false;
+                }
+                let mut names = Vec::new();
+                Self::collect_named_conditions(condition, &mut names);
+                for ordered_name in names.iter().filter(|name| {
+                    rule.named_conditions
+                        .get(*name)
+                        .map(|group| !group.orderless)
+                        .unwrap_or(false)
+                }) {
+                    let Some(ordered_first) = state.condition_first_seen.get(
+                        &Self::scoped_condition_name(rule, ordered_name),
+                    ) else {
+                        return false;
+                    };
+                    for sibling in &names {
+                        if sibling == ordered_name {
+                            continue;
+                        }
+                        let sibling_key = Self::scoped_condition_name(rule, sibling);
+                        if let Some(sibling_first) = state.condition_first_seen.get(&sibling_key) {
+                            if ordered_first > sibling_first {
+                                if rule.debug || self.rules.iter().any(|r| r.debug) {
+                                    Logging::debug(&format!(
+                                        "[BehaviorEngine] Ordered condition '{}' occurred after '{}' in rule '{}' on PID {}",
+                                        ordered_name, sibling, rule.name, state.pid
+                                    ));
+                                }
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            }
+            // The ransomware rule uses And/Or/Named. For other operators, preserve
+            // the existing evaluator semantics rather than inventing ordering rules.
+            _ => self.evaluate_detection_condition(condition, state, rule),
+        }
+    }
+
     fn evaluate_detection_condition(
         &self,
         condition: &DetectionCondition,
@@ -11076,7 +11243,7 @@ impl BehaviorEngine {
 
             let mut rich_triggered = false;
             if let Some(logic) = &rule.detection_logic {
-                rich_triggered = self.evaluate_detection_condition(logic, &state_ref, rule);
+                rich_triggered = self.evaluate_detection_condition_order_valid(logic, &state_ref, rule);
                 if rich_triggered
                     && let Some(window_ms) = rule.within_ms
                     && !self.detection_condition_within_window(
@@ -13272,98 +13439,6 @@ mod tests {
     }
 
     #[test]
-    fn process_memory_read_event_reaches_named_condition_pipeline() {
-        use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
-
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            12,
-            4242,
-            PathBuf::from(r"C:\Windows\System32\reader.exe"),
-            "reader.exe".into(),
-        );
-
-        let mut group = NamedConditionGroup::default();
-        group.irp_operations = vec!["process_memory_read".to_string()];
-        group.min_matches = 1;
-
-        let mut rule = BehaviorRule::default();
-        rule.name = "process_memory_read_test".to_string();
-        rule.named_conditions.insert("memory_read".to_string(), group);
-        engine.rules.push(rule);
-
-        let event = serde_json::json!({
-            "type": "LLE_PROCESS_MEMORY_READ",
-            "process": { "pid": 4242 },
-            "targetPid": 1337,
-            "accessMask": 0x0010,
-            "file": { "path": "" }
-        });
-
-        engine.ingest_openedr_event(&event);
-        assert_eq!(
-            engine.pending_irp_records.lock().unwrap().len(),
-            1,
-            "process-memory read telemetry must enter the behavioral queue"
-        );
-
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1);
-        let (_, msg) = &drained[0];
-        assert_eq!(msg.kernel_event_info.object_name, "LLE_PROCESS_MEMORY_READ");
-        assert_eq!(msg.kernel_event_info.target_process_id, 1337);
-
-        let gid = drained[0].0;
-        let mut precord = ProcessRecord::default();
-        precord.gid = gid;
-        precord.pid = 4242;
-        engine.update_named_conditions_state(
-            &mut precord,
-            gid,
-            msg,
-            &IrpMajorOp::IrpNone,
-            "",
-        );
-
-        let state = engine.process_states.get(&gid).unwrap();
-        assert!(
-            state.satisfied_named_conditions.contains("process_memory_read_test::memory_read"),
-            "process-memory read must satisfy irp_operations=process_memory_read"
-        );
-    }
-
-    #[test]
-    fn process_memory_read_event_enters_behavioral_queue() {
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            12,
-            4242,
-            PathBuf::from(r"C:\Windows\System32\reader.exe"),
-            "reader.exe".into(),
-        );
-
-        let event = serde_json::json!({
-            "type": "LLE_PROCESS_MEMORY_READ",
-            "process": { "pid": 4242 },
-            "targetPid": 1337,
-            "accessMask": 0x0010
-        });
-
-        engine.ingest_openedr_event(&event);
-        assert_eq!(
-            engine.pending_irp_records.lock().unwrap().len(),
-            1,
-            "process-memory read telemetry must enter the behavioral queue"
-        );
-
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1);
-        let (_, msg) = &drained[0];
-        assert_eq!(msg.kernel_event_info.object_name, "LLE_PROCESS_MEMORY_READ");
-        assert_eq!(msg.kernel_event_info.target_process_id, 1337);
-    }
-
-    #[test]
     fn priority_queue_sheds_low_priority_flood_before_high_priority() {
         use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
 
@@ -13588,4 +13663,45 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn file_correlation_classifies_irp_and_api_read_paths() {
+        let irp = IrpOperationRecord {
+            timestamp: SystemTime::now(),
+            irp_type: crate::shared_def::SysmonEvent::FileDataReadFull as u32,
+            file_path: r"C:\Users\victim\doc.docx".to_string(),
+            file_change: 0,
+            extension: "docx".to_string(),
+            entropy: 0.0,
+            bytes_transferred: 1,
+            target_pid: 0,
+            function_name: String::new(),
+            pipe_name: String::new(),
+            pipe_payload: Vec::new(),
+            raw_arguments: [0; 4],
+        };
+        assert_eq!(irp_record_file_operation(&irp), Some("read"));
+
+        let hook = IrpOperationRecord {
+            irp_type: IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32(),
+            function_name: "ntdll!NtReadFile".to_string(),
+            ..irp.clone()
+        };
+        assert_eq!(irp_record_file_operation(&hook), Some("read"));
+    }
+
+    #[test]
+    fn file_correlation_uses_rename_stem_for_extension_change() {
+        let old_path = r"C:\Users\victim\doc.docx";
+        let new_path = r"C:\Users\victim\doc.locked";
+        assert_eq!(
+            file_correlation_stem(old_path),
+            file_correlation_stem(new_path)
+        );
+        assert_ne!(
+            file_correlation_stem(old_path),
+            file_correlation_stem(r"C:\Users\other\doc.locked")
+        );
+    }
+
 }
