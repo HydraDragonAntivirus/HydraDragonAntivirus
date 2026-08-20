@@ -9176,29 +9176,37 @@ impl BehaviorEngine {
                         let req_lc = req.to_ascii_lowercase();
                         if let Some(op) = current_file_op {
                             let op_lc = op.to_ascii_lowercase();
-                            // Three-way source separation:
-                            // - plain token ("read") matches minifilter-only ops
-                            // - "api_read" matches API-hook-only ops
-                            // - "united_read" matches either source
                             let op_is_api = op_lc.starts_with("api_");
+                            // exact match: "read" == "read", "api_read" == "api_read"
                             if req_lc == op_lc {
                                 return true;
                             }
-                            if req_lc.starts_with("united_") {
-                                let base = &req_lc["united_".len()..];
-                                if file_op_base(&op_lc) == base {
-                                    return true;
-                                }
-                            } else if !op_is_api {
-                                // Plain token against an IRP-level op: exact match
-                                // already handled above; nothing more to add.
+                            // plain token ("read") matches either source
+                            // (IRP-level ops and API-hook ops alike)
+                            if file_op_base(&op_lc) == req_lc {
+                                return true;
+                            }
+                            // "irp_read" matches IRP-level ops only
+                            if let Some(base) = req_lc.strip_prefix("irp_")
+                                && !op_is_api
+                                && file_op_base(&op_lc) == base
+                            {
+                                return true;
+                            }
+                            // "api_read" matches API-hook ops only
+                            if let Some(base) = req_lc.strip_prefix("api_")
+                                && op_is_api
+                                && file_op_base(&op_lc) == base
+                            {
+                                return true;
                             }
                         }
-                        // Fallback for raw IRP opcode tokens; strip "united_"
-                        // so "united_read" also matches the raw FileDataReadFull
-                        // opcode path for IRP-level events.
+                        // Fallback for raw IRP opcode tokens (e.g. "read"
+                        // matching FileDataReadFull) for IRP-level events.
+                        // The "irp_" prefix is stripped so "irp_read" still
+                        // lands on the raw read opcode; "api_read" never does.
                         let req_effective = req_lc
-                            .strip_prefix("united_")
+                            .strip_prefix("irp_")
                             .unwrap_or(req_lc.as_str());
                         irp_operation_matches_token(current_irp_opcode, msg.file_change, req_effective)
                     })

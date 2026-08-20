@@ -1863,9 +1863,9 @@ pub struct NamedConditionGroup {
     /// "rename", "setinfo".
     ///
     /// Three-way source separation is supported via token prefixes:
-    /// - `read`            => minifilter-only (IRP-level) reads
+    /// - `read`            => matches either source (IRP or API hook)
+    /// - `irp_read`        => IRP-level-only reads (minifilter)
     /// - `api_read`        => API-hook-only reads (mapped-section / NtReadFile)
-    /// - `united_read`     => matches either source (IRP or API hook)
     /// The same scheme applies to `write`, `create`, `delete`, `rename`.
     ///
     /// Dedicated rule types for the driver's extension telemetry (kept separate
