@@ -1462,84 +1462,131 @@ pub mod worker_instance {
                 }
 
                 // --- FIFTH: Apply detections to process records ---
-                let mut terminated_gids = HashSet::new();
-                for det in detections {
-                    if terminated_gids.contains(&det.gid) {
-                        continue;
-                    }
+                self.apply_detections_internal(detections, config, &*threat_handler, "periodic behavior scan");
+            }
+        }
 
-                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                    let threat_info =
-                        Self::build_behavior_threat_info(&det, "periodic behavior scan");
-                    let matching_record = self
-                        .process_records
-                        .process_records
-                        .iter_mut()
-                        .find(|(gid, _)| **gid == det.gid);
-
-                    if let Some((_, record)) = matching_record {
-                        Self::apply_behavior_detection_state(record, &det);
-                        let rule_name = det
-                            .triggered_rule_name
-                            .as_deref()
-                            .unwrap_or("Behavioral Detection");
-                        Logging::warning(&format!(
-                            "[DETECTION] Process {} (GID: {}) marked malicious by rule '{}'",
-                            record.appname, det.gid, rule_name
-                        ));
-                        let report_context = ActionReportContext::default();
-                        ActionsOnKill::with_handler(threat_handler.clone_box())
-                            .run_actions_with_info_and_context(
-                                config,
-                                record,
-                                &dummy_pred_mtrx,
-                                &threat_info,
-                                &report_context,
-                            );
-
-                        if det.termination_requested
-                            && restart_cleanup_reason(record, &threat_info).is_none()
-                        {
-                            terminated_gids.insert(det.gid);
-                        }
-                    } else if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
-                        // Handle detection for process not yet in records
-                        let mut precord = ProcessRecord::new(
-                            det.gid,
-                            state.app_name.clone(),
-                            state.exe_path.clone(),
-                        );
-                        Self::apply_behavior_detection_state(&mut precord, &det);
-                        let report_context = ActionReportContext::default();
-                        ActionsOnKill::with_handler(threat_handler.clone_box())
-                            .run_actions_with_info_and_context(
-                                config,
-                                &mut precord,
-                                &dummy_pred_mtrx,
-                                &threat_info,
-                                &report_context,
-                            );
-
-                        if det.termination_requested
-                            && restart_cleanup_reason(&precord, &threat_info).is_none()
-                        {
-                            terminated_gids.insert(det.gid);
-                        } else {
-                            self.process_records.insert_precord(det.gid, precord);
-                        }
-                    }
+        fn apply_detections_internal(
+            &mut self,
+            detections: Vec<ProcessRecord>,
+            config: &Config,
+            threat_handler: &dyn ThreatHandler,
+            scan_context: &str,
+        ) {
+            let mut terminated_gids = HashSet::new();
+            for det in detections {
+                if terminated_gids.contains(&det.gid) {
+                    continue;
                 }
 
-                for gid in terminated_gids.clone() {
+                let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                let threat_info =
+                    Self::build_behavior_threat_info(&det, scan_context);
+                let matching_record = self
+                    .process_records
+                    .process_records
+                    .iter_mut()
+                    .find(|(gid, _)| **gid == det.gid);
+
+                if let Some((_, record)) = matching_record {
+                    Self::apply_behavior_detection_state(record, &det);
+                    let rule_name = det
+                        .triggered_rule_name
+                        .as_deref()
+                        .unwrap_or("Behavioral Detection");
+                    Logging::warning(&format!(
+                        "[DETECTION] Process {} (GID: {}) marked malicious by rule '{}'",
+                        record.appname, det.gid, rule_name
+                    ));
+                    let report_context = ActionReportContext::default();
+                    ActionsOnKill::with_handler(threat_handler.clone_box())
+                        .run_actions_with_info_and_context(
+                            config,
+                            record,
+                            &dummy_pred_mtrx,
+                            &threat_info,
+                            &report_context,
+                        );
+
+                    if det.termination_requested
+                        && restart_cleanup_reason(record, &threat_info).is_none()
+                    {
+                        terminated_gids.insert(det.gid);
+                    }
+                } else if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
+                    // Handle detection for process not yet in records
+                    let mut precord = ProcessRecord::new(
+                        det.gid,
+                        state.app_name.clone(),
+                        state.exe_path.clone(),
+                    );
+                    Self::apply_behavior_detection_state(&mut precord, &det);
+                    let report_context = ActionReportContext::default();
+                    ActionsOnKill::with_handler(threat_handler.clone_box())
+                        .run_actions_with_info_and_context(
+                            config,
+                            &mut precord,
+                            &dummy_pred_mtrx,
+                            &threat_info,
+                            &report_context,
+                        );
+
+                    if det.termination_requested
+                        && restart_cleanup_reason(&precord, &threat_info).is_none()
+                    {
+                        terminated_gids.insert(det.gid);
+                    } else {
+                        self.process_records.insert_precord(det.gid, precord);
+                    }
+                }
+            }
+
+            for gid in terminated_gids.clone() {
+                self.cleanup_process(gid, "Killed (behavior detection)");
+            }
+
+            for gid in terminated_gids {
+                if self.process_records.process_records.contains(&gid) {
                     self.cleanup_process(gid, "Killed (behavior detection)");
                 }
+            }
+        }
 
-                for gid in terminated_gids {
-                    if self.process_records.process_records.contains(&gid) {
-                        self.cleanup_process(gid, "Killed (behavior detection)");
-                    }
+        /// Realtime: drains pending OpenEDR telemetry records and evaluates them immediately.
+        pub fn drain_and_process_pending_telemetry(
+            &mut self,
+            config: &Config,
+            threat_handler: &dyn ThreatHandler,
+        ) {
+            let drained_records = self.behavior_engine.drain_pending_irp_records();
+            if drained_records.is_empty() {
+                return;
+            }
+
+            for (gid, iomsg) in drained_records {
+                if self.process_records.get_precord_by_gid(gid).is_none() {
+                    let (app_name, exe_path) = self
+                        .behavior_engine
+                        .process_states
+                        .get(&gid)
+                        .map(|s| (s.app_name.clone(), s.exe_path.clone()))
+                        .unwrap_or_default();
+                    let mut precord = ProcessRecord::new(gid, app_name, exe_path);
+                    precord.pids.insert(iomsg.pid);
+                    self.process_records.insert_precord(gid, precord);
                 }
+                if let Some(precord) = self.process_records.get_precord_mut_by_gid(gid) {
+                    self.behavior_engine
+                        .process_event(precord, &iomsg, config, threat_handler);
+                }
+            }
 
+            let detections = self
+                .behavior_engine
+                .scan_all_processes(config, threat_handler);
+
+            if !detections.is_empty() {
+                self.apply_detections_internal(detections, config, threat_handler, "realtime telemetry scan");
             }
         }
 

@@ -103,7 +103,7 @@ pub fn run() {
         let housekeeping_interval = std::time::Duration::from_millis(750);
         let mut msgs_since_housekeeping: usize = 0;
         loop {
-            let iomsg_res = rx_iomsgs.recv_timeout(std::time::Duration::from_millis(250));
+            let iomsg_res = rx_iomsgs.recv_timeout(std::time::Duration::from_millis(20));
             if let Ok(mut iomsg) = iomsg_res {
                 worker.process_io(&mut iomsg, &thread_config);
                 msgs_since_housekeeping += 1;
@@ -111,10 +111,16 @@ pub fn run() {
                 break;
             }
 
+            // Realtime: Immediately evaluate any pending OpenEDR telemetry records
+            // without waiting for the periodic 750ms housekeeping interval.
+            let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
+            if let Some(th) = th_opt.as_ref() {
+                worker.drain_and_process_pending_telemetry(&thread_config, &**th);
+            }
+
             if msgs_since_housekeeping >= 256
                 || last_housekeeping.elapsed() >= housekeeping_interval
             {
-                let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
                 if let Some(th) = th_opt {
                     worker.validate_tracked_processes();
                     worker.scan_processes(&thread_config, th.clone_box());
@@ -201,7 +207,7 @@ pub fn run_worker_loop(
     let mut last_housekeeping = std::time::Instant::now();
     let housekeeping_interval = std::time::Duration::from_millis(750);
     loop {
-        match rx.recv_timeout(std::time::Duration::from_millis(250)) {
+        match rx.recv_timeout(std::time::Duration::from_millis(20)) {
             Ok(mut iomsg) => {
                 worker.process_io(&mut iomsg, &config);
             }
@@ -209,8 +215,14 @@ pub fn run_worker_loop(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
 
+        // Realtime: Immediately evaluate any pending OpenEDR telemetry records
+        // on every tick (~20ms latency) instead of waiting for the 750ms housekeeping timer.
+        let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
+        if let Some(th) = th_opt.as_ref() {
+            worker.drain_and_process_pending_telemetry(&config, &**th);
+        }
+
         if last_housekeeping.elapsed() >= housekeeping_interval {
-            let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
             if let Some(th) = th_opt {
                 worker.validate_tracked_processes();
                 worker.scan_processes(&config, th.clone_box());

@@ -4017,6 +4017,17 @@ impl BehaviorEngine {
                 || event_type.starts_with("LLE_REGISTRY_")
                 || event_type.starts_with("LLE_NAMED_PIPE_")
                 || event_type.starts_with("LLE_PROCESS_")
+                || event_type.starts_with("LLE_NETWORK_")
+                || event_type.starts_with("LLE_DISK_")
+                || event_type.starts_with("LLE_VOLUME_")
+                || event_type.starts_with("LLE_DEVICE_")
+                || event_type.starts_with("LLE_KEYBOARD_")
+                || event_type.starts_with("LLE_CLIPBOARD_")
+                || event_type.starts_with("LLE_MICROPHONE_")
+                || event_type.starts_with("LLE_MOUSE_")
+                || event_type.starts_with("LLE_WINDOW_")
+                || event_type.starts_with("LLE_USER_")
+                || event_type == "LLE_SELF_DEFENSE"
                 || event_type.starts_with("IRP_KERNEL_")
                 || event_type.starts_with("IRP_ROOTKIT_")
             {
@@ -4974,6 +4985,32 @@ impl BehaviorEngine {
                 "LLE_PROCESS_MEMORY_READ" => Some(SE::DeviceIoControl as u32),
                 "LLE_PROCESS_MEMORY_WRITE" => Some(14),
                 "LLE_NAMED_PIPE_CREATE" => Some(SE::NamedPipeCreate as u32),
+                "LLE_NETWORK_CONNECT_IN"
+                | "LLE_NETWORK_CONNECT_OUT"
+                | "LLE_NETWORK_LISTEN"
+                | "LLE_NETWORK_REQUEST_DATA"
+                | "LLE_NETWORK_REQUEST_DNS" => Some(SE::DeviceIoControl as u32),
+                "LLE_DISK_RAW_WRITE_ACCESS"
+                | "LLE_VOLUME_RAW_WRITE_ACCESS"
+                | "LLE_DEVICE_RAW_WRITE_ACCESS"
+                | "LLE_DISK_LINK_CREATE"
+                | "LLE_VOLUME_LINK_CREATE"
+                | "LLE_DEVICE_LINK_CREATE" => Some(SE::DeviceIoControl as u32),
+                "LLE_WINDOW_PROC_GLOBAL_HOOK"
+                | "LLE_KEYBOARD_GLOBAL_READ"
+                | "LLE_KEYBOARD_GLOBAL_WRITE"
+                | "LLE_KEYBOARD_BLOCK"
+                | "LLE_CLIPBOARD_READ"
+                | "LLE_MICROPHONE_ENUM"
+                | "LLE_MICROPHONE_READ"
+                | "LLE_MOUSE_GLOBAL_WRITE"
+                | "LLE_MOUSE_BLOCK"
+                | "LLE_WINDOW_DATA_READ"
+                | "LLE_DESKTOP_WALLPAPER_SET"
+                | "LLE_USER_LOGON"
+                | "LLE_USER_IMPERSONATION"
+                | "LLE_SELF_DEFENSE" => Some(SE::SelfDefense as u32),
+                "LLE_INJECTION_ACTIVITY" => Some(SE::DeviceIoControl as u32),
                 // IRP_ hook/rootkit events carried as DeviceIoControl
                 "IRP_USERMODE_HOOK_EVENT" | "LLE_DEVICE_IOCTL" => Some(SE::DeviceIoControl as u32),
                 "IRP_KERNEL_REMOTE_THREAD" => Some(SE::DeviceIoControl as u32),
@@ -4991,7 +5028,13 @@ impl BehaviorEngine {
                 | "IRP_ROOTKIT_FILE_MOVE"
                 | "IRP_ROOTKIT_GENERIC" => Some(SE::DeviceIoControl as u32),
                 "IRP_NAMED_PIPE_WRITE" => Some(SE::NamedPipeCreate as u32),
-                _ => None,
+                _ => {
+                    if event_type.starts_with("LLE_") || event_type.starts_with("IRP_") {
+                        Some(SE::DeviceIoControl as u32)
+                    } else {
+                        None
+                    }
+                }
             };
 
             if let Some(irp_type) = irp_type_opt {
