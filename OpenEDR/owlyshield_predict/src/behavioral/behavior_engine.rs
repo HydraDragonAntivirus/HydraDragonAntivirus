@@ -8676,21 +8676,22 @@ impl BehaviorEngine {
                 None => continue,
             };
 
-            let remaining_conditions: Vec<_> = rule
-                .named_conditions
-                .iter()
-                .filter(|(name, _)| !Self::rule_condition_satisfied(state, rule, name))
-                .collect();
-
-            if remaining_conditions.is_empty() {
-                continue;
-            }
+            // NOTE: named conditions that are already satisfied are NOT filtered
+            // out here anymore. Previously this excluded a condition from all
+            // future evaluation the moment it first crossed min_matches (e.g. a
+            // min_matches:1 condition like ransomware_read_activity satisfies on
+            // the very first read and then goes silent for the rest of the
+            // process's life). That meant every later read/write/rename/create/
+            // delete event was never counted, logged, or added to
+            // condition_match_values, so auto_revert/quarantine/record only ever
+            // saw the one file that happened to trip the threshold first instead
+            // of the full set of files the process actually touched. We now keep
+            // evaluating and collecting matches for every event; the per-condition
+            // match-value set below still has a 256-entry cap so this can't grow
+            // unbounded.
+            let remaining_conditions: Vec<_> = rule.named_conditions.iter().collect();
 
             for (cond_name, cond_group) in remaining_conditions {
-                if Self::rule_condition_satisfied(state, rule, cond_name) {
-                    continue;
-                }
-
                 let mut matched = false;
                 let mut matched_artifact_path: Option<String> = None;
                 let has_cmdline_requirements = !cond_group.cmdline_keywords.is_empty()
@@ -10470,12 +10471,26 @@ impl BehaviorEngine {
                         1
                     };
                     if *count >= required {
-                        state.satisfied_named_conditions.insert(scoped_name);
+                        let just_satisfied = state.satisfied_named_conditions.insert(scoped_name);
                         if any_debug_rule {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Named condition '{}' satisfied for PID {} (count: {}/{}, matches: {})",
-                                cond_name, state.pid, *count, required, match_key
-                            ));
+                            if just_satisfied {
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Named condition '{}' satisfied for PID {} (count: {}/{}, matches: {})",
+                                    cond_name, state.pid, *count, required, match_key
+                                ));
+                            } else if is_new {
+                                // Condition was already satisfied earlier; this is a
+                                // further independent match collected AFTER the
+                                // threshold was first crossed (e.g. another file
+                                // read/written/renamed by the same process). We keep
+                                // recording these — they matter for response scope
+                                // (auto_revert/quarantine/record) — but log them at a
+                                // lower-noise level than the initial "satisfied" event.
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Condition '{}' additional match #{} for PID {} after satisfaction ({})",
+                                    cond_name, *count, state.pid, match_key
+                                ));
+                            }
                         }
                     } else if is_new && any_debug_rule {
                         Logging::debug(&format!(

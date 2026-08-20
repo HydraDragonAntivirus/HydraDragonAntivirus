@@ -60,6 +60,11 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="UGuiNotify"/>
       </Unit>
+      <Unit>
+        <Filename Value="uhippipe.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="UHipPipe"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

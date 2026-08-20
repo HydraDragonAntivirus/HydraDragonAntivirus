@@ -739,7 +739,7 @@ impl ActionOnKill for Logging {
         );
         Logging::alert(msg.as_str());
 
-        // Send real-time threat alert popup notification to DefenderUI
+        // Send real-time threat alert popup notification to the firewall GUI
         notify_firewall_threat_alert(threat_info.virus_name, &display_process);
 
         warn!("ALERT: {}", msg);
@@ -866,12 +866,6 @@ impl ActionOnKill for KillAction {
                     remediation_path.display()
                 ));
                 self.handler.schedule_cleanup_on_reboot(remediation_path);
-
-                crate::windows::mbrfilter::launch_defenderui_restart_required(
-                    remediation_path,
-                    "A threat could not be removed while in use.",
-                    "The file will be cleaned up after a restart.",
-                );
             }
 
             Logging::alert(&format!(

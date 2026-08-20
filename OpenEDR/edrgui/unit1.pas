@@ -16,7 +16,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, Menus,
-  Windows, USvcControl, UAlert, UGuiNotify;
+  Windows, USvcControl, UAlert, UGuiNotify, UHipPipe;
 
 type
 
@@ -53,11 +53,13 @@ type
     FBusy: Boolean;
     FRestartPending: Boolean;
     FNotifier: TGuiNotifierThread;
+    FHiPPipe: THipPipeListener;
     procedure RunCommand(ACmd: TSvcCommand);
     procedure OnCommandDone(Sender: TObject; Cmd: TSvcCommand;
       Success: Boolean; ExitCode: DWORD; const Output: string);
     procedure OnNotifierDetections(Sender: TObject;
       const Detections: TDetInfoArray);
+    procedure OnHipMessage(Sender: TObject; const AKind, AText: string);
     procedure RefreshStatus(AShowChangeAlert: Boolean);
     procedure UpdateMenuEnabled(AState: TSvcState);
     procedure LoadStateIcon(const AFileNameNoExt: string);
@@ -101,6 +103,7 @@ begin
   Timer1.Enabled := True;
 
   FNotifier := TGuiNotifierThread.Create(@OnNotifierDetections);
+  FHiPPipe := THipPipeListener.Create(@OnHipMessage);
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
@@ -109,6 +112,11 @@ begin
   begin
     FNotifier.Terminate;
     FNotifier := nil;
+  end;
+  if FHiPPipe <> nil then
+  begin
+    FHiPPipe.Terminate;
+    FHiPPipe := nil;
   end;
 end;
 
@@ -271,6 +279,21 @@ begin
   end;
 
   TAlertForm.ShowAlert('EDR Detection', sMsg, asCritical, 0);
+end;
+
+// Runs on the main thread (via Synchronize) whenever the Rust behavior engine
+// writes a message to the HydraHipEvent pipe (threat alert, HIPS prompt,
+// verdict, ...).
+procedure TForm1.OnHipMessage(Sender: TObject; const AKind, AText: string);
+begin
+  if AKind = 'THREAT_ALERT' then
+    TAlertForm.ShowAlert('EDR Threat Alert', AText, asCritical, 0)
+  else if AKind = 'HIPS_ASK' then
+    TAlertForm.ShowAlert('HIPS Prompt', AText, asWarning, 0)
+  else if AKind = 'HIPS_VERDICT' then
+    TAlertForm.ShowAlert('HIPS Verdict', AText, asInfo, 0)
+  else
+    TAlertForm.ShowAlert('HIPS Event', AText, asInfo, 0);
 end;
 
 procedure TForm1.RunCommand(ACmd: TSvcCommand);
