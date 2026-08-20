@@ -1628,21 +1628,23 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
                         || x == FileChangeInfo::ChangeExtensionChanged as u8
                 );
         }
-        // Full read (exact LLE event)
+        // Full read (exact LLE event) or any semantically-classified read
         "read"
         | "file_read"
         | "file_data_read"
         | "file_data_read_full"
         | "filedatareadfull" => {
-            return irp_type == SE::FileDataReadFull as u32;
+            return irp_type == SE::FileDataReadFull as u32
+                || irp_op == IrpMajorOp::IrpRead;
         }
-        // Full write (exact LLE event)
+        // Full write (exact LLE event) or any semantically-classified write
         "write"
         | "file_write"
         | "file_data_write"
         | "file_data_write_full"
         | "filedatawritefull" => {
-            return irp_type == SE::FileDataWriteFull as u32;
+            return irp_type == SE::FileDataWriteFull as u32
+                || irp_op == IrpMajorOp::IrpWrite;
         }
         // Dedicated mmap (section-map) events
         "mmap_read"
