@@ -98,6 +98,7 @@
       orderless: true
       file_operations: ["rename"]
       require_same_file_read: true
+      require_same_file_write: true
       detect_extension_changes: true
       detect_known_to_unknown_extension_change: true
       min_matches: 1
