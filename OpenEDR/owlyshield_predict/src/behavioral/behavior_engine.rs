@@ -5008,10 +5008,22 @@ impl BehaviorEngine {
                     ));
                 }
 
-                let effective_target_pid = if hook_src_pid != 0 && hook_src_pid != pid {
+                let hook_arg1 = hv_u64(event, "owlyHook", "arg1");
+                let hook_target_pid = hv_u32(event, "owlyHook", "targetPid");
+                let caller_pid = if hook_src_pid != 0 { hook_src_pid } else { pid };
+
+                // Windows NT API pseudo-handle for current process: (HANDLE)-1 == 0xFFFFFFFFFFFFFFFF / 0xFFFFFFFF
+                let is_current_process_handle = hook_arg1 == u64::MAX || hook_arg1 == 0xFFFF_FFFF;
+                let effective_target_pid = if is_current_process_handle {
+                    caller_pid
+                } else if hook_target_pid != 0 {
+                    hook_target_pid
+                } else if hook_src_pid != 0 && hook_src_pid != pid {
                     hook_src_pid
-                } else {
+                } else if target_pid != 0 {
                     target_pid
+                } else {
+                    caller_pid
                 };
 
                 // Resolve the concrete IRP SysmonEvent byte for hook events.
@@ -8828,6 +8840,13 @@ impl BehaviorEngine {
                     && cond_group.file_operations.is_empty()
                     && !conjunctive_process_context;
 
+                let self_target_ok = !cond_group.require_self_target
+                    || msg.kernel_event_info.target_process_id == 0
+                    || msg.kernel_event_info.target_process_id == state.pid;
+                let cross_target_ok = !cond_group.require_cross_target
+                    || (msg.kernel_event_info.target_process_id != 0
+                        && msg.kernel_event_info.target_process_id != state.pid);
+
                 if !matched
                     && (!cond_group.irp_operations.is_empty() || !cond_group.irp_opcodes.is_empty())
                 {
@@ -8839,12 +8858,6 @@ impl BehaviorEngine {
                         irp_operation_matches_token(current_irp_opcode, msg.file_change, required)
                     });
 
-                    let self_target_ok = !cond_group.require_self_target
-                        || msg.kernel_event_info.target_process_id == 0
-                        || msg.kernel_event_info.target_process_id == state.pid;
-                    let cross_target_ok = !cond_group.require_cross_target
-                        || (msg.kernel_event_info.target_process_id != 0
-                            && msg.kernel_event_info.target_process_id != state.pid);
                     let token_requires_cross_target = cond_group.irp_operations.iter().any(|required| {
                         matches!(
                             normalize_irp_operation_token(required).as_str(),
@@ -8937,7 +8950,11 @@ impl BehaviorEngine {
                         Vec::new()
                     };
 
-                    if current_matches_any && matched_apis.len() >= std::cmp::max(1, cond_group.api_threshold) {
+                    if current_matches_any
+                        && matched_apis.len() >= std::cmp::max(1, cond_group.api_threshold)
+                        && self_target_ok
+                        && cross_target_ok
+                    {
                         if api_only_condition {
                             matched = true;
                             if is_verbose_logging_enabled() {
@@ -13798,6 +13815,118 @@ mod tests {
             rename_msg.kernel_event_info.event_type,
             0,
             "non-hook event must have event_type 0"
+        );
+    }
+
+    #[test]
+    fn ingest_openedr_hook_event_normalizes_pseudo_handle_to_self() {
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            1,
+            4816,
+            PathBuf::from(r"C:\Program Files\VMware\VMware Tools\vmtoolsd.exe"),
+            "vmtoolsd.exe".into(),
+        );
+
+        // Event with arg1 = 0xFFFFFFFFFFFFFFFF (NtCurrentProcess() == -1) and targetPid = 4 (bogus fallback)
+        let event = serde_json::json!({
+            "type": "LLE_DEVICE_IOCTL",
+            "process": { "pid": 4816 },
+            "owlyHook": {
+                "eventType": 0x604E,
+                "functionName": "ntdll.dll!NtAllocateVirtualMemory",
+                "sourcePid": 4816,
+                "targetPid": 4, // Bogus fallback from unresolvable pseudo-handle
+                "arg1": 0xFFFFFFFFFFFFFFFF_u64,
+                "arg2": 0,
+                "arg3": 0,
+                "arg4": 0
+            }
+        });
+        engine.ingest_openedr_event(&event);
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1);
+        let (_, msg) = &drained[0];
+        assert_eq!(
+            msg.kernel_event_info.target_process_id, 4816,
+            "pseudo-handle -1 must resolve target_process_id to caller PID (4816), not 4"
+        );
+    }
+
+    #[test]
+    fn api_condition_respects_require_cross_target() {
+        use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
+
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            1,
+            5000,
+            PathBuf::from(r"C:\app\test.exe"),
+            "test.exe".into(),
+        );
+
+        let mut cond = NamedConditionGroup::default();
+        cond.apis = vec!["ntdll.dll!NtAllocateVirtualMemory".to_string()];
+        cond.api_threshold = 1;
+        cond.require_cross_target = true;
+
+        let mut rule = BehaviorRule::default();
+        rule.name = "CrossProcessApiTest".to_string();
+        rule.named_conditions.insert("cross_api".to_string(), cond);
+        engine.rules.push(rule);
+        engine.rebuild_api_pattern_index();
+
+        // 1. Self-allocation (target_pid == 5000): should NOT match because require_cross_target is true
+        let self_event = serde_json::json!({
+            "type": "LLE_DEVICE_IOCTL",
+            "process": { "pid": 5000 },
+            "owlyHook": {
+                "eventType": 0x604E,
+                "functionName": "ntdll.dll!NtAllocateVirtualMemory",
+                "sourcePid": 5000,
+                "targetPid": 5000,
+                "arg1": 0xFFFFFFFFFFFFFFFF_u64,
+                "arg2": 0,
+                "arg3": 0,
+                "arg4": 0
+            }
+        });
+        engine.ingest_openedr_event(&self_event);
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1);
+        let (gid, msg) = &drained[0];
+        let state = engine.process_states.get_mut(gid).unwrap();
+        let matched = engine.evaluate_rule_conditions_for_state(state, msg);
+        assert!(
+            !matched.contains_key("CrossProcessApiTest"),
+            "require_cross_target must NOT match self-process allocation"
+        );
+
+        // 2. Cross-process allocation (target_pid == 6000 != 5000): MUST match
+        let cross_event = serde_json::json!({
+            "type": "LLE_DEVICE_IOCTL",
+            "process": { "pid": 5000 },
+            "owlyHook": {
+                "eventType": 0x604E,
+                "functionName": "ntdll.dll!NtAllocateVirtualMemory",
+                "sourcePid": 5000,
+                "targetPid": 6000,
+                "arg1": 0x1234,
+                "arg2": 0,
+                "arg3": 0,
+                "arg4": 0
+            }
+        });
+        engine.ingest_openedr_event(&cross_event);
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 1);
+        let (gid, msg) = &drained[0];
+        let state = engine.process_states.get_mut(gid).unwrap();
+        let matched = engine.evaluate_rule_conditions_for_state(state, msg);
+        assert!(
+            matched.contains_key("CrossProcessApiTest"),
+            "require_cross_target MUST match cross-process allocation"
         );
     }
 }

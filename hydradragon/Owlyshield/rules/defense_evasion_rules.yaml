@@ -459,8 +459,8 @@
   author: "Emirhan Ucan"
   date: "2026-03-22"
   status: test
-  level: high
-  severity: 80
+  level: informational
+  severity: 20
   description: |
     Informational: process injection API sequence detected — VirtualAllocEx,
     WriteProcessMemory, CreateRemoteThread or NtCreateThreadEx.
@@ -472,6 +472,7 @@
   named_conditions:
     classic_injection_apis:
       orderless: true
+      require_cross_target: true
       apis:
         - "kernel32.dll!VirtualAllocEx"
         - "kernel32.dll!WriteProcessMemory"
@@ -480,6 +481,7 @@
 
     nt_inject_apis:
       orderless: true
+      require_cross_target: true
       apis:
         - "ntdll.dll!NtAllocateVirtualMemory"
         - "ntdll.dll!NtWriteVirtualMemory"
@@ -489,6 +491,7 @@
 
     apc_injection:
       orderless: true
+      require_cross_target: true
       apis:
         - "kernel32.dll!QueueUserAPC"
         - "ntdll.dll!NtQueueApcThread"
@@ -501,10 +504,56 @@
       - condition: "apc_injection"
 
   response:
-    notify_user: true
+    notify_user: false
     ask_user: false
     terminate_process: false
     record: true
+
+  allowlisted_apps:
+    - pattern: "svchost.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "csrss.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "lsass.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "services.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "smss.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "wininit.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "explorer.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "taskhostw.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "vmtoolsd.exe"
+      must_be_signed: true
+      signers:
+        - "vmware"
+    - pattern: "VBoxService.exe"
+      must_be_signed: true
+      signers:
+        - "oracle"
+    - pattern: "VBoxTray.exe"
+      must_be_signed: true
+      signers:
+        - "oracle"
 
   tags:
     - defense-evasion
