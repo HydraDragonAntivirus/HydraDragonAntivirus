@@ -4968,6 +4968,7 @@ impl BehaviorEngine {
                 "LLE_PROCESS_CREATE" => Some(SE::ProcessCreate as u32),
                 "LLE_PROCESS_DELETE" => Some(SE::ProcessDelete as u32),
                 "LLE_PROCESS_OPEN" => Some(SE::ProcessOpen as u32),
+                "LLE_PROCESS_MEMORY_READ" => Some(SE::DeviceIoControl as u32),
                 "LLE_PROCESS_MEMORY_WRITE" => Some(14),
                 "LLE_NAMED_PIPE_CREATE" => Some(SE::NamedPipeCreate as u32),
                 // IRP_ hook/rootkit events carried as DeviceIoControl
@@ -12034,6 +12035,10 @@ impl BehaviorEngine {
                         "IRP_ROOTKIT_TERMINATE_PROCESS" => Some(0x1F),
                         "IRP_ROOTKIT_FILE_MOVE" => Some(0x20),
                         "IRP_ROOTKIT_GENERIC" => Some(0x21),
+                        // OpenEDR usermode process-memory telemetry (API hook /
+                        // DeviceIoControl transport) collapses to the same
+                        // DeviceIoControl opcode as the IRP_ hook events.
+                        "LLE_PROCESS_MEMORY_READ" => Some(0x0E),
                         _ => None,
                     }
                 }

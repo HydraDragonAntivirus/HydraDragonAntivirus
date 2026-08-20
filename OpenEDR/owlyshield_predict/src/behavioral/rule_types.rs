@@ -1744,7 +1744,7 @@ pub enum RuleCondition {
         /// "IRP_ROOTKIT_SSDT_HOOK", "IRP_ROOTKIT_HIDDEN_PROCESS",
         /// "IRP_ROOTKIT_HIDDEN_DRIVER", "IRP_ROOTKIT_KERNEL_HOOK",
         /// "IRP_ROOTKIT_TERMINATE_PROCESS", "IRP_ROOTKIT_FILE_MOVE",
-        /// "IRP_ROOTKIT_GENERIC".
+        /// "IRP_ROOTKIT_GENERIC", "LLE_PROCESS_MEMORY_READ".
         /// Empty list matches any of the above categories.
         #[serde(default)]
         event_types: Vec<String>,
