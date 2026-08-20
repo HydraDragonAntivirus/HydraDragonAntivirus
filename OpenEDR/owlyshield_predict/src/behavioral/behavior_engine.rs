@@ -1731,6 +1731,11 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
 
 const RECENT_WRITTEN_PAYLOAD_RETENTION_SECS: u64 = 300;
 const RECENT_WRITTEN_PAYLOAD_MAX_TRACKED: usize = 128;
+/// Maximum number of distinct match keys remembered per named condition.
+/// Entries age out of a FIFO (oldest first) instead of a hard reset, so a
+/// sudden burst of events cannot wipe the whole dedup window and re-count
+/// recently seen keys.
+const CONDITION_MATCH_VALUE_CAP: usize = 256;
 
 fn is_launchable_payload_extension(ext: &str) -> bool {
     matches!(
@@ -2358,6 +2363,8 @@ pub struct ProcessBehaviorState {
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
     pub condition_match_values: HashMap<String, HashSet<String>>,
+    /// Insertion order per condition for FIFO eviction of match keys.
+    pub condition_match_order: HashMap<String, VecDeque<String>>,
     pub condition_first_seen: HashMap<String, SystemTime>,
     pub condition_last_seen: HashMap<String, SystemTime>,
 
@@ -2540,6 +2547,7 @@ impl ProcessBehaviorState {
         state.satisfied_named_conditions = HashSet::new();
         state.condition_match_counts = HashMap::new();
         state.condition_match_values = HashMap::new();
+        state.condition_match_order = HashMap::new();
         state.condition_first_seen = HashMap::new();
         state.condition_last_seen = HashMap::new();
         state.irp_operations = Vec::new();
@@ -7675,6 +7683,29 @@ impl BehaviorEngine {
         }
     }
 
+    /// Insert a match key into a bounded dedup window. New keys are appended to
+    /// a FIFO; when the window exceeds `cap` the oldest keys age out one by one
+    /// (instead of clearing the whole set), so a sudden burst of events cannot
+    /// wipe the dedup state and re-count recently seen keys. Returns whether the
+    /// key was new.
+    fn insert_bounded_match_value(
+        values: &mut HashSet<String>,
+        order: &mut VecDeque<String>,
+        match_key: String,
+        cap: usize,
+    ) -> bool {
+        let is_new = values.insert(match_key.clone());
+        if is_new {
+            order.push_back(match_key);
+            while order.len() > cap {
+                if let Some(evicted) = order.pop_front() {
+                    values.remove(&evicted);
+                }
+            }
+        }
+        is_new
+    }
+
     fn record_named_condition_match(
         state: &mut ProcessBehaviorState,
         rule_name: &str,
@@ -7689,10 +7720,16 @@ impl BehaviorEngine {
             .condition_match_values
             .entry(scoped_name.clone())
             .or_insert_with(HashSet::new);
-        if values.len() > 256 {
-            values.clear();
-        }
-        let is_new = values.insert(match_key.clone());
+        let order = state
+            .condition_match_order
+            .entry(scoped_name.clone())
+            .or_insert_with(VecDeque::new);
+        let is_new = Self::insert_bounded_match_value(
+            values,
+            order,
+            match_key.clone(),
+            CONDITION_MATCH_VALUE_CAP,
+        );
         let count = state
             .condition_match_counts
             .entry(scoped_name.clone())
@@ -10448,10 +10485,16 @@ impl BehaviorEngine {
                         .condition_match_values
                         .entry(scoped_name.clone())
                         .or_insert_with(HashSet::new);
-                    if values.len() > 256 {
-                        values.clear();
-                    }
-                    let is_new = values.insert(match_key.clone());
+                    let order = state
+                        .condition_match_order
+                        .entry(scoped_name.clone())
+                        .or_insert_with(VecDeque::new);
+                    let is_new = Self::insert_bounded_match_value(
+                        values,
+                        order,
+                        match_key.clone(),
+                        CONDITION_MATCH_VALUE_CAP,
+                    );
                     let count = state
                         .condition_match_counts
                         .entry(scoped_name.clone())
