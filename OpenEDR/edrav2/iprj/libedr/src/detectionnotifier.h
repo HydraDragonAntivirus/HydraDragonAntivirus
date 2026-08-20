@@ -9,6 +9,8 @@
 /// @addtogroup edr
 /// @{
 #pragma once
+#include <deque>
+#include <mutex>
 #include <objects.h>
 
 namespace cmd {
