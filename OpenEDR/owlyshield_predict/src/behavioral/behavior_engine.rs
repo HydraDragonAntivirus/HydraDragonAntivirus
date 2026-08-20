@@ -911,6 +911,8 @@ pub struct IrpOperationRecord {
     pub timestamp: SystemTime,
     /// Raw SysmonEvent ID (u32) on Windows; legacy eBPF small-int on Linux.
     pub irp_type: u32,
+    /// Indicates whether `irp_type` holds a legacy kernel hook sub-type from owlyHook.eventType
+    pub is_legacy_kernel_subtype: bool,
     pub file_path: String,
     pub file_change: u8,
     pub extension: String,
@@ -2716,6 +2718,7 @@ impl ProcessBehaviorState {
         let rec = IrpOperationRecord {
             timestamp: SystemTime::now(),
             irp_type: irp_op,
+            is_legacy_kernel_subtype: msg.kernel_event_info.event_type != 0,
             file_path: msg.filepathstr.to_lowercase(),
             file_change: msg.file_change,
             extension: msg.extension.to_lowercase(),
@@ -5030,6 +5033,7 @@ impl BehaviorEngine {
                 let rec = IrpOperationRecord {
                     timestamp: std::time::SystemTime::now(),
                     irp_type: effective_irp_type,
+                    is_legacy_kernel_subtype: hook_event_type != 0,
                     file_path: if pipe_name.is_empty() {
                         protected_path.to_string()
                     } else {
@@ -7655,7 +7659,7 @@ impl BehaviorEngine {
                         IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32(),
                         raw_irp_type,
                     )
-                } else if (17..=29).contains(&raw_irp_type) {
+                } else if rec.is_legacy_kernel_subtype {
                     (
                         SysmonEvent::DeviceIoControl as u32,
                         raw_irp_type,
@@ -11244,7 +11248,7 @@ impl BehaviorEngine {
 
             let mut rich_triggered = false;
             if let Some(logic) = &rule.detection_logic {
-                rich_triggered = self.evaluate_detection_condition_order_valid(logic, &state_ref, rule);
+                rich_triggered = self.detection_condition_order_valid(logic, &state_ref, rule);
                 if rich_triggered
                     && let Some(window_ms) = rule.within_ms
                     && !self.detection_condition_within_window(
@@ -13252,6 +13256,7 @@ mod tests {
                 IrpOperationRecord {
                     timestamp: std::time::SystemTime::now(),
                     irp_type: 0x6000,
+                    is_legacy_kernel_subtype: false,
                     file_path: String::new(),
                     file_change: 0,
                     extension: String::new(),
@@ -13459,6 +13464,7 @@ mod tests {
                     IrpOperationRecord {
                         timestamp: std::time::SystemTime::now(),
                         irp_type: 0x0F,
+                        is_legacy_kernel_subtype: false,
                         file_path: String::new(),
                         file_change: 0,
                         extension: String::new(),
@@ -13674,6 +13680,7 @@ mod tests {
         let irp = IrpOperationRecord {
             timestamp: SystemTime::now(),
             irp_type: crate::shared_def::SysmonEvent::FileDataReadFull as u32,
+            is_legacy_kernel_subtype: false,
             file_path: r"C:\Users\victim\doc.docx".to_string(),
             file_change: 0,
             extension: "docx".to_string(),
@@ -13709,4 +13716,88 @@ mod tests {
         );
     }
 
+    #[test]
+    fn drain_pending_irp_records_differentiates_legacy_kernel_subtypes_from_sysmon_events() {
+        use crate::shared_def::SysmonEvent;
+
+        let mut engine = BehaviorEngine::new();
+        engine.register_process(
+            1,
+            5001,
+            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
+            "cmd.exe".into(),
+        );
+
+        // 1. Legacy kernel hook event (e.g. kernel_queue_apc = 17) via owlyHook
+        let hook_event = serde_json::json!({
+            "type": "LLE_DEVICE_IOCTL",
+            "process": { "pid": 5001 },
+            "owlyHook": {
+                "eventType": 17, // legacy kernel_queue_apc
+                "functionName": "kernel_queue_apc",
+                "sourcePid": 5001,
+                "targetPid": 5002,
+                "arg1": 0, "arg2": 0, "arg3": 0, "arg4": 0
+            }
+        });
+        engine.ingest_openedr_event(&hook_event);
+
+        // 2. SysmonEvent FileMapRead (17) without owlyHook
+        let file_map_read_event = serde_json::json!({
+            "type": "LLE_FILE_MAP_READ",
+            "process": { "pid": 5001 },
+            "file": { "path": r"C:\data\test.bin" }
+        });
+        engine.ingest_openedr_event(&file_map_read_event);
+
+        // 3. SysmonEvent FileRename (20) without owlyHook
+        let file_rename_event = serde_json::json!({
+            "type": "LLE_FILE_RENAME",
+            "process": { "pid": 5001 },
+            "file": { "path": r"C:\data\renamed.txt" }
+        });
+        engine.ingest_openedr_event(&file_rename_event);
+
+        let drained = engine.drain_pending_irp_records();
+        assert_eq!(drained.len(), 3);
+
+        // First: legacy hook event must be carried on DeviceIoControl with event_type = 17
+        let (_, hook_msg) = &drained[0];
+        assert_eq!(
+            hook_msg.irp_op,
+            SysmonEvent::DeviceIoControl as u32,
+            "legacy kernel hook must map to DeviceIoControl carrier"
+        );
+        assert_eq!(
+            hook_msg.kernel_event_info.event_type,
+            17,
+            "legacy kernel hook sub-type must be preserved in kernel_event_info.event_type"
+        );
+
+        // Second: FileMapRead (17) must NOT be mapped to DeviceIoControl
+        let (_, map_msg) = &drained[1];
+        assert_eq!(
+            map_msg.irp_op,
+            SysmonEvent::FileMapRead as u32,
+            "FileMapRead must retain its own SysmonEvent opcode and not collide with legacy hook"
+        );
+        assert_eq!(
+            map_msg.kernel_event_info.event_type,
+            0,
+            "non-hook event must have event_type 0"
+        );
+
+        // Third: FileRename (20) must NOT be mapped to DeviceIoControl
+        let (_, rename_msg) = &drained[2];
+        assert_eq!(
+            rename_msg.irp_op,
+            SysmonEvent::FileRename as u32,
+            "FileRename must retain its own SysmonEvent opcode and not collide with legacy hook"
+        );
+        assert_eq!(
+            rename_msg.kernel_event_info.event_type,
+            0,
+            "non-hook event must have event_type 0"
+        );
+    }
 }
