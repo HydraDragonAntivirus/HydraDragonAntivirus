@@ -23,7 +23,7 @@ uses
 
 const
   GUI_RPC_HOST = '127.0.0.1';
-  GUI_RPC_PORT = 5889;
+  GUI_RPC_PORT = 5890;
   GUI_RPC_POLL_INTERVAL_MS = 2000;
 
 type
