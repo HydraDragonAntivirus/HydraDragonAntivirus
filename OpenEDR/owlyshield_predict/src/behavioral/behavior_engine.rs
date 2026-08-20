@@ -10410,23 +10410,34 @@ impl BehaviorEngine {
 
                 if matched {
                     let scoped_name = Self::scoped_condition_name(rule, cond_name);
+                    // Every matched event is counted as an independent match.
+                    // Without the event timestamp a condition such as
+                    // 'ransomware_read_activity' deduplicates repeated accesses
+                    // to the same file, so only the first read of a file
+                    // advances the counter. Appending the timestamp makes the
+                    // match key unique per event so every read/write/rename
+                    // operation is accepted and counted.
+                    let event_ts = msg
+                        .time
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0);
                     let match_key = if let Some(path) = matched_artifact_path.as_ref() {
-                        path.clone()
+                        format!("{}:{}", path, event_ts)
                     } else if !filepath.is_empty() {
-                        filepath.to_string()
+                        format!("{}:{}", filepath, event_ts)
                     } else if !msg.filepathstr.is_empty() {
-                        msg.filepathstr.to_lowercase().replace("\\", "/")
+                        format!(
+                            "{}:{}",
+                            msg.filepathstr.to_lowercase().replace("\\", "/"),
+                            event_ts
+                        )
                     } else if msg.file_id_id.0 != 0 {
                         format!(
-                            "fileid:{:016x}:op{}:chg{}",
-                            msg.file_id_id.0, msg.irp_op, msg.file_change
+                            "fileid:{:016x}:op{}:chg{}:{}",
+                            msg.file_id_id.0, msg.irp_op, msg.file_change, event_ts
                         )
                     } else {
-                        let event_ts = msg
-                            .time
-                            .duration_since(UNIX_EPOCH)
-                            .map(|d| d.as_nanos())
-                            .unwrap_or(0);
                         format!(
                             "event:{}:pid{}:op{}:{}",
                             cond_name, msg.pid, msg.irp_op, event_ts
