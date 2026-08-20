@@ -546,6 +546,7 @@
       must_be_signed: true
       signers:
         - "vmware"
+        - "broadcom"
     - pattern: "VBoxService.exe"
       must_be_signed: true
       signers:
