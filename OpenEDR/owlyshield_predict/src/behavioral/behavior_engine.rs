@@ -12572,6 +12572,28 @@ impl BehaviorEngine {
         process_path: Option<&Path>,
         script_file: Option<&str>,
     ) -> bool {
+        // Automatically allowlist EDR service processes so behavioral rules never flag them
+        let proc_lc = proc_name.to_lowercase();
+        if proc_lc == "edrsvc.exe"
+            || proc_lc == "owlyshield.exe"
+            || proc_lc == "owlyshield_predict.exe"
+            || proc_lc == "hydradragon.exe"
+        {
+            return true;
+        }
+        if let Some(path) = process_path {
+            if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+                let name_lc = file_name.to_lowercase();
+                if name_lc == "edrsvc.exe"
+                    || name_lc == "owlyshield.exe"
+                    || name_lc == "owlyshield_predict.exe"
+                    || name_lc == "hydradragon.exe"
+                {
+                    return true;
+                }
+            }
+        }
+
         // Check interpreter name first, then fall back to script filename.
         // This lets allowlist entries like `pattern: "benign_deploy.ps1"` work
         // even when the tracked process is `powershell.exe`.
