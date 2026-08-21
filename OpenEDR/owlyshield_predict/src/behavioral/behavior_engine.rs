@@ -1647,80 +1647,103 @@ fn irp_opcode_from_operation_token(token: &str) -> Option<u32> {
     }
 }
 
+fn unified_file_operation_kind(irp_type: u32, file_change: u8, function_name: &str) -> Option<&'static str> {
+    use crate::shared_def::SysmonEvent as SE;
+
+    let irp_op = IrpMajorOp::from_sysmonevent(irp_type);
+
+    // Explicit LLE/sysmon file events. These are the canonical non-IRP sources
+    // for the unified read/write/delete/rename behavior families.
+    match irp_type {
+        x if x == SE::FileDataReadFull as u32 || x == SE::FileMapRead as u32 => {
+            return Some("read");
+        }
+        x if x == SE::FileDataWriteFull as u32 || x == SE::FileMapWrite as u32 => {
+            return Some("write");
+        }
+        x if x == SE::FileDelete as u32 => return Some("delete"),
+        x if x == SE::FileRename as u32 => return Some("rename"),
+        _ => {}
+    }
+
+    match irp_op {
+        IrpMajorOp::IrpRead => Some("read"),
+        IrpMajorOp::IrpWrite => Some("write"),
+        IrpMajorOp::IrpSetInfo => match file_change {
+            x if x == FileChangeInfo::ChangeDeleteFile as u8
+                || x == FileChangeInfo::ChangeDeleteNewFile as u8 => Some("delete"),
+            x if x == FileChangeInfo::ChangeRenameFile as u8
+                || x == FileChangeInfo::ChangeExtensionChanged as u8 => Some("rename"),
+            x if x == FileChangeInfo::ChangeWrite as u8
+                || x == FileChangeInfo::ChangeOverwriteFile as u8 => Some("write"),
+            _ => None,
+        },
+        IrpMajorOp::IrpUserModeHookEvent
+        | IrpMajorOp::IrpKernelCreateSection
+        | IrpMajorOp::IrpKernelMapSection => api_hook_file_operation(function_name),
+        _ => None,
+    }
+}
+
 fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> bool {
     use crate::shared_def::SysmonEvent as SE;
     let normalized = normalize_irp_operation_token(token);
     let irp_op = IrpMajorOp::from_sysmonevent(irp_type);
+    let unified = unified_file_operation_kind(irp_type, file_change, "");
 
     match normalized.as_str() {
-        // Delete: IrpSetInfo + delete file_change  OR  direct LLE_FILE_DELETE opcode
-        "delete"
-        | "file_delete"
-        | "filedelete" => {
-            // Direct opcode match (LLE_FILE_DELETE = SysmonEvent::FileDelete)
-            if irp_type == SE::FileDelete as u32 {
-                return true;
-            }
-            return irp_op == IrpMajorOp::IrpSetInfo
-                && matches!(
-                    file_change,
-                    x if x == FileChangeInfo::ChangeDeleteFile as u8
-                        || x == FileChangeInfo::ChangeDeleteNewFile as u8
-                );
-        }
-        // Rename
-        "rename" => {
-            if irp_type == SE::FileRename as u32 {
-                return true;
-            }
-            return irp_op == IrpMajorOp::IrpSetInfo
-                && matches!(
-                    file_change,
-                    x if x == FileChangeInfo::ChangeRenameFile as u8
-                        || x == FileChangeInfo::ChangeExtensionChanged as u8
-                );
-        }
-        // Full read (exact LLE event) or any semantically-classified read
+        // Unified operation family: every source that means the same logical
+        // file operation matches. Plain "read" is the unified read token.
         "read"
         | "file_read"
         | "file_data_read"
         | "file_data_read_full"
-        | "filedatareadfull" => {
-            return irp_type == SE::FileDataReadFull as u32
-                || irp_op == IrpMajorOp::IrpRead;
-        }
-        // Full write (exact LLE event) or any semantically-classified write
+        | "filedatareadfull" => unified == Some("read"),
+
         "write"
         | "file_write"
         | "file_data_write"
         | "file_data_write_full"
-        | "filedatawritefull" => {
-            return irp_type == SE::FileDataWriteFull as u32
-                || irp_op == IrpMajorOp::IrpWrite;
+        | "filedatawritefull" => unified == Some("write"),
+
+        "delete" | "file_delete" | "filedelete" => {
+            unified == Some("delete")
         }
-        // Dedicated mmap (section-map) events
-        "mmap_read"
-        | "file_map_read"
-        | "map_read" => {
-            return irp_type == SE::FileMapRead as u32;
+
+        "rename" => unified == Some("rename"),
+
+        // Exact native IRP family: only actual IRP_MJ_* semantics match.
+        "irp_read" => irp_op == IrpMajorOp::IrpRead,
+        "irp_write" => irp_op == IrpMajorOp::IrpWrite,
+        "irp_delete" => {
+            irp_op == IrpMajorOp::IrpSetInfo
+                && matches!(
+                    file_change,
+                    x if x == FileChangeInfo::ChangeDeleteFile as u8
+                        || x == FileChangeInfo::ChangeDeleteNewFile as u8
+                )
         }
-        "mmap_write"
-        | "file_map_write"
-        | "map_write" => {
-            return irp_type == SE::FileMapWrite as u32;
+        "irp_rename" => {
+            irp_op == IrpMajorOp::IrpSetInfo
+                && matches!(
+                    file_change,
+                    x if x == FileChangeInfo::ChangeRenameFile as u8
+                        || x == FileChangeInfo::ChangeExtensionChanged as u8
+                )
         }
-        // Dedicated ObRegisterCallbacks desktop-handle-open event
-        "handle_open"
-        | "desktop_handle_open"
-        | "ob_register_callbacks" => {
-            return irp_type == SE::DesktopOpen as u32;
+
+        // Exact event/source tokens retained for callers that need them.
+        "mmap_read" | "file_map_read" | "map_read" => {
+            irp_type == SE::FileMapRead as u32
         }
-        // Data change / setinfo
-        "setinfo"
-        | "set_info"
-        | "file_data_change"
-        | "filedatachange" => {
-            return irp_type == SE::FileDataChange as u32 || irp_op == IrpMajorOp::IrpSetInfo;
+        "mmap_write" | "file_map_write" | "map_write" => {
+            irp_type == SE::FileMapWrite as u32
+        }
+        "handle_open" | "desktop_handle_open" | "ob_register_callbacks" => {
+            irp_type == SE::DesktopOpen as u32
+        }
+        "setinfo" | "set_info" | "file_data_change" | "filedatachange" => {
+            irp_type == SE::FileDataChange as u32 || irp_op == IrpMajorOp::IrpSetInfo
         }
         // Create / open
         "create"
