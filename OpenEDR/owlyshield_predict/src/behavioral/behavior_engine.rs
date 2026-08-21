@@ -712,6 +712,44 @@ pub struct OpenEdrTelemetryStats {
     pub irp_rootkit_terminate_process_count: usize,
     pub irp_usermode_hook_event_count: usize,
     pub irp_user_mode_hook_event_count: usize,
+    pub irp_create_count: usize,
+    pub irp_read_count: usize,
+    pub irp_write_count: usize,
+    pub irp_cleanup_count: usize,
+    pub irp_set_info_count: usize,
+    pub irp_registry_count: usize,
+    pub irp_process_create_count: usize,
+    pub irp_process_terminate_count: usize,
+    pub irp_process_terminate_attempt_count: usize,
+    pub irp_process_exit_count: usize,
+    pub irp_process_handle_open_count: usize,
+    pub irp_named_pipe_create_count: usize,
+
+    pub united_read_count: usize,
+    pub united_write_count: usize,
+    pub united_create_count: usize,
+    pub united_close_count: usize,
+    pub united_delete_count: usize,
+    pub united_rename_count: usize,
+    pub united_setinfo_count: usize,
+    pub united_registry_read_count: usize,
+    pub united_registry_write_count: usize,
+    pub united_registry_create_count: usize,
+    pub united_registry_delete_count: usize,
+    pub united_registry_rename_count: usize,
+    pub united_process_create_count: usize,
+    pub united_process_delete_count: usize,
+    pub united_process_open_count: usize,
+    pub united_process_memory_read_count: usize,
+    pub united_process_memory_write_count: usize,
+    pub united_thread_open_count: usize,
+    pub united_network_connect_count: usize,
+    pub united_network_request_count: usize,
+    pub united_network_listen_count: usize,
+    pub united_pipe_create_count: usize,
+    pub united_pipe_write_count: usize,
+    pub united_memory_read_count: usize,
+    pub united_memory_write_count: usize,
     pub detected_apis: HashSet<String>,
     pub recent_events: VecDeque<String>,
     pub last_event: Option<String>,
@@ -1025,6 +1063,34 @@ pub struct IrpStatistics {
     pub rename_count: u64,
     pub setinfo_count: u64,
 
+    pub irp_read_count: u64,
+    pub irp_write_count: u64,
+    pub irp_create_count: u64,
+    pub irp_delete_count: u64,
+    pub irp_rename_count: u64,
+    pub irp_setinfo_count: u64,
+
+    pub united_read_count: u64,
+    pub united_write_count: u64,
+    pub united_create_count: u64,
+    pub united_close_count: u64,
+    pub united_delete_count: u64,
+    pub united_rename_count: u64,
+    pub united_setinfo_count: u64,
+    pub united_registry_read_count: u64,
+    pub united_registry_write_count: u64,
+    pub united_registry_delete_count: u64,
+    pub united_registry_create_count: u64,
+    pub united_process_create_count: u64,
+    pub united_process_terminate_count: u64,
+    pub united_process_exit_count: u64,
+    pub united_process_handle_open_count: u64,
+    pub united_process_open_count: u64,
+    pub united_process_memory_read_count: u64,
+    pub united_process_memory_write_count: u64,
+    pub united_pipe_create_count: u64,
+    pub united_pipe_write_count: u64,
+
     // Registry operations
     pub registry_read_count: u64,
     pub registry_write_count: u64,
@@ -1202,25 +1268,38 @@ impl IrpStatistics {
             // File operations
             IrpMajorOp::IrpRead => {
                 self.read_count += 1;
+                self.irp_read_count += 1;
+                self.united_read_count += 1;
                 self.total_bytes_read += rec.bytes_transferred;
             }
             IrpMajorOp::IrpWrite => {
                 self.write_count += 1;
+                self.irp_write_count += 1;
+                self.united_write_count += 1;
                 self.total_bytes_written += rec.bytes_transferred;
             }
-            IrpMajorOp::IrpCreate => self.create_count += 1,
+            IrpMajorOp::IrpCreate => {
+                self.create_count += 1;
+                self.irp_create_count += 1;
+                self.united_create_count += 1;
+            }
             IrpMajorOp::IrpSetInfo => {
                 self.setinfo_count += 1;
+                self.irp_setinfo_count += 1;
+                self.united_setinfo_count += 1;
                 // Track specific file changes
                 match rec.file_change {
-                    _ if rec.file_change == FileChangeInfo::ChangeDeleteFile as u8 => {
-                        self.delete_count += 1
+                    _ if rec.file_change == FileChangeInfo::ChangeDeleteFile as u8
+                        || rec.file_change == FileChangeInfo::ChangeDeleteNewFile as u8 => {
+                        self.delete_count += 1;
+                        self.irp_delete_count += 1;
+                        self.united_delete_count += 1;
                     }
-                    _ if rec.file_change == FileChangeInfo::ChangeRenameFile as u8 => {
-                        self.rename_count += 1
-                    }
-                    _ if rec.file_change == FileChangeInfo::ChangeExtensionChanged as u8 => {
-                        self.rename_count += 1
+                    _ if rec.file_change == FileChangeInfo::ChangeRenameFile as u8
+                        || rec.file_change == FileChangeInfo::ChangeExtensionChanged as u8 => {
+                        self.rename_count += 1;
+                        self.irp_rename_count += 1;
+                        self.united_rename_count += 1;
                     }
                     _ => {}
                 }
@@ -1230,40 +1309,50 @@ impl IrpStatistics {
             IrpMajorOp::IrpRegistry => {
                 match rec.file_change {
                     _ if rec.file_change == FileChangeInfo::RegCreateKey as u8 => {
-                        self.registry_create_count += 1
+                        self.registry_create_count += 1;
+                        self.united_registry_create_count += 1;
+                        self.united_create_count += 1;
                     }
                     _ if rec.file_change == FileChangeInfo::RegSetValue as u8 => {
-                        self.registry_write_count += 1
+                        self.registry_write_count += 1;
+                        self.united_registry_write_count += 1;
+                        self.united_write_count += 1;
                     }
                     // FIX (Bug #2): RegDeleteKey (14) was missing and fell through to
                     // registry_read_count. Both value-delete and key-delete are deletions.
                     _ if rec.file_change == FileChangeInfo::RegDeleteValue as u8
                         || rec.file_change == FileChangeInfo::RegDeleteKey as u8 =>
                     {
-                        self.registry_delete_count += 1
+                        self.registry_delete_count += 1;
+                        self.united_registry_delete_count += 1;
+                        self.united_delete_count += 1;
                     }
                     // RegQueryValue / RegQueryKey / RegOpenKey / RegEnumKey / RegEnumValue
                     // are all read-class operations — the catch-all is correct for them.
-                    _ => self.registry_read_count += 1,
+                    _ => {
+                        self.registry_read_count += 1;
+                        self.united_registry_read_count += 1;
+                        self.united_read_count += 1;
+                    },
                 }
             }
 
             // Process operations
-            IrpMajorOp::IrpProcessCreate => self.process_create_count += 1,
-            IrpMajorOp::IrpProcessTerminate => self.process_terminate_count += 1,
-            IrpMajorOp::IrpProcessTerminateAttempt => self.process_terminate_attempt_count += 1,
-            IrpMajorOp::IrpProcessExit => self.process_exit_count += 1,
-            IrpMajorOp::IrpProcessHandleOpen => self.process_handle_open_count += 1,
+            IrpMajorOp::IrpProcessCreate => { self.process_create_count += 1; self.united_process_create_count += 1; self.united_create_count += 1; }
+            IrpMajorOp::IrpProcessTerminate => { self.process_terminate_count += 1; self.united_process_terminate_count += 1; self.united_process_delete_count += 1; }
+            IrpMajorOp::IrpProcessTerminateAttempt => { self.process_terminate_attempt_count += 1; self.united_process_delete_count += 1; }
+            IrpMajorOp::IrpProcessExit => { self.process_exit_count += 1; self.united_process_exit_count += 1; }
+            IrpMajorOp::IrpProcessHandleOpen => { self.process_handle_open_count += 1; self.united_process_handle_open_count += 1; self.united_process_open_count += 1; }
 
             // Named pipe operations
             IrpMajorOp::IrpNamedPipeCreate => {
-                self.pipe_create_count += 1;
+                self.pipe_create_count += 1; self.united_pipe_create_count += 1; self.united_create_count += 1;
                 if !rec.pipe_name.is_empty() {
                     self.unique_paths_accessed.insert(rec.pipe_name.clone());
                 }
             }
             IrpMajorOp::IrpNamedPipeWrite => {
-                self.pipe_write_count += 1;
+                self.pipe_write_count += 1; self.united_pipe_write_count += 1; self.united_write_count += 1;
                 self.total_bytes_written += if rec.pipe_payload.is_empty() {
                     rec.bytes_transferred
                 } else {
@@ -1283,6 +1372,18 @@ impl IrpStatistics {
             | IrpMajorOp::IrpKernelQueueApc
             | IrpMajorOp::IrpKernelCreateSection
             | IrpMajorOp::IrpKernelMapSection => {
+                match irp_op {
+                    IrpMajorOp::IrpKernelWriteMemory => {
+                        self.united_memory_write_count += 1;
+                        self.united_process_memory_write_count += 1;
+                        self.united_write_count += 1;
+                    }
+                    IrpMajorOp::IrpKernelCreateSection | IrpMajorOp::IrpKernelMapSection => {
+                        self.united_memory_read_count += 1;
+                        self.united_read_count += 1;
+                    }
+                    _ => {}
+                }
                 if is_real_api_observation(&rec.function_name) {
                     self.all_apis_called.insert(rec.function_name.clone());
                 }
@@ -1318,6 +1419,34 @@ impl IrpStatistics {
         }
 
         match op_type {
+            "irp_read" => self.irp_read_count,
+            "irp_write" => self.irp_write_count,
+            "irp_create" => self.irp_create_count,
+            "irp_delete" => self.irp_delete_count,
+            "irp_rename" => self.irp_rename_count,
+            "irp_setinfo" | "irp_set_info" => self.irp_setinfo_count,
+            "united_read" => self.united_read_count,
+            "united_write" => self.united_write_count,
+            "united_create" => self.united_create_count,
+            "united_close" => self.united_close_count,
+            "united_delete" => self.united_delete_count,
+            "united_rename" => self.united_rename_count,
+            "united_setinfo" => self.united_setinfo_count,
+            "united_registry_read" => self.united_registry_read_count,
+            "united_registry_write" => self.united_registry_write_count,
+            "united_registry_delete" => self.united_registry_delete_count,
+            "united_registry_create" => self.united_registry_create_count,
+            "united_process_create" => self.united_process_create_count,
+            "united_process_terminate" => self.united_process_terminate_count,
+            "united_process_exit" => self.united_process_exit_count,
+            "united_process_handle_open" => self.united_process_handle_open_count,
+            "united_process_open" => self.united_process_open_count,
+            "united_process_memory_read" => self.united_process_memory_read_count,
+            "united_process_memory_write" => self.united_process_memory_write_count,
+            "united_pipe_create" => self.united_pipe_create_count,
+            "united_pipe_write" => self.united_pipe_write_count,
+            "united_memory_read" => self.united_memory_read_count,
+            "united_memory_write" => self.united_memory_write_count,
             "read" => self.read_count,
             "write" => self.write_count,
             "create" => self.create_count,
@@ -5153,8 +5282,65 @@ impl BehaviorEngine {
             "IRP_ROOTKIT_TERMINATE_PROCESS" => stats.irp_rootkit_terminate_process_count += 1,
             "IRP_USERMODE_HOOK_EVENT" => stats.irp_usermode_hook_event_count += 1,
             "IRP_USER_MODE_HOOK_EVENT" => stats.irp_user_mode_hook_event_count += 1,
+            "IRP_CREATE" => stats.irp_create_count += 1,
+            "IRP_READ" => stats.irp_read_count += 1,
+            "IRP_WRITE" => stats.irp_write_count += 1,
+            "IRP_CLEANUP" => stats.irp_cleanup_count += 1,
+            "IRP_SET_INFO" => stats.irp_set_info_count += 1,
+            "IRP_REGISTRY" => stats.irp_registry_count += 1,
+            "IRP_PROCESS_CREATE" => stats.irp_process_create_count += 1,
+            "IRP_PROCESS_TERMINATE" => stats.irp_process_terminate_count += 1,
+            "IRP_PROCESS_TERMINATE_ATTEMPT" => stats.irp_process_terminate_attempt_count += 1,
+            "IRP_PROCESS_EXIT" => stats.irp_process_exit_count += 1,
+            "IRP_PROCESS_HANDLE_OPEN" => stats.irp_process_handle_open_count += 1,
+            "IRP_NAMED_PIPE_CREATE" => stats.irp_named_pipe_create_count += 1,
             _ => {}
         }
+
+        // Unified semantic families. Concrete event counters remain independent;
+        // these additional counters intentionally overlap where an event has more
+        // than one semantic meaning (for example process-memory write).
+        if matches!(event_type,
+            "LLE_CLIPBOARD_READ" | "LLE_FILE_DATA_READ_FULL" | "LLE_FILE_MAP_READ"
+            | "LLE_KEYBOARD_GLOBAL_READ" | "LLE_MICROPHONE_READ" | "LLE_PROCESS_MEMORY_READ"
+            | "LLE_WINDOW_DATA_READ" | "IRP_READ"
+        ) { stats.united_read_count += 1; }
+        if matches!(event_type,
+            "LLE_FILE_DATA_WRITE_FULL" | "LLE_FILE_MAP_WRITE" | "LLE_KEYBOARD_GLOBAL_WRITE"
+            | "LLE_MOUSE_GLOBAL_WRITE" | "LLE_PROCESS_MEMORY_WRITE" | "LLE_VOLUME_RAW_WRITE_ACCESS"
+            | "LLE_DISK_RAW_WRITE_ACCESS" | "LLE_DEVICE_RAW_WRITE_ACCESS"
+            | "IRP_WRITE" | "IRP_KERNEL_WRITE_MEMORY" | "IRP_NAMED_PIPE_WRITE"
+        ) { stats.united_write_count += 1; }
+        if matches!(event_type,
+            "LLE_FILE_CREATE" | "LLE_DEVICE_LINK_CREATE" | "LLE_DISK_LINK_CREATE"
+            | "LLE_NAMED_PIPE_CREATE" | "LLE_PROCESS_CREATE" | "LLE_REGISTRY_KEY_CREATE"
+            | "LLE_VOLUME_LINK_CREATE" | "IRP_CREATE" | "IRP_NAMED_PIPE_CREATE"
+            | "IRP_KERNEL_CREATE_SECTION" | "IRP_KERNEL_CREATE_THREAD"
+        ) { stats.united_create_count += 1; }
+        if matches!(event_type, "LLE_FILE_CLOSE" | "IRP_CLEANUP") { stats.united_close_count += 1; }
+        if matches!(event_type,
+            "LLE_FILE_DELETE" | "LLE_PROCESS_DELETE" | "LLE_REGISTRY_KEY_DELETE"
+            | "LLE_REGISTRY_VALUE_DELETE" | "IRP_ROOTKIT_TERMINATE_PROCESS"
+        ) { stats.united_delete_count += 1; }
+        if matches!(event_type, "LLE_FILE_RENAME" | "LLE_REGISTRY_KEY_NAME_CHANGE" | "IRP_ROOTKIT_FILE_MOVE") { stats.united_rename_count += 1; }
+        if matches!(event_type, "LLE_FILE_DATA_CHANGE" | "IRP_SET_INFO") { stats.united_setinfo_count += 1; }
+        if matches!(event_type, "LLE_REGISTRY_KEY_CREATE" | "IRP_REGISTRY_CREATE") { stats.united_registry_create_count += 1; }
+        if matches!(event_type, "LLE_REGISTRY_VALUE_SET" | "IRP_REGISTRY_WRITE") { stats.united_registry_write_count += 1; }
+        if matches!(event_type, "LLE_REGISTRY_KEY_DELETE" | "LLE_REGISTRY_VALUE_DELETE" | "IRP_REGISTRY_DELETE") { stats.united_registry_delete_count += 1; }
+        if matches!(event_type, "LLE_REGISTRY_KEY_NAME_CHANGE") { stats.united_registry_rename_count += 1; }
+        if matches!(event_type, "IRP_REGISTRY_READ") { stats.united_registry_read_count += 1; }
+        if matches!(event_type, "LLE_PROCESS_CREATE" | "IRP_PROCESS_CREATE") { stats.united_process_create_count += 1; }
+        if matches!(event_type, "LLE_PROCESS_DELETE" | "IRP_PROCESS_TERMINATE" | "IRP_ROOTKIT_TERMINATE_PROCESS") { stats.united_process_delete_count += 1; }
+        if matches!(event_type, "LLE_PROCESS_OPEN" | "IRP_PROCESS_HANDLE_OPEN") { stats.united_process_open_count += 1; }
+        if matches!(event_type, "LLE_PROCESS_MEMORY_READ") { stats.united_process_memory_read_count += 1; stats.united_memory_read_count += 1; }
+        if matches!(event_type, "LLE_PROCESS_MEMORY_WRITE" | "IRP_KERNEL_WRITE_MEMORY") { stats.united_process_memory_write_count += 1; stats.united_memory_write_count += 1; }
+        if matches!(event_type, "LLE_THREAD_OPEN") { stats.united_thread_open_count += 1; }
+        if matches!(event_type, "LLE_NETWORK_CONNECT_IN" | "LLE_NETWORK_CONNECT_OUT") { stats.united_network_connect_count += 1; }
+        if matches!(event_type, "LLE_NETWORK_REQUEST_DATA" | "LLE_NETWORK_REQUEST_DNS") { stats.united_network_request_count += 1; }
+        if matches!(event_type, "LLE_NETWORK_LISTEN") { stats.united_network_listen_count += 1; }
+        if matches!(event_type, "LLE_NAMED_PIPE_CREATE" | "IRP_NAMED_PIPE_CREATE") { stats.united_pipe_create_count += 1; }
+        if matches!(event_type, "IRP_NAMED_PIPE_WRITE") { stats.united_pipe_write_count += 1; }
+        if matches!(event_type, "IRP_KERNEL_MAP_SECTION") { stats.united_memory_read_count += 1; }
 
         stats.last_event = Some(summary.clone());
         if stats.recent_events.len() >= 32 {
