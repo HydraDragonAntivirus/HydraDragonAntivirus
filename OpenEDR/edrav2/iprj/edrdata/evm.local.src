@@ -10,6 +10,12 @@
 	"constants": {
 	    // where operation "match" is used
 	    // file names must be in low case
+
+		// Own product processes which must be fully invisible for the engine
+		// (initiator-side, target-side and file-side events are discarded)
+		"selfExcludedPaths": [
+			"*\\edrsvc.exe"
+		],
 		"knownTrustedPaths": [
 			"*\\git.exe",
 			"*\\devenv.exe",
@@ -72,6 +78,61 @@
 	},
 
 	"chains": {
+
+		//
+		// Fully exclude own product service (edrsvc.exe).
+		// Priority 100 - runs before all other rules; discard stops event processing.
+		// Covers: events initiated by edrsvc.exe (incl. network events which the
+		// driver's sendEvent=false rule can not suppress), events targeting
+		// the edrsvc.exe process, and events touching its image file.
+		//
+		"discardOwnProductActivity": [
+			{
+				"priority": 100,
+				"discard": {},
+				"condition": {
+					"$operation": "or",
+					"args": [
+						{
+							"$operation": "imatch",
+							"pattern": "@const.selfExcludedPaths",
+							"args": [ "@event.process.imageFile.uniquePath" ]
+						},
+						{
+							"$operation": "and",
+							"args": [
+								{
+									"$operation": "has",
+									"path": "target",
+									"args": [ "@event" ]
+								},
+								{
+									"$operation": "imatch",
+									"pattern": "@const.selfExcludedPaths",
+									"args": [ "@event.target.imageFile.uniquePath" ]
+								}
+							]
+						},
+						{
+							"$operation": "and",
+							"args": [
+								{
+									"$operation": "has",
+									"path": "file",
+									"args": [ "@event" ]
+								},
+								{
+									"$operation": "imatch",
+									"pattern": "@const.selfExcludedPaths",
+									"args": [ "@event.file.uniquePath" ]
+								}
+							]
+						}
+					]
+				}
+			}
+		],
+
 		"discardKnownTrusted": [
 			{
 				"priority": 2000,
@@ -499,7 +560,7 @@
 	"bindings": [
 		{
 			"eventType": "@const.eventTypes",
-			"rules": [ "discardKnownTrusted" ]
+			"rules": [ "discardOwnProductActivity", "discardKnownTrusted" ]
 		},
 		{
 			"eventType": "MLE_FILE_COPY",
