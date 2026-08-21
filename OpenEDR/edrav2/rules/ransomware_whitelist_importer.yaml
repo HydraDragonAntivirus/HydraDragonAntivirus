@@ -161,19 +161,14 @@
           - condition: "ransomware_delete_activity"
           - condition: "suspicious_encryption_apis"
 
-      # Branch F: Pure Behavioral Read + Delete (same file) + Mass Disk Modifications
-      - and:
-          - condition: "ransomware_read_activity"
-          - condition: "ransomware_delete_activity"
-          - condition: "mass_disk_writes"
 
-      # Branch G: Pure Behavioral Read + Write/Create (unknown ext) + Delete (stem replace)
+      # Branch F: Pure Behavioral Read + Write/Create (unknown ext) + Delete (stem replace)
       - and:
           - condition: "ransomware_read_activity"
           - condition: "ransomware_create_activity"
           - condition: "ransomware_delete_stem_activity"
 
-      # Branch H: Pure Behavioral Read + Write/Create (unknown ext) + Delete (stem replace) + Mass Disk Modifications
+      # Branch G: Pure Behavioral Read + Write/Create (unknown ext) + Delete (stem replace) + Mass Disk Modifications
       - and:
           - condition: "ransomware_read_activity"
           - condition: "ransomware_create_activity"
