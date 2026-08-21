@@ -2691,6 +2691,9 @@ pub struct ProcessBehaviorState {
     pub all_apis_called: HashSet<String>,
     pub recent_kernel_api_events: VecDeque<String>,
 
+    /// Opaque OpenEDR events retained exactly as received.
+    pub raw_openedr_events: VecDeque<String>,
+
     // Self-defense telemetry from OpenEDR/Owlyshield kernel sensors.
     pub self_defense_events: VecDeque<SelfDefenseTelemetryEvent>,
     pub self_defense_event_count: u32,
@@ -3516,6 +3519,9 @@ pub struct BehaviorEngine {
     /// the engine through this queue. `Arc<Mutex<_>>` so the telemetry-thread
     /// `BehaviorEngine` clone shares it with the Worker's main-thread engine.
     pub pending_hook_pids: Arc<Mutex<std::collections::VecDeque<u32>>>,
+    /// Raw OpenEDR telemetry lines. Events are intentionally kept as opaque JSON
+    /// strings; no schema-specific JSON parsing is performed on the event path.
+    pub pending_raw_events: Arc<Mutex<std::collections::VecDeque<(u32, String)>>>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     
     pub firewall_net_pids: FirewallNetPids,
@@ -3551,6 +3557,23 @@ pub struct BehaviorEngine {
     pub firewall_file_verdicts: FirewallFileVerdicts,
     pub rootkit_findings: Vec<RootkitFinding>,
     pub amsi_analyzer: crate::behavioral::amsi::AmsiAnalyzer,
+}
+
+trait RawEventInput {
+    fn into_raw_event(&self) -> String;
+}
+
+impl RawEventInput for str {
+    fn into_raw_event(&self) -> String { self.to_owned() }
+}
+
+impl RawEventInput for String {
+    fn into_raw_event(&self) -> String { self.clone() }
+}
+
+#[cfg(test)]
+impl RawEventInput for serde_json::Value {
+    fn into_raw_event(&self) -> String { self.to_string() }
 }
 
 impl Default for BehaviorEngine {
@@ -4236,1466 +4259,205 @@ impl BehaviorEngine {
         }
     }
 
-    /// Ingest a telemetry event emitted by OpenEDR's direct edrsvc feed.
-    pub fn ingest_openedr_event(&self, event: &serde_json::Value) {
-        fn str_at<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a str> {
-            let mut cur = value;
-            for part in path {
-                cur = cur.get(*part)?;
-            }
-            cur.as_str().map(str::trim).filter(|text| !text.is_empty())
-        }
+    /// Ingest an OpenEDR event without parsing its JSON schema.
+    ///
+    /// The producer sends the event exactly as received. We only perform two
+    /// schema-agnostic string scans needed for routing:
+    ///   * last `"type":"..."` token whose value starts with LLE_/IRP_
+    ///   * last `"pid":<number>` token
+    ///
+    /// The complete raw JSON line is queued unchanged for the Worker thread,
+    /// where rule evaluation can inspect it as opaque text.
+    pub fn ingest_openedr_event<T: RawEventInput + ?Sized>(&self, event: &T) {
+        let raw_event = event.into_raw_event();
+        let event_type = Self::raw_json_string_token(&raw_event, "\"type\"")
+            .or_else(|| Self::raw_json_string_token(&raw_event, "\"event_type\""))
+            .or_else(|| Self::raw_json_string_token(&raw_event, "\"eventType\""))
+            .or_else(|| Self::raw_json_string_token(&raw_event, "\"event_name\""))
+            .or_else(|| Self::raw_json_string_token(&raw_event, "\"eventName\""))
+            .unwrap_or_default();
 
-        fn u64_at(value: &serde_json::Value, path: &[&str]) -> Option<u64> {
-            let mut cur = value;
-            for part in path {
-                cur = cur.get(*part)?;
-            }
-            cur.as_u64().or_else(|| {
-                cur.as_str()
-                    .map(str::trim)
-                    .and_then(|text| text.parse::<u64>().ok())
-            })
-        }
-
-        fn openedr_alias_token(event_type: &str) -> String {
-            let mut token = String::new();
-            for part in event_type.trim_start_matches("LLE_").split('_') {
-                let mut chars = part.chars();
-                let Some(first) = chars.next() else {
-                    continue;
-                };
-                token.push(first.to_ascii_uppercase());
-                token.push_str(&chars.as_str().to_ascii_lowercase());
-            }
-            token
-        }
-
-        fn is_openedr_registry_event(event_type: &str) -> bool {
-            matches!(
-                event_type,
-                "LLE_REGISTRY_KEY_CREATE"
-                    | "LLE_REGISTRY_KEY_DELETE"
-                    | "LLE_REGISTRY_KEY_NAME_CHANGE"
-                    | "LLE_REGISTRY_VALUE_SET"
-                    | "LLE_REGISTRY_VALUE_DELETE"
-            )
-        }
-
-        // Classifies an OpenEDR event as high-priority for queue admission under
-        // pressure. File/process/registry/pipe events carry the signal the
-        // ransomware & HIPS rules need; DeviceIoControl hook telemetry (IRP_* /
-        // LLE_DEVICE_IOCTL) is treated as low-priority flood and is the first to
-        // be shed when the queue is full.
-        fn openedr_event_family(event_type: &str) -> &'static str {
-            if event_type.starts_with("LLE_FILE_") {
-                "File"
-            } else if is_openedr_registry_event(event_type) {
-                "Registry"
-            } else if matches!(
-                event_type,
-                "LLE_PROCESS_CREATE"
-                    | "LLE_PROCESS_DELETE"
-                    | "LLE_PROCESS_OPEN"
-                    | "LLE_PROCESS_MEMORY_READ"
-                    | "LLE_PROCESS_MEMORY_WRITE"
-                    | "LLE_INJECTION_ACTIVITY"
-            ) {
-                "Process"
-            } else if event_type.starts_with("LLE_NETWORK_") {
-                "Network"
-            } else if matches!(
-                event_type,
-                "LLE_DEVICE_IOCTL"
-                    | "LLE_DISK_RAW_WRITE_ACCESS"
-                    | "LLE_VOLUME_RAW_WRITE_ACCESS"
-                    | "LLE_DEVICE_RAW_WRITE_ACCESS"
-                    | "LLE_DISK_LINK_CREATE"
-                    | "LLE_VOLUME_LINK_CREATE"
-                    | "LLE_DEVICE_LINK_CREATE"
-            ) {
-                "Device"
-            } else if matches!(event_type, "LLE_NAMED_PIPE_CREATE" | "IRP_NAMED_PIPE_WRITE") {
-                "Pipe"
-            } else if matches!(
-                event_type,
-                "LLE_WINDOW_PROC_GLOBAL_HOOK"
-                    | "LLE_KEYBOARD_GLOBAL_READ"
-                    | "LLE_KEYBOARD_GLOBAL_WRITE"
-                    | "LLE_KEYBOARD_BLOCK"
-                    | "LLE_CLIPBOARD_READ"
-                    | "LLE_MICROPHONE_ENUM"
-                    | "LLE_MICROPHONE_READ"
-                    | "LLE_MOUSE_GLOBAL_WRITE"
-                    | "LLE_MOUSE_BLOCK"
-                    | "LLE_WINDOW_DATA_READ"
-                    | "LLE_DESKTOP_WALLPAPER_SET"
-            ) {
-                "Input"
-            } else if matches!(event_type, "LLE_USER_LOGON" | "LLE_USER_IMPERSONATION") {
-                "User"
-            } else if event_type == "LLE_SELF_DEFENSE" {
-                "SelfDefense"
-            } else if matches!(
-                event_type,
-                "IRP_USERMODE_HOOK_EVENT"
-                    | "IRP_KERNEL_REMOTE_THREAD"
-                    | "IRP_KERNEL_WRITE_MEMORY"
-                    | "IRP_KERNEL_PROTECT_MEMORY"
-                    | "IRP_KERNEL_CREATE_THREAD"
-                    | "IRP_KERNEL_QUEUE_APC"
-                    | "IRP_KERNEL_CREATE_SECTION"
-                    | "IRP_KERNEL_MAP_SECTION"
-            ) {
-                "KernelHook"
-            } else if matches!(
-                event_type,
-                "IRP_ROOTKIT_SSDT_HOOK"
-                    | "IRP_ROOTKIT_HIDDEN_PROCESS"
-                    | "IRP_ROOTKIT_HIDDEN_DRIVER"
-                    | "IRP_ROOTKIT_KERNEL_HOOK"
-                    | "IRP_ROOTKIT_TERMINATE_PROCESS"
-                    | "IRP_ROOTKIT_FILE_MOVE"
-                    | "IRP_ROOTKIT_GENERIC"
-            ) {
-                "Rootkit"
-            } else {
-                "Other"
-            }
-        }
-
-        // Resolve event_type — accept the common OpenEDR naming variants and
-        // normalize string values before the canonical LLE_* comparisons.
-        let event_type_owned: String = match str_at(event, &["type"])
-            .or_else(|| str_at(event, &["event_type"]))
-            .or_else(|| str_at(event, &["eventType"]))
-            .or_else(|| str_at(event, &["event_name"]))
-            .or_else(|| str_at(event, &["eventName"]))
-            .or_else(|| str_at(event, &["baseType"]))
-        {
-            Some(t) => t.trim().to_ascii_uppercase(),
-            None => u64_at(event, &["baseType"])
-                .or_else(|| u64_at(event, &["baseEventType"]))
-                .map(|code| match code {
-                        1 => "LLE_PROCESS_CREATE".to_string(),
-                        2 => "LLE_PROCESS_DELETE".to_string(),
-                        3 => "LLE_FILE_CREATE".to_string(),
-                        4 => "LLE_FILE_DELETE".to_string(),
-                        5 => "LLE_FILE_CLOSE".to_string(),
-                        6 => "LLE_FILE_DATA_CHANGE".to_string(),
-                        7 => "LLE_FILE_DATA_READ_FULL".to_string(),
-                        8 => "LLE_FILE_DATA_WRITE_FULL".to_string(),
-                        9 => "LLE_REGISTRY_KEY_CREATE".to_string(),
-                        10 => "LLE_REGISTRY_KEY_NAME_CHANGE".to_string(),
-                        11 => "LLE_REGISTRY_KEY_DELETE".to_string(),
-                        12 => "LLE_REGISTRY_VALUE_SET".to_string(),
-                        13 => "LLE_REGISTRY_VALUE_DELETE".to_string(),
-                        14 => "LLE_PROCESS_OPEN".to_string(),
-                        15 => "LLE_PROCESS_MEMORY_READ".to_string(),
-                        16 => "LLE_PROCESS_MEMORY_WRITE".to_string(),
-                        17 => "LLE_WINDOW_PROC_GLOBAL_HOOK".to_string(),
-                        18 => "LLE_KEYBOARD_GLOBAL_READ".to_string(),
-                        19 => "LLE_DISK_RAW_WRITE_ACCESS".to_string(),
-                        20 => "LLE_VOLUME_RAW_WRITE_ACCESS".to_string(),
-                        21 => "LLE_DEVICE_RAW_WRITE_ACCESS".to_string(),
-                        22 => "LLE_DISK_LINK_CREATE".to_string(),
-                        23 => "LLE_VOLUME_LINK_CREATE".to_string(),
-                        24 => "LLE_DEVICE_LINK_CREATE".to_string(),
-                        25 => "LLE_INJECTION_ACTIVITY".to_string(),
-                        26 => "LLE_KEYBOARD_BLOCK".to_string(),
-                        27 => "LLE_CLIPBOARD_READ".to_string(),
-                        32 => "LLE_KEYBOARD_GLOBAL_WRITE".to_string(),
-                        33 => "LLE_MICROPHONE_ENUM".to_string(),
-                        34 => "LLE_MICROPHONE_READ".to_string(),
-                        35 => "LLE_MOUSE_GLOBAL_WRITE".to_string(),
-                        36 => "LLE_WINDOW_DATA_READ".to_string(),
-                        37 => "LLE_DESKTOP_WALLPAPER_SET".to_string(),
-                        38 => "LLE_MOUSE_BLOCK".to_string(),
-                        39 => "LLE_NETWORK_CONNECT_IN".to_string(),
-                        40 => "LLE_NETWORK_CONNECT_OUT".to_string(),
-                        41 => "LLE_NETWORK_LISTEN".to_string(),
-                        43 => "LLE_USER_LOGON".to_string(),
-                        44 => "LLE_USER_IMPERSONATION".to_string(),
-                        45 => "LLE_NETWORK_REQUEST_DNS".to_string(),
-                        46 => "LLE_NETWORK_REQUEST_DATA".to_string(),
-                        47 => "LLE_DEVICE_IOCTL".to_string(),
-                        48 => "LLE_SELF_DEFENSE".to_string(),
-                        49 => "LLE_NAMED_PIPE_CREATE".to_string(),
-                        50 => "LLE_FILE_RENAME".to_string(),
-                        51 => "LLE_THREAD_OPEN".to_string(),
-                        52 => "LLE_FILE_MAP_READ".to_string(),
-                        53 => "LLE_FILE_MAP_WRITE".to_string(),
-                        54 => "LLE_DESKTOP_OPEN".to_string(),
-                        _ => format!("BASE_EVENT_{code}"),
-                    })
-                    .unwrap_or_default()
-        };
-
-        let event_type = event_type_owned.as_str();
-
-        // --- Nested verdict scan (processes[] / childProcess) ----------------
-        // MLE_INTEGRITY_LEVEL_ELEVATION and child-process creation events carry
-        // flsVerdict inside `processes[]` items and/or a `childProcess` object
-        // rather than at the top level. We must scan these **before** the
-        // pid == 0 early-return guard, because these events often lack a
-        // top-level PID.
-        if let Some(processes) = event.get("processes").and_then(|v| v.as_array()) {
-            for proc in processes {
-                let verdict = proc
-                    .get("flsVerdict")
-                    .or_else(|| proc.get("verdict"))
-                    .and_then(OpenEdrFlsVerdict::from_json_value);
-                if verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
-                    if let Some(path) = proc.get("imagePath").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) {
-                        Logging::warning(&format!(
-                            "[OpenEDRVerdict] Malicious flsVerdict in processes[] for {}",
-                            path
-                        ));
-                        Self::quarantine_verdict_file(
-                            path,
-                            &format!("OpenEDR nested process verdict (FLS): Malware"),
-                        );
-                        let proc_pid = u64_at(proc, &["pid"]).or_else(|| u64_at(proc, &["processId"])).unwrap_or(0) as u32;
-                        self.notify_openedr_threat(proc_pid, path, "Malware", "OpenEDR FLS Verdict");
-                        let auto_revert = crate::config::ConfigReader::read_param_from_registry(
-                            "ALWAYS_AUTO_REVERT",
-                            r"SOFTWARE\Owlyshield",
-                        ) == "1";
-                        if auto_revert {
-                            let proc_gid = u64_at(proc, &["gid"]).unwrap_or(proc_pid as u64);
-                            if proc_gid != 0 {
-                                if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
-                                    let _ = client.revert_registry_changes(proc_gid);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(child) = event.get("childProcess") {
-            let verdict = child
-                .get("flsVerdict")
-                .or_else(|| child.get("verdict"))
-                .and_then(OpenEdrFlsVerdict::from_json_value);
-            if verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
-                if let Some(path) = child.get("imagePath").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) {
-                    Logging::warning(&format!(
-                        "[OpenEDRVerdict] Malicious flsVerdict in childProcess for {}",
-                        path
-                    ));
-                    Self::quarantine_verdict_file(
-                        path,
-                        &format!("OpenEDR childProcess verdict (FLS): Malware"),
-                    );
-                    let child_pid = u64_at(child, &["pid"]).or_else(|| u64_at(child, &["processId"])).unwrap_or(0) as u32;
-                    self.notify_openedr_threat(child_pid, path, "Malware", "OpenEDR FLS Verdict");
-                    let auto_revert = crate::config::ConfigReader::read_param_from_registry(
-                        "ALWAYS_AUTO_REVERT",
-                        r"SOFTWARE\Owlyshield",
-                    ) == "1";
-                    if auto_revert {
-                        let child_gid = u64_at(child, &["gid"]).unwrap_or(child_pid as u64);
-                        if child_gid != 0 {
-                            if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
-                                let _ = client.revert_registry_changes(child_gid);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // PID resolution — accept pid/processId variants from process,
-        // childProcess, or the top level before falling back to processes[].
-        let pid = u64_at(event, &["process", "pid"])
-            .or_else(|| u64_at(event, &["process", "processId"]))
-            .or_else(|| u64_at(event, &["process.pid"]))
-            .or_else(|| u64_at(event, &["process.processId"]))
-            .or_else(|| u64_at(event, &["pid"]))
-            .or_else(|| u64_at(event, &["processId"]))
-            .or_else(|| u64_at(event, &["childProcess", "pid"]))
-            .or_else(|| u64_at(event, &["childProcess", "processId"]))
-            .or_else(|| {
-                event.get("processes")
-                    .and_then(|v| v.as_array())
-                    .and_then(|arr| arr.last())
-                    .and_then(|p| u64_at(p, &["pid"]))
-            })
-            .unwrap_or(0)
-            .min(u32::MAX as u64) as u32;
-
-        // Usermode API hook events: the driver now writes process.pid as
-        // SourcePid (the actor that made the hooked call), matching every
-        // other LBVS event's "ProcessPid = actor" convention. This lookup
-        // is kept as a defensive fallback for older drivers / in-flight
-        // events still using the previous ProcessPid=TargetPid encoding,
-        // where pid==0 for file/registry APIs (no process handle in the
-        // arguments) would otherwise drop the record before it ever logs.
-        let hook_caller_pid = u64_at(event, &["owlyHook", "sourcePid"]).unwrap_or(0);
-        let pid = if hook_caller_pid != 0 {
-            hook_caller_pid.min(u32::MAX as u64) as u32
-        } else {
-            pid
-        };
-
-        if event_type == "LLE_PROCESS_CREATE" {
-            Logging::debug(&format!(
-                "[OpenEDR ProcessCreate] observed: pid={} event_type={} process={}",
-                pid,
-                event_type,
-                event.get("process").map(|v| v.to_string()).unwrap_or_else(|| "null".to_string())
-            ));
-        }
+        let pid = Self::raw_json_last_u32(&raw_event, "\"pid\"")
+            .or_else(|| Self::raw_json_last_u32(&raw_event, "\"processId\""))
+            .unwrap_or(0);
 
         if pid == 0 || event_type.is_empty() {
-            if event_type == "LLE_PROCESS_CREATE" {
-                Logging::warning(&format!(
-                    "[OpenEDR ProcessCreate] DROPPED: unresolved PID; raw_event={}",
-                    event
-                ));
-            }
+            Logging::debug(&format!(
+                "[OpenEDRTelemetry] raw event retained without PID/type routing: {}",
+                raw_event
+            ));
             return;
         }
 
-        // Deterministic dynamic-hook trigger for newly created processes.
-        // In the in-process FFI architecture the kernel-IOMessage channel that
-        // drives `process_io` is never fed (OwlyshieldIngest has no callers), so
-        // LLE_PROCESS_CREATE arrives here instead of via process_io. Queue the
-        // PID so the Worker's periodic scan applies the dynamic API hooks to it;
-        // without this, executables started after startup never get hooked.
-        if event_type == "LLE_PROCESS_CREATE" {
+        if event_type.eq_ignore_ascii_case("LLE_PROCESS_CREATE") {
             Logging::info(&format!(
-                "[OpenEDR ProcessCreate] QUEUE PID {} for dynamic hooks",
+                "[OpenEDR ProcessCreate] QUEUE PID {} for dynamic hooks (raw)",
                 pid
             ));
             if let Ok(mut q) = self.pending_hook_pids.lock() {
-                let q: &mut std::collections::VecDeque<u32> = &mut *q;
                 if q.len() < 512 && !q.contains(&pid) {
-                    // New-process-first: freshly created processes jump the hook
-                    // queue so their dynamic API hooks are applied before any
-                    // backlogged PIDs are drained.
                     q.push_front(pid);
                 }
             }
-            // Direct best-effort apply: the driver-side API targets are already
-            // registered globally, so a newly created process only needs its
-            // hooks applied. Do it inline so a process is hooked on its own
-            // create event even if the Worker's periodic scan is not running.
             if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
-                match client.hook_process(pid) {
-                    Ok(()) => {}
-                    Err(e) => {
-                        let hr = e.code().0 as u32;
-                        if hr != 0x80070005
-                            && hr != 0x80070677
-                            && hr != 0x800703E6
-                            && hr != 0xC0000005
-                            && (hr & 0xFFFF) != 0x03E6
-                            && hr != 0x80070016
-                        {
-                            Logging::debug(&format!(
-                                "[DYNAMIC HOOK] Inline hook_process(PID {}) failed (hr=0x{:08X}); queued for periodic retry",
-                                pid, hr
-                            ));
-                        }
-                    }
+                let _ = client.hook_process(pid);
+            }
+        }
+
+        if let Ok(mut q) = self.pending_raw_events.lock() {
+            if q.len() >= 4096 {
+                q.pop_front();
+            }
+            q.push_back((pid, raw_event));
+        }
+    }
+
+    fn raw_json_string_token(raw: &str, key: &str) -> Option<String> {
+        let mut cursor = 0usize;
+        let mut result = None;
+        while let Some(rel) = raw[cursor..].rfind(key) {
+            let pos = cursor + rel;
+            let rest = &raw[pos + key.len()..];
+            let bytes = rest.as_bytes();
+            let mut i = 0usize;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
+            if i >= bytes.len() || bytes[i] != b':' { cursor = pos + key.len(); continue; }
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
+            if i >= bytes.len() || bytes[i] != b'"' { cursor = pos + key.len(); continue; }
+            i += 1;
+            let start = i;
+            while i < bytes.len() {
+                if bytes[i] == b'"' && (i == 0 || bytes[i - 1] != b'\\') {
+                    result = Some(rest[start..i].to_string());
+                    break;
                 }
+                i += 1;
             }
+            cursor = pos + key.len();
+        }
+        result
+    }
+
+    fn raw_json_last_u32(raw: &str, key: &str) -> Option<u32> {
+        let mut cursor = 0usize;
+        let mut result = None;
+        while let Some(rel) = raw[cursor..].rfind(key) {
+            let pos = cursor + rel;
+            let rest = &raw[pos + key.len()..];
+            let bytes = rest.as_bytes();
+            let mut i = 0usize;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
+            if i >= bytes.len() || bytes[i] != b':' { cursor = pos + key.len(); continue; }
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+            if i > start {
+                result = rest[start..i].parse::<u64>().ok()
+                    .map(|v| v.min(u32::MAX as u64) as u32);
+            }
+            cursor = pos + key.len();
+        }
+        result
+    }
+
+    /// Drain opaque OpenEDR events on the Worker thread.
+    pub fn drain_pending_raw_events(&mut self) -> Vec<(u32, String)> {
+        match self.pending_raw_events.lock() {
+            Ok(mut q) => q.drain(..).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Apply opaque OpenEDR events to the process condition state.
+    ///
+    /// This deliberately matches the full raw line. There is no JSON parser,
+    /// field whitelist, event-type lookup table, or schema-specific conversion.
+    pub fn apply_raw_openedr_events(&mut self, events: Vec<(u32, String)>) {
+        if events.is_empty() {
+            return;
         }
 
-        let target_pid = u64_at(event, &["target", "pid"])
-            .or_else(|| u64_at(event, &["target.pid"]))
-            .or_else(|| u64_at(event, &["owlyHook", "targetPid"]))
-            .unwrap_or(0)
-            .min(u32::MAX as u64) as u32;
-        let remote_ip = str_at(event, &["connection", "remote", "ip"])
-            .or_else(|| str_at(event, &["connection.remote.ip"]))
-            .unwrap_or("");
-        let remote_port = u64_at(event, &["connection", "remote", "port"])
-            .or_else(|| u64_at(event, &["connection.remote.port"]))
-            .unwrap_or(0)
-            .min(u16::MAX as u64) as u16;
-        let exe_path = str_at(event, &["process", "path"])
-            .or_else(|| str_at(event, &["process", "imageFile", "path"]))
-            .or_else(|| str_at(event, &["process", "imageFile", "rawPath"]))
-            .or_else(|| str_at(event, &["process.imageFile.path"]))
-            .or_else(|| str_at(event, &["process.imageFile.rawPath"]))
-            .or_else(|| str_at(event, &["process_path"]))
-            .or_else(|| str_at(event, &["imagePath"]))
-            .unwrap_or("Unknown");
-        let file_path = str_at(event, &["file", "path"])
-            .or_else(|| str_at(event, &["file", "rawPath"]))
-            .or_else(|| str_at(event, &["file.rawPath"]))
-            .or_else(|| str_at(event, &["path"]))
-            .or_else(|| str_at(event, &["imagePath"]))
-            .unwrap_or("");
-
-        // OpenEDR process-report events (RP1.1.*) carry the FLS verdict at the
-        // top level (flsVerdict / verdict) together with imagePath, or nested
-        // inside the process image file (process.imageFile.fls.verdict /
-        // process.imageFile.verdict). Treat a Malicious verdict exactly like
-        // the VERDICT pipe path: quarantine now AND surface it in the UI.
-        {
-            // Extract a cloud verdict from an imageFile dict (fls.verdict or
-            // verdict), plus the top-level flsVerdict/verdict fields.
-            fn verdict_from_image(image: &serde_json::Value) -> Option<OpenEdrFlsVerdict> {
-                image
-                    .get("fls")
-                    .and_then(|fls| fls.get("verdict"))
-                    .and_then(OpenEdrFlsVerdict::from_json_value)
-                    .or_else(|| {
-                        image
-                            .get("verdict")
-                            .and_then(OpenEdrFlsVerdict::from_json_value)
-                    })
-            }
-            fn verdict_from_process(proc: &serde_json::Value) -> Option<OpenEdrFlsVerdict> {
-                proc.get("imageFile")
-                    .and_then(verdict_from_image)
-                    .or_else(|| {
-                        proc.get("flsVerdict")
-                            .or_else(|| proc.get("verdict"))
-                            .and_then(OpenEdrFlsVerdict::from_json_value)
-                    })
-            }
-
-            let cloud_verdict = event
-                .get("flsVerdict")
-                .or_else(|| event.get("verdict"))
-                .and_then(OpenEdrFlsVerdict::from_json_value)
-                .or_else(|| {
-                    event
-                        .get("process")
-                        .and_then(verdict_from_process)
-                })
-                .or_else(|| {
-                    event
-                        .get("processes")
-                        .and_then(|a| a.as_array())
-                        .and_then(|arr| {
-                            arr.iter()
-                                .find_map(verdict_from_process)
-                        })
-                })
-                .or_else(|| {
-                    event
-                        .get("childProcess")
-                        .and_then(verdict_from_process)
-                });
-
-            if let Some(verdict) = cloud_verdict {
-                if verdict.is_malicious() {
-                    let label = verdict.display_label();
-                    let target = if exe_path != "Unknown" {
-                        exe_path
-                    } else {
-                        file_path
-                    };
-                    if !target.is_empty() && target != "Unknown" {
-                        Self::quarantine_verdict_file(
-                            target,
-                            &format!("OpenEDR process report verdict (FLS): {label}"),
-                        );
-                        self.notify_openedr_threat(pid, target, label, "Static");
-                        if pid != 0 {
-                            if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
-                                let _ = client.kill_only_driver(pid as u64);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let registry_path = str_at(event, &["registry", "path"])
-            .or_else(|| str_at(event, &["registry", "rawPath"]))
-            .or_else(|| str_at(event, &["registry.rawPath"]))
-            .unwrap_or("");
-        let is_registry_event = is_openedr_registry_event(event_type);
-        // The driver emits the pre-rename path in file.rawPath and the target
-        // name in file.renameTarget. Rebuild the effective path from the target
-        // so the extension-change detection compares the NEW extension against
-        // the previously-recorded one (otherwise previous_extension always
-        // equals the current extension for renames and the check can never fire).
-        let rename_target = str_at(event, &["file", "renameTarget"])
-            .or_else(|| str_at(event, &["file.renameTarget"]))
-            .unwrap_or("")
-            .to_string();
-        let protected_path: String = if is_registry_event && !registry_path.is_empty() {
-            registry_path.to_string()
-        } else if event_type == "LLE_FILE_RENAME" && !rename_target.is_empty() {
-            if rename_target.contains(':') || rename_target.starts_with('\\') {
-                rename_target
-            } else {
-                let parent = file_path
-                    .rfind(['/', '\\'])
-                    .map(|pos| &file_path[..=pos])
-                    .unwrap_or("");
-                format!("{parent}{rename_target}")
-            }
-        } else {
-            file_path.to_string()
-        };
-        let access_or_ioctl = u64_at(event, &["accessMask"])
-            .or_else(|| u64_at(event, &["access_mask"]))
-            .unwrap_or(0);
-        let event_family = openedr_event_family(event_type);
-        let event_alias_token = openedr_alias_token(event_type);
-
-        let mut aliases = vec![format!(
-            "OpenEDR::{}",
-            event_type.trim_start_matches("LLE_")
-        )];
-        if !event_alias_token.is_empty() {
-            aliases.push(format!("OpenEDR::{event_alias_token}"));
-            aliases.push(format!("OpenEDR::{event_family}::{event_alias_token}"));
-        }
-        aliases.push(format!("OpenEDR::Family::{event_family}"));
-        match event_type {
-            "LLE_PROCESS_CREATE" => {
-                aliases.push("OpenEDR::ProcessCreate".to_string());
-            }
-            "LLE_PROCESS_DELETE" => {
-                aliases.push("OpenEDR::ProcessDelete".to_string());
-            }
-            "LLE_PROCESS_OPEN" => {
-                aliases.push("OpenEDR::ProcessOpen".to_string());
-                if target_pid != 0 && target_pid != pid {
-                    aliases.push("OpenEDR::CrossProcessHandle".to_string());
-                }
-            }
-            "LLE_PROCESS_MEMORY_READ" => {
-                aliases.push("OpenEDR::ProcessMemoryRead".to_string());
-                aliases.push("OpenEDR::MemoryRead".to_string());
-            }
-            "LLE_PROCESS_MEMORY_WRITE" => {
-                aliases.push("OpenEDR::ProcessMemoryWrite".to_string());
-                aliases.push("OpenEDR::MemoryWrite".to_string());
-            }
-            "LLE_INJECTION_ACTIVITY" => {
-                aliases.push("OpenEDR::InjectionActivity".to_string());
-                aliases.push("OpenEDR::ProcessInjection".to_string());
-            }
-            "LLE_NETWORK_CONNECT_IN" | "LLE_NETWORK_CONNECT_OUT" | "LLE_NETWORK_LISTEN" => {
-                aliases.push("OpenEDR::NetworkConnect".to_string());
-            }
-            "LLE_NETWORK_REQUEST_DNS" => {
-                aliases.push("OpenEDR::DnsRequest".to_string());
-            }
-            "LLE_NETWORK_REQUEST_DATA" => {
-                aliases.push("OpenEDR::NetworkRequestData".to_string());
-            }
-            "LLE_FILE_CREATE" => {
-                aliases.push("OpenEDR::FileCreate".to_string());
-                aliases.push("OpenEDR::FileAccess".to_string());
-            }
-            "LLE_FILE_DELETE" => {
-                aliases.push("OpenEDR::FileDelete".to_string());
-                aliases.push("OpenEDR::FileModify".to_string());
-            }
-            "LLE_FILE_CLOSE" => {
-                aliases.push("OpenEDR::FileClose".to_string());
-            }
-            "LLE_FILE_DATA_CHANGE" => {
-                aliases.push("OpenEDR::FileDataChange".to_string());
-                aliases.push("OpenEDR::FileModify".to_string());
-            }
-            "LLE_FILE_DATA_READ_FULL" => {
-                aliases.push("OpenEDR::FileRead".to_string());
-                aliases.push("OpenEDR::FileAccess".to_string());
-            }
-            "LLE_FILE_DATA_WRITE_FULL" => {
-                aliases.push("OpenEDR::FileWrite".to_string());
-                aliases.push("OpenEDR::FileModify".to_string());
-            }
-            "LLE_FILE_MAP_READ" => {
-                aliases.push("OpenEDR::FileMapRead".to_string());
-                aliases.push("OpenEDR::FileAccess".to_string());
-            }
-            "LLE_FILE_MAP_WRITE" => {
-                aliases.push("OpenEDR::FileMapWrite".to_string());
-                aliases.push("OpenEDR::FileModify".to_string());
-            }
-            "LLE_DESKTOP_OPEN" => {
-                aliases.push("OpenEDR::DesktopOpen".to_string());
-                aliases.push("OpenEDR::ProcessAccess".to_string());
-            }
-            "LLE_FILE_RENAME" => {
-                aliases.push("OpenEDR::FileRename".to_string());
-                aliases.push("OpenEDR::FileModify".to_string());
-            }
-            "LLE_THREAD_OPEN" => {
-                aliases.push("OpenEDR::ThreadOpen".to_string());
-                aliases.push("OpenEDR::ProcessAccess".to_string());
-            }
-            "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
-                aliases.push("OpenEDR::RegistryKeyModify".to_string());
-                aliases.push("OpenEDR::RegistryModify".to_string());
-            }
-            "LLE_REGISTRY_KEY_DELETE" => {
-                aliases.push("OpenEDR::RegistryKeyDelete".to_string());
-                aliases.push("OpenEDR::RegistryModify".to_string());
-            }
-            "LLE_REGISTRY_VALUE_SET" => {
-                aliases.push("OpenEDR::RegistryValueSet".to_string());
-                aliases.push("OpenEDR::RegistryModify".to_string());
-            }
-            "LLE_REGISTRY_VALUE_DELETE" => {
-                aliases.push("OpenEDR::RegistryValueDelete".to_string());
-                aliases.push("OpenEDR::RegistryModify".to_string());
-            }
-            "LLE_DEVICE_IOCTL" => {
-                aliases.push("OpenEDR::DeviceIoControl".to_string());
-                aliases.push(format!("OpenEDR::IOCTL:0x{access_or_ioctl:08X}"));
-            }
-            "LLE_DISK_RAW_WRITE_ACCESS" | "LLE_VOLUME_RAW_WRITE_ACCESS" => {
-                aliases.push("OpenEDR::RawDiskWrite".to_string());
-                aliases.push("OpenEDR::DiskTamper".to_string());
-            }
-            "LLE_DEVICE_RAW_WRITE_ACCESS" => {
-                aliases.push("OpenEDR::DeviceRawWrite".to_string());
-            }
-            "LLE_DISK_LINK_CREATE" | "LLE_VOLUME_LINK_CREATE" | "LLE_DEVICE_LINK_CREATE" => {
-                aliases.push("OpenEDR::DeviceLinkCreate".to_string());
-            }
-            "LLE_NAMED_PIPE_CREATE" => {
-                aliases.push("OpenEDR::NamedPipeCreate".to_string());
-                aliases.push("OpenEDR::NamedPipe".to_string());
-            }
-            "LLE_USER_LOGON" => {
-                aliases.push("OpenEDR::UserLogon".to_string());
-            }
-            "LLE_USER_IMPERSONATION" => {
-                aliases.push("OpenEDR::UserImpersonation".to_string());
-            }
-            "LLE_SELF_DEFENSE" => {
-                aliases.push("OpenEDR::SelfDefense".to_string());
-            }
-            // --- Input / surveillance events (events.hpp 0x11–0x26) ---
-            "LLE_WINDOW_PROC_GLOBAL_HOOK" => {
-                aliases.push("OpenEDR::WindowProcHook".to_string());
-                aliases.push("OpenEDR::InputHook".to_string());
-            }
-            "LLE_KEYBOARD_GLOBAL_READ" => {
-                aliases.push("OpenEDR::KeyboardRead".to_string());
-                aliases.push("OpenEDR::Keylogger".to_string());
-                aliases.push("OpenEDR::InputHook".to_string());
-            }
-            "LLE_KEYBOARD_GLOBAL_WRITE" => {
-                aliases.push("OpenEDR::KeyboardWrite".to_string());
-                aliases.push("OpenEDR::InputHook".to_string());
-            }
-            "LLE_KEYBOARD_BLOCK" => {
-                aliases.push("OpenEDR::KeyboardBlock".to_string());
-                aliases.push("OpenEDR::InputBlock".to_string());
-            }
-            "LLE_CLIPBOARD_READ" => {
-                aliases.push("OpenEDR::ClipboardRead".to_string());
-                aliases.push("OpenEDR::DataTheft".to_string());
-            }
-            "LLE_MICROPHONE_ENUM" => {
-                aliases.push("OpenEDR::MicrophoneEnum".to_string());
-                aliases.push("OpenEDR::AudioAccess".to_string());
-            }
-            "LLE_MICROPHONE_READ" => {
-                aliases.push("OpenEDR::MicrophoneRead".to_string());
-                aliases.push("OpenEDR::AudioAccess".to_string());
-                aliases.push("OpenEDR::DataTheft".to_string());
-            }
-            "LLE_MOUSE_GLOBAL_WRITE" => {
-                aliases.push("OpenEDR::MouseWrite".to_string());
-                aliases.push("OpenEDR::InputHook".to_string());
-            }
-            "LLE_MOUSE_BLOCK" => {
-                aliases.push("OpenEDR::MouseBlock".to_string());
-                aliases.push("OpenEDR::InputBlock".to_string());
-            }
-            "LLE_WINDOW_DATA_READ" => {
-                aliases.push("OpenEDR::WindowDataRead".to_string());
-                aliases.push("OpenEDR::DataTheft".to_string());
-            }
-            "LLE_DESKTOP_WALLPAPER_SET" => {
-                aliases.push("OpenEDR::DesktopWallpaperSet".to_string());
-                aliases.push("OpenEDR::UiTamper".to_string());
-            }
-            // --- Communication.cpp hook / hypervisor / rootkit events ---
-            // These arrive via the edrsvc enrichment pipe (post-EventEnricher)
-            // as JSON with "type" set to the IRP_ string directly.
-            "IRP_USERMODE_HOOK_EVENT" => {
-                aliases.push("KernelHook::UserModeHook".to_string());
-                aliases.push("KernelHook::Hook".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_KERNEL_REMOTE_THREAD" => {
-                aliases.push("KernelHook::RemoteThread".to_string());
-                aliases.push("KernelHook::Injection".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_KERNEL_WRITE_MEMORY" => {
-                aliases.push("KernelHook::WriteMemory".to_string());
-                aliases.push("KernelHook::Injection".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_KERNEL_PROTECT_MEMORY" => {
-                aliases.push("KernelHook::ProtectMemory".to_string());
-                aliases.push("KernelHook::Injection".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_KERNEL_CREATE_THREAD" => {
-                aliases.push("KernelHook::CreateThread".to_string());
-                aliases.push("KernelHook::Injection".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_KERNEL_QUEUE_APC" => {
-                aliases.push("KernelHook::QueueApc".to_string());
-                aliases.push("KernelHook::Injection".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_KERNEL_CREATE_SECTION" => {
-                aliases.push("KernelHook::CreateSection".to_string());
-                aliases.push("KernelHook::Injection".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_KERNEL_MAP_SECTION" => {
-                aliases.push("KernelHook::MapSection".to_string());
-                aliases.push("KernelHook::Injection".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_ROOTKIT_SSDT_HOOK" => {
-                aliases.push("KernelHook::SsdtHook".to_string());
-                aliases.push("KernelHook::Rootkit".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_ROOTKIT_HIDDEN_PROCESS" => {
-                aliases.push("KernelHook::HiddenProcess".to_string());
-                aliases.push("KernelHook::Rootkit".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_ROOTKIT_HIDDEN_DRIVER" => {
-                aliases.push("KernelHook::HiddenDriver".to_string());
-                aliases.push("KernelHook::Rootkit".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_ROOTKIT_KERNEL_HOOK" => {
-                aliases.push("KernelHook::KernelHookDetected".to_string());
-                aliases.push("KernelHook::Rootkit".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_ROOTKIT_TERMINATE_PROCESS" => {
-                aliases.push("KernelHook::TerminateProcess".to_string());
-                aliases.push("KernelHook::Rootkit".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_ROOTKIT_FILE_MOVE" => {
-                aliases.push("KernelHook::FileMove".to_string());
-                aliases.push("KernelHook::Rootkit".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_ROOTKIT_GENERIC" => {
-                aliases.push("KernelHook::RootkitGeneric".to_string());
-                aliases.push("KernelHook::Rootkit".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            "IRP_NAMED_PIPE_WRITE" => {
-                aliases.push("KernelHook::NamedPipeWrite".to_string());
-                aliases.push("KernelHook::Any".to_string());
-            }
-            _ => {}
-        }
-
-        let mut summary = event_type.to_string();
-        if target_pid != 0 && target_pid != pid {
-            summary.push_str(&format!(" target={}", target_pid));
-        }
-        if !protected_path.is_empty() {
-            summary.push_str(&format!(" path={}", protected_path));
-        }
-        if is_registry_event && !registry_path.is_empty() {
-            summary.push_str(&format!(" registry={}", registry_path));
-        }
-        if !remote_ip.is_empty() {
-            if remote_port != 0 {
-                summary.push_str(&format!(" remote={}:{}", remote_ip, remote_port));
-            } else {
-                summary.push_str(&format!(" remote={}", remote_ip));
-            }
-        }
-
-        if matches!(
-            event_type,
-            "LLE_NETWORK_CONNECT_IN"
-                | "LLE_NETWORK_CONNECT_OUT"
-                | "LLE_NETWORK_LISTEN"
-                | "LLE_NETWORK_REQUEST_DNS"
-                | "LLE_NETWORK_REQUEST_DATA"
-        ) {
-            self.openedr_net_pids.write().unwrap().insert(pid);
-            if !remote_ip.is_empty() {
-                let mut net_details = self.openedr_net_details.write().unwrap();
-                let entries = net_details.entry(pid).or_default();
-                if !entries
-                    .iter()
-                    .any(|(ip, port)| ip == remote_ip && *port == remote_port)
-                {
-                    entries.push((remote_ip.to_string(), remote_port));
-                    if entries.len() > 64 {
-                        let overflow = entries.len() - 64;
-                        entries.drain(0..overflow);
-                    }
-                }
-            }
-        }
-
-        let protected_path_lc = protected_path.replace('/', "\\").to_ascii_lowercase();
-        let registry_path_lc = registry_path.replace('/', "\\").to_ascii_lowercase();
-        let pipe_path = if event_type == "LLE_NAMED_PIPE_CREATE" {
-            file_path
-        } else {
-            ""
-        };
-        let pipe_lc = pipe_path.replace('/', "\\").to_ascii_lowercase();
-        let is_security_file = !protected_path_lc.is_empty()
-            && (protected_path_lc.contains("\\program files\\hydradragonantivirus\\")
-                || protected_path_lc.contains("\\system32\\tasks\\hydradragonantivirus")
-                || protected_path_lc.contains("\\system32\\drivers\\owlyshieldransomfilter.sys")
-                || protected_path_lc.contains("\\system32\\drivers\\reddbgdrv.sys")
-                || protected_path_lc.contains("\\system32\\drivers\\hyperhv.sys")
-                || protected_path_lc.contains("\\system32\\drivers\\mbrfilter.sys")
-                || protected_path_lc.contains("\\system32\\drivers\\fs_minifilter.sys")
-                || protected_path_lc.contains("\\system32\\drivers\\sanctum.sys")
-                || protected_path_lc.contains("\\system32\\drivers\\edrdrv.sys")
-                || protected_path_lc.contains("\\system32\\edrpm64.dll")
-                || protected_path_lc.contains("\\system32\\edrpm32.dll")
-                || protected_path_lc.contains("\\system32\\edrmm.dll"));
-        let is_security_registry = is_registry_event
-            && !registry_path_lc.is_empty()
-            && (registry_path_lc.contains("\\services\\owlyshield_ransom")
-                || registry_path_lc.contains("\\services\\reddbg")
-                || registry_path_lc.contains("\\services\\hyperdbg")
-                || registry_path_lc.contains("\\services\\hyperhv")
-                || registry_path_lc.contains("\\services\\sanctum_ppl_runner")
-                || registry_path_lc.contains("\\services\\mbrfilter")
-                || registry_path_lc.contains("\\services\\fs_minifilter")
-                || registry_path_lc.contains("\\services\\sanctum")
-                || registry_path_lc.contains("\\services\\edrdrv")
-                || registry_path_lc.contains("\\services\\edrsvc")
-                || registry_path_lc.contains("\\software\\owlyshield"));
-        let is_security_pipe = !pipe_lc.is_empty()
-            && (pipe_lc.contains("hydradragon")
-                || pipe_lc.contains("owlyshield")
-                || pipe_lc.contains("sanctum")
-                || pipe_lc.contains("openedr")
-                || pipe_lc.contains("hydranet")
-                || pipe_lc.contains("hydra"));
-        let is_disk_wiper_ioctl = event_type == "LLE_DEVICE_IOCTL";
-        let is_cross_process_open = event_type == "LLE_PROCESS_OPEN"
-            && target_pid != 0
-            && target_pid != pid
-            && (access_or_ioctl & HOSTILE_PROCESS_ACCESS_MASK) != 0;
-        let is_process_memory_tamper = matches!(
-            event_type,
-            "LLE_PROCESS_MEMORY_WRITE" | "LLE_INJECTION_ACTIVITY"
-        );
-        let is_raw_device_tamper = matches!(
-            event_type,
-            "LLE_DISK_RAW_WRITE_ACCESS"
-                | "LLE_VOLUME_RAW_WRITE_ACCESS"
-                | "LLE_DEVICE_RAW_WRITE_ACCESS"
-        );
-
-        if is_security_file
-            || is_security_registry
-            || is_security_pipe
-            || is_disk_wiper_ioctl
-            || is_cross_process_open
-            || is_process_memory_tamper
-            || is_raw_device_tamper
-            || event_type == "LLE_SELF_DEFENSE"
-        {
-            let (category, operation, attack_type, target) = if is_disk_wiper_ioctl {
-                (
-                    "disk",
-                    format!("IOCTL_0x{access_or_ioctl:08X}"),
-                    "DISK_WIPER_ATTEMPT".to_string(),
-                    if protected_path.is_empty() {
-                        "BOOT_DISK_OR_DRIVE_LAYOUT"
-                    } else {
-                        protected_path.as_str()
-                    }
-                    .to_string(),
-                )
-            } else if is_security_pipe {
-                (
-                    "pipe",
-                    "PIPE_CREATE".to_string(),
-                    "NAMED_PIPE_TAMPER_OR_DISCOVERY".to_string(),
-                    pipe_path.to_string(),
-                )
-            } else if is_security_registry {
-                (
-                    "registry",
-                    event_type.trim_start_matches("LLE_REGISTRY_").to_string(),
-                    "REGISTRY_TAMPERING".to_string(),
-                    protected_path.to_string(),
-                )
-            } else if is_process_memory_tamper {
-                (
-                    "process",
-                    event_alias_token.clone(),
-                    "PROCESS_MEMORY_TAMPERING".to_string(),
-                    format!("pid:{}", target_pid),
-                )
-            } else if is_cross_process_open || event_type == "LLE_SELF_DEFENSE" {
-                (
-                    "process",
-                    event_alias_token.clone().if_empty("PROCESS_OPEN"),
-                    if is_cross_process_open {
-                        "CROSS_PROCESS_HANDLE".to_string()
-                    } else {
-                        "PROCESS_TAMPERING".to_string()
-                    },
-                    format!("pid:{}", target_pid),
-                )
-            } else if is_raw_device_tamper {
-                (
-                    "disk",
-                    event_alias_token.clone(),
-                    "RAW_DEVICE_TAMPERING".to_string(),
-                    if protected_path.is_empty() {
-                        "BOOT_DISK_OR_DRIVE_LAYOUT"
-                    } else {
-                        protected_path.as_str()
-                    }
-                    .to_string(),
-                )
-            } else {
-                (
-                    "file",
-                    event_type.trim_start_matches("LLE_FILE_").to_string(),
-                    "FILE_TAMPERING".to_string(),
-                    protected_path.to_string(),
-                )
-            };
-
-            record_self_defense_telemetry(serde_json::json!({
-                "source": "openedr",
-                "category": category,
-                "action": "telemetry",
-                "attack_type": attack_type,
-                "operation": operation,
-                "protected_file": target,
-                "attacker_path": exe_path,
-                "attacker_pid": pid,
-                "target_pid": target_pid,
-            }));
-        }
-
-        let mut openedr_lock = self.openedr_stats.write().unwrap();
-        let stats = openedr_lock
-            .entry(pid)
-            .or_insert_with(OpenEdrTelemetryStats::default);
-        stats.total_event_count += 1;
-
-        // Detailed per-event OpenEDR counters. Every concrete event label has its own counter.
-        match event_type {
-            "LLE_CLIPBOARD_READ" => stats.lle_clipboard_read_count += 1,
-            "LLE_DESKTOP_OPEN" => stats.lle_desktop_open_count += 1,
-            "LLE_DESKTOP_WALLPAPER_SET" => stats.lle_desktop_wallpaper_set_count += 1,
-            "LLE_DEVICE_IOCTL" => stats.lle_device_ioctl_count += 1,
-            "LLE_DEVICE_LINK_CREATE" => stats.lle_device_link_create_count += 1,
-            "LLE_DEVICE_RAW_WRITE_ACCESS" => stats.lle_device_raw_write_access_count += 1,
-            "LLE_DISK_LINK_CREATE" => stats.lle_disk_link_create_count += 1,
-            "LLE_DISK_RAW_WRITE_ACCESS" => stats.lle_disk_raw_write_access_count += 1,
-            "LLE_FILE_CLOSE" => stats.lle_file_close_count += 1,
-            "LLE_FILE_CREATE" => stats.lle_file_create_count += 1,
-            "LLE_FILE_DATA_CHANGE" => stats.lle_file_data_change_count += 1,
-            "LLE_FILE_DATA_READ_FULL" => stats.lle_file_data_read_full_count += 1,
-            "LLE_FILE_DATA_WRITE_FULL" => stats.lle_file_data_write_full_count += 1,
-            "LLE_FILE_DELETE" => stats.lle_file_delete_count += 1,
-            "LLE_FILE_MAP_READ" => stats.lle_file_map_read_count += 1,
-            "LLE_FILE_MAP_WRITE" => stats.lle_file_map_write_count += 1,
-            "LLE_FILE_RENAME" => stats.lle_file_rename_count += 1,
-            "LLE_INJECTION_ACTIVITY" => stats.lle_injection_activity_count += 1,
-            "LLE_KEYBOARD_BLOCK" => stats.lle_keyboard_block_count += 1,
-            "LLE_KEYBOARD_GLOBAL_READ" => stats.lle_keyboard_global_read_count += 1,
-            "LLE_KEYBOARD_GLOBAL_WRITE" => stats.lle_keyboard_global_write_count += 1,
-            "LLE_MICROPHONE_ENUM" => stats.lle_microphone_enum_count += 1,
-            "LLE_MICROPHONE_READ" => stats.lle_microphone_read_count += 1,
-            "LLE_MOUSE_BLOCK" => stats.lle_mouse_block_count += 1,
-            "LLE_MOUSE_GLOBAL_WRITE" => stats.lle_mouse_global_write_count += 1,
-            "LLE_NAMED_PIPE_CREATE" => stats.lle_named_pipe_create_count += 1,
-            "LLE_NETWORK_CONNECT_IN" => stats.lle_network_connect_in_count += 1,
-            "LLE_NETWORK_CONNECT_OUT" => stats.lle_network_connect_out_count += 1,
-            "LLE_NETWORK_LISTEN" => stats.lle_network_listen_count += 1,
-            "LLE_NETWORK_REQUEST_DATA" => stats.lle_network_request_data_count += 1,
-            "LLE_NETWORK_REQUEST_DNS" => stats.lle_network_request_dns_count += 1,
-            "LLE_PROCESS_CREATE" => stats.lle_process_create_count += 1,
-            "LLE_PROCESS_DELETE" => stats.lle_process_delete_count += 1,
-            "LLE_PROCESS_MEMORY_READ" => stats.lle_process_memory_read_count += 1,
-            "LLE_PROCESS_MEMORY_WRITE" => stats.lle_process_memory_write_count += 1,
-            "LLE_PROCESS_OPEN" => stats.lle_process_open_count += 1,
-            "LLE_REGISTRY_KEY_CREATE" => stats.lle_registry_key_create_count += 1,
-            "LLE_REGISTRY_KEY_DELETE" => stats.lle_registry_key_delete_count += 1,
-            "LLE_REGISTRY_KEY_NAME_CHANGE" => stats.lle_registry_key_name_change_count += 1,
-            "LLE_REGISTRY_VALUE_DELETE" => stats.lle_registry_value_delete_count += 1,
-            "LLE_REGISTRY_VALUE_SET" => stats.lle_registry_value_set_count += 1,
-            "LLE_SELF_DEFENSE" => stats.lle_self_defense_count += 1,
-            "LLE_THREAD_OPEN" => stats.lle_thread_open_count += 1,
-            "LLE_USER_IMPERSONATION" => stats.lle_user_impersonation_count += 1,
-            "LLE_USER_LOGON" => stats.lle_user_logon_count += 1,
-            "LLE_VOLUME_LINK_CREATE" => stats.lle_volume_link_create_count += 1,
-            "LLE_VOLUME_RAW_WRITE_ACCESS" => stats.lle_volume_raw_write_access_count += 1,
-            "LLE_WINDOW_DATA_READ" => stats.lle_window_data_read_count += 1,
-            "LLE_WINDOW_PROC_GLOBAL_HOOK" => stats.lle_window_proc_global_hook_count += 1,
-            "IRP_KERNEL_CREATE_SECTION" => stats.irp_kernel_create_section_count += 1,
-            "IRP_KERNEL_CREATE_THREAD" => stats.irp_kernel_create_thread_count += 1,
-            "IRP_KERNEL_MAP_SECTION" => stats.irp_kernel_map_section_count += 1,
-            "IRP_KERNEL_PROTECT_MEMORY" => stats.irp_kernel_protect_memory_count += 1,
-            "IRP_KERNEL_QUEUE_APC" => stats.irp_kernel_queue_apc_count += 1,
-            "IRP_KERNEL_REMOTE_THREAD" => stats.irp_kernel_remote_thread_count += 1,
-            "IRP_KERNEL_WRITE_MEMORY" => stats.irp_kernel_write_memory_count += 1,
-            "IRP_NAMED_PIPE_WRITE" => stats.irp_named_pipe_write_count += 1,
-            "IRP_ROOTKIT_FILE_MOVE" => stats.irp_rootkit_file_move_count += 1,
-            "IRP_ROOTKIT_GENERIC" => stats.irp_rootkit_generic_count += 1,
-            "IRP_ROOTKIT_HIDDEN_DRIVER" => stats.irp_rootkit_hidden_driver_count += 1,
-            "IRP_ROOTKIT_HIDDEN_PROCESS" => stats.irp_rootkit_hidden_process_count += 1,
-            "IRP_ROOTKIT_KERNEL_HOOK" => stats.irp_rootkit_kernel_hook_count += 1,
-            "IRP_ROOTKIT_SSDT_HOOK" => stats.irp_rootkit_ssdt_hook_count += 1,
-            "IRP_ROOTKIT_TERMINATE_PROCESS" => stats.irp_rootkit_terminate_process_count += 1,
-            "IRP_USERMODE_HOOK_EVENT" => stats.irp_usermode_hook_event_count += 1,
-            "IRP_USER_MODE_HOOK_EVENT" => stats.irp_user_mode_hook_event_count += 1,
-            "IRP_CREATE" => stats.irp_create_count += 1,
-            "IRP_READ" => stats.irp_read_count += 1,
-            "IRP_WRITE" => stats.irp_write_count += 1,
-            "IRP_CLEANUP" => stats.irp_cleanup_count += 1,
-            "IRP_SET_INFO" => stats.irp_set_info_count += 1,
-            "IRP_REGISTRY" => stats.irp_registry_count += 1,
-            "IRP_PROCESS_CREATE" => stats.irp_process_create_count += 1,
-            "IRP_PROCESS_TERMINATE" => stats.irp_process_terminate_count += 1,
-            "IRP_PROCESS_TERMINATE_ATTEMPT" => stats.irp_process_terminate_attempt_count += 1,
-            "IRP_PROCESS_EXIT" => stats.irp_process_exit_count += 1,
-            "IRP_PROCESS_HANDLE_OPEN" => stats.irp_process_handle_open_count += 1,
-            "IRP_NAMED_PIPE_CREATE" => stats.irp_named_pipe_create_count += 1,
-            _ => {}
-        }
-
-        // Semantic operation families. Concrete event counters remain independent;
-        // these semantic counters intentionally overlap where an event has more
-        // than one semantic meaning (for example process-memory write).
-        if matches!(event_type,
-            "LLE_CLIPBOARD_READ" | "LLE_FILE_DATA_READ_FULL" | "LLE_FILE_MAP_READ"
-            | "LLE_KEYBOARD_GLOBAL_READ" | "LLE_MICROPHONE_READ" | "LLE_PROCESS_MEMORY_READ"
-            | "LLE_WINDOW_DATA_READ" | "IRP_READ"
-        ) { stats.read_count += 1; }
-        if matches!(event_type,
-            "LLE_FILE_DATA_WRITE_FULL" | "LLE_FILE_MAP_WRITE" | "LLE_KEYBOARD_GLOBAL_WRITE"
-            | "LLE_MOUSE_GLOBAL_WRITE" | "LLE_PROCESS_MEMORY_WRITE" | "LLE_VOLUME_RAW_WRITE_ACCESS"
-            | "LLE_DISK_RAW_WRITE_ACCESS" | "LLE_DEVICE_RAW_WRITE_ACCESS"
-            | "IRP_WRITE" | "IRP_KERNEL_WRITE_MEMORY" | "IRP_NAMED_PIPE_WRITE"
-        ) { stats.write_count += 1; }
-        if matches!(event_type,
-            "LLE_FILE_CREATE" | "LLE_DEVICE_LINK_CREATE" | "LLE_DISK_LINK_CREATE"
-            | "LLE_NAMED_PIPE_CREATE" | "LLE_PROCESS_CREATE" | "LLE_REGISTRY_KEY_CREATE"
-            | "LLE_VOLUME_LINK_CREATE" | "IRP_CREATE" | "IRP_NAMED_PIPE_CREATE"
-            | "IRP_KERNEL_CREATE_SECTION" | "IRP_KERNEL_CREATE_THREAD"
-        ) { stats.create_count += 1; }
-        if matches!(event_type, "LLE_FILE_CLOSE" | "IRP_CLEANUP") { stats.close_count += 1; }
-        if matches!(event_type,
-            "LLE_FILE_DELETE" | "LLE_PROCESS_DELETE" | "LLE_REGISTRY_KEY_DELETE"
-            | "LLE_REGISTRY_VALUE_DELETE" | "IRP_ROOTKIT_TERMINATE_PROCESS"
-        ) { stats.delete_count += 1; }
-        if matches!(event_type, "LLE_FILE_RENAME" | "LLE_REGISTRY_KEY_NAME_CHANGE" | "IRP_ROOTKIT_FILE_MOVE") { stats.rename_count += 1; }
-        if matches!(event_type, "LLE_FILE_DATA_CHANGE" | "IRP_SET_INFO") { stats.setinfo_count += 1; }
-        if matches!(event_type, "LLE_REGISTRY_KEY_CREATE" | "IRP_REGISTRY_CREATE") { stats.registry_create_count += 1; }
-        if matches!(event_type, "LLE_REGISTRY_VALUE_SET" | "IRP_REGISTRY_WRITE") { stats.registry_write_count += 1; }
-        if matches!(event_type, "LLE_REGISTRY_KEY_DELETE" | "LLE_REGISTRY_VALUE_DELETE" | "IRP_REGISTRY_DELETE") { stats.registry_delete_count += 1; }
-        if matches!(event_type, "LLE_REGISTRY_KEY_NAME_CHANGE") { stats.registry_rename_count += 1; }
-        if matches!(event_type, "IRP_REGISTRY_READ") { stats.registry_read_count += 1; }
-        if matches!(event_type, "LLE_PROCESS_CREATE" | "IRP_PROCESS_CREATE") { stats.process_create_count += 1; }
-        if matches!(event_type, "LLE_PROCESS_DELETE" | "IRP_PROCESS_TERMINATE" | "IRP_ROOTKIT_TERMINATE_PROCESS") { stats.process_delete_count += 1; }
-        if matches!(event_type, "LLE_PROCESS_OPEN" | "IRP_PROCESS_HANDLE_OPEN") { stats.process_open_count += 1; }
-        if matches!(event_type, "LLE_PROCESS_MEMORY_READ") { stats.process_memory_read_count += 1; stats.memory_read_count += 1; }
-        if matches!(event_type, "LLE_PROCESS_MEMORY_WRITE" | "IRP_KERNEL_WRITE_MEMORY") { stats.process_memory_write_count += 1; stats.memory_write_count += 1; }
-        if matches!(event_type, "LLE_THREAD_OPEN") { stats.thread_open_count += 1; }
-        if matches!(event_type, "LLE_NETWORK_CONNECT_IN" | "LLE_NETWORK_CONNECT_OUT") { stats.network_connect_count += 1; }
-        if matches!(event_type, "LLE_NETWORK_REQUEST_DATA" | "LLE_NETWORK_REQUEST_DNS") { stats.network_request_count += 1; }
-        if matches!(event_type, "LLE_NETWORK_LISTEN") { stats.network_listen_count += 1; }
-        if matches!(event_type, "LLE_NAMED_PIPE_CREATE" | "IRP_NAMED_PIPE_CREATE") { stats.pipe_create_count += 1; }
-        if matches!(event_type, "IRP_NAMED_PIPE_WRITE") { stats.pipe_write_count += 1; }
-        if matches!(event_type, "IRP_KERNEL_MAP_SECTION") { stats.memory_read_count += 1; }
-
-        stats.last_event = Some(summary.clone());
-        if stats.recent_events.len() >= 32 {
-            stats.recent_events.pop_front();
-        }
-        stats.recent_events.push_back(summary);
-        for alias in aliases {
-            stats.detected_apis.insert(alias);
-        }
-
-        match event_family {
-            "Process" => stats.process_event_count += 1,
-            "File" => stats.file_event_count += 1,
-            "Registry" => stats.registry_event_count += 1,
-            "Network" => stats.network_event_count += 1,
-            "Device" => stats.device_event_count += 1,
-            "Pipe" => stats.pipe_event_count += 1,
-            "Input" => stats.input_event_count += 1,
-            "User" => stats.user_event_count += 1,
-            "SelfDefense" => stats.self_defense_event_count += 1,
-            // Communication.cpp kernel hook / rootkit families
-            "KernelHook" | "Rootkit" => stats.memory_event_count += 1,
-            _ => {}
-        }
-
-        if matches!(
-            event_type,
-            "LLE_PROCESS_MEMORY_READ" | "LLE_PROCESS_MEMORY_WRITE"
-        ) {
-            stats.memory_event_count += 1;
-        }
-
-        match event_type {
-            "LLE_PROCESS_OPEN" => stats.process_open_count += 1,
-            "LLE_PROCESS_MEMORY_WRITE" => stats.memory_write_count += 1,
-            "LLE_INJECTION_ACTIVITY" => stats.injection_activity_count += 1,
-            "LLE_NETWORK_CONNECT_IN"
-            | "LLE_NETWORK_CONNECT_OUT"
-            | "LLE_NETWORK_LISTEN"
-            | "LLE_NETWORK_REQUEST_DNS"
-            | "LLE_NETWORK_REQUEST_DATA" => stats.network_connect_count += 1,
-            _ => {}
-        }
-
-        // ── owlyHook → pending IrpOperationRecord ───────────────────────────────
-        // These fields are populated by controller.cpp parseEvent for
-        // DeviceIoControl (hook) events.  We convert them into
-        // IrpOperationRecord entries and push them into the shared pending queue so
-        // the main Worker thread can apply them to ProcessBehaviorState via
-        // record_irp_operation without needing &mut self here.
-        {
-            // Helper to read a sub-dict string field
-            fn hv_str<'a>(event: &'a serde_json::Value, dict: &str, key: &str) -> &'a str {
-                event
-                    .get(dict)
-                    .and_then(|d| d.get(key))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-            }
-            fn hv_u64(event: &serde_json::Value, dict: &str, key: &str) -> u64 {
-                event
-                    .get(dict)
-                    .and_then(|d| d.get(key))
-                    .and_then(|v| v.as_u64().or_else(|| v.as_str()?.trim().parse().ok()))
-                    .unwrap_or(0)
-            }
-            fn hv_u32(event: &serde_json::Value, dict: &str, key: &str) -> u32 {
-                hv_u64(event, dict, key).min(u32::MAX as u64) as u32
-            }
-
-            // Determine SysmonEvent id for this OpenEDR event type
-            use crate::shared_def::SysmonEvent as SE;
-            let irp_type_opt: Option<u32> = match event_type {
-                // LLE_ events that map to a SysmonEvent
-                "LLE_FILE_CREATE" => Some(SE::FileCreate as u32),
-                "LLE_FILE_DELETE" => Some(SE::FileDelete as u32),
-                "LLE_FILE_CLOSE" => Some(SE::FileClose as u32),
-                "LLE_FILE_DATA_CHANGE" => Some(SE::FileDataChange as u32),
-                "LLE_FILE_DATA_READ_FULL" => Some(SE::FileDataReadFull as u32),
-                "LLE_FILE_DATA_WRITE_FULL" => Some(SE::FileDataWriteFull as u32),
-                "LLE_FILE_MAP_READ" => Some(SE::FileMapRead as u32),
-                "LLE_FILE_MAP_WRITE" => Some(SE::FileMapWrite as u32),
-                "LLE_DESKTOP_OPEN" => Some(SE::DesktopOpen as u32),
-                "LLE_FILE_RENAME" => Some(SE::FileRename as u32),
-                "LLE_THREAD_OPEN" => Some(SE::ThreadOpen as u32),
-                "LLE_REGISTRY_KEY_CREATE" | "LLE_REGISTRY_KEY_NAME_CHANGE" => {
-                    Some(SE::RegistryKeyCreate as u32)
-                }
-                "LLE_REGISTRY_KEY_DELETE" => Some(SE::RegistryKeyDelete as u32),
-                "LLE_REGISTRY_VALUE_SET" => Some(SE::RegistryValueSet as u32),
-                "LLE_REGISTRY_VALUE_DELETE" => Some(SE::RegistryValueDelete as u32),
-                "LLE_PROCESS_CREATE" => Some(SE::ProcessCreate as u32),
-                "LLE_PROCESS_DELETE" => Some(SE::ProcessDelete as u32),
-                "LLE_PROCESS_OPEN" => Some(SE::ProcessOpen as u32),
-                "LLE_PROCESS_MEMORY_READ" => Some(SE::DeviceIoControl as u32),
-                "LLE_PROCESS_MEMORY_WRITE" => Some(14),
-                "LLE_NAMED_PIPE_CREATE" => Some(SE::NamedPipeCreate as u32),
-                "LLE_NETWORK_CONNECT_IN"
-                | "LLE_NETWORK_CONNECT_OUT"
-                | "LLE_NETWORK_LISTEN"
-                | "LLE_NETWORK_REQUEST_DATA"
-                | "LLE_NETWORK_REQUEST_DNS" => Some(SE::DeviceIoControl as u32),
-                "LLE_DISK_RAW_WRITE_ACCESS"
-                | "LLE_VOLUME_RAW_WRITE_ACCESS"
-                | "LLE_DEVICE_RAW_WRITE_ACCESS"
-                | "LLE_DISK_LINK_CREATE"
-                | "LLE_VOLUME_LINK_CREATE"
-                | "LLE_DEVICE_LINK_CREATE" => Some(SE::DeviceIoControl as u32),
-                "LLE_WINDOW_PROC_GLOBAL_HOOK"
-                | "LLE_KEYBOARD_GLOBAL_READ"
-                | "LLE_KEYBOARD_GLOBAL_WRITE"
-                | "LLE_KEYBOARD_BLOCK"
-                | "LLE_CLIPBOARD_READ"
-                | "LLE_MICROPHONE_ENUM"
-                | "LLE_MICROPHONE_READ"
-                | "LLE_MOUSE_GLOBAL_WRITE"
-                | "LLE_MOUSE_BLOCK"
-                | "LLE_WINDOW_DATA_READ"
-                | "LLE_DESKTOP_WALLPAPER_SET"
-                | "LLE_USER_LOGON"
-                | "LLE_USER_IMPERSONATION"
-                | "LLE_SELF_DEFENSE" => Some(SE::SelfDefense as u32),
-                "LLE_INJECTION_ACTIVITY" => Some(SE::DeviceIoControl as u32),
-                // IRP_ hook/rootkit events carried as DeviceIoControl
-                "IRP_USERMODE_HOOK_EVENT" | "LLE_DEVICE_IOCTL" => Some(SE::DeviceIoControl as u32),
-                "IRP_KERNEL_REMOTE_THREAD" => Some(SE::DeviceIoControl as u32),
-                "IRP_KERNEL_WRITE_MEMORY" => Some(SE::DeviceIoControl as u32),
-                "IRP_KERNEL_PROTECT_MEMORY" => Some(SE::DeviceIoControl as u32),
-                "IRP_KERNEL_CREATE_THREAD" => Some(SE::DeviceIoControl as u32),
-                "IRP_KERNEL_QUEUE_APC" => Some(SE::DeviceIoControl as u32),
-                "IRP_KERNEL_CREATE_SECTION" => Some(SE::DeviceIoControl as u32),
-                "IRP_KERNEL_MAP_SECTION" => Some(SE::DeviceIoControl as u32),
-                "IRP_ROOTKIT_SSDT_HOOK"
-                | "IRP_ROOTKIT_HIDDEN_PROCESS"
-                | "IRP_ROOTKIT_HIDDEN_DRIVER"
-                | "IRP_ROOTKIT_KERNEL_HOOK"
-                | "IRP_ROOTKIT_TERMINATE_PROCESS"
-                | "IRP_ROOTKIT_FILE_MOVE"
-                | "IRP_ROOTKIT_GENERIC" => Some(SE::DeviceIoControl as u32),
-                "IRP_NAMED_PIPE_WRITE" => Some(SE::NamedPipeCreate as u32),
-                _ => {
-                    if event_type.starts_with("LLE_") || event_type.starts_with("IRP_") {
-                        Some(SE::DeviceIoControl as u32)
-                    } else {
+        let raw_matchers: Vec<(String, Vec<String>, usize)> = self
+            .rules
+            .iter()
+            .flat_map(|rule| {
+                rule.named_conditions.iter().filter_map(|(name, group)| {
+                    if group.raw_json_patterns.is_empty() {
                         None
+                    } else {
+                        Some((
+                            Self::scoped_condition_name(rule, name),
+                            group.raw_json_patterns.clone(),
+                            group.min_matches.max(1),
+                        ))
                     }
-                }
+                })
+            })
+            .collect();
+
+        for (pid, raw) in events {
+            let Some(gid) = self.find_gid_by_pid(pid) else {
+                continue;
             };
 
-            if let Some(irp_type) = irp_type_opt {
-                // Build the IrpOperationRecord from available JSON sub-dicts.
-                // owlyHook.* fields come from kernel hook events (IRP_*).
-                let hook_event_type = hv_u32(event, "owlyHook", "eventType");
-                let hook_fn = hv_str(event, "owlyHook", "functionName").to_string();
-                let hook_src_pid = hv_u32(event, "owlyHook", "sourcePid");
-
-                if hook_event_type != 0 || event_type == "LLE_DEVICE_IOCTL" {
-                    Logging::debug(&format!(
-                        "[API HOOKING] INGEST event_type=\"{}\" type_irp=0x{:X} hook_event_type=0x{:X} hook_fn=\"{}\" hook_src_pid={} pid={}",
-                        event_type, irp_type, hook_event_type, hook_fn, hook_src_pid, pid
-                    ));
+            if let Some(state) = self.process_states.get_mut(&gid) {
+                if state.raw_openedr_events.len() >= 256 {
+                    state.raw_openedr_events.pop_front();
                 }
+                state.raw_openedr_events.push_back(raw.clone());
 
-                let hook_arg1 = hv_u64(event, "owlyHook", "arg1");
-                let hook_target_pid = hv_u32(event, "owlyHook", "targetPid");
-                let caller_pid = if hook_src_pid != 0 { hook_src_pid } else { pid };
-
-                // Windows NT API pseudo-handle for current process: (HANDLE)-1 == 0xFFFFFFFFFFFFFFFF / 0xFFFFFFFF
-                let is_current_process_handle = hook_arg1 == u64::MAX || hook_arg1 == 0xFFFF_FFFF;
-                let effective_target_pid = if is_current_process_handle {
-                    caller_pid
-                } else if hook_target_pid != 0 {
-                    hook_target_pid
-                } else if hook_src_pid != 0 && hook_src_pid != pid {
-                    hook_src_pid
-                } else if target_pid != 0 {
-                    target_pid
-                } else {
-                    caller_pid
-                };
-
-                // Resolve the concrete IRP SysmonEvent byte for hook events.
-                // If owlyHook.eventType is non-zero, it is a more specific IRP opcode.
-                let effective_irp_type = if hook_event_type != 0 {
-                    hook_event_type
-                } else {
-                    irp_type
-                };
-
-                // Pipe name / payload for LLE_NAMED_PIPE_CREATE / IRP_NAMED_PIPE_WRITE
-                let pipe_name =
-                    if matches!(event_type, "LLE_NAMED_PIPE_CREATE" | "IRP_NAMED_PIPE_WRITE") {
-                        protected_path.to_string()
-                    } else {
-                        String::new()
-                    };
-
-                let rec = IrpOperationRecord {
-                    timestamp: std::time::SystemTime::now(),
-                    irp_type: effective_irp_type,
-                    is_legacy_kernel_subtype: hook_event_type != 0,
-                    file_path: if pipe_name.is_empty() {
-                        protected_path.to_string()
-                    } else {
-                        pipe_name.clone()
-                    },
-                    file_change: match event_type {
-                        "LLE_FILE_CREATE" => FileChangeInfo::ChangeNewFile as u8,
-                        "LLE_FILE_DELETE" => FileChangeInfo::ChangeDeleteFile as u8,
-                        "LLE_FILE_RENAME" => FileChangeInfo::ChangeRenameFile as u8,
-                        "LLE_FILE_DATA_CHANGE" | "LLE_FILE_DATA_WRITE_FULL" => {
-                            FileChangeInfo::ChangeWrite as u8
-                        }
-                        _ => 0,
-                    },
-                    extension: {
-                        let p = protected_path;
-                        if let Some(pos) = p.rfind('.') {
-                            p[pos + 1..].to_ascii_lowercase()
-                        } else {
-                            String::new()
-                        }
-                    },
-                    entropy: 0.0,
-                    bytes_transferred: 0,
-                    target_pid: effective_target_pid,
-                    function_name: if hook_fn.is_empty() {
-                        event_type.to_string()
-                    } else {
-                        hook_fn
-                    },
-                    pipe_name,
-                    pipe_payload: Vec::new(),
-                    raw_arguments: [
-                        hv_u64(event, "owlyHook", "arg1"),
-                        hv_u64(event, "owlyHook", "arg2"),
-                        hv_u64(event, "owlyHook", "arg3"),
-                        hv_u64(event, "owlyHook", "arg4"),
-                    ],
-                };
-
-                if let Ok(mut q) = self.pending_irp_records.lock() {
-                    // No priority gating, no caps: every telemetry record is
-                    // queued unconditionally so no detection-relevant event
-                    // (e.g. ransomware file writes during an edrsvc enrichment
-                    // flood) can ever be shed.
-                    let q: &mut std::collections::VecDeque<(u32, IrpOperationRecord)> = &mut *q;
-                    if event_type == "LLE_PROCESS_CREATE" {
-                        // New-process-first: the process-create record jumps
-                        // to the front so the fresh process state is seeded
-                        // and analyzed before backlogged events are drained.
-                        q.push_front((pid, rec));
-                    } else {
-                        q.push_back((pid, rec));
+                for (scoped, patterns, required) in &raw_matchers {
+                    let matched = patterns.iter().any(|pattern| {
+                        Self::matches_pattern_internal(&self.regex_cache, pattern, &raw)
+                    });
+                    if !matched {
+                        continue;
                     }
-                }
-            }
-        }
 
-        // Extract OpenEDR/Valkyrie cloud analysis.
-        // Labels are retained only for display/logging. Decisions use numeric verdict/result codes only.
-        if let Some(cloud) = event.get("cloud_analysis") {
-            if let Some(static_label) = cloud.get("static_label").and_then(|v| v.as_str()) {
-                stats.cloud_static_label = Some(static_label.to_string());
-            }
-            let static_verdict = cloud
-                .get("trust_level")
-                .or_else(|| cloud.get("verdict"))
-                .or_else(|| cloud.get("result"))
-                .or_else(|| cloud.get("rating"))
-                .and_then(OpenEdrFlsVerdict::from_json_value);
-            stats.cloud_static_verdict = static_verdict.map(OpenEdrFlsVerdict::code);
+                    let now = SystemTime::now();
+                    let event_ts = now
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0);
+                    let match_key = format!("raw-json:{}:{}", pid, event_ts);
 
-            if let Some(verdict) = static_verdict {
-                self.notify_firewall_openedr_verdict(pid, exe_path, verdict, "Static");
-            }
-
-            let auto_revert = crate::config::ConfigReader::read_param_from_registry(
-                "ALWAYS_AUTO_REVERT",
-                r"SOFTWARE\Owlyshield",
-            ) == "1";
-
-            if static_verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
-                let label = stats
-                    .cloud_static_label
-                    .as_deref()
-                    .unwrap_or("OpenEDR static verdict");
-                self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 2 (Malware)");
-                Self::quarantine_verdict_file(
-                    exe_path,
-                    &format!("OpenEDR FLS static verdict: {label}"),
-                );
-                if auto_revert {
-                    let gid = u64_at(event, &["gid"]).unwrap_or(pid as u64);
-                    if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
-                        let _ = client.revert_registry_changes(gid);
+                    let values = state
+                        .condition_match_values
+                        .entry(scoped.clone())
+                        .or_insert_with(HashSet::new);
+                    let order = state
+                        .condition_match_order
+                        .entry(scoped.clone())
+                        .or_insert_with(VecDeque::new);
+                    let is_new = Self::insert_bounded_match_value(
+                        values,
+                        order,
+                        match_key,
+                        CONDITION_MATCH_VALUE_CAP,
+                    );
+                    let count = state
+                        .condition_match_counts
+                        .entry(scoped.clone())
+                        .or_insert(0);
+                    if is_new {
+                        *count += 1;
                     }
-                }
-            }
+                    state
+                        .condition_first_seen
+                        .entry(scoped.clone())
+                        .or_insert(now);
+                    state.condition_last_seen.insert(scoped.clone(), now);
 
-            if let Some(dynamic_label) = cloud.get("dynamic_label").and_then(|v| v.as_str()) {
-                stats.cloud_dynamic_label = Some(dynamic_label.to_string());
-            }
-            let dynamic_verdict = cloud
-                .get("dynamic_trust_level")
-                .or_else(|| cloud.get("dynamic_verdict"))
-                .or_else(|| cloud.get("dynamic_result"))
-                .or_else(|| cloud.get("dynamic_rating"))
-                .and_then(OpenEdrFlsVerdict::from_json_value);
-            stats.cloud_dynamic_verdict = dynamic_verdict.map(OpenEdrFlsVerdict::code);
-
-            if let Some(verdict) = dynamic_verdict {
-                self.notify_firewall_openedr_verdict(pid, exe_path, verdict, "Dynamic");
-            }
-
-            if dynamic_verdict.is_some_and(OpenEdrFlsVerdict::is_malicious) {
-                let label = stats
-                    .cloud_dynamic_label
-                    .as_deref()
-                    .unwrap_or("OpenEDR dynamic verdict");
-                self.notify_openedr_threat(pid, exe_path, label, "OpenEDR FLS Code 2 (Malware)");
-                Self::quarantine_verdict_file(
-                    exe_path,
-                    &format!("OpenEDR FLS dynamic verdict: {label}"),
-                );
-                if auto_revert {
-                    let gid = u64_at(event, &["gid"]).unwrap_or(pid as u64);
-                    if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
-                        let _ = client.revert_registry_changes(gid);
+                    if *count >= *required {
+                        state.satisfied_named_conditions.insert(scoped.clone());
                     }
                 }
             }
         }
     }
 
-    fn format_capemon_bson_scalar(value: &bson::Bson) -> Option<String> {
-        Some(match value {
-            bson::Bson::String(s) => s.clone(),
-            bson::Bson::Int32(i) => i.to_string(),
-            bson::Bson::Int64(i) => i.to_string(),
-            bson::Bson::Double(d) => d.to_string(),
-            bson::Bson::Boolean(b) => b.to_string(),
-            _ => return None,
-        })
-    }
-
-    fn format_capemon_bson_value(value: &bson::Bson, format: CapemonBsonFormat) -> String {
-        if let Some(scalar) = Self::format_capemon_bson_scalar(value) {
-            return scalar;
-        }
-
-        match value {
-            bson::Bson::Array(arr) => {
-                let elements: Vec<String> = arr
-                    .iter()
-                    .map(|element| {
-                        Self::format_capemon_bson_scalar(element)
-                            .unwrap_or_else(|| format!("{:?}", element))
-                    })
-                    .collect();
-                format.format_array(&elements)
-            }
-            bson::Bson::Document(subdoc) if matches!(format, CapemonBsonFormat::Log) => {
-                format!("{{{} fields}}", subdoc.len())
-            }
-            _ => format!("{:?}", value),
-        }
-    }
-
-    /// Ingest a BSON telemetry event from Capemon API hooks.
-    /// Capemon hooks LoadLibrary, CreateProcess, and other APIs, sending BSON-encoded logs.
-    /// This method dynamically processes ALL BSON fields without hardcoded API name checks.
     pub fn ingest_capemon_event(&mut self, pid: u32, doc: bson::Document) {
         let gid = self.find_gid_by_pid(pid).unwrap_or(0);
 

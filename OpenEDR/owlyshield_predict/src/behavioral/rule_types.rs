@@ -2080,6 +2080,11 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub json_match: Option<JsonMatcher>,
 
+    /// Literal/glob/regex patterns matched directly against the complete
+    /// OpenEDR JSON line. The event stays opaque; no JSON parsing is performed.
+    #[serde(default, alias = "raw_event_patterns", alias = "raw_json_patterns")]
+    pub raw_json_patterns: Vec<String>,
+
     // Sanctum EDR conditions
     #[serde(default)]
     pub sanctum_injection_score_min: Option<f32>,
@@ -2667,6 +2672,7 @@ impl BehaviorRule {
         expand_vec(&mut self.monitored_apis);
         expand_vec(&mut self.file_actions);
         expand_vec(&mut self.file_extensions);
+        expand_vec(&mut self.raw_json_patterns);
         expand_vec(&mut self.suspicious_parents);
         expand_vec(&mut self.terminated_processes);
 

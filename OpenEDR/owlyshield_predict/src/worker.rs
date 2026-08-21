@@ -642,21 +642,14 @@ pub mod worker_instance {
                             crate::ffi::TelemetryLine::FirewallPackedData(raw_line) => {
                                 behavior_engine.ingest_firewall_raw_line(&raw_line);
                             }
-                            crate::ffi::TelemetryLine::OpenedrEvent(json) => {
+                            crate::ffi::TelemetryLine::OpenedrEvent(raw_event) => {
                                 Logging::debug(&format!(
                                     "[OpenEDRTelemetry] EVENT RECEIVED: {}",
-                                    json
+                                    raw_event
                                 ));
-                                match serde_json::from_str::<serde_json::Value>(&json) {
-                                    Ok(event) => {
-                                        // Always process for behavioral analysis
-                                        behavior_engine.ingest_openedr_event(&event);
-                                    }
-                                    Err(err) => Logging::warning(&format!(
-                                        "[OpenEDRTelemetry] Failed to parse direct event JSON: {}",
-                                        err
-                                    )),
-                                }
+                                // Keep the OpenEDR event opaque. Do not deserialize or
+                                // normalize its schema here.
+                                behavior_engine.ingest_openedr_event(&raw_event);
                             }
                         }
                     }
@@ -1352,6 +1345,11 @@ pub mod worker_instance {
                         discovered_new
                     ));
                 }
+
+                // Apply raw OpenEDR telemetry on the main thread so rule state is
+                // mutated without sharing a mutable process-state map across threads.
+                let raw_openedr_events = self.behavior_engine.drain_pending_raw_events();
+                self.behavior_engine.apply_raw_openedr_events(raw_openedr_events);
 
                 // --- THIRD: Sync behavior engine state to process_records ---
                 // --- THIRD-B: Finalize OpenEDR ProcessCreate -> condition state -> hooks ---
