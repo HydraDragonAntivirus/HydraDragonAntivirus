@@ -4364,20 +4364,19 @@ impl BehaviorEngine {
             }
         }
 
-        // Resolve event_type — OpenEDR events can carry a string (`type`, `event_type`)
-        // or a numeric `baseType` / `baseEventType` code. Map numeric baseType
-        // directly to canonical LLE_* event names so all downstream routing,
-        // dynamic API hooking (LLE_PROCESS_CREATE), and IRP evaluation fire accurately.
-        let event_type_owned: String;
-        let event_type = match str_at(event, &["type"])
+        // Resolve event_type — accept the common OpenEDR naming variants and
+        // normalize string values before the canonical LLE_* comparisons.
+        let event_type_owned: String = match str_at(event, &["type"])
             .or_else(|| str_at(event, &["event_type"]))
+            .or_else(|| str_at(event, &["eventType"]))
+            .or_else(|| str_at(event, &["event_name"]))
+            .or_else(|| str_at(event, &["eventName"]))
             .or_else(|| str_at(event, &["baseType"]))
         {
-            Some(t) => t.trim(),
-            None => {
-                event_type_owned = u64_at(event, &["baseType"])
-                    .or_else(|| u64_at(event, &["baseEventType"]))
-                    .map(|code| match code {
+            Some(t) => t.trim().to_ascii_uppercase(),
+            None => u64_at(event, &["baseType"])
+                .or_else(|| u64_at(event, &["baseEventType"]))
+                .map(|code| match code {
                         1 => "LLE_PROCESS_CREATE".to_string(),
                         2 => "LLE_PROCESS_DELETE".to_string(),
                         3 => "LLE_FILE_CREATE".to_string(),
@@ -4429,10 +4428,10 @@ impl BehaviorEngine {
                         54 => "LLE_DESKTOP_OPEN".to_string(),
                         _ => format!("BASE_EVENT_{code}"),
                     })
-                    .unwrap_or_default();
-                event_type_owned.as_str()
-            }
+                    .unwrap_or_default()
         };
+
+        let event_type = event_type_owned.as_str();
 
         // --- Nested verdict scan (processes[] / childProcess) ----------------
         // MLE_INTEGRITY_LEVEL_ELEVATION and child-process creation events carry
@@ -4508,12 +4507,16 @@ impl BehaviorEngine {
             }
         }
 
-        // PID resolution — also try extracting from childProcess or first
-        // entry of the processes array as a fallback.
+        // PID resolution — accept pid/processId variants from process,
+        // childProcess, or the top level before falling back to processes[].
         let pid = u64_at(event, &["process", "pid"])
+            .or_else(|| u64_at(event, &["process", "processId"]))
             .or_else(|| u64_at(event, &["process.pid"]))
+            .or_else(|| u64_at(event, &["process.processId"]))
             .or_else(|| u64_at(event, &["pid"]))
+            .or_else(|| u64_at(event, &["processId"]))
             .or_else(|| u64_at(event, &["childProcess", "pid"]))
+            .or_else(|| u64_at(event, &["childProcess", "processId"]))
             .or_else(|| {
                 event.get("processes")
                     .and_then(|v| v.as_array())
@@ -4537,7 +4540,22 @@ impl BehaviorEngine {
             pid
         };
 
+        if event_type == "LLE_PROCESS_CREATE" {
+            Logging::debug(&format!(
+                "[OpenEDR ProcessCreate] observed: pid={} event_type={} process={}",
+                pid,
+                event_type,
+                event.get("process").map(|v| v.to_string()).unwrap_or_else(|| "null".to_string())
+            ));
+        }
+
         if pid == 0 || event_type.is_empty() {
+            if event_type == "LLE_PROCESS_CREATE" {
+                Logging::warning(&format!(
+                    "[OpenEDR ProcessCreate] DROPPED: unresolved PID; raw_event={}",
+                    event
+                ));
+            }
             return;
         }
 
@@ -4548,6 +4566,10 @@ impl BehaviorEngine {
         // PID so the Worker's periodic scan applies the dynamic API hooks to it;
         // without this, executables started after startup never get hooked.
         if event_type == "LLE_PROCESS_CREATE" {
+            Logging::info(&format!(
+                "[OpenEDR ProcessCreate] QUEUE PID {} for dynamic hooks",
+                pid
+            ));
             if let Ok(mut q) = self.pending_hook_pids.lock() {
                 let q: &mut std::collections::VecDeque<u32> = &mut *q;
                 if q.len() < 512 && !q.contains(&pid) {
@@ -13591,6 +13613,21 @@ mod tests {
         assert_eq!(strip_drive_prefix_for_pattern("C:\\boot.ini"), "/boot.ini");
         assert_eq!(strip_drive_prefix_for_pattern("c:/users/openedr/foo"), "/users/openedr/foo");
         assert_eq!(strip_drive_prefix_for_pattern("/usr/bin/foo"), "/usr/bin/foo");
+    }
+
+    #[test]
+    fn process_create_event_type_alias_and_process_id_are_accepted() {
+        let engine = BehaviorEngine::new();
+
+        let event = serde_json::json!({
+            "eventType": "lle_process_create",
+            "process": { "processId": 4242 }
+        });
+
+        engine.ingest_openedr_event(&event);
+
+        let drained = engine.drain_pending_hook_pids();
+        assert_eq!(drained, vec![4242]);
     }
 
     #[test]
