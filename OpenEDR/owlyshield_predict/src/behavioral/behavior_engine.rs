@@ -30,7 +30,7 @@ use std::collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -7067,26 +7067,6 @@ impl BehaviorEngine {
         };
 
         *self.api_pattern_index.write().unwrap() = index;
-    }
-
-    /// Fast check whether `text` contains any API-name fragment indexed by the
-    /// daachorse automaton. Returns false when the index is empty (meaning no
-    /// literal API conditions exist — caller must fall back to regex).
-    fn api_index_contains(&self, text: &str) -> bool {
-        let guard = match self.api_pattern_index.read() {
-            Ok(g) => g,
-            Err(_) => return false,
-        };
-        match guard.as_ref() {
-            None => false,
-            Some(index) => {
-                let haystack = text.to_ascii_lowercase();
-                index
-                    .find_overlapping_iter(haystack.as_bytes())
-                    .next()
-                    .is_some()
-            }
-        }
     }
 
     fn log_rule_load_error_once(path: &Path, key_suffix: &str, message: String) {
