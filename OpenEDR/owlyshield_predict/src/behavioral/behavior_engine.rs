@@ -3955,49 +3955,22 @@ impl BehaviorEngine {
 
 
     /// Notify the firewall GUI via HydraHipEvent about an OpenEDR-sourced threat.
+    /// Malware detections are THREAT_ALERTs, never HIPS ask prompts.
     fn notify_openedr_threat(&self, pid: u32, exe_path: &str, label: &str, analysis_type: &str) {
-        let app_name = Path::new(exe_path)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "Unknown".to_string());
-
-        let mut dummy_state =
-            ProcessBehaviorState::new(pid, PathBuf::from(exe_path), app_name.clone());
-        dummy_state.cloud_static_label = if analysis_type == "Static" {
-            Some(label.to_string())
-        } else {
-            None
-        };
-        dummy_state.cloud_dynamic_label = if analysis_type == "Dynamic" {
-            Some(label.to_string())
-        } else {
-            None
-        };
-
-        let auto_revert = crate::config::ConfigReader::read_param_from_registry(
-            "ALWAYS_AUTO_REVERT",
-            r"SOFTWARE\Owlyshield",
-        ) == "1";
-
-        let rule = BehaviorRule {
-            name: format!("Cloud:{}:{}", analysis_type, label),
-            description: format!(
-                "Threat detected by OpenEDR/Valkyrie Cloud {} Analysis",
-                analysis_type
-            ),
-            response: ResponseAction {
-                ask_user: true,
-                terminate_process: true,
-                quarantine: true,
-                notify_user: true,
-                auto_revert,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        // Forward to the HIPS pipe. We use GID 0 for external cloud alerts.
-        let _ = self.resolve_firewall_hips_prompt(0, &dummy_state, &rule);
+        let threat_message = format!(
+            "THREAT_ALERT:{}|{}\n",
+            Self::sanitize_firewall_hips_field(&format!(
+                "OpenEDR {} : {}",
+                analysis_type, label
+            )),
+            Self::sanitize_firewall_hips_field(exe_path),
+        );
+        if Self::write_hydra_hip_event(&threat_message) {
+            Logging::warning(&format!(
+                "[OpenEDRVerdict] Sent malware THREAT_ALERT for PID {}: {} ({})",
+                pid, exe_path, label
+            ));
+        }
     }
 
     /// Ingest a telemetry event emitted by OpenEDR's direct edrsvc feed.
@@ -4250,12 +4223,13 @@ impl BehaviorEngine {
                             path,
                             &format!("OpenEDR nested process verdict (FLS): Malware"),
                         );
+                        let proc_pid = u64_at(proc, &["pid"]).or_else(|| u64_at(proc, &["processId"])).unwrap_or(0) as u32;
+                        self.notify_openedr_threat(proc_pid, path, "Malware", "OpenEDR FLS Verdict");
                         let auto_revert = crate::config::ConfigReader::read_param_from_registry(
                             "ALWAYS_AUTO_REVERT",
                             r"SOFTWARE\Owlyshield",
                         ) == "1";
                         if auto_revert {
-                            let proc_pid = u64_at(proc, &["pid"]).or_else(|| u64_at(proc, &["processId"])).unwrap_or(0) as u32;
                             let proc_gid = u64_at(proc, &["gid"]).unwrap_or(proc_pid as u64);
                             if proc_gid != 0 {
                                 if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
@@ -4283,12 +4257,13 @@ impl BehaviorEngine {
                         path,
                         &format!("OpenEDR childProcess verdict (FLS): Malware"),
                     );
+                    let child_pid = u64_at(child, &["pid"]).or_else(|| u64_at(child, &["processId"])).unwrap_or(0) as u32;
+                    self.notify_openedr_threat(child_pid, path, "Malware", "OpenEDR FLS Verdict");
                     let auto_revert = crate::config::ConfigReader::read_param_from_registry(
                         "ALWAYS_AUTO_REVERT",
                         r"SOFTWARE\Owlyshield",
                     ) == "1";
                     if auto_revert {
-                        let child_pid = u64_at(child, &["pid"]).or_else(|| u64_at(child, &["processId"])).unwrap_or(0) as u32;
                         let child_gid = u64_at(child, &["gid"]).unwrap_or(child_pid as u64);
                         if child_gid != 0 {
                             if let Ok(client) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
