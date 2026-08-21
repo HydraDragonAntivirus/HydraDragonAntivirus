@@ -20,6 +20,13 @@ uses
 type
   TAlertSeverity = (asInfo, asSuccess, asWarning, asCritical);
 
+  TAlertItem = record
+    Title: string;
+    Msg: string;
+    Severity: TAlertSeverity;
+    AutoCloseMs: Integer;
+  end;
+
   TAlertForm = class(TForm)
     PanelAccent: TPanel;
     LblIcon: TLabel;
@@ -36,11 +43,20 @@ type
     procedure FormMouseEnter(Sender: TObject);
     procedure FormMouseLeave(Sender: TObject);
   private
+    class var FInstance: TAlertForm;
+    class var FHistory: array of TAlertItem;
+    class var FCurrentIndex: Integer;
+    BtnPrev: TButton;
+    BtnNext: TButton;
     FSeverity: TAlertSeverity;
     FAutoCloseMs: Integer;
     procedure ApplySeverityStyle;
     procedure PositionAtCorner;
     procedure CloseAlert;
+    procedure ShowCurrentAlert;
+    procedure UpdateNavigation;
+    procedure BtnPrevClick(Sender: TObject);
+    procedure BtnNextClick(Sender: TObject);
   public
     class procedure ShowAlert(const ATitle, AMsg: string;
       ASeverity: TAlertSeverity = asInfo; AAutoCloseMs: Integer = 6000);
@@ -54,33 +70,35 @@ const
   MARGIN = 14;
 
 var
-  // All toasts currently visible on screen (for stacking)
-  ActiveAlerts: TFPList;
+  Dummy: Integer;
 
 { TAlertForm }
 
 class procedure TAlertForm.ShowAlert(const ATitle, AMsg: string;
   ASeverity: TAlertSeverity; AAutoCloseMs: Integer);
 var
-  Frm: TAlertForm;
+  Item: TAlertItem;
+  NewIndex: Integer;
 begin
-  if ActiveAlerts = nil then
-    ActiveAlerts := TFPList.Create;
+  Item.Title := ATitle;
+  Item.Msg := AMsg;
+  Item.Severity := ASeverity;
+  Item.AutoCloseMs := AAutoCloseMs;
 
-  Frm := TAlertForm.Create(Application);
-  Frm.LblTitle.Caption := ATitle;
-  Frm.LblMessage.Caption := AMsg;
-  Frm.FSeverity := ASeverity;
-  Frm.FAutoCloseMs := AAutoCloseMs;
-  Frm.ApplySeverityStyle;
+  NewIndex := Length(FHistory);
+  SetLength(FHistory, NewIndex + 1);
+  FHistory[NewIndex] := Item;
+  FCurrentIndex := NewIndex;
 
-  ActiveAlerts.Add(Frm);
-  Frm.PositionAtCorner;
+  if FInstance = nil then
+    FInstance := TAlertForm.Create(Application);
 
-  Frm.AlphaBlend := True;
-  Frm.AlphaBlendValue := 0;
-  Frm.Show;
-  Frm.TimerFade.Enabled := True;
+  FInstance.ShowCurrentAlert;
+  FInstance.PositionAtCorner;
+  FInstance.AlphaBlend := True;
+  FInstance.AlphaBlendValue := 0;
+  FInstance.Show;
+  FInstance.TimerFade.Enabled := True;
 end;
 
 procedure TAlertForm.FormCreate(Sender: TObject);
@@ -88,13 +106,37 @@ begin
   BorderStyle := bsNone;
   FormStyle := fsStayOnTop;
   Position := poDesigned;
-  Color := $00302518; // dark navy card background
+  Color := $00302518;
+  FInstance := Self;
+
+  BtnPrev := TButton.Create(Self);
+  BtnPrev.Parent := Self;
+  BtnPrev.Caption := '<';
+  BtnPrev.Width := 28;
+  BtnPrev.Height := 24;
+  BtnPrev.Left := 10;
+  BtnPrev.Top := ClientHeight - BtnPrev.Height - 8;
+  BtnPrev.Anchors := [akLeft, akBottom];
+  BtnPrev.OnClick := @BtnPrevClick;
+
+  BtnNext := TButton.Create(Self);
+  BtnNext.Parent := Self;
+  BtnNext.Caption := '>';
+  BtnNext.Width := 28;
+  BtnNext.Height := 24;
+  BtnNext.Left := BtnPrev.Left + BtnPrev.Width + 4;
+  BtnNext.Top := ClientHeight - BtnNext.Height - 8;
+  BtnNext.Anchors := [akLeft, akBottom];
+  BtnNext.OnClick := @BtnNextClick;
+
+  SetLength(FHistory, 0);
+  FCurrentIndex := -1;
 end;
 
 procedure TAlertForm.FormDestroy(Sender: TObject);
 begin
-  if ActiveAlerts <> nil then
-    ActiveAlerts.Remove(Self);
+  if FInstance = Self then
+    FInstance := nil;
 end;
 
 procedure TAlertForm.ApplySeverityStyle;
@@ -105,22 +147,22 @@ begin
   case FSeverity of
     asSuccess:
       begin
-        AccentColor := $0056C271; // green
+        AccentColor := $0056C271;
         IconChar := 'OK';
       end;
     asWarning:
       begin
-        AccentColor := $000AA5F5; // amber (BGR)
+        AccentColor := $000AA5F5;
         IconChar := '!';
       end;
     asCritical:
       begin
-        AccentColor := $00453AEF; // red
+        AccentColor := $00453AEF;
         IconChar := 'X';
       end;
-  else // asInfo
+  else
     begin
-      AccentColor := $00F5A13B; // blue
+      AccentColor := $00F5A13B;
       IconChar := 'i';
     end;
   end;
@@ -133,23 +175,63 @@ end;
 procedure TAlertForm.PositionAtCorner;
 var
   WorkArea: TRect;
-  X, Y, i: Integer;
-  Other: TAlertForm;
+  X, Y: Integer;
 begin
   WorkArea := Screen.WorkAreaRect;
   X := WorkArea.Right - Width - MARGIN;
   Y := WorkArea.Bottom - Height - MARGIN;
-
-  // Stack upward so new toasts do not overlap the ones already on screen
-  if ActiveAlerts <> nil then
-    for i := 0 to ActiveAlerts.Count - 1 do
-    begin
-      Other := TAlertForm(ActiveAlerts[i]);
-      if Other <> Self then
-        Y := Y - (Other.Height + 10);
-    end;
-
   SetBounds(X, Y, Width, Height);
+end;
+
+procedure TAlertForm.ShowCurrentAlert;
+var
+  Item: TAlertItem;
+begin
+  if (FCurrentIndex < 0) or (FCurrentIndex >= Length(FHistory)) then
+    Exit;
+
+  Item := FHistory[FCurrentIndex];
+  FSeverity := Item.Severity;
+  FAutoCloseMs := Item.AutoCloseMs;
+
+  LblTitle.Caption := Item.Title;
+  LblMessage.Caption := Item.Msg;
+  ApplySeverityStyle;
+  UpdateNavigation;
+
+  TimerAutoClose.Enabled := False;
+end;
+
+procedure TAlertForm.UpdateNavigation;
+begin
+  if (BtnPrev = nil) or (BtnNext = nil) then
+    Exit;
+
+  BtnPrev.Enabled := FCurrentIndex > 0;
+  BtnNext.Enabled :=
+    (FCurrentIndex >= 0) and
+    (FCurrentIndex < Length(FHistory) - 1);
+end;
+
+procedure TAlertForm.BtnPrevClick(Sender: TObject);
+begin
+  if FCurrentIndex <= 0 then
+    Exit;
+
+  Dec(FCurrentIndex);
+  ShowCurrentAlert;
+end;
+
+procedure TAlertForm.BtnNextClick(Sender: TObject);
+begin
+  if FCurrentIndex < 0 then
+    Exit;
+
+  if FCurrentIndex >= Length(FHistory) - 1 then
+    Exit;
+
+  Inc(FCurrentIndex);
+  ShowCurrentAlert;
 end;
 
 procedure TAlertForm.TimerFadeTimer(Sender: TObject);
@@ -158,6 +240,7 @@ begin
   begin
     AlphaBlendValue := 255;
     TimerFade.Enabled := False;
+
     if FAutoCloseMs > 0 then
     begin
       TimerAutoClose.Interval := FAutoCloseMs;
@@ -181,13 +264,11 @@ end;
 
 procedure TAlertForm.CloseAlert;
 begin
-  Close;
-  Release;
+  Hide;
 end;
 
 procedure TAlertForm.FormMouseEnter(Sender: TObject);
 begin
-  // On hover, stop auto-close so the user can read it
   TimerAutoClose.Enabled := False;
 end;
 
@@ -198,10 +279,12 @@ begin
 end;
 
 initialization
-  ActiveAlerts := nil;
+  TAlertForm.FInstance := nil;
+  SetLength(TAlertForm.FHistory, 0);
+  TAlertForm.FCurrentIndex := -1;
 
 finalization
-  if ActiveAlerts <> nil then
-    FreeAndNil(ActiveAlerts);
+  TAlertForm.FInstance := nil;
+  SetLength(TAlertForm.FHistory, 0);
 
 end.
