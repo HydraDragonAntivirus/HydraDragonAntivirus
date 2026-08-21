@@ -344,6 +344,8 @@ begin
     scStop:      sTitle := 'Stop service';
     scInstall:   sTitle := 'Install service';
     scUninstall: sTitle := 'Uninstall service';
+  else
+    sTitle := 'Service operation';
   end;
 
   if Success then
