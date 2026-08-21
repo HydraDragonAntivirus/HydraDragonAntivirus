@@ -1253,28 +1253,6 @@ pub mod worker_instance {
                 let mut sys = System::new_all();
                 sys.refresh_processes(ProcessesToUpdate::All, true);
 
-                // Deterministic hooking for newly created processes: the OpenEDR
-                // telemetry consumer queues LLE_PROCESS_CREATE PIDs here (the
-                // in-process FFI mode never feeds process_io), so apply the dynamic
-                // API hooks to them directly instead of relying only on the
-                // sysinfo sweep below.
-                for hook_pid in self.behavior_engine.drain_pending_hook_pids() {
-                    Logging::debug(&format!(
-                        "[DYNAMIC HOOK] OpenEDR ProcessCreate queue: applying hooks to PID {}",
-                        hook_pid
-                    ));
-                    // Newly created processes must be hooked immediately. Bypass
-                    // the per-PID refresh throttle for this drain so the next
-                    // housekeeping tick applies their dynamic API hooks right
-                    // away instead of after the 750ms wait. Re-stamp the throttle
-                    // so subsequent sweeps stay cooldowned: failing PIDs are not
-                    // re-attempted every housekeeping tick.
-                    // `register_dynamic_hooks_for_process` keeps the
-                    // protected/internal-process skip.
-                    self.dynamic_hook_last_refresh.insert(hook_pid, std::time::Instant::now());
-                    self.register_dynamic_hooks_for_process(hook_pid);
-                }
-
                 // --- FIRST: Prune dead processes from behavior engine ---
                 // IMPROVEMENT: We use direct Kernel Queries (OpenProcess) for 100% accuracy.
                 let mut dead_gids = Vec::new();
@@ -1376,6 +1354,73 @@ pub mod worker_instance {
                 }
 
                 // --- THIRD: Sync behavior engine state to process_records ---
+                // --- THIRD-B: Finalize OpenEDR ProcessCreate -> condition state -> hooks ---
+                //
+                // The in-process FFI telemetry path does not pass ProcessCreate
+                // through process_io(). Therefore the queued PID must be registered
+                // in BehaviorEngine before its dynamic hooks are applied; otherwise
+                // the first hooked API event can arrive without condition state.
+                //
+                // Required lifecycle:
+                //   ProcessCreate -> register_process() -> condition state
+                //                -> dynamic hook -> first event evaluation
+                for hook_pid in self.behavior_engine.drain_pending_hook_pids() {
+                    if hook_pid == 0 || Self::is_internal_service_pid(hook_pid) {
+                        continue;
+                    }
+
+                    if self.find_gid_by_pid(hook_pid).is_none() {
+                        if let Some((pid, process)) = sys
+                            .processes()
+                            .iter()
+                            .find(|(pid, _)| pid.as_u32() == hook_pid)
+                        {
+                            let pid_u32 = pid.as_u32();
+                            let exepath = process.exe().map(PathBuf::from).unwrap_or_default();
+                            let appname = process.name().to_string_lossy().to_string();
+
+                            if !exepath.to_string_lossy().is_empty() && !appname.is_empty() {
+                                let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
+
+                                self.behavior_engine.register_process(
+                                    gid,
+                                    pid_u32,
+                                    exepath.clone(),
+                                    appname.clone(),
+                                );
+
+                                if self.process_records.get_precord_by_gid(gid).is_none() {
+                                    let mut precord =
+                                        ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                                    precord.pids.insert(pid_u32);
+                                    self.process_records.insert_precord(gid, precord);
+                                }
+
+                                Logging::debug(&format!(
+                                    "[PROCESS CREATE] Registered PID {} in behavior engine before dynamic hook application (GID: {})",
+                                    pid_u32, gid
+                                ));
+                            }
+                        }
+                    }
+
+                    if self.find_gid_by_pid(hook_pid).is_some() {
+                        Logging::debug(&format!(
+                            "[DYNAMIC HOOK] OpenEDR ProcessCreate queue: applying hooks to PID {} after condition-state registration",
+                            hook_pid
+                        ));
+
+                        self.dynamic_hook_last_refresh
+                            .insert(hook_pid, std::time::Instant::now());
+                        self.register_dynamic_hooks_for_process(hook_pid);
+                    } else {
+                        Logging::debug(&format!(
+                            "[PROCESS CREATE] PID {} not visible yet; dynamic hook will be retried by PID refresh",
+                            hook_pid
+                        ));
+                    }
+                }
+
                 
                 self.sync_firewall_process_contexts();
                 let mut process_sync_scans = Vec::new();
@@ -1449,6 +1494,9 @@ pub mod worker_instance {
                     Logging::warning("[BEHAVIOR SCAN] No processes are being tracked!");
                 }
 
+                // New processes are guaranteed to have a BehaviorEngine
+                // process_state before this scan, so named conditions/rules can
+                // evaluate them in the same pass as existing processes.
                 // --- FOURTH: Run the scan on all tracked processes ---
                 let detections = self
                     .behavior_engine
