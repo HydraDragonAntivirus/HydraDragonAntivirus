@@ -1225,6 +1225,7 @@ impl IrpStatistics {
             IrpMajorOp::IrpUserModeHookEvent => self.irp_major_irpusermodehookevent_count += 1,
             IrpMajorOp::IrpWrite => self.irp_major_irpwrite_count += 1,
             IrpMajorOp::_IrpCleanUp => self.irp_major_irpcleanup_count += 1,
+            IrpMajorOp::IrpNone => {}
         }
 
         // Detailed per-variant file-change counters. Keep each concrete variant independent.
