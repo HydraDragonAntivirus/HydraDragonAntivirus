@@ -23,9 +23,10 @@ var
 begin
   RequireDerivedFormResource := True;
   Application.Scaled := True;
-  {$IFDEF WINDOWS}
+  {$PUSH}
+  {$WARN 5044 OFF} // MainFormOnTaskbar is Windows-only by design
   Application.MainFormOnTaskbar := True;
-  {$ENDIF}
+  {$POP}
   Application.Title := 'HydraDragon EDR Agent';
 
   // Single-instance guard: silently exit if another edrgui.exe is running.
