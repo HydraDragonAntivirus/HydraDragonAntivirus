@@ -110,7 +110,8 @@ private:
 		std::cout << "Saving the result policy to <" << m_sOutFileName << ">..." << std::endl;
 		auto pOutFile = queryInterface<io::IWritableStream>(io::createFileStream(
 			m_sOutFileName, io::FileMode::Write | io::FileMode::Truncate | io::FileMode::ShareRead));
-		variant::serialize(pOutFile, Dictionary({ {"scenario", vData} }));
+		variant::serializeToJson(pOutFile, Dictionary({ {"scenario", vData} }),
+			variant::JsonFormat::Pretty);
 	}
 
 	//
