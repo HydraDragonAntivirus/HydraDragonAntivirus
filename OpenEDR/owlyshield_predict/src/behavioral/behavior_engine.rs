@@ -4259,27 +4259,38 @@ impl BehaviorEngine {
         }
     }
 
-    /// Ingest an OpenEDR event without parsing its JSON schema.
+    /// Ingest an OpenEDR event with one generic JSON deserialization pass.
     ///
-    /// The producer sends the event exactly as received. We only perform two
-    /// schema-agnostic string scans needed for routing:
-    ///   * last `"type":"..."` token whose value starts with LLE_/IRP_
-    ///   * last `"pid":<number>` token
-    ///
-    /// The complete raw JSON line is queued unchanged for the Worker thread,
-    /// where rule evaluation can inspect it as opaque text.
+    /// The event is deserialized only into `serde_json::Value` so routing can read
+    /// a tiny set of generic envelope fields (`type` and PID). No OpenEDR event
+    /// schema is mapped into Rust structs and the original JSON string is retained
+    /// unchanged for rule evaluation.
     pub fn ingest_openedr_event<T: RawEventInput + ?Sized>(&self, event: &T) {
         let raw_event = event.into_raw_event();
-        let event_type = Self::raw_json_string_token(&raw_event, "\"type\"")
-            .or_else(|| Self::raw_json_string_token(&raw_event, "\"event_type\""))
-            .or_else(|| Self::raw_json_string_token(&raw_event, "\"eventType\""))
-            .or_else(|| Self::raw_json_string_token(&raw_event, "\"event_name\""))
-            .or_else(|| Self::raw_json_string_token(&raw_event, "\"eventName\""))
-            .unwrap_or_default();
 
-        let pid = Self::raw_json_last_u32(&raw_event, "\"pid\"")
-            .or_else(|| Self::raw_json_last_u32(&raw_event, "\"processId\""))
-            .unwrap_or(0);
+        let parsed: serde_json::Value = match serde_json::from_str(&raw_event) {
+            Ok(value) => value,
+            Err(err) => {
+                Logging::warning(&format!(
+                    "[OpenEDRTelemetry] Ignoring invalid JSON event: {}",
+                    err
+                ));
+                return;
+            }
+        };
+
+        let event_type = Self::json_string_field(
+            &parsed,
+            &["type", "event_type", "eventType", "event_name", "eventName"],
+        )
+        .unwrap_or_default();
+
+        let pid = Self::json_u32_field(&parsed, &["pid", "processId"]).or_else(|| {
+            parsed
+                .get("process")
+                .and_then(|process| Self::json_u32_field(process, &["pid", "processId"]))
+        })
+        .unwrap_or(0);
 
         if pid == 0 || event_type.is_empty() {
             Logging::debug(&format!(
@@ -4312,54 +4323,30 @@ impl BehaviorEngine {
         }
     }
 
-    fn raw_json_string_token(raw: &str, key: &str) -> Option<String> {
-        let mut cursor = 0usize;
-        let mut result = None;
-        while let Some(rel) = raw[cursor..].rfind(key) {
-            let pos = cursor + rel;
-            let rest = &raw[pos + key.len()..];
-            let bytes = rest.as_bytes();
-            let mut i = 0usize;
-            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
-            if i >= bytes.len() || bytes[i] != b':' { cursor = pos + key.len(); continue; }
-            i += 1;
-            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
-            if i >= bytes.len() || bytes[i] != b'"' { cursor = pos + key.len(); continue; }
-            i += 1;
-            let start = i;
-            while i < bytes.len() {
-                if bytes[i] == b'"' && (i == 0 || bytes[i - 1] != b'\\') {
-                    result = Some(rest[start..i].to_string());
-                    break;
-                }
-                i += 1;
-            }
-            cursor = pos + key.len();
-        }
-        result
+    fn json_string_field(event: &serde_json::Value, names: &[&str]) -> Option<String> {
+        names.iter().find_map(|name| {
+            event
+                .get(*name)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
     }
 
-    fn raw_json_last_u32(raw: &str, key: &str) -> Option<u32> {
-        let mut cursor = 0usize;
-        let mut result = None;
-        while let Some(rel) = raw[cursor..].rfind(key) {
-            let pos = cursor + rel;
-            let rest = &raw[pos + key.len()..];
-            let bytes = rest.as_bytes();
-            let mut i = 0usize;
-            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
-            if i >= bytes.len() || bytes[i] != b':' { cursor = pos + key.len(); continue; }
-            i += 1;
-            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
-            let start = i;
-            while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
-            if i > start {
-                result = rest[start..i].parse::<u64>().ok()
-                    .map(|v| v.min(u32::MAX as u64) as u32);
+    fn json_u32_field(event: &serde_json::Value, names: &[&str]) -> Option<u32> {
+        for name in names {
+            if let Some(value) = event.get(*name) {
+                if let Some(number) = value.as_u64() {
+                    return Some(number.min(u32::MAX as u64) as u32);
+                }
+                if let Some(text) = value.as_str() {
+                    if let Ok(number) = text.parse::<u64>() {
+                        return Some(number.min(u32::MAX as u64) as u32);
+                    }
+                }
             }
-            cursor = pos + key.len();
         }
-        result
+
+        None
     }
 
     /// Drain opaque OpenEDR events on the Worker thread.
@@ -4372,8 +4359,9 @@ impl BehaviorEngine {
 
     /// Apply opaque OpenEDR events to the process condition state.
     ///
-    /// This deliberately matches the full raw line. There is no JSON parser,
-    /// field whitelist, event-type lookup table, or schema-specific conversion.
+    /// This deliberately matches the full raw line. Event ingestion only
+    /// deserializes a generic `serde_json::Value` envelope for routing; no
+    /// OpenEDR schema-specific conversion occurs here.
     pub fn apply_raw_openedr_events(&mut self, events: Vec<(u32, String)>) {
         if events.is_empty() {
             return;
