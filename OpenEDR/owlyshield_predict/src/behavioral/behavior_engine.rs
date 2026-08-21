@@ -4024,36 +4024,6 @@ impl BehaviorEngine {
         // ransomware & HIPS rules need; DeviceIoControl hook telemetry (IRP_* /
         // LLE_DEVICE_IOCTL) is treated as low-priority flood and is the first to
         // be shed when the queue is full.
-        fn is_high_priority_irp_event(event_type: &str) -> bool {
-            if event_type == "LLE_DEVICE_IOCTL" {
-                return false;
-            }
-            if event_type.starts_with("LLE_FILE_")
-                || event_type.starts_with("LLE_REGISTRY_")
-                || event_type.starts_with("LLE_NAMED_PIPE_")
-                || event_type.starts_with("LLE_PROCESS_")
-                || event_type.starts_with("LLE_NETWORK_")
-                || event_type.starts_with("LLE_DISK_")
-                || event_type.starts_with("LLE_VOLUME_")
-                || event_type.starts_with("LLE_DEVICE_")
-                || event_type.starts_with("LLE_KEYBOARD_")
-                || event_type.starts_with("LLE_CLIPBOARD_")
-                || event_type.starts_with("LLE_MICROPHONE_")
-                || event_type.starts_with("LLE_MOUSE_")
-                || event_type.starts_with("LLE_WINDOW_")
-                || event_type.starts_with("LLE_USER_")
-                || event_type == "LLE_SELF_DEFENSE"
-                || event_type.starts_with("IRP_KERNEL_")
-                || event_type.starts_with("IRP_ROOTKIT_")
-            {
-                return true;
-            }
-            matches!(
-                event_type,
-                "IRP_NAMED_PIPE_WRITE" | "LLE_INJECTION_ACTIVITY" | "LLE_PROCESS_MEMORY_WRITE"
-            )
-        }
-
         fn openedr_event_family(event_type: &str) -> &'static str {
             if event_type.starts_with("LLE_FILE_") {
                 "File"
@@ -5182,47 +5152,18 @@ impl BehaviorEngine {
                 };
 
                 if let Ok(mut q) = self.pending_irp_records.lock() {
-                    // Bound memory under high event rates: soft cap 16384, hard cap 32768.
-                    // Under pressure the low-priority DeviceIoControl/hook flood is shed
-                    // first so file/process/registry events (the ones the ransomware and
-                    // HIPS rules depend on) are never dropped while the queue is full.
-                    //
-                    // A hook record is additionally high-priority when its function_name
-                    // matches a rule-relevant API literal in the daachorse index: even
-                    // during a flood those records must survive so rule evaluation sees
-                    // them. API names absent from every rule stay low-priority noise.
-                    const SOFT_CAP: usize = 16384;
-                    const HARD_CAP: usize = 32768;
-                    let high_priority = is_high_priority_irp_event(event_type)
-                        || (!rec.function_name.is_empty()
-                            && self.api_index_contains(&rec.function_name));
+                    // No priority gating, no caps: every telemetry record is
+                    // queued unconditionally so no detection-relevant event
+                    // (e.g. ransomware file writes during an edrsvc enrichment
+                    // flood) can ever be shed.
                     let q: &mut std::collections::VecDeque<(u32, IrpOperationRecord)> = &mut *q;
-                    let len = q.len();
-                    if len < SOFT_CAP || (high_priority && len < HARD_CAP) {
-                        if event_type == "LLE_PROCESS_CREATE" {
-                            // New-process-first: the process-create record jumps
-                            // to the front so the fresh process state is seeded
-                            // and analyzed before backlogged events are drained.
-                            q.push_front((pid, rec));
-                        } else {
-                            q.push_back((pid, rec));
-                        }
+                    if event_type == "LLE_PROCESS_CREATE" {
+                        // New-process-first: the process-create record jumps
+                        // to the front so the fresh process state is seeded
+                        // and analyzed before backlogged events are drained.
+                        q.push_front((pid, rec));
                     } else {
-                        // Log the drop (throttled) instead of silently discarding, so a
-                        // full queue is visible and not mistaken for "no events to process".
-                        static DROPPED_IRP_RECORDS: AtomicU64 = AtomicU64::new(0);
-                        let dropped =
-                            DROPPED_IRP_RECORDS.fetch_add(1, Ordering::Relaxed) + 1;
-                        if dropped == 1 || dropped % 1000 == 0 {
-                            Logging::warning(&format!(
-                                "[OpenEDRTelemetry] pending_irp_records queue full (cap {}{}); dropped {}-priority IRP record for pid={} - total dropped so far: {}",
-                                SOFT_CAP,
-                                if high_priority { " / hard ".to_string() } else { String::new() },
-                                if high_priority { "high" } else { "low" },
-                                pid,
-                                dropped
-                            ));
-                        }
+                        q.push_back((pid, rec));
                     }
                 }
             }
