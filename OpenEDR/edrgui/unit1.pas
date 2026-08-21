@@ -285,13 +285,31 @@ end;
 // writes a message to the HydraHipEvent pipe (threat alert, HIPS prompt,
 // verdict, ...).
 procedure TForm1.OnHipMessage(Sender: TObject; const AKind, AText: string);
+var
+  Parts: TStringList;
 begin
   if AKind = 'THREAT_ALERT' then
     TAlertForm.ShowAlert('EDR Threat Alert', AText, asCritical, 0)
   else if AKind = 'HIPS_ASK' then
     TAlertForm.ShowAlert('HIPS Prompt', AText, asWarning, 0)
   else if AKind = 'HIPS_VERDICT' then
-    TAlertForm.ShowAlert('HIPS Verdict', AText, asInfo, 0)
+  begin
+    // AText: <pid>|<exe_path>|<verdict_code>|<analysis_type>
+    // Verdict code 2 = Malicious: surface it as a malware event instead of
+    // an informational HIPS event.
+    Parts := TStringList.Create;
+    try
+      Parts.Delimiter := '|';
+      Parts.StrictDelimiter := True;
+      Parts.DelimitedText := AText;
+      if (Parts.Count >= 3) and (Trim(Parts[2]) = '2') then
+        TAlertForm.ShowAlert('Malware Detected (OpenEDR FLS)', AText, asCritical, 0)
+      else
+        TAlertForm.ShowAlert('HIPS Verdict', AText, asInfo, 0);
+    finally
+      Parts.Free;
+    end;
+  end
   else
     TAlertForm.ShowAlert('HIPS Event', AText, asInfo, 0);
 end;

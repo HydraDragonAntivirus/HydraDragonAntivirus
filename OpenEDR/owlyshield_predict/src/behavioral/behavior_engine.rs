@@ -3802,15 +3802,9 @@ impl BehaviorEngine {
         }
     }
 
-    /// Notify the firewall GUI about the OpenEDR FLS verdict for this process.
-    
-    fn notify_firewall_openedr_verdict(
-        &self,
-        pid: u32,
-        exe_path: &str,
-        verdict: OpenEdrFlsVerdict,
-        analysis_type: &str,
-    ) {
+    /// Write one newline-terminated message to the HydraHipEvent pipe.
+    /// Returns true when the full payload was delivered.
+    fn write_hydra_hip_event(message: &str) -> bool {
         use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
         use windows::Win32::Storage::FileSystem::{
             CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
@@ -3827,13 +3821,6 @@ impl BehaviorEngine {
         let mut pipe_name_wide: Vec<u16> = PIPE.encode_utf16().collect();
         pipe_name_wide.push(0); // Null terminator
         let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
-        let message = format!(
-            "HIPS_VERDICT:{}|{}|{}|{}\n",
-            pid,
-            Self::sanitize_firewall_hips_field(exe_path),
-            verdict.code(),
-            Self::sanitize_firewall_hips_field(analysis_type),
-        );
         let message_bytes = message.as_bytes();
 
         let mut last_error = String::new();
@@ -3889,13 +3876,7 @@ impl BehaviorEngine {
                 }
 
                 if ok.as_bool() && bytes_written as usize == message_bytes.len() {
-                    Logging::debug(&format!(
-                        "[OpenEDRVerdict] Sent {} verdict for PID {} to firewall: {}",
-                        analysis_type,
-                        pid,
-                        verdict.display_label()
-                    ));
-                    return;
+                    return true;
                 }
 
                 last_error = if ok.as_bool() {
@@ -3915,9 +3896,61 @@ impl BehaviorEngine {
         }
 
         Logging::debug(&format!(
-            "[OpenEDRVerdict] Firewall verdict update was not delivered for PID {} after {} attempts: {}",
-            pid, CONNECT_ATTEMPTS, last_error
+            "[OpenEDRVerdict] HydraHipEvent delivery failed after {} attempts: {}",
+            CONNECT_ATTEMPTS, last_error
         ));
+        false
+    }
+
+    /// Notify the firewall GUI about the OpenEDR FLS verdict for this process.
+    fn notify_firewall_openedr_verdict(
+        &self,
+        pid: u32,
+        exe_path: &str,
+        verdict: OpenEdrFlsVerdict,
+        analysis_type: &str,
+    ) {
+        // A malicious FLS verdict is a malware event, not a HIPS event: raise
+        // a THREAT_ALERT so every GUI surface classifies it as a detection.
+        if verdict.is_malicious() {
+            let threat_message = format!(
+                "THREAT_ALERT:{}|{}\n",
+                Self::sanitize_firewall_hips_field(&format!(
+                    "OpenEDR FLS {} Verdict: Malware",
+                    analysis_type
+                )),
+                Self::sanitize_firewall_hips_field(exe_path),
+            );
+            if Self::write_hydra_hip_event(&threat_message) {
+                Logging::warning(&format!(
+                    "[OpenEDRVerdict] Sent malware THREAT_ALERT for PID {}: {}",
+                    pid, exe_path
+                ));
+            }
+        }
+
+        // The HIPS_VERDICT line is still required so the firewall can update
+        // its per-PID cloud trust tracking.
+        let message = format!(
+            "HIPS_VERDICT:{}|{}|{}|{}\n",
+            pid,
+            Self::sanitize_firewall_hips_field(exe_path),
+            verdict.code(),
+            Self::sanitize_firewall_hips_field(analysis_type),
+        );
+        if Self::write_hydra_hip_event(&message) {
+            Logging::debug(&format!(
+                "[OpenEDRVerdict] Sent {} verdict for PID {} to firewall: {}",
+                analysis_type,
+                pid,
+                verdict.display_label()
+            ));
+        } else {
+            Logging::debug(&format!(
+                "[OpenEDRVerdict] Firewall verdict update was not delivered for PID {}",
+                pid
+            ));
+        }
     }
 
 
