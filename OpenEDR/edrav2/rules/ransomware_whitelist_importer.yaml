@@ -245,3 +245,41 @@
     - "Third-party backup suites (Acronis, Veeam, Macrium) — add signed binary to allowlisted_apps"
     - "Mass file migration / conversion tools writing many files rapidly"
     - "Encryption-at-rest agents that rename files after encrypting in-place"
+
+- name: "HEUR:Win.Ransom.DesktopIniExtensionHijack.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-08-21"
+  status: test
+  level: critical
+  severity: 95
+  description: |
+    Fires only when a file named desktop.ini.<unknown-extension> is created
+    or written (e.g. desktop.ini.winball). Classic ransomware footprint on
+    the Desktop/Documents config marker files.
+  debug: false
+
+  named_conditions:
+    desktop_ini_unknown_extension_write:
+      orderless: true
+      file_paths:
+        - "*\\desktop.ini.*"
+      file_operations: ["create", "write"]
+      detect_non_whitelisted_extensions: true
+      min_matches: 1
+
+  detection_logic:
+    condition: "desktop_ini_unknown_extension_write"
+
+  response:
+    terminate_process: true
+    quarantine: true
+    notify_user: true
+    record: true
+
+  tags:
+    - ransomware
+    - extension-hijack
+    - desktop-ini
+  mitre_attack:
+    - T1486
