@@ -6,6 +6,12 @@ use std::path::PathBuf;
 pub struct AppSettings {
     pub behavior_rules_path: PathBuf,
     pub win_verify_trust_path: PathBuf,
+    /// Global process exclusions (glob patterns matched against the
+    /// canonicalized process path). Processes matching any pattern are never
+    /// evaluated by ANY behavior rule. Intended for the product's own
+    /// components so the engine can not flag itself.
+    #[serde(default)]
+    pub excluded_processes: Vec<String>,
 }
 
 impl AppSettings {
@@ -23,6 +29,10 @@ impl AppSettings {
             settings.win_verify_trust_path = rules_dir.join(&settings.win_verify_trust_path);
         }
 
+        crate::globals::EXCLUDED_PROCESSES
+            .set(settings.excluded_processes.clone())
+            .ok();
+
         Ok(settings)
     }
 }
@@ -32,6 +42,7 @@ impl Default for AppSettings {
         AppSettings {
             behavior_rules_path: PathBuf::new(),
             win_verify_trust_path: PathBuf::new(),
+            excluded_processes: Vec::new(),
         }
     }
 }

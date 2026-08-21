@@ -7,6 +7,10 @@ pub static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static RULES_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static UTILS_PATH: OnceLock<PathBuf> = OnceLock::new();
 
+/// Global process exclusions loaded from settings.yaml (`excluded_processes`).
+/// Paths matching any pattern skip ALL behavior rules.
+pub static EXCLUDED_PROCESSES: OnceLock<Vec<String>> = OnceLock::new();
+
 /// Initialize global path variables from the configuration
 pub fn init_globals(config: &Config) {
     let report_dir = config

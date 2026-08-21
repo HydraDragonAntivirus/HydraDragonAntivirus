@@ -12900,6 +12900,25 @@ impl BehaviorEngine {
         })
     }
 
+    /// Returns true if the given path is the executable this engine itself is
+    /// running in (resolved once via `current_exe`). The engine must never
+    /// flag its own host process.
+    fn is_own_host_process(process_path: &Path) -> bool {
+        static OWN_EXE: OnceLock<Option<String>> = OnceLock::new();
+        let own = OWN_EXE.get_or_init(|| {
+            std::env::current_exe()
+                .ok()
+                .map(|p| canonical_behavior_path(&p.to_string_lossy()))
+                .filter(|s| !s.is_empty())
+        });
+        match own {
+            Some(own_norm) => {
+                canonical_behavior_path(&process_path.to_string_lossy()) == *own_norm
+            }
+            None => false,
+        }
+    }
+
     fn check_allowlist(
         &self,
         proc_name: &str,
@@ -12907,6 +12926,34 @@ impl BehaviorEngine {
         process_path: Option<&Path>,
         script_file: Option<&str>,
     ) -> bool {
+        // Global exclusions from settings.yaml (`excluded_processes`):
+        // a process whose canonical path matches any pattern is never
+        // evaluated by any rule. Patterns are normalized the same way as the
+        // process path (drive prefix stripped), so `C:\...` style entries work.
+        if let Some(path) = process_path {
+            let norm = canonical_behavior_path(&path.to_string_lossy());
+            if !norm.is_empty()
+                && crate::globals::EXCLUDED_PROCESSES.get().is_some_and(|list| {
+                    list.iter().any(|pattern| {
+                        let pat_norm =
+                            strip_drive_prefix(&normalize_path_separators(
+                                &pattern.trim().to_lowercase(),
+                            ));
+                        Self::matches_pattern_internal(&self.regex_cache, &pat_norm, &norm)
+                    })
+                })
+            {
+                return true;
+            }
+
+            // Self-exclusion: never evaluate the process this engine itself
+            // runs in. The host exe is located dynamically at first use, so
+            // no install path is hardcoded anywhere.
+            if Self::is_own_host_process(path) {
+                return true;
+            }
+        }
+
         // Check interpreter name first, then fall back to script filename.
         // This lets allowlist entries like `pattern: "benign_deploy.ps1"` work
         // even when the tracked process is `powershell.exe`.
