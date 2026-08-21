@@ -1059,7 +1059,9 @@ pub struct IrpStatistics {
     pub delete_count: u64,
     pub rename_count: u64,
     pub setinfo_count: u64,
+    pub close_count: u64,
 
+    // IRP operation counts
     pub irp_read_count: u64,
     pub irp_write_count: u64,
     pub irp_create_count: u64,
@@ -1067,11 +1069,17 @@ pub struct IrpStatistics {
     pub irp_rename_count: u64,
     pub irp_setinfo_count: u64,
 
-    pub close_count: u64,
+    // Registry operations
     pub registry_read_count: u64,
     pub registry_write_count: u64,
     pub registry_delete_count: u64,
     pub registry_create_count: u64,
+
+    // Named Pipe operations
+    pub pipe_create_count: u64,
+    pub pipe_write_count: u64,
+
+    // Process operations
     pub process_create_count: u64,
     pub process_terminate_count: u64,
     pub process_exit_count: u64,
@@ -1079,15 +1087,12 @@ pub struct IrpStatistics {
     pub process_open_count: u64,
     pub process_memory_read_count: u64,
     pub process_memory_write_count: u64,
-    pub pipe_create_count: u64,
-    pub pipe_write_count: u64,
-
-    // Registry operations
-
-    // Process operations
     pub process_terminate_attempt_count: u64,
+    pub process_delete_count: u64,
 
-    // Named Pipe operations
+    // Memory operations
+    pub memory_read_count: u64,
+    pub memory_write_count: u64,
 
     // Bytes transferred
     pub total_bytes_read: u64,
