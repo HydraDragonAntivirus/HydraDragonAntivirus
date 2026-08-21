@@ -9529,6 +9529,18 @@ impl BehaviorEngine {
                     ));
                 }
 
+                if cond_group.self_image_exclusion
+                    && file_event_irp
+                    && has_path_filters
+                    && target_matches_process_image(&state.exe_path, filepath, &msg.filepathstr)
+                {
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Condition '{}' ignored for PID {} - path probe targets the process's own image",
+                        cond_name,
+                        state.pid
+                    ));
+                }
+
                 // Path-only conditions: match on path filters when no extension-specific matcher is requested.
                 if !matched
                     && file_event_irp
@@ -9536,6 +9548,8 @@ impl BehaviorEngine {
                     && has_path_filters
                     && !has_extension_conditions
                     && file_op_allowed
+                    && !(cond_group.self_image_exclusion
+                        && target_matches_process_image(&state.exe_path, filepath, &msg.filepathstr))
                 {
                     let path_variants = build_path_variants(filepath, &msg.filepathstr);
                     let mut path_iter = cond_group

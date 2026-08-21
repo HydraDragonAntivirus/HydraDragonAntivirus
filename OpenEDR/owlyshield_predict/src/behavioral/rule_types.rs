@@ -1865,6 +1865,12 @@ pub struct NamedConditionGroup {
     pub orderless: bool,
     #[serde(default)]
     pub file_paths: Vec<String>,
+    /// When true, file-path matches that resolve to this process's own
+    /// executable image are ignored. A process opening or reading its own
+    /// image (for example vmtoolsd.exe mmap-reading itself) is benign and
+    /// must not satisfy artifact-probe style conditions.
+    #[serde(default)]
+    pub self_image_exclusion: bool,
     /// File operations to match, e.g. "read", "write", "create", "delete",
     /// "rename", "setinfo".
     ///
