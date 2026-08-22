@@ -77,6 +77,23 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		if (!isDetectionEvent(vEvent))
 			return {};
 
+		// Auto-generate a human-readable <title> so GUI consumers always have
+		// one; neither policy createEvent data nor the FLS verdict path sets
+		// it themselves (root cause of "no title" toasts).
+		if (!vEvent.has("title"))
+		{
+			std::string sTitle = vEvent.get("type", std::string());
+			auto optPath = getByPathSafe(vEvent, "processes[0].imagePath");
+			if (optPath.has_value())
+			{
+				std::string sPath = optPath.value();
+				if (!sPath.empty())
+					sTitle += (sTitle.empty() ? "" : ": ") + sPath;
+			}
+			if (!sTitle.empty())
+				vEvent.put("title", sTitle);
+		}
+
 		{
 			std::scoped_lock _lock(m_mtxStorage);
 
