@@ -8,6 +8,9 @@
 //
 #pragma once
 #include "..\inc\objects.h"
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace cmd {
 
@@ -33,6 +36,32 @@ private:
 
 	std::wstring getRegistryPath(std::wstring sPath);
 	std::wstring getRegistryAbstractPath(std::wstring sPath);
+
+	// --- Ransomware shadow-backup shield + remediation ---
+	// Tracks files fully read by each process; when that process then
+	// overwrites / deletes / renames one of them, the ORIGINAL content is
+	// backed up to %PROGRAMDATA%\HydraBackups\<pid>\ first (rule-independent).
+	// After 3 such destructive operations the process is reported as
+	// ransomware and ALL captured originals are rolled back to their places
+	// (Kaspersky-style file remediation: modified/deleted/renamed restored).
+	struct ShadowBackupEntry
+	{
+		std::wstring wsOriginal;   ///< pre-image location (restore target)
+		std::wstring wsBackup;     ///< saved pre-image under HydraBackups
+		int nOp = 0;               ///< 0=overwritten, 1=deleted, 2=renamed
+		std::wstring wsNewName;    ///< rename target (removed on rollback)
+	};
+
+	std::mutex m_mtxRansomShield;
+	std::unordered_map<int64_t, std::unordered_set<std::wstring>> m_readFiles;
+	std::unordered_map<int64_t, int> m_ransomCount;
+	// Content-hash -> backup path per process: identical content is stored
+	// once even across repeated read/write lifecycles.
+	std::unordered_map<int64_t, std::unordered_map<std::wstring, std::wstring>> m_hashDedup;
+	std::unordered_map<int64_t, std::vector<ShadowBackupEntry>> m_backups;
+	void processRansomShield(int64_t nPid, const std::wstring& sImage,
+		Event eEventType, const Variant& vEvent);
+	void rollbackRansomBackups(int64_t nPid);
 
 public:
 
