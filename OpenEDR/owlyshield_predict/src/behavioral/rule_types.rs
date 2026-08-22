@@ -1996,28 +1996,6 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub script_file_patterns: Vec<String>,
     #[serde(default)]
-    pub staging_paths: Vec<String>,
-    #[serde(default)]
-    pub browsed_paths: Vec<String>,
-    #[serde(default)]
-    pub sensitive_paths: Vec<String>,
-    #[serde(default)]
-    pub temp_writes: bool,
-    #[serde(default)]
-    pub persistence_locations: Vec<String>,
-    #[serde(default)]
-    pub autorun_keys: Vec<String>,
-    #[serde(default)]
-    pub scheduled_task_apis: Vec<String>,
-    #[serde(default)]
-    pub obfuscation_indicators: Vec<String>,
-    #[serde(default)]
-    pub anti_debug_apis: Vec<String>,
-    #[serde(default)]
-    pub anti_vm_apis: Vec<String>,
-    #[serde(default)]
-    pub requires_signed: Option<bool>,
-    #[serde(default)]
     pub is_signed: Option<bool>,
     #[serde(default)]
     pub is_valid_signed: Option<bool>,
@@ -2033,18 +2011,14 @@ pub struct NamedConditionGroup {
     pub cloud_available: Option<bool>,
     #[serde(default)]
     pub cloud_unknown: Option<bool>,
-    // Fast static ML engine conditions (fast_detect_file). `ml_detection`
-    // matches a specific detection name ("MaliciousJsScript",
-    // "MaliciousPeExecutable"); `ml_detected` matches on whether any ML
-    // detection was recorded for the process; `ml_features` matches the actual
-    // ML feature vector (feature name -> value, e.g. is_obfuscated, entropy,
-    // suspicious_score) recorded when an ML detection fired.
     #[serde(default)]
     pub ml_detection: Option<String>,
     #[serde(default)]
     pub ml_detected: Option<bool>,
     #[serde(default)]
     pub ml_features: HashMap<String, MlFeatureCondition>,
+    #[serde(default)]
+    pub requires_signed: Option<bool>,
     #[serde(default)]
     pub signature_status: Option<String>,
     #[serde(default)]
@@ -2067,13 +2041,8 @@ pub struct NamedConditionGroup {
     pub signer_pattern: Option<String>,
     #[serde(default)]
     pub signer_patterns: Vec<String>,
-    #[serde(default)]
-    pub trusted_signers: Vec<String>,
-    #[serde(default)]
-    pub untrusted_signers: Vec<String>,
 
-    // Hook/user-mode API error telemetry conditions. These match non-success
-    // operation_status values without counting them as successful API behavior.
+    // Hook/user-mode API error telemetry conditions
     #[serde(default)]
     pub hook_error_statuses: Vec<u32>,
     #[serde(default)]
@@ -2137,9 +2106,7 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub rootkit_description_contains: Vec<String>,
 
-    // Self-defense telemetry from OpenEDR/Owlyshield kernel sensors. These
-    // conditions observe tamper attempts and leave blocking to rule response or
-    // user decision.
+    // Self-defense telemetry from OpenEDR/Owlyshield kernel sensors
     #[serde(default)]
     pub self_defense_attack_types: Vec<String>,
     #[serde(default)]
@@ -2167,42 +2134,6 @@ pub struct BehaviorRule {
     pub severity_score: Option<u8>,
     #[serde(default)]
     pub description: String,
-    #[serde(default)]
-    pub browsed_paths: Vec<String>,
-    #[serde(default)]
-    pub accessed_paths: Vec<String>,
-    #[serde(default)]
-    pub staging_paths: Vec<String>,
-    #[serde(
-        default,
-        alias = "raw_event_patterns",
-        alias = "raw_json_patterns",
-        alias = "raw_patterns",
-        alias = "raw_pattern",
-        alias = "raw_json_pattern",
-        alias = "raw_event_pattern"
-    )]
-    pub raw_json_patterns: Vec<String>,
-    #[serde(default = "default_zero")]
-    pub multi_access_threshold: usize,
-    #[serde(default)]
-    pub require_internet: bool,
-    #[serde(default)]
-    pub monitored_apis: Vec<String>,
-    #[serde(default)]
-    pub file_actions: Vec<String>,
-    #[serde(default)]
-    pub file_extensions: Vec<String>,
-    #[serde(default)]
-    pub suspicious_parents: Vec<String>,
-    #[serde(default)]
-    pub terminated_processes: Vec<String>,
-    #[serde(default)]
-    pub detect_self_termination: bool,
-    #[serde(default)]
-    pub entropy_threshold: f64,
-    #[serde(default)]
-    pub conditions_percentage: f32,
     #[serde(default)]
     pub named_conditions: HashMap<String, NamedConditionGroup>,
     #[serde(default)]
@@ -2262,6 +2193,8 @@ pub struct BehaviorRule {
     pub proximity_log_threshold: f32,
     #[serde(default)]
     pub record_on_start: Vec<String>,
+    #[serde(default)]
+    pub entropy_threshold: f64,
     #[serde(default)]
     pub debug: bool,
     #[serde(default)]
@@ -2715,16 +2648,6 @@ impl BehaviorRule {
             }
         };
 
-        expand_vec(&mut self.browsed_paths);
-        expand_vec(&mut self.accessed_paths);
-        expand_vec(&mut self.staging_paths);
-        expand_vec(&mut self.monitored_apis);
-        expand_vec(&mut self.file_actions);
-        expand_vec(&mut self.file_extensions);
-        expand_vec(&mut self.raw_json_patterns);
-        expand_vec(&mut self.suspicious_parents);
-        expand_vec(&mut self.terminated_processes);
-
         for entry in &mut self.allowlisted_apps {
             match entry {
                 AllowlistEntry::Simple(s) => *s = expand_environment_variables(s),
@@ -2754,17 +2677,6 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.file_actions);
             expand_cmd_patterns(&mut cond_group.cmdline_patterns);
             expand_vec(&mut cond_group.cmdline_keywords);
-            expand_vec(&mut cond_group.staging_paths);
-            expand_vec(&mut cond_group.browsed_paths);
-            expand_vec(&mut cond_group.sensitive_paths);
-            expand_vec(&mut cond_group.persistence_locations);
-            expand_vec(&mut cond_group.autorun_keys);
-            expand_vec(&mut cond_group.scheduled_task_apis);
-            expand_vec(&mut cond_group.obfuscation_indicators);
-            expand_vec(&mut cond_group.anti_debug_apis);
-            expand_vec(&mut cond_group.anti_vm_apis);
-            expand_vec(&mut cond_group.trusted_signers);
-            expand_vec(&mut cond_group.untrusted_signers);
             expand_vec(&mut cond_group.hook_error_api_patterns);
             expand_network_rules(&mut cond_group.network_rules);
             expand_vec(&mut cond_group.registry_value_data_patterns);
