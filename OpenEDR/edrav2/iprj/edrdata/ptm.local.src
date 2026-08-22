@@ -344,33 +344,35 @@
 		"RANSOM_SHADOW_COPY_DELETE": [
 			{
 				"eventType": "LLE_PROCESS_CREATE",
-				"condition": {
-					"$operation": "imatch",
-					"pattern": "@const.ransomShadowDeleteCmdLines",
-					"args": [ "@event.process.cmdLine" ]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_SHADOW_COPY_DELETE",
-					"destination": "OUT",
-					"clone": false,
-					"data": [
-						{
-							"name": "baseType",
-							"value": "@const.ransomEventBaseType.MLE_RANSOM_SHADOW_COPY_DELETE"
-						},
-						{
-							"name": "process",
-							"value": "@event.process"
-						},
-						{
-							"name": "time",
-							"value": "@event.time"
-						},
-						{
-							"name": "tickTime",
-							"value": "@event.tickTime"
-						}
-					]
+				"rule": {
+					"condition": {
+						"$operation": "imatch",
+						"pattern": "@const.ransomShadowDeleteCmdLines",
+						"args": [ "@event.process.cmdLine" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_SHADOW_COPY_DELETE",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{
+								"name": "baseType",
+								"value": "@const.ransomEventBaseType.MLE_RANSOM_SHADOW_COPY_DELETE"
+							},
+							{
+								"name": "process",
+								"value": "@event.process"
+							},
+							{
+								"name": "time",
+								"value": "@event.time"
+							},
+							{
+								"name": "tickTime",
+								"value": "@event.tickTime"
+							}
+						]
+					}
 				}
 			}
 		] // RANSOM_SHADOW_COPY_DELETE
