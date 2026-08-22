@@ -198,10 +198,18 @@
 		//
 		"RANSOMWARE_FILE_ENCRYPTION": [
 
-			// 1) Full read of a file: remember it per process + file identity
+			// 1) Full read of a file: remember it per process + file identity.
+			//    Skip entirely for FLS-trusted (Comodo cloud verdict = Safe)
+			//    processes so a signed/whitelisted process's normal
+			//    read-modify-rewrite I/O (e.g. WebView2/Widgets cache churn)
+			//    never enters the ransomware correlation chain.
 			{
 				"eventType": "LLE_FILE_DATA_READ_FULL",
 				"rule": {
+					"condition": {
+						"$operation": "notEqual",
+						"args": [ "@event.process.flsVerdict", 1 ]
+					},
 					"saveContext": {
 						"basket": "@const.basket.ransomReadFiles",
 						"key": "@var.ransomPathKey",
@@ -231,10 +239,15 @@
 				}
 			},
 
-			// 2b) Memory-mapped read: section-backed reads count as reads
+			// 2b) Memory-mapped read: section-backed reads count as reads.
+			//     Same FLS-trust gate as the full-read case above.
 			{
 				"eventType": "LLE_FILE_MAP_READ",
 				"rule": {
+					"condition": {
+						"$operation": "notEqual",
+						"args": [ "@event.process.flsVerdict", 1 ]
+					},
 					"saveContext": {
 						"basket": "@const.basket.ransomReadFiles",
 						"key": "@var.ransomPathKey",
