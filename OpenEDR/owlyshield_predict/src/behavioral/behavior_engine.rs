@@ -1,15 +1,12 @@
 pub use super::rule_types::*;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::config::Config;
-use crate::extensions::ExtensionList;
-use crate::logging::{is_verbose_logging_enabled, Logging};
+use crate::logging::Logging;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::ProcessRecord;
 
 use crate::process::ProcessState;
-use crate::shared_def::{
-    FileChangeInfo, IOMessage, IrpMajorOp, irp_major_op_label, known_raw_event_name,
-};
+use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use crate::shared_def::{
     effective_hypervisor_irp_byte, effective_hypervisor_raw_event_type, is_kernel_api_irp,
     is_kernel_process_protection_irp, normalize_hypervisor_label, resolved_hypervisor_event_name,
@@ -1575,226 +1572,10 @@ fn strip_drive_prefix(path: &str) -> String {
 
 /// Strip the drive prefix from a rule *pattern* while preserving path anchoring.
 ///
-/// `strip_drive_prefix` is meant for observed paths, where the stripped form is
-/// matched against candidate variants that also carry a leading slash. Reusing it
-/// on rule patterns degrades an absolute path like `C:\BCD` to the bare token `bcd`,
-/// which `matches_pattern_internal` then treats as a plain substring and matches
-/// anywhere inside long hash paths (false positives, e.g. `ec7fabcd7b908f90_1`).
-/// Keep the leading `/` so the pattern stays an anchored path (`/bcd`).
-fn strip_drive_prefix_for_pattern(pattern_norm: &str) -> String {
-    if pattern_norm.len() >= 3
-        && pattern_norm.as_bytes()[1] == b':'
-        && (pattern_norm.as_bytes()[2] == b'\\' || pattern_norm.as_bytes()[2] == b'/')
-    {
-        let rest = pattern_norm[3..].trim_start_matches(['\\', '/']);
-        if rest.is_empty() {
-            return String::from("/");
-        }
-        if rest.starts_with('/') {
-            return rest.to_string();
-        }
-        return format!("/{}", rest);
-    }
-    pattern_norm.to_string()
-}
-
-fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
-    let mut variants = HashSet::new();
-    if !norm_path.is_empty() {
-        variants.insert(norm_path.to_string());
-        let stripped = strip_drive_prefix(norm_path);
-        // Add with a leading "/" so patterns like ":/explorer.exe" (from ":\\explorer.exe")
-        // can match paths that came through normalize_device_prefix and lost their drive letter.
-        if !stripped.starts_with('/') {
-            variants.insert(format!("/{}", stripped));
-        }
-        variants.insert(stripped);
-    }
-    if !raw_path.is_empty() {
-        let raw_norm = raw_path.to_lowercase().replace("\\", "/");
-        variants.insert(raw_norm.clone());
-        let raw_stripped = strip_drive_prefix(&raw_norm);
-        if !raw_stripped.starts_with('/') {
-            variants.insert(format!("/{}", raw_stripped));
-        }
-        variants.insert(raw_stripped);
-    }
-    variants.into_iter().filter(|v| !v.is_empty()).collect()
-}
-
 fn canonical_behavior_path(path: &str) -> String {
     let normalized = normalize_device_prefix(path);
     let normalized = normalize_path_separators(&normalized.to_lowercase());
     strip_drive_prefix(&normalized)
-}
-
-fn target_matches_process_image(
-    process_path: &Path,
-    observed_norm: &str,
-    observed_raw: &str,
-) -> bool {
-    if process_path.as_os_str().is_empty() {
-        return false;
-    }
-
-    let process_path_str = process_path.to_string_lossy();
-    let expected = canonical_behavior_path(&process_path_str);
-    if expected.is_empty() {
-        return false;
-    }
-
-    build_path_variants(observed_norm, observed_raw)
-        .into_iter()
-        .map(|variant| canonical_behavior_path(&variant))
-        .any(|candidate| !candidate.is_empty() && candidate == expected)
-}
-
-fn is_delete_like_file_operation(irp_op: &IrpMajorOp, file_change: Option<FileChangeInfo>) -> bool {
-    matches!(
-        (irp_op, file_change),
-        (
-            IrpMajorOp::IrpSetInfo,
-            Some(FileChangeInfo::ChangeDeleteFile)
-        ) | (
-            IrpMajorOp::IrpSetInfo,
-            Some(FileChangeInfo::ChangeDeleteNewFile)
-        )
-    )
-}
-
-fn is_rename_like_file_operation(irp_op: &IrpMajorOp, file_change: Option<FileChangeInfo>) -> bool {
-    matches!(
-        (irp_op, file_change),
-        (
-            IrpMajorOp::IrpSetInfo,
-            Some(FileChangeInfo::ChangeRenameFile)
-        ) | (
-            IrpMajorOp::IrpSetInfo,
-            Some(FileChangeInfo::ChangeExtensionChanged)
-        )
-    )
-}
-
-fn is_file_data_irp(irp_op: &IrpMajorOp) -> bool {
-    matches!(
-        irp_op,
-        IrpMajorOp::IrpRead | IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo
-    ) || matches!(
-        irp_op,
-        IrpMajorOp::IrpUserModeHookEvent
-            | IrpMajorOp::IrpKernelCreateSection
-            | IrpMajorOp::IrpKernelMapSection
-    )
-}
-
-/// Classify a user-mode API-hook function name into a coarse file operation.
-///
-/// Ransomware frequently reads target files through memory-mapped sections
-/// (`NtCreateSection` + `NtMapViewOfSection`) or bulk copy buffers, so the
-/// reads never appear as IRP_MJ_READ (`IrpRead`) events. Without mapping the
-/// hooked API name to a file op, `file_operations: ["read"]` conditions such as
-/// `ransomware_read_activity` never match for such samples. This maps the
-/// common file-I/O and section-mapping APIs to their logical operation; returns
-/// `None` for non-file APIs so unrelated hook noise never counts as file ops.
-/// Strip the "api_" prefix from an API-level file op ("api_read" -> "read")
-/// so plain-token comparisons treat both levels uniformly.
-fn file_op_base(op: &str) -> &str {
-    op.strip_prefix("api_").unwrap_or(op)
-}
-
-fn normalize_file_correlation_path(path: &str) -> String {
-    path.trim_matches(char::from(0))
-        .replace('\\', "/")
-        .to_ascii_lowercase()
-        .trim_end_matches('/')
-        .to_string()
-}
-
-fn file_correlation_stem(path: &str) -> String {
-    let normalized = normalize_file_correlation_path(path);
-    let last_sep = normalized.rfind('/').unwrap_or(0);
-    match normalized.rfind('.') {
-        Some(dot) if dot > last_sep => normalized[..dot].to_string(),
-        _ => normalized,
-    }
-}
-
-fn irp_record_file_operation(record: &IrpOperationRecord) -> Option<&'static str> {
-    match record.irp_type {
-        // Communication.cpp / OpenEDR hypervisor sub-types.
-        0x0010 => api_hook_file_operation(&record.function_name).map(file_op_base),
-        0x0011 => Some("read"),
-        0x0012 => Some("write"),
-        0x0014 => Some("rename"),
-        0x000F => Some("create"),
-        _ => match IrpMajorOp::from_sysmonevent(record.irp_type) {
-            IrpMajorOp::IrpRead => Some("read"),
-            IrpMajorOp::IrpWrite => Some("write"),
-            IrpMajorOp::IrpCreate => Some("create"),
-            IrpMajorOp::IrpSetInfo => match record.file_change {
-                x if x == FileChangeInfo::ChangeRenameFile as u8
-                    || x == FileChangeInfo::ChangeExtensionChanged as u8 => Some("rename"),
-                x if x == FileChangeInfo::ChangeDeleteFile as u8
-                    || x == FileChangeInfo::ChangeDeleteNewFile as u8 => Some("delete"),
-                x if x == FileChangeInfo::ChangeWrite as u8
-                    || x == FileChangeInfo::ChangeOverwriteFile as u8 => Some("write"),
-                x if x == FileChangeInfo::ChangeNewFile as u8 => Some("create"),
-                _ => Some("setinfo"),
-            },
-            IrpMajorOp::IrpUserModeHookEvent
-            | IrpMajorOp::IrpKernelCreateSection
-            | IrpMajorOp::IrpKernelMapSection => {
-                api_hook_file_operation(&record.function_name)
-                    .map(file_op_base)
-            }
-            _ => None,
-        },
-    }
-}
-
-fn api_hook_file_operation(function_name: &str) -> Option<&'static str> {
-    let normalized = normalize_hypervisor_label(function_name);
-    if normalized.is_empty() {
-        return None;
-    }
-    let simple_name = normalized
-        .rsplit('!')
-        .next()
-        .unwrap_or(&normalized)
-        .trim()
-        .trim_end_matches('A')
-        .trim_end_matches('W')
-        .trim_end_matches("Ex")
-        .trim_end_matches("ExW")
-        .trim_end_matches("ExA");
-    if simple_name.is_empty() {
-        return None;
-    }
-    match simple_name {
-        // Read: explicit reads plus memory-mapped file reads. A file-backed
-        // section created then mapped is, for rule purposes, a read of that
-        // file (ransomware maps victim files to encrypt them in place).
-        "NtReadFile" | "ZwReadFile" | "ReadFile" | "ReadFileScatter" | "_read" | "fread" => {
-            Some("read")
-        }
-        "NtCreateSection" | "ZwCreateSection" | "NtMapViewOfSection" | "ZwMapViewOfSection"
-        | "MapViewOfFile" | "MapViewOfFileEx" => Some("read"),
-        // Write: explicit writes plus section mapping with write intent. We
-        // cannot see the protection flags in the hook args here, so only the
-        // unambiguous file-write APIs count as writes.
-        "NtWriteFile" | "ZwWriteFile" | "WriteFile" | "WriteFileGather" | "_write" | "fwrite" => {
-            Some("write")
-        }
-        "NtFlushBuffersFile" | "ZwFlushBuffersFile" | "FlushFileBuffers" => Some("write"),
-        // Create / open
-        "NtCreateFile" | "ZwCreateFile" | "CreateFile" | "CreateFile2" | "_open" | "fopen" => {
-            Some("create")
-        }
-        "NtDeleteFile" | "ZwDeleteFile" | "DeleteFile" | "RemoveDirectory" => Some("delete"),
-        "NtSetInformationFile" | "ZwSetInformationFile" | "MoveFile" | "MoveFileEx"
-        | "MoveFileWithProgress" => Some("rename"),
-        _ => None,
-    }
 }
 
 fn normalize_irp_operation_token(token: &str) -> String {
@@ -2062,125 +1843,11 @@ fn irp_operation_matches_token(irp_type: u32, file_change: u8, token: &str) -> b
     irp_opcode_from_operation_token(&normalized) == Some(irp_type as u32)
 }
 
-const RECENT_WRITTEN_PAYLOAD_RETENTION_SECS: u64 = 300;
-const RECENT_WRITTEN_PAYLOAD_MAX_TRACKED: usize = 128;
 /// Maximum number of distinct match keys remembered per named condition.
 /// Entries age out of a FIFO (oldest first) instead of a hard reset, so a
 /// sudden burst of events cannot wipe the whole dedup window and re-count
 /// recently seen keys.
 const CONDITION_MATCH_VALUE_CAP: usize = 256;
-
-fn is_launchable_payload_extension(ext: &str) -> bool {
-    matches!(
-        normalize_extension_token(ext).as_str(),
-        "exe"
-            | "com"
-            | "scr"
-            | "dll"
-            | "bat"
-            | "cmd"
-            | "ps1"
-            | "vbs"
-            | "vbe"
-            | "js"
-            | "jse"
-            | "wsf"
-            | "wsh"
-            | "hta"
-            | "cpl"
-            | "pif"
-    )
-}
-
-fn is_write_or_create_like_file_operation(
-    irp_op: &IrpMajorOp,
-    file_change: Option<FileChangeInfo>,
-) -> bool {
-    matches!(
-        (irp_op, file_change),
-        (IrpMajorOp::IrpWrite, _)
-            | (IrpMajorOp::IrpCreate, _)
-            | (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeWrite))
-            | (
-                IrpMajorOp::IrpSetInfo,
-                Some(FileChangeInfo::ChangeOverwriteFile)
-            )
-            | (IrpMajorOp::IrpSetInfo, Some(FileChangeInfo::ChangeNewFile))
-            | (
-                IrpMajorOp::IrpSetInfo,
-                Some(FileChangeInfo::ChangeRenameFile)
-            )
-            | (
-                IrpMajorOp::IrpSetInfo,
-                Some(FileChangeInfo::ChangeExtensionChanged)
-            )
-    )
-}
-
-fn extract_path_extension(path: &str) -> String {
-    let path = normalize_path_separators(path);
-    let last_sep = path.rfind('/').unwrap_or(0);
-    let Some(last_dot) = path.rfind('.') else {
-        return String::new();
-    };
-    if last_dot <= last_sep {
-        return String::new();
-    }
-    normalize_extension_token(&path[last_dot + 1..])
-}
-
-fn is_cmdline_path_boundary_byte(byte: u8) -> bool {
-    byte.is_ascii_whitespace() || matches!(byte, b'"' | b'\'' | b'=' | b',' | b';' | b'(' | b')')
-}
-
-fn cmdline_contains_candidate_path(cmdline_norm: &str, candidate_path: &str) -> bool {
-    let candidate_norm = normalize_path_separators(candidate_path);
-    if candidate_norm.is_empty() {
-        return false;
-    }
-
-    let mut variants = vec![candidate_norm.clone()];
-    let stripped = strip_drive_prefix(&candidate_norm);
-    if !stripped.is_empty() && stripped != candidate_norm {
-        variants.push(stripped);
-    }
-
-    for variant in variants {
-        let mut search_offset = 0usize;
-        while let Some(rel_pos) = cmdline_norm[search_offset..].find(&variant) {
-            let abs_pos = search_offset + rel_pos;
-            let before_ok =
-                abs_pos == 0 || is_cmdline_path_boundary_byte(cmdline_norm.as_bytes()[abs_pos - 1]);
-            let after_pos = abs_pos + variant.len();
-            let after_ok = after_pos == cmdline_norm.len()
-                || is_cmdline_path_boundary_byte(cmdline_norm.as_bytes()[after_pos]);
-            if before_ok && after_ok {
-                return true;
-            }
-            search_offset = abs_pos + variant.len();
-        }
-    }
-
-    false
-}
-
-fn is_plain_pattern(pattern: &str) -> bool {
-    let trimmed = pattern.trim();
-    !trimmed.is_empty()
-        && !trimmed.contains('*')
-        && !trimmed.contains('?')
-        && !trimmed.starts_with("(?")
-        && !trimmed.starts_with('^')
-        && !trimmed.ends_with('$')
-}
-
-fn pattern_looks_like_path(pattern: &str) -> bool {
-    let normalized = normalize_path_separators(&pattern.trim().to_lowercase());
-    normalized.contains(":/")
-        || normalized.starts_with('/')
-        || normalized.starts_with('%')
-        || normalized.contains('/')
-}
 
 fn canonical_hypervisor_event_label(
     irp_op: &IrpMajorOp,
@@ -2372,254 +2039,6 @@ fn api_function_alias(raw: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn normalize_extension_token(extension: &str) -> String {
-    extension
-        .trim()
-        .trim_matches('"')
-        .trim_matches(char::from(0))
-        .trim_start_matches('.')
-        .to_lowercase()
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ExtensionWhitelistSourceMode {
-    Feedback,
-    ExtensionsRsOnly,
-    ExtensionsTxtOnly,
-}
-
-impl ExtensionWhitelistSourceMode {
-    fn as_str(self) -> &'static str {
-        match self {
-            ExtensionWhitelistSourceMode::Feedback => "feedback",
-            ExtensionWhitelistSourceMode::ExtensionsRsOnly => "extensions_rs_only",
-            ExtensionWhitelistSourceMode::ExtensionsTxtOnly => "extensions_txt_only",
-        }
-    }
-}
-
-fn parse_extension_whitelist_source_mode(raw: &str) -> Option<ExtensionWhitelistSourceMode> {
-    let normalized = raw
-        .trim()
-        .to_ascii_lowercase()
-        .replace(' ', "_")
-        .replace('-', "_")
-        .replace('.', "_");
-
-    match normalized.as_str() {
-        "" | "feedback" | "feedback_mode" | "auto" | "auto_feedback" => {
-            Some(ExtensionWhitelistSourceMode::Feedback)
-        }
-        "extensions_rs_only" | "extension_rs_only" | "rs_only" | "rust_only" | "hardcoded_only" => {
-            Some(ExtensionWhitelistSourceMode::ExtensionsRsOnly)
-        }
-        "extensions_txt_only" | "extension_txt_only" | "txt_only" | "list_only" | "rules_only" => {
-            Some(ExtensionWhitelistSourceMode::ExtensionsTxtOnly)
-        }
-        _ => None,
-    }
-}
-
-fn extension_whitelist_source_mode(configured_mode: Option<&str>) -> ExtensionWhitelistSourceMode {
-    if let Some(raw_mode) = configured_mode
-        .map(str::trim)
-        .filter(|mode| !mode.is_empty())
-    {
-        if let Some(mode) = parse_extension_whitelist_source_mode(raw_mode) {
-            Logging::info(&format!(
-                "[BehaviorEngine] ExtensionSource config param=EXTENSION_SOURCE_MODE value={} resolved_mode={}",
-                raw_mode,
-                mode.as_str()
-            ));
-            return mode;
-        }
-        Logging::warning(&format!(
-            "[BehaviorEngine] Unknown extension source mode config value={}; using feedback mode. \
-             Valid values: feedback, extensions_rs_only, extensions_txt_only",
-            raw_mode
-        ));
-        return ExtensionWhitelistSourceMode::Feedback;
-    }
-
-    for env_key in [
-        "OWLYSHIELD_EXTENSION_SOURCE_MODE",
-        "HYDRADRAGON_EXTENSION_SOURCE_MODE",
-    ] {
-        let Ok(raw_mode) = std::env::var(env_key) else {
-            continue;
-        };
-        if let Some(mode) = parse_extension_whitelist_source_mode(&raw_mode) {
-            Logging::info(&format!(
-                "[BehaviorEngine] ExtensionSource config env={} value={} resolved_mode={}",
-                env_key,
-                raw_mode,
-                mode.as_str()
-            ));
-            return mode;
-        }
-        Logging::warning(&format!(
-            "[BehaviorEngine] Unknown extension source mode env={} value={}; using feedback mode. \
-             Valid values: feedback, extensions_rs_only, extensions_txt_only",
-            env_key, raw_mode
-        ));
-        return ExtensionWhitelistSourceMode::Feedback;
-    }
-
-    ExtensionWhitelistSourceMode::Feedback
-}
-
-fn extension_txt_candidates() -> Vec<(&'static str, PathBuf)> {
-    let mut candidates = Vec::new();
-
-    if let Some(rules_path) = crate::globals::RULES_PATH.get() {
-        candidates.push(("rules_path", rules_path.join("extensions.txt")));
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        candidates.push((
-            "repo_hydradragon_rules",
-            cwd.join("hydradragon")
-                .join("Owlyshield")
-                .join("rules")
-                .join("extensions.txt"),
-        ));
-        candidates.push(("cwd_rules", cwd.join("rules").join("extensions.txt")));
-    }
-
-    candidates
-}
-
-fn load_extensions_txt_whitelist() -> Option<(HashSet<String>, &'static str, PathBuf)> {
-    for (candidate_name, path) in extension_txt_candidates() {
-        if !path.exists() {
-            continue;
-        }
-
-        let content = match std::fs::read_to_string(&path) {
-            Ok(content) => content,
-            Err(error) => {
-                Logging::warning(&format!(
-                    "[BehaviorEngine] Failed to read extensions.txt candidate={} path={}: {}",
-                    candidate_name,
-                    path.display(),
-                    error
-                ));
-                continue;
-            }
-        };
-
-        let mut whitelist = HashSet::new();
-        for line in content.lines() {
-            let trimmed = line.trim().trim_matches('"');
-            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
-                continue;
-            }
-            let normalized = normalize_extension_token(trimmed);
-            if !normalized.is_empty() {
-                whitelist.insert(normalized);
-            }
-        }
-
-        return Some((whitelist, candidate_name, path));
-    }
-
-    None
-}
-
-fn load_extensions_rs_whitelist() -> HashSet<String> {
-    let mut whitelist = HashSet::new();
-    let extension_list = ExtensionList::new();
-
-    for category in extension_list.categories.values() {
-        for ext in category {
-            let normalized = normalize_extension_token(ext);
-            if !normalized.is_empty() {
-                whitelist.insert(normalized);
-            }
-        }
-    }
-
-    whitelist
-}
-
-fn log_extension_source(
-    mode: ExtensionWhitelistSourceMode,
-    source: &str,
-    count: usize,
-    detail: &str,
-) {
-    Logging::info(&format!(
-        "[BehaviorEngine] ExtensionSource mode={} source={} engine=behavior_engine count={} feedback=\"{}\"",
-        mode.as_str(),
-        source,
-        count,
-        detail
-    ));
-}
-
-fn build_default_extension_whitelist(configured_mode: Option<&str>) -> HashSet<String> {
-    let mode = extension_whitelist_source_mode(configured_mode);
-
-    match mode {
-        ExtensionWhitelistSourceMode::ExtensionsRsOnly => {
-            let whitelist = load_extensions_rs_whitelist();
-            log_extension_source(
-                mode,
-                "extensions.rs",
-                whitelist.len(),
-                "hardcoded Rust ExtensionList only; extensions.txt is not read",
-            );
-            whitelist
-        }
-        ExtensionWhitelistSourceMode::ExtensionsTxtOnly => {
-            if let Some((whitelist, candidate_name, path)) = load_extensions_txt_whitelist() {
-                log_extension_source(
-                    mode,
-                    "extensions.txt",
-                    whitelist.len(),
-                    &format!(
-                        "strict extensions.txt only; candidate={} path={}; extensions.rs fallback disabled",
-                        candidate_name,
-                        path.display()
-                    ),
-                );
-                return whitelist;
-            }
-
-            Logging::warning(
-                "[BehaviorEngine] ExtensionSource mode=extensions_txt_only source=none \
-                 engine=behavior_engine count=0 feedback=\"extensions.txt not found; \
-                 extensions.rs fallback disabled; extensionless files are still scanned\"",
-            );
-            HashSet::new()
-        }
-        ExtensionWhitelistSourceMode::Feedback => {
-            if let Some((whitelist, candidate_name, path)) = load_extensions_txt_whitelist() {
-                log_extension_source(
-                    mode,
-                    "extensions.txt",
-                    whitelist.len(),
-                    &format!(
-                        "preferred repo rule list; candidate={} path={}; extensions.rs not used",
-                        candidate_name,
-                        path.display()
-                    ),
-                );
-                return whitelist;
-            }
-
-            let whitelist = load_extensions_rs_whitelist();
-            Logging::warning(&format!(
-                "[BehaviorEngine] ExtensionSource mode=feedback source=extensions.rs \
-                 engine=behavior_engine count={} feedback=\"extensions.txt not found; \
-                 falling back to hardcoded Rust ExtensionList; set \
-                 OWLYSHIELD_EXTENSION_SOURCE_MODE=extensions_txt_only to forbid fallback\"",
-                whitelist.len()
-            ));
-            whitelist
-        }
-    }
-}
-
 const ROOTKIT_GLOBAL_GID: u64 = 0xFFFF_FFFF_FFFF_FFFEu64;
 const ROOTKIT_PSEUDO_GID_MASK: u64 = 0x8000_0000_0000_0000u64;
 
@@ -2646,7 +2065,6 @@ fn is_rootkit_pseudo_gid(gid: u64) -> bool {
 
 #[derive(Default, Clone)]
 pub struct ProcessBehaviorState {
-    pub recent_written_payloads: HashMap<String, SystemTime>,
     pub terminated_processes: HashSet<String>,
     pub detected_apis: HashSet<String>,
 
@@ -2868,7 +2286,6 @@ impl ProcessBehaviorState {
         state.parent_path = PathBuf::new();
         state.command_line = String::new();
         state.terminated_processes = HashSet::new();
-        state.recent_written_payloads = HashMap::new();
         state.detected_apis = HashSet::new();
         state.satisfied_named_conditions = HashSet::new();
         state.condition_match_counts = HashMap::new();
@@ -3556,7 +2973,6 @@ pub struct BehaviorEngine {
     /// telemetry-thread `BehaviorEngine` clone shares the main thread's index.
     api_pattern_index: Arc<std::sync::RwLock<Option<daachorse::DoubleArrayAhoCorasick<u32>>>>,
     pub process_terminated: HashSet<String>,
-    default_extension_whitelist: HashSet<String>,
     /// PIDs for which OpenEDR observed network activity from its local telemetry logs.
     pub openedr_net_pids: OpenEdrNetPids,
     /// Per-PID list of (dst_ip, dst_port) records learned from OpenEDR network events.
@@ -3648,14 +3064,13 @@ impl BehaviorEngine {
         Self::new_with_extension_source_mode(None)
     }
 
-    pub fn new_with_extension_source_mode(extension_source_mode: Option<&str>) -> Self {
+    pub fn new_with_extension_source_mode(_extension_source_mode: Option<&str>) -> Self {
         BehaviorEngine {
             rules: Vec::new(),
             process_states: HashMap::new(),
             regex_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
             api_pattern_index: Arc::new(std::sync::RwLock::new(None)),
             process_terminated: HashSet::new(),
-            default_extension_whitelist: build_default_extension_whitelist(extension_source_mode),
             openedr_net_pids: shared_openedr_net_pids(),
             openedr_net_details: shared_openedr_net_details(),
             openedr_stats: shared_openedr_stats(),
@@ -4805,21 +4220,6 @@ impl BehaviorEngine {
         }
     }
 
-    fn registry_operation_aliases(file_change: Option<FileChangeInfo>) -> &'static [&'static str] {
-        match file_change {
-            Some(FileChangeInfo::RegCreateKey) => &["reg_create_key", "reg_create", "create"],
-            Some(FileChangeInfo::RegSetValue) => &["reg_set_value", "reg_set", "set"],
-            Some(FileChangeInfo::RegDeleteValue) => &["reg_delete_value", "reg_delete", "delete"],
-            Some(FileChangeInfo::RegDeleteKey) => &["reg_delete_key", "reg_delete", "delete"],
-            Some(FileChangeInfo::RegRenameKey) => &["reg_rename_key", "reg_rename", "rename"],
-            Some(FileChangeInfo::RegQueryValue) => &["reg_query_value", "reg_read", "read"],
-            Some(FileChangeInfo::RegQueryKey) => &["reg_query_key", "reg_read", "read"],
-            Some(FileChangeInfo::RegOpenKey) => &["reg_open_key", "reg_read", "read"],
-            Some(FileChangeInfo::RegEnumKey) => &["reg_enum_key", "reg_read", "read"],
-            Some(FileChangeInfo::RegEnumValue) => &["reg_enum_value", "reg_read", "read"],
-            _ => &[],
-        }
-    }
     fn operation_label(msg: &IOMessage) -> String {
         let file_change = FromPrimitive::from_u8(msg.file_change);
         let hyper_event = msg.resolved_hypervisor_event();
@@ -5165,151 +4565,6 @@ impl BehaviorEngine {
         parts.join(" | ")
     }
 
-
-    fn prune_recent_written_payloads(state: &mut ProcessBehaviorState, now: SystemTime) {
-        state.recent_written_payloads.retain(|_, seen_at| {
-            now.duration_since(*seen_at)
-                .map(|age| age.as_secs() <= RECENT_WRITTEN_PAYLOAD_RETENTION_SECS)
-                .unwrap_or(true)
-        });
-
-        if state.recent_written_payloads.len() <= RECENT_WRITTEN_PAYLOAD_MAX_TRACKED {
-            return;
-        }
-
-        let mut entries: Vec<(String, SystemTime)> = state
-            .recent_written_payloads
-            .iter()
-            .map(|(path, seen_at)| (path.clone(), *seen_at))
-            .collect();
-        entries.sort_by_key(|(_, seen_at)| *seen_at);
-
-        let to_remove = entries
-            .len()
-            .saturating_sub(RECENT_WRITTEN_PAYLOAD_MAX_TRACKED);
-        for (path, _) in entries.into_iter().take(to_remove) {
-            state.recent_written_payloads.remove(&path);
-        }
-    }
-
-    fn remember_recent_written_payload(
-        state: &mut ProcessBehaviorState,
-        filepath: &str,
-        event_extension: &str,
-        file_change: Option<FileChangeInfo>,
-        irp_op: &IrpMajorOp,
-        is_directory_event: bool,
-        now: SystemTime,
-    ) {
-        Self::prune_recent_written_payloads(state, now);
-
-        if filepath.is_empty() || is_directory_event {
-            return;
-        }
-
-        let normalized_path = normalize_path_separators(&filepath.to_lowercase());
-
-        if is_delete_like_file_operation(irp_op, file_change) {
-            state.recent_written_payloads.remove(&normalized_path);
-            return;
-        }
-
-        if !is_launchable_payload_extension(event_extension)
-            || !is_write_or_create_like_file_operation(irp_op, file_change)
-        {
-            return;
-        }
-
-        state.recent_written_payloads.insert(normalized_path, now);
-        Self::prune_recent_written_payloads(state, now);
-    }
-
-    fn recent_payload_path_matches_filters(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        cond_group: &NamedConditionGroup,
-        candidate_path: &str,
-    ) -> bool {
-        let has_path_filters = !cond_group.file_paths.is_empty();
-
-        if has_path_filters {
-            let path_variants = build_path_variants(candidate_path, candidate_path);
-            let path_ok = cond_group
-                .file_paths
-                .iter()
-                .any(|pattern| {
-                    let pattern_norm = pattern.replace("\\", "/");
-                    let pattern_norm_stripped = strip_drive_prefix_for_pattern(&pattern_norm);
-                    path_variants.iter().any(|variant| {
-                        Self::matches_pattern_internal(cache, &pattern_norm, variant)
-                            || Self::matches_pattern_internal(
-                                cache,
-                                &pattern_norm_stripped,
-                                variant,
-                            )
-                    })
-                });
-            if !path_ok {
-                return false;
-            }
-        }
-
-        if cond_group.file_extensions.is_empty() {
-            return true;
-        }
-
-        let ext = extract_path_extension(candidate_path);
-        if ext.is_empty() {
-            return false;
-        }
-        let ext_with_dot = format!(".{}", ext);
-        cond_group
-            .file_extensions
-            .iter()
-            .any(|pattern| Self::extension_pattern_matches(cache, pattern, &ext, &ext_with_dot))
-    }
-
-    fn match_recently_written_payload_launch(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        state: &mut ProcessBehaviorState,
-        cond_group: &NamedConditionGroup,
-        child_path: &str,
-        child_cmdline: &str,
-        now: SystemTime,
-    ) -> Option<String> {
-        Self::prune_recent_written_payloads(state, now);
-        if state.recent_written_payloads.is_empty() {
-            return None;
-        }
-
-        let current_image = canonical_behavior_path(&state.exe_path.to_string_lossy());
-        let child_image = canonical_behavior_path(child_path);
-        let child_cmdline_norm = normalize_path_separators(&child_cmdline.to_lowercase());
-
-        let mut candidates: Vec<String> = state.recent_written_payloads.keys().cloned().collect();
-        candidates.sort();
-
-        for candidate in candidates {
-            let candidate_norm = normalize_path_separators(&candidate.to_lowercase());
-            let candidate_canon = canonical_behavior_path(&candidate_norm);
-            if candidate_canon.is_empty() || candidate_canon == current_image {
-                continue;
-            }
-            if !Self::recent_payload_path_matches_filters(cache, cond_group, &candidate_norm) {
-                continue;
-            }
-
-            let direct_child_match = !child_image.is_empty() && child_image == candidate_canon;
-            let cmdline_match = !child_cmdline_norm.is_empty()
-                && cmdline_contains_candidate_path(&child_cmdline_norm, &candidate_norm);
-
-            if direct_child_match || cmdline_match {
-                return Some(candidate_norm);
-            }
-        }
-
-        None
-    }
-
     fn is_probable_artifact_path(value: &str) -> bool {
         let trimmed = value.trim();
         !trimmed.is_empty()
@@ -5361,10 +4616,8 @@ impl BehaviorEngine {
             .replace('\\', "/");
         let mut best_match: Option<(i32, String)> = None;
 
-        for (cond_name, cond_group) in &rule.named_conditions {
-            if !Self::rule_condition_satisfied(state, rule, cond_name)
-                || !Self::is_file_condition_group(cond_group)
-            {
+        for (cond_name, _) in &rule.named_conditions {
+            if !Self::rule_condition_satisfied(state, rule, cond_name) {
                 continue;
             }
 
@@ -5827,281 +5080,6 @@ impl BehaviorEngine {
         text_lc.contains(&pattern_lc) || pattern_lc.contains(&text_lc)
     }
 
-    fn normalize_registry_text(text: &str) -> String {
-        let normalized = normalize_path_separators(
-            &text.trim().trim_matches(char::from(0)).to_ascii_lowercase(),
-        );
-
-        normalized
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .map(|segment| {
-                if segment.starts_with("controlset")
-                    && segment["controlset".len()..]
-                        .chars()
-                        .all(|ch| ch.is_ascii_digit())
-                {
-                    "currentcontrolset".to_string()
-                } else {
-                    segment.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("/")
-    }
-
-    fn push_registry_alias(aliases: &mut HashSet<String>, prefix: &str, remainder: &str) {
-        let normalized_prefix = prefix.trim_matches('/').to_string();
-        let normalized_remainder = remainder.trim_matches('/');
-
-        if normalized_remainder.is_empty() {
-            aliases.insert(normalized_prefix);
-        } else {
-            aliases.insert(format!("{}/{}", normalized_prefix, normalized_remainder));
-        }
-    }
-
-    fn registry_match_aliases(text: &str) -> Vec<String> {
-        let normalized = Self::normalize_registry_text(text);
-        let trimmed = normalized.trim_matches('/').to_string();
-        let mut aliases = HashSet::new();
-
-        if !trimmed.is_empty() {
-            aliases.insert(trimmed.clone());
-        }
-
-        let add_classes_root_alias = |aliases: &mut HashSet<String>, remainder: &str| {
-            Self::push_registry_alias(aliases, "hkcr", remainder);
-        };
-
-        if let Some(remainder) = trimmed.strip_prefix("hkey_local_machine/") {
-            Self::push_registry_alias(&mut aliases, "hklm", remainder);
-        } else if trimmed == "hkey_local_machine" {
-            aliases.insert("hklm".to_string());
-        }
-
-        if let Some(remainder) = trimmed.strip_prefix("hkey_current_user/") {
-            Self::push_registry_alias(&mut aliases, "hkcu", remainder);
-        } else if trimmed == "hkey_current_user" {
-            aliases.insert("hkcu".to_string());
-        }
-
-        if let Some(remainder) = trimmed.strip_prefix("hkey_users/") {
-            Self::push_registry_alias(&mut aliases, "hku", remainder);
-        } else if trimmed == "hkey_users" {
-            aliases.insert("hku".to_string());
-        }
-
-        if let Some(remainder) = trimmed.strip_prefix("hkey_classes_root/") {
-            add_classes_root_alias(&mut aliases, remainder);
-        } else if trimmed == "hkey_classes_root" {
-            aliases.insert("hkcr".to_string());
-        }
-
-        if let Some(remainder) = trimmed.strip_prefix("hkey_current_config/") {
-            Self::push_registry_alias(&mut aliases, "hkcc", remainder);
-        } else if trimmed == "hkey_current_config" {
-            aliases.insert("hkcc".to_string());
-        }
-
-        if let Some(remainder) = trimmed.strip_prefix("registry/machine/") {
-            Self::push_registry_alias(&mut aliases, "hklm", remainder);
-
-            if let Some(classes_remainder) = remainder.strip_prefix("software/classes/") {
-                add_classes_root_alias(&mut aliases, classes_remainder);
-            } else if remainder == "software/classes" {
-                aliases.insert("hkcr".to_string());
-            }
-
-            if let Some(config_remainder) =
-                remainder.strip_prefix("system/currentcontrolset/hardware profiles/current/")
-            {
-                Self::push_registry_alias(&mut aliases, "hkcc", config_remainder);
-            } else if remainder == "system/currentcontrolset/hardware profiles/current" {
-                aliases.insert("hkcc".to_string());
-            }
-        }
-
-        if let Some(remainder) = trimmed.strip_prefix("registry/user/") {
-            if let Some((sid, rest)) = remainder.split_once('/') {
-                Self::push_registry_alias(&mut aliases, "hku", &format!("{}/{}", sid, rest));
-
-                if sid.ends_with("_classes") {
-                    add_classes_root_alias(&mut aliases, rest);
-                } else {
-                    Self::push_registry_alias(&mut aliases, "hkcu", rest);
-                }
-            } else {
-                Self::push_registry_alias(&mut aliases, "hku", remainder);
-            }
-        }
-
-        if let Some(remainder) = trimmed.strip_prefix("hklm/software/classes/") {
-            add_classes_root_alias(&mut aliases, remainder);
-        } else if trimmed == "hklm/software/classes" {
-            aliases.insert("hkcr".to_string());
-        }
-
-        if let Some(remainder) = trimmed.strip_prefix("hkcu/software/classes/") {
-            add_classes_root_alias(&mut aliases, remainder);
-        } else if trimmed == "hkcu/software/classes" {
-            aliases.insert("hkcr".to_string());
-        }
-
-        let mut sorted_aliases: Vec<String> = aliases.into_iter().collect();
-        sorted_aliases.sort();
-        sorted_aliases
-    }
-
-    fn registry_pattern_matches(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        pattern: &str,
-        filepath: &str,
-    ) -> bool {
-        let pattern_aliases = Self::registry_match_aliases(pattern);
-        let filepath_aliases = Self::registry_match_aliases(filepath);
-
-        for pattern_alias in &pattern_aliases {
-            for filepath_alias in &filepath_aliases {
-                if Self::matches_pattern_internal(cache, pattern_alias, filepath_alias) {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-
-    fn registry_value_pattern_matches(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        pattern: &str,
-        filepath: &str,
-    ) -> bool {
-        let pat = pattern
-            .trim()
-            .trim_matches('"')
-            .trim_matches(char::from(0))
-            .to_ascii_lowercase()
-            .replace("\\", "/");
-        if pat.is_empty() {
-            return false;
-        }
-
-        let filepath_aliases = Self::registry_match_aliases(filepath);
-        for filepath_alias in &filepath_aliases {
-            let trimmed = filepath_alias.trim_matches('/');
-            let terminal = trimmed
-                .rsplit('/')
-                .next()
-                .unwrap_or(trimmed)
-                .split(" (")
-                .next()
-                .unwrap_or(trimmed)
-                .trim();
-            let has_glob = pat.contains('*') || pat.contains('?');
-            let is_explicit_regex =
-                pat.starts_with("(?") || pat.starts_with('^') || pat.ends_with('$');
-            let is_path_pattern = pat.contains('/');
-            let is_simple_value_name = !has_glob && !is_explicit_regex && !is_path_pattern;
-
-            if !terminal.is_empty() {
-                if is_simple_value_name {
-                    if terminal.eq_ignore_ascii_case(&pat) {
-                        return true;
-                    }
-                } else if Self::matches_pattern_internal(cache, &pat, terminal) {
-                    return true;
-                }
-            }
-
-            if !is_simple_value_name && Self::matches_pattern_internal(cache, &pat, trimmed) {
-                return true;
-            }
-
-            if !is_simple_value_name && !pat.contains('/') {
-                let suffix_pattern = format!("*/{}", pat);
-                if Self::matches_pattern_internal(cache, &suffix_pattern, trimmed) {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-
-    fn registry_op_matches(
-        cond_group: &NamedConditionGroup,
-        msg: &IOMessage,
-        irp_op: &IrpMajorOp,
-    ) -> bool {
-        if cond_group.registry_operations.is_empty() {
-            return true;
-        }
-        if *irp_op != IrpMajorOp::IrpRegistry {
-            return false;
-        }
-
-        let change = FromPrimitive::from_u8(msg.file_change);
-        let aliases = Self::registry_operation_aliases(change);
-        if aliases.is_empty() {
-            return false;
-        }
-
-        cond_group.registry_operations.iter().any(|required| {
-            let required = required.trim().to_ascii_lowercase();
-            aliases.iter().any(|alias| *alias == required)
-        })
-    }
-
-    fn extension_pattern_matches(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        pattern: &str,
-        ext_without_dot: &str,
-        ext_with_dot: &str,
-    ) -> bool {
-        let pat = pattern
-            .trim()
-            .trim_matches('"')
-            .trim_matches(char::from(0))
-            .to_lowercase();
-        if pat.is_empty() {
-            return false;
-        }
-
-        if pat.contains('*') || pat.contains('?') {
-            return Self::matches_pattern_internal(cache, &pat, ext_with_dot)
-                || Self::matches_pattern_internal(cache, &pat, ext_without_dot);
-        }
-
-        let pat_without_dot = pat.trim_start_matches('.');
-        if pat_without_dot.is_empty() {
-            return false;
-        }
-        let pat_with_dot = format!(".{}", pat_without_dot);
-        ext_without_dot == pat_without_dot || ext_with_dot == pat_with_dot
-    }
-
-    fn is_extension_whitelisted(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        default_whitelist: &HashSet<String>,
-        cond_group: &NamedConditionGroup,
-        ext_without_dot: &str,
-        ext_with_dot: &str,
-    ) -> bool {
-        if ext_without_dot.is_empty() {
-            return false;
-        }
-
-        if cond_group.extension_whitelist.is_empty() {
-            return default_whitelist.contains(ext_without_dot);
-        }
-
-        cond_group
-            .extension_whitelist
-            .iter()
-            .any(|p| Self::extension_pattern_matches(cache, p, ext_without_dot, ext_with_dot))
-    }
-
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         Logging::info(&format!(
             "[Owlyshield] Starting behavior rule load from {:?}",
@@ -6354,14 +5332,7 @@ impl BehaviorEngine {
         let mut all_apis = HashSet::new();
 
         for rule in &self.rules {
-            // 1. Named conditions
-            for cond_group in rule.named_conditions.values() {
-                for api in &cond_group.apis {
-                    all_apis.insert(api.clone());
-                }
-            }
-
-            // 3. Stage-level conditions
+            // Stage-level conditions
             for stage in &rule.stages {
                 for cond in &stage.conditions {
                     collect_condition_apis(cond, &mut all_apis);
@@ -6551,188 +5522,6 @@ impl BehaviorEngine {
             value = format!("{}!{}", module_name, function_name);
         }
         (value, has_path)
-    }
-
-    /// Like `normalize_api_signature` but honours the `no_lowercase` flag.
-    /// When `no_lowercase` is true, case is preserved exactly as supplied.
-    fn normalize_api_signature_opt(raw: &str, no_lowercase: bool) -> (String, bool) {
-        if no_lowercase {
-            let value = normalize_hypervisor_label(raw);
-            let has_path = if let Some(idx) = value.rfind('!') {
-                let module_part = &value[..idx];
-                module_part.contains('\\') || module_part.contains('/')
-            } else {
-                false
-            };
-            return (value, has_path);
-        }
-        Self::normalize_api_signature(raw)
-    }
-
-    fn api_signature_matches_required(
-        cache: &Arc<std::sync::RwLock<HashMap<String, Regex>>>,
-        required_api: &str,
-        available: &str,
-        no_lowercase: bool,
-    ) -> bool {
-        let (required_norm, required_has_path) =
-            Self::normalize_api_signature_opt(required_api, no_lowercase);
-        let (available_norm, available_has_path) =
-            Self::normalize_api_signature_opt(available, no_lowercase);
-        if required_has_path {
-            available_has_path && Self::matches_pattern_internal(cache, required_api, available)
-        } else {
-            Self::matches_pattern_internal(cache, &required_norm, &available_norm)
-        }
-    }
-
-    fn matches_u32_list(filter: &[u32], value: u32) -> bool {
-        filter.is_empty() || filter.contains(&value)
-    }
-
-
-    fn has_hook_error_conditions(cond_group: &NamedConditionGroup) -> bool {
-        !cond_group.hook_error_statuses.is_empty()
-            || !cond_group.hook_error_api_patterns.is_empty()
-            || !cond_group.hook_error_raw_event_types.is_empty()
-            || cond_group.hook_error_min_count.is_some()
-            || cond_group.hook_error_exclude_benign
-    }
-
-    fn hook_error_api_matches(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        api_index: &Arc<RwLock<Option<daachorse::DoubleArrayAhoCorasick<u32>>>>,
-        patterns: &[String],
-        api_name: &str,
-    ) -> bool {
-        if patterns.is_empty() {
-            return true;
-        }
-
-        // Fast path: if every required pattern is a plain literal API signature
-        // (no glob/regex) and none of them occurs in the daachorse index against
-        // this api_name, no rule pattern can match — skip the regex machinery.
-        if patterns.iter().all(|pat| {
-            let trimmed = pat.trim();
-            !trimmed.is_empty()
-                && !trimmed.contains('*')
-                && !trimmed.contains('?')
-                && !trimmed.starts_with("(?")
-                && !trimmed.starts_with('^')
-                && !trimmed.ends_with('$')
-        }) {
-            if let Ok(guard) = api_index.read() {
-                if let Some(index) = guard.as_ref() {
-                    let haystack = api_name.to_ascii_lowercase();
-                    if index
-                        .find_overlapping_iter(haystack.as_bytes())
-                        .next()
-                        .is_none()
-                    {
-                        return false;
-                    }
-                }
-            }
-        }
-
-        let mut names_to_check = vec![api_name.to_string()];
-        if let Some(alias) = api_function_alias(api_name) {
-            names_to_check.push(alias);
-        }
-
-        patterns.iter().any(|required_api| {
-            let (required_norm, required_has_path) = Self::normalize_api_signature(required_api);
-            names_to_check.iter().any(|available| {
-                let (available_norm, available_has_path) = Self::normalize_api_signature(available);
-                if required_has_path {
-                    available_has_path
-                        && Self::matches_pattern_internal(cache, required_api, available)
-                } else {
-                    Self::matches_pattern_internal(cache, &required_norm, &available_norm)
-                }
-            })
-        })
-    }
-
-    fn hook_error_record_matches(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        api_index: &Arc<RwLock<Option<daachorse::DoubleArrayAhoCorasick<u32>>>>,
-        cond_group: &NamedConditionGroup,
-        record: &HookErrorRecord,
-        is_acg_enabled: bool,
-    ) -> bool {
-        if cond_group.hook_error_exclude_benign
-            && is_benign_kernel_failure_status(record.operation_status, is_acg_enabled)
-        {
-            return false;
-        }
-
-        let status_name = hook_status_name(record.operation_status);
-        let status_alias = format!("status:{}", status_name);
-        let antitamper_alias = "status:ANTI_TAMPER";
-
-        let api_or_status_matches = Self::hook_error_api_matches(
-            cache,
-            api_index,
-            &cond_group.hook_error_api_patterns,
-            &record.api_name,
-        ) || (!cond_group.hook_error_api_patterns.is_empty()
-            && cond_group.hook_error_api_patterns.iter().any(|pattern| {
-                Self::matches_pattern_internal(cache, pattern, status_name)
-                    || Self::matches_pattern_internal(cache, pattern, &status_alias)
-                    || (is_antitamper_status(record.operation_status)
-                        && Self::matches_pattern_internal(cache, pattern, antitamper_alias))
-            }));
-
-        (cond_group.hook_error_statuses.is_empty()
-            || cond_group
-                .hook_error_statuses
-                .contains(&(record.operation_status as u32)))
-            && Self::matches_u32_list(
-                &cond_group.hook_error_raw_event_types,
-                record.raw_event_type,
-            )
-            && api_or_status_matches
-    }
-
-    fn matching_hook_error_summary(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        api_index: &Arc<RwLock<Option<daachorse::DoubleArrayAhoCorasick<u32>>>>,
-        cond_group: &NamedConditionGroup,
-        state: &ProcessBehaviorState,
-    ) -> Option<String> {
-        if !Self::has_hook_error_conditions(cond_group) {
-            return None;
-        }
-
-        let required = cond_group.hook_error_min_count.unwrap_or(1).max(1);
-        let matches: Vec<&HookErrorRecord> = state
-            .recent_hook_errors
-            .iter()
-            .filter(|record| {
-                Self::hook_error_record_matches(
-                cache,
-                api_index,
-                cond_group,
-                record,
-                state.is_acg_enabled,
-            )
-            })
-            .collect();
-
-        if matches.len() < required {
-            return None;
-        }
-
-        let latest = matches.last()?;
-        Some(format!(
-            "hook_error:{}:status=0x{:08X}:status_name={}:raw=0x{:X}:api={}",
-            matches.len(),
-            latest.operation_status as u32,
-            hook_status_name(latest.operation_status),
-            latest.raw_event_type,
-            latest.api_name
-        ))
     }
 
     /// Drain the cross-thread pending IRP record queue.
@@ -7636,9 +6425,6 @@ impl BehaviorEngine {
                 }
             }
         }
-
-        let filepath = msg.filepathstr.clone();
-
 
         // === STEP 6: EVALUATE RULES ===
         self.check_rules(precord, gid, msg, irp_op.clone(), config, &mut actions);
@@ -9538,43 +8324,6 @@ impl BehaviorEngine {
         }
     }
 
-    /// Network activity detection — delegates entirely to the firewall.
-    /// Returns true if the firewall has observed real outbound I/O for this PID.
-    fn matches_process_identity_pattern(
-        cache: &Arc<RwLock<HashMap<String, Regex>>>,
-        pattern: &str,
-        process_name: &str,
-        process_path: &str,
-    ) -> bool {
-        let trimmed = pattern.trim();
-        if trimmed.is_empty() {
-            return false;
-        }
-
-        let name_norm = normalize_path_separators(&process_name.trim().to_lowercase());
-        let path_norm = normalize_path_separators(&process_path.trim().to_lowercase());
-
-        if pattern_looks_like_path(trimmed) {
-            return (!path_norm.is_empty()
-                && Self::matches_pattern_internal(cache, trimmed, &path_norm))
-                || (!name_norm.is_empty()
-                    && Self::matches_pattern_internal(cache, trimmed, &name_norm));
-        }
-
-        if is_plain_pattern(trimmed) {
-            return !name_norm.is_empty() && name_norm == trimmed.to_lowercase();
-        }
-
-        (!name_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &name_norm))
-            || (!path_norm.is_empty() && Self::matches_pattern_internal(cache, trimmed, &path_norm))
-    }
-
-    fn pid_has_network_activity(&self, pid: u32) -> bool {
-        let openedr_observed = self.openedr_net_pids.read().unwrap().contains(&pid);
-
-        openedr_observed || self.firewall_net_pids.read().unwrap().contains(&pid)
-    }
-
     /// Returns a snapshot of all rootkit findings since last clear.
     pub fn get_rootkit_findings(&self) -> &[RootkitFinding] {
         &self.rootkit_findings
@@ -9987,13 +8736,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn strip_drive_prefix_for_pattern_keeps_anchor() {
-        assert_eq!(strip_drive_prefix_for_pattern("c:/bcd"), "/bcd");
-        assert_eq!(strip_drive_prefix_for_pattern("C:\\boot.ini"), "/boot.ini");
-        assert_eq!(strip_drive_prefix_for_pattern("c:/users/openedr/foo"), "/users/openedr/foo");
-        assert_eq!(strip_drive_prefix_for_pattern("/usr/bin/foo"), "/usr/bin/foo");
-    }
 
     #[test]
     fn process_create_event_type_alias_and_process_id_are_accepted() {
@@ -10275,46 +9017,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn file_correlation_classifies_irp_and_api_read_paths() {
-        let irp = IrpOperationRecord {
-            timestamp: SystemTime::now(),
-            irp_type: crate::shared_def::SysmonEvent::FileDataReadFull as u32,
-            is_legacy_kernel_subtype: false,
-            file_path: r"C:\Users\victim\doc.docx".to_string(),
-            file_change: 0,
-            extension: "docx".to_string(),
-            entropy: 0.0,
-            bytes_transferred: 1,
-            target_pid: 0,
-            function_name: String::new(),
-            pipe_name: String::new(),
-            pipe_payload: Vec::new(),
-            raw_arguments: [0; 4],
-        };
-        assert_eq!(irp_record_file_operation(&irp), Some("read"));
-
-        let hook = IrpOperationRecord {
-            irp_type: IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32(),
-            function_name: "ntdll!NtReadFile".to_string(),
-            ..irp.clone()
-        };
-        assert_eq!(irp_record_file_operation(&hook), Some("read"));
-    }
-
-    #[test]
-    fn file_correlation_uses_rename_stem_for_extension_change() {
-        let old_path = r"C:\Users\victim\doc.docx";
-        let new_path = r"C:\Users\victim\doc.locked";
-        assert_eq!(
-            file_correlation_stem(old_path),
-            file_correlation_stem(new_path)
-        );
-        assert_ne!(
-            file_correlation_stem(old_path),
-            file_correlation_stem(r"C:\Users\other\doc.locked")
-        );
-    }
 
     #[test]
     fn all_shipped_yaml_rules_load_and_deserialize_successfully() {

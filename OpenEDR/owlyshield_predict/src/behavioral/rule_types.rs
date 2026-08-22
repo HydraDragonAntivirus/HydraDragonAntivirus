@@ -2496,23 +2496,6 @@ impl BehaviorRule {
                     return true;
                 }
             }
-
-            // Match classic domain/IP indicators in named conditions
-            for domain in &cond_group.network_domains {
-                if packet
-                    .hostname
-                    .as_ref()
-                    .map_or(false, |h| h.contains(domain))
-                {
-                    return true;
-                }
-            }
-            for ip in &cond_group.network_ips {
-                if packet.dst_ip.to_string().contains(ip) || packet.src_ip.to_string().contains(ip)
-                {
-                    return true;
-                }
-            }
         }
 
         false
@@ -2591,26 +2574,11 @@ impl BehaviorRule {
         }
 
         for cond_group in self.named_conditions.values_mut() {
-            expand_vec(&mut cond_group.apis);
-            expand_vec(&mut cond_group.file_paths);
-            expand_vec(&mut cond_group.registry_keys);
-            expand_vec(&mut cond_group.registry_values);
-            expand_vec(&mut cond_group.network_indicators);
-            expand_vec(&mut cond_group.network_domains);
-            expand_vec(&mut cond_group.network_ips);
-            expand_vec(&mut cond_group.process_names);
-            expand_vec(&mut cond_group.parent_names);
-            expand_vec(&mut cond_group.terminated_processes);
-            expand_vec(&mut cond_group.created_processes);
-            expand_vec(&mut cond_group.file_extensions);
             expand_vec(&mut cond_group.extension_whitelist);
-            expand_vec(&mut cond_group.file_actions);
             expand_cmd_patterns(&mut cond_group.cmdline_patterns);
             expand_vec(&mut cond_group.cmdline_keywords);
             expand_vec(&mut cond_group.hook_error_api_patterns);
             expand_network_rules(&mut cond_group.network_rules);
-            expand_vec(&mut cond_group.registry_value_data_patterns);
-            expand_vec(&mut cond_group.dns_query_patterns);
             expand_vec(&mut cond_group.raw_json_patterns);
             expand_vec(&mut cond_group.self_defense_attack_types);
             expand_vec(&mut cond_group.self_defense_categories);
