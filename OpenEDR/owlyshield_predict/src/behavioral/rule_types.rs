@@ -1885,59 +1885,13 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub require_same_stem_written_unknown_extension: bool,
     #[serde(default)]
-    pub registry_keys: Vec<String>,
-    #[serde(default)]
-    pub registry_keys_exclude: Vec<String>,
-    #[serde(default)]
-    pub registry_values: Vec<String>,
-    #[serde(default)]
-    pub registry_operations: Vec<String>,
-    #[serde(default)]
-    pub registry_value_data_patterns: Vec<String>,
-    #[serde(default)]
-    pub pipe_names: Vec<String>,
-    #[serde(default)]
-    pub pipe_operations: Vec<String>, // "create", "write"
-    #[serde(default, alias = "opsets", alias = "op_set", alias = "operation_sets")]
-    pub irp_operations: Vec<String>,
-    #[serde(default, alias = "opcodes", alias = "irp_ops")]
-    pub irp_opcodes: Vec<u32>,
-    #[serde(default)]
     pub require_self_target: bool,
     #[serde(default)]
     pub require_cross_target: bool,
     #[serde(default)]
-    pub pipe_payloads: Vec<ContentMatchData>,
-    #[serde(default)]
-    pub network_indicators: Vec<String>,
-    #[serde(default)]
     pub has_network_activity: bool,
     #[serde(default)]
     pub network_rules: Vec<NetworkRuleCondition>,
-    #[serde(default)]
-    pub network_domains: Vec<String>,
-    #[serde(default)]
-    pub dns_query_patterns: Vec<String>,
-    #[serde(default)]
-    pub network_ips: Vec<String>,
-    #[serde(default)]
-    pub firewall_blocked: Option<bool>,
-    #[serde(default)]
-    pub firewall_dst_ips: Vec<String>,
-    #[serde(default)]
-    pub firewall_dst_ports: Vec<u16>,
-    #[serde(default)]
-    pub firewall_hostnames: Vec<String>,
-    #[serde(default)]
-    pub firewall_block_reasons: Vec<String>,
-    #[serde(default)]
-    pub process_names: Vec<String>,
-    #[serde(default)]
-    pub parent_names: Vec<String>,
-    #[serde(default)]
-    pub terminated_processes: Vec<String>,
-    #[serde(default)]
-    pub created_processes: Vec<String>,
     #[serde(default)]
     pub is_acg_enabled: Option<bool>,
     #[serde(default)]
@@ -1948,18 +1902,10 @@ pub struct NamedConditionGroup {
     pub detect_parent_image_delete: bool,
     #[serde(default)]
     pub detect_parent_image_rename: bool,
-    #[serde(default)]
-    pub file_extensions: Vec<String>,
-    #[serde(default)]
-    pub detect_extension_changes: bool,
-    #[serde(default)]
-    pub detect_known_to_unknown_extension_change: bool,
     #[serde(default, alias = "extension_allowlist")]
     pub extension_whitelist: Vec<String>,
     #[serde(default, alias = "detect_non_allowlisted_extensions")]
     pub detect_non_whitelisted_extensions: bool,
-    #[serde(default)]
-    pub file_actions: Vec<String>,
     #[serde(default)]
     pub entropy_threshold: f64,
     #[serde(default)]
