@@ -636,7 +636,7 @@
   # Require all 3 stages (100%) to prevent false positives from partial stage matches.
   min_stages_satisfied: 3
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]

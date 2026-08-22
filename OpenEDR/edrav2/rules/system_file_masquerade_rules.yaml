@@ -53,103 +53,103 @@
     record: true
 
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/rundll32.exe"
+    - pattern: "%SystemRoot%/System32/rundll32.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/SysWOW64/rundll32.exe"
+    - pattern: "%SystemRoot%/SysWOW64/rundll32.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+    - pattern: "%SystemRoot%/System32/WindowsPowerShell/v1.0/powershell.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe"
+    - pattern: "%SystemRoot%/SysWOW64/WindowsPowerShell/v1.0/powershell.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/regsvr32.exe"
+    - pattern: "%SystemRoot%/System32/regsvr32.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/SysWOW64/regsvr32.exe"
+    - pattern: "%SystemRoot%/SysWOW64/regsvr32.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/spoolsv.exe"
+    - pattern: "%SystemRoot%/System32/spoolsv.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/lsass.exe"
+    - pattern: "%SystemRoot%/System32/lsass.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/smss.exe"
+    - pattern: "%SystemRoot%/System32/smss.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/csrss.exe"
+    - pattern: "%SystemRoot%/System32/csrss.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/conhost.exe"
+    - pattern: "%SystemRoot%/System32/conhost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/SysWOW64/conhost.exe"
+    - pattern: "%SystemRoot%/SysWOW64/conhost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wininit.exe"
+    - pattern: "%SystemRoot%/System32/wininit.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/winlogon.exe"
+    - pattern: "%SystemRoot%/System32/winlogon.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/taskhost.exe"
+    - pattern: "%SystemRoot%/System32/taskhost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/taskhostw.exe"
+    - pattern: "%SystemRoot%/System32/taskhostw.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/SysWOW64/taskhostw.exe"
+    - pattern: "%SystemRoot%/SysWOW64/taskhostw.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/taskmgr.exe"
+    - pattern: "%SystemRoot%/System32/taskmgr.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/RuntimeBroker.exe"
+    - pattern: "%SystemRoot%/System32/RuntimeBroker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/SmartScreen.exe"
+    - pattern: "%SystemRoot%/System32/SmartScreen.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/dllhost.exe"
+    - pattern: "%SystemRoot%/System32/dllhost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/SysWOW64/dllhost.exe"
+    - pattern: "%SystemRoot%/SysWOW64/dllhost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/explorer.exe"
+    - pattern: "%SystemRoot%/explorer.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
