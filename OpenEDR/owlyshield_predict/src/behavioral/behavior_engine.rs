@@ -4420,38 +4420,17 @@ impl BehaviorEngine {
         }
     }
 
-    /// Apply opaque OpenEDR events to the process condition state.
-    ///
-    /// This deliberately matches the full raw line. Event ingestion only
-    /// deserializes a generic `serde_json::Value` envelope for routing; no
-    /// OpenEDR schema-specific conversion occurs here.
+    /// Evaluates raw OpenEDR JSON events against named condition groups.
+    /// YAML rules use `json_field_conditions`, `json_match`, or `raw_json_patterns`.
     pub fn apply_raw_openedr_events(&mut self, events: Vec<(u32, String)>) {
         if events.is_empty() {
             return;
         }
 
-        let raw_matchers: Vec<(String, Vec<String>, usize)> = self
-            .rules
-            .iter()
-            .flat_map(|rule| {
-                rule.named_conditions.iter().filter_map(|(name, group)| {
-                    if group.raw_json_patterns.is_empty() {
-                        None
-                    } else {
-                        Some((
-                            Self::scoped_condition_name(rule, name),
-                            group.raw_json_patterns.clone(),
-                            group.min_matches.max(1),
-                        ))
-                    }
-                })
-            })
-            .collect();
-
         for (pid, raw) in events {
-            let Some(gid) = self.find_gid_by_pid(pid) else {
-                continue;
-            };
+            let Some(gid) = self.find_gid_by_pid(pid) else { continue };
+
+            let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
 
             if let Some(state) = self.process_states.get_mut(&gid) {
                 if state.raw_openedr_events.len() >= 256 {
@@ -4459,27 +4438,34 @@ impl BehaviorEngine {
                 }
                 state.raw_openedr_events.push_back(raw.clone());
 
-                for (scoped, patterns, required) in &raw_matchers {
-                    let matched = patterns.iter().any(|pattern| {
-                        Self::matches_pattern_internal(&self.regex_cache, pattern, &raw)
-                    });
-                    if !matched {
-                        continue;
+                let now = SystemTime::now();
+
+                for rule in &self.rules {
+                    for (cond_name, cond_group) in &rule.named_conditions {
+                        let matched =
+                            (!cond_group.json_field_conditions.is_empty()
+                                && cond_group.json_field_conditions.iter().all(|jm| jm.matches_value(&parsed)))
+                            || cond_group.json_match.as_ref().map_or(false, |jm| jm.matches_value(&parsed))
+                            || (!cond_group.raw_json_patterns.is_empty()
+                                && cond_group.raw_json_patterns.iter().any(|p| {
+                                    Self::matches_pattern_internal(&self.regex_cache, p, &raw)
+                                }));
+
+                        if matched {
+                            let ts = now.duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+                            state.record_condition_match(
+                                &Self::scoped_condition_name(rule, cond_name),
+                                format!("raw:{}:{}", pid, ts),
+                                now,
+                                cond_group.min_matches.max(1),
+                                rule.debug,
+                            );
+                        }
                     }
-
-                    let now = SystemTime::now();
-                    let event_ts = now
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_nanos())
-                        .unwrap_or(0);
-                    let match_key = format!("raw-json:{}:{}", pid, event_ts);
-
-                    state.record_condition_match(scoped, match_key, now, *required, false);
                 }
             }
         }
     }
-
     fn format_capemon_bson_scalar(value: &bson::Bson) -> Option<String> {
         Some(match value {
             bson::Bson::String(s) => s.clone(),
@@ -5261,14 +5247,6 @@ impl BehaviorEngine {
         parts.join(" | ")
     }
 
-    fn is_file_condition_group(cond_group: &NamedConditionGroup) -> bool {
-        !cond_group.file_paths.is_empty()
-            || !cond_group.file_extensions.is_empty()
-            || !cond_group.file_operations.is_empty()
-            || cond_group.detect_extension_changes
-            || cond_group.detect_non_whitelisted_extensions
-            || cond_group.detect_known_to_unknown_extension_change
-    }
 
     fn prune_recent_written_payloads(state: &mut ProcessBehaviorState, now: SystemTime) {
         state.recent_written_payloads.retain(|_, seen_at| {
@@ -7947,15 +7925,7 @@ impl BehaviorEngine {
                     || !cond_group.registry_keys_exclude.is_empty()
                     || !cond_group.registry_values.is_empty()
                     || !cond_group.registry_value_data_patterns.is_empty();
-                let api_context_has_path_filters = !cond_group.file_paths.is_empty();
-                let api_context_has_extension_conditions = !cond_group.file_extensions.is_empty()
-                    || cond_group.detect_extension_changes
-                    || cond_group.detect_non_whitelisted_extensions
-                    || cond_group.detect_known_to_unknown_extension_change;
                 let api_only_condition = !api_context_has_reg_conditions
-                    && !api_context_has_path_filters
-                    && !api_context_has_extension_conditions
-                    && cond_group.file_operations.is_empty()
                     && !conjunctive_process_context;
 
                 let self_target_ok = !cond_group.require_self_target
@@ -8340,295 +8310,8 @@ impl BehaviorEngine {
                     }
                 }
 
-                let file_change = event_file_change;
-                let file_event_irp = is_file_data_irp(irp_op);
 
-                // Dedicated mmap / file-handle-open rule types. These use their
-                // own raw opcodes so they stay separate from ordinary IRP-level
-                // read/write (which remain the united rule type).
-                let current_file_op = match current_irp_opcode {
-                    0x0011 => Some("mmap_read"),
-                    0x0012 => Some("mmap_write"),
-                    0x0013 => Some("handle_open"),
-                    0x0014 => Some("rename"),
-                    _ => match *irp_op {
-                    IrpMajorOp::IrpRead => Some("read"),
-                    IrpMajorOp::IrpWrite => Some("write"),
-                    IrpMajorOp::IrpCreate => {
-                        if is_directory_event {
-                            None
-                        } else if matches!(file_change, Some(FileChangeInfo::ChangeNewFile)) {
-                            Some("create")
-                        } else {
-                            Some("open")
-                        }
-                    }
-                    IrpMajorOp::IrpSetInfo => match file_change {
-                        Some(FileChangeInfo::ChangeRenameFile) => Some("rename"),
-                        Some(FileChangeInfo::ChangeExtensionChanged) => Some("rename"),
-                        Some(FileChangeInfo::ChangeDeleteFile) => Some("delete"),
-                        Some(FileChangeInfo::ChangeWrite) => Some("write"),
-                        Some(FileChangeInfo::ChangeOverwriteFile) => Some("write"),
-                        Some(FileChangeInfo::ChangeNewFile) => Some("create"),
-                        _ => Some("setinfo"),
-                    },
-                    // User-mode API hooks carry the hooked function in
-                    // kernel_event_info.object_name. Reads/writes through
-                    // memory-mapped sections and bulk copy buffers never emit
-                    // IrpRead/IrpWrite IRPs, so classify them here from the
-                    // API name instead of dropping the event entirely. The op
-                    // is written with an "api_" prefix so the output keeps
-                    // IRP-level and API-level file operations distinguishable
-                    // while still matching plain file_operations tokens.
-                    IrpMajorOp::IrpUserModeHookEvent
-                    | IrpMajorOp::IrpKernelCreateSection
-                    | IrpMajorOp::IrpKernelMapSection => {
-                        api_hook_file_operation(&current_event_name).map(|op| match op {
-                            "read" => "api_read",
-                            "write" => "api_write",
-                            "create" => "api_create",
-                            "delete" => "api_delete",
-                            "rename" => "api_rename",
-                            other => other,
-                        })
-                    }
-                    _ => None,
-                    }
-                };
 
-                let file_op_allowed = if cond_group.file_operations.is_empty() {
-                    true
-                } else {
-                    cond_group.file_operations.iter().any(|req| {
-                        let req_lc = req.to_ascii_lowercase();
-                        if let Some(op) = current_file_op {
-                            let op_lc = op.to_ascii_lowercase();
-                            let op_is_api = op_lc.starts_with("api_");
-                            // exact match: "read" == "read", "api_read" == "api_read"
-                            if req_lc == op_lc {
-                                return true;
-                            }
-                            // plain token ("read") matches either source
-                            // (IRP-level ops and API-hook ops alike)
-                            if file_op_base(&op_lc) == req_lc {
-                                return true;
-                            }
-                            // "irp_read" matches IRP-level ops only
-                            if let Some(base) = req_lc.strip_prefix("irp_")
-                                && !op_is_api
-                                && file_op_base(&op_lc) == base
-                            {
-                                return true;
-                            }
-                            // "api_read" matches API-hook ops only
-                            if let Some(base) = req_lc.strip_prefix("api_")
-                                && op_is_api
-                                && file_op_base(&op_lc) == base
-                            {
-                                return true;
-                            }
-                        }
-                        // Fallback for raw IRP opcode tokens (e.g. "read"
-                        // matching FileDataReadFull) for IRP-level events.
-                        // The "irp_" prefix is stripped so "irp_read" still
-                        // lands on the raw read opcode; "api_read" never does.
-                        let req_effective = req_lc
-                            .strip_prefix("irp_")
-                            .unwrap_or(req_lc.as_str());
-                        irp_operation_matches_token(current_irp_opcode, msg.file_change, req_effective)
-                    })
-                };
-
-                let has_path_filters = !cond_group.file_paths.is_empty();
-
-                let has_extension_conditions = !cond_group.file_extensions.is_empty()
-                    || cond_group.detect_extension_changes
-                    || cond_group.detect_non_whitelisted_extensions
-                    || cond_group.detect_known_to_unknown_extension_change;
-                let skip_direct_file_path_matching =
-                    cond_group.detect_recently_written_payload_launch;
-
-                let stem_str: Option<String> = if let Some(dot_pos) = filepath.rfind('.') {
-                    let last_sep = filepath.rfind('/').unwrap_or(0);
-                    if dot_pos > last_sep {
-                        Some(filepath[..dot_pos].to_string())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                let same_file_read_by_path = if cond_group.require_same_file_read {
-                    let target = normalize_file_correlation_path(filepath);
-                    let target_stem = file_correlation_stem(filepath);
-                    state.irp_operations.iter().any(|rec| {
-                        irp_record_file_operation(rec) == Some("read")
-                            && {
-                                let candidate = normalize_file_correlation_path(&rec.file_path);
-                                !candidate.is_empty()
-                                    && (candidate == target
-                                        || file_correlation_stem(&candidate) == target_stem)
-                            }
-                    })
-                } else {
-                    false
-                };
-                let same_file_write_by_path = if cond_group.require_same_file_write {
-                    let target = normalize_file_correlation_path(filepath);
-                    let target_stem = file_correlation_stem(filepath);
-                    state.irp_operations.iter().any(|rec| {
-                        irp_record_file_operation(rec) == Some("write")
-                            && {
-                                let candidate = normalize_file_correlation_path(&rec.file_path);
-                                !candidate.is_empty()
-                                    && (candidate == target
-                                        || file_correlation_stem(&candidate) == target_stem)
-                            }
-                    })
-                } else {
-                    false
-                };
-                let same_file_rename_by_path = if cond_group.require_same_file_rename {
-                    let target = normalize_file_correlation_path(filepath);
-                    let target_stem = file_correlation_stem(filepath);
-                    state.irp_operations.iter().any(|rec| {
-                        irp_record_file_operation(rec) == Some("rename")
-                            && {
-                                let candidate = normalize_file_correlation_path(&rec.file_path);
-                                !candidate.is_empty()
-                                    && (candidate == target
-                                        || file_correlation_stem(&candidate) == target_stem)
-                            }
-                    })
-                } else {
-                    false
-                };
-                let same_file_requirements_ok = (!cond_group.require_same_file_read
-                    || (msg.file_id_id.0 != 0 && precord.has_read_file_id(&msg.file_id_id))
-                    || same_file_read_by_path)
-                    && (!cond_group.require_same_file_write
-                        || (msg.file_id_id.0 != 0 && precord.has_written_file_id(&msg.file_id_id))
-                        || same_file_write_by_path)
-                    && (!cond_group.require_same_file_rename
-                        || (msg.file_id_id.0 != 0 && precord.has_renamed_file_id(&msg.file_id_id))
-                        || same_file_rename_by_path)
-                    && (!cond_group.require_same_stem_created_unknown_extension
-                        || state.created_unknown_ext_stems.contains(filepath)
-                        || stem_str.as_ref().is_some_and(|s| state.created_unknown_ext_stems.contains(s)))
-                    && (!cond_group.require_same_stem_written_unknown_extension
-                        || state.written_unknown_ext_stems.contains(filepath)
-                        || stem_str.as_ref().is_some_and(|s| state.written_unknown_ext_stems.contains(s)));
-
-                let parent_image_touched = !state.parent_path.as_os_str().is_empty()
-                    && target_matches_process_image(&state.parent_path, filepath, &msg.filepathstr);
-
-                if !matched
-                    && file_event_irp
-                    && cond_group.detect_parent_image_delete
-                    && parent_image_touched
-                    && is_delete_like_file_operation(irp_op, file_change)
-                {
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Child process PID {} attempted to delete parent image {}",
-                        cond_name,
-                        state.pid,
-                        state.parent_path.to_string_lossy()
-                    ));
-                }
-
-                if !matched
-                    && file_event_irp
-                    && cond_group.detect_parent_image_rename
-                    && parent_image_touched
-                    && is_rename_like_file_operation(irp_op, file_change)
-                {
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Child process PID {} attempted to rename parent image {}",
-                        cond_name,
-                        state.pid,
-                        state.parent_path.to_string_lossy()
-                    ));
-                }
-
-                if cond_group.self_image_exclusion
-                    && file_event_irp
-                    && has_path_filters
-                    && target_matches_process_image(&state.exe_path, filepath, &msg.filepathstr)
-                {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Condition '{}' ignored for PID {} - path probe targets the process's own image",
-                        cond_name,
-                        state.pid
-                    ));
-                }
-
-                // Path-only conditions: match on path filters when no extension-specific matcher is requested.
-                if !matched
-                    && file_event_irp
-                    && !skip_direct_file_path_matching
-                    && has_path_filters
-                    && !has_extension_conditions
-                    && file_op_allowed
-                    && !(cond_group.self_image_exclusion
-                        && target_matches_process_image(&state.exe_path, filepath, &msg.filepathstr))
-                {
-                    let path_variants = build_path_variants(filepath, &msg.filepathstr);
-                    let matched_path: Option<String> = cond_group
-                        .file_paths
-                        .iter()
-                        .find(|p| {
-                            let p_norm = p.replace("\\", "/");
-                            let p_norm_stripped = strip_drive_prefix_for_pattern(&p_norm);
-                            path_variants.iter().any(|v| {
-                                Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
-                                    || Self::matches_pattern_internal(
-                                        &self.regex_cache,
-                                        &p_norm_stripped,
-                                        v,
-                                    )
-                            })
-                        })
-                        .map(|s| s.to_string());
-
-                    if matched_path.is_some() {
-                        matched = true;
-                        Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - Path match for PID {}: {}",
-                            cond_name,
-                            state.pid,
-                            matched_path.unwrap_or_default()
-                        ));
-                    }
-                }
-
-                // File-operation-only conditions (no path or extension constraints) should still accumulate.
-                if !matched
-                    && file_event_irp
-                    && !skip_direct_file_path_matching
-                    && !cond_group.file_operations.is_empty()
-                    && !has_path_filters
-                    && !has_extension_conditions
-                    && file_op_allowed
-                    && current_file_op.is_some()
-                {
-                    if same_file_requirements_ok {
-                        matched = true;
-                        if let Some(op) = current_file_op {
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - File operation match for PID {}: {}",
-                                cond_name, state.pid, op
-                            ));
-                        }
-                    } else {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition '{}' ignored for PID {} - same-file prerequisites not satisfied",
-                            cond_name, state.pid
-                        ));
-                    }
-                }
 
                 if !matched
                     && file_event_irp

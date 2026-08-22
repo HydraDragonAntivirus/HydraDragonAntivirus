@@ -765,6 +765,16 @@ impl JsonMatcher {
                     })
             })
     }
+
+    /// Match against an already-parsed JSON value (avoids re-parsing in hot paths).
+    pub fn matches_value(&self, parsed: &serde_json::Value) -> bool {
+        if self.field.trim().is_empty() {
+            return false;
+        }
+        json_path_lookup(parsed, &self.field)
+            .is_some_and(|found| json_value_matches(found, &self.value))
+            || json_key_match_recursive(parsed, &self.field, &self.value)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -1858,45 +1868,12 @@ pub struct MlFeatureCondition {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct NamedConditionGroup {
-    #[serde(default)]
-    pub apis: Vec<String>,
-    #[serde(default = "default_zero")]
-    pub api_threshold: usize,
-    /// When true, API names are NOT lowercased before matching.
-    /// Default false = always lowercase (case-insensitive matching).
-    #[serde(default)]
-    pub no_lowercase: bool,
     /// Ordering semantics for this named condition.
     /// Existing rules historically behaved as unordered, so the default is true.
     /// Set to false when this condition must occur before sibling conditions in
     /// the detection branch (for example ransomware read-before-write).
     #[serde(default = "default_true")]
     pub orderless: bool,
-    #[serde(default)]
-    pub file_paths: Vec<String>,
-    /// When true, file-path matches that resolve to this process's own
-    /// executable image are ignored. A process opening or reading its own
-    /// image (for example vmtoolsd.exe mmap-reading itself) is benign and
-    /// must not satisfy artifact-probe style conditions.
-    #[serde(default)]
-    pub self_image_exclusion: bool,
-    /// File operations to match, e.g. "read", "write", "create", "delete",
-    /// "rename", "setinfo".
-    ///
-    /// Three-way source separation is supported via token prefixes:
-    /// - `read`            => matches either source (IRP or API hook)
-    /// - `irp_read`        => IRP-level-only reads (minifilter)
-    /// - `api_read`        => API-hook-only reads (mapped-section / NtReadFile)
-    /// The same scheme applies to `write`, `create`, `delete`, `rename`.
-    ///
-    /// Dedicated rule types for the driver's extension telemetry (kept separate
-    /// from ordinary IRP-level read/write):
-    /// - `mmap_read`       => memory-mapped section read (minifilter
-    ///                         IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION)
-    /// - `mmap_write`      => memory-mapped section write (same IRP)
-    /// - `handle_open`     => ObRegisterCallbacks file handle open
-    #[serde(default)]
-    pub file_operations: Vec<String>,
     #[serde(default)]
     pub require_same_file_read: bool,
     #[serde(default)]
@@ -2065,6 +2042,13 @@ pub struct NamedConditionGroup {
     pub min_matches: usize,
     #[serde(default)]
     pub json_match: Option<JsonMatcher>,
+    /// Match multiple raw OpenEDR JSON event fields directly.
+    /// Each entry is a { field, value } pair; ALL entries must match (AND logic).
+    /// The `field` supports dot-separated paths (e.g. "file.path") and
+    /// recursive key lookup when no exact path is found.
+    /// Use this instead of `file_operations`/`apis` for raw OpenEDR telemetry events.
+    #[serde(default, alias = "json_fields", alias = "json_conditions")]
+    pub json_field_conditions: Vec<JsonMatcher>,
 
     /// Literal/glob/regex patterns matched directly against the complete
     /// OpenEDR JSON line. The event stays opaque; no JSON parsing is performed.
